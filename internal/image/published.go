@@ -111,11 +111,12 @@ var unpublished = []string{"claude", "npm:@agentclientprotocol/claude-agent-acp"
 // pinning for every image goes here, once its license allows publishing it,
 // or into unpublished (TestEveryToolIsPublishedOrNot).
 var toolLicenses = map[string]struct{ License, Source string }{
-	"go":                  {"BSD-3-Clause", "https://go.googlesource.com/go"},
-	"node":                {"MIT, with its bundled dependencies' permissive licenses", "https://github.com/nodejs/node"},
-	"pnpm":                {"MIT", "https://github.com/pnpm/pnpm"},
-	"gh":                  {"MIT", "https://github.com/cli/cli"},
-	"npm:@playwright/mcp": {"Apache-2.0", "https://github.com/microsoft/playwright-mcp"},
+	"go":                     {"BSD-3-Clause", "https://go.googlesource.com/go"},
+	"node":                   {"MIT, with its bundled dependencies' permissive licenses", "https://github.com/nodejs/node"},
+	"pnpm":                   {"MIT", "https://github.com/pnpm/pnpm"},
+	"gh":                     {"MIT", "https://github.com/cli/cli"},
+	"npm:@playwright/mcp":    {"Apache-2.0", "https://github.com/microsoft/playwright-mcp"},
+	"npm:@google/gemini-cli": {"Apache-2.0, with its bundled dependencies' permissive licenses", "https://github.com/google-gemini/gemini-cli"},
 }
 
 // PublishedTools are the tools the published image has: every image's tools

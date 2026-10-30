@@ -85,11 +85,14 @@ func (s *Server) checkOpenCodeAccounts(accounts map[string]string) (state.Accoun
 // newProjectToolAccounts are the other tools' accounts a project is added
 // with, checked.
 func (s *Server) newProjectToolAccounts(req api.AddProjectRequest) (state.Project, error) {
-	p := state.Project{CodexAccount: strings.TrimSpace(req.CodexAccount), CursorAccount: strings.TrimSpace(req.CursorAccount)}
+	p := state.Project{CodexAccount: strings.TrimSpace(req.CodexAccount), CursorAccount: strings.TrimSpace(req.CursorAccount), GeminiAccount: strings.TrimSpace(req.GeminiAccount)}
 	if err := s.checkToolAccount(credentials.ToolCodex, "", p.CodexAccount); err != nil {
 		return p, err
 	}
 	if err := s.checkToolAccount(credentials.ToolCursor, "", p.CursorAccount); err != nil {
+		return p, err
+	}
+	if err := s.checkToolAccount(credentials.ToolGemini, "", p.GeminiAccount); err != nil {
 		return p, err
 	}
 	var err error
@@ -97,12 +100,12 @@ func (s *Server) newProjectToolAccounts(req api.AddProjectRequest) (state.Projec
 	return p, err
 }
 
-// updateProjectToolAccounts applies UpdateProjectRequest's Codex, OpenCode
-// and Cursor accounts. New agents get them; the project's chat moves to them
+// updateProjectToolAccounts applies UpdateProjectRequest's Codex, OpenCode,
+// Cursor and Gemini CLI accounts. New agents get them; the project's chat moves to them
 // at once when it runs that tool (followToolAccounts).
 func (s *Server) updateProjectToolAccounts(ctx context.Context, p *state.Project, req api.UpdateProjectRequest) error {
 	changed := false
-	for tool, account := range map[string]*string{credentials.ToolCodex: req.CodexAccount, credentials.ToolCursor: req.CursorAccount} {
+	for tool, account := range map[string]*string{credentials.ToolCodex: req.CodexAccount, credentials.ToolCursor: req.CursorAccount, credentials.ToolGemini: req.GeminiAccount} {
 		if account == nil {
 			continue
 		}
@@ -113,10 +116,13 @@ func (s *Server) updateProjectToolAccounts(ctx context.Context, p *state.Project
 		if err := s.store.SetProjectToolAccount(ctx, p.Name, tool, name); err != nil {
 			return err
 		}
-		if tool == credentials.ToolCodex {
+		switch tool {
+		case credentials.ToolCodex:
 			p.CodexAccount = name
-		} else {
+		case credentials.ToolCursor:
 			p.CursorAccount = name
+		case credentials.ToolGemini:
+			p.GeminiAccount = name
 		}
 		changed = true
 	}
@@ -173,8 +179,8 @@ func (s *Server) followAllToolAccounts(ctx context.Context) {
 	}
 }
 
-// saveToolAccount answers POST /v1/auth/accounts/{tool}: a Codex or OpenCode
-// login from an API key. Cursor's key is checked with Cursor first
+// saveToolAccount answers POST /v1/auth/accounts/{tool}: a Codex, OpenCode
+// or Gemini CLI login from an API key. Cursor's key is checked with Cursor first
 // (saveCursorKey).
 func (s *Server) saveToolAccount(w http.ResponseWriter, r *http.Request) error {
 	tool := r.PathValue("tool")
@@ -194,8 +200,10 @@ func (s *Server) saveToolAccount(w http.ResponseWriter, r *http.Request) error {
 		auth, err = credentials.CodexAPIKeyAuth(req.APIKey)
 	case credentials.ToolOpenCode:
 		auth, err = credentials.OpenCodeAPIKeyAuth(req.APIKey)
+	case credentials.ToolGemini:
+		auth, err = credentials.GeminiAPIKeyAuth(req.APIKey)
 	default:
-		return fmt.Errorf("%q has no accounts: use codex, opencode or cursor", tool)
+		return fmt.Errorf("%q has no accounts: use codex, opencode, cursor or gemini", tool)
 	}
 	if err != nil {
 		return err
@@ -204,6 +212,9 @@ func (s *Server) saveToolAccount(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.logf("Stored the %s account %q", credentials.ToolName(tool), account)
+	if tool == credentials.ToolGemini {
+		s.refreshGeminiModels(true)
+	}
 	s.followAllToolAccounts(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
@@ -248,6 +259,9 @@ func (s *Server) setDefaultToolAccount(w http.ResponseWriter, r *http.Request) e
 	}
 	if tool == credentials.ToolCursor {
 		s.refreshCursorModels(true)
+	}
+	if tool == credentials.ToolGemini {
+		s.refreshGeminiModels(true)
 	}
 	s.followAllToolAccounts(r.Context())
 	w.WriteHeader(http.StatusNoContent)
@@ -314,7 +328,7 @@ func (s *Server) leadToolLogins(a state.Agent) (state.Agent, error) {
 	if err != nil {
 		return a, err
 	}
-	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount = logins.Codex, logins.OpenCode, logins.Cursor
+	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount = logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini
 	return a, nil
 }
 
@@ -325,7 +339,7 @@ func (s *Server) leadToolRows(p state.Project, tool string) ([]api.LeadAccount, 
 	if err != nil {
 		return nil, err
 	}
-	own := map[string]string{credentials.ToolCodex: p.CodexAccount, credentials.ToolCursor: p.CursorAccount}[tool]
+	own := map[string]string{credentials.ToolCodex: p.CodexAccount, credentials.ToolCursor: p.CursorAccount, credentials.ToolGemini: p.GeminiAccount}[tool]
 	if own == "" {
 		for _, a := range accounts {
 			if a.Default {

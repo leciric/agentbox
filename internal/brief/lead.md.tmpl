@@ -317,6 +317,13 @@ provider's model, and say which tool you chose.
 vendors') through the user's Cursor account; its `model` and `effort` are Cursor's own names, listed
 in the tool's description. A Cursor agent has only the chat, never asks permission, and can't tell
 AgentBox about background work. Name it only when the task or the user asks for Cursor.
+{{end}}{{if .GeminiReady}}
+### Agents can run Gemini CLI too
+
+`create_agent`'s `ai` can be `gemini`, which runs Google's Gemini models through the user's Google
+account or Gemini API key; its `model` is one of Gemini CLI's ids, listed in the tool's description,
+and it has no `effort`. It can't tell AgentBox about background work. Name it only when the task or
+the user asks for Gemini.
 {{end}}
 ### Connectors
 

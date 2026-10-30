@@ -53,7 +53,7 @@ const (
 )
 
 // ToolNames are the AI tools the chat can drive.
-var ToolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor"}
+var ToolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor", "gemini": "Gemini CLI"}
 
 // Launcher starts an agent's ACP adapter. status says what it's doing while it
 // prepares, like installing the adapter.
@@ -1233,6 +1233,8 @@ func modelMenuSetting(ai string) (string, bool) {
 		return state.SettingOpenCodeModelChoices, true
 	case "cursor":
 		return state.SettingCursorModelChoices, true
+	case "gemini":
+		return state.SettingGeminiModelChoices, true
 	}
 	return "", false
 }
@@ -3227,6 +3229,8 @@ func (c *conversation) rememberChoices() {
 		categories[state.SettingClaudeEffortChoices] = "thought_level"
 	case "opencode":
 		categories[state.SettingOpenCodeModelChoices] = "model"
+	case "gemini":
+		categories[state.SettingGeminiModelChoices] = "model"
 	}
 	// Cursor's menu is left to the daemon, which asks Cursor for it with each
 	// model's effort levels (SettingCursorModelChoices): a session's menu has

@@ -20,6 +20,9 @@ func variantSettings(settings map[string]any, ready readyTools) map[string]any {
 	if ready.cursor {
 		tools = append(tools, "cursor")
 	}
+	if ready.gemini {
+		tools = append(tools, "gemini")
+	}
 	effort := str("as create_agent's effort")
 	if e, ok := settings["effort"].(map[string]any); ok && e["enum"] != nil {
 		effort["enum"] = e["enum"]
@@ -35,6 +38,9 @@ func variantSettings(settings map[string]any, ready readyTools) map[string]any {
 	}
 	if ready.cursor {
 		out["cursor_account"] = str("as create_agent's cursor_account")
+	}
+	if ready.gemini {
+		out["gemini_account"] = str("as create_agent's gemini_account")
 	}
 	if ready.openCode {
 		out["opencode_accounts"] = map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},

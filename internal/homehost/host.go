@@ -258,6 +258,8 @@ func (h *Host) command(ctx context.Context, spec Spec, status func(string)) (*ex
 		command = adapter
 	case "opencode":
 		command, args = tool.Path, []string{"acp"}
+	case "gemini":
+		command, args = tool.Path, []string{"--acp"}
 	default:
 		return nil, fmt.Errorf("the Home chat can't run %q on your computer", spec.Tool)
 	}
@@ -345,7 +347,7 @@ func installedVersion(dir, name string) string {
 	return manifest.Version
 }
 
-var toolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
+var toolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "gemini": "Gemini CLI"}
 
 func or(a, b string) string {
 	if a != "" {

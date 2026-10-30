@@ -84,7 +84,7 @@ var tsConstants = [][2]string{
 	{"ReviewReviewed", ReviewReviewed}, {"ReviewDismissed", ReviewDismissed}, {"EventReview", EventReview},
 	{"AgentCreated", AgentCreated}, {"AgentFinished", AgentFinished}, {"AgentAsked", AgentAsked}, {"AgentAnswered", AgentAnswered},
 	{"CredentialGitHub", CredentialGitHub}, {"CredentialSecret", CredentialSecret},
-	{"ClaudeCredentialVariables", toolcreds.Joined("claude")}, {"CodexCredentialVariables", toolcreds.Joined("codex")}, {"OpenCodeCredentialVariables", toolcreds.Joined("opencode")},
+	{"ClaudeCredentialVariables", toolcreds.Joined("claude")}, {"CodexCredentialVariables", toolcreds.Joined("codex")}, {"OpenCodeCredentialVariables", toolcreds.Joined("opencode")}, {"GeminiCredentialVariables", toolcreds.Joined("gemini")},
 	{"ConnectorOAuth", ConnectorOAuth}, {"ConnectorSecret", ConnectorSecret}, {"ConnectorNone", ConnectorNone}, {"ConnectorWide", ConnectorWide},
 	{"ConnectorConnected", ConnectorConnected}, {"ConnectorDisconnected", ConnectorDisconnected}, {"ConnectorConnecting", ConnectorConnecting}, {"ConnectorError", ConnectorError},
 	{"EventConnector", EventConnector}, {"QuestionConnector", QuestionConnector},

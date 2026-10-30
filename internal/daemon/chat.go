@@ -199,7 +199,7 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		}
 		item := t.item
 		if a.IsLead() {
-			s.countFeature(agentFeature(a.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode, api.FeatureLeadTurnCursor))
+			s.countFeature(agentFeature(a.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode, api.FeatureLeadTurnCursor, api.FeatureLeadTurnGemini))
 		} else {
 			s.countFeature(api.FeatureAgentTurn)
 		}

@@ -45,7 +45,7 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root), IOS: iossim.IsProject(p.Root),
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
-		CodexAccount: p.CodexAccount, OpenCodeAccounts: accountMap(p.OpenCodeAccounts), CursorAccount: p.CursorAccount,
+		CodexAccount: p.CodexAccount, OpenCodeAccounts: accountMap(p.OpenCodeAccounts), CursorAccount: p.CursorAccount, GeminiAccount: p.GeminiAccount,
 		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
@@ -155,7 +155,7 @@ func (s *Server) addProjectRepo(ctx context.Context, req api.AddProjectRequest) 
 		return fail(err)
 	}
 	return s.registerProject(ctx, state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
-		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
+		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount, GeminiAccount: tools.GeminiAccount})
 }
 
 // createProject is addProject for AddProjectRequest.Create: everything that
@@ -201,7 +201,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 		return err
 	}
 	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
-		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
+		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount, GeminiAccount: tools.GeminiAccount})
 	if err != nil {
 		if created {
 			_ = os.RemoveAll(repo.Root)
@@ -976,6 +976,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		CodexAccount:     a.CodexAccount,
 		OpenCodeAccounts: accountMap(a.OpenCodeAccounts),
 		CursorAccount:    a.CursorAccount,
+		GeminiAccount:    a.GeminiAccount,
 		GitHubAccount:    a.GitHubAccount,
 		Interface:        a.Interface,
 
@@ -1189,7 +1190,7 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 	// agent is on its way and has nothing left to correct (see the byLead
 	// notice below, for what Create can still fail at once the job is
 	// running).
-	if _, err := s.manager(nil).CheckLogin(req.AI, p, agent.Logins{Claude: req.ClaudeAccount, Codex: req.CodexAccount, OpenCode: req.OpenCodeAccounts, Cursor: req.CursorAccount}); err != nil {
+	if _, err := s.manager(nil).CheckLogin(req.AI, p, agent.Logins{Claude: req.ClaudeAccount, Codex: req.CodexAccount, OpenCode: req.OpenCodeAccounts, Cursor: req.CursorAccount, Gemini: req.GeminiAccount}); err != nil {
 		return fail(err)
 	}
 	if req.Connectors != nil {
@@ -1222,6 +1223,8 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		req.AI = "codex"
 	case req.CursorAccount != "":
 		req.AI = "cursor"
+	case req.GeminiAccount != "":
+		req.AI = "gemini"
 	case len(req.OpenCodeAccounts) > 0:
 		req.AI = "opencode"
 	case req.Model != nil && s.manager(nil).NamesClaudeModel(ctx, *req.Model):
@@ -1233,7 +1236,7 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 	default:
 		d := s.manager(nil).LeadToolDefault(ctx, p)
 		req.AI, req.ToolNotice = d.AI, d.Fallback
-		req.ClaudeAccount, req.CodexAccount, req.CursorAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor
+		req.ClaudeAccount, req.CodexAccount, req.CursorAccount, req.GeminiAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor, d.Logins.Gemini
 		if d.Fallback != "" {
 			s.logf("A new agent of %s: %s", p.Name, d.Fallback)
 		}
@@ -1282,6 +1285,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			CodexAccount:     req.CodexAccount,
 			OpenCodeAccounts: req.OpenCodeAccounts,
 			CursorAccount:    req.CursorAccount,
+			GeminiAccount:    req.GeminiAccount,
 			GitHubAccount:    req.GitHubAccount,
 
 			CopyEnv: !req.NoEnv,
@@ -1335,7 +1339,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				Project: req.OriginProject, Agent: a.Name, Title: a.Title, Branch: a.Branch, Status: state.RemoteWorking,
 			})
 		}
-		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
+		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor, api.FeatureAgentCreateGemini))
 		s.countCreatedModel(ctx, a)
 		s.notePeakAgents(ctx)
 		s.setupReached(ctx, setupReport{step: setupFirstAgent, took: time.Since(began)})
@@ -1876,13 +1880,16 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 		GitHub:         len(gh) > 0,
 		GitHubAccounts: gh,
 	}
-	for tool, list := range map[string]*[]api.ToolAccount{credentials.ToolCodex: &status.CodexAccounts, credentials.ToolOpenCode: &status.OpenCodeAccounts, credentials.ToolCursor: &status.CursorAccounts} {
+	for tool, list := range map[string]*[]api.ToolAccount{credentials.ToolCodex: &status.CodexAccounts, credentials.ToolOpenCode: &status.OpenCodeAccounts, credentials.ToolCursor: &status.CursorAccounts, credentials.ToolGemini: &status.GeminiAccounts} {
 		if *list, err = toolAccounts(creds, tool); err != nil {
 			return err
 		}
 	}
 	if login, ok := creds.CursorLogin(""); ok {
 		status.Cursor, status.CursorEmail = true, login.Email
+	}
+	if login, ok := creds.GeminiLogin(""); ok {
+		status.Gemini, status.GeminiEmail = true, login.Email
 	}
 	s.refreshClaudeTokens(creds)
 	if status.GitHub {

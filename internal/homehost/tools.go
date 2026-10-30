@@ -12,7 +12,7 @@ import (
 
 // toolCommands are the AI tools' own command lines: what says a tool is
 // installed on the host.
-var toolCommands = map[string]string{"claude": "claude", "codex": "codex", "opencode": "opencode"}
+var toolCommands = map[string]string{"claude": "claude", "codex": "codex", "opencode": "opencode", "gemini": "gemini"}
 
 // FindTools finds the AI tools on this computer, and whether each has a login
 // of its own.
@@ -62,6 +62,13 @@ func hasLogin(tool, home string, getenv func(string) string) bool {
 		// It has free models, and keys for others in its own config: it
 		// runs either way.
 		return true
+	case "gemini":
+		for _, env := range []string{"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA"} {
+			if getenv(env) != "" {
+				return true
+			}
+		}
+		return exists(filepath.Join(dir("GEMINI_CLI_HOME", ""), ".gemini", "oauth_creds.json"))
 	}
 	return false
 }

@@ -231,6 +231,9 @@ var modeKinds = map[string]string{
 	"read-only":         "standard",
 	"agent":             "auto_review",
 	"agent-full-access": "full_access",
+	// Gemini CLI's; its autoEdit approves edits only, which is none of the
+	// kinds.
+	"yolo": "full_access",
 }
 
 // inferKinds fills in a mode's kinds from its values when the adapter sent

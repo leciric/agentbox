@@ -34,9 +34,9 @@ import (
 
 // LeadTools are the AI tools a lead can run, in the order the composer offers
 // them.
-var LeadTools = []string{"claude", "codex", "opencode", "cursor"}
+var LeadTools = []string{"claude", "codex", "opencode", "cursor", "gemini"}
 
-// leadNPMTools are the npm packages a Codex or OpenCode lead runs, installed in
+// leadNPMTools are the npm packages a Codex, OpenCode or Gemini CLI lead runs, installed in
 // AgentBox's tools directory, and the command each puts in node_modules/.bin.
 // The versions are the base image's (tools.txt), so a lead and an agent on the
 // same tool run the same one. OpenCode is mise's native package in an agent;
@@ -45,6 +45,7 @@ var LeadTools = []string{"claude", "codex", "opencode", "cursor"}
 var leadNPMTools = map[string]struct{ pkg, bin string }{
 	"codex":    {strings.TrimPrefix(image.Pin("npm:@agentclientprotocol/codex-acp"), "npm:"), "codex-acp"},
 	"opencode": {"opencode-ai@" + pinnedVersion(image.Pin("opencode")), "opencode"},
+	"gemini":   {strings.TrimPrefix(image.Pin("npm:@google/gemini-cli"), "npm:"), "gemini"},
 }
 
 // leadNPMTool is the npm package a lead's tool installs at the version in
@@ -64,7 +65,8 @@ func leadNPMTool(tool string, version opencode.Release) (pkg, bin string, ok boo
 
 // LeadChoice is what a lead's composer chose: the tool in effect, the one
 // chosen for the next message ("" for none), the Claude Code account (""
-// for the project's), and the Codex and Cursor accounts (tool → account).
+// for the project's), and the Codex, Cursor and Gemini CLI accounts (tool →
+// account).
 type LeadChoice struct {
 	Tool, NextTool, Account string
 	ToolAccounts            state.AccountMap
@@ -99,7 +101,7 @@ func (m *Manager) LeadChoiceOf(ctx context.Context, a state.Agent) (LeadChoice, 
 // for it, and the same refusal an agent asking for it gets otherwise.
 func (m *Manager) LeadToolLogin(p state.Project, tool string) error {
 	if !slices.Contains(LeadTools, tool) {
-		return fmt.Errorf("a project's chat can't run %q: use claude, codex, opencode or cursor", tool)
+		return fmt.Errorf("a project's chat can't run %q: use claude, codex, opencode, cursor or gemini", tool)
 	}
 	_, err := m.CheckLogin(tool, p, Logins{})
 	return err
@@ -306,7 +308,7 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 		// The script reads the sign-in and the brief from HOME, which
 		// writeLeadTool filled.
 		return helper.Node, []string{helper.Script}, []string{cursor.SDKEnv + "=" + helper.SDK}, []string{filepath.Dir(helper.Node)}, nil
-	case "codex", "opencode":
+	case "codex", "opencode", "gemini":
 		ictx, cancel := context.WithTimeout(ctx, hostInstallTimeout)
 		defer cancel()
 		version := opencode.V1
@@ -329,8 +331,11 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 		if gh, err := m.ensureGH(ictx, status); err == nil {
 			bin = append(bin, filepath.Dir(gh))
 		}
-		if a.AI == "codex" {
+		switch a.AI {
+		case "codex":
 			return path, nil, []string{"CODEX_HOME=" + filepath.Join(home, ".codex")}, bin, nil
+		case "gemini":
+			return path, ChatAdapters["gemini"].Args, m.leadGeminiEnv(a, home), bin, nil
 		}
 		return path, ChatAdapters["opencode"].Args, nil, bin, nil
 	}
@@ -350,6 +355,8 @@ func (m *Manager) leadToolFiles(home, worktree, text string, servers map[string]
 		".codex/config.toml":             []byte(leadCodexConfig(worktree, servers)),
 		".config/opencode/opencode.json": leadOpenCodeConfig(version, servers),
 		".cursor/mcp.json":               leadCursorMCP(servers),
+		geminiBriefFile:                  []byte(text),
+		geminiSettingsFile:               leadGeminiSettings(servers),
 	}
 	return files, remove, nil
 }
@@ -425,6 +432,20 @@ func leadOpenCodeConfig(version opencode.Release, servers map[string]any) []byte
 		config["subagent_depth"] = opencodeSubagentDepth
 	}
 	b, _ := json.Marshal(config)
+	return b
+}
+
+// leadGeminiSettings is a Gemini CLI lead's ~/.gemini/settings.json, as an
+// agent's (geminiSettings) but with each server's environment. The sign-in it
+// uses goes in as the tool starts (writeLeadLogin, withGeminiAuth).
+func leadGeminiSettings(servers map[string]any) []byte {
+	var list []mcpServer
+	env := map[string]map[string]string{}
+	for _, s := range stdioServers(servers) {
+		list = append(list, mcpServer{name: s.name, command: s.command, args: s.args, waits: true})
+		env[s.name] = s.env
+	}
+	b, _ := withGeminiServerEnv(geminiSettings(list, ""), env)
 	return b
 }
 

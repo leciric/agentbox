@@ -57,7 +57,7 @@ const (
 
 // Spec is what the daemon asks the host to run.
 type Spec struct {
-	Tool string `json:"tool"` // claude, codex or opencode
+	Tool string `json:"tool"` // claude, codex, opencode or gemini
 	// Session is the Home chat session it runs: each but the first has a
 	// folder of its own, as its brief differs, and its own MCP server.
 	Session string `json:"session,omitempty"`

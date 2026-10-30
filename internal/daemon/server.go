@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"agentbox/internal/acp"
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
@@ -260,6 +261,7 @@ type Server struct {
 	claudeLogins map[string]*claudeLogin  // in-app Claude Code logins, by job
 	githubLogins map[string]*githubLogin  // device-flow GitHub sign-ins, by job
 	githubDevice github.DeviceFlow        // where they sign in (githublogin.go)
+	geminiLogins map[string]*claudeLogin  // Gemini CLI's Google sign-ins, by job
 	distilling   map[string]bool          // projects with a distillation running, by name
 	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
@@ -334,6 +336,14 @@ type Server struct {
 		running bool
 		last    time.Time
 	}
+	// geminiModels is the same for Gemini CLI's menu, and geminiModelsFor
+	// stands in for Manager.GeminiModels in tests, which must not install
+	// anything.
+	geminiModels struct {
+		running bool
+		last    time.Time
+	}
+	geminiModelsFor   func(context.Context) ([]acp.ConfigChoice, error)
 	cursorLogin       api.CursorLogin
 	cursorLoginCancel context.CancelFunc
 	// cursorHelperFor, when set, stands in for Manager.CursorHelper in tests,
@@ -435,6 +445,7 @@ func New(cfg Config) (*Server, error) {
 		claudeLogins:     map[string]*claudeLogin{},
 		githubLogins:     map[string]*githubLogin{},
 		githubDevice:     github.DeviceFlow{ClientID: github.ClientID()},
+		geminiLogins:     map[string]*claudeLogin{},
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
 		toldWaiting:      map[string]bool{},
@@ -1147,6 +1158,9 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/auth", s.authStatus)
 	h("POST /v1/auth/claude", s.saveClaudeToken)
 	h("POST /v1/auth/claude/login", s.startClaudeLogin)
+	h("POST /v1/auth/gemini/login", s.startGeminiLogin)
+	h("GET /v1/auth/gemini/login/{job}", s.geminiLoginStatus)
+	h("POST /v1/auth/gemini/login/{job}/code", s.geminiLoginCode)
 	h("GET /v1/auth/claude/login/{job}", s.claudeLoginStatus)
 	h("POST /v1/auth/claude/login/{job}/code", s.claudeLoginCode)
 	h("DELETE /v1/auth/claude/{account}", s.removeClaudeAccount)

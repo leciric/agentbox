@@ -45,6 +45,9 @@ var ChatAdapters = map[string]ChatAdapter{
 	// Cursor's adapter is AgentBox's own, over Cursor's TypeScript SDK
 	// (internal/cursor): Package is the SDK.
 	"cursor": {Tool: "Cursor", Command: "node", Package: cursor.SDKPackage, Script: cursor.Script, ScriptPath: cursorScriptFile, SDKEnv: cursor.SDKEnv},
+	// Gemini CLI speaks ACP itself, behind --acp (--experimental-acp until
+	// 0.6x, deprecated since).
+	"gemini": {Tool: "Gemini CLI", Command: "gemini", Args: []string{"--acp"}, Package: image.Pin("npm:@google/gemini-cli")},
 }
 
 // openCodeAdapter is the chat adapter for the OpenCode this installation runs.
@@ -220,7 +223,7 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 			return nil, err
 		}
 	}
-	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), cmdline)
+	script := fmt.Sprintf("cd %s && %sexec %s%s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), m.geminiKeyEnv(a, hide), cmdline)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
 }
 
@@ -251,7 +254,7 @@ func interfaceFor(ai, iface string) (string, error) {
 	case iface != "" && iface != state.InterfaceChat && iface != state.InterfaceCLI:
 		return "", fmt.Errorf("unknown interface %q: use chat or cli", iface)
 	case ai == "none" && iface == state.InterfaceChat:
-		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex, opencode or cursor")
+		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex, opencode, cursor or gemini")
 	case ai == "none", iface == state.InterfaceCLI:
 		return state.InterfaceCLI, nil
 	}
@@ -338,5 +341,5 @@ func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, 
 	// Typed into a shell, so the window stays open when the tool exits. The
 	// shell keeps the secrets; env execs the tool without them.
 	return fmt.Sprintf("tmux new-window -t %[1]s -n %[2]s -c %[3]s\ntmux send-keys -t %[1]s:%[2]s %[4]s Enter\n",
-		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+command)), nil
+		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+m.geminiKeyEnv(a, hide)+command)), nil
 }

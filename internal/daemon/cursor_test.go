@@ -158,7 +158,7 @@ func TestCursorChoices(t *testing.T) {
 }
 
 func TestAgentFeatureCountsCursor(t *testing.T) {
-	if got := agentFeature("cursor", api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor); got != api.FeatureAgentCreateCursor {
+	if got := agentFeature("cursor", api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor, api.FeatureAgentCreateGemini); got != api.FeatureAgentCreateCursor {
 		t.Errorf("agentFeature(cursor) = %q", got)
 	}
 	if got := usageTool("cursor"); got != "cursor" {

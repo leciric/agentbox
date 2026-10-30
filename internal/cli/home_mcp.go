@@ -143,7 +143,7 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"variants": map[string]any{"type": "array", "minItems": 2, "maxItems": 6,
 					"description": "one entry per agent, in order (A, B, C…)",
 					"items": object([]string{"ai"}, map[string]any{
-						"ai":    choiceOf("the AI tool: claude (Claude Code), codex, opencode or cursor", "claude", "codex", "opencode", "cursor"),
+						"ai":    choiceOf("the AI tool: claude (Claude Code), codex, opencode, cursor or gemini (Gemini CLI)", "claude", "codex", "opencode", "cursor", "gemini"),
 						"model": str("its model, like \"opus\" or \"sonnet\" for Claude Code; leave it out for the default, and always for Codex"),
 					})},
 			}),

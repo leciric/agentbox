@@ -94,8 +94,8 @@ func choiceOf(description string, values ...string) map[string]any {
 // that choosing is its job.
 func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]any, leadPicksModel bool, ready readyTools) {
 	var models, efforts, openCodeModels []string
-	var openCode, cursorReady bool
-	var cursorModels []api.ChatOptionChoice
+	var openCode, cursorReady, geminiReady bool
+	var cursorModels, geminiModels []api.ChatOptionChoice
 	// The defaults an agent created with none of these gets, named in the
 	// descriptions below: Settings → Models, with AgentBox's own defaults
 	// under them. The lead's own defaults are another section of Settings and
@@ -125,6 +125,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		}
 		openCode = settings.OpenCodeReady
 		cursorReady, cursorModels = settings.CursorReady, settings.CursorModelChoices
+		geminiReady, geminiModels = settings.GeminiReady, settings.GeminiModelChoices
 	}
 	// What the project asks of this parameter. The lead's brief says the same
 	// thing at greater length; this is what a model reads at the moment it
@@ -196,6 +197,19 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		tools = append(tools, "cursor")
 		aiDescription += "; cursor (Cursor's and other vendors' models on the user's Cursor account: chat only, and it never asks permission)"
 	}
+	if geminiReady {
+		named := "Gemini CLI's model ids (\"auto\" lets it choose)"
+		if len(geminiModels) > 0 {
+			ids := make([]string, len(geminiModels))
+			for i, m := range geminiModels {
+				ids[i] = m.Value
+			}
+			named = "one of " + strings.Join(ids, ", ")
+		}
+		model += " For ai=\"gemini\" it is " + named + "."
+		tools = append(tools, "gemini")
+		aiDescription += "; gemini (Gemini CLI, Google's Gemini models on the user's Google account or API key)"
+	}
 	if projectTool != "" {
 		aiDescription = strings.Replace(aiDescription, ", the default", "", 1) + ". Left out, it runs " + projectTool + ", the tool this project's settings name for its agents"
 	}
@@ -211,7 +225,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	params["permissions"] = choiceOf("autonomous (the default) never asks: its machine is the sandbox. ask stops before every change, "+
 		"only for an agent someone is watching", "autonomous", "ask")
 	effort := str("how hard it thinks, as Claude Code names it; an unknown level is refused, and a model with none ignores it. " +
-		"None for OpenCode; a Cursor model's own levels, listed with it. Leave this out for the effort new agents start on in Settings, else medium.")
+		"None for OpenCode or Gemini CLI; a Cursor model's own levels, listed with it. Leave this out for the effort new agents start on in Settings, else medium.")
 	if len(efforts) > 0 {
 		effort["enum"] = efforts
 	}
@@ -230,12 +244,12 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 			", Settings → Models' default, which is also the most you may use: pass any window from " +
 			state.FormatContextWindow(state.MinContextWindow) + " up to " + defaultWindow + ", and a longer one is refused.")
 	}
-	return params, auto, readyTools{openCode: openCode, cursor: cursorReady}
+	return params, auto, readyTools{openCode: openCode, cursor: cursorReady, gemini: geminiReady}
 }
 
 // readyTools says which AI tools besides Claude Code an agent could run right
 // now, so create_agent offers only those.
-type readyTools struct{ openCode, cursor bool }
+type readyTools struct{ openCode, cursor, gemini bool }
 
 // cursorMenu names Cursor's models for the lead, each with the effort levels
 // it takes, like "claude-opus-5-5 (effort: low, high)".
@@ -279,8 +293,14 @@ func leadAI(ai string, ready readyTools) (string, error) {
 				"Settings → Accounts in the app). Create the agent with ai=\"claude\", or ask the user to sign in to Cursor first")
 		}
 		return "cursor", nil
+	case "gemini":
+		if !ready.gemini {
+			return "", errors.New("this machine can't run Gemini CLI agents: agents have no Gemini CLI login (agentbox auth gemini, or " +
+				"a Gemini API key under Settings → Accounts in the app). Create the agent with ai=\"claude\", or ask the user to sign in to Gemini CLI first")
+		}
+		return "gemini", nil
 	default:
-		return "", fmt.Errorf("ai is %q: it is \"claude\" (Claude Code), \"opencode\" (OpenCode) or \"cursor\" (Cursor)", ai)
+		return "", fmt.Errorf("ai is %q: it is \"claude\" (Claude Code), \"opencode\" (OpenCode), \"cursor\" (Cursor) or \"gemini\" (Gemini CLI)", ai)
 	}
 }
 
@@ -399,6 +419,9 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	if ready.cursor {
 		accounts["cursor_account"] = str("the same for a Cursor agent")
 	}
+	if ready.gemini {
+		accounts["gemini_account"] = str("the same for a Gemini CLI agent")
+	}
 	if ready.openCode {
 		accounts["opencode_accounts"] = map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
 			"description": "for ai=\"opencode\": provider → account, like {\"anthropic\": \"work\"}; the project's for a provider left out"}
@@ -457,6 +480,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					ClaudeAccount                 string            `json:"claude_account"`
 					CodexAccount                  string            `json:"codex_account"`
 					CursorAccount                 string            `json:"cursor_account"`
+					GeminiAccount                 string            `json:"gemini_account"`
 					OpenCodeAccounts              map[string]string `json:"opencode_accounts"`
 					Research                      bool
 					// Pointers: an agent given no model is not the same as one
@@ -504,6 +528,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					ClaudeAccount:    in.ClaudeAccount,
 					CodexAccount:     in.CodexAccount,
 					CursorAccount:    in.CursorAccount,
+					GeminiAccount:    in.GeminiAccount,
 					OpenCodeAccounts: in.OpenCodeAccounts,
 					FinishNotice:     notify,
 					Connectors:       in.Connectors,
@@ -516,7 +541,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					what = fmt.Sprintf("an agent for issue #%d", in.Issue)
 				}
 				return fmt.Sprintf("Creating %s%s%s; it starts on the task by itself. Job %s.%s",
-					what, onMachineText(args), describeChoices(cmp.Or(job.AI, ai), in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID, toolNotice(job.Notice)), nil
+					what, onMachineText(args), describeChoices(cmp.Or(job.AI, ai), in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, in.GeminiAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID, toolNotice(job.Notice)), nil
 			},
 		},
 		{
@@ -545,6 +570,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 						ClaudeAccount    string            `json:"claude_account"`
 						CodexAccount     string            `json:"codex_account"`
 						CursorAccount    string            `json:"cursor_account"`
+						GeminiAccount    string            `json:"gemini_account"`
 						OpenCodeAccounts map[string]string `json:"opencode_accounts"`
 					}
 				}
@@ -559,7 +585,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					}
 					req.Variants = append(req.Variants, api.FanOutVariant{
 						AI: ai, Model: v.Model, Effort: v.Effort, ContextWindow: v.ContextWindow,
-						ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, CursorAccount: v.CursorAccount, OpenCodeAccounts: v.OpenCodeAccounts,
+						ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, CursorAccount: v.CursorAccount, GeminiAccount: v.GeminiAccount, OpenCodeAccounts: v.OpenCodeAccounts,
 					})
 				}
 				out, err := c.ProjectFanOut(ctx, req)
@@ -901,7 +927,7 @@ func describeFleet(fleet api.Fleet) string {
 		if held := memoryHeld(f.Memory); held != "" {
 			fmt.Fprintf(&b, ", %s", held)
 		}
-		if account := cmp.Or(f.ClaudeAccount, f.CodexAccount, f.CursorAccount, describeAccountMap(f.OpenCodeAccounts)); account != "" {
+		if account := cmp.Or(f.ClaudeAccount, f.CodexAccount, f.CursorAccount, f.GeminiAccount, describeAccountMap(f.OpenCodeAccounts)); account != "" {
 			fmt.Fprintf(&b, ", account: %s", account)
 		}
 		if f.Idle {
@@ -952,7 +978,7 @@ func describeFleet(fleet api.Fleet) string {
 // from D85, said the same honest way agentbox tokens says it: a window past
 // its reset is said to have reset, not shown with a number that no longer
 // describes it.
-// describeToolAccounts lists the Codex, OpenCode and Cursor accounts, and
+// describeToolAccounts lists the Codex, OpenCode, Cursor and Gemini CLI accounts, and
 // says which this project uses; nothing when there are none.
 func describeToolAccounts(accounts []api.ToolAccount, p api.Project) string {
 	if len(accounts) == 0 {
@@ -962,8 +988,8 @@ func describeToolAccounts(accounts []api.ToolAccount, p api.Project) string {
 	b.WriteString("\nThe other tools' accounts, for an agent that runs them:\n")
 	for _, a := range accounts {
 		name := a.Name
-		own := map[string]string{"codex": p.CodexAccount, "cursor": p.CursorAccount, "opencode": p.OpenCodeAccounts[a.Provider]}[a.Tool]
-		label := map[string]string{"codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor"}[a.Tool]
+		own := map[string]string{"codex": p.CodexAccount, "cursor": p.CursorAccount, "gemini": p.GeminiAccount, "opencode": p.OpenCodeAccounts[a.Provider]}[a.Tool]
+		label := map[string]string{"codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor", "gemini": "Gemini CLI"}[a.Tool]
 		if a.Provider != "" {
 			label += " (" + a.Provider + ")"
 		}

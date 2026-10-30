@@ -95,3 +95,35 @@ func TestRateLimitDecodes(t *testing.T) {
 		t.Error("an update with no cost decoded one")
 	}
 }
+
+// TestGeminiCLISpent reads a turn as Gemini CLI 0.64 reports one: per-model
+// counts in snake_case whose input includes the cache reads and whose output
+// leaves the thinking out, with both in the usage field. Here "auto" routed
+// the turn through a flash model as well as the pro one it ran on.
+func TestGeminiCLISpent(t *testing.T) {
+	const response = `{"stopReason":"end_turn",
+		"usage":{"inputTokens":12000,"outputTokens":800,"cachedReadTokens":9000,"thoughtTokens":300,"totalTokens":12800},
+		"_meta":{"quota":{"token_count":{"input_tokens":12000,"output_tokens":800},"model_usage":[
+			{"model":"gemini-3.8-flash","token_count":{"input_tokens":1000,"output_tokens":20}},
+			{"model":"gemini-3.1-pro-preview","token_count":{"input_tokens":11000,"output_tokens":780}}]}}}`
+	var r PromptResponse
+	if err := json.Unmarshal([]byte(response), &r); err != nil {
+		t.Fatal(err)
+	}
+	got := r.ByModel("auto")
+	if pro := got["gemini-3.1-pro-preview"]; pro != (Spent{Input: 2000, Output: 1080, CacheRead: 9000}) {
+		t.Errorf("pro = %+v, want its input without the cache reads, and the thinking in its output", pro)
+	}
+	if flash := got["gemini-3.8-flash"]; flash != (Spent{Input: 1000, Output: 20}) {
+		t.Errorf("flash = %+v", flash)
+	}
+	if len(got) != 2 {
+		t.Errorf("ByModel = %+v", got)
+	}
+
+	// codex-acp's camelCase counters still read as they did.
+	var codex TokenCount
+	if err := json.Unmarshal([]byte(`{"inputTokens":5,"outputTokens":7,"totalTokens":12}`), &codex); err != nil || codex.gemini || codex.InputTokens != 5 || codex.OutputTokens != 7 {
+		t.Errorf("codex-acp's counters = %+v, %v", codex, err)
+	}
+}

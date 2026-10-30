@@ -81,7 +81,7 @@ type SkillCandidate struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	// Origin is "claude", "claude-plugin", "codex", "agents", "opencode",
-	// "cursor", "folder" or "git".
+	// "cursor", "gemini", "folder" or "git".
 	Origin string `json:"origin"`
 	Plugin string `json:"plugin,omitempty"`
 	Source string `json:"source"`

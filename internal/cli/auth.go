@@ -28,12 +28,12 @@ import (
 func newAuthCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Log agents in to Claude Code, Codex, OpenCode and Cursor",
+		Short: "Log agents in to Claude Code, Codex, OpenCode, Cursor and Gemini CLI",
 		Long: `Agents use AgentBox's own logins, never your host's ~/.claude, ~/.codex,
 ~/.local/share/opencode or ~/.cursor. Sharing those directories would let an
 agent change your host configuration.`,
 	}
-	cmd.AddCommand(newAuthClaudeCmd(a), newAuthCodexCmd(a), newAuthOpenCodeCmd(a), newAuthCursorCmd(a), newAuthGitHubCmd(a), newAuthStatusCmd(a))
+	cmd.AddCommand(newAuthClaudeCmd(a), newAuthCodexCmd(a), newAuthOpenCodeCmd(a), newAuthCursorCmd(a), newAuthGeminiCmd(a), newAuthGitHubCmd(a), newAuthStatusCmd(a))
 	return cmd
 }
 

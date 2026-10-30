@@ -30,7 +30,7 @@ type Candidate struct {
 	Name        string
 	Description string
 	// Origin says whose it is: "claude", "claude-plugin", "codex", "agents",
-	// "opencode", "cursor", "folder" or "git".
+	// "opencode", "cursor", "gemini", "folder" or "git".
 	Origin string
 	// Plugin is the Claude Code plugin it comes with, for "claude-plugin".
 	Plugin string
@@ -241,7 +241,7 @@ func (c Candidate) Prepare(n string) ([]state.SkillFile, Meta, error) {
 
 // Discover lists the skills the user's own AI tools have, in each home given
 // (the VM's and, when it is shared, the host's or, in WSL, Windows's): Claude
-// Code's own and its plugins', Codex's, OpenCode's, Cursor's and the shared
+// Code's own and its plugins', Codex's, OpenCode's, Cursor's, Gemini CLI's and the shared
 // ~/.agents/skills. A skill is listed once however many places have it:
 // linked from one to another, or copied, as npx skills add does on Windows
 // when it can't link, or found in both homes.
@@ -269,6 +269,7 @@ func Discover(homes []string) []Candidate {
 			{".config/opencode/skills", "opencode"},
 			{".config/opencode/skill", "opencode"},
 			{".cursor/skills", "cursor"},
+			{".gemini/skills", "gemini"},
 		} {
 			add(collectChildren(filepath.Join(home, place.dir), place.origin))
 		}

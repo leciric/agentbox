@@ -153,8 +153,8 @@ func (m *Manager) SyncConnectors(ctx context.Context, project, agent string) (ch
 	return changed, nil
 }
 
-// syncConnectors writes one agent's MCP servers into all four AI tools'
-// configuration: Codex's, OpenCode's and Cursor's whole, as PrepareChatModel does, and
+// syncConnectors writes one agent's MCP servers into all five AI tools'
+// configuration: Codex's, OpenCode's, Cursor's and Gemini CLI's whole, as PrepareChatModel does, and
 // Claude Code's mcpServers merged into the ~/.claude.json it keeps its own
 // state in. It says whether the MCP servers of the agent's own AI tool, the
 // one its chat runs, are other than they were, comparing that tool's file
@@ -177,6 +177,9 @@ func (m *Manager) syncConnectors(ctx context.Context, a state.Agent) (bool, erro
 		return true, err
 	}
 	if err := m.prepareAgentCursorSettings(ctx, a); err != nil {
+		return true, err
+	}
+	if err := m.prepareAgentGeminiSettings(ctx, a); err != nil {
 		return true, err
 	}
 	names, err := m.connectorNames(ctx, a)
@@ -220,6 +223,7 @@ var toolMCPFiles = map[string]string{
 	"codex":    ".codex/config.toml",
 	"opencode": ".config/opencode/opencode.json",
 	"cursor":   cursorMCPFile,
+	"gemini":   geminiSettingsFile,
 }
 
 // sameMCPServers says whether two versions of an AI tool's configuration file

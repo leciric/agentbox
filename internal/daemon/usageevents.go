@@ -210,7 +210,7 @@ func usageSpan(d time.Duration) string {
 // and why (errorClass, errorReason).
 func (s *Server) recordError(code, ai, class, reason string) {
 	tool := "none"
-	if ai == "claude" || ai == "codex" || ai == "opencode" || ai == "cursor" {
+	if slices.Contains(state.AgentTools, ai) {
 		tool = ai
 	}
 	if !slices.Contains(errorClasses, class) {
@@ -235,7 +235,7 @@ func (s *Server) recordAgentFinished(ctx context.Context, a state.Agent, how str
 		return
 	}
 	e := agentFinishedEvent{Tool: "none", How: how, Lifetime: usageSpan(time.Since(a.CreatedAt))}
-	if a.AI == "claude" || a.AI == "codex" || a.AI == "opencode" || a.AI == "cursor" {
+	if slices.Contains(state.AgentTools, a.AI) {
 		e.Tool = a.AI
 	}
 	events, err := s.memory().Events(ctx, a.Project, memory.EventFilter{

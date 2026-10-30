@@ -210,7 +210,7 @@ func setupSeconds(d time.Duration) int64 {
 
 // setupSignedInTools are the AI tools a sign-in counts for, by the id of
 // their Setup check: the first one reached is the step.
-var setupSignedInTools = []string{"claude", "codex", "opencode", "cursor"}
+var setupSignedInTools = []string{"claude", "codex", "opencode", "cursor", "gemini"}
 
 // noteSetupChecks reaches ai_signed_in when Setup's checks show an AI tool
 // signed in, however it was: the app's login, a token pasted in, the CLI.

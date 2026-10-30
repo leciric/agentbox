@@ -124,7 +124,7 @@ func TestProjectAndAgentToolAccounts(t *testing.T) {
 	if err := st.AddAgent(ctx, Agent{Project: "pawly", Name: LeadName, Instance: "i2", AI: "claude", Role: RoleLead, Status: AgentReady, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetAgentToolAccounts(ctx, "pawly", LeadName, "home", AccountMap{"anthropic": "work"}, "team"); err != nil {
+	if err := st.SetAgentToolAccounts(ctx, "pawly", LeadName, "home", AccountMap{"anthropic": "work"}, "team", ""); err != nil {
 		t.Fatal(err)
 	}
 	lead, _ := st.Agent(ctx, "pawly", LeadName)

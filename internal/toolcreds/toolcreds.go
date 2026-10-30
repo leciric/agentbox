@@ -41,10 +41,18 @@ var Variables = map[string][]string{
 		"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENROUTER_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY",
 		"GROQ_API_KEY", "XAI_API_KEY", "DEEPSEEK_API_KEY", "MISTRAL_API_KEY", "OPENCODE_API_KEY",
 	},
+	// Gemini CLI reads a Gemini or Vertex AI key, or Google Cloud's own
+	// credentials, before the login it keeps in ~/.gemini; AgentBox gives it
+	// an API key login in GEMINI_API_KEY itself (agent.geminiKeyEnv).
+	"gemini": {
+		"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA",
+		"GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_ACCESS_TOKEN",
+		"GOOGLE_GEMINI_BASE_URL", "GEMINI_CLI_HOME",
+	},
 }
 
 // Names are the tools' names as people know them.
-var Names = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
+var Names = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "gemini": "Gemini CLI"}
 
 // Keys are the variables that hold a credential, rather than choosing an
 // endpoint or a provider: the ones a status reports as what a tool runs on.
@@ -53,14 +61,14 @@ var Keys = map[string]bool{
 	"ANTHROPIC_FOUNDRY_API_KEY": true, "ANTHROPIC_FOUNDRY_AUTH_TOKEN": true, "CLAUDE_CODE_OAUTH_REFRESH_TOKEN": true,
 	"OPENAI_API_KEY": true, "CODEX_API_KEY": true, "OPENROUTER_API_KEY": true, "GEMINI_API_KEY": true,
 	"GOOGLE_GENERATIVE_AI_API_KEY": true, "GROQ_API_KEY": true, "XAI_API_KEY": true, "DEEPSEEK_API_KEY": true,
-	"MISTRAL_API_KEY": true, "OPENCODE_API_KEY": true,
+	"MISTRAL_API_KEY": true, "OPENCODE_API_KEY": true, "GOOGLE_API_KEY": true, "GOOGLE_CLOUD_ACCESS_TOKEN": true,
 }
 
 // Tools are the tools that read name, in a stable order: empty for a variable
 // no AI tool chooses its credential with.
 func Tools(name string) []string {
 	var tools []string
-	for _, tool := range []string{"claude", "codex", "opencode"} {
+	for _, tool := range []string{"claude", "codex", "opencode", "gemini"} {
 		if slices.Contains(Variables[tool], name) {
 			tools = append(tools, tool)
 		}

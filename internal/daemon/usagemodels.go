@@ -157,7 +157,7 @@ func usageWindow(tokens int64) string {
 
 // usageTool is the AI tool's part of a key, the same as agentFeature's.
 func usageTool(ai string) string {
-	return agentFeature(ai, "claude", "codex", "opencode", "cursor")
+	return agentFeature(ai, "claude", "codex", "opencode", "cursor", "gemini")
 }
 
 // countModelUse counts the model, effort and window something ran with, under

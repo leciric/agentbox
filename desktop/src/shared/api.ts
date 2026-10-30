@@ -14,6 +14,7 @@ export interface Project {
   codexAccount: string;
   openCodeAccounts: Record<string, string>;
   cursorAccount: string;
+  geminiAccount: string;
   autonomy: string;
   agentModel: string;
   agentTool: string;
@@ -74,6 +75,7 @@ export interface AddProjectRequest {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
@@ -88,6 +90,7 @@ export interface CloneProjectRequest {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
@@ -101,6 +104,7 @@ export interface UpdateProjectRequest {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
   moveClaudeAgents?: boolean;
   moveGitHubAgents?: boolean;
   autonomy?: string;
@@ -183,6 +187,9 @@ export interface Settings {
   cursorReady: boolean;
   defaultCursorModel: string;
   defaultCursorEffort: string;
+  geminiModelChoices: ChatOptionChoice[];
+  geminiReady: boolean;
+  defaultGeminiModel: string;
   lastAgentPick: AgentPick;
   firstRun: boolean;
   resumeAfterLimit: boolean;
@@ -256,6 +263,7 @@ export interface UpdateSettingsRequest {
   defaultClaudeEffort?: string;
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
+  defaultGeminiModel?: string;
   lastAgentPick?: AgentPick;
   firstRunDone?: boolean;
   openCodeVersion?: string;
@@ -318,6 +326,7 @@ export interface Agent {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
@@ -451,6 +460,7 @@ export interface CreateAgentRequest {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
   githubAccount?: string;
   noEnv?: boolean;
   clean?: boolean;
@@ -806,10 +816,13 @@ export interface AuthStatus {
   opencode: boolean;
   cursor: boolean;
   cursorEmail?: string;
+  gemini: boolean;
+  geminiEmail?: string;
   claudeAccounts: ClaudeAccount[];
   codexAccounts: ToolAccount[];
   openCodeAccounts: ToolAccount[];
   cursorAccounts: ToolAccount[];
+  geminiAccounts: ToolAccount[];
   github: boolean;
   githubAccounts: GitHubAccount[];
   githubUser?: string;
@@ -2042,6 +2055,7 @@ export interface FleetAgent {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
@@ -3605,6 +3619,7 @@ export interface FanOutVariant {
   codexAccount?: string;
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
+  geminiAccount?: string;
 }
 
 export interface FanOutResult {
@@ -3893,6 +3908,7 @@ export const CredentialSecret = "secret";
 export const ClaudeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_PROFILE ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID ANTHROPIC_WORKSPACE_ID CLAUDE_CODE_OAUTH_REFRESH_TOKEN CLAUDE_CONFIG_DIR CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST CLAUDE_CODE_USE_BEDROCK AWS_BEARER_TOKEN_BEDROCK ANTHROPIC_BEDROCK_BASE_URL ANTHROPIC_BEDROCK_MANTLE_BASE_URL ANTHROPIC_AWS_API_KEY ANTHROPIC_AWS_BASE_URL CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_BASE_URL ANTHROPIC_VERTEX_PROJECT_ID CLAUDE_CODE_USE_FOUNDRY ANTHROPIC_FOUNDRY_API_KEY ANTHROPIC_FOUNDRY_AUTH_TOKEN ANTHROPIC_FOUNDRY_BASE_URL ANTHROPIC_FOUNDRY_RESOURCE";
 export const CodexCredentialVariables = "OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL CODEX_HOME";
 export const OpenCodeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL OPENROUTER_API_KEY GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY GROQ_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MISTRAL_API_KEY OPENCODE_API_KEY";
+export const GeminiCredentialVariables = "GEMINI_API_KEY GOOGLE_API_KEY GOOGLE_GENAI_USE_VERTEXAI GOOGLE_GENAI_USE_GCA GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_ACCESS_TOKEN GOOGLE_GEMINI_BASE_URL GEMINI_CLI_HOME";
 export const ConnectorOAuth = "oauth";
 export const ConnectorSecret = "secret";
 export const ConnectorNone = "none";

@@ -1488,6 +1488,11 @@ var migrations = []string{
 	// session that ran before is held to the Claude Code it ran, so no
 	// conversation changes tool under anyone; the other sessions follow it.
 	`UPDATE chats SET tool = 'claude' WHERE tool = '' AND agent = 'lead'`,
+
+	// Gemini CLI's accounts, as cursor_account is Cursor's: the project's
+	// choice and the one an agent holds.
+	`ALTER TABLE projects ADD COLUMN gemini_account TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN gemini_account TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1597,13 +1602,14 @@ type Project struct {
 	// GitHubAccount is the GitHub account this project's new agents use;
 	// empty means the machine's default account.
 	GitHubAccount string
-	// CodexAccount and CursorAccount are the Codex and Cursor accounts this
-	// project's new agents and its lead use; empty means the machine's
-	// default. OpenCodeAccounts is OpenCode's, one per provider (provider →
+	// CodexAccount, CursorAccount and GeminiAccount are the Codex, Cursor
+	// and Gemini CLI accounts this project's new agents and its lead use;
+	// empty means the machine's default. OpenCodeAccounts is OpenCode's, one per provider (provider →
 	// account); a provider it doesn't name gets that provider's default.
 	CodexAccount     string
 	OpenCodeAccounts AccountMap
 	CursorAccount    string
+	GeminiAccount    string
 	// Autonomy is how much this project's chat may do without being asked:
 	// AutonomyAsk (propose, and wait) or AutonomyOn (act, within a budget).
 	Autonomy string
@@ -1886,7 +1892,7 @@ func (p Project) AgentDefaults(ai string) (model, effort, window, mode string) {
 }
 
 // AgentTools are the tools a project may name as AgentTool.
-var AgentTools = []string{"claude", "codex", "opencode", "cursor"}
+var AgentTools = []string{"claude", "codex", "opencode", "cursor", "gemini"}
 
 // ModeKinds are the permission modes a project may start its agents on, by
 // kind, the one name every tool's menu shares (acp's modeKinds): its standard
@@ -1949,7 +1955,7 @@ func (s *Store) SetProjectAgentDefaults(ctx context.Context, name string, d Proj
 	return err
 }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, gemini_account`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -2037,11 +2043,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.GeminiAccount)
 	return err
 }
 
@@ -2162,7 +2168,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -2721,7 +2727,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -2767,13 +2773,14 @@ type Agent struct {
 	// GitHubAccount is the GitHub account whose token this agent holds. It is
 	// resolved when the agent is created, and empty when none is stored.
 	GitHubAccount string
-	// CodexAccount, OpenCodeAccounts and CursorAccount are the accounts whose
+	// CodexAccount, OpenCodeAccounts, CursorAccount and GeminiAccount are the accounts whose
 	// login this agent holds for its AI tool, resolved when it is created
 	// (OpenCode's, the one each provider got); empty for the tools it doesn't
 	// run. A lead's follow the tool its chat runs.
 	CodexAccount     string
 	OpenCodeAccounts AccountMap
 	CursorAccount    string
+	GeminiAccount    string
 	// Interface is how you work with the agent's AI tool: in the app's chat
 	// (InterfaceChat), or on its own command line in the terminal (InterfaceCLI).
 	Interface string
@@ -2855,7 +2862,7 @@ func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == Role
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session, gemini_account`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -2881,9 +2888,9 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 		return fmt.Errorf("agent %s: a past agent has that name: %w", a.Ref(), ErrExists)
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors,
-		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession)
+		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession, a.GeminiAccount)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -3134,7 +3141,7 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &pausedAt, &stoppedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &a.GeminiAccount, &pausedAt, &stoppedAt); err != nil {
 			return nil, err
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)

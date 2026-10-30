@@ -95,6 +95,14 @@ const (
 	// Cursor's "Auto" and the model's own default level.
 	SettingDefaultCursorModel  = "default_cursor_model"
 	SettingDefaultCursorEffort = "default_cursor_effort"
+	// SettingGeminiModelChoices is Gemini CLI's model menu, as JSON,
+	// remembered for the same reason: it is the one a Gemini CLI session
+	// names, which arrives from a chat's ACP session or from asking Gemini
+	// CLI on the host for one (daemon/gemini.go).
+	SettingGeminiModelChoices = "gemini_model_choices"
+	// SettingDefaultGeminiModel is the model new Gemini CLI agents start on,
+	// in Gemini CLI's own ids. Empty is its "auto".
+	SettingDefaultGeminiModel = "default_gemini_model"
 	// SettingLastAgentPick is the tool, model and effort the app's New agent
 	// dialog last created an agent with, as JSON ({"ai", "model", "effort"}),
 	// which the dialog opens on in a project that names no tool. It is the

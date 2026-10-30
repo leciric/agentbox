@@ -63,6 +63,14 @@ func (m *Manager) HostHomeSpec(ctx context.Context, a state.Agent, info homehost
 	case "opencode":
 		// OpenCode merges this over the user's configuration.
 		spec.Env = []string{`OPENCODE_CONFIG_CONTENT={"permission":{"edit":"ask","bash":"ask","webfetch":"ask"}}`}
+	case "gemini":
+		// It reads GEMINI.md from its working directory, and asks before
+		// each tool call in its default mode. AgentBox's login can only go
+		// over as an API key: a Google sign-in is a file in its home.
+		spec.Files["GEMINI.md"] = text
+		if login, ok := m.Creds.GeminiLogin(a.GeminiAccount); ok && login.APIKey != "" {
+			spec.LoginEnv = []string{"GEMINI_API_KEY=" + login.APIKey}
+		}
 	default:
 		return homehost.Spec{}, fmt.Errorf("%s runs only in AgentBox's VM", ChatAdapters[a.AI].Tool)
 	}

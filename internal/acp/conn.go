@@ -78,6 +78,10 @@ type Conn struct {
 	pending map[int64]chan response
 	err     error // why the connection ended, once done is closed
 	done    chan struct{}
+
+	// legacy are the sessions whose agent answers with modes and models
+	// rather than configOptions, by session ID (legacy.go).
+	legacy map[string]*legacySession
 }
 
 // NewConn reads messages from r until it ends, and writes to w.
@@ -99,15 +103,29 @@ func (c *Conn) Err() error {
 // Call sends a request and waits for its response, which it decodes into
 // result unless result is nil.
 func (c *Conn) Call(ctx context.Context, method string, params, result any) error {
-	raw, err := json.Marshal(params)
+	raw, err := c.callLegacy(ctx, method, params)
 	if err != nil {
 		return err
+	}
+	if result != nil && len(raw) > 0 {
+		if err := json.Unmarshal(raw, result); err != nil {
+			return fmt.Errorf("%s: reading the response: %w", method, err)
+		}
+	}
+	return nil
+}
+
+// call sends a request and waits for its response, which it returns as sent.
+func (c *Conn) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
 	}
 	ch := make(chan response, 1)
 	c.mu.Lock()
 	if c.err != nil {
 		c.mu.Unlock()
-		return fmt.Errorf("%s: %w", method, c.err)
+		return nil, fmt.Errorf("%s: %w", method, c.err)
 	}
 	c.nextID++
 	id := c.nextID
@@ -116,22 +134,17 @@ func (c *Conn) Call(ctx context.Context, method string, params, result any) erro
 
 	if err := c.write(message{JSONRPC: "2.0", ID: json.RawMessage(strconv.FormatInt(id, 10)), Method: method, Params: raw}); err != nil {
 		c.forget(id)
-		return fmt.Errorf("%s: %w", method, err)
+		return nil, fmt.Errorf("%s: %w", method, err)
 	}
 	select {
 	case res := <-ch:
 		if res.err != nil {
-			return fmt.Errorf("%s: %w", method, res.err)
+			return nil, fmt.Errorf("%s: %w", method, res.err)
 		}
-		if result != nil && len(res.result) > 0 {
-			if err := json.Unmarshal(res.result, result); err != nil {
-				return fmt.Errorf("%s: reading the response: %w", method, err)
-			}
-		}
-		return nil
+		return res.result, nil
 	case <-ctx.Done():
 		c.forget(id)
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
@@ -201,6 +214,9 @@ func (c *Conn) dispatch(line []byte) {
 			once.Do(func() { c.reply(id, result, err) })
 		})
 	case m.Method != "":
+		if m.Method == MethodSessionUpdate {
+			c.noteLegacyUpdate(m.Params)
+		}
 		c.handler.Notify(m.Method, m.Params)
 	case hasID:
 		id, err := strconv.ParseInt(string(m.ID), 10, 64)

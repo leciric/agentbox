@@ -1,5 +1,7 @@
 package acp
 
+import "encoding/json"
+
 // What a turn spent, as the adapters report it (D83).
 //
 // Three shapes arrive, and none is complete on its own:
@@ -55,6 +57,33 @@ type TokenCount struct {
 	CachedWriteTokens     int64 `json:"cachedWriteTokens"`
 	OutputTokens          int64 `json:"outputTokens"`
 	ReasoningOutputTokens int64 `json:"reasoningOutputTokens"`
+	// gemini is a counter set in Gemini CLI's shape (geminiByModel).
+	gemini bool
+}
+
+// UnmarshalJSON reads codex-acp's camelCase counters, and the two snake_case
+// ones Gemini CLI sends in the same place: {"input_tokens", "output_tokens"}.
+func (t *TokenCount) UnmarshalJSON(data []byte) error {
+	type plain TokenCount
+	var camel plain
+	if err := json.Unmarshal(data, &camel); err != nil {
+		return err
+	}
+	*t = TokenCount(camel)
+	var snake struct {
+		Input  *int64 `json:"input_tokens"`
+		Output *int64 `json:"output_tokens"`
+	}
+	if json.Unmarshal(data, &snake) == nil && (snake.Input != nil || snake.Output != nil) {
+		t.gemini = true
+		if snake.Input != nil {
+			t.InputTokens = *snake.Input
+		}
+		if snake.Output != nil {
+			t.OutputTokens = *snake.Output
+		}
+	}
+	return nil
 }
 
 // Cost is usage_update's running total of what the session has cost.
@@ -105,6 +134,9 @@ func withoutCachedInput(s Spent, total int64) Spent {
 // on), else nothing at all. A model the split names twice is added up.
 func (r PromptResponse) ByModel(fallback string) map[string]Spent {
 	out := map[string]Spent{}
+	if r.Meta != nil && r.Meta.Quota != nil && len(r.Meta.Quota.ModelUsage) > 0 && r.Meta.Quota.ModelUsage[0].TokenCount.gemini {
+		return r.geminiByModel()
+	}
 	if r.Meta != nil && r.Meta.Quota != nil && len(r.Meta.Quota.ModelUsage) > 0 {
 		for _, m := range r.Meta.Quota.ModelUsage {
 			if s := m.TokenCount.Spent(); s.Total() > 0 {
@@ -122,6 +154,41 @@ func (r PromptResponse) ByModel(fallback string) map[string]Spent {
 	if r.Usage != nil {
 		if s := r.Usage.Spent(); s.Total() > 0 {
 			out[fallback] = s
+		}
+	}
+	return out
+}
+
+// geminiByModel reads Gemini CLI's split, which counts less than the others':
+// each model's input includes what was read from the cache, its output leaves
+// out the thinking (which Google bills as output), and the cache reads and
+// thinking are only in the turn's usage field, for every model at once. They
+// go to the model that read the most input, the one the turn was on; a turn
+// Gemini CLI routed through a small model too ("auto") gives that one its own
+// input and output alone.
+func (r PromptResponse) geminiByModel() map[string]Spent {
+	out := map[string]Spent{}
+	main := ""
+	for _, m := range r.Meta.Quota.ModelUsage {
+		s := out[m.Model]
+		s.Input += m.TokenCount.InputTokens
+		s.Output += m.TokenCount.OutputTokens
+		out[m.Model] = s
+		if main == "" || s.Input > out[main].Input {
+			main = m.Model
+		}
+	}
+	if r.Usage != nil {
+		s := out[main]
+		cached := min(r.Usage.CachedReadTokens, s.Input)
+		s.Input -= cached
+		s.CacheRead += cached
+		s.Output += r.Usage.ThoughtTokens
+		out[main] = s
+	}
+	for model, s := range out {
+		if s.Total() == 0 {
+			delete(out, model)
 		}
 	}
 	return out
