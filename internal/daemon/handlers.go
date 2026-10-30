@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -18,9 +19,11 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/brief"
 	"agentbox/internal/credentials"
+	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
+	"agentbox/internal/iossim"
 	"agentbox/internal/notes"
 	"agentbox/internal/state"
 )
@@ -40,13 +43,13 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 // Projects
 
 func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
-	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
+	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root), IOS: iossim.IsProject(p.Root),
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
 		CodexAccount: p.CodexAccount, OpenCodeAccounts: accountMap(p.OpenCodeAccounts), CursorAccount: p.CursorAccount,
-		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
+		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
@@ -94,16 +97,28 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 	if req.Create {
 		return s.createProject(w, r, req)
 	}
-	repo, err := gitrepo.Open(req.Path)
+	p, err := s.addProjectRepo(r.Context(), req)
 	if err != nil {
 		return err
 	}
+	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
+}
+
+// addProjectRepo adds an existing repository as a project: addProjectFrom's
+// work, for a caller with no request to answer, such as another machine's
+// lead (peers.go).
+func (s *Server) addProjectRepo(ctx context.Context, req api.AddProjectRequest) (state.Project, error) {
+	fail := func(err error) (state.Project, error) { return state.Project{}, err }
+	repo, err := gitrepo.Open(req.Path)
+	if err != nil {
+		return fail(err)
+	}
 	diskErr := checkProjectDisk(repo.Root, hostos.WSL())
 	if diskErr != nil && !req.CopyToLinux {
-		return diskErr
+		return fail(diskErr)
 	}
 	if !repo.HasCommits() {
-		return fmt.Errorf("%s has no commits yet: agents branch from a commit", repo.Root)
+		return fail(fmt.Errorf("%s has no commits yet: agents branch from a commit", repo.Root))
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -111,40 +126,36 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 	}
 	if diskErr != nil {
 		// Checked before copying, so a name that's taken doesn't leave a copy behind.
-		if err := s.projectNameFree(r.Context(), name); err != nil {
-			return err
+		if err := s.projectNameFree(ctx, name); err != nil {
+			return fail(err)
 		}
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return err
+			return fail(err)
 		}
-		slug, err := s.store.ProjectSlug(r.Context(), name)
+		slug, err := s.store.ProjectSlug(ctx, name)
 		if err != nil {
-			return err
+			return fail(err)
 		}
 		copied, err := gitrepo.Clone(repo, filepath.Join(home, "src", slug))
 		if err != nil {
-			return fmt.Errorf("copying %s into WSL: %w", repo.Root, err)
+			return fail(fmt.Errorf("copying %s into WSL: %w", repo.Root, err))
 		}
 		repo = copied
 	}
 	claudeAccount, githubAccount := strings.TrimSpace(req.ClaudeAccount), strings.TrimSpace(req.GitHubAccount)
 	if err := s.checkClaudeAccount(claudeAccount); err != nil {
-		return err
+		return fail(err)
 	}
 	if err := s.checkGitHubAccount(githubAccount); err != nil {
-		return err
+		return fail(err)
 	}
 	tools, err := s.newProjectToolAccounts(req)
 	if err != nil {
-		return err
+		return fail(err)
 	}
-	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
+	return s.registerProject(ctx, state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
 		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
-	if err != nil {
-		return err
-	}
-	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
 }
 
 // createProject is addProject for AddProjectRequest.Create: everything that
@@ -233,7 +244,13 @@ func (s *Server) registerProject(ctx context.Context, p state.Project) (state.Pr
 		return p, err
 	}
 	p = stored
-	// Its chat's socket, so the project can be talked to straight away.
+	// A new project's chat has a session to start in (the id the chats from
+	// before sessions have, so it is known by the same paths), and its
+	// socket, so the project can be talked to straight away. It costs a row
+	// until it is written to, and can be deleted like any session.
+	if err := s.store.AddLeadSessionID(ctx, p.Name, state.MigratedSession, "Chat", time.Now()); err != nil && !errors.Is(err, state.ErrExists) {
+		s.logf("the first session of %s's chat: %v", p.Name, err)
+	}
 	if err := s.serveLeadAPI(p.Name); err != nil {
 		s.logf("lead API socket for %s: %v", p.Name, err)
 	}
@@ -288,7 +305,31 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		p.Autonomy = autonomy
 		rewriteBrief()
 	}
-	if req.AgentModel != nil {
+	if req.AgentTool != nil || req.AgentEffort != nil || req.AgentContextWindow != nil || req.AgentMode != nil {
+		// The tool and its defaults are set together, the model with them:
+		// they belong to the tool, and the store clears what a new tool
+		// leaves unsaid.
+		trim := func(v *string) *string {
+			if v == nil {
+				return nil
+			}
+			t := strings.TrimSpace(*v)
+			return &t
+		}
+		if err := s.store.SetProjectAgentDefaults(r.Context(), p.Name, state.ProjectAgentDefaults{
+			Tool: trim(req.AgentTool), Model: trim(req.AgentModel), Effort: trim(req.AgentEffort),
+			ContextWindow: trim(req.AgentContextWindow), Mode: trim(req.AgentMode),
+		}); err != nil {
+			return err
+		}
+		updated, err := s.store.Project(r.Context(), p.Name)
+		if err != nil {
+			return err
+		}
+		p.AgentModel, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode = updated.AgentModel, updated.AgentTool, updated.AgentEffort, updated.AgentContextWindow, updated.AgentMode
+		rewriteBrief()
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+	} else if req.AgentModel != nil {
 		model := strings.TrimSpace(*req.AgentModel)
 		if err := s.store.SetProjectAgentModel(r.Context(), p.Name, model); err != nil {
 			return err
@@ -469,6 +510,27 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		s.prWatch.poke(p.Name)
 		rewriteBrief()
 	}
+	if req.PickUpIssues != nil {
+		if err := s.store.SetProjectPickUpIssues(r.Context(), p.Name, *req.PickUpIssues); err != nil {
+			return err
+		}
+		p.PickUpIssues = *req.PickUpIssues
+		// Turned on, the issues already waiting are picked up now rather than
+		// at the next pass.
+		if p.PickUpIssues {
+			s.issuePickup.poke()
+		}
+	}
+	if req.FullTestSuite != nil {
+		if err := s.store.SetProjectFullTestSuite(r.Context(), p.Name, *req.FullTestSuite); err != nil {
+			return err
+		}
+		p.FullTestSuite = *req.FullTestSuite
+		// The agents' briefs say whether they may run one.
+		if err := s.manager(nil).RewriteBriefs(r.Context(), p.Name); err != nil {
+			s.logf("rewriting %s's briefs after a full test suite change: %v", p.Name, err)
+		}
+	}
 	if req.SyncBase != nil {
 		if err := s.store.SetProjectBaseSync(r.Context(), p.Name, *req.SyncBase); err != nil {
 			return err
@@ -477,6 +539,12 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		if *req.SyncBase {
 			go s.syncBase(s.background(), p)
 		}
+	}
+	if req.PullRequests != nil {
+		if err := s.store.SetProjectPulls(r.Context(), p.Name, *req.PullRequests); err != nil {
+			return err
+		}
+		p.PullsOff = !*req.PullRequests
 	}
 	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
@@ -530,8 +598,12 @@ func (s *Server) checkGitHubAccount(account string) error {
 func (s *Server) removeProject(w http.ResponseWriter, r *http.Request) error {
 	// The project's chat goes with it; only its agents block removal.
 	project := r.PathValue("project")
-	s.chat.Stop(agent.LeadRef(project), "the project was removed")
-	s.chat.Forget(agent.LeadRef(project))
+	if leads, err := s.manager(nil).SessionLeads(r.Context(), project); err == nil {
+		for _, lead := range leads {
+			s.chat.Stop(lead.Ref(), "the project was removed")
+			s.chat.Forget(lead.Ref())
+		}
+	}
 	if err := s.manager(s.cfg.Log).DestroyLead(r.Context(), project); err != nil {
 		return err
 	}
@@ -606,6 +678,7 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		Notes:       projectNotes,
 		Nesting:     p.Nesting,
 		AgentPRs:    p.AgentPRs,
+		FullSuite:   p.FullTestSuite && s.blockFullSuite(r.Context()),
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
@@ -898,6 +971,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		Worktree:   a.Worktree,
 		Source:     a.Source,
 
+		LeadSession:      a.Session(),
 		ClaudeAccount:    a.ClaudeAccount,
 		CodexAccount:     a.CodexAccount,
 		OpenCodeAccounts: accountMap(a.OpenCodeAccounts),
@@ -1046,12 +1120,25 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 // more than the job: the job that makes the agent, or the finished one that
 // queued it.
 func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest, byLead bool) (api.Job, error) {
+	if req.Issue != 0 {
+		return s.issueAgentJob(ctx, req, byLead, false)
+	}
 	req, err := s.checkCreate(ctx, req, byLead)
 	if err != nil {
 		return api.Job{}, err
 	}
 	create := s.createJob(req, byLead, "")
-	return s.launchJob("create", req.Project, create)
+	j, err := s.launchJob("create", req.Project, create)
+	return withTool(j, req), err
+}
+
+// withTool puts on the reply that started an agent's job the tool it runs and
+// why, when it isn't the lead's.
+func withTool(j api.Job, req api.CreateAgentRequest) api.Job {
+	if j.ID != "" {
+		j.AI, j.Notice = req.AI, req.ToolNotice
+	}
+	return j
 }
 
 // checkCreate refuses a request to make an agent that could never succeed,
@@ -1065,8 +1152,15 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		return fail(err)
 	}
 	req.Project = p.Name // it may have been named by what it is called
+	// An agent named as where to start is its branch: the new agent is
+	// stacked on it, and opens its pull request against it (stack.go).
+	if req.From != "" {
+		if a, err := s.store.Agent(ctx, p.Name, req.From); err == nil && !a.IsLead() && a.Branch != "" {
+			req.From = a.Branch
+		}
+	}
 	if req.AI == "" {
-		req.AI = "claude"
+		req = s.defaultTool(ctx, p, req)
 	}
 	// A model or effort this agent could never run on is a mistake worth
 	// seeing now, in the reply to the request that made it, rather than in a
@@ -1112,6 +1206,41 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 	return req, nil
 }
 
+// defaultTool fills in the AI tool of a request that names none: the one the
+// account it names belongs to, else Claude Code for a model only Claude Code
+// calls by that name, else the tool the project names for its agents
+// (Project.AgentTool), else the project's lead's tool on the lead's account
+// for it (agent.LeadToolDefault). The app's dialog and the command line always
+// name a tool; a request that doesn't comes from the lead, a schedule, an
+// issue or a group's variant, which follow the lead. Why the agent falls back
+// to Claude Code, when it does, is kept in ToolNotice for the reply.
+func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.CreateAgentRequest) api.CreateAgentRequest {
+	switch {
+	case req.ClaudeAccount != "":
+		req.AI = "claude"
+	case req.CodexAccount != "":
+		req.AI = "codex"
+	case req.CursorAccount != "":
+		req.AI = "cursor"
+	case len(req.OpenCodeAccounts) > 0:
+		req.AI = "opencode"
+	case req.Model != nil && s.manager(nil).NamesClaudeModel(ctx, *req.Model):
+		req.AI = "claude"
+	case p.AgentTool != "":
+		// The project's own word comes before its chat's: it was said for
+		// every agent of the project, the chat's tool only for the chat.
+		req.AI = p.AgentTool
+	default:
+		d := s.manager(nil).LeadToolDefault(ctx, p)
+		req.AI, req.ToolNotice = d.AI, d.Fallback
+		req.ClaudeAccount, req.CodexAccount, req.CursorAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor
+		if d.Fallback != "" {
+			s.logf("A new agent of %s: %s", p.Name, d.Fallback)
+		}
+	}
+	return req
+}
+
 // createJob is the job that makes an agent from req: a new one, or, when
 // queued names one, the queued agent of that name, which the queue is
 // starting (queue.go).
@@ -1128,22 +1257,13 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 		req.Name = queued
 	}
 	return func(ctx context.Context, log io.Writer) (any, error) {
+		began := time.Now()
 		// What a catch-up ran is kept too, so a failed one can show the agent
 		// its last lines.
 		var ran *tailWriter
 		if req.CatchUp {
 			ran = &tailWriter{max: catchUpTail}
 			log = io.MultiWriter(log, ran)
-		}
-		// A machine copied from the project's own base doesn't need the
-		// base image; any other waits for it, while it's being built.
-		if _, hasBase, _ := s.manager(nil).ProjectBase(ctx, req.Project); !hasBase || req.Clean {
-			if err := s.awaitImage(ctx, log); err != nil {
-				if byLead {
-					s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
-				}
-				return nil, err
-			}
 		}
 		a, err := s.manager(log).Create(ctx, req.Project, agent.CreateOptions{
 			Name:          req.Name,
@@ -1168,9 +1288,16 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			Clean:   req.Clean,
 
 			FinishNotice: req.FinishNotice,
+			LeadSession:  req.LeadSession,
 			Connectors:   connectors,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
+			// A machine copied from the project's own base doesn't need the
+			// base image; any other waits for it, listed as waiting, while
+			// it's being downloaded or built.
+			AwaitImage: func(ctx context.Context, a state.Agent) error {
+				return s.awaitImageFor(ctx, a, log)
+			},
 		})
 		if err != nil {
 			if byLead {
@@ -1178,15 +1305,40 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// failure that only Create itself could find — the machine
 				// couldn't be copied, the name collided — is news the chat
 				// is still waiting on, the same as a finish it asked for.
-				s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
+				failed := fmt.Sprintf("create_agent failed: %v", err)
+				if req.OriginID != "" {
+					s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
+						Project: req.OriginProject, Agent: cmp.Or(req.Name, req.Title, "(new agent)"), Title: req.Title,
+						Status: state.RemoteFailed, Summary: failed, Notice: failed, Act: true,
+					})
+				} else {
+					s.tellSession(ctx, req.Project, req.LeadSession, failed, true)
+				}
 			}
-			s.recordError(errCreateFailed, req.AI)
+			// One the job's cancel stopped didn't fail.
+			if ctx.Err() == nil {
+				class, reason := s.createReason(err, req.Project, req.Name, req.Title, req.Branch)
+				s.recordError(errCreateFailed, req.AI, class, reason)
+			}
+			s.setupStepFailed(context.WithoutCancel(ctx), setupReport{step: setupFirstAgent, took: time.Since(began)}, err)
 			return nil, err
+		}
+		if req.OriginID != "" {
+			// Before its task is sent, so that its first notice already
+			// goes back to the lead that asked for it.
+			if err := s.store.AddPeerAgent(ctx, state.PeerAgent{
+				Project: a.Project, Agent: a.Name, OriginID: req.OriginID, OriginName: req.OriginName, OriginProject: req.OriginProject, CreatedAt: time.Now(),
+			}); err != nil {
+				s.logf("peers: remembering that %s's lead made %s: %v", req.OriginName, a.Ref(), err)
+			}
+			s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
+				Project: req.OriginProject, Agent: a.Name, Title: a.Title, Branch: a.Branch, Status: state.RemoteWorking,
+			})
 		}
 		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
 		s.countCreatedModel(ctx, a)
 		s.notePeakAgents(ctx)
-		s.setupStep(ctx, setupFirstAgent)
+		s.setupReached(ctx, setupReport{step: setupFirstAgent, took: time.Since(began)})
 		if byLead {
 			s.countFeature(api.FeatureAgentCreateByLead)
 		}
@@ -1219,6 +1371,11 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				_, _ = fmt.Fprintf(log, "the agent was made, but its task couldn't be sent: %v\n", err)
 			}
 		}
+		// What you wrote while it was being made (tellAgentMessage), after
+		// its task: as a turn now, or once the task's turn ends.
+		if err := s.chat.Release(a); err != nil {
+			_, _ = fmt.Fprintf(log, "the agent was made, but what was written to it meanwhile couldn't be sent: %v\n", err)
+		}
 		// The thread in the project chat's rail opens on this, so an agent the
 		// chat made is there from the start rather than at its first finish.
 		s.record(ctx, createdEvent(a, task, time.Now()))
@@ -1244,7 +1401,7 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 	if a.Status != state.AgentQueued {
 		s.recordAgentFinished(r.Context(), a, "destroyed")
 	}
-	s.refreshAgents(r.Context())
+	s.refreshAgentsBehind()
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -1264,7 +1421,7 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		switch action {
 		case "start":
 			if err = s.startMachine(ctx, m, a, "a start request"); err != nil {
-				s.recordError(errStartFailed, a.AI)
+				s.recordErr(errStartFailed, a.AI, err, agentNames(a)...)
 			}
 		case "stop":
 			s.chat.Stop(a.Ref(), "the agent was stopped")
@@ -1279,7 +1436,7 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		if err != nil {
 			return err
 		}
-		s.refreshAgents(ctx)
+		s.refreshAgentsBehind()
 		info, err := s.describe(ctx, a)
 		if err != nil {
 			return err
@@ -1294,7 +1451,7 @@ func (s *Server) diff(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	stat, _ := strconv.ParseBool(r.URL.Query().Get("stat"))
-	text, err := s.manager(nil).Diff(a, stat)
+	text, err := s.manager(nil).Diff(a, prBase(s.cachedPR(r.Context(), a)), stat)
 	if err != nil {
 		return err
 	}
@@ -1480,6 +1637,7 @@ func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {
 	out := api.MemoryUsage{
 		HostTotal: u.HostTotal, AgentsUsed: u.AgentsUsed, OtherUsed: u.OtherUsed,
 		SwapTotal: u.SwapTotal, SwapUsed: u.SwapUsed, AgentsSwap: u.AgentsSwap,
+		Used: u.Used, FileCache: u.FileCache, Leads: u.Leads, AgentBox: u.AgentBox, Kernel: u.Kernel,
 		Agents: make([]api.MemoryUsageAgent, 0, len(u.Agents)),
 	}
 	if u.Zram != nil {
@@ -1491,6 +1649,12 @@ func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {
 		})
 	}
 	return out
+}
+
+// hostMemory is GET /v1/usage/host, from /proc/meminfo alone.
+func (s *Server) hostMemory(w http.ResponseWriter, _ *http.Request) error {
+	mem := readMemInfo()
+	return writeJSON(w, http.StatusOK, api.HostMemory{Total: mem["MemTotal"], Available: mem["MemAvailable"], CPUs: agent.HostCores()})
 }
 
 func (s *Server) memoryUsage(w http.ResponseWriter, r *http.Request) error {
@@ -1572,7 +1736,7 @@ func (s *Server) saveGitHubToken(w http.ResponseWriter, r *http.Request) error {
 	if token == "" {
 		return errors.New("no token: paste the one from gh auth token, or a personal access token")
 	}
-	login, err := s.gitHub(token).Login(r.Context())
+	login, err := s.gitHub(token).Login(github.WithCaller(r.Context(), "accounts"))
 	if err != nil {
 		return err
 	}
@@ -1717,7 +1881,7 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 		if token, err := creds.GitHubToken(""); err == nil && token != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if login, err := s.gitHub(token).Login(ctx); err != nil {
+			if login, err := s.gitHub(token).Login(github.WithCaller(ctx, "accounts")); err != nil {
 				status.GitHubError = err.Error()
 			} else {
 				status.GitHubUser = login
@@ -1797,7 +1961,7 @@ func (s *Server) refreshClaudeTokens(creds credentials.Store) {
 // there is nothing to check: the app and `agentbox auth status` say so at once
 // rather than at the next hourly check.
 func (s *Server) claudeAuthFailed(a state.Agent, detail string) {
-	s.recordError(errAuthFailed, a.AI)
+	s.recordError(errAuthFailed, a.AI, classAuth, s.errorReason(detail, agentNames(a)...))
 	if a.AI != "claude" {
 		return
 	}
@@ -1867,7 +2031,9 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) error {
 func (s *Server) jobLog(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	follow, _ := strconv.ParseBool(r.URL.Query().Get("follow"))
-	if j, ok := s.jobs.get(id); ok && follow {
+	// A finished job's log is all there is: read whole below, from the store
+	// once the job has let it go (jobKept).
+	if j, ok := s.jobs.get(id); ok && follow && !j.snapshot().Done() {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
@@ -1906,4 +2072,11 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return writeJSON(w, http.StatusOK, info)
+}
+
+// blockFullSuite says whether the installation blocks agents' whole test
+// suites (state.SettingBlockFullSuite).
+func (s *Server) blockFullSuite(ctx context.Context) bool {
+	on, _ := s.store.Flag(ctx, state.SettingBlockFullSuite)
+	return on
 }

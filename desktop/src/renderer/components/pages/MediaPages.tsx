@@ -57,7 +57,7 @@ function MediaPagesTabs({ entries, showProject, variant, children }: { entries: 
         {t('pages.media.pagesTab')}
         <span className="tabular-nums text-subtle">{entries.length}</span>
         {fresh > 0 && (
-          <span className="rounded-full bg-brand-500 px-1.5 text-[10.5px] font-semibold tabular-nums text-white" data-media-pages-new={fresh}>
+          <span className="rounded-full bg-brand-500 px-1.5 text-caption font-semibold tabular-nums text-white" data-media-pages-new={fresh}>
             {t('pages.media.newCount', { count: fresh })}
           </span>
         )}
@@ -88,7 +88,7 @@ function TabButton({ active, onClick, children, ...rest }: { active: boolean; on
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        'flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium transition-colors',
+        'flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-ui font-medium transition-colors',
         active ? 'bg-surface-strong text-title' : 'text-muted hover:bg-surface hover:text-primary',
       )}
       {...rest}
@@ -150,7 +150,7 @@ function PagesGallery({ entries, showProject }: { entries: Entry[]; showProject?
         )}
       </div>
       {found.length === 0 ? (
-        <p className="px-1 text-[13px] text-subtle">{t('pages.noMatch')}</p>
+        <p className="px-1 text-ui text-subtle">{t('pages.noMatch')}</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {found.map(({ project, page }) => {
@@ -168,8 +168,8 @@ function PagesGallery({ entries, showProject }: { entries: Entry[]; showProject?
                 >
                   <PageThumb project={project} page={page} className="border-b border-line" />
                   <span className="grid gap-0.5 px-3 py-2">
-                    <span className="truncate text-[13px] font-medium text-title">{page.title}</span>
-                    <span className="flex min-w-0 items-center gap-1 text-[11.5px] text-subtle">
+                    <span className="truncate text-ui font-medium text-title">{page.title}</span>
+                    <span className="flex min-w-0 items-center gap-1 text-caption text-subtle">
                       <span className="min-w-0 truncate">
                         {showProject ? `${projectLabel(project, projects.data)} · ` : ''}
                         {label(page.agent)}
@@ -180,7 +180,7 @@ function PagesGallery({ entries, showProject }: { entries: Entry[]; showProject?
                   </span>
                 </button>
                 {isFresh && (
-                  <span className="pointer-events-none absolute -right-1.5 -top-1.5 rounded-full bg-brand-500 px-1.5 py-px text-[10px] font-semibold text-white">{t('pages.media.new')}</span>
+                  <span className="pointer-events-none absolute -right-1.5 -top-1.5 rounded-full bg-brand-500 px-1.5 py-px text-caption font-semibold text-white">{t('pages.media.new')}</span>
                 )}
               </div>
             );

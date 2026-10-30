@@ -145,16 +145,21 @@ func (s *Server) updateProjectToolAccounts(ctx context.Context, p *state.Project
 // adapter restarts on it (chat.Manager.AccountChanged), which writes the new
 // login into its HOME as it starts.
 func (s *Server) followToolAccounts(ctx context.Context, project string) {
-	lead, err := s.store.Agent(ctx, project, state.LeadName)
-	if err != nil || lead.Status == "" || !slices.Contains(credentials.AccountTools, lead.AI) {
-		return
-	}
-	moved, err := s.leadOnAccount(ctx, lead, state.Project{})
+	leads, err := s.manager(nil).SessionLeads(ctx, project)
 	if err != nil {
-		s.logf("moving the %s chat to its %s account: %v", project, credentials.ToolName(lead.AI), err)
 		return
 	}
-	s.chat.AccountChanged(moved)
+	for _, lead := range leads {
+		if lead.Status == "" || !slices.Contains(credentials.AccountTools, lead.AI) {
+			continue
+		}
+		moved, err := s.leadOnAccount(ctx, lead, state.Project{})
+		if err != nil {
+			s.logf("moving the %s chat to its %s account: %v", lead.Ref(), credentials.ToolName(lead.AI), err)
+			continue
+		}
+		s.chat.AccountChanged(moved)
+	}
 }
 
 // followAllToolAccounts is followToolAccounts for every project.

@@ -6,6 +6,7 @@
 import { Readable } from 'node:stream';
 import { protocol } from 'electron';
 import { requestOptions } from './connection';
+import { apiPath } from './mediapaths';
 import { thumbScheme } from './pagethumbs';
 import { renderResponse } from './renders';
 
@@ -29,18 +30,6 @@ const cors = {
   'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Content-Type',
 };
 
-// chatImage and artifactPage are the daemon paths agentbox-media://api/...
-// reaches: a picture sent in an agent's chat, or in a project's, or a SnapShot
-// waiting to be; and the HTML of a page a project's chats published on Hatch,
-// which the daemon sends with a sandboxing Content-Security-Policy, framed by
-// the page's preview.
-const chatImage = /^\/v1\/((projects\/[^/]+|agents\/[^/]+\/[^/]+)\/chat\/images\/[0-9a-f]{16}|snaps\/[0-9a-f]{16}\/image)$/;
-const artifactPage = /^\/v1\/projects\/[^/]+\/artifacts\/[A-Za-z0-9_-]+\/page$/;
-// pullImage is a picture in a pull request's description, which the daemon
-// reads from GitHub with the project's account: a private repository's
-// attachments need its token, which never reaches the renderer.
-const pullImage = /^\/v1\/projects\/[^/]+\/pulls\/image$/;
-
 export function handleMedia(): void {
   protocol.handle(mediaScheme, (request) => {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'Access-Control-Allow-Methods': 'GET' } });
@@ -50,9 +39,9 @@ export function handleMedia(): void {
     let path: string;
     if (url.host === 'api') {
       // A picture sent in a chat or in a pull request, or a Hatch page, and nothing else of the daemon's API.
-      if (pullImage.test(url.pathname)) path = url.pathname + url.search;
-      else if (chatImage.test(url.pathname) || artifactPage.test(url.pathname)) path = url.pathname;
-      else return new Response('not found', { status: 404, headers: cors });
+      const allowed = apiPath(url);
+      if (allowed === null) return new Response('not found', { status: 404, headers: cors });
+      path = allowed;
     } else {
       const [id = '', ...rest] = url.pathname.replace(/^\//, '').split('/');
       const sub = rest.map(decodeURIComponent).join('/');

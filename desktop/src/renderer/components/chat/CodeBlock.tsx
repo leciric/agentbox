@@ -34,7 +34,7 @@ export function CodeBlock({ code, language, actions }: { code: string; language?
   const tokens = highlighted?.code === code && highlighted.mode === mode ? highlighted.tokens : null;
   return (
     <div className="chat-codeblock group/code">
-      <div className="flex h-8 items-center justify-between border-b border-line-faint pl-3 pr-1 text-[11px] text-subtle">
+      <div className="flex h-8 items-center justify-between border-b border-line-faint pl-3 pr-1 text-caption text-subtle">
         <span className="min-w-0 truncate font-mono">{language || 'text'}</span>
         <div className="flex shrink-0 items-center gap-0.5">
           {actions}

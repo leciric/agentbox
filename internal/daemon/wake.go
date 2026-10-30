@@ -28,14 +28,23 @@ type told struct {
 }
 
 // tellAgent sends a message to an agent's chat, starting or resuming its
-// machine first when it isn't running. A lead has no machine of its own, and an agent that
-// isn't ready (queued, being made) has none yet: the chat has those as ever.
+// machine first when it isn't running. A lead has no machine of its own: the
+// chat has its messages as ever. An agent that isn't ready (queued, being made)
+// has no machine yet: its chat holds them until it has.
 func (s *Server) tellAgent(ctx context.Context, a state.Agent, text string, images ...api.ChatImageUpload) (told, error) {
 	return s.tellAgentMessage(ctx, a, api.ChatMessageRequest{Text: text, Images: images})
 }
 
 // tellAgentMessage is tellAgent for a message with files as well as pictures.
 func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.ChatMessageRequest) (told, error) {
+	s.wakeIdle(a.Ref())
+	if !a.IsLead() && (a.Status == state.AgentCreating || a.Status == state.AgentQueued) {
+		// Its machine is still being made, and its AI tool can't start in it:
+		// the message waits in the chat, marked starting, and createJob
+		// releases it once the agent is ready.
+		item, err := s.chat.HoldStarting(a, msg)
+		return told{item: item}, err
+	}
 	if a.IsLead() || a.Status != state.AgentReady {
 		item, err := s.chat.SendMessage(a, msg)
 		return told{item: item}, err
@@ -62,6 +71,12 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 	switch inst.Status {
 	case "Running":
 	case "Frozen":
+		if s.frozenForMemory(a.Ref()) {
+			// Frozen for memory: it waits its turn to thaw, and the chat
+			// hands the message over then (thawMachine).
+			item, err := s.chat.HoldMessage(a, msg)
+			return told{item: item}, err
+		}
 		if err := s.diskPausedRefusal(a.Ref()); err != nil {
 			return told{}, err
 		}
@@ -73,16 +88,58 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 		if err := s.diskPausedRefusal(a.Ref()); err != nil {
 			return told{}, err
 		}
+		if s.fleetOn() {
+			// Its boot may wait for memory (admitMachine): the message
+			// waits in its chat meanwhile, and nobody waits on it.
+			item, err := s.chat.HoldMessage(a, msg)
+			if err != nil {
+				return told{}, err
+			}
+			s.wakeAside(ctx, m, a, "a message: "+headWords(msg.Text, 60))
+			return told{item: item, woke: "started"}, nil
+		}
 		if err := s.startMachine(ctx, m, a, "a message: "+headWords(msg.Text, 60)); err != nil {
 			return told{}, err
 		}
 		woke = "started"
 	}
 	if woke != "" {
-		s.refreshAgents(ctx)
+		s.refreshAgentsBehind()
 	}
 	item, err := s.chat.SendMessage(a, msg)
 	return told{item: item, woke: woke}, err
+}
+
+// wakeAside starts a stopped agent's machine aside, once at a time for each
+// agent, and hands its chat what was held for it once it runs.
+func (s *Server) wakeAside(ctx context.Context, m *agent.Manager, a state.Agent, why string) {
+	ref := a.Ref()
+	s.mu.Lock()
+	if s.waking == nil {
+		s.waking = map[string]bool{}
+	}
+	already := s.waking[ref]
+	s.waking[ref] = true
+	s.mu.Unlock()
+	if already {
+		return
+	}
+	go func() {
+		ctx := context.WithoutCancel(ctx)
+		defer func() {
+			s.mu.Lock()
+			delete(s.waking, ref)
+			s.mu.Unlock()
+		}()
+		if err := s.startMachine(ctx, m, a, why); err != nil {
+			s.logf("%s: starting its machine for a message: %v", ref, err)
+			return
+		}
+		s.refreshAgents(ctx)
+		if err := s.chat.Release(a); err != nil {
+			s.logf("%s: handing over what was held for it: %v", ref, err)
+		}
+	}()
 }
 
 // startMachine starts a stopped agent's machine, with its in-agent API: what
@@ -92,6 +149,7 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 func (s *Server) startMachine(ctx context.Context, m *agent.Manager, a state.Agent, why string) error {
 	s.logf("starting %s's machine for %s", a.Ref(), why)
 	s.markRetired(a.Ref(), false)
+	s.startedIdle(a.Ref())
 	if err := s.serveAgentAPI(a.Instance); err != nil {
 		return err
 	}

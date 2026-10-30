@@ -67,12 +67,12 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
     // full width, pushing every value past the card's right edge.
     <div className="grid w-64 grid-cols-1 gap-2" data-agent-info={agent.ref}>
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-[13px] font-medium text-primary">{agent.title || agent.name}</span>
+        <span className="min-w-0 truncate text-ui font-medium text-primary">{agent.title || agent.name}</span>
         <span className="shrink-0">
           <StateBadge state={agent.state} />
         </span>
       </div>
-      {agent.title && <span className="-mt-1.5 min-w-0 truncate font-mono text-[11px] text-faint">{agent.name}</span>}
+      {agent.title && <span className="-mt-1.5 min-w-0 truncate font-mono text-caption text-faint">{agent.name}</span>}
       <div className="grid min-w-0 gap-1">
         <Row label={t('agent.info.aiTool')} value={`${aiLabel(agent.ai)}${agent.autonomous ? t('agent.view.autonomousSuffix') : ''}`} />
         {model && <Row label={t('agent.info.model')} value={model} />}
@@ -104,9 +104,9 @@ function diskSize(bytes: number | undefined, pending: boolean): string {
 
 function Row({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
-    <div className="flex min-w-0 items-baseline justify-between gap-3 text-[11.5px]">
+    <div className="flex min-w-0 items-baseline justify-between gap-3 text-caption">
       <span className="shrink-0 text-faint">{label}</span>
-      <span className={mono ? 'min-w-0 truncate font-mono text-[11px] text-secondary' : 'min-w-0 truncate text-secondary'}>{value}</span>
+      <span className={mono ? 'min-w-0 truncate font-mono text-caption text-secondary' : 'min-w-0 truncate text-secondary'}>{value}</span>
     </div>
   );
 }

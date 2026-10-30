@@ -232,7 +232,8 @@ func withClaudeKey(existing []byte, key string, value any, want bool) ([]byte, e
 // shape: Claude Code's settings.json, Codex's config.toml
 // (model_auto_compact_token_limit and [agents].max_concurrent_threads_per_session)
 // and OpenCode's opencode.json (subagent_depth — it has no absolute compact
-// window to set at all).
+// window to set at all, and OpenCode 2 has no equivalent of the depth cap:
+// the key is deprecated there and dropped without a word).
 func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model string, compactWindow int64) error {
 	if a.IsLead() && a.AI != "claude" {
 		// Its configuration is in the lead's HOME, written with its brief
@@ -288,11 +289,18 @@ func (m *Manager) prepareAgentOpenCodeSettings(ctx context.Context, a state.Agen
 	if err != nil {
 		return err
 	}
-	config, err := openCodeConfig(agentMCPServers(home, connectors), a.Autonomous)
+	version, err := m.openCodeVersion(ctx)
 	if err != nil {
 		return err
 	}
-	return m.Incus.WriteFile(ctx, a.Instance, home+"/.config/opencode/opencode.json", config, m.User.UID, m.User.GID, 0o600)
+	config, err := openCodeConfig(version, agentMCPServers(home, connectors), a.Autonomous)
+	if err != nil {
+		return err
+	}
+	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/.config/opencode/opencode.json", config, m.User.UID, m.User.GID, 0o600); err != nil {
+		return err
+	}
+	return m.importOpenCodeAccounts(ctx, a, version)
 }
 
 // prepareAgentClaudeSettings merges into the settings of the agent's own user,
@@ -315,7 +323,7 @@ func (m *Manager) prepareAgentClaudeSettings(ctx context.Context, a state.Agent,
 // Code runs on the host rather than in a machine — but in the private HOME
 // configureLead wrote, not the user's own.
 func (m *Manager) prepareLeadClaudeSettings(a state.Agent, merge func([]byte) ([]byte, error)) error {
-	path := filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile)
+	path := filepath.Join(m.leadHome(a), claudeSettingsFile)
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -387,7 +395,7 @@ const (
 // in its settings.json, or 0 when nothing there sets it and Claude Code picks
 // one itself. A value Claude Code wouldn't accept is read as unset too.
 func (m *Manager) LeadPromptCacheTTL(a state.Agent) time.Duration {
-	existing, err := os.ReadFile(filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile))
+	existing, err := os.ReadFile(filepath.Join(m.leadHome(a), claudeSettingsFile))
 	if err != nil {
 		return 0
 	}
