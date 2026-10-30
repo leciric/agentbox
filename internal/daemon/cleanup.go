@@ -68,7 +68,7 @@ type cleanupFacts struct {
 	// Unpushed is a branch with commits that are neither merged, nor on a
 	// remote, nor in its pull request's head.
 	Unpushed bool
-	// Changed is a diff against the commit the agent started from.
+	// Changed is a diff against its base (gitrepo.DiffBase).
 	Changed   bool
 	PR        *api.PullRequest
 	CreatedAt time.Time

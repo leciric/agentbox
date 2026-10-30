@@ -580,3 +580,70 @@ func TestReadFailuresAreNotAnswers(t *testing.T) {
 		undo()
 	}
 }
+
+// TestDiffBaseAfterMainMoves is the agent made from "HEAD" while the main
+// checkout had a side branch out, one commit off an old main, whose main then
+// moved on origin (the local main left behind) and which took it in: measured
+// from where it started, it owned everything merged to main since (#587's
+// 940 files, where GitHub showed 57).
+func TestDiffBaseAfterMainMoves(t *testing.T) {
+	testutil.GitEnv(t)
+	root := testutil.FixtureRepo(t, "hello-stack")
+	old := testutil.Git(t, root, "rev-parse", "main")
+	testutil.Git(t, root, "checkout", "-q", "-b", "side")
+	write(t, root, "side.txt", "side\n")
+	testutil.Git(t, root, "add", "side.txt")
+	testutil.Git(t, root, "commit", "-qm", "side")
+	start := testutil.Git(t, root, "rev-parse", "HEAD")
+	wt := filepath.Join(t.TempDir(), "wt")
+	testutil.Git(t, root, "worktree", "add", "-q", "-b", "agentbox/w", wt, start)
+	write(t, wt, "mine.txt", "mine\n")
+	testutil.Git(t, wt, "add", "mine.txt")
+	testutil.Git(t, wt, "commit", "-qm", "mine")
+
+	if got := gitrepo.DiffBase(wt, "HEAD", start); got != start {
+		t.Errorf("before main moves, DiffBase = %.7s, want where it started, %.7s", got, start)
+	}
+
+	// main moves on origin only; the local main stays where it was.
+	testutil.Git(t, root, "checkout", "-q", "main")
+	for _, f := range []string{"m1.txt", "m2.txt", "m3.txt"} {
+		write(t, root, f, f+"\n")
+		testutil.Git(t, root, "add", f)
+		testutil.Git(t, root, "commit", "-qm", f)
+	}
+	moved := testutil.Git(t, root, "rev-parse", "main")
+	testutil.Git(t, root, "update-ref", "refs/remotes/origin/main", moved)
+	testutil.Git(t, root, "update-ref", "refs/heads/main", old)
+	testutil.Git(t, root, "checkout", "-q", "side")
+
+	if got := gitrepo.DiffBase(wt, "HEAD", start); got != start {
+		t.Errorf("main moved but not taken in: DiffBase = %.7s, want %.7s", got, start)
+	}
+	testutil.Git(t, wt, "merge", "-q", "-m", "take in main", "origin/main")
+	write(t, wt, "dirty.txt", "dirty\n")
+
+	got := gitrepo.DiffBase(wt, "HEAD", start)
+	if got != moved {
+		t.Fatalf("after taking in origin's main, DiffBase = %.7s, want origin/main %.7s", got, moved)
+	}
+	// What GitHub shows for a pull request into main: its own commit, the
+	// side commit main never had, and the uncommitted file.
+	stat, err := gitrepo.DiffWorktree(wt, got, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stat, "3 files changed") || strings.Contains(stat, "m1.txt") {
+		t.Errorf("diff from DiffBase:\n%s", stat)
+	}
+	if got := gitrepo.DiffBase(wt, "main", start); got != moved {
+		t.Errorf("made from main: DiffBase = %.7s, want origin's copy %.7s", got, moved)
+	}
+	// A pull request into side is measured onto side alone.
+	if got := gitrepo.DiffBase(wt, "HEAD", start, "side"); got != start {
+		t.Errorf("onto side: DiffBase = %.7s, want %.7s", got, start)
+	}
+	if got := gitrepo.DiffBase(wt, "HEAD", start, "gone"); got != start {
+		t.Errorf("onto a branch nobody has: DiffBase = %.7s, want the fallback %.7s", got, start)
+	}
+}

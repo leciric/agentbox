@@ -415,17 +415,54 @@ func Dirty(worktree string) (bool, error) {
 	return out != "", err
 }
 
-// DiffBase is the commit an agent's changes are measured from: where its
-// worktree's HEAD left baseRef, the project's base branch as it is now, so
-// that main's own changes, taken in by a merge or a rebase, are not the
-// agent's. It falls back to fallback (the commit the agent started from) when
-// baseRef is "HEAD" or empty, is gone, or shares no history with the worktree.
-func DiffBase(worktree, baseRef, fallback string) string {
-	if baseRef == "" || baseRef == "HEAD" {
+// DiffBase is the commit an agent's changes are measured from, as GitHub
+// measures a pull request's: where its worktree's HEAD left the branch its
+// work goes into, as that branch is now, so that what it took in from there
+// by a merge or a rebase is not the agent's.
+//
+// With onto, the base branch of the agent's pull request, that is the only
+// branch. Without, it is baseRef, the branch the agent was made from, and the
+// project's base branch (origin's default, else main or master): an agent
+// made from "HEAD" was made from whatever the main checkout had out, often
+// far behind main, and measured from there it owned every pull request merged
+// since. Each branch counts as every copy of it, local and on every remote, so
+// a local main behind origin's doesn't hand the agent what origin already
+// has; the base is the newest commit of theirs HEAD has. Without onto,
+// fallback (the commit the agent started from) is the base instead when it is
+// newer than that and HEAD still has it: an agent made from a branch nobody
+// pushed hasn't changed what it started from. fallback is also the base when
+// no branch shares history with HEAD.
+func DiffBase(worktree, baseRef, fallback string, onto ...string) string {
+	branches := onto
+	if len(onto) == 0 {
+		if baseRef != "" && baseRef != "HEAD" {
+			branches = append(branches, baseRef)
+		}
+		if def, err := run(worktree, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil {
+			branches = append(branches, strings.TrimPrefix(def, "refs/remotes/origin/"))
+		} else {
+			branches = append(branches, "main", "master")
+		}
+	}
+	var patterns []string
+	for _, b := range branches {
+		if b != "" && !strings.HasPrefix(b, "-") {
+			patterns = append(patterns, "refs/heads/"+b, "refs/remotes/*/"+b)
+		}
+	}
+	var base string
+	if len(patterns) > 0 {
+		out, _ := run(worktree, append([]string{"for-each-ref", "--format=%(objectname)"}, patterns...)...)
+		if refs := strings.Fields(out); len(refs) > 0 {
+			// merge-base of HEAD and several commits is HEAD's best common
+			// ancestor with a merge of them all: the newest of theirs it has.
+			base, _ = run(worktree, append([]string{"merge-base", "HEAD"}, refs...)...)
+		}
+	}
+	if base == "" {
 		return fallback
 	}
-	base, err := run(worktree, "merge-base", "HEAD", "refs/heads/"+baseRef)
-	if err != nil || base == "" {
+	if wt := (Repo{Root: worktree}); len(onto) == 0 && fallback != "" && fallback != base && wt.IsAncestor(base, fallback) && wt.IsAncestor(fallback, "HEAD") {
 		return fallback
 	}
 	return base
