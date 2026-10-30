@@ -287,6 +287,10 @@ type Manager struct {
 	// agent gets its node_modules there.
 	NodeModules   *nodemods.Store
 	NodeModulesOn func(ctx context.Context) bool
+	// WorktreeTrashed, when set, is told a destroyed agent's worktree was
+	// moved into Paths.WorktreeTrash, for EmptyWorktreeTrash to delete. Unset,
+	// a destroy deletes the worktree itself.
+	WorktreeTrashed func()
 	// ShareRoom, when set, waits for the shared home to have room for a
 	// worktree to be made or removed: on a Linux host, virtiofsd holds a file
 	// for every inode the VM has looked at, and walking a worktree's
@@ -2336,8 +2340,12 @@ func (m *Manager) shareBusy() bool { return m.ShareBusy != nil && m.ShareBusy() 
 // removeLeftovers is what Destroy clears once the agent is archived: its
 // worktree, its branch when nothing would be lost, and its media when asked.
 func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a state.Agent, opts DestroyOptions) {
-	m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
 	m.logf("Removing worktree %s", a.Worktree)
+	if m.WorktreeTrashed != nil && m.trashWorktree(repo, a) {
+		m.WorktreeTrashed()
+	} else {
+		m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
+	}
 	if err := repo.RemoveWorktree(a.Worktree); err != nil {
 		m.logf("Removing worktree %s: %v", a.Worktree, err)
 	}

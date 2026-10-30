@@ -578,7 +578,7 @@ mkdir -p "$data" "$config"
 chmod 700 "$data" "$config"
 for f in "$src_data"/* "$src_data"/.[!.]*; do
   [ -e "$f" ] || [ -L "$f" ] || continue
-  case "${f##*/}" in worktrees|media|vm|run|tools|backups|migration|daemon.log*|state.db*) continue ;; esac
+  case "${f##*/}" in worktrees|worktrees-trash|media|vm|run|tools|backups|migration|daemon.log*|state.db*) continue ;; esac
   cp -a "$f" "$data/"
 done
 for f in "$src_config"/* "$src_config"/.[!.]*; do

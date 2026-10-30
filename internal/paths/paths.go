@@ -154,6 +154,12 @@ func (p Paths) Media() string {
 	return filepath.Join(p.Data, "media")
 }
 
+// WorktreeTrash is where destroyed agents' worktrees wait to be deleted:
+// beside Worktrees, so moving one there is a rename on the same disk.
+func (p Paths) WorktreeTrash() string {
+	return filepath.Join(filepath.Dir(filepath.Clean(p.Worktrees())), "worktrees-trash")
+}
+
 func (p Paths) Worktree(project, agent string) string {
 	return filepath.Join(p.Worktrees(), project, agent)
 }

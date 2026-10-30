@@ -1412,7 +1412,7 @@ export const enUS = {
   'defaults.newAgent.idleDetails': 'Nothing means no chat reply, job, unanswered question or credential request, terminal input or recording. It’s the same as stopping it yourself, and applies to paused agents too.',
   'defaults.newAgent.removeStoppedLabel': "Remove stopped agents' machines after",
   'defaults.newAgent.removeStoppedDescription': "Removes the machine and worktree of an agent stopped for {days, plural, one {# day} other {# days}}, when nothing would be lost. It stays in Past agents with its branch, pull request and chat.",
-  'defaults.newAgent.removeStoppedDetails': "Nothing lost means its branch is pushed with nothing unpushed, its worktree has no uncommitted or untracked files, and its pull request was merged or closed, or it changed nothing. An agent AgentBox can't read all of that for is kept.",
+  'defaults.newAgent.removeStoppedDetails': "Nothing lost means every commit it made is pushed or merged, its worktree has no uncommitted or untracked files, and it has no open pull request. An agent AgentBox can't read all of that for is kept.",
   'defaults.newAgent.removeStoppedDays': 'Days stopped',
   'defaults.newAgent.days': '{count, plural, one {# day} other {# days}}',
   'defaults.newAgent.removeStoppedChecking': 'Checking stopped agents…',
