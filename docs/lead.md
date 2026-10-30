@@ -76,9 +76,6 @@ project's others, each with a dot for its state.
   empty composer goes back to the lead. Starting a message with `@agent-31 ` sends just that
   message to agent-31.
 - Each session remembers its target. If that agent is retired, the target goes back to the lead.
-- Above the composer, each agent the session made has a card showing its state, what it is
-  doing and what it said last. The card updates as the agent works. **Recent** opens its latest
-  messages, and clicking the card points the composer at that agent.
 
 The phone has the same chip and `@agent-31 `. From the command line:
 

@@ -493,7 +493,8 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	}
 	s.markToldWaiting(a, false)
 	closing := closingWords(end.LastMessage)
-	changes, pr := changesOf(a), s.prFor(ctx, a)
+	pr := s.prFor(ctx, a)
+	changes := changesOf(a, prBase(pr)...)
 	if v == verdictUnsure {
 		v = verdictEnded
 		if !shows(changes, pr) {

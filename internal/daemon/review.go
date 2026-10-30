@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -195,9 +196,28 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 		}
 		tips[h.agent] += h.tip
 	}
+	// What each finished one has changed is measured now, not read from its
+	// finish: a count taken then predates whatever it took in from main or
+	// pushed since, and one an older daemon took was measured from a base far
+	// behind main (gitrepo.DiffBase).
+	var done []state.Agent
+	for _, a := range kept {
+		if _, ok := finishes[a.Name]; ok && a.Worktree != "" {
+			if _, err := os.Stat(a.Worktree); err == nil {
+				done = append(done, a)
+			}
+		}
+	}
+	changes := map[string]api.AgentChanges{}
+	for i, c := range agentChanges(done, prs, polledChanges) {
+		changes[done[i].Name] = c
+	}
 	out := make([]liveEntry, 0, len(kept))
 	for _, a := range kept {
 		ev, finished := finishes[a.Name]
+		if c, ok := changes[a.Name]; ok {
+			ev.Changes = &c
+		}
 		e := liveEntry{agent: a, finished: finished}
 		if finished && unknown[a.Name] {
 			known, ok := s.knownReviewOf(a.Ref(), ev.ID)

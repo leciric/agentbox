@@ -32,7 +32,8 @@ func TestRecapCountsTheWeeksAgents(t *testing.T) {
 	}
 	now := time.Now()
 	live := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
-	d.srv.record(ctx, finishedEvent(live, api.AgentChanges{Files: 1, Insertions: 10, Deletions: 1}, &api.PullRequest{Number: 7, State: "open"}, "Done.", now.Add(-time.Minute)))
+	commitOn(t, live, "mine.txt")
+	d.srv.record(ctx, finishedEvent(live, api.AgentChanges{Files: 1, Insertions: 1}, &api.PullRequest{Number: 7, State: "open"}, "Done.", now.Add(-time.Minute)))
 
 	base := strings.TrimSpace(testutil.Git(t, repo, "rev-parse", "HEAD"))
 	head := strings.TrimSpace(testutil.Git(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
@@ -68,8 +69,8 @@ func TestRecapCountsTheWeeksAgents(t *testing.T) {
 		if r.Agents != 2 || r.PRsOpened != 2 || r.PRsMerged != 1 {
 			t.Fatalf("agents %d, pull requests %d (%d merged), want 2, 2 and 1", r.Agents, r.PRsOpened, r.PRsMerged)
 		}
-		if r.Insertions != 12 || r.Deletions != 1 || r.Files != 2 {
-			t.Fatalf("changes +%d -%d in %d files, want +12 -1 in 2", r.Insertions, r.Deletions, r.Files)
+		if r.Insertions != 3 || r.Deletions != 0 || r.Files != 2 {
+			t.Fatalf("changes +%d -%d in %d files, want +3 -0 in 2", r.Insertions, r.Deletions, r.Files)
 		}
 	}
 	// Three weeks back, only the agent of that week.
