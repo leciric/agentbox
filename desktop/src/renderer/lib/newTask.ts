@@ -59,14 +59,24 @@ export function useNewTaskOpen(): boolean {
   );
 }
 
-// A composer focus asked for by the picker: the chat it opens takes it as its
-// composer mounts, if that's soon (the page may still be loading its chat).
-const focusWaitMs = 5000;
-let wanted: { ref: string; at: number } | undefined;
+// A composer focus asked for by the picker, a project or a session opened: the
+// chat it opens takes it as its composer mounts, which may be a while (a new
+// session's lead starting), unless you click or type somewhere else first.
+const focusWaitMs = 60_000;
+let wanted: { ref: string; at: number; mark: number } | undefined;
 const focusListeners = new Set<() => void>();
-export function requestComposerFocus(ref: string, now = Date.now()): void {
-  wanted = { ref, at: now };
+export function requestComposerFocus(ref: string, now = Date.now(), mark = globalThis.performance?.now() ?? 0): void {
+  wanted = { ref, at: now, mark };
   for (const l of focusListeners) l();
+}
+// dropComposerFocus forgets a request made before an event at timeStamp: you
+// did something else since. The event that made it, handled after this, is
+// not one.
+export function dropComposerFocus(timeStamp: number): void {
+  if (wanted && timeStamp > wanted.mark) wanted = undefined;
+}
+if (typeof window !== 'undefined') {
+  for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, (e) => dropComposerFocus(e.timeStamp), true);
 }
 // onComposerFocus hears a request, for a composer already on screen: a
 // project clicked in the sidebar while its chat is open.

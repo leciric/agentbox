@@ -7,6 +7,7 @@ import { api, sessionOfRef } from '../lib/api';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { afterDelete, chooseSession, markSessionSeen, neighbour, pickSession, useChosenSession } from '../lib/sessions';
+import { requestComposerFocus } from '../lib/newTask';
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
 import { errorMessage } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
@@ -60,6 +61,13 @@ export function useCurrentSession(project: string | undefined): T.LeadSession | 
   return project ? pickSession(sessions.data ?? [], chosen) : undefined;
 }
 
+// showSession shows a session of a project's chat, opened or moved to, to
+// write in: its composer takes the focus once it shows.
+function showSession(project: string, s: T.LeadSession) {
+  chooseSession(project, s.id);
+  requestComposerFocus(s.ref);
+}
+
 // The project's chat, driven by its leads: one per session, the one shown
 // picked in the tabs above it. ChatTab is shared with the agents' chats, so
 // the lead is handed to it as an agent.
@@ -94,7 +102,7 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
     mutationFn: (topic: string) => api.newLeadSession(project.name, topic),
     onSuccess: (s) => {
       setAdding(false);
-      chooseSession(project.name, s.id);
+      showSession(project.name, s);
       refresh();
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -146,7 +154,7 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
         case 'next':
         case 'previous': {
           const to = neighbour(list, current?.id, command === 'next' ? 1 : -1);
-          if (to) chooseSession(project.name, to.id);
+          if (to) showSession(project.name, to);
         }
       }
     };
@@ -166,7 +174,8 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
       confirming={confirming}
       onChoose={(id) => {
         setConfirming(undefined);
-        chooseSession(project.name, id);
+        const s = list.find((x) => x.id === id);
+        if (s) showSession(project.name, s);
       }}
       onAdd={(topic) => add.mutate(topic)}
       onAdding={setAdding}

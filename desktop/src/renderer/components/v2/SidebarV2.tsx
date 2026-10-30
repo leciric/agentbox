@@ -60,7 +60,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, Cont
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 import { GroupChips } from '../groups/GroupChip';
-import { chooseSession, isUnread, isWorking, pickSession, useChosenSession, useSeenAt } from '../../lib/sessions';
+import { chooseSession, chosenSession, isUnread, isWorking, openSession, pickSession, useChosenSession, useSeenAt } from '../../lib/sessions';
 
 const stLabel: Record<AgentSt, MessageKey> = {
   needs: 'v2.st.needs',
@@ -862,6 +862,7 @@ function ProjectLead({
   sectionMenu?: { sections: T.Section[]; current: string; onMove: (id: string | null) => void; onNew: () => void };
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
   const now = useNow(60_000);
   const [iconOpen, setIconOpen] = useState(false);
@@ -931,8 +932,15 @@ function ProjectLead({
             active={active}
             onMove={onMove}
             onClick={() => {
+              // The session an agent's question waits in, when one does;
+              // otherwise the one shown last.
+              const sessions = queryClient.getQueryData<T.LeadSession[]>(['leadSessions', project.name]) ?? [];
+              const questions = queryClient.getQueryData<T.Question[]>(['questions', project.name]) ?? [];
+              const agents = queryClient.getQueryData<T.Agent[]>(['agents']) ?? [];
+              const to = openSession(sessions, chosenSession(project.name), questions, agents);
+              if (to) chooseSession(project.name, to.id);
               onSelect({ kind: 'project', project: project.name });
-              requestComposerFocus(leadRef);
+              requestComposerFocus(to?.ref ?? leadRef);
             }}
             data={{ 'data-v2-lead': project.name }}
           >
