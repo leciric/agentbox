@@ -1966,6 +1966,7 @@ export function seedFirstRun(queryClient: QueryClient, step: string): void {
       check('cursor', 'Cursor sign-in', 'optional', "optional: agents can't run Cursor yet", false, 'agentbox auth cursor'),
     ],
     image: { version: '2026.10.28.1', components: none, installed: none, downloads: [], hint: '' },
+    backends: ['host'],
   } as T.SetupStatus;
   devState.setup = setup;
   devState.cli = { linkPath: '~/.local/bin/agentbox', linked: true, path: '~/.local/bin/agentbox', version: 'preview', onPath: true, bundled: true, binary: null };

@@ -539,7 +539,7 @@ export function useSetupSteps() {
     if (c.id === "opencode") steps.push(githubStep);
   }
   steps.push(notificationsStep);
-  return { steps, setup, cli, info, imageJob, hostSetupRan };
+  return { steps, backends, hostBackend, setup, cli, info, imageJob, hostSetupRan };
 }
 
 export function SettingsView({
@@ -551,7 +551,7 @@ export function SettingsView({
   // (openSettingsSection).
   linked?: string;
 }) {
-  const { steps, setup, cli, info, imageJob, hostSetupRan } = useSetupSteps();
+  const { steps, backends, hostBackend, setup, cli, info, imageJob, hostSetupRan } = useSetupSteps();
 
   // Which page: the wizard while there is setting up left to do, the tabbed
   // page once there isn't. It waits for both answers — the daemon's checks and
