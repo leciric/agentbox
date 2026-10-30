@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -325,6 +326,21 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			t := strings.TrimSpace(*v)
 			return &t
 		}
+		tool := p.AgentTool
+		if req.AgentTool != nil {
+			tool = strings.TrimSpace(*req.AgentTool)
+			if tool != "" && !slices.Contains(state.AgentTools, tool) {
+				return fmt.Errorf("unknown agent tool %q: choose %s, or none", tool, strings.Join(state.AgentTools, ", "))
+			}
+		}
+		if effort := trim(req.AgentEffort); effort != nil && *effort != "" && !slices.Contains(state.AgentEfforts, *effort) {
+			return fmt.Errorf("unknown agent effort %q: choose %s, or none", *effort, strings.Join(state.AgentEfforts, ", "))
+		}
+		if req.AgentModel != nil {
+			if err := checkProjectToolModel(tool, strings.TrimSpace(*req.AgentModel)); err != nil {
+				return err
+			}
+		}
 		if err := s.store.SetProjectAgentDefaults(r.Context(), p.Name, state.ProjectAgentDefaults{
 			Tool: trim(req.AgentTool), Model: trim(req.AgentModel), Effort: trim(req.AgentEffort),
 			ContextWindow: trim(req.AgentContextWindow), Mode: trim(req.AgentMode),
@@ -340,6 +356,9 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
 	} else if req.AgentModel != nil {
 		model := strings.TrimSpace(*req.AgentModel)
+		if err := checkProjectToolModel(p.AgentTool, model); err != nil {
+			return err
+		}
 		if err := s.store.SetProjectAgentModel(r.Context(), p.Name, model); err != nil {
 			return err
 		}
@@ -1422,8 +1441,8 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		if req.Model == nil && d.Model != "" {
 			// The lead's tool runs the model its own session runs: an agent
 			// started on the adapter's default may be on a model the account
-			// doesn't enable. An OpenCode lead on an "opencode/" id passes
-			// the same model on the Go endpoint AgentBox delivers the key for.
+			// doesn't enable. An OpenCode lead on an "opencode/" id passes the
+			// same model on the Go endpoint AgentBox delivers the key for.
 			model := d.Model
 			if req.AI == "opencode" {
 				model = opencode.GoModel(model)
@@ -1442,6 +1461,24 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		}
 	}
 	return req, nil
+}
+
+// checkProjectToolModel refuses a model a project's pinned tool can't run, so
+// `agentbox project model` says so before an agent is ever created.
+func checkProjectToolModel(tool, model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" || model == state.AgentModelAuto {
+		return nil
+	}
+	switch tool {
+	case "opencode":
+		if !opencode.IsModelID(model) {
+			return fmt.Errorf("%q isn't an OpenCode model: OpenCode names its models provider/model, like opencode/deepseek-v4.1-flash", model)
+		}
+	case "codex":
+		return fmt.Errorf("Codex agents have no model setting: leave the project's model empty")
+	}
+	return nil
 }
 
 // projectToolModel is the model an agent of a project that pins a tool starts
