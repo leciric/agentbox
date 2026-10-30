@@ -109,8 +109,28 @@ func (c *Client) RenameLeadSession(ctx context.Context, project, session, topic 
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), LeadSessionPatch{Topic: topic}, &out)
 }
 
-// DeleteLeadSession deletes a session with its conversation; its agents are
-// left to no session.
+// ClosedLeadSessions lists the sessions in a project chat's history.
+func (c *Client) ClosedLeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
+	var out []LeadSession
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/sessions?closed=true", nil, &out)
+}
+
+// CloseLeadSession moves a session to the chat's history, its conversation
+// kept.
+func (c *Client) CloseLeadSession(ctx context.Context, project, session string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/close", nil, &out)
+}
+
+// ReopenLeadSession moves a session from the chat's history back among the
+// open ones.
+func (c *Client) ReopenLeadSession(ctx context.Context, project, session string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/reopen", nil, &out)
+}
+
+// DeleteLeadSession deletes a session with its conversation for good; its
+// agents are left to no session.
 func (c *Client) DeleteLeadSession(ctx context.Context, project, session string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), nil, nil)
 }

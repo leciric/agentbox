@@ -425,7 +425,7 @@ func (m *Manager) DestroyLead(ctx context.Context, project string) error {
 	if err != nil {
 		return err
 	}
-	sessions, err := m.Store.LeadSessions(ctx, project)
+	sessions, err := m.Store.AllLeadSessions(ctx, project)
 	if err != nil {
 		return err
 	}

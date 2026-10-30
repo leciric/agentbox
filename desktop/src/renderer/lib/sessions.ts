@@ -1,6 +1,6 @@
 // The sessions of a project's chat (internal/state/leadsessions.go): each a
 // lead conversation of its own on one topic, as many as the user opens, none
-// once they've all been deleted. The chat shows one at a time, its tabs above
+// once they've all been closed. The chat shows one at a time, its tabs above
 // it and the sidebar listing them under the project; which one this computer
 // last had open is kept here, in localStorage, per project, and so is when
 // each was last seen, for its unread dot.
@@ -72,8 +72,9 @@ export function withSession(sessions: readonly T.LeadSession[], s: T.LeadSession
 // openSession is the session clicking a project opens: the one an agent's
 // question waits in (the oldest question's, when several wait), and otherwise
 // pickSession's. A question waits in its agent's session (Agent.leadSession),
-// or, for an agent no session owns or whose session was deleted, in the one
-// most recently active, as the daemon routes it (daemon/leadsessions.go). A
+// or, for an agent no session owns or whose session was closed or deleted, in
+// the open one most recently active, as the daemon routes it
+// (daemon/leadsessions.go). A
 // question from an agent not in agents is left out: it's gone.
 export function openSession(
   sessions: readonly T.LeadSession[],
@@ -103,8 +104,8 @@ export function neighbour(sessions: readonly T.LeadSession[], id: string | undef
   return sessions[(i + step + sessions.length) % sessions.length];
 }
 
-// afterDelete is the session to show once id is deleted: the one beside it.
-export function afterDelete(sessions: readonly T.LeadSession[], id: string): T.LeadSession | undefined {
+// afterClose is the session to show once id is closed: the one beside it.
+export function afterClose(sessions: readonly T.LeadSession[], id: string): T.LeadSession | undefined {
   const i = sessions.findIndex((s) => s.id === id);
   const rest = sessions.filter((s) => s.id !== id);
   return rest[Math.min(Math.max(i, 0), rest.length - 1)];

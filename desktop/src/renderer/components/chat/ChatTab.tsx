@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Archive, Ellipsis, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, Archive, Ellipsis, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -43,8 +43,10 @@ export function requestChatFind(ref: string): void {
 // openAt brings an item into view, reading the chat back to it if need be,
 // with the find bar open on openAt.query when there is one; a new object
 // does it again, so pass one per opening.
-// readOnly is a past agent's chat (components/PastAgents.tsx): it never
-// starts, and a bar to continue or delete it takes the composer's place.
+// readOnly is a past agent's chat (components/PastAgents.tsx), or a closed
+// session's (chat/SessionHistory.tsx): it never starts, and a bar to continue
+// or delete it, and for a session to reopen it, takes the composer's place;
+// note and continueLabel say what it is in place of a past agent's words.
 export function ChatTab({
   agent: given,
   starting,
@@ -61,7 +63,7 @@ export function ChatTab({
   autoStart?: boolean;
   onOpenAgent?: (ref: string) => void;
   openAt?: ChatOpenAt;
-  readOnly?: { onContinue: () => void; onDelete: () => void };
+  readOnly?: { onContinue: () => void; onDelete: () => void; onReopen?: () => void; note?: string; continueLabel?: string };
   // Something to show over the composer, such as UI v2's review card.
   // A function gets the wake button's state while the agent sleeps, to merge
   // it into its own bar.
@@ -385,10 +387,16 @@ export function ChatTab({
               </Button>
               <span className="h-5 w-px shrink-0 bg-line" aria-hidden />
               <Archive className="size-4 shrink-0 text-subtle" />
-              <span className="min-w-0 flex-1 text-ui text-muted">{t('pastAgents.readOnly')}</span>
+              <span className="min-w-0 flex-1 text-ui text-muted">{readOnly.note ?? t('pastAgents.readOnly')}</span>
+              {readOnly.onReopen && (
+                <Button size="sm" variant="secondary" className="shrink-0" onClick={readOnly.onReopen} data-past-reopen>
+                  <RotateCcw />
+                  {t('sessions.reopen')}
+                </Button>
+              )}
               <Button size="sm" variant="primary" className="shrink-0" onClick={readOnly.onContinue} data-past-continue>
                 <Play />
-                {t('pastAgents.continue')}
+                {readOnly.continueLabel ?? t('pastAgents.continue')}
               </Button>
             </div>
           ) : (

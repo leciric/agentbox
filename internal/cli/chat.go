@@ -200,14 +200,19 @@ func newChatSessionCmd(a *app) *cobra.Command {
 	var home bool
 	cmd := &cobra.Command{
 		Use:   "session",
-		Short: "List, open, rename and close the sessions of a project's chat, or of the Home chat",
+		Short: "List, open, rename, close and reopen the sessions of a project's chat, or of the Home chat",
 		Long: `A project's chat has sessions: each a conversation of its own on one topic, with
 its own context and the agents it made, whose notices it hears. Notes, memory,
 skills, schedules and the agent list are shared by all of them.
 
+A closed session is kept in the chat's history, conversation and agents and
+all: list --closed shows it, reopen opens it again, and delete removes it for
+good.
+
 The Home chat has sessions too: --home names it in place of the project.`,
 	}
 	cmd.PersistentFlags().BoolVar(&home, "home", false, "the Home chat's sessions, in place of a project's")
+	var closed bool
 	list := &cobra.Command{
 		Use:   "list <project>|--home",
 		Short: "List a project's chat sessions",
@@ -218,11 +223,19 @@ The Home chat has sessions too: --home names it in place of the project.`,
 			if err != nil {
 				return err
 			}
-			sessions, err := c.LeadSessions(cmd.Context(), args[0])
+			lister := c.LeadSessions
+			if closed {
+				lister = c.ClosedLeadSessions
+			}
+			sessions, err := lister(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			if len(sessions) == 0 && closed {
+				_, _ = fmt.Fprintln(out, "No closed sessions.")
+				return nil
+			}
 			if len(sessions) == 0 {
 				owner := args[0] + "'s chat"
 				if home {
@@ -236,12 +249,16 @@ The Home chat has sessions too: --home names it in place of the project.`,
 				if ls.Agents > 0 {
 					line += fmt.Sprintf(", %d agent(s)", ls.Agents)
 				}
-				line += ", active " + ago(ls.ActiveAt) + ")"
-				_, _ = fmt.Fprintln(out, line)
+				line += ", active " + ago(ls.ActiveAt)
+				if ls.ClosedAt != nil {
+					line += ", closed " + ago(*ls.ClosedAt)
+				}
+				_, _ = fmt.Fprintln(out, line+")")
 			}
 			return nil
 		},
 	}
+	list.Flags().BoolVar(&closed, "closed", false, "the sessions in the chat's history")
 	open := &cobra.Command{
 		Use:   "new <project>|--home [topic]",
 		Short: "Open a new session of a project's chat, named after its first turn when no topic is given",
@@ -279,10 +296,44 @@ The Home chat has sessions too: --home names it in place of the project.`,
 		},
 	}
 	closeCmd := &cobra.Command{
-		Use:     "close <project>|--home <session>",
-		Aliases: []string{"delete"},
-		Short:   "Close a session: its conversation goes, and its agents belong to no session",
-		Args:    homeArgs(&home, cobra.ExactArgs(2)),
+		Use:   "close <project>|--home <session>",
+		Short: "Close a session into the chat's history, its conversation and agents kept",
+		Args:  homeArgs(&home, cobra.ExactArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			args = withHome(home, args)
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if _, err := c.CloseLeadSession(cmd.Context(), args[0], args[1]); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Closed %s; reopen it with: agentbox chat session reopen %s %s\n", args[1], chatArg(args[0]), args[1])
+			return nil
+		},
+	}
+	reopen := &cobra.Command{
+		Use:   "reopen <project>|--home <session>",
+		Short: "Open a closed session again, as it was",
+		Args:  homeArgs(&home, cobra.ExactArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			args = withHome(home, args)
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			ls, err := c.ReopenLeadSession(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Reopened %q\n", ls.Topic)
+			return nil
+		},
+	}
+	deleteCmd := &cobra.Command{
+		Use:   "delete <project>|--home <session>",
+		Short: "Delete a session for good: its conversation goes, and its agents belong to no session",
+		Args:  homeArgs(&home, cobra.ExactArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			args = withHome(home, args)
 			c, err := a.client(cmd)
@@ -292,7 +343,7 @@ The Home chat has sessions too: --home names it in place of the project.`,
 			if err := c.DeleteLeadSession(cmd.Context(), args[0], args[1]); err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Closed %s\n", args[1])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s\n", args[1])
 			return nil
 		},
 	}
@@ -320,7 +371,7 @@ The Home chat has sessions too: --home names it in place of the project.`,
 			return nil
 		},
 	}
-	cmd.AddCommand(list, open, rename, closeCmd, hand)
+	cmd.AddCommand(list, open, rename, closeCmd, reopen, deleteCmd, hand)
 	return cmd
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // Every project chatted with before sessions gets one, "main": its chat, whose
@@ -19,7 +20,7 @@ func TestLeadSessionsMigrationKeepsEachChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	before := len(migrations) - 4
+	before := migrationIndex(t, "SELECT project, 'main', 'Chat'")
 	for i, m := range migrations[:before] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)
@@ -71,7 +72,7 @@ func TestHomeSessionMigration(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = db.Close() }()
-			before := len(migrations) - 1
+			before := migrationIndex(t, "SELECT '_home', 'main'")
 			for i, m := range migrations[:before] {
 				if _, err := db.ExecContext(ctx, m); err != nil {
 					t.Fatalf("migration %d: %v", i+1, err)
@@ -98,5 +99,51 @@ func TestHomeSessionMigration(t *testing.T) {
 				t.Errorf("Home's session is %q, want %q", home[0].Topic, want)
 			}
 		})
+	}
+}
+
+// A session's id is never handed out again once it was used: the ids of the
+// sessions deleted before ids were kept are found in what they left behind,
+// their leads' rows, conversations and spending.
+func TestSessionIDsMigrationKeepsDeletedSessionsIDs(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	before := migrationIndex(t, "ADD COLUMN closed_at")
+	for i, m := range migrations[:before] {
+		if _, err := db.ExecContext(ctx, m); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+	}
+	for _, q := range []string{
+		`INSERT INTO projects (name, root, created_at) VALUES ('web', '/src/web', 1)`,
+		`INSERT INTO lead_sessions (project, id, topic, created_at) VALUES ('web', 'prod', 'Prod', 1)`,
+		`INSERT INTO chat_items (project, agent, id, position, data) VALUES ('web', 'lead.session', 'u1', 0, '{}')`,
+		`INSERT INTO token_usage (project, agent, ai, kind, at) VALUES ('web', 'lead.session-2', 'claude', 'turn', 1)`,
+		fmt.Sprintf("PRAGMA user_version = %d", before),
+	} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	ls, err := st.AddUntitledLeadSession(ctx, "web", time.Now())
+	if err != nil || ls.ID != "session-3" {
+		t.Errorf("a new session = %+v, %v; want session-3, past the two ids deleted sessions had", ls, err)
+	}
+	if prod, err := st.AddLeadSession(ctx, "web", "Prod", time.Now()); err != nil || prod.ID != "prod-2" {
+		t.Errorf("a new Prod session = %+v, %v; want prod-2", prod, err)
+	}
+	open, err := st.LeadSessions(ctx, "web")
+	if err != nil || len(open) != 3 || open[0].Closed() {
+		t.Errorf("web's sessions = %+v, %v; want all three open", open, err)
 	}
 }

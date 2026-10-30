@@ -1,5 +1,5 @@
-import { LoaderCircle, Plus, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { History, LoaderCircle, Plus, X } from 'lucide-react';
+import { useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { useT } from '../../lib/i18n';
 import { isUnread, isWorking, useSeenAt } from '../../lib/sessions';
@@ -11,28 +11,29 @@ import { Tip } from '../ui/tooltip';
 // SessionTabs is the row above a project's chat: one tab per session, with a
 // spinner while its lead works and a dot when it has said something since you
 // last looked; + opens a new one at once, untitled until its first turn
-// names it (ProjectChatPanel). A tab's × asks
-// in place before it deletes the session, and so does its shortcut
-// (lib/shortcuts.ts): no dialog. Double-clicking a tab renames it.
+// names it (ProjectChatPanel). A tab's ×, and its shortcut
+// (lib/shortcuts.ts), close the session into the chat's history, which the
+// History button at the end of the row opens (SessionHistory): nothing is
+// lost, so nothing asks first. Double-clicking a tab renames it.
 export function SessionTabs({
   sessions,
   current,
   adding,
-  confirming,
+  closedCount,
   onChoose,
   onAdd,
-  onConfirm,
-  onDelete,
+  onClose,
+  onHistory,
   onRename,
 }: {
   sessions: T.LeadSession[];
   current?: string;
   adding: boolean;
-  confirming?: string;
+  closedCount: number;
   onChoose: (id: string) => void;
   onAdd: () => void;
-  onConfirm: (id: string | undefined) => void;
-  onDelete: (id: string) => void;
+  onClose: (id: string) => void;
+  onHistory: () => void;
   onRename: (id: string, topic: string) => void;
 }) {
   const t = useT();
@@ -54,20 +55,6 @@ export function SessionTabs({
                 if (topic && topic !== s.topic) onRename(s.id, topic);
               }}
             />
-          );
-        }
-        if (confirming === s.id) {
-          return (
-            <div key={s.id} role="alertdialog" aria-label={t('sessions.deleteAsk', { topic: s.topic })} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 py-0.5 pl-2.5 pr-1 text-ui">
-              <span className="max-w-48 truncate text-secondary">{t('sessions.deleteAsk', { topic: s.topic })}</span>
-              <ConfirmKeys onYes={() => onDelete(s.id)} onNo={() => onConfirm(undefined)} />
-              <Button size="sm" variant="destructive" className="h-6 px-2 text-caption" onClick={() => onDelete(s.id)}>
-                {t('common.delete')}
-              </Button>
-              <Button size="sm" variant="ghost" className="h-6 px-2 text-caption" onClick={() => onConfirm(undefined)}>
-                {t('sessions.keep')}
-              </Button>
-            </div>
           );
         }
         return (
@@ -95,13 +82,14 @@ export function SessionTabs({
             ) : null}
             <span className="min-w-0 truncate">{s.topic}</span>
             {s.agents > 0 && <span className="shrink-0 text-caption tabular-nums text-faint">{s.agents}</span>}
-            <Tip label={on ? `${t('sessions.delete')} · ${keysHint(sessionKeys.close)} / ${keysHint(sessionKeys.delete)}` : t('sessions.delete')}>
+            <Tip label={on ? `${t('sessions.close')} · ${keysHint(sessionKeys.close)}` : t('sessions.close')}>
               <button
                 type="button"
-                aria-label={t('sessions.deleteNamed', { topic: s.topic })}
+                aria-label={t('sessions.closeNamed', { topic: s.topic })}
+                data-session-close={s.id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onConfirm(s.id);
+                  onClose(s.id);
                 }}
                 className={cn('flex size-5 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-strong hover:text-primary', !on && 'opacity-0 group-hover:opacity-100')}
               >
@@ -115,6 +103,13 @@ export function SessionTabs({
         <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-ui" onClick={onAdd} disabled={adding} data-session-new>
           <Plus className="size-3.5" />
           {sessions.length === 0 && t('sessions.new')}
+        </Button>
+      </Tip>
+      <span className="min-w-2 flex-1" />
+      <Tip label={closedCount > 0 ? t('sessions.historyCount', { count: closedCount }) : t('sessions.history')}>
+        <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-ui" onClick={onHistory} aria-label={t('sessions.history')} data-session-history-open>
+          <History className="size-3.5" />
+          {closedCount > 0 && <span className="tabular-nums text-caption text-faint">{closedCount}</span>}
         </Button>
       </Tip>
     </div>
@@ -147,23 +142,4 @@ export function TopicInput({ initial = '', label, placeholder, onDone }: { initi
       className="h-7 w-56 shrink-0 rounded-lg border border-line-strong bg-surface px-2.5 text-ui text-primary outline-none placeholder:text-faint focus:border-brand-400"
     />
   );
-}
-
-// ConfirmKeys answers the inline confirm from the keyboard: Enter deletes,
-// Escape keeps.
-function ConfirmKeys({ onYes, onNo }: { onYes: () => void; onNo: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        onYes();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        onNo();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onYes, onNo]);
-  return null;
 }
