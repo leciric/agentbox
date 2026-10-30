@@ -824,6 +824,28 @@ func TestRenderHome(t *testing.T) {
 	}
 }
 
+// TestRenderHomeOnHost checks the Home chat's brief when its tool runs on
+// the user's computer rather than in AgentBox's VM.
+func TestRenderHomeOnHost(t *testing.T) {
+	got, err := brief.RenderHome(brief.HomeData{Dir: "/Users/dev/.local/share/agentbox/home-chat", VM: true,
+		Host: "a Mac", OnHost: true, HostHome: "/Users/dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"a shell on the user's own computer (a Mac)", "home folder is `/Users/dev`", "run in its VM", "mounted there at the same path"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the brief doesn't say %q:\n%s", want, got)
+		}
+	}
+	got, err = brief.RenderHome(brief.HomeData{Dir: `C:\Users\dev`, VM: true, Host: "Windows", OnHost: true, HostHome: `C:\Users\dev`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "WSL distro, so") || !strings.Contains(got, "not a Windows path") {
+		t.Errorf("the Windows brief doesn't say where projects are:\n%s", got)
+	}
+}
+
 // A project called something other than its slug is called that in both
 // briefs, which still give the slug for refs and URLs.
 func TestRenderProjectName(t *testing.T) {

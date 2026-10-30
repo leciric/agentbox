@@ -218,6 +218,11 @@ type HomeData struct {
 	// VM and Host are LeadData's: where the chat's shell is.
 	VM   bool
 	Host string
+	// OnHost is a chat whose AI tool runs on the user's own computer, not
+	// beside the daemon (package homehost): Host is then that computer, and
+	// HostHome its user's home folder.
+	OnHost   bool
+	HostHome string
 }
 
 // HomeProject is one project the Home chat is told about.

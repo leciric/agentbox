@@ -11,6 +11,7 @@ import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, ty
 import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
 import { EventStream } from './events';
 import { hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
+import { startHomeHost, stopHomeHost } from './homehost';
 import { handleMedia, registerMediaScheme } from './media';
 import { registerBrowserKeys } from './browserkeys';
 import { installPhoneWeb } from './phoneweb';
@@ -287,6 +288,7 @@ void app.whenReady().then(async () => {
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.
   if (onWindows) await startRelay(agentboxBin()).catch(() => {});
+  void startHomeHost();
   await learnMode();
   await restartIfStale().catch(() => {});
   events.start();
@@ -298,6 +300,7 @@ void app.whenReady().then(async () => {
 // quitting (vmmode.ts).
 app.on('window-all-closed', () => {
   events.stop();
+  stopHomeHost();
   stopRelay();
   app.quit();
 });
@@ -318,6 +321,7 @@ app.on('before-quit', (event) => {
   if (vmStop === 'stopping') return;
   vmStop = 'stopping';
   events.stop();
+  stopHomeHost();
   for (const window of BrowserWindow.getAllWindows()) window.hide();
   const stopped = stopStartingDaemon().then(stopVM);
   const timedOut = new Promise<void>((resolve) => setTimeout(resolve, vmStopTimeout));
