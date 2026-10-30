@@ -63,11 +63,17 @@ export function useNewTaskOpen(): boolean {
 // chat it opens takes it as its composer mounts, which may be a while (a new
 // session's lead starting), unless you click or type somewhere else first.
 const focusWaitMs = 60_000;
-let wanted: { ref: string; at: number; mark: number } | undefined;
+let wanted: { ref: string; at: number; mark: number; exact: boolean } | undefined;
 const focusListeners = new Set<() => void>();
-export function requestComposerFocus(ref: string, now = Date.now(), mark = globalThis.performance?.now() ?? 0): void {
-  wanted = { ref, at: now, mark };
+export function requestComposerFocus(ref: string, now = Date.now(), mark = globalThis.performance?.now() ?? 0, exact = false): void {
+  wanted = { ref, at: now, mark, exact };
   for (const l of focusListeners) l();
+}
+// requestSessionFocus asks it for one session of a project's chat, and only
+// that one: "web/lead" is then the main session, not whichever is on screen,
+// which, as you leave it for this one, would take it and go.
+export function requestSessionFocus(ref: string, now = Date.now(), mark = globalThis.performance?.now() ?? 0): void {
+  requestComposerFocus(ref, now, mark, true);
 }
 // dropComposerFocus forgets a request made before an event at timeStamp: you
 // did something else since. The event that made it, handled after this, is
@@ -89,7 +95,7 @@ export function onComposerFocus(fn: () => void): () => void {
 // A request for a project's chat ("web/lead") is the session's on screen,
 // whichever it is ("web/lead.prod").
 export function takeComposerFocus(ref: string, now = Date.now()): boolean {
-  const project = wanted?.ref.endsWith('/lead') ? wanted.ref.slice(0, -'/lead'.length) : undefined;
+  const project = wanted?.ref.endsWith('/lead') && !wanted.exact ? wanted.ref.slice(0, -'/lead'.length) : undefined;
   const same = wanted?.ref === ref || (project !== undefined && ref.startsWith(`${project}/lead.`));
   if (!wanted || !same || now - wanted.at > focusWaitMs) return false;
   wanted = undefined;

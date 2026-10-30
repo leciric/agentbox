@@ -7,7 +7,7 @@ import { api, sessionOfRef } from '../lib/api';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { afterDelete, chooseSession, markSessionSeen, neighbour, pickSession, useChosenSession } from '../lib/sessions';
-import { requestComposerFocus } from '../lib/newTask';
+import { requestSessionFocus } from '../lib/newTask';
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
 import { errorMessage } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
@@ -65,7 +65,7 @@ export function useCurrentSession(project: string | undefined): T.LeadSession | 
 // write in: its composer takes the focus once it shows.
 function showSession(project: string, s: T.LeadSession) {
   chooseSession(project, s.id);
-  requestComposerFocus(s.ref);
+  requestSessionFocus(s.ref);
 }
 
 // The project's chat, driven by its leads: one per session, the one shown

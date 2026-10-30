@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { digitPick, dropComposerFocus, isNewTaskShortcut, requestComposerFocus, takeComposerFocus, taskTargets, type TaskTarget } from './newTask.ts';
+import { digitPick, dropComposerFocus, isNewTaskShortcut, requestComposerFocus, requestSessionFocus, takeComposerFocus, taskTargets, type TaskTarget } from './newTask.ts';
 
 const projects: TaskTarget[] = [
   { name: 'alpha', label: 'Alpha' },
@@ -51,6 +51,12 @@ test('takeComposerFocus: the asked-for chat, once, while it is fresh', () => {
   assert.equal(takeComposerFocus('pawly/lead', 1200), false);
   requestComposerFocus('pawly/lead', 1000);
   assert.equal(takeComposerFocus('pawly/lead', 62_000), false);
+});
+
+test("a session asked for is that one, even the main one, not the one you're leaving", () => {
+  requestSessionFocus('web/lead', 1000);
+  assert.ok(!takeComposerFocus('web/lead.prod', 1001));
+  assert.ok(takeComposerFocus('web/lead', 1002));
 });
 
 test('a chat slow to show still takes the focus, unless you did something else first', () => {

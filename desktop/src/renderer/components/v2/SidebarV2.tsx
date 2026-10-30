@@ -48,7 +48,7 @@ import { isNightly, isUpgrade } from '../../lib/nightly';
 import { useStaleDaemon } from '../StaleDaemonNotice';
 import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
-import { openNewTask, requestComposerFocus } from '../../lib/newTask';
+import { openNewTask, requestComposerFocus, requestSessionFocus } from '../../lib/newTask';
 import { openPanelOn, setPanel } from '../../lib/rightPanel';
 import { describeDelete, dropLine, Logo, moveKeys, NameSection, RenameSection, SectionHeader } from '../Sidebar';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -940,7 +940,8 @@ function ProjectLead({
               const to = openSession(sessions, chosenSession(project.name), questions, agents);
               if (to) chooseSession(project.name, to.id);
               onSelect({ kind: 'project', project: project.name });
-              requestComposerFocus(to?.ref ?? leadRef);
+              if (to) requestSessionFocus(to.ref);
+              else requestComposerFocus(leadRef);
             }}
             data={{ 'data-v2-lead': project.name }}
           >
@@ -1078,7 +1079,7 @@ function SidebarSessions({ project, active, onOpen }: { project: string; active:
             onClick={() => {
               chooseSession(project, s.id);
               onOpen();
-              requestComposerFocus(s.ref);
+              requestSessionFocus(s.ref);
             }}
             className={cn(
               'flex h-6 min-w-0 items-center gap-1.5 rounded-md border-l border-line px-2 text-left text-[12px] transition-colors',
