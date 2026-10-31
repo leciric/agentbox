@@ -60,7 +60,7 @@ export function ReviewView({ tab = 'work', project, filter = 'review', onSelect 
         </div>
       </TabsContent>
       <TabsContent value="proof" className="overflow-hidden">
-        <MediaView onSelect={onSelect} />
+        <MediaView heading onSelect={onSelect} />
       </TabsContent>
     </Tabs>
   );

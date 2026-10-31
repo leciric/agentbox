@@ -23,6 +23,10 @@ import { Kbd } from './ui/card';
 // and Q and H work a pair's comparison (ProofHandle, the keys being the
 // review's: ReviewCarousel).
 
+// stageWidth is the most a piece of proof takes across, out of the review's
+// expanded view: a 16:10 picture half the window tall.
+const stageWidth = 'calc(50vh * 1.6)';
+
 // clock is seconds as m:ss.
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -115,7 +119,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
   );
 
   return (
-    <div ref={root} className={cn('relative grid min-h-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] content-start overflow-x-clip gap-4 p-4 sm:p-5', expanded && 'h-full')} data-review-proof data-review-media-at={at + 1}>
+    <div ref={root} className={cn('@container relative grid min-h-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] content-start overflow-x-clip gap-4 p-4 sm:p-5', expanded && 'h-full')} data-review-proof data-review-media-at={at + 1}>
       {expanded ? (
         // Expanded, the piece on stage fills the body, its bar over it.
         <div className="absolute inset-0 z-10 flex flex-col gap-3 bg-black/95 p-4" data-review-expanded>
@@ -123,8 +127,13 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
           <div className="flex min-h-0 flex-1 items-center justify-center">{stage}</div>
         </div>
       ) : (
-        <div className={cn('grid min-w-0 max-w-full gap-5', rec && 'lg:grid-cols-[minmax(0,1fr)_280px]')}>
-          <div className="grid min-w-0 content-start gap-2">
+        // A recording's chapters go beside it when the proof itself has the
+        // room, which the case beside the proof (ReviewCarousel) takes from
+        // the window, and under it otherwise.
+        <div className={cn('grid min-w-0 max-w-full gap-5', rec && '@4xl:grid-cols-[minmax(0,1fr)_260px]')}>
+          {/* The stage and its bar are one block, as wide as the stage, in
+              the middle of the proof when nothing sits beside it. */}
+          <div className="mx-auto grid w-full min-w-0 content-start gap-2" style={current.kind === 'pair' ? undefined : { maxWidth: stageWidth }}>
             {stage}
             {bar}
           </div>
@@ -149,7 +158,7 @@ function StageBar({ shown, n, count, expanded, onStep, onExpand }: { shown: Show
       <Button size="icon-sm" variant="ghost" disabled={n === 0} onClick={() => onStep(-1)} aria-label={t('review.previous')} title={`${t('review.previous')} (←)`}>
         <ChevronLeft />
       </Button>
-      <span className="shrink-0 tabular-nums text-subtle">{t('review.position', { n: n + 1, count })}</span>
+      <span className="shrink-0 font-mono text-caption tabular-nums text-subtle">{t('review.position', { n: n + 1, count })}</span>
       <Button size="icon-sm" variant="ghost" disabled={n === count - 1} onClick={() => onStep(1)} aria-label={t('review.next')} title={`${t('review.next')} (→)`}>
         <ChevronRight />
       </Button>
@@ -200,8 +209,8 @@ function Stage({
   onTime: (seconds: number) => void;
   onExpand: () => void;
 }) {
-  const box = expanded ? 'size-full' : 'mx-auto aspect-[16/10] w-full';
-  const width = expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' };
+  const box = expanded ? 'size-full' : 'aspect-[16/10] w-full';
+  const width = expanded ? undefined : { maxWidth: stageWidth };
   if (shown.kind === 'pair') {
     const Halves = shown.pair.before.kind === 'recording' ? ReviewVideos : ReviewCompare;
     return <Halves ref={compare} pair={shown.pair} expanded={expanded} />;
@@ -217,7 +226,9 @@ function Stage({
   return <PageFrame project={project} page={shown.page} className={cn(box, 'overflow-hidden rounded-xl border border-line-strong')} style={width} />;
 }
 
-// Strip is every piece of proof, the one on stage lit; a click puts it there.
+// Strip is every piece of proof, the one on stage underlined in the brand's
+// colour (the review's mark for what's picked, PaneTab), those taken during
+// the chapter playing outlined; a click puts one on stage.
 function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: ReadonlySet<string>; onPick: (n: number) => void }) {
   const t = useT();
   const counts = [
@@ -229,10 +240,9 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
   if (shown.length < 2) return null;
   return (
     <section className="min-w-0">
-      <h3 className="mb-2 flex items-center gap-2 text-caption font-semibold uppercase tracking-wide text-subtle">
+      <h3 className="mb-2 flex items-center gap-2 text-caption font-medium text-muted">
         {t('review.media')}
-        <span className="font-normal normal-case tracking-normal">{counts.join(' · ')}</span>
-        <span className="ml-auto font-normal normal-case tracking-normal max-md:hidden">{t('review.mediaKeys')}</span>
+        <span className="font-normal text-subtle">{counts.join(' · ')}</span>
       </h3>
       <div className="flex max-w-full gap-2 overflow-x-auto overscroll-x-contain p-0.5 pb-1 [scrollbar-width:thin]" data-review-shots>
         {shown.map((s, i) => (
@@ -244,14 +254,15 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
             onClick={() => onPick(i)}
             className={cn(
               s.kind === 'pair' ? 'w-56' : 'w-36',
-              'shrink-0 overflow-hidden rounded-lg border bg-surface text-left transition hover:border-line-heavy',
-              i === at ? 'border-brand-400 ring-1 ring-brand-400' : s.kind === 'screenshot' && lit.has(s.media.id) ? 'border-brand-400/50' : 'border-line-strong',
+              'relative shrink-0 overflow-hidden rounded-lg border bg-surface text-left transition-colors hover:border-line-heavy',
+              'after:absolute after:inset-x-2 after:bottom-0 after:h-px',
+              i === at ? 'border-line-heavy after:bg-brand-400' : s.kind === 'screenshot' && lit.has(s.media.id) ? 'border-line-heavy' : 'border-line',
             )}
             data-review-media={i + 1}
             data-review-media-kind={s.kind}
           >
             <Thumb shown={s} />
-            <span className="flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-caption text-secondary">
+            <span className={cn('flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-caption', i === at ? 'text-title' : 'text-secondary')}>
               <KindIcon shown={s} className="size-3 shrink-0 text-subtle" />
               <span className="min-w-0 truncate">{nameOf(s)}</span>
             </span>
@@ -301,10 +312,10 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
   const t = useT();
   return (
     <section className="min-w-0" data-review-chapters>
-      <h3 className="mb-2 flex items-center gap-2 text-caption font-semibold uppercase tracking-wide text-subtle">
+      <h3 className="mb-2 flex items-center gap-2 text-caption font-medium text-muted">
         {t('review.checked')}
         {take.chapters.length > 1 && (
-          <span className="ml-auto flex gap-1 font-normal normal-case max-md:hidden" aria-hidden>
+          <span className="ml-auto flex gap-1 font-normal max-md:hidden" aria-hidden>
             <Kbd>[</Kbd>
             <Kbd>]</Kbd>
           </span>
@@ -320,16 +331,17 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
                 type="button"
                 onClick={() => onPick(c.at)}
                 aria-current={i === at || undefined}
-                className={cn('flex w-full gap-2.5 rounded-lg px-2.5 py-2 text-left transition', i === at ? 'bg-surface-strong' : 'hover:bg-surface-raised')}
+                className={cn(
+                  'relative flex w-full gap-2.5 rounded-r-lg px-2.5 py-2 text-left transition-colors before:absolute before:inset-y-1.5 before:left-0 before:w-px',
+                  i === at ? 'before:bg-brand-400' : 'hover:bg-surface-raised',
+                )}
                 data-review-chapter={i + 1}
               >
-                <span className={cn('mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full', i === at ? 'bg-emerald-400/20 text-emerald-300' : 'text-emerald-400')}>
-                  <Check className="size-3.5" />
-                </span>
+                <Check className={cn('mt-0.5 size-3.5 shrink-0', i === at ? 'text-emerald-400' : 'text-faint')} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
                     <span className={cn('min-w-0 flex-1 [overflow-wrap:anywhere] text-ui', i === at ? 'text-title' : 'text-primary')}>{c.title}</span>
-                    <span className="shrink-0 text-caption tabular-nums text-faint">{clock(c.at)}</span>
+                    <span className="shrink-0 font-mono text-caption tabular-nums text-subtle">{clock(c.at)}</span>
                   </span>
                   {c.detail && <span className="mt-0.5 line-clamp-3 block [overflow-wrap:anywhere] text-caption leading-snug text-subtle">{c.detail}</span>}
                 </span>
@@ -390,8 +402,8 @@ function Player({ ref, take, chapter, onTime, expanded }: { ref: Ref<PlayerHandl
   }
   return (
     <div
-      className={cn('mx-auto w-full overflow-hidden rounded-xl border border-line-strong bg-black', expanded && 'flex h-full flex-col')}
-      style={expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' }}
+      className={cn('w-full overflow-hidden rounded-xl border border-line-strong bg-black', expanded && 'flex h-full flex-col')}
+      style={expanded ? undefined : { maxWidth: stageWidth }}
       data-review-player={take.media.id}
     >
       <div className={cn('relative', expanded && 'min-h-0 flex-1')}>
@@ -413,7 +425,7 @@ function Player({ ref, take, chapter, onTime, expanded }: { ref: Ref<PlayerHandl
           className={cn('block w-full cursor-pointer object-contain', expanded ? 'h-full' : 'aspect-[16/10]')}
         />
         {current && (
-          <span className="pointer-events-none absolute left-3 top-3 max-w-[80%] truncate rounded-md bg-black/65 px-2 py-1 text-caption text-white backdrop-blur">
+          <span className="pointer-events-none absolute left-3 top-3 max-w-[80%] truncate rounded-md bg-black/70 px-2 py-1 text-caption text-white">
             <span className="tabular-nums text-white/60">{t('review.position', { n: chapter + 1, count: take.chapters.length })}</span> {current.title}
           </span>
         )}
@@ -440,7 +452,7 @@ function Player({ ref, take, chapter, onTime, expanded }: { ref: Ref<PlayerHandl
                 className="group flex h-full min-w-1 items-center"
                 style={{ flex: `${span} 1 0` }}
               >
-                <span className={cn('block h-1 w-full overflow-hidden rounded-full bg-white/25 transition-all group-hover:h-1.5', i === chapter && take.chapters.length > 0 && 'h-1.5')}>
+                <span className={cn('block h-1 w-full overflow-hidden rounded-full bg-white/25 transition-[height] group-hover:h-1.5', i === chapter && take.chapters.length > 0 && 'h-1.5')}>
                   <span className="block h-full bg-white" style={{ width: `${p * 100}%` }} />
                 </span>
               </button>
