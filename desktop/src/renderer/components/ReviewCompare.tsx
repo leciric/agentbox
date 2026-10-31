@@ -52,8 +52,9 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
 
   return (
     <div className={cn('grid min-w-0 gap-2', expanded && 'h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]')} data-review-compare={mode} data-review-compare-side={mode === 'flip' ? side : undefined}>
-      <div className={cn('flex min-w-0 flex-wrap items-center gap-2 text-[12px]', expanded ? 'text-white/80' : 'text-secondary')}>
-        <div role="radiogroup" aria-label={t('review.compare.modes')} className="flex items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5">
+      <div className={cn('flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption', expanded ? 'text-white/80' : 'text-secondary')}>
+        {/* The mode in use is underlined, as the review marks what's picked. */}
+        <div role="radiogroup" aria-label={t('review.compare.modes')} className="flex items-center gap-4">
           {compareModes.map((m) => {
             const Icon = modeIcon[m];
             return (
@@ -64,7 +65,10 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
                 aria-checked={mode === m}
                 onClick={() => setComparePrefs({ mode: m })}
                 title={t('review.compare.modeTitle', { mode: t(modeLabel[m]) })}
-                className={cn('inline-flex h-6 items-center gap-1.5 rounded-md px-2 font-medium transition', mode === m ? 'bg-surface-strong text-title' : 'text-subtle hover:text-primary')}
+                className={cn(
+                  'relative inline-flex h-7 items-center gap-1.5 font-medium transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-px',
+                  mode === m ? (expanded ? 'text-white after:bg-brand-400' : 'text-title after:bg-brand-400') : 'text-subtle hover:text-primary',
+                )}
                 data-review-compare-mode={m}
               >
                 <Icon className="size-3.5" />
@@ -73,7 +77,7 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
             );
           })}
         </div>
-        <span className="-ml-0.5 flex items-center gap-1 text-[11.5px] text-subtle max-md:hidden" aria-hidden title={t('review.key.compareMode')}>
+        <span className="flex items-center gap-1 text-subtle max-md:hidden" aria-hidden title={t('review.key.compareMode')}>
           <Kbd>Q</Kbd>
           {t('review.compare.cycle')}
         </span>
@@ -83,25 +87,27 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
           onClick={() => setComparePrefs({ highlight: !highlight })}
           title={t('review.compare.highlightTitle')}
           className={cn(
-            'inline-flex h-7 items-center gap-1.5 rounded-lg border px-2 font-medium transition',
-            highlight ? 'border-fuchsia-400/60 bg-fuchsia-500/15 text-fuchsia-200' : 'border-line text-subtle hover:text-primary',
+            'relative inline-flex h-7 items-center gap-1.5 font-medium transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-px',
+            highlight ? (expanded ? 'text-white after:bg-brand-400' : 'text-title after:bg-brand-400') : 'text-subtle hover:text-primary',
           )}
           data-review-highlight
         >
-          <Highlighter className="size-3.5" />
+          {/* On, its icon is the colour the changed pixels are painted in
+              (lib/compare.ts pixelDiff): the key to them. */}
+          <Highlighter className={cn('size-3.5', highlight && 'text-[rgb(255_0_170)]')} />
           {t('review.compare.highlight')}
           <span className="max-md:hidden" aria-hidden>
             <Kbd>H</Kbd>
           </span>
         </button>
         {highlight && (
-          <span className="min-w-0 truncate text-[11.5px] text-subtle" data-review-highlight-note={difference.status}>
+          <span className="min-w-0 truncate text-subtle" data-review-highlight-note={difference.status}>
             {differenceNote(t, difference)}
           </span>
         )}
-        <span className="ml-auto flex min-w-0 items-center gap-2 text-[11.5px] text-subtle">
+        <span className="ml-auto flex min-w-0 items-center gap-2 text-subtle">
           {zoom.scale > 1 && (
-            <button type="button" onClick={() => setZoom(noZoom)} className="shrink-0 rounded-md px-1.5 tabular-nums hover:text-primary" data-review-zoom={zoom.scale.toFixed(1)}>
+            <button type="button" onClick={() => setZoom(noZoom)} className="shrink-0 rounded-md px-1.5 font-mono tabular-nums hover:text-primary" data-review-zoom={zoom.scale.toFixed(1)}>
               {Math.round(zoom.scale * 10) / 10}× · {t('review.compare.fit')}
             </button>
           )}
@@ -225,7 +231,7 @@ function Picture({ item, label, overlay }: { item: T.MediaItem; label: string; o
     <div className="absolute inset-0" data-review-picture={item.id}>
       <img src={mediaUrl(item)} alt={item.name} draggable={false} className="size-full object-fill" />
       {overlay && <img src={overlay} alt="" draggable={false} className="pointer-events-none absolute inset-0 size-full object-fill [image-rendering:pixelated]" data-review-overlay />}
-      <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur">{label}</span>
+      <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/70 px-1.5 py-0.5 text-caption font-medium text-white">{label}</span>
     </div>
   );
 }
@@ -318,7 +324,7 @@ export function ReviewVideos({ ref, pair, expanded }: { ref?: Ref<CompareHandle>
     <div className={cn('grid min-w-0 gap-3', expanded && 'h-full min-h-0 grid-rows-2')} data-review-videos>
       {(['before', 'after'] as const).map((s) => (
         <figure key={s} className={cn('mx-auto grid w-full min-w-0 gap-1.5', expanded && 'h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]')} style={expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' }}>
-          <figcaption className={cn('text-[12px] font-medium', expanded ? 'text-white/80' : 'text-secondary')}>{t(s === 'before' ? 'review.compare.before' : 'review.compare.after')}</figcaption>
+          <figcaption className={cn('text-caption font-medium', expanded ? 'text-white/80' : 'text-secondary')}>{t(s === 'before' ? 'review.compare.before' : 'review.compare.after')}</figcaption>
           <video
             ref={(v) => {
               videos.current[s] = v;
