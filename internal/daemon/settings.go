@@ -204,6 +204,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.SeeFeature != nil {
+		if err := s.store.SeeFeature(r.Context(), *req.SeeFeature); err != nil {
+			return err
+		}
+	}
 	if req.ClaudeCompactWindow != nil {
 		// Stored as a count, and checked against the bounds Claude Code holds
 		// its own variable to: past them, it would clamp or ignore the value
@@ -609,6 +614,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	seenFeatures, err := s.store.SeenFeatures(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	updateCheck, err := s.store.FlagOn(r.Context(), state.SettingUpdateCheck)
 	if err != nil {
 		return api.Settings{}, err
@@ -744,6 +753,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		CreditAITool:         creditAITool,
 		BuiltWithBadge:       builtWithBadge,
 		BuiltWithBadgeOffer:  badgeOffer == state.BadgeOfferReady,
+		SeenFeatures:         seenFeatures,
 		UpdateCheck:          updateCheck,
 		UsageStats:           usageStats,
 		AgentGPU:             agentGPU,

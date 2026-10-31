@@ -50,6 +50,7 @@ import { TopBar } from "./components/TopBar";
 import { VMSetup } from "./components/VMSetup";
 import { LinuxVMSetup, MovePrompt } from "./components/RunInVM";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
+import { settleDots } from "./components/FeatureDot";
 import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
 import { BuiltWithBadgeOffer } from "./components/BuiltWithBadgeOffer";
@@ -156,6 +157,8 @@ export function App({ initial }: { initial?: View } = {}) {
     // In v2 a What's new tour for this version plays first, and its last step
     // links to the release notes: they never open over it.
     if (shouldShowAutomatically(version) && !(uiV2() && tourFirst(tourState(), launchArrival()))) setWhatsNew(true);
+    // Before markSeen: the version What's new saw last is the one dots count from.
+    settleDots(version);
     markSeen(version);
   }, [info.data?.version]);
   const hostSetup = useQuery({

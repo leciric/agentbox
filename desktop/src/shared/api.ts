@@ -190,6 +190,7 @@ export interface Settings {
   creditAITool: boolean;
   builtWithBadge: boolean;
   builtWithBadgeOffer: boolean;
+  seenFeatures: string[];
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
@@ -264,6 +265,7 @@ export interface UpdateSettingsRequest {
   creditAITool?: boolean;
   builtWithBadge?: boolean;
   dismissBuiltWithBadgeOffer?: boolean;
+  seeFeature?: string;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   updateChannel?: string;

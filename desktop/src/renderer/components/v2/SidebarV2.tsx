@@ -56,6 +56,7 @@ import { openNewTask, requestComposerFocus, requestSessionFocus } from '../../li
 import { openPanelOn, setPanel } from '../../lib/rightPanel';
 import { describeDelete, dropLine, Logo, moveKeys, NameSection, RenameSection, SectionHeader } from '../Sidebar';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { dotLabel, FeatureDot, useFeatureDot } from '../FeatureDot';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
 import { ReviewCount, useOpenWork } from './ReviewV2';
 import { projectActions, type ProjectAction } from './ProjectHeader';
@@ -87,6 +88,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const activity = useQuery({ queryKey: ['projectActivity'], queryFn: api.projectActivity, refetchInterval: 60_000 });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
+  const footDots = { settings: useFeatureDot('foot:settings'), work: useFeatureDot('foot:work'), media: useFeatureDot('foot:media') };
   // The same test as Sidebar's: a nightly is one by its version, or by the update check's word.
   const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
   const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
@@ -609,13 +611,17 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           ] as const
         ).map(({ kind, icon: Icon, label, alert }) => {
           const active = view.kind === kind;
+          const dot = kind === 'jobs' ? undefined : footDots[kind];
           return (
-            <Tip key={kind} label={label}>
+            <Tip key={kind} label={dot ? dotLabel(label, dot) : label}>
               <button
                 type="button"
                 aria-label={label}
                 aria-current={active ? 'page' : undefined}
-                onClick={() => onSelect({ kind })}
+                onClick={() => {
+                  dot?.clear();
+                  onSelect({ kind });
+                }}
                 className={cn(
                   'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
                   active && 'bg-surface-raised text-title',
@@ -624,6 +630,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
               >
                 <Icon className={cn('size-4', active ? 'text-brand-300' : 'text-subtle')} />
                 {alert && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-amber-400" title={t('shell.sidebar.needsAttention')} aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
+                {!alert && dot && <FeatureDot dot={dot} />}
               </button>
             </Tip>
           );
