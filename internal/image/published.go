@@ -110,6 +110,19 @@ var unpublished = []string{"claude", "npm:@agentclientprotocol/claude-agent-acp"
 // where their source is: SOURCES-<arch>.md lists them. A tool tools.txt starts
 // pinning for every image goes here, once its license allows publishing it,
 // or into unpublished (TestEveryToolIsPublishedOrNot).
+//
+// Gemini CLI was checked as published on npm at 0.64.0, the version
+// tools.txt pins: the package is Apache-2.0 and has no dependencies, only an
+// esbuild bundle. The bundle's own license comments are Apache-2.0, MIT,
+// ISC and BSD-3-Clause (React's included), and its one notices file
+// (bundle/bundled/third_party/THIRD_PARTY_NOTICES, for the bundled Chrome
+// DevTools MCP server, itself Apache-2.0) lists MIT, ISC, Apache-2.0,
+// BSD-2/3-Clause and 0BSD, all permissive. The GPL and other copyleft names
+// the bundle contains are SPDX license-id tables (spdx-license-ids and
+// spdx-correct's data), not the licenses of code in it. npm adds its optional
+// native modules, @github/keytar (MIT, with node-addon-api, MIT) and
+// node-pty/@lydell/node-pty (MIT, with nan, MIT). Check again when the pin
+// moves to another minor version.
 var toolLicenses = map[string]struct{ License, Source string }{
 	"go":                     {"BSD-3-Clause", "https://go.googlesource.com/go"},
 	"node":                   {"MIT, with its bundled dependencies' permissive licenses", "https://github.com/nodejs/node"},
