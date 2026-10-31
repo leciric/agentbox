@@ -515,6 +515,28 @@
     "height": 900
   },
   {
+    "id": "settings-essentials-dark",
+    "description": "Settings as it first opens: Essentials, with every section folded under Advanced in the sidebar and at the page's end — dark",
+    "query": "settings=essentials&theme=dark",
+    "width": 1280,
+    "height": 1500
+  },
+  {
+    "id": "settings-essentials-pt-light",
+    "description": "Essentials in Portuguese, Advanced unfolded at the page's end — light",
+    "query": "settings=essentials&theme=light&lang=pt-BR",
+    "width": 1280,
+    "height": 1500,
+    "click": "[data-settings-advanced] > button"
+  },
+  {
+    "id": "project-settings-general-dark",
+    "description": "A project's Settings tab at General: its name, model and accounts, the rest folded under Advanced — dark",
+    "query": "page=general&theme=dark",
+    "width": 1280,
+    "height": 1100
+  },
+  {
     "id": "settings-models-lead-dark",
     "description": "Settings open at Models, tall enough for the whole Lead group: its model, window, effort and permission mode — dark",
     "query": "settings=models&theme=dark",
@@ -523,7 +545,7 @@
   },
   {
     "id": "settings-project-light",
-    "description": "Settings open at a project's own settings, its advanced ones folded — light",
+    "description": "Settings open at a project's own settings, every one of them, under an unfolded Advanced — light",
     "query": "settings=project:agentbox&theme=light",
     "width": 1280,
     "height": 900

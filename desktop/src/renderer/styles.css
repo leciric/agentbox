@@ -1287,6 +1287,24 @@ body[data-touring] [data-sonner-toaster] {
   }
 }
 
+/* The setting a search in Settings opened its section at, lit for a moment
+   so the eye finds it (SettingsPage's reveal). */
+[data-setting-id][data-revealed] {
+  animation: setting-revealed 1.6s ease-out;
+  border-radius: 12px;
+}
+@keyframes setting-revealed {
+  0%,
+  40% {
+    background: color-mix(in srgb, var(--ab-brand-400) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ab-brand-400) 55%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+
 /* The agent cards' tiny monitors (components/v2/AgentMonitor.tsx). A working
    screen's column of lines steps up one line per --ab-pace (its recent tool
    calls set it), while the bottom line types out behind the cursor in the

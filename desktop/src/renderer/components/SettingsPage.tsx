@@ -1,8 +1,8 @@
-import { ArrowLeft, ChevronRight, FolderGit2, Search, SearchX, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ChevronRight, FolderGit2, Search, SearchX, Star, X, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { countFeature, settingsSectionFeatures } from '../lib/usageStats';
-import { countEntries, search, splitAdvanced, type SettingEntry, type SettingGroup, type SettingSection } from '../lib/settingsSearch';
+import { countEntries, essentialsId, essentialsSection, search, splitEssentials, type SettingEntry, type SettingGroup, type SettingSection } from '../lib/settingsSearch';
 import { cn } from '../lib/utils';
 import { Kbd, Notice, Panel } from './ui/card';
 import { ScrollRow } from './ui/scroll-row';
@@ -14,7 +14,10 @@ import { Tip } from './ui/tooltip';
 import { pendingReveal, useReveal } from '../lib/reveal';
 
 // The Settings page once setup is done: a sidebar of sections, one open at a
-// time, with a search across all of them above it. The installation's own
+// time, with a search across all of them above it. It opens on Essentials, the
+// few settings a new user changes (each marked essential where it lives), and
+// keeps every section under Advanced, folded until asked for or until a link
+// or a search goes into one. The installation's own
 // sections come first — what applies to every project on this machine, under
 // a few plain headings — then each project's, the way Linear puts a
 // workspace's settings above its teams' and Zed keeps user settings apart from
@@ -68,17 +71,41 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
   const [query, setQuery] = useState('');
   const main = useRef<HTMLDivElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
+  const installation = sections.filter((s) => s.scope === 'installation');
+  const projects = sections.filter((s) => s.scope === 'project');
+  const essentials = essentialsSection(installation, t('settings.page.essentials'), t('settings.page.essentialsDescription'));
   // A section that's gone (a removed project, a section an older version
-  // had) opens the first one instead.
-  const open = sections.find((s) => s.id === stored) ?? sections[0];
-  const select = (id: string) => {
+  // had) opens Essentials instead.
+  const open = sections.find((s) => s.id === stored) ?? essentials;
+  // Advanced starts unfolded when Settings opens in one of its sections, such
+  // as from a link elsewhere in the app.
+  const [advancedOpen, setAdvancedOpen] = useState(() => open.id !== essentialsId);
+  // A setting to bring into view once its section is open: the first a
+  // search found, when Enter opens it.
+  const [reveal, setReveal] = useState<string>();
+  const select = (id: string, entry?: string) => {
     localStorage.setItem(sectionKey, id);
     setStored(id);
     setQuery('');
-    main.current?.scrollTo({ top: 0 });
+    if (id !== essentialsId) setAdvancedOpen(true);
+    setReveal(entry);
+    if (!entry) main.current?.scrollTo({ top: 0 });
   };
   const found = useMemo(() => search(sections, query), [sections, query]);
   const searching = query.trim() !== '';
+  const showAdvanced = advancedOpen || searching;
+  // firstFound is the first section a search found and its first setting,
+  // which Enter opens.
+  const firstFound = searching && found[0] ? { section: found[0].id, entry: found[0].groups[0]?.entries[0]?.id } : undefined;
+
+  useEffect(() => {
+    if (!reveal) return;
+    const row = main.current?.querySelector<HTMLElement>(`[data-setting-id="${CSS.escape(reveal)}"]`);
+    row?.scrollIntoView({ block: 'center' });
+    row?.setAttribute('data-revealed', '');
+    const done = setTimeout(() => row?.removeAttribute('data-revealed'), 1600);
+    return () => clearTimeout(done);
+  }, [reveal, open.id]);
 
   useEffect(() => {
     const kept = Number(sessionStorage.getItem(scrollKey));
@@ -138,11 +165,10 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
 
   const changed = sections.reduce((n, s) => n + s.groups.reduce((m, g) => m + g.entries.filter((e) => e.modified).length, 0), 0);
   const foundIn = new Map(found.map((s) => [s.id, countEntries(s)]));
-  const installation = sections.filter((s) => s.scope === 'installation');
-  const projects = sections.filter((s) => s.scope === 'project');
+  foundIn.set(essentialsId, search([essentials], query).reduce((n, s) => n + countEntries(s), 0));
 
   const navItem = (section: SettingSection) => {
-    const Icon = icons[section.id] ?? FolderGit2;
+    const Icon = section.id === essentialsId ? Star : (icons[section.id] ?? FolderGit2);
     const hits = foundIn.get(section.id) ?? 0;
     const active = !searching && section.id === open?.id;
     const dot = dotFor(section.id);
@@ -154,7 +180,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
         aria-current={active ? 'page' : undefined}
         disabled={searching && hits === 0}
         onClick={() => {
-          if (!searching) return select(section.id);
+          if (!searching || section.id === essentialsId) return select(section.id);
           document.getElementById(`settings-found-${section.id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
         }}
         className={cn(
@@ -216,6 +242,10 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
+                  if (event.key === 'Enter' && firstFound) {
+                    event.preventDefault();
+                    select(firstFound.section, firstFound.entry);
+                  }
                   if (event.key === 'Escape' && query) {
                     event.stopPropagation();
                     setQuery('');
@@ -264,7 +294,19 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
             active={open?.id}
             className="flex gap-1 px-3 pb-0.5 @3xl:grid @3xl:gap-0.5 @3xl:overflow-visible @3xl:px-0"
           >
-            {installation.map((section, i) => {
+            {navItem(essentials)}
+            <button
+              type="button"
+              data-settings-advanced-nav
+              aria-expanded={showAdvanced}
+              disabled={searching}
+              onClick={() => setAdvancedOpen((o) => !o)}
+              className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:hover:bg-transparent @3xl:mt-3 @3xl:py-[7px]"
+            >
+              <ChevronRight className={cn('size-4 shrink-0 text-subtle transition-transform', showAdvanced && 'rotate-90')} />
+              {t('settings.page.advanced')}
+            </button>
+            {showAdvanced && installation.map((section, i) => {
               const heading = section.nav !== installation[i - 1]?.nav && section.nav;
               return (
                 <Fragment key={section.id}>
@@ -278,7 +320,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
                 </Fragment>
               );
             })}
-            {projects.length > 0 && (
+            {showAdvanced && projects.length > 0 && (
               <>
                 <span className="mx-1 w-px shrink-0 self-stretch bg-line @3xl:hidden" aria-hidden />
                 <NavLabel className="@3xl:mt-4">{t('settings.page.projects')}</NavLabel>
@@ -294,8 +336,18 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
             {error && <Notice className="mb-5">{error}</Notice>}
             {searching ? (
               <SearchResults found={found} query={query} icons={icons} onOpen={select} />
+            ) : open.id === essentialsId ? (
+              <SectionView key={open.id} section={open} icon={Star}>
+                <AdvancedSections
+                  sections={sections}
+                  icons={icons}
+                  open={advancedOpen}
+                  onToggle={() => setAdvancedOpen((o) => !o)}
+                  onOpen={select}
+                />
+              </SectionView>
             ) : (
-              open && <SectionView key={open.id} section={open} icon={icons[open.id] ?? FolderGit2} />
+              <SectionView key={open.id} section={open} icon={icons[open.id] ?? FolderGit2} />
             )}
           </div>
         </main>
@@ -308,9 +360,11 @@ function NavLabel({ className, children }: { className?: string; children: React
   return <span data-heading className={cn('hidden px-2.5 pb-1 text-caption font-semibold uppercase tracking-[0.08em] text-subtle @3xl:block', className)}>{children}</span>;
 }
 
-function SectionView({ section, icon: Icon }: { section: SettingSection; icon: LucideIcon }) {
+// SectionView draws one section, every setting in it: under Advanced, a
+// section is already what was asked for.
+function SectionView({ section, icon: Icon, children }: { section: SettingSection; icon: LucideIcon; children?: ReactNode }) {
   return (
-    <div className="grid gap-8" data-settings-section={section.id}>
+    <div className="grid grid-cols-1 gap-8" data-settings-section={section.id}>
       <header className="grid gap-3">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-overlay">
@@ -323,23 +377,99 @@ function SectionView({ section, icon: Icon }: { section: SettingSection; icon: L
         </div>
         {section.header}
       </header>
-      <SettingGroups groups={section.groups} />
+      {section.groups.map((group) => (
+        <Group key={group.id} group={group} />
+      ))}
+      {children}
       {section.footer}
     </div>
   );
 }
 
-// SettingGroups draws a section's groups, with its advanced settings folded
-// into one group at the end. A project's Overview draws its settings with
-// this too, so a setting looks the same on either page.
+// AdvancedSections is Essentials' end: every section of Settings, folded
+// under Advanced with how many settings each holds, a click from opening it.
+function AdvancedSections({
+  sections,
+  icons,
+  open,
+  onToggle,
+  onOpen,
+}: {
+  sections: SettingSection[];
+  icons: SectionIcons;
+  open: boolean;
+  onToggle: () => void;
+  onOpen: (id: string) => void;
+}) {
+  const t = useT();
+  const total = sections.reduce((n, s) => n + countEntries(s), 0);
+  return (
+    <section className="grid grid-cols-1 gap-2.5" data-settings-advanced>
+      <AdvancedToggle open={open} onToggle={onToggle}>
+        {t('settings.page.advancedSections', { count: total, sections: sections.length })}
+      </AdvancedToggle>
+      {open && (
+        <Panel className="divide-y divide-line-faint">
+          {sections.map((section) => {
+            const Icon = icons[section.id] ?? FolderGit2;
+            const changed = section.groups.reduce((n, g) => n + g.entries.filter((e) => e.modified).length, 0);
+            return (
+              <button
+                key={section.id}
+                type="button"
+                data-settings-advanced-section={section.id}
+                onClick={() => onOpen(section.id)}
+                className="group flex w-full min-w-0 items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/50"
+              >
+                <Icon className="size-4 shrink-0 text-subtle" />
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    {section.scope === 'project' && <span className="shrink-0 text-[12px] text-subtle">{t('settings.page.project')}</span>}
+                    <span className="min-w-0 truncate text-[13px] font-medium text-primary">{section.title}</span>
+                  </span>
+                  <span className="block truncate text-[12px] text-subtle">{section.description}</span>
+                </span>
+                <span className="shrink-0 text-[11.5px] tabular-nums text-subtle">
+                  {t(changed > 0 ? 'settings.page.advancedCountChanged' : 'settings.page.advancedCount', { count: countEntries(section), changed })}
+                </span>
+                <ChevronRight className="size-4 shrink-0 text-subtle transition group-hover:translate-x-0.5" />
+              </button>
+            );
+          })}
+        </Panel>
+      )}
+    </section>
+  );
+}
+
+function AdvancedToggle({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: ReactNode }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onToggle}
+      className="flex w-fit items-center gap-1.5 rounded-md px-1 text-[13px] font-semibold text-primary transition hover:text-title focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+    >
+      <ChevronRight className={cn('size-4 text-subtle transition-transform', open && 'rotate-90')} />
+      {t('settings.page.advanced')}
+      <span className="font-normal text-subtle">· {children}</span>
+    </button>
+  );
+}
+
+// SettingGroups draws a page of settings as Settings opens: the essential
+// ones under their groups, then the rest folded under Advanced, still under
+// theirs. A project's Settings tab draws its settings with this, so a setting
+// looks the same on either page.
 export function SettingGroups({ groups }: { groups: SettingGroup[] }) {
-  const { groups: shown, advanced } = splitAdvanced(groups);
+  const { essentials, advanced } = splitEssentials(groups);
   return (
     <>
-      {shown.map((group) => (
+      {essentials.map((group) => (
         <Group key={group.id} group={group} />
       ))}
-      {advanced.length > 0 && <Advanced entries={advanced} />}
+      {advanced.length > 0 && <Advanced groups={advanced} />}
     </>
   );
 }
@@ -351,7 +481,9 @@ function Group({ group }: { group: SettingGroup }) {
         <GroupHeader title={group.title} description={group.description} />
         <div className="grid grid-cols-1 gap-3">
           {group.entries.map((entry) => (
-            <Fragment key={entry.id}>{entry.render()}</Fragment>
+            <div key={entry.id} className="min-w-0 rounded-2xl" data-setting-id={entry.id}>
+              {entry.render()}
+            </div>
           ))}
         </div>
       </section>
@@ -392,10 +524,12 @@ function Entry({ entry }: { entry: SettingEntry }) {
 }
 
 // Advanced is the settings most people never change, folded until asked for,
-// as Raycast and VS Code keep theirs. It says how many it holds and how many
-// of them are changed, so a change never hides behind the fold.
-function Advanced({ entries }: { entries: SettingEntry[] }) {
+// as Raycast and VS Code keep theirs, each still under its group. It says how
+// many it holds and how many of them are changed, so a change never hides
+// behind the fold.
+function Advanced({ groups }: { groups: SettingGroup[] }) {
   const t = useT();
+  const entries = groups.flatMap((g) => g.entries);
   // Opened from the command palette at a setting folded here, it unfolds.
   const asked = (id?: string) => !!id && entries.some((e) => e.id === id);
   const [open, setOpen] = useState(() => asked(pendingReveal()?.setting));
@@ -406,29 +540,16 @@ function Advanced({ entries }: { entries: SettingEntry[] }) {
   }, [reveal]);
   const changed = entries.filter((e) => e.modified).length;
   return (
-    <section className="grid gap-2.5" data-settings-advanced>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-fit items-center gap-1.5 rounded-md px-1 text-ui font-semibold text-primary transition hover:text-title focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
-      >
-        <ChevronRight className={cn('size-4 text-subtle transition-transform', open && 'rotate-90')} />
-        {t('settings.page.advanced')}
-        <span className="font-normal text-subtle">· {t(changed > 0 ? 'settings.page.advancedCountChanged' : 'settings.page.advancedCount', { count: entries.length, changed })}</span>
-      </button>
-      {open && (
-        <Panel className="divide-y divide-line-faint">
-          {entries.map((entry) => (
-            <Entry key={entry.id} entry={entry} />
-          ))}
-        </Panel>
-      )}
+    <section className="grid grid-cols-1 gap-8" data-settings-advanced>
+      <AdvancedToggle open={open} onToggle={() => setOpen((o) => !o)}>
+        {t(changed > 0 ? 'settings.page.advancedCountChanged' : 'settings.page.advancedCount', { count: entries.length, changed })}
+      </AdvancedToggle>
+      {open && groups.map((group) => <Group key={group.id} group={group} />)}
     </section>
   );
 }
 
-function SearchResults({ found, query, icons, onOpen }: { found: SettingSection[]; query: string; icons: SectionIcons; onOpen: (id: string) => void }) {
+function SearchResults({ found, query, icons, onOpen }: { found: SettingSection[]; query: string; icons: SectionIcons; onOpen: (id: string, entry?: string) => void }) {
   const t = useT();
   const total = found.reduce((n, s) => n + countEntries(s), 0);
   if (total === 0) {
@@ -453,7 +574,7 @@ function SearchResults({ found, query, icons, onOpen }: { found: SettingSection[
           <div key={section.id} id={`settings-found-${section.id}`} className="grid scroll-mt-6 gap-5">
             <button
               type="button"
-              onClick={() => onOpen(section.id)}
+              onClick={() => onOpen(section.id, section.groups[0]?.entries[0]?.id)}
               className="group flex min-w-0 max-w-full items-center gap-2 rounded-md text-left text-heading font-semibold text-title focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
             >
               <Icon className="size-4 shrink-0 text-brand-300" />
