@@ -125,6 +125,7 @@ func readSample() func() (pressure.Sample, error) {
 				mu.Unlock()
 				return pressure.Sample{}, err
 			}
+			s.ReadSwaps(pressure.Swaps)
 		}
 		mu.Unlock()
 		return s.Read()

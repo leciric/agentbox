@@ -3356,6 +3356,7 @@ export const enUS = {
   'vm.swap.toastOn': 'AgentBox\'s VM has {size} GiB of swap now',
   'vm.swap.toastDescription': 'Every agent kept running.',
   'vm.swap.inUse': '{used} of {total} GiB in use',
+  'vm.swap.inUseWarning': 'The swapfile is in use: {used} GiB of the agents’ memory is on the VM’s disk, because the compressed memory (zram) is full. Everything is slower while it is, since the disk is far slower than memory. AgentBox counts this as the VM being out of memory, so it pauses agents and holds new ones before they page more to the disk, until the memory comes back.',
   'vm.swap.label': 'Swap',
   'vm.swap.current': '{size} GiB swapfile',
   'vm.swap.description': 'Disk space the VM can use as extra memory, for agents that briefly need more than the memory cap. Adding it stops no agent, and it stays across restarts. It takes its size from the VM’s disk, and must leave the space set in “Keep free on every disk”.',
