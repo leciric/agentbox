@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { countEntries, matches, parseQuery, search, splitAdvanced, type SettingSection } from './settingsSearch.ts';
+import { countEntries, essentialsSection, matches, parseQuery, search, splitEssentials, type SettingSection } from './settingsSearch.ts';
 
 const none = () => null;
 
@@ -16,8 +16,8 @@ const sections: SettingSection[] = [
         id: 'agents',
         title: 'New agents',
         entries: [
-          { id: 'model', label: 'Model for new agents', keywords: 'claude opus sonnet', render: none },
-          { id: 'enforce', label: 'Enforce this model and context window', keywords: 'lead cheaper', advanced: true, modified: true, render: none },
+          { id: 'model', label: 'Model for new agents', keywords: 'claude opus sonnet', essential: true, render: none },
+          { id: 'enforce', label: 'Enforce this model and context window', description: 'Holds the lead to the model above.', keywords: 'cheaper', modified: true, render: none },
         ],
       },
       { id: 'chats', title: 'Every chat', entries: [{ id: 'compact', label: 'Compact chats at', keywords: 'context tokens summarise', render: none }] },
@@ -48,7 +48,8 @@ test("a word matches the setting's section and group too", () => {
   assert.deepEqual(ids(search(sections, 'new agents opus')), ['model']);
 });
 
-test('advanced settings are found like any other', () => {
+test('a setting is found by its description, and Advanced ones like any other', () => {
+  assert.deepEqual(ids(search(sections, 'holds the lead')), ['enforce']);
   assert.deepEqual(ids(search(sections, 'cheaper')), ['enforce']);
 });
 
@@ -69,21 +70,28 @@ test('nothing found is no sections at all', () => {
   assert.deepEqual(search(sections, 'kubernetes'), []);
 });
 
-test('splitAdvanced folds advanced settings out, dropping groups left empty', () => {
-  const { groups, advanced } = splitAdvanced([
+test('splitEssentials parts each group, dropping a side left empty', () => {
+  const { essentials, advanced } = splitEssentials([
     ...sections[0].groups,
-    { id: 'only', title: 'Only advanced', entries: [{ id: 'x', label: 'x', advanced: true, render: none }] },
+    { id: 'only', title: 'Only essential', entries: [{ id: 'x', label: 'x', essential: true, render: none }] },
   ]);
+  const shape = (groups: SettingSection['groups']) => groups.map((g) => [g.id, g.entries.map((e) => e.id)]);
+  assert.deepEqual(shape(essentials), [
+    ['agents', ['model']],
+    ['only', ['x']],
+  ]);
+  assert.deepEqual(shape(advanced), [
+    ['agents', ['enforce']],
+    ['chats', ['compact']],
+  ]);
+});
+
+test('essentialsSection gathers essential settings under their groups, in section order', () => {
+  const essentials = essentialsSection(sections, 'Essentials', '');
+  assert.equal(essentials.id, 'essentials');
   assert.deepEqual(
-    groups.map((g) => [g.id, g.entries.map((e) => e.id)]),
-    [
-      ['agents', ['model']],
-      ['chats', ['compact']],
-    ],
-  );
-  assert.deepEqual(
-    advanced.map((e) => e.id),
-    ['enforce', 'x'],
+    essentials.groups.map((g) => [g.id, g.entries.map((e) => e.id)]),
+    [['models.agents', ['model']]],
   );
 });
 

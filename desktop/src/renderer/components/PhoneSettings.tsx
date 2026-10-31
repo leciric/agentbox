@@ -26,18 +26,21 @@ export function phoneGroups(): SettingGroup[] {
       entries: [
         {
           id: 'phone-chat',
+          description: t('defaults.phone.chatDescription'),
           label: t('defaults.phone.chatLabel'),
           keywords: t('defaults.phone.chatKeywords'),
           render: () => <PhoneChat />,
         },
         {
           id: 'phone-tunnel',
+          description: t('defaults.phone.tunnelDescription'),
           label: t('defaults.phone.tunnelLabel'),
           keywords: t('defaults.phone.tunnelKeywords'),
           render: () => <PhoneTunnel />,
         },
         {
           id: 'phones',
+          description: t('defaults.phone.pairedDescription'),
           label: t('defaults.phone.pairedLabel'),
           keywords: t('defaults.phone.pairedKeywords'),
           render: () => <PairedPhones />,

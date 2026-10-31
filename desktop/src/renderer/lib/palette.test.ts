@@ -95,7 +95,7 @@ test('a pick lists the current one first, then the rest that match', () => {
 test('the catalog has every installation setting SettingsView draws', () => {
   const source = readFileSync(new URL('../components/SettingsView.tsx', import.meta.url), 'utf8');
   const body = source.slice(source.indexOf('const sections: SettingSection[] = ['), source.indexOf('...(projects.data ?? []).map(projectSection)'));
-  const drawn = [...body.matchAll(/id: "([^"]+)",\s*(?:advanced: true,\s*)?label: t\("([^"]+)"\)/g)].map(([, id, label]) => `${id} ${label}`);
+  const drawn = [...body.matchAll(/id: "([^"]+)",\s*(?:(?:description|essential): [^\n]*,\s*)*label: t\("([^"]+)"\)/g)].map(([, id, label]) => `${id} ${label}`);
   assert.ok(drawn.length > 40, `only ${drawn.length} settings read from SettingsView.tsx`);
   const listed = new Set(catalog.map((s) => `${s.id} ${s.label}`));
   assert.deepEqual(drawn.filter((d) => !listed.has(d)), []);

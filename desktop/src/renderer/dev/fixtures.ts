@@ -1686,6 +1686,7 @@ let defaultsSettings = {
   creditAITool: false,
   builtWithBadge: false,
   builtWithBadgeOffer: typeof location !== 'undefined' && new URLSearchParams(location.search).get('badge') === 'offer',
+  seenFeatures: [],
   claudeCompactWindow: 200_000,
   updateCheck: true,
   usageStats: true,
@@ -1791,6 +1792,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   }
   // Either answer, or dismissing, closes the one-time offer of the badge.
   if (req.builtWithBadge !== undefined || req.dismissBuiltWithBadgeOffer) next.builtWithBadgeOffer = false;
+  if (req.seeFeature && !next.seenFeatures.includes(req.seeFeature)) next.seenFeatures = [...next.seenFeatures, req.seeFeature];
   // The channel changes what the update check offers (seedNightly).
   if (req.updateChannel !== undefined && devState.update) devState.update = nightlyStatus(devState.update.current, req.updateChannel);
   // The rest are stored as they are sent, the way the daemon stores them.

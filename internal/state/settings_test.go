@@ -3,6 +3,7 @@ package state_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agentbox/internal/state"
@@ -94,5 +95,32 @@ func TestFreshInstallSettingsAreSeededOnce(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	if got, err := st.Setting(ctx, state.SettingDefaultAgentContextWindow); err != nil || got != "" {
 		t.Errorf("reopening wrote the fresh-install setting back: %q, %v; want it left unset", got, err)
+	}
+}
+
+func TestSeeFeature(t *testing.T) {
+	st, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	ctx := context.Background()
+
+	if got, err := st.SeenFeatures(ctx); err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("SeenFeatures() on a fresh store = %#v, %v", got, err)
+	}
+	for _, id := range []string{"work-page", "share", "work-page", "work"} {
+		if err := st.SeeFeature(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.SeenFeatures(ctx)
+	if err != nil || strings.Join(got, ",") != "work-page,share,work" {
+		t.Fatalf("SeenFeatures() = %q, %v; want each once, in order, and work apart from work-page", got, err)
+	}
+	for _, bad := range []string{"", "Work", "a\nb", "-x", strings.Repeat("a", 65)} {
+		if err := st.SeeFeature(ctx, bad); err == nil {
+			t.Errorf("SeeFeature(%q) was accepted", bad)
+		}
 	}
 }
