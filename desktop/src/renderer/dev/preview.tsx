@@ -224,6 +224,9 @@
 //                           (lib/groupIdle.ts; off otherwise)
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
+//   &tabs=idle|busy         with ?app=, Classic's contextual tabs (lib/agentTabs.ts): idle,
+//                           agents with no snapshots, pages, emulator or media; busy,
+//                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General
 //                           → Layout): leads with their last lines
@@ -552,6 +555,7 @@ if (iosScenario) {
 
 // &android=1: the project is an Android one, so its agents' panels have Android.
 const androidProject = params.get('android') === '1';
+const tabsScenario = params.get('tabs');
 if (androidProject) fixtures.projects.find((p) => p.name === PROJECT)!.android = true;
 // &stream=ws://…: the bridge's streams are the browser's own WebSockets
 // there, and agents' desktops are up, so their views connect to it too.
@@ -758,6 +762,17 @@ if (appView) {
     if (androidProject && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/android$/.test(path)) {
       const booted: T.AndroidStatus = { available: true, images: ['android-35'], running: true, booted: true, image: 'android-35', device: 'emulator-5554', gpu: true };
       return { status: 200, body: JSON.stringify(booted), contentType: 'application/json' };
+    }
+    const contextual = tabsScenario && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/(snapshots|browser|android)$/.exec(path);
+    if (contextual || (tabsScenario && method === 'GET' && path.startsWith('/v1/media/counts'))) {
+      const busy = tabsScenario === 'busy';
+      const answers: Record<string, unknown> = {
+        snapshots: busy ? [{ name: 'before-migration', createdAt: new Date(Date.now() - 3_600_000).toISOString(), head: 'a13c0ba8' }] : [],
+        browser: { display: true, running: true, pages: busy ? [{ id: '1', url: 'http://localhost:3000/checkout', title: 'Checkout' }] : [{ id: '1', url: 'about:blank', title: '' }] },
+        android: { available: true, images: ['android-35'], running: busy, booted: busy, gpu: true },
+      };
+      const counts = { total: busy ? 12 : 0, bytes: 0, kinds: {}, favorites: 0, unseen: 0, agents: [], projects: [], matching: busy ? 12 : 0 };
+      return { status: 200, body: JSON.stringify(contextual ? answers[contextual[1]] : counts), contentType: 'application/json' };
     }
     if (iosScenario && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/ios$/.test(path)) {
       return { status: 200, body: JSON.stringify(iosStatus()), contentType: 'application/json' };
@@ -1101,7 +1116,7 @@ function Preview() {
     return (
       <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
         <ScopedMediaPages project={PROJECT} variant="page">
-          <ProjectMediaPanel project={PROJECT} />
+          <ProjectMediaPanel project={PROJECT} onAskLead={() => {}} />
         </ScopedMediaPages>
       </div>
     );
@@ -1119,7 +1134,7 @@ function Preview() {
     return (
       <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
         <ScopedMediaPages project={PROJECT} agent={`${PROJECT}/agent-12`} variant="fill">
-          <MediaTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+          <MediaTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} onAskLead={() => {}} />
         </ScopedMediaPages>
       </div>
     );

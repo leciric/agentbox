@@ -1,4 +1,4 @@
-import { Image } from 'lucide-react';
+import { Image, MessagesSquare } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
@@ -10,6 +10,7 @@ import { loadedItems, useMediaCounts, useMediaPages, useNextPageNear } from '../
 import { humanBytes } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FilterChip, MediaCard, MediaSearch, MediaSelection, MediaViewer, MoreMedia, NoMatch, toggled } from './MediaTab';
+import { Button } from './ui/button';
 import { EmptyState } from './ui/card';
 import { Select, SelectOption } from './ui/select';
 
@@ -17,7 +18,7 @@ import { Select, SelectOption } from './ui/select';
 // the whole project has shown without opening each agent. Each item is labelled
 // with the agent it came from and what that agent was for, and the stream can
 // be filtered down to one agent or one kind, and searched.
-export function ProjectMediaPanel({ project }: { project: string }) {
+export function ProjectMediaPanel({ project, onAskLead }: { project: string; onAskLead: () => void }) {
   const t = useT();
   const projectName = useProjectName(project);
   const [agent, setAgent] = useState('');
@@ -59,7 +60,16 @@ export function ProjectMediaPanel({ project }: { project: string }) {
   if (items === 0) {
     return (
       <div className="panel rounded-2xl">
-        <EmptyState icon={Image} title={t('project.media.emptyTitle')}>
+        <EmptyState
+          icon={Image}
+          title={t('project.media.emptyTitle')}
+          action={
+            <Button variant="primary" onClick={onAskLead}>
+              <MessagesSquare />
+              {t('agent.mediaTab.askLead')}
+            </Button>
+          }
+        >
           {t('project.media.emptyDescription', { project: projectName })}
         </EmptyState>
       </div>

@@ -8,6 +8,7 @@ import {
   Circle,
   CircleAlert,
   Download,
+  MessagesSquare,
   ExternalLink,
   FileChartColumn,
   FolderOpen,
@@ -54,7 +55,7 @@ const kindVariant: Record<string, BadgeVariant> = {
 
 // MediaTab is the gallery of what shows an agent's work: screenshots,
 // recordings, reports, logs and notes, from the agent and from you.
-export function MediaTab({ agent }: { agent: T.Agent }) {
+export function MediaTab({ agent, onAskLead }: { agent: T.Agent; onAskLead: () => void }) {
   const t = useT();
   const queryClient = useQueryClient();
   const running = agent.state === 'running';
@@ -214,24 +215,13 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
             icon={Images}
             title={t('agent.mediaTab.emptyTitle')}
             action={
-              <>
-                <Button variant="primary" disabled={!running || shot.isPending} onClick={() => shot.mutate()}>
-                  <Camera />
-                  {t('agent.mediaTab.takeScreenshot')}
-                </Button>
-                <Button disabled={!running || record.isPending} onClick={() => record.mutate()}>
-                  <span className="size-2.5 rounded-full bg-rose-500" />
-                  {t('agent.browser.recordScreen')}
-                </Button>
-              </>
+              <Button variant="primary" onClick={onAskLead}>
+                <MessagesSquare />
+                {t('agent.mediaTab.askLead')}
+              </Button>
             }
           >
-            <p>{t('agent.mediaTab.emptyBody')}</p>
-            <pre className="mt-4 rounded-xl border border-line bg-well p-3.5 text-left font-mono text-caption leading-relaxed text-muted">
-              <span className="text-faint">$ </span>agentbox media screenshot --name checkout{'\n'}
-              <span className="text-faint">$ </span>agentbox media record start --name demo{'\n'}
-              <span className="text-faint">$ </span>agentbox media add playwright-report/
-            </pre>
+            {t('agent.mediaTab.emptyBody')}
           </EmptyState>
         ) : visible.length === 0 ? (
           <NoMatch query={search} onClear={() => setQuery('')} />

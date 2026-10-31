@@ -2898,5 +2898,33 @@
   {"id": "first-run-check-dark", "description": "The first run's last step, the doctor: a failure with no fix of its own offers Ask Home to fix it — dark", "query": "app=home&firstrun=check&theme=dark", "width": 1280, "height": 900},
   {"id": "first-run-tool-light", "description": "Same as first-run-tool-dark, light", "query": "app=home&firstrun=tool&theme=light", "width": 1280, "height": 900},
   {"id": "first-run-project-pt-BR-dark", "description": "Same as first-run-project-dark, in Brazilian Portuguese", "query": "app=home&firstrun=project&lang=pt-BR&theme=dark", "width": 1280, "height": 900},
-  {"id": "first-run-tool-narrow-dark", "description": "The first run's first step at a phone-narrow 480px window — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 480, "height": 900}
+  {"id": "first-run-tool-narrow-dark", "description": "The first run's first step at a phone-narrow 480px window — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 480, "height": 900},
+  {
+    "id": "tabs-idle-agent",
+    "description": "Classic's tab bar of agent-99 with nothing in its contextual tabs: only the tabs always there, and the + menu — dark",
+    "query": "app=agent-99&tabs=idle&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "tabs-busy-agent",
+    "description": "Classic's tab bar of agent-99 with something in every contextual tab: all of them shown — dark",
+    "query": "app=agent-99&tabs=busy&theme=dark&android=1",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "tabs-idle-project",
+    "description": "Classic's tab bar of a project with nothing in its contextual tabs: only the tabs always there, and the + menu — dark",
+    "query": "app=project&tabs=idle&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "tabs-busy-project",
+    "description": "Classic's tab bar of a project with something in every contextual tab: all of them shown — dark",
+    "query": "app=project&tabs=busy&theme=dark&android=1",
+    "width": 1280,
+    "height": 800
+  }
 ]

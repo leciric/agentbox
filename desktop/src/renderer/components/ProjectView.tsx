@@ -5,6 +5,10 @@ import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { contextualProjectTabs, hiddenTabs, type ContextualProjectTab } from '../lib/agentTabs';
+import { composeIn } from '../lib/drafts';
+import { useMediaCounts } from '../lib/mediaPages';
+import { workKey, workQuery } from '../lib/work';
 import { useT, type Translate } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { projectLabel } from '../lib/projectName';
@@ -38,6 +42,7 @@ import { AgentMentionsProvider } from './pip/Mentions';
 import { PanelButton } from './v2/PanelButton';
 import { openPanelOn, setPanel } from '../lib/rightPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Tip } from './ui/tooltip';
 
 // The project's notes: what every agent of it is told, over and above the brief
 // AgentBox writes. The user writes them here, and the project's chat adds what
@@ -152,6 +157,18 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   const lead = project && tab === 'chat' && leadChat.data && session ? leadAgentFrom(project, leadChat.data, session.topic) : undefined;
   const chatMenu = useChatMenu(lead);
   const mine = agents.data?.filter((a) => a.project === name) ?? [];
+  // Classic's Media and Work tabs show once there's something in them, or
+  // while open (lib/agentTabs.ts): Work as soon as the project has an agent,
+  // live or past.
+  const mediaCounts = useMediaCounts({ project: name });
+  const work = useQuery({ queryKey: [...workKey, name, 'any'], queryFn: () => api.workPage(workQuery('', '', 1), name), enabled: !v2 && agents.isSuccess && mine.length === 0 });
+  const hidden = hiddenTabs(contextualProjectTabs, { media: (mediaCounts.data?.total ?? 0) > 0, past: mine.length > 0 || (work.data?.items.length ?? 0) > 0 }, tab);
+  const shown = (tab: ContextualProjectTab) => !hidden.includes(tab);
+  // Media's empty state asks the lead, in the chat, to have the agents record their work.
+  const askLead = () => {
+    composeIn(`${name}/${T.LeadName}`, t('project.media.askText'));
+    setWhere('chat');
+  };
   const { retire, setFreeing, setRemoving, dialogs: projectDialogs } = useProjectActions(name, onSelect);
 
   // v1's ⋯. v2's is ProjectMenu in the top bar, which takes the chat's New
@@ -225,7 +242,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             {/* It scrolls rather than wraps once the tabs outgrow the column, and
                 without a scrollbar: the tabs are the control, and a bar under
                 them only says the last one is a few pixels away. */}
-            <TabsList className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+            <TabsList className="min-w-0 overflow-x-auto [scrollbar-width:none]">
               <TabsTrigger value="chat">
                 <MessagesSquare />
                 {t('project.view.tab.chat')}
@@ -240,19 +258,42 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
                 <CircleDot />
                 {t('project.view.tab.issues')}
               </TabsTrigger>
-              <TabsTrigger value="media">
-                <Image />
-                {t('project.view.tab.media')}
-              </TabsTrigger>
-              <TabsTrigger value="past" data-project-tab="past">
-                <Briefcase />
-                {t('work.title')}
-              </TabsTrigger>
+              {shown('media') && (
+                <TabsTrigger value="media">
+                  <Image />
+                  {t('project.view.tab.media')}
+                </TabsTrigger>
+              )}
+              {shown('past') && (
+                <TabsTrigger value="past" data-project-tab="past">
+                  <Briefcase />
+                  {t('work.title')}
+                </TabsTrigger>
+              )}
               <TabsTrigger value="settings">
                 <SlidersHorizontal />
                 {t('project.view.tab.settings')}
               </TabsTrigger>
             </TabsList>
+            {hidden.length > 0 && (
+              <Menu>
+                <Tip label={t('agent.view.openTab')}>
+                  <MenuTrigger asChild>
+                    <Button size="icon-sm" variant="ghost" className="shrink-0" aria-label={t('agent.view.openTab')} data-project-tab-menu>
+                      <Plus />
+                    </Button>
+                  </MenuTrigger>
+                </Tip>
+                <MenuContent>
+                  {hidden.map((tab) => (
+                    <MenuItem key={tab} icon={tab === 'media' ? Image : Briefcase} onSelect={() => setWhere(tab)}>
+                      {t(tab === 'media' ? 'project.view.tab.media' : 'work.title')}
+                    </MenuItem>
+                  ))}
+                </MenuContent>
+              </Menu>
+            )}
+            </div>
             {lead && (
               <div className="flex shrink-0 items-center gap-2">
                 <ChatStatus agent={lead} />
@@ -293,7 +334,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       <TabsContent value="media" className="overflow-y-auto">
         <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
           <ScopedMediaPages project={name} variant="page">
-            <ProjectMediaPanel project={name} />
+            <ProjectMediaPanel project={name} onAskLead={askLead} />
           </ScopedMediaPages>
         </div>
       </TabsContent>
@@ -301,7 +342,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       {/* The project's Work (WorkView), what was its Past agents tab. */}
       <TabsContent value="past" className="overflow-y-auto">
         <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-          <WorkList project={name} onSelect={onSelect} />
+          <WorkList project={name} onSelect={onSelect} onNewAgent={onNewAgent} />
         </div>
       </TabsContent>
 
