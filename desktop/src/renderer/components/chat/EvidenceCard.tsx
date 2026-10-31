@@ -27,7 +27,7 @@ import { agentReviewQuery, useAgentReview, useOpenReview } from '../v2/ReviewV2'
 // three screenshots; its pull request with its checks; and Review proof and
 // Merge. Review proof, the video or a screenshot opens the review on the
 // agent (ReviewV2), Proof first. Merge asks first, as the Pull requests list
-// does, and marks the agent reviewed. With no review (UI v1) or nothing to
+// does, and marks the agent reviewed. With reviewing off or nothing to
 // show, there's no card, as there was no notice.
 //
 // An agent that finishes again has a notice for each time, and every card draws

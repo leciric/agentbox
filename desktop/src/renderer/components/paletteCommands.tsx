@@ -60,7 +60,6 @@ import { catalog, sectionTitles } from '../lib/settingsCatalog';
 import { setSheetOpen } from '../lib/shortcuts';
 import type { AgentPlaceName } from '../lib/tabs';
 import { startTour, welcomeTour } from '../lib/tours';
-import { useUiV2 } from '../lib/uiV2';
 import { useUiVerbs } from '../lib/uiVerbs';
 import { errorMessage } from '../lib/utils';
 import { phoneGroups } from './PhoneSettings';
@@ -134,8 +133,7 @@ const savedToast = (item: T.MediaItem) => toast(tNow('agent.media.saved', { name
 // usePaletteCommands is every action that can run here, and every setting.
 export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient): PaletteCommand[] {
   const t = useT();
-  const v2 = useUiV2();
-  const verbs = useUiVerbs() && v2;
+  const verbs = useUiVerbs();
   const dnd = useDnd();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -184,7 +182,7 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
   const actions: PaletteAction[] = [
     // Making things.
     action('new-agent', Plus, () => ctx.newAgent(currentProject(ctx.view) ?? '')),
-    ...(v2 ? [action('new-task', ListTodo, () => openNewTask(), { keys: ['Mod', 'N'] })] : []),
+    action('new-task', ListTodo, () => openNewTask(), { keys: ['Mod', 'N'] }),
     action('add-project', FolderPlus, () => ctx.addProject()),
     project('fan-out', Users, (name) => openFanOut({ project: name })),
 
@@ -225,7 +223,7 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
     // An agent's places.
     agent('agent-chat', MessageSquare, agentTab('chat')),
     agent('agent-terminal', SquareTerminal, agentTab('terminal')),
-    agent('agent-desktop', Monitor, (ref) => (v2 ? (select({ kind: 'agent', ref }), openPanelOn(ref, 'desktop', ref)) : select({ kind: 'agent', ref, tab: 'browser' }))),
+    agent('agent-desktop', Monitor, (ref) => (select({ kind: 'agent', ref }), openPanelOn(ref, 'desktop', ref))),
     ...(android ? [agent('agent-android', Smartphone, agentTab('android'))] : []),
     agent('agent-media', Images, agentTab('media')),
     agent('agent-snapshots', History, agentTab('snapshots')),
@@ -245,15 +243,11 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
     project('project-secrets', KeyRound, { kind: 'project', project: '', tab: 'secrets' }),
     project('project-connectors', Plug, { kind: 'project', project: '', tab: 'connectors' }),
     project('project-skills', Wand2, { kind: 'project', project: '', tab: 'skills' }),
-    ...(v2
-      ? [
-          project('schedule', CalendarClock, (name) => {
-            select({ kind: 'project', project: name, tab: 'chat' });
-            requestReveal({ selector: '[data-schedule-new]', click: true });
-            openPanelOn(leadOf(name), 'schedules');
-          }),
-        ]
-      : []),
+    project('schedule', CalendarClock, (name) => {
+      select({ kind: 'project', project: name, tab: 'chat' });
+      requestReveal({ selector: '[data-schedule-new]', click: true });
+      openPanelOn(leadOf(name), 'schedules');
+    }),
     // Nesting is switched on where it lives, in the project's settings; one
     // already on is only shown, never switched off from here.
     project('nesting', Layers, (name) => {
@@ -263,12 +257,11 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
 
     // AgentBox's places.
     action('home', House, () => select({ kind: 'home' })),
-    ...(v2 ? [] : [action('home-chat', MessageSquare, () => select({ kind: 'homeChat' }))]),
     action('jobs', Briefcase, () => select({ kind: 'jobs' })),
     action('all-media', Images, () => select({ kind: 'media' })),
     action('past-agents', Bot, () => select({ kind: 'work' })),
     action('settings', Settings, () => select({ kind: 'settings' }), { keys: ['Mod', ','] }),
-    ...(v2 ? [action('shortcuts', Keyboard, () => setSheetOpen(true), { keys: ['Mod', '/'] })] : []),
+    action('shortcuts', Keyboard, () => setSheetOpen(true), { keys: ['Mod', '/'] }),
 
     // AgentBox-wide things to do.
     action('add-connector', Plug, () => openSetting('connectors', 'connectors', { selector: '[data-settings-section="connectors"] [data-connectors-import]', click: true })),
@@ -283,14 +276,14 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
     action('report-problem', Bug, () => openSetting('general', 'report-problem', { selector: '[data-report-problem]', click: true })),
     action('diagnostics', Stethoscope, () => openSetting('diagnostics', 'diagnostics')),
     action('whats-new', Sparkles, () => ctx.whatsNew()),
-    ...(v2 ? [action('tour', Sparkles, () => startTour(welcomeTour.id))] : []),
+    action('tour', Sparkles, () => startTour(welcomeTour.id)),
   ];
 
   // Every setting: the installation's, the phone's, and each project's.
   const sectionName = (id: string) => (sectionTitles[id] ? t(sectionTitles[id]) : id);
   const settings: PaletteSetting[] = [
     ...catalog
-      .filter((s) => (!s.v2 || v2) && (!s.verbs || verbs) && (s.section !== 'phone' || local))
+      .filter((s) => (!s.verbs || verbs) && (s.section !== 'phone' || local))
       .map(
         (s): PaletteSetting => ({
           id: `setting:${s.section}:${s.id}`,

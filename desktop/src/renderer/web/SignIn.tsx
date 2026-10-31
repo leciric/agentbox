@@ -5,7 +5,7 @@ import { ArrowRight, LoaderCircle, LogIn, Server } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { HubEnvironment } from '../../preload';
 import type { HubInfo } from '../../shared/api';
-import { Logo } from '../components/Sidebar';
+import { Logo } from '../components/Logo';
 import { Button } from '../components/ui/button';
 import { Notice } from '../components/ui/card';
 import { Field, Input } from '../components/ui/input';

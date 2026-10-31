@@ -1,4 +1,4 @@
-// UI v2's right-hand panel, always beside a chat, as v1's rail was. Its home
+// UI v2's right-hand panel, always beside a chat, as the old rail was. Its home
 // is the project's agents (AgentList), which fold to a strip of their
 // avatars (») and back from the chat header's button (PanelButton) or ⌘D;
 // it never closes. Where the list doesn't fit beside the chat, the strip

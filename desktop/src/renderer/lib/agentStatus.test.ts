@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { avatarMood, awaiting, chatLabel, isAsking, frozenTip, memoryHold, projectTone, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
+import { avatarMood, awaiting, chatLabel, isAsking, frozenTip, memoryHold, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
 
 const agent = (state: string, chat?: string): T.Agent => ({ state, chat }) as T.Agent;
 
@@ -36,7 +36,6 @@ test('a stalled turn is Stalled, not Working, and a stopped chat is not Idle', (
   assert.deepEqual(chatLabel(stalled), { text: 'Stalled', tone: 'error' });
   assert.equal(avatarMood(stalled), 'error');
   assert.equal(settled(stalled), false);
-  assert.equal(projectTone([agent('running', 'running'), stalled]), 'error');
   assert.deepEqual(chatLabel(agent('running', 'error')), { text: 'Chat stopped', tone: 'error' });
   // Stopped with its machine, the chat's error is old news.
   assert.deepEqual(chatLabel(agent('stopped', 'error')), { text: 'Stopped', tone: 'muted' });
@@ -68,7 +67,6 @@ test('memory pressure holding back a running agent’s commands shows as a warni
   // Needing you still comes first, and a hold isn't settled.
   assert.deepEqual(chatLabel({ ...paused, chat: 'waiting' } as T.Agent), { text: 'Needs you', tone: 'urgent' });
   assert.equal(settled(waiting), false);
-  assert.equal(projectTone([agent('running'), waiting]), 'warning');
 });
 
 test('a whole machine paused or waiting for memory says its place in line, in its row and its chat', () => {
@@ -136,16 +134,6 @@ test('settled is true only for a quiet, non-starting agent', () => {
 
 test('initializing is not settled: it is still moving', () => {
   assert.equal(settled(agent('initializing')), false);
-});
-
-test('projectTone picks the most urgent tone among the agents', () => {
-  assert.equal(projectTone([agent('running'), agent('running', 'running')]), 'live');
-  assert.equal(projectTone([agent('running', 'running'), agent('running', 'waiting')]), 'urgent');
-});
-
-test('projectTone is undefined when every agent is merely settled', () => {
-  assert.equal(projectTone([agent('running'), agent('paused')]), undefined);
-  assert.equal(projectTone([]), undefined);
 });
 
 test('avatarMood reads error, sleeping, asking, working and idle from state and chat', () => {

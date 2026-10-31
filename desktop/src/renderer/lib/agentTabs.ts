@@ -1,21 +1,18 @@
-// Which of an agent's or a project's tabs the Classic tab bar shows. The ones
+// Which of an agent's views the right panel's switch shows. The ones
 // that only show what an agent made (its emulator, snapshots, desktop, media)
 // wait until there is something in them; the rest are always there. A tab
 // that's open stays while it is, even once what it showed is gone, so it
 // doesn't vanish under the user; it goes when they leave it. A hidden tab is
-// opened from the bar's + menu, where starting what it shows begins.
+// opened from the switch's + menu, where starting what it shows begins.
 import type * as T from '../../shared/api';
-import type { AgentTab, ProjectTab } from './tabs';
+import type { AgentTab } from './tabs';
 
 // The agent's tabs that show only once there's something in them, in the
-// order the bar has them.
+// order the switch has them.
 export const contextualAgentTabs = ['browser', 'android', 'media', 'snapshots'] as const satisfies readonly AgentTab[];
 export type ContextualAgentTab = (typeof contextualAgentTabs)[number];
 
-export const contextualProjectTabs = ['media', 'past'] as const satisfies readonly ProjectTab[];
-export type ContextualProjectTab = (typeof contextualProjectTabs)[number];
-
-// hiddenTabs is the contextual tabs the bar leaves out: those with nothing in
+// hiddenTabs is the contextual tabs the switch leaves out: those with nothing in
 // them, but never the open one.
 export function hiddenTabs<Tab extends string>(tabs: readonly Tab[], has: Record<Tab, boolean>, active: string): Tab[] {
   return tabs.filter((tab) => !has[tab] && tab !== active);

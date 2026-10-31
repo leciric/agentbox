@@ -16,7 +16,6 @@ import { SessionHistory, useClosedSessions } from './chat/SessionHistory';
 import { SessionTabs } from './chat/SessionTabs';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/card';
-import { useUiV2 } from '../lib/uiV2';
 import { ReviewCount } from './v2/ReviewV2';
 
 // leadAgentFrom builds the Agent ChatTab expects out of a project's chat: the
@@ -74,8 +73,8 @@ function showSession(project: string, s: T.LeadSession) {
 // agents' chats, so the lead is handed to it as an agent.
 //
 // The conversation is what you and the lead said to each other, and only that.
-// What the project's agents reported is a thread per agent in the rail beside
-// the whole view (AgentRail), rather than notices in the middle of it.
+// What the project's agents are doing is in the right-hand panel's agent list
+// beside it (v2/AgentList), rather than notices in the middle of it.
 //
 // Opening it starts the lead's AI tool, with no turn, so its settings can be
 // chosen before the first message. A session whose chat is never opened costs
@@ -86,18 +85,17 @@ function showSession(project: string, s: T.LeadSession) {
 // turn names it (internal/daemon/sessionname.go).
 export function ProjectChatPanel({ project }: { project: T.Project }) {
   const openAt = useChatOpenAt(project.name);
-  const v2 = useUiV2();
   return (
     <SessionChatPanel project={project.name}>
       {(info, current) => (
-        // Above the composer: in v2, how many of its agents wait for review.
+        // Above the composer: how many of its agents wait for review.
         <ChatTab
           key={info.ref}
           agent={leadAgentFrom(project, info, current.topic)}
           starting={false}
           onStart={() => {}}
           openAt={openAt}
-          aboveComposer={v2 && <ReviewCount project={project.name} variant="banner" />}
+          aboveComposer={<ReviewCount project={project.name} variant="banner" />}
         />
       )}
     </SessionChatPanel>

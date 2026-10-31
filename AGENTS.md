@@ -118,7 +118,7 @@ Go caches are saved by `main`'s runs only and restored by PRs, so a PR's tests s
 doesn't reach. [Base image](.github/workflows/base-image.yml) runs on PRs that change
 `internal/image/` (its tests aside), or by hand.
 
-## Previewing the rail and the sidebar
+## Previewing the sidebar and the right-hand panel
 
 Both are narrow fixed-width columns, prone to overflow: a `<pre>`, an unbroken URL, or any flex/grid
 child without `min-w-0` widens them. `desktop/src/renderer/dev/preview.tsx` renders both against
@@ -133,9 +133,9 @@ npm --prefix desktop run preview -- --shots out --only window-         # only th
 ```
 
 `?app=project` (or `home`, `pulls`, `agent-99`, `settings`) renders the whole App, where below `lg`
-the sidebar and below `xl` the rail become drawers; a page wider than its window is reported too.
+the sidebar and below 1100px the right-hand panel become drawers; a page wider than its window is reported too.
 
-A scenario is a URL (`?open=agent-99&theme=light`, see the comment atop `preview.tsx`). `--against`
+A scenario is a URL (`?app=agent-99&theme=light`, see the comment atop `preview.tsx`). `--against`
 checks the ref out into a throwaway worktree (refs after #82 only). It uses `/usr/bin/chromium` when
 present, else `npx playwright install chromium` once.
 

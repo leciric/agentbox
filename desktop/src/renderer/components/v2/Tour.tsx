@@ -17,8 +17,7 @@ import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { chatPanel, panelState, setPanelOpen } from '../../lib/rightPanel';
 import { setSheetOpen } from '../../lib/shortcuts';
-import { goTo, onLaunch, placeCard, setTourState, skip, startTour, stepsOf, tours, useTourState, watchView, welcomeTour, type Watch, type Box, type Example } from '../../lib/tours';
-import { launchArrival } from '../../lib/uiV2';
+import { goTo, launchArrival, onLaunch, placeCard, setTourState, skip, startTour, stepsOf, tours, useTourState, watchView, welcomeTour, type Watch, type Box, type Example } from '../../lib/tours';
 import { cn, shortcut } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
@@ -515,15 +514,6 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
             {t(key)}
           </span>
         ))}
-      </span>
-    </Frame>
-  ),
-  layout: (t) => (
-    <Frame className="flex flex-wrap items-center gap-2">
-      <span className="text-subtle">{t('tour.ex.layoutPath')}</span>
-      <span className="ml-auto inline-flex rounded-lg border border-line-strong p-0.5 text-caption">
-        <span className="rounded-md bg-surface-raised px-2 py-0.5 font-medium text-title">{t('settings.layout.new')}</span>
-        <span className="rounded-md px-2 py-0.5 text-secondary ring-1 ring-inset ring-brand-400/60">{t('settings.layout.classic')}</span>
       </span>
     </Frame>
   ),

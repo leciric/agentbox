@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { PrNumberLink } from './PrNumberLink';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Images, Info, Keyboard, LoaderCircle, MessageSquare, MessageSquareText, Play, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Images, Info, Keyboard, LoaderCircle, MessageSquare, MessageSquareText, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -8,11 +8,9 @@ import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
-import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
+import { pageItems, refreshInbox, type useReviewPages, withoutAgent } from '../lib/inboxPages';
 import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, mergeBlockReason, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, reviewPane, seeking, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type Pane, type ReviewAction } from '../lib/review';
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
-import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
-import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { languageOfPath, parsePatch } from '../lib/pulls';
 import { drafts, splitGitDiff } from '../lib/reviewNotes';
@@ -20,7 +18,6 @@ import { awaitingReview } from '../lib/work';
 import { Markdown } from './chat/Markdown';
 import { DiffTable, useHighlighted } from './DiffTable';
 import { NotesList, ReviewNotesContext, reviewNotesKey, useReviewNotes } from './ReviewNotes';
-import { MoreMedia } from './media/MediaParts';
 import { ReviewProof, type ProofHandle } from './ReviewProof';
 import { ShareButton } from './ShareButton';
 import { useProjectPages } from './pages/usePages';
@@ -33,15 +30,11 @@ import { Kbd, Notice } from './ui/card';
 import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 
-// "Ready to review" is a section of the top bar's inbox (components/Inbox.tsx):
-// the agents that finished and wait for the user to look at their work,
-// newest first, and below them the ones already reviewed, folded. Both lists
-// load a page at a time as they're scrolled (lib/inboxPages.ts). Picking one
-// opens the review carousel (ReviewDialog), which Review all walks through
-// what's waiting. Opening an agent there is seeing it (it leaves the
-// inbox's count), not reviewing it: Mark reviewed moves it to Reviewed, until
-// its work changes. Reviewing turned off in Settings leaves
-// the section out.
+// "Ready to review" is the agents that finished and wait for the user to look
+// at their work, newest first, and the ones already reviewed (v2/ReviewV2.tsx
+// lists both, a page at a time, lib/inboxPages.ts). Picking one opens the
+// review carousel (ReviewDialog), which Review all walks through what's
+// waiting. Mark reviewed moves it to Reviewed, until its work changes.
 
 // A review session is the agent on screen and, when it walks through what's
 // waiting, the order it walks them in (lib/review.ts queueOf). An agent
@@ -50,69 +43,6 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 export type ReviewSession = Walk;
 
 type ReviewPages = ReturnType<typeof useReviewPages>;
-
-// ReviewSection is the inbox's list of what's waiting. shown is what was
-// new when the inbox opened, which stays marked while it's open.
-export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPages; shown: ReadonlySet<string>; open: boolean; onBegin: (session: ReviewSession) => void }) {
-  const t = useT();
-  const [showReviewed, setShowReviewed] = useState(false);
-  const reviewed = useReviewPages(true, open && showReviewed);
-  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const now = useNow(60_000);
-  const unseen = useUnseen();
-  const isNew = (i: T.ReviewItem) => isUnseen(unseen, i) || isUnseen(shown, i);
-  const items = pageItems(pages.data);
-  const done = pageItems(reviewed.data);
-  const order = items.map((i) => i.ref);
-  return (
-    <section className="border-b border-line-faint pb-1" data-review-list>
-      <div className="flex items-center gap-2 px-2.5 pb-1 pt-2">
-        <span className="text-caption font-medium uppercase tracking-wide text-subtle">{t('review.button')}</span>
-        {items.length > 0 && <span className="text-caption text-subtle">{t('review.waiting', { count: pageTotal(pages.data) })}</span>}
-        {items.length > 0 && (
-          <Button size="sm" variant="primary" className="ml-auto h-7" data-review-all onClick={() => onBegin({ item: items[0], order })}>
-            <Play />
-            {t('review.reviewAll')}
-          </Button>
-        )}
-      </div>
-      {items.length === 0 ? (
-        <div className="px-3 py-3 text-ui text-muted">{pages.isPending ? t('common.loading') : t('review.empty')}</div>
-      ) : (
-        <>
-          {items.map((item) => (
-            <ReviewRow key={item.ref} item={item} isNew={isNew(item)} now={now} projects={projects.data} onOpen={() => onBegin({ item, order })} />
-          ))}
-          <MoreMedia pages={pages} />
-        </>
-      )}
-      <div data-reviewed-section>
-        <button
-          type="button"
-          aria-expanded={showReviewed}
-          data-reviewed-toggle
-          onClick={() => setShowReviewed((s) => !s)}
-          className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-caption font-medium text-muted transition hover:bg-surface-raised hover:text-primary"
-        >
-          <ChevronDown className={cn('size-3.5 transition-transform', !showReviewed && '-rotate-90')} />
-          {t('review.reviewedSection')}
-          {done.length > 0 && <span className="text-subtle">{pageTotal(reviewed.data)}</span>}
-        </button>
-        {showReviewed &&
-          (done.length ? (
-            <>
-              {done.map((item) => (
-                <ReviewRow key={item.ref} item={item} isNew={false} now={now} projects={projects.data} onOpen={() => onBegin({ item, order: null })} />
-              ))}
-              <MoreMedia pages={reviewed} />
-            </>
-          ) : (
-            <div className="px-4 py-3 text-caption text-subtle">{reviewed.isPending ? t('common.loading') : t('review.reviewedEmpty')}</div>
-          ))}
-      </div>
-    </section>
-  );
-}
 
 // ReviewDialog is the carousel on the session's agent, as the list has it now
 // (its pull request merged, say), with the one after it in the walk. The
@@ -377,9 +307,6 @@ function ReviewCarousel({
   const blocked = pr ? mergeBlock(pr, pulls.data) : null;
   const canMerge = !!pr && blocked !== 'merged' && blocked !== 'closed';
   const mergeReason = pr ? mergeBlockReason(pr, pulls.data) : undefined;
-
-  // Opening an agent's work is seeing it, which only leaves the inbox's count.
-  useEffect(() => markReadySeen({ ref: item.ref, fingerprint: item.fingerprint }), [item.ref, item.fingerprint]);
 
   const [marking, setMarking] = useState(false);
   // A click that lands within settleMs of an agent coming up is the second

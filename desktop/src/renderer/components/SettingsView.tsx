@@ -2,8 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   ArrowLeftRight,
-  Columns3,
-  PanelLeft,
   Bell,
   ArrowLeft,
   Languages,
@@ -98,7 +96,7 @@ import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { IdleReclaim } from "./IdleReclaim";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { phoneGroups } from "./PhoneSettings";
-import { SettingsPage, keepScroll, openSettingsSection, type SectionIcons } from "./SettingsPage";
+import { SettingsPage, openSettingsSection, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
 import { Input, Label } from "./ui/input";
@@ -108,10 +106,9 @@ import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs
 import { setGroupIdle, useGroupIdle } from "../lib/groupIdle";
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
-import { setUiV2, useUiV2 } from "../lib/uiV2";
 import { setUiVerbs, useUiVerbs } from "../lib/uiVerbs";
 import { JobsView } from "./JobsView";
-import { onSwitchToV2, setTourState, startTour, verbsTour, welcomeTour } from "../lib/tours";
+import { startTour, verbsTour } from "../lib/tours";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
 import { VMMigrate } from "./VMMigrate";
@@ -879,7 +876,6 @@ function InstalledSettings({
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const topBarDetailed = useTopBarDetailed();
-  const uiV2 = useUiV2();
   const uiVerbs = useUiVerbs();
   const reviewing = useReviewing();
   const groupIdle = useGroupIdle();
@@ -995,45 +991,29 @@ function InstalledSettings({
               render: () => <LanguageSetting />,
             },
             {
-              id: "layout",
-              description: t("settings.layout.description"),
-              label: t("settings.entry.layout.label"),
-              keywords: t("settings.entry.layout.keywords"),
-              modified: !uiV2,
-              render: () => <LayoutSetting />,
+              id: "group-idle",
+              description: t("settings.groupIdle.description"),
+              label: t("settings.entry.group-idle.label"),
+              keywords: t("settings.entry.group-idle.keywords"),
+              modified: groupIdle,
+              render: () => <GroupIdleSetting />,
             },
-            ...(uiV2
-              ? [
-                  {
-                    id: "group-idle",
-                    description: t("settings.groupIdle.description"),
-                    label: t("settings.entry.group-idle.label"),
-                    keywords: t("settings.entry.group-idle.keywords"),
-                    modified: groupIdle,
-                    render: () => <GroupIdleSetting />,
-                  },
-                  {
-                    id: "verbs",
-                    label: t("settings.entry.verbs.label"),
-                    keywords: t("settings.entry.verbs.keywords"),
-                    modified: uiVerbs,
-                    render: () => <VerbsSetting />,
-                  },
-                ]
-              : []),
-            // v2's sidebar keeps only Settings and Past agents at its foot, so
+            {
+              id: "verbs",
+              label: t("settings.entry.verbs.label"),
+              keywords: t("settings.entry.verbs.keywords"),
+              modified: uiVerbs,
+              render: () => <VerbsSetting />,
+            },
+            // The sidebar keeps only Settings and Past agents at its foot, so
             // which AgentBox this window drives is chosen here.
-            ...(uiV2
-              ? [
-                  {
-                    id: "environment",
-                    description: t("settings.environment.description"),
-                    label: t("settings.entry.environment.label"),
-                    keywords: t("settings.entry.environment.keywords"),
-                    render: () => <EnvironmentSetting />,
-                  },
-                ]
-              : []),
+            {
+              id: "environment",
+              description: t("settings.environment.description"),
+              label: t("settings.entry.environment.label"),
+              keywords: t("settings.entry.environment.keywords"),
+              render: () => <EnvironmentSetting />,
+            },
             // The desktop app's only: a browser has no tray.
             ...(traySettings.data
               ? [
@@ -1879,7 +1859,7 @@ function InstalledSettings({
       ],
     },
     // The prototype navigation (lib/uiVerbs.ts) has no Jobs page: they're here.
-    ...(uiV2 && uiVerbs
+    ...(uiVerbs
       ? [
           {
             id: "jobs",
@@ -2452,60 +2432,10 @@ function TopBarDetailedSetting() {
   );
 }
 
-// LayoutSetting is New (v2) or Classic (lib/uiV2.ts), switched at once, with
-// no restart. Choosing New the first time plays its tour (lib/tours.ts).
-function LayoutSetting() {
-  const t = useT();
-  const on = useUiV2();
-  const choose = (v2: boolean) => {
-    if (v2 === on) return;
-    keepScroll();
-    setUiV2(v2);
-    if (v2) setTourState(onSwitchToV2);
-  };
-  return (
-    <SettingRow label={t("settings.entry.layout.label")} description={t("settings.layout.description")}>
-      <div
-        className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
-        role="radiogroup"
-        aria-label={t("settings.entry.layout.label")}
-        data-layout-choice
-      >
-        {([true, false] as const).map((v2) => (
-          <button
-            key={String(v2)}
-            role="radio"
-            aria-checked={on === v2}
-            data-layout={v2 ? "v2" : "classic"}
-            onClick={() => choose(v2)}
-            className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
-              on === v2 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]" : "text-muted hover:text-primary",
-            )}
-          >
-            {v2 ? <PanelLeft className="size-[15px]" /> : <Columns3 className="size-[15px]" />}
-            {t(v2 ? "settings.layout.new" : "settings.layout.classic")}
-          </button>
-        ))}
-      </div>
-      {on && (
-        <button
-          type="button"
-          className="w-fit text-caption text-subtle underline-offset-2 hover:text-primary hover:underline"
-          onClick={() => startTour(welcomeTour.id)}
-          data-layout-tour
-        >
-          {t("settings.layout.tour")}
-        </button>
-      )}
-    </SettingRow>
-  );
-}
-
 // GroupIdleSetting is whether v2's sidebar groups idle projects at the bottom
 // and sorts by activity (lib/groupIdle.ts), applied at once.
 // VerbsSetting turns on the prototype navigation, Ask, Watch and Review
-// (lib/uiVerbs.ts), over v2's.
+// (lib/uiVerbs.ts).
 function VerbsSetting() {
   const t = useT();
   const on = useUiVerbs();

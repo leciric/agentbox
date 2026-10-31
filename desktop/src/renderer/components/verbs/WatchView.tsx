@@ -2,7 +2,7 @@
 // and their machines. Its left column is a project's agents, v2's panel list
 // (AgentList) with its monitors, under a project picker; the middle is the
 // agent picked, on its machine: Desktop, Terminal, and Android for an Android
-// project, the tabs Classic's agent page had (AgentView), with the machine's
+// project, the tabs the old agent page had (AgentView), with the machine's
 // bar above them (AgentMachineBar). With no agent picked, the middle is every
 // project's agents and the machine's load, v2 Home's Status tab
 // (HomeStatusV2). Its chat is Ask's: "Open chat" goes there. Below lg an

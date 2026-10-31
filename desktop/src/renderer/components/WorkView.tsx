@@ -5,8 +5,7 @@
 // report on top, its media, diff and details, and its verdicts only while it
 // waits for one; "N to review" opens it filtered to what waits.
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { ArrowRight, Briefcase, CornerDownRight, Film, GitBranch, Images, Layers, LoaderCircle, Plus, Search, Sparkles } from 'lucide-react';
-import { Button } from './ui/button';
+import { Briefcase, CornerDownRight, Film, GitBranch, Images, Layers, LoaderCircle, Search, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -82,23 +81,17 @@ export function WorkView({ project, filter: initial = '', projectFilter, onSelec
   );
 }
 
-// WorkList is the list with its filters and search, for the page or for
-// Home (limit, with onShowAll to the whole page).
-export function WorkList({
+// WorkList is the list with its filters and search, pageSize at a time.
+const pageSize = 50;
+
+function WorkList({
   project,
   initial = '',
-  limit = 50,
-  onShowAll,
   onSelect,
-  onNewAgent,
 }: {
   project?: string;
   initial?: WorkFilter;
-  limit?: number;
-  onShowAll?: () => void;
   onSelect: (view: View) => void;
-  // Offered by an empty list: the way to have some work to show.
-  onNewAgent?: () => void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -112,10 +105,10 @@ export function WorkList({
   }, [query]);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: !project });
   const pages = useInfiniteQuery({
-    queryKey: [...workKey, project ?? '', filter, q, limit],
-    queryFn: ({ pageParam }) => api.workPage(workQuery(filter, q, limit, pageParam || undefined), project),
+    queryKey: [...workKey, project ?? '', filter, q],
+    queryFn: ({ pageParam }) => api.workPage(workQuery(filter, q, pageSize, pageParam || undefined), project),
     initialPageParam: '',
-    getNextPageParam: (last) => (onShowAll ? undefined : last.next || undefined),
+    getNextPageParam: (last) => last.next || undefined,
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
   });
@@ -195,12 +188,6 @@ export function WorkList({
           <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-ui text-subtle" data-work-empty>
             <Briefcase className="size-5 text-faint" />
             {q || filter ? t('work.noMatch') : t('work.empty')}
-            {!q && !filter && onNewAgent && (
-              <Button size="sm" variant="primary" className="mt-1" onClick={onNewAgent}>
-                <Plus />
-                {t('project.view.newAgent')}
-              </Button>
-            )}
           </div>
         ) : (
           groups.map((g) => (
@@ -216,14 +203,8 @@ export function WorkList({
             </section>
           ))
         )}
-        {!onShowAll && <MoreMedia pages={pages} />}
+        <MoreMedia pages={pages} />
       </Panel>
-      {onShowAll && (pages.data?.pages[0]?.total ?? 0) > items.length && (
-        <button className="flex items-center gap-1 justify-self-start text-ui font-medium text-brand-300 hover:text-brand-200" onClick={onShowAll} data-work-show-all>
-          {t('work.showAll')}
-          <ArrowRight className="size-3.5" />
-        </button>
-      )}
       <ReviewDialog session={session} pages={reviewPages} onSession={setSession} work={(ref) => byRef.get(ref)} onOpenChat={openChat} />
     </div>
   );

@@ -3,8 +3,7 @@
 // Work page (WorkPage) opened on what waits for a verdict, whose rows open
 // the review carousel and which lists what was reviewed too; Pull requests,
 // a project's (PullRequestsPanel, its project tab's and its panel's); and
-// Proof, every project's screenshots and recordings (MediaView, which was
-// Media).
+// Proof, every project's screenshots and recordings (MediaView).
 import { useQuery } from '@tanstack/react-query';
 import { ClipboardCheck, GitPullRequest, Images } from 'lucide-react';
 import type { ReviewTab, View } from '../../App';
@@ -60,7 +59,7 @@ export function ReviewView({ tab = 'work', project, filter = 'review', onSelect 
         </div>
       </TabsContent>
       <TabsContent value="proof" className="overflow-hidden">
-        <MediaView onSelect={onSelect} heading />
+        <MediaView onSelect={onSelect} />
       </TabsContent>
     </Tabs>
   );

@@ -1,8 +1,6 @@
-// The sidebar's sections (D79) as both layouts draw them, Classic's sidebar
-// (components/Sidebar.tsx) and UI v2's (components/v2/SidebarV2.tsx), so a
-// section made in one is in the other: the lists as the daemon keeps them,
-// the moves that save them, and dragging over them. The order itself is
-// sidebar.ts's.
+// The sidebar's sections (D79) as components/v2/SidebarV2.tsx draws them:
+// the lists as the daemon keeps them, the moves that save them, and dragging
+// over them. The order itself is sidebar.ts's.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DragEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

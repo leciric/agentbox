@@ -29,7 +29,6 @@ import {
 } from '../../lib/rich';
 import { openPreview, type RichPreview } from '../../lib/rightPanel';
 import { useMode, usePageTheme } from '../../lib/theme';
-import { useUiV2 } from '../../lib/uiV2';
 import { cn, errorMessage } from '../../lib/utils';
 import { pagesQuery } from '../pages/usePages';
 import { Button } from '../ui/button';
@@ -104,7 +103,7 @@ function DrawnBlock({ kind, code, onCode }: { kind: RichKind; code: string; onCo
   const t = useT();
   const chatRef = use(ChatRefContext);
   // Beside the chat is its panel, which UI v2 has, and a project's chats.
-  const beside = useUiV2() && !!chatRef && !isHomeChat(chatRef);
+  const beside = !!chatRef && !isHomeChat(chatRef);
   const [large, setLarge] = useState(false);
   const [network, setNetwork] = useState(() => networked.has(code));
   const [problem, setProblem] = useState<PageProblem | null>(null);
