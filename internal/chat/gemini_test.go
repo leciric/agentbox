@@ -128,8 +128,12 @@ func (g *fakeGemini) Request(method string, params json.RawMessage, reply func(a
 			if hold != nil {
 				<-hold
 			}
-			_ = conn.Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": req.SessionID,
-				"update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "Hello from Gemini"}}})
+			// In two chunks at once, as Gemini CLI sends a reply it has whole.
+			for _, text := range []string{"Hello ", "from Gemini"} {
+				_ = conn.Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": req.SessionID,
+					"update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": text}}})
+				time.Sleep(time.Millisecond)
+			}
 			_ = conn.Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": req.SessionID,
 				"update": map[string]any{"sessionUpdate": "usage_update", "used": 12_800, "size": 1_048_576}})
 			reply(map[string]any{
@@ -275,5 +279,30 @@ func TestGeminiCLIReplayStaysOutOfTheTurn(t *testing.T) {
 	}
 	if !slices.Equal(said, []string{"Hello from Gemini"}) {
 		t.Errorf("the turn said %q, want only its own reply", said)
+	}
+}
+
+// Gemini CLI sends a reply in a chunk or two once it has it, so its turns are
+// timed for Avg TPS from the prompt, not from the first chunk to the last.
+func TestGeminiCLITurnsAreTimedFromThePrompt(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	g := &fakeGemini{mode: "default", model: "gemini-3.8-flash", hold: make(chan struct{})}
+	a := state.Agent{Project: "hello", Name: "agent-01", AI: "gemini", Worktree: t.TempDir()}
+	m := &Manager{Store: store, Version: "test", Publish: func(api.ChatEvent) {}, Launch: g.launch}
+	t.Cleanup(m.Close)
+	if _, err := m.Send(a, "Say hello"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, a, "the turn running", func(th api.ChatThread) bool { return th.Session.State == api.ChatRunning })
+	time.Sleep(200 * time.Millisecond) // the model thinking
+	close(g.hold)
+	waitThread(t, m, a, "the turn finishing", turnsEnded(1))
+	var rows []state.TokenRow
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && len(rows) == 0; time.Sleep(50 * time.Millisecond) {
+		rows, _ = store.TokenRows(context.Background(), state.TokenFilter{Project: a.Project, Agent: a.Name}, 10)
+	}
+	if len(rows) != 1 || rows[0].GenerationMS < 200 {
+		t.Errorf("the ledger: %+v, want one row generated over at least 200ms", rows)
 	}
 }

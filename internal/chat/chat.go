@@ -2840,6 +2840,13 @@ func (c *conversation) appendText(kind, messageID, text string) {
 		now := time.Now()
 		if c.turn.firstOutputAt.IsZero() {
 			c.turn.firstOutputAt = now
+			if c.agent.AI == "gemini" && !c.turn.startedAt.IsZero() {
+				// Gemini CLI sends a model call's text in a chunk or two
+				// once it has it, and counts the thinking before it as
+				// output: timed from its chunks, a turn generated at
+				// hundreds of thousands of tokens a second.
+				c.turn.firstOutputAt = c.turn.startedAt
+			}
 		}
 		c.turn.lastOutputAt = now
 	}
