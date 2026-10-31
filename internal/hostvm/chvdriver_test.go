@@ -703,7 +703,7 @@ func TestPowerInHostMode(t *testing.T) {
 func TestPowerFrom(t *testing.T) {
 	st := api.VMStatus{Mode: api.ModeVM, State: api.VMRunning, CPUs: 4, Memory: api.VMMemory{Min: 4 << 30, Cap: 24 << 30, Granted: 8 << 30, Used: 5 << 30, Resident: 7 << 30}}
 	b, _ := json.Marshal(powerFrom(st))
-	if want := `{"state":"running","memoryUsed":5368709120,"memoryGranted":8589934592,"memoryCap":25769803776,"cpus":4}`; string(b) != want {
+	if want := `{"state":"running","memoryUsed":5368709120,"memoryGranted":8589934592,"memoryCap":25769803776,"memoryResident":7516192768,"cpus":4}`; string(b) != want {
 		t.Errorf("got  %s\nwant %s", b, want)
 	}
 	p := powerFrom(api.VMStatus{State: api.VMMissing})

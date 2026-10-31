@@ -134,7 +134,7 @@ func TestReviewAfterTheMachineWasFreedSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	items := d.srv.reviewItems(ctx, p, agents)
+	items := d.srv.reviewItems(ctx, p, agents, false)
 	fingerprint := items[0].Fingerprint
 	d.srv.freeReviewed(ctx, a, "its pull request #1 was merged", nil)
 	if agentHasMachine(d, a) || !isArchived(t, d, a) {

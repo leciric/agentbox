@@ -7,11 +7,13 @@ import { agentboxBin } from './cli';
 import { isLocal, requestOptions } from './connection';
 import { canUseIncus, vmInitDone } from './hostsetup';
 import { socketPath } from './paths';
+import { staleSocketRetry } from './staleSocket';
 import { progressStep, startFailure } from './startfailure';
 import { t } from '../shared/i18n/index.ts';
 import { NotListeningError, onWindows, relayRefused, startRelay } from './relay';
 import { linuxVM, vmState } from './vmmode';
 import { wslStoppedByUser } from './vmpower';
+import { isOutdated, type StaleDaemon, StaleTracker } from './staledaemon';
 
 export { socketPath };
 
@@ -23,7 +25,7 @@ export interface ApiResponse {
 
 // request sends an API request to the current environment: this machine's
 // daemon, or one on a hub.
-export function request(method: string, path: string, body?: unknown): Promise<ApiResponse> {
+export function request(method: string, path: string, body?: unknown, retried = false): Promise<ApiResponse> {
   const payload = body === undefined ? undefined : JSON.stringify(body);
   const { module, options } = requestOptions(path);
   const headers: Record<string, string | number> = {
@@ -53,7 +55,11 @@ export function request(method: string, path: string, body?: unknown): Promise<A
         });
       });
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      // A pooled socket the far end closed while idle: once more, on a new one.
+      if (!retried && staleSocketRetry(method, err, req.reusedSocket)) resolve(request(method, path, body, true));
+      else reject(err);
+    });
     req.end(payload);
   });
 }
@@ -136,12 +142,67 @@ export async function stopStartingDaemon(): Promise<void> {
   await starting?.catch(() => {});
 }
 
+export type { StaleDaemon };
+
+const staleListeners = new Set<(s: StaleDaemon | null) => void>();
+let tracker: StaleTracker | undefined;
+
+// stale tracks a daemon of another version than this packaged app
+// (staledaemon.ts); an app from a checkout has no version of its own.
+function stale(): StaleTracker | undefined {
+  if (!app.isPackaged) return undefined;
+  tracker ??= new StaleTracker(
+    app.getVersion(),
+    {
+      version: async () => (JSON.parse((await request('GET', '/v1/version')).body) as { version?: string }).version,
+      runningJobs,
+      restart: async () => void (await restart(true)),
+      publish: (s) => staleListeners.forEach((fn) => fn(s)),
+      later: (fn, ms) => {
+        const timer = setTimeout(fn, ms);
+        return () => clearTimeout(timer);
+      },
+    },
+    () => void restartIfStale().catch(() => {}),
+  );
+  return tracker;
+}
+
+export function staleDaemon(): StaleDaemon | null {
+  return tracker?.current ?? null;
+}
+
+// onStaleDaemon calls fn whenever the stale daemon changes, null once the
+// daemon is the app's version. It answers how to stop.
+export function onStaleDaemon(fn: (s: StaleDaemon | null) => void): () => void {
+  staleListeners.add(fn);
+  return () => staleListeners.delete(fn);
+}
+
+// restartStaleDaemon restarts a stale daemon now, cutting its jobs short.
+export async function restartStaleDaemon(): Promise<void> {
+  if (isLocal()) await stale()?.restartNow();
+}
+
 // restartIfStale restarts a running daemon when this app would start a
 // different one: a daemon that started before you joined incus-admin or kvm
 // (a process keeps the groups it started with, and host setup adds them), one
 // that started when this machine had no Incus to reach, or one of another
-// version, after the app was updated. A daemon running jobs is left alone.
-export async function restartIfStale(): Promise<void> {
+// version, after the app was updated. A daemon running jobs is left alone;
+// one of another version is shown as stale and looked at again until they're
+// done (staledaemon.ts). It runs as the app starts and whenever it reconnects
+// to its daemon, one check at a time.
+export function restartIfStale(): Promise<void> {
+  checking ??= checkStale().finally(() => {
+    checking = undefined;
+  });
+  return checking;
+}
+
+let checking: Promise<void> | undefined;
+
+async function checkStale(): Promise<void> {
+  if (!isLocal()) return tracker?.clear();
   let info: { version?: string; groups?: number[]; incus?: boolean };
   try {
     info = JSON.parse((await request('GET', '/v1/version')).body);
@@ -153,13 +214,14 @@ export async function restartIfStale(): Promise<void> {
   // machine's: nothing here says whether it's stale.
   const vm = linuxVM();
   const missing = info.groups && !vm ? neededGroups().filter((g) => mine.has(g.gid) && !info.groups!.includes(g.gid)) : [];
-  const ours = app.isPackaged ? app.getVersion() : undefined;
-  const outdated = ours !== undefined && info.version !== undefined && info.version !== 'dev' && info.version !== ours;
   // Host setup's ACL on the Incus socket reaches processes already running, so
   // a daemon that still says no found nothing when it started, and a restart
   // is what it takes. A daemon too old to report this is left alone.
   const blind = info.incus === false && !vm && canUseIncus();
-  if (missing.length === 0 && !outdated && !blind) return;
+  const tracking = stale();
+  if (tracking && isOutdated(info.version, app.getVersion())) return tracking.handle(info.version!);
+  tracking?.clear();
+  if (missing.length === 0 && !blind) return;
   await restart();
 }
 
@@ -191,11 +253,15 @@ export async function stopHostDaemon(onOutput: (text: string) => void): Promise<
   if (await answers()) throw new Error(t('web.main.daemonDidntStop'));
 }
 
-// restart stops the running daemon and starts this app's own, unless it has
-// jobs going.
-async function restart(): Promise<boolean> {
+async function runningJobs(): Promise<number> {
   const jobs = JSON.parse((await request('GET', '/v1/jobs')).body) as { status: string }[];
-  if (jobs.some((job) => job.status === 'running')) return false;
+  return jobs.filter((job) => job.status === 'running').length;
+}
+
+// restart stops the running daemon and starts this app's own, unless it has
+// jobs going and isn't forced to.
+async function restart(force = false): Promise<boolean> {
+  if (!force && (await runningJobs()) > 0) return false;
   await request('POST', '/v1/shutdown');
   for (let i = 0; i < 300 && (await answers()); i++) await new Promise((resolve) => setTimeout(resolve, 100));
   await ensureDaemon();
@@ -225,7 +291,8 @@ function neededGroups(): { name: string; gid: number }[] {
 // its daemon is left so: the error says why there's no daemon.
 async function start(): Promise<void> {
   // `agentbox vm init` from the Setup page stopped this machine's own daemon
-  // to switch it to a VM: the daemon to start is the VM's, when it's done.
+  // to switch it to a VM, or makes a Mac's VM, as the remake with krunkit
+  // does: the daemon to start is the new VM's, when it's done.
   await vmInitDone();
   const bin = agentboxBin();
   if (onWindows) await startRelay(bin);

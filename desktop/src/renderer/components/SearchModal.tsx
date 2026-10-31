@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import * as T from '../../shared/api';
-import { api } from '../lib/api';
+import { api, isLeadName } from '../lib/api';
 import { matchesIn } from '../lib/chatFind';
 import { plainText } from '../lib/plainText';
 import { useUiV2 } from '../lib/uiV2';
@@ -217,7 +217,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
     ? []
     : pickChoices(
         picking.needs === 'agent'
-          ? (agents.data ?? []).filter((a) => a.name !== T.LeadName).map((a) => ({ id: a.ref, title: a.title || a.name, detail: `${a.name} · ${projectLabel(a.project, projects.data)}` }))
+          ? (agents.data ?? []).filter((a) => !isLeadName(a.name)).map((a) => ({ id: a.ref, title: a.title || a.name, detail: `${a.name} · ${projectLabel(a.project, projects.data)}` }))
           : (projects.data ?? []).map((p) => ({ id: p.name, title: projectLabel(p.name, projects.data), detail: p.name })),
         pickQuery,
         pickCurrent,
@@ -262,7 +262,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openWhenAnswered, pending, results.isFetching, rows, onOpen]);
 
-  const agentTitle = (project: string, name: string) => (name === T.LeadName ? t('chat.find.from.lead') : agents.data?.find((a) => a.ref === `${project}/${name}`)?.title || name);
+  const agentTitle = (project: string, name: string) => (isLeadName(name) ? t('chat.find.from.lead') : agents.data?.find((a) => a.ref === `${project}/${name}`)?.title || name);
   const whereOf = ({ kind, hit }: SearchItem) =>
     [
       hit.project === T.HomeProject ? homeName : hit.project ? projectLabel(hit.project, projects.data) : kind === T.SearchSkills || kind === T.SearchConnectors ? t('search.agentboxWide') : '',
@@ -308,7 +308,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
         {picking && (
           <button
             type="button"
-            className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-full border border-brand-400/40 bg-brand-400/15 px-2.5 py-1 text-[11.5px] text-brand-200"
+            className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-full border border-brand-400/40 bg-brand-400/15 px-2.5 py-1 text-caption text-brand-200"
             onClick={() => back.current?.()}
             data-palette-picking={picking.id}
           >
@@ -321,7 +321,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
           ref={input}
           autoFocus
           aria-label={t('search.label')}
-          className="h-14 min-w-0 flex-1 bg-transparent text-[15px] text-primary outline-none placeholder:text-faint"
+          className="h-14 min-w-0 flex-1 bg-transparent text-heading text-primary outline-none placeholder:text-faint"
           placeholder={picking ? t(picking.needs === 'agent' ? 'palette.pick.agent' : 'palette.pick.project') : t('search.placeholder')}
           value={picking ? pickQuery : query}
           spellCheck={false}
@@ -347,7 +347,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
             }
           }}
         />
-        <kbd className="hidden rounded-md border border-line px-1.5 py-0.5 font-mono text-[10.5px] text-subtle sm:block">Esc</kbd>
+        <kbd className="hidden rounded-md border border-line px-1.5 py-0.5 font-mono text-caption text-subtle sm:block">Esc</kbd>
       </div>
 
       {!picking && (
@@ -411,7 +411,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
         <div ref={list} className="min-w-0 flex-1 overflow-y-auto overscroll-contain p-2" role="listbox" aria-label={t('search.results')}>
           {picking ? (
             choices.length === 0 ? (
-              <p className="px-3 py-8 text-center text-[13px] text-muted" data-search-empty>
+              <p className="px-3 py-8 text-center text-ui text-muted" data-search-empty>
                 {t(picking.needs === 'agent' ? 'palette.pick.noAgent' : 'palette.pick.noProject')}
               </p>
             ) : (
@@ -427,25 +427,25 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
                   onClick={() => pick(c.id)}
                 >
                   {picking.needs === 'agent' ? <Bot className="size-4 shrink-0 text-subtle" /> : <FolderGit2 className="size-4 shrink-0 text-subtle" />}
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-primary">
+                  <span className="min-w-0 flex-1 truncate text-ui text-primary">
                     <Marked text={c.title} query={pickQuery} />
                   </span>
-                  <span className="max-w-[40%] shrink-0 truncate text-[11px] text-subtle">{c.id === pickCurrent ? t('palette.pick.current') : c.detail}</span>
+                  <span className="max-w-[40%] shrink-0 truncate text-caption text-subtle">{c.id === pickCurrent ? t('palette.pick.current') : c.detail}</span>
                 </button>
               ))
             )
           ) : asked === '' && !typed && rows.length === 0 ? (
-            <p className="px-3 py-8 text-center text-[13px] text-muted">{t('search.hint')}</p>
+            <p className="px-3 py-8 text-center text-ui text-muted">{t('search.hint')}</p>
           ) : results.error && rows.length === 0 ? (
-            <p className="px-3 py-8 text-center text-[13px] text-rose-300">{errorMessage(results.error)}</p>
+            <p className="px-3 py-8 text-center text-ui text-rose-300">{errorMessage(results.error)}</p>
           ) : rows.length === 0 && (only || !!commandKinds[kind] || (shown && !pending)) ? (
-            <p className="px-3 py-8 text-center text-[13px] text-muted" data-search-empty>
+            <p className="px-3 py-8 text-center text-ui text-muted" data-search-empty>
               {t('search.nothing', { query: commandsOnly(query).rest || query })}
             </p>
           ) : (
             rows.length > 0 && (
               <>
-                {!typed && !kind && <p className="px-3 pb-2 pt-1 text-[11px] text-subtle">{t('palette.hint')}</p>}
+                {!typed && !kind && <p className="px-3 pb-2 pt-1 text-caption text-subtle">{t('palette.hint')}</p>}
                 {rows.map((row, i) => {
                   const previous = rows[i - 1];
                   const groupOf = (r: Row | undefined) => (r ? (r.kind === 'command' ? r.command.group : 'found') : '');
@@ -454,11 +454,11 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
                     <div key={rowKey(row)}>
                       {header &&
                         (row.kind === 'command' ? (
-                          <div className="px-3 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle" data-palette-group={row.command.group}>
+                          <div className="px-3 pb-1 pt-2 text-caption font-semibold uppercase tracking-[0.08em] text-subtle" data-palette-group={row.command.group}>
                             {t(row.command.group === 'actions' ? 'palette.group.actions' : 'palette.group.settings')}
                           </div>
                         ) : (
-                          <div className="flex items-center justify-between px-3 pb-1 pt-2 text-[11px] text-subtle">
+                          <div className="flex items-center justify-between px-3 pb-1 pt-2 text-caption text-subtle">
                             <span>{kind ? t('search.showing', { n: items.length, total: countOf(groups.find((g) => g.kind === kind) ?? { total: 0 }) }) : t('search.bestOfEach')}</span>
                             <button type="button" className="flex items-center gap-1 rounded px-1 hover:text-title" onClick={() => setNewest((n) => !n)} data-search-sort>
                               <ArrowDownUp className="size-3" />
@@ -504,7 +504,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
         {!picking && currentCommand && <CommandPreview command={currentCommand} forWhom={actionFor(currentCommand)} onRun={(other) => run(currentCommand, other)} />}
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-[11px] text-subtle">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-caption text-subtle">
         <span className="flex items-center gap-1.5">
           <kbd className="rounded border border-line px-1 font-mono">↑</kbd>
           <kbd className="rounded border border-line px-1 font-mono">↓</kbd>
@@ -563,14 +563,14 @@ function CommandRow({ command, query, on, forWhom, onClick, onRun }: { command: 
       onDoubleClick={onRun}
     >
       <command.icon className={cn('size-4 shrink-0', on ? 'text-brand-300' : 'text-subtle')} />
-      <span className="min-w-0 flex-1 truncate text-[13px] text-primary">
+      <span className="min-w-0 flex-1 truncate text-ui text-primary">
         <Marked text={command.title} query={query} />
       </span>
-      {(command.where || forWhom) && <span className="max-w-[40%] shrink-0 truncate text-[11px] text-subtle">{command.where ?? forWhom}</span>}
+      {(command.where || forWhom) && <span className="max-w-[40%] shrink-0 truncate text-caption text-subtle">{command.where ?? forWhom}</span>}
       {command.group === 'actions' && command.keys && (
         <span className="flex shrink-0 gap-0.5">
           {command.keys.map((k) => (
-            <kbd key={k} className="rounded border border-line px-1 font-mono text-[10.5px] text-subtle">
+            <kbd key={k} className="rounded border border-line px-1 font-mono text-caption text-subtle">
               {keyName(k)}
             </kbd>
           ))}
@@ -587,32 +587,32 @@ function CommandPreview({ command, forWhom, onRun }: { command: PaletteCommand; 
   const action = command.group === 'actions' ? command : undefined;
   return (
     <aside className="hidden w-[42%] min-w-0 shrink-0 flex-col border-l border-line bg-surface-faint md:flex" data-palette-preview={command.id}>
-      <div className="flex items-center gap-1.5 border-b border-line px-4 py-2.5 text-[12px] text-subtle">
+      <div className="flex items-center gap-1.5 border-b border-line px-4 py-2.5 text-caption text-subtle">
         {action ? <Zap className="size-3.5 shrink-0" /> : <SlidersHorizontal className="size-3.5 shrink-0" />}
         <span className="truncate">{action ? t('palette.group.actions') : (command.where ?? t('palette.group.settings'))}</span>
       </div>
-      <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-4 py-4 text-[13px] leading-relaxed">
+      <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-4 py-4 text-ui leading-relaxed">
         <span className="flex items-center gap-2 font-medium text-title">
           <command.icon className="size-4 shrink-0 text-brand-300" />
           {command.title}
         </span>
         <p className="text-muted">{action ? t(`palette.${action.id}.about` as MessageKey) : t('palette.about.setting')}</p>
-        {command.keywords && !action && <p className="line-clamp-4 text-[12px] text-subtle">{command.keywords}</p>}
+        {command.keywords && !action && <p className="line-clamp-4 text-caption text-subtle">{command.keywords}</p>}
         {forWhom && (
-          <p className="text-[12px] text-subtle" data-palette-for>
+          <p className="text-caption text-subtle" data-palette-for>
             {action?.needs === 'agent' ? t('palette.for.agent', { name: forWhom }) : t('palette.for.project', { name: forWhom })}
           </p>
         )}
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-4 py-2.5">
-        <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-[12px] font-medium text-white hover:bg-brand-400" onClick={() => onRun(false)} data-palette-run>
+        <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-caption font-medium text-white hover:bg-brand-400" onClick={() => onRun(false)} data-palette-run>
           {action ? t('palette.run') : t('palette.openSetting')}
-          <kbd className="font-mono text-[10.5px] opacity-80">↵</kbd>
+          <kbd className="font-mono text-caption opacity-80">↵</kbd>
         </button>
         {action?.needs && (
-          <button type="button" className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-[12px] text-muted hover:text-title" onClick={() => onRun(true)} data-palette-other>
+          <button type="button" className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-caption text-muted hover:text-title" onClick={() => onRun(true)} data-palette-other>
             {t(action.needs === 'agent' ? 'palette.keys.otherAgent' : 'palette.keys.otherProject')}
-            <kbd className="font-mono text-[10.5px] text-subtle">⇧↵</kbd>
+            <kbd className="font-mono text-caption text-subtle">⇧↵</kbd>
           </button>
         )}
       </div>
@@ -638,18 +638,18 @@ function FoundRow({ item, query, on, where, onClick, onOpen }: { item: SearchIte
       <k.icon className={cn('mt-0.5 size-4 shrink-0', on ? 'text-brand-300' : 'text-subtle')} />
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="flex min-w-0 items-baseline gap-2">
-          <span className={cn('truncate text-[13px] text-primary', item.kind === T.SearchEvents && 'font-mono text-[12px]')}>
+          <span className={cn('truncate text-ui text-primary', item.kind === T.SearchEvents && 'font-mono text-caption')}>
             <Marked text={plainText(hit.title)} query={query} />
           </span>
-          {hit.tag && <span className="max-w-[40%] shrink-0 truncate font-mono text-[10.5px] text-subtle">{hit.tag}</span>}
+          {hit.tag && <span className="max-w-[40%] shrink-0 truncate font-mono text-caption text-subtle">{hit.tag}</span>}
         </span>
         {hit.detail && (
-          <span className="line-clamp-2 break-words text-[12px] leading-snug text-muted">
+          <span className="line-clamp-2 break-words text-caption leading-snug text-muted">
             <Marked text={plainText(hit.detail)} query={query} />
           </span>
         )}
       </span>
-      <span className="flex max-w-[34%] shrink-0 flex-col items-end gap-0.5 pt-0.5 text-[11px] text-subtle">
+      <span className="flex max-w-[34%] shrink-0 flex-col items-end gap-0.5 pt-0.5 text-caption text-subtle">
         {where.length > 0 && <span className="max-w-full truncate">{where.join(' · ')}</span>}
         {hit.at && <span className="text-faint">{timeAgo(hit.at)}</span>}
       </span>
@@ -678,14 +678,14 @@ function Preview({
   const k = kindOf(kind);
   return (
     <aside className="hidden w-[42%] min-w-0 shrink-0 flex-col border-l border-line bg-surface-faint md:flex" data-search-preview={kind}>
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 text-[12px] text-subtle">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 text-caption text-subtle">
         <span className="flex min-w-0 items-center gap-1.5">
           <k.icon className="size-3.5 shrink-0" />
           <span className="truncate">{where.join(' · ') || t(k.label)}</span>
         </span>
         {hit.at && <span className="shrink-0 text-faint">{new Date(hit.at).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })}</span>}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 text-[13px] leading-relaxed">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 text-ui leading-relaxed">
         {kind === T.SearchChats ? (
           <ChatAround hit={hit} query={query} agentTitle={agentTitle} />
         ) : kind === T.SearchReports && hit.report ? (
@@ -696,7 +696,7 @@ function Preview({
               <span className="font-medium text-title">
                 <Marked text={hit.memory.title} query={query} />
               </span>
-              <span className="font-mono text-[10.5px] text-subtle">{hit.memory.kind}</span>
+              <span className="font-mono text-caption text-subtle">{hit.memory.kind}</span>
             </div>
             <p className="whitespace-pre-wrap break-words text-primary">
               <Marked text={hit.memory.content} query={query} />
@@ -716,7 +716,7 @@ function Preview({
           </div>
         ) : (
           <div className="grid gap-2">
-            <span className={cn('font-medium text-title', kind === T.SearchEvents && 'font-mono text-[12px]')}>
+            <span className={cn('font-medium text-title', kind === T.SearchEvents && 'font-mono text-caption')}>
               <Marked text={hit.title} query={query} />
             </span>
             {hit.detail && (
@@ -728,14 +728,14 @@ function Preview({
         )}
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-4 py-2.5">
-        <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-[12px] font-medium text-white hover:bg-brand-400" onClick={() => onOpen(false)} data-search-open>
+        <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-caption font-medium text-white hover:bg-brand-400" onClick={() => onOpen(false)} data-search-open>
           {kind === T.SearchChats ? t('search.openInChat') : t('search.open.item')}
-          <kbd className="font-mono text-[10.5px] opacity-80">↵</kbd>
+          <kbd className="font-mono text-caption opacity-80">↵</kbd>
         </button>
         {kind === T.SearchChats && (
-          <button type="button" className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-[12px] text-muted hover:text-title" onClick={() => onOpen(true)} data-search-find>
+          <button type="button" className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-caption text-muted hover:text-title" onClick={() => onOpen(true)} data-search-find>
             {t('search.findInChat')}
-            <kbd className="font-mono text-[10.5px] text-subtle">⇧↵</kbd>
+            <kbd className="font-mono text-caption text-subtle">⇧↵</kbd>
           </button>
         )}
       </div>
@@ -769,7 +769,7 @@ function ChatAround({ hit, query, agentTitle }: { hit: T.SearchHit; query: strin
         const here = it.id === hit.id;
         return (
           <div key={it.id} ref={here ? found : undefined} className={cn('grid gap-1', mine && 'justify-items-end')} data-search-around={here || undefined}>
-            <span className="px-1 text-[10.5px] text-subtle">{mine ? t('chat.find.from.you') : it.kind === 'assistant' ? ai : t('chat.find.notice')}</span>
+            <span className="px-1 text-caption text-subtle">{mine ? t('chat.find.from.you') : it.kind === 'assistant' ? ai : t('chat.find.notice')}</span>
             <div
               className={cn(
                 'max-w-[92%] whitespace-pre-wrap break-words rounded-xl px-3 py-2',
@@ -812,7 +812,7 @@ function ReportPreview({ report, query }: { report: T.AgentReport; query: string
         <span className="font-medium text-title">
           <Marked text={report.task || report.summary} query={query} />
         </span>
-        <span className="font-mono text-[10.5px] text-subtle">{report.status}</span>
+        <span className="font-mono text-caption text-subtle">{report.status}</span>
       </div>
       <p className="whitespace-pre-wrap break-words text-primary">
         <Marked text={report.summary} query={query} />
@@ -822,7 +822,7 @@ function ReportPreview({ report, query }: { report: T.AgentReport; query: string
           lines &&
           lines.length > 0 && (
             <div key={label} className="grid gap-1">
-              <h4 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{t(label)}</h4>
+              <h4 className="text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{t(label)}</h4>
               <ul className="grid list-disc gap-1 pl-4 text-muted">
                 {lines.map((line) => (
                   <li key={line}>
@@ -844,7 +844,7 @@ function Chip({ on, onClick, children, ...rest }: { on: boolean; onClick: () => 
       aria-pressed={on}
       onClick={onClick}
       className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors',
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-caption transition-colors',
         on ? 'border-brand-400/40 bg-brand-400/15 text-brand-200' : 'border-line text-muted hover:border-line-strong hover:text-title',
       )}
       {...rest}
@@ -868,7 +868,7 @@ function Pick({ icon: Icon, value, onChange, label, options }: { icon: LucideIco
           type="button"
           aria-label={label}
           className={cn(
-            'inline-flex max-w-52 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors',
+            'inline-flex max-w-52 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-caption transition-colors',
             value ? 'border-brand-400/40 bg-brand-400/15 text-brand-200' : 'border-line text-muted hover:border-line-strong hover:text-title',
           )}
         >

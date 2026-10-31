@@ -7,6 +7,13 @@
     "height": 700
   },
   {
+    "id": "pulls-rate-limited-dark",
+    "description": "The pull requests list read before the account's GitHub rate limit ran out, under the one sentence saying when AgentBox reads GitHub again — dark",
+    "query": "pulls=limited&theme=dark",
+    "width": 420,
+    "height": 700
+  },
+  {
     "id": "pr-agent-dark",
     "description": "agent-99 open, its row active: a long title, a long branch and a PR badge — dark, xl width (312px rail)",
     "query": "open=agent-99&theme=dark",
@@ -56,8 +63,43 @@
     "height": 800
   },
   {
+    "id": "mac-vm-brew-dark",
+    "description": "A Mac's first screen on Apple Silicon without krunkit, with Homebrew: a button installs it, then makes the VM — dark, xl width",
+    "query": "vm=brew&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "mac-vm-brewdriver-light",
+    "description": "A Mac's first screen with a Homebrew Lima that has no krunkit driver: a button updates Lima — light, lg width",
+    "query": "vm=brewdriver&theme=light",
+    "width": 1024,
+    "height": 800
+  },
+  {
+    "id": "mac-gpu-vz-brew-dark",
+    "description": "Settings' GPU for agents on a Mac whose VM was made with vz: install krunkit and remake the VM — dark, xl width",
+    "query": "app=settings&gpu=vz&mac=brew&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "mac-gpu-update-failed-light",
+    "description": "Settings' GPU for agents on a Mac whose Venus driver failed to update: agents keep the old one — light, sm width",
+    "query": "app=settings&settings=agents&gpu=updatefailed&theme=light",
+    "width": 480,
+    "height": 1700
+  },
+  {
+    "id": "mac-gpu-vz-manual-light",
+    "description": "Settings' GPU for agents on a Mac with a vz VM and no Homebrew: the commands to run — light, lg width",
+    "query": "app=settings&gpu=vz&mac=manual&theme=light",
+    "width": 1024,
+    "height": 1700
+  },
+  {
     "id": "mac-vm-lima-light",
-    "description": "A Mac's first screen without Lima: brew install lima first — light, lg width",
+    "description": "A Mac's first screen without Lima: Setup downloads it, nothing to install by hand — light, lg width",
     "query": "vm=lima&theme=light",
     "width": 1024,
     "height": 800
@@ -122,6 +164,48 @@
     "id": "credential-project-chat-light",
     "description": "The same, light",
     "query": "chat=lead&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-live-dark",
+    "description": "A Claude Code turn thinking, phase live: the summarized thought still arriving — dark",
+    "query": "chat=thinking&phase=live&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-live-light",
+    "description": "A Claude Code turn thinking, phase live: the summarized thought still arriving — light",
+    "query": "chat=thinking&phase=live&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-answer-dark",
+    "description": "A Claude Code turn thinking, phase answer: the reply arriving after the thought — dark",
+    "query": "chat=thinking&phase=answer&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-answer-light",
+    "description": "A Claude Code turn thinking, phase answer: the reply arriving after the thought — light",
+    "query": "chat=thinking&phase=answer&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-done-dark",
+    "description": "A Claude Code turn thinking, phase done: the turn settled, its thought folded — dark",
+    "query": "chat=thinking&phase=done&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-done-light",
+    "description": "A Claude Code turn thinking, phase done: the turn settled, its thought folded — light",
+    "query": "chat=thinking&phase=done&theme=light",
     "width": 1280,
     "height": 900
   },
@@ -225,6 +309,20 @@
     "height": 900
   },
   {
+    "id": "rail-remote-dark",
+    "description": "Agents the lead runs on other machines of the hub account among its own, each labelled with its machine: working and asking ones with the moving agents, finished and failed ones in Finished (open), one with a long title on a long machine name — dark, xl width",
+    "query": "remote=1&finished=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "rail-remote-light-narrow",
+    "description": "The same below the xl breakpoint (268px rail) — light",
+    "query": "remote=1&finished=1&theme=light",
+    "width": 1100,
+    "height": 900
+  },
+  {
     "id": "rail-finished-open-light",
     "description": "The Finished section opened, a long title in it, below the xl breakpoint (268px rail) — light",
     "query": "finished=1&theme=light",
@@ -285,7 +383,7 @@
   },
   {
     "id": "usage-meter-dark",
-    "description": "The top bar's usage meter with two Claude accounts: Home shows the default, a project and its Claude agent their own, a Codex agent none; the project's tooltip open",
+    "description": "The top bar's usage meter with two Claude accounts: Home shows the default (the pill says Claude), a project and its Claude agent their own account's name, Codex agents the default (Codex) and atlan; the project's tooltip open",
     "query": "usage=1&theme=dark",
     "width": 1280,
     "height": 900,
@@ -415,6 +513,13 @@
     "query": "settings=models&theme=dark",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "settings-models-lead-dark",
+    "description": "Settings open at Models, tall enough for the whole Lead group: its model, window, effort and permission mode — dark",
+    "query": "settings=models&theme=dark",
+    "width": 1280,
+    "height": 1200
   },
   {
     "id": "settings-project-light",
@@ -723,8 +828,22 @@
   },
   {
     "id": "linux-setup-nokvm-light",
-    "description": "The same without /dev/kvm: what's missing, and the command for later — light",
+    "description": "The same on a CPU without virtualization: what to turn on in the firmware — light",
     "query": "linux=nokvm&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "linux-setup-kvm-denied-dark",
+    "description": "The same where /dev/kvm is the kvm group's (Debian, Ubuntu): one button gives it, no new login — dark",
+    "query": "linux=kvm-denied&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "linux-setup-kvm-module-light",
+    "description": "The same where KVM's module isn't loaded: the button loads it and gives it — light",
+    "query": "linux=kvm-module&theme=light",
     "width": 1280,
     "height": 900
   },
@@ -1081,7 +1200,7 @@
   },
   {
     "id": "past-agents-dark",
-    "description": "Every project's past agents: PR badges, a long title and branch, tokens, the filters — dark",
+    "description": "The Work page of every project: live and past agents' work by day, outcomes, PR chips, changes, media, a long title and branch, the filters — dark",
     "query": "past=list&theme=dark",
     "width": 1100,
     "height": 800
@@ -1127,6 +1246,20 @@
     "query": "review=1&theme=light",
     "width": 1000,
     "height": 760
+  },
+  {
+    "id": "window-wide-issues-dark",
+    "description": "The whole app at 1920×1080, the project's Issues beside its chat: one picked up by its label with its PR, one with a retired agent, the rest waiting to be handed over — dark",
+    "query": "app=issues&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "issues-classic-dark",
+    "description": "The project's Issues tab in the classic layout, at 1440×900 — dark",
+    "query": "app=issues&v2=0&theme=dark",
+    "width": 1440,
+    "height": 900
   },
   {
     "id": "window-wide-project-dark",
@@ -1193,6 +1326,21 @@
     "query": "app=agent-99&theme=dark",
     "width": 1080,
     "height": 1920
+  },
+  {
+    "id": "window-portrait-nav-dark",
+    "description": "1080×1920 with the menu button's drawer open: the sidebar over the page, the rail docked beside the chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 1080,
+    "height": 1920,
+    "click": "header [data-open-nav]"
+  },
+  {
+    "id": "window-rail-edge-dark",
+    "description": "900×700, the narrowest window that docks the rail beside the project's chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 900,
+    "height": 700
   },
   {
     "id": "window-portrait-settings-dark",
@@ -1283,7 +1431,7 @@
   },
   {
     "id": "window-medium-agent-dark",
-    "description": "1000×700, just below the rail's breakpoint, on agent-99 — dark",
+    "description": "1000×700, the rail docked beside the page and the sidebar a drawer, on agent-99 — dark",
     "query": "app=agent-99&theme=dark",
     "width": 1000,
     "height": 700
@@ -1343,6 +1491,20 @@
     "height": 1500
   },
   {
+    "id": "chat-rich-app-dark",
+    "description": "The project's chat with every kind of rich block, beside its panel — dark",
+    "query": "app=project&v2=1&thread=rich&theme=dark",
+    "width": 1600,
+    "height": 1000
+  },
+  {
+    "id": "chat-rich-app-light",
+    "description": "The project's chat with every kind of rich block, beside its panel — light",
+    "query": "app=project&v2=1&thread=rich&theme=light",
+    "width": 1600,
+    "height": 1000
+  },
+  {
     "id": "chat-rich-wide-files-dark",
     "description": "The same with a 340px Files panel open — dark",
     "query": "chat=rich&wide=1&files=1&theme=dark",
@@ -1383,6 +1545,13 @@
     "query": "phone=list&theme=dark",
     "width": 430,
     "height": 900
+  },
+  {
+    "id": "phone-pulls-375-light",
+    "description": "A project's open pull requests on a phone: titles on two lines, checks in colour, a draft that can't merge — light",
+    "query": "phone=pulls&theme=light",
+    "width": 375,
+    "height": 812
   },
   {
     "id": "phone-chat-390-dark",
@@ -1449,6 +1618,41 @@
     "click": "[data-v2-filter-button]"
   },
   {
+    "id": "window-wide-v2-pulls-dark",
+    "description": "UI v2 at 1920×1080, the lead's panel on its Pull requests tab, between Agents and Files: the tab counts the open ones and those ready to review, and the top bar has no Pull requests button — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-1280-v2-pulls-light",
+    "description": "UI v2 at 1280×800, the Pull requests tab beside the chat — light",
+    "query": "app=pulls&v2=1&theme=light",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "window-1024-v2-pulls-dark",
+    "description": "UI v2 at 1024×768, where the panel is a drawer: the Pull requests tab open in it over the chat — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 1024,
+    "height": 768
+  },
+  {
+    "id": "window-min-v2-pulls-dark",
+    "description": "UI v2 at 480×800, the Pull requests tab in the drawer — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "window-wide-v2-pulls-agents-dark",
+    "description": "UI v2 at 1920×1080, the lead's list: its three tabs at the list's narrow width, only Agents named, Pull requests by its icon and counts — dark",
+    "query": "app=project&v2=1&pulls=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
     "id": "window-1440-v2-agent-dark",
     "description": "UI v2 at 1440×900 on agent-41, ready to review: its card over the composer, with its PR and Review changes — dark",
     "query": "app=agent-41&v2=1&theme=dark",
@@ -1480,6 +1684,13 @@
     "id": "window-wide-v2-sidebar-dark",
     "description": "UI v2 at 1920×1080: Home, the search under it, agentbox and storefront pinned, the rest by recent activity with quill's busy lead counted as working, the Idle list folded, project icons, and the lead chat's \"ready to review\" banner — dark",
     "query": "app=project&v2=1&pins=agentbox,storefront&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-v2-draft-dark",
+    "description": "UI v2 at 1920×1080 with group idle on: idle-1 has an unsent draft, so it shows the pencil and sits above the folded Idle list with the active projects, while idle-2 folds into Idle — dark",
+    "query": "app=project&v2=1&idle=3&groupidle=1&draft=idle-1&theme=dark",
     "width": 1920,
     "height": 1080
   },
@@ -1549,11 +1760,40 @@
     "height": 1080
   },
   {
-    "id": "window-wide-v2-home-status-dark",
+    "id": "window-v2-home-status-wide-dark",
     "description": "UI v2 at 1920×1080 on Home's Status tab, every project's agents with its project filter, Home highlighted in the sidebar — dark",
     "query": "app=home&v2=1&theme=dark",
     "width": 1920,
     "height": 1080
+  },
+  {
+    "id": "window-v2-home-status-wide-light",
+    "description": "UI v2 at 1920×1080 on Home's Status tab: the load strip, neutral status chips and the agents' table using the page's full width — light",
+    "query": "app=home&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-v2-home-status-small-dark",
+    "description": "UI v2 at 800×600 on Home's Status tab: the load strip, neutral status chips and the agents' table using the page's full width — dark",
+    "query": "app=home&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-v2-home-status-small-light",
+    "description": "UI v2 at 800×600 on Home's Status tab: the load strip, neutral status chips and the agents' table using the page's full width — light",
+    "query": "app=home&v2=1&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-v2-home-status-more-dark",
+    "description": "UI v2 at 800×600 on Home's Status tab with the status chips' +N menu open, holding the statuses that didn't fit on their one row — dark",
+    "query": "app=home&v2=1&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": "[data-status-more]"
   },
   {
     "id": "window-760-v2-project-dark",
@@ -1584,6 +1824,36 @@
     "click": [
       "[data-review-open]"
     ]
+  },
+  {
+    "id": "window-portrait-v2-project-dark",
+    "description": "UI v2 at 1080×1920 on the lead's chat: the panel's list of agents beside it, the sidebar a drawer — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1080,
+    "height": 1920
+  },
+  {
+    "id": "window-portrait-v2-panel-dark",
+    "description": "UI v2 at 1080×1920, the panel opened from its strip of agents (before 900px docked it, a drawer over the dimmed chat): beside the chat — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1080,
+    "height": 1920,
+    "click": "[data-panel-unfold]"
+  },
+  {
+    "id": "window-portrait-v2-nav-dark",
+    "description": "UI v2 at 1080×1920, the menu button's drawer open: the sidebar over the page, the panel beside the chat — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1080,
+    "height": 1920,
+    "click": "[data-open-nav]"
+  },
+  {
+    "id": "window-rail-edge-v2-dark",
+    "description": "UI v2 at 900×700, the narrowest window that keeps the panel beside the lead's chat — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 900,
+    "height": 700
   },
   {
     "id": "window-portrait-v2-agent-dark",
@@ -1658,7 +1928,7 @@
   },
   {
     "id": "window-1100-v2-lead-files-tab-light",
-    "description": "UI v2 at 1100×800, the narrowest beside the chat, the lead's panel on its Files tab with README.md open — light",
+    "description": "UI v2 at 1100×800, beside the chat with the sidebar a drawer, the lead's panel on its Files tab with README.md open — light",
     "query": "app=project&v2=1&panel=files:lead&file=README.md&theme=light",
     "width": 1100,
     "height": 800
@@ -1749,12 +2019,116 @@
     "height": 900
   },
   {
-    "id": "window-1440-v2-panel-more-dark",
-    "description": "UI v2 at 1440×900, the panel's ⋯ open: Browser, Timeline, Pull requests and Project settings — dark",
+    "id": "window-1440-v2-switch-lead-dark",
+    "description": "UI v2 at 1440×900, the lead’s panel on its Files tab: its switch of Agents, Pull requests, Issues, Files, Evidence and Schedules, at the default width — dark",
+    "query": "app=project&v2=1&panel=files:lead&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-lead-light",
+    "description": "UI v2 at 1440×900, the lead’s panel on its Files tab: its switch of Agents, Pull requests, Issues, Files, Evidence and Schedules, at the default width — light",
+    "query": "app=project&v2=1&panel=files:lead&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-lead-narrow-dark",
+    "description": "UI v2 at 1440×900, the lead’s panel on its Files tab: its switch of Agents, Pull requests, Issues, Files, Evidence and Schedules, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — dark",
+    "query": "app=project&v2=1&panel=files:lead&theme=dark&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-lead-narrow-light",
+    "description": "UI v2 at 1440×900, the lead’s panel on its Files tab: its switch of Agents, Pull requests, Issues, Files, Evidence and Schedules, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — light",
+    "query": "app=project&v2=1&panel=files:lead&theme=light&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-agent-dark",
+    "description": "UI v2 at 1440×900, agent-41 in the panel: back arrow, its title, and one switch of Desktop, Terminal, Browser, Files, Evidence, Timeline and Schedules, Desktop named, at the default width — dark",
     "query": "app=project&v2=1&panel=desktop:agent-41&theme=dark",
     "width": 1440,
-    "height": 900,
-    "click": "[data-panel-more]"
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-agent-light",
+    "description": "UI v2 at 1440×900, agent-41 in the panel: back arrow, its title, and one switch of Desktop, Terminal, Browser, Files, Evidence, Timeline and Schedules, Desktop named, at the default width — light",
+    "query": "app=project&v2=1&panel=desktop:agent-41&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-agent-narrow-dark",
+    "description": "UI v2 at 1440×900, agent-41 in the panel: back arrow, its title, and one switch of Desktop, Terminal, Browser, Files, Evidence, Timeline and Schedules, Desktop named, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — dark",
+    "query": "app=project&v2=1&panel=desktop:agent-41&theme=dark&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-agent-narrow-light",
+    "description": "UI v2 at 1440×900, agent-41 in the panel: back arrow, its title, and one switch of Desktop, Terminal, Browser, Files, Evidence, Timeline and Schedules, Desktop named, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — light",
+    "query": "app=project&v2=1&panel=desktop:agent-41&theme=light&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-android-dark",
+    "description": "UI v2 at 1440×900, agent-41 of an Android project on its Android view: Android on its switch with the booted dot, at the default width — dark",
+    "query": "app=project&v2=1&panel=android:agent-41&android=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-android-light",
+    "description": "UI v2 at 1440×900, agent-41 of an Android project on its Android view: Android on its switch with the booted dot, at the default width — light",
+    "query": "app=project&v2=1&panel=android:agent-41&android=1&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-android-narrow-dark",
+    "description": "UI v2 at 1440×900, agent-41 of an Android project on its Android view: Android on its switch with the booted dot, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — dark",
+    "query": "app=project&v2=1&panel=android:agent-41&android=1&theme=dark&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-android-narrow-light",
+    "description": "UI v2 at 1440×900, agent-41 of an Android project on its Android view: Android on its switch with the booted dot, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — light",
+    "query": "app=project&v2=1&panel=android:agent-41&android=1&theme=light&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-ios-dark",
+    "description": "UI v2 at 1440×900 on a Mac, agent-41 of an iOS project on its iOS view: the Mac's simulators shut down, iPhone 17 Pro picked, Boot simulator — dark",
+    "query": "app=project&v2=1&panel=ios:agent-41&ios=shutdown&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-ios-booted-light",
+    "description": "UI v2 at 1440×900 on a Mac, agent-41 on its iOS view with its simulator booted: Home, Lock, screenshot and shut down in the toolbar — light",
+    "query": "app=project&v2=1&panel=ios:agent-41&ios=booted&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-ios-noxcode-dark",
+    "description": "UI v2 at 1440×900 on a Mac without Xcode, agent-41 of an iOS project on its iOS view: what's missing and how to install it — dark",
+    "query": "app=project&v2=1&panel=ios:agent-41&ios=noxcode&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-ios-narrow-pt-dark",
+    "description": "UI v2 at 1440×900 on a Mac, agent-41 on its iOS view at its narrowest, 340px, in Portuguese: the switch in icons, the toolbar in tooltips — dark",
+    "query": "app=project&v2=1&panel=ios:agent-41&ios=shutdown&theme=dark&panelwidth=340&lang=pt-BR",
+    "width": 1440,
+    "height": 900
   },
   {
     "id": "window-wide-v2-project-menu-dark",
@@ -1872,7 +2246,7 @@
   },
   {
     "id": "window-1024-v2-panel-dark",
-    "description": "UI v2 at 1024×768 with the panel open on Files: below 1100px it's a drawer, so the chat isn't left 280px beside it — dark",
+    "description": "UI v2 at 1024×768 with the panel open on Files: beside the chat, the sidebar a drawer so the chat isn't left 280px — dark",
     "query": "app=project&v2=1&panel=files:lead&file=README.md&theme=dark",
     "width": 1024,
     "height": 768
@@ -1995,17 +2369,17 @@
     "click": "[data-panel-fold]"
   },
   {
-    "id": "agents-right-1024-dark",
-    "description": "UI v2 at 1024×768, too narrow for the list beside the chat: the strip of agents stays beside it — dark",
+    "id": "agents-right-880-dark",
+    "description": "UI v2 at 880×768, too narrow for the list beside the chat: the strip of agents stays beside it — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",
-    "width": 1024,
+    "width": 880,
     "height": 768
   },
   {
-    "id": "agents-right-1024-drawer-dark",
+    "id": "agents-right-880-drawer-dark",
     "description": "The same, the strip's « clicked: the list as a drawer over the chat — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",
-    "width": 1024,
+    "width": 880,
     "height": 768,
     "click": "[data-panel-unfold]"
   },
@@ -2096,5 +2470,440 @@
       "header [data-inbox]",
       "[data-review-row]"
     ]
-  }
+  },
+  {
+    "id": "lead-panel-v2-1280",
+    "description": "UI v2, the lead's right panel header: its four tabs, Today and Settings beside the ⋯, at 1280px wide — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "lead-panel-v2-1080",
+    "description": "UI v2, the lead's right panel header: its four tabs, Today and Settings beside the ⋯, in the drawer opened from the strip, at 1080px wide — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1080,
+    "height": 800,
+    "click": "[data-right-panel=strip] button"
+  },
+  {
+    "id": "lead-panel-v2-900",
+    "description": "UI v2, the lead's right panel header: its four tabs, Today and Settings beside the ⋯, in the drawer opened from the strip, at 900px wide — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 900,
+    "height": 700,
+    "click": "[data-right-panel=strip] button"
+  },
+  {
+    "id": "window-v2-sections-dark",
+    "description": "UI v2 at 1280×900 with the user's sections (Classic's): Work and Side projects between Pinned and Projects, storefront pinned out of its place, and an empty Later to drop into — dark",
+    "query": "app=project&v2=1&pins=storefront&sections=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "window-v2-sections-light",
+    "description": "The same UI v2 sections — light",
+    "query": "app=project&v2=1&pins=storefront&sections=1&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "window-v2-sections-hidden-dark",
+    "description": "UI v2 sections with dotfiles (in Side projects) hidden: it shows under Hidden, not in its section — dark",
+    "query": "app=project&v2=1&sections=1&hidden=dotfiles&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-v2-hidden-toggle]"
+  },
+  {
+    "id": "window-v2-sections-pt-BR-dark",
+    "description": "UI v2 sections in Portuguese — dark",
+    "query": "app=project&v2=1&pins=storefront&sections=1&lang=pt-BR&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "window-v2-sections-groupidle-dark",
+    "description": "UI v2 sections with \"Group idle projects and sort by activity\" on and Idle open: a section keeps its idle projects, in the user's order; only projects in no section go to Idle — dark",
+    "query": "app=project&v2=1&pins=storefront&sections=1&idle=4&groupidle=1&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-v2-idle-toggle]"
+  },
+  {
+    "id": "frozen-badge-v2-dark",
+    "description": "UI v2 at 1920×1080, the lead's panel: agent-85 (machine paused for memory, 2 ahead) and agent-35 (idle, processes frozen by idle reclaim) carry a Frozen badge whose tooltip says why — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "frozen-badge-classic-dark",
+    "description": "Classic at 1280×900, the agents' rail: the same two agents carry a Frozen badge beside their status — dark",
+    "query": "app=project&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "memory-breakdown-popover-dark",
+    "description": "The top bar's VM memory popover: used memory split into agents, project chats, AgentBox, compressed swap and kernel (adding up to the figure above), and the file cache beside it — dark",
+    "query": "meters=memory&topbar=detailed&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-meter=memory]"
+  },
+  {
+    "id": "memory-breakdown-popover-pt-dark",
+    "description": "The same popover in pt-BR — dark",
+    "query": "meters=memory&topbar=detailed&theme=dark&lang=pt-BR",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-meter=memory]"
+  },
+  {
+    "id": "window-recap-1440-dark",
+    "description": "1440×1000, Your week with AgentBox: the hero with its six tiles, each day and by hour, tokens by model, and the share card as its PNG — dark",
+    "query": "app=recap&theme=dark",
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "id": "window-recap-800-light",
+    "description": "800×600, Your week with AgentBox: tiles in two columns, the charts stacked, the card shrunk to the page — light",
+    "query": "app=recap&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-recap-1440-light",
+    "description": "1440×1000, Your week with AgentBox with every cost reported by the AI tools: what it cost beside the hours, and each model's cost — light",
+    "query": "app=recap&theme=light",
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "id": "window-recap-estimated-dark",
+    "description": "1440×1000, Your week with AgentBox on Codex and Cursor, which report no cost: the cost marked as an estimate, ≈ on estimated models, and the tokens of a model with no price — dark",
+    "query": "app=recap&recap=estimated&theme=dark",
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "id": "window-recap-estimated-light",
+    "description": "1440×1000, Your week with AgentBox on Codex and Cursor, its cost estimated — light",
+    "query": "app=recap&recap=estimated&theme=light",
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "id": "window-recap-empty-dark",
+    "description": "1440×900, Your week with AgentBox in a week no agent worked — dark",
+    "query": "app=recap&recap=empty&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-work-1920-dark",
+    "description": "1920×1080, the Work page of every project: live and past agents' work by day, an outcome, To review, PR chips, changes and media on each row, the filters with counts — dark",
+    "query": "app=work&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-work-portrait-v2-light",
+    "description": "1080×1920, UI v2's Work page: the project picker beside the title, rows by day — light",
+    "query": "app=work&v2=1&theme=light",
+    "width": 1080,
+    "height": 1920
+  },
+  {
+    "id": "window-work-800-v2-dark",
+    "description": "800×600, UI v2's Work page: the filters wrap, long titles and branches truncate inside their rows — dark",
+    "query": "app=work&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-work-480-dark",
+    "description": "480 wide, the Work page: the filters and the search wrap, nothing runs past the window — dark",
+    "query": "app=work&theme=dark",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "window-work-1366-review-dark",
+    "description": "1366×768, the review opened from Work on agent-38, waiting for review: its report on top, Media | Diff | Details, the verdicts in the footer — dark",
+    "query": "app=work&theme=dark",
+    "width": 1366,
+    "height": 768,
+    "click": [
+      "[data-work-status=review] button"
+    ]
+  },
+  {
+    "id": "window-work-1366-past-dark",
+    "description": "1366×768, the review opened from Work on agent-31, a past agent: its media, a Chat link, and no verdicts, only why — dark",
+    "query": "app=work&theme=dark",
+    "width": 1366,
+    "height": 768,
+    "click": [
+      "[data-work-row$='agent-31'] button"
+    ]
+  },
+  {
+    "id": "window-work-800-details-dark",
+    "description": "800×600, the review from Work on agent-36 (reviewed, its report partial with what's left open), on Details: Media in the switch is the way back — dark",
+    "query": "app=work&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-work-row$='agent-36'] button",
+      "[data-review-toggle=details]"
+    ]
+  },
+  {
+    "id": "share-review-dark",
+    "description": "agent-12's review with Share beside Diff, Details and GitHub — dark",
+    "query": "review=1&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-inbox]",
+      "[data-review-all]"
+    ]
+  },
+  {
+    "id": "share-timeline-panel-dark",
+    "description": "UI v2, the right panel on agent-12's Timeline, Share in its title — dark",
+    "query": "app=project&v2=1&panel=timeline:agent-12&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "image-wait-dark",
+    "description": "An agent asked for while the first base image downloads: its rail row and chat say it waits for the image, with the download's progress — dark",
+    "query": "chat=imagewait&open=agent-100&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "image-wait-light",
+    "description": "Same as image-wait-dark, light appearance",
+    "query": "chat=imagewait&open=agent-100&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "image-wait-pt-dark",
+    "description": "Same as image-wait-dark, in Brazilian Portuguese",
+    "query": "chat=imagewait&open=agent-100&theme=dark&lang=pt-BR",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "counts-project-1920-light",
+    "description": "UI v2 at 1920×1080, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-project-1920-dark",
+    "description": "UI v2 at 1920×1080, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-project-800-light",
+    "description": "UI v2 at 800×600, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "counts-project-800-dark",
+    "description": "UI v2 at 800×600, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "counts-agent-99-1920-light",
+    "description": "UI v2 at 1920×1080, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=agent-99&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-agent-99-1920-dark",
+    "description": "UI v2 at 1920×1080, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=agent-99&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-agent-99-800-light",
+    "description": "UI v2 at 800×600, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=agent-99&v2=1&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "counts-agent-99-800-dark",
+    "description": "UI v2 at 800×600, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=agent-99&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "requests-v2-1920-dark",
+    "description": "UI v2 at 1920×1080, the lead's chat with its agents' pending credential requests: two ask for a GitHub account, one for a secret — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "requests-v2-1920-light",
+    "description": "UI v2 at 1920×1080, the lead's chat with its agents' pending credential requests: two ask for a GitHub account, one for a secret — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "pulls-v2-800-dark",
+    "description": "UI v2 at 800×1200, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 800,
+    "height": 1200
+  },
+  {
+    "id": "pulls-v2-800-light",
+    "description": "UI v2 at 800×1200, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — light",
+    "query": "app=pulls&v2=1&theme=light",
+    "width": 800,
+    "height": 1200
+  },
+  {
+    "id": "sessions-v2-dark",
+    "description": "UI v2 on a project's chat with two sessions: the tabs above it, an unread dot on the project row for the one not shown, and its agents tinted with its colour — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "sessions-v2-narrow-light",
+    "description": "The same at 480×800, where the tabs have to scroll rather than widen the page — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "session-colours-v2-dark",
+    "description": "A project's chat with three sessions, each in its colour: a dot on its tab, and its agents' cards in the rail tinted with it, status still the loudest thing on them — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "session-colours-v2-light",
+    "description": "The same — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "session-colours-dark",
+    "description": "The same in the classic rail (AgentRail) — dark",
+    "query": "app=project&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "session-colours-light",
+    "description": "The same in the classic rail — light",
+    "query": "app=project&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "composer-target-v2-dark",
+    "description": "A project's chat whose session made three agents: the To: chip at its left, on the lead — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "composer-target-narrow-light",
+    "description": "The same at 480×800 — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "sessions-cache-card-dark",
+    "description": "A session idle to within minutes of its prompt cache's expiry: the card offers to start a new session, send anyway, or compact and send — dark",
+    "query": "app=project&v2=1&cache=due&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "counts-work-review-light",
+    "description": "The Work page on To review: its count and rows are the sidebar's \"N to review\" (lib/agentCounts.ts) — light",
+    "query": "app=work&v2=1&theme=light",
+    "width": 1600,
+    "height": 1000,
+    "click": "[data-work-filter-tab=\"review\"]"
+  },
+  {
+    "id": "counts-work-review-dark",
+    "description": "The Work page on To review: its count and rows are the sidebar's \"N to review\" (lib/agentCounts.ts) — dark",
+    "query": "app=work&v2=1&theme=dark",
+    "width": 1600,
+    "height": 1000,
+    "click": "[data-work-filter-tab=\"review\"]"
+  },
+  {
+    "id": "window-1440-project-dark",
+    "description": "The whole app at 1440×900, on the project's chat, in AgentBox's own palette — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-project-light",
+    "description": "The whole app at 1440×900, on the project's chat, in AgentBox's own palette — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-project-tokyo-dark",
+    "description": "The whole app at 1440×900, on the project's chat, following a Tokyo Night host theme — dark",
+    "query": "app=project&v2=1&theme=dark&palette=tokyo",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-project-tokyo-light",
+    "description": "The whole app at 1440×900, on the project's chat, following a Tokyo Night host theme — light",
+    "query": "app=project&v2=1&theme=light&palette=tokyo",
+    "width": 1440,
+    "height": 900
+  },
+  {"id": "sidebar-attention-dark", "description": "UI v2's sidebar levels: agentbox's asks need you (amber pill, wash, left line, the ask as its subtitle), storefront has two agents finished unseen (purple pill), courier and quill working (grey) — dark", "query": "app=home&v2=1&attention=1&theme=dark", "width": 1440, "height": 900},
+  {"id": "window-min-sidebar-attention-dark", "description": "The same at 480×800, the sidebar's drawer open from the top bar — dark", "query": "app=home&v2=1&attention=1&theme=dark", "width": 480, "height": 800, "click": "[data-open-nav]"},
+  {"id": "sidebar-attention-light", "description": "UI v2's sidebar levels: agentbox's asks need you (amber pill, wash, left line, the ask as its subtitle), storefront has two agents finished unseen (purple pill), courier and quill working (grey) — light", "query": "app=home&v2=1&attention=1&theme=light", "width": 1440, "height": 900},
+  {"id": "window-min-sidebar-attention-light", "description": "The same at 480×800, the sidebar's drawer open from the top bar — light", "query": "app=home&v2=1&attention=1&theme=light", "width": 480, "height": 800, "click": "[data-open-nav]"},
+  {"id": "first-run-tool-dark", "description": "The first run on a new installation, at its first step: the AI tool, Claude Code chosen, one line each on the account it needs — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 1280, "height": 900},
+  {"id": "first-run-machine-dark", "description": "The first run before there is a VM: the Linux VM to make, the tool already chosen — dark", "query": "linux=setup&firstrun=machine&theme=dark", "width": 1280, "height": 900},
+  {"id": "first-run-image-dark", "description": "The first run with the daemon up and the first base image downloading, its progress open — dark", "query": "app=home&firstrun=image&theme=dark", "width": 1280, "height": 900},
+  {"id": "first-run-login-dark", "description": "The first run's sign-in, to the chosen tool only (Claude Code) — dark", "query": "app=home&firstrun=login&theme=dark", "width": 1280, "height": 900},
+  {"id": "first-run-github-dark", "description": "The first run's GitHub step: the device-flow sign-in, a token behind Use a token instead — dark", "query": "app=home&firstrun=github&theme=dark", "width": 1280, "height": 900},
+  {"id": "first-run-project-dark", "description": "The first run's first project: the GitHub account's repositories with a search, to clone one, or skip — dark", "query": "app=home&firstrun=project&theme=dark", "width": 1280, "height": 900},
+  {"id": "first-run-check-dark", "description": "The first run's last step, the doctor: a failure with no fix of its own offers Ask Home to fix it — dark", "query": "app=home&firstrun=check&theme=dark", "width": 1280, "height": 900},
+  {"id": "first-run-tool-light", "description": "Same as first-run-tool-dark, light", "query": "app=home&firstrun=tool&theme=light", "width": 1280, "height": 900},
+  {"id": "first-run-project-pt-BR-dark", "description": "Same as first-run-project-dark, in Brazilian Portuguese", "query": "app=home&firstrun=project&lang=pt-BR&theme=dark", "width": 1280, "height": 900},
+  {"id": "first-run-tool-narrow-dark", "description": "The first run's first step at a phone-narrow 480px window — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 480, "height": 900}
 ]

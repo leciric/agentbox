@@ -6,6 +6,7 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/github"
 	"agentbox/internal/state"
 )
 
@@ -95,7 +96,7 @@ func (s *Server) reconcileProject(ctx context.Context, p state.Project) {
 	key := repo.String()
 	s.pulls.readFor(key, p.Name)
 	before, _ := s.pulls.state(key)
-	fetch, cancel := context.WithTimeout(ctx, pullsFetchTimeout)
+	fetch, cancel := context.WithTimeout(github.InBackground(ctx, "reconcile"), pullsFetchTimeout)
 	entry := s.fetchPulls(fetch, client, repo, heads, before)
 	cancel()
 	if entry.listErr.failed() {

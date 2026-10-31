@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"agentbox/internal/api"
@@ -45,6 +46,19 @@ func hostHome() (string, error) {
 	return os.UserHomeDir()
 }
 
+// browserHomes are the homes to look for browsers in: the host's, and in WSL
+// the Windows user's too, since the host home isn't shared there.
+func browserHomes() []string {
+	var homes []string
+	if h, err := hostHome(); err == nil {
+		homes = append(homes, h)
+	}
+	if w := hostos.WindowsHome(); w != "" && !slices.Contains(homes, w) {
+		homes = append(homes, w)
+	}
+	return homes
+}
+
 // browserCookieProfiles lists the browsers installed on the host, so the user
 // can pick one to import from. It reads only each browser's own files and
 // never a cookie value.
@@ -52,16 +66,15 @@ func (s *Server) browserCookieProfiles(w http.ResponseWriter, r *http.Request) e
 	if _, err := s.store.Project(r.Context(), r.PathValue("project")); err != nil {
 		return err
 	}
-	home, err := hostHome()
-	if err != nil {
-		return err
-	}
 	out := api.BrowserProfiles{Profiles: []api.BrowserProfile{}}
-	for _, p := range cookieimport.FindProfiles(home) {
-		out.Profiles = append(out.Profiles, api.BrowserProfile{
-			ID: p.ID, Browser: p.Browser, BrowserName: p.BrowserName,
-			Engine: p.Engine, Name: p.Name, Keyring: p.Keyring,
-		})
+	for _, home := range browserHomes() {
+		for _, p := range cookieimport.FindProfiles(home) {
+			out.Profiles = append(out.Profiles, api.BrowserProfile{
+				ID: p.ID, Browser: p.Browser, BrowserName: p.BrowserName,
+				Engine: p.Engine, Name: p.Name, Keyring: p.Keyring,
+				AppBound: p.AppBound(), ProfileDir: p.Dir(),
+			})
+		}
 	}
 	return writeJSON(w, http.StatusOK, out)
 }
@@ -82,9 +95,9 @@ func (s *Server) importFromBrowser(w http.ResponseWriter, r *http.Request) error
 	if req.ProfileID == "" {
 		return errors.New("pick a browser profile to import from")
 	}
-	home, err := hostHome()
-	if err != nil {
-		return err
+	home := profileHome(req.ProfileID)
+	if home == "" {
+		return errors.New("can't find your home directory")
 	}
 	cookies, _, err := cookieimport.ReadProfile(home, req.ProfileID, req.KeyringSecret, time.Now())
 	if err != nil {
@@ -105,6 +118,64 @@ func (s *Server) importFromBrowser(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	return writeJSON(w, http.StatusOK, info)
+}
+
+// importDecryptedFromBrowser seals cookies the desktop app read and decrypted
+// on the host: a Windows browser's cookies are sealed with app-bound
+// encryption the daemon in the VM can't open, so the app launches the browser
+// itself and reads them over CDP (desktop/src/main/browsercookies.ts), then
+// sends the plain cookies here. We validate and seal them like any other
+// import. The response carries the per-site counts, never a cookie value.
+func (s *Server) importDecryptedFromBrowser(w http.ResponseWriter, r *http.Request) error {
+	p, err := s.store.Project(r.Context(), r.PathValue("project"))
+	if err != nil {
+		return err
+	}
+	var req api.ImportDecryptedCookiesRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	cookies := make([]cookieimport.Cookie, 0, len(req.Cookies))
+	for _, c := range req.Cookies {
+		cookies = append(cookies, cookieimport.Cookie{
+			Domain: c.Domain, Name: c.Name, Value: c.Value, Path: c.Path,
+			Expires: c.Expires, Secure: c.Secure, HTTPOnly: c.HTTPOnly, SameSite: c.SameSite,
+		})
+	}
+	kept, err := cookieimport.Accept(cookies, time.Now())
+	if err != nil {
+		return err
+	}
+	var domains []string
+	for _, d := range cookieimport.Domains(kept) {
+		domains = append(domains, d.Domain)
+	}
+	if err := s.secrets().SetBrowserCookies(r.Context(), p.Name, secrets.BrowserCookies{
+		Domains: domains, Source: req.Source, Cookies: kept, ImportedAt: time.Now().Truncate(time.Second),
+	}); err != nil {
+		return err
+	}
+	info, err := s.browserCookiesInfo(r.Context(), p.Name)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, info)
+}
+
+// profileHome is the home a browser profile was found under, else the host's.
+func profileHome(profileID string) string {
+	homes := browserHomes()
+	for _, home := range homes {
+		for _, p := range cookieimport.FindProfiles(home) {
+			if p.ID == profileID {
+				return home
+			}
+		}
+	}
+	if len(homes) > 0 {
+		return homes[0]
+	}
+	return ""
 }
 
 // browserSource names the browser and profile an import came from, for the

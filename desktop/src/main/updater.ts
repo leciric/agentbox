@@ -11,6 +11,8 @@ import { AppUpdates } from './appimageupdate';
 import { cleanDownloads, cleanUp, detectInstall, update, UpdateError, type Release, type Run } from './appupdate';
 import { isLocal } from './connection';
 import { request } from './daemon';
+import { isOutdated } from './staledaemon';
+import { isPrerelease } from '../shared/appimageupdate.ts';
 
 const where = () =>
   detectInstall({
@@ -98,10 +100,25 @@ async function start(onProgress: (p: AppUpdateProgress) => void): Promise<AppUpd
       const busy = jobs?.status === 200 ? (JSON.parse(jobs.body) as { status: string }[]).filter((j) => j.status === 'running').length : 0;
       if (busy > 0) return { ok: false, code: 'busy', detail: String(busy) };
     }
+    // The daemon picks the release for its own version. One still of the
+    // version before the app updated (restartIfStale waits for its jobs)
+    // would pick for that one: a nightly app whose stale daemon was a
+    // release would be offered that release, and downgraded to it.
+    const status = await request('GET', '/v1/update');
+    const daemon = status.status === 200 ? (JSON.parse(status.body) as { current?: string; available?: { version: string } }) : {};
+    if (isLocal() && isOutdated(daemon.current, app.isPackaged ? app.getVersion() : undefined)) {
+      return { ok: false, code: 'daemonStale', detail: daemon.current ?? '' };
+    }
     const res = await request('GET', '/v1/update/release');
     if (res.status !== 200) return { ok: false, code: 'noRelease', detail: errorOf(res.body) };
     release = JSON.parse(res.body) as Release;
     if (release.version === app.getVersion()) return { ok: false, code: 'upToDate', detail: release.version, url: release.url };
+    // A nightly goes back to a stable release only when the daemon offers
+    // it, which it does after the user switched to the stable channel
+    // (internal/update's Offer); the latest stable is otherwise behind it.
+    if (isPrerelease(app.getVersion()) && !isPrerelease(release.version) && daemon.available?.version !== release.version) {
+      return { ok: false, code: 'upToDate', detail: app.getVersion(), url: release.url };
+    }
     if (install.kind === 'appimage') {
       await updateAppImage(release, onProgress);
       return { ok: true };

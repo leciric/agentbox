@@ -1,9 +1,11 @@
-import { AlarmClock, Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Hourglass, Info, LoaderCircle } from 'lucide-react';
+import { AlarmClock, Archive, ArrowRight, Brain, Check, ChevronRight, CircleAlert, Copy, Hourglass, Info, LoaderCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { memo, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
+import { editSending, failed, findSending, isSending, retrySending } from '../../lib/sending';
+import { chooseTarget } from '../../lib/messageTarget';
 import { formatDateTime, formatTime, useT, type MessageKey } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { fileLinkOf } from '../../lib/files';
@@ -75,8 +77,8 @@ const TimelineRow = memo(
         return (
           <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id}>
             <UserMessage item={row.item} chatRef={chatRef} />
-            {row.item.kind === 'aside' && <Delivered item={row.item} />}
-            <Meta item={row.item} className="justify-end pr-1" />
+            {row.item.delivery === failed ? <NotSent item={row.item} /> : (row.item.kind === 'aside' || isSending(row.item) || row.item.delivery === 'starting') && <Delivered item={row.item} />}
+            {!isSending(row.item) && <Meta item={row.item} className="justify-end pr-1" />}
           </div>
         );
       case 'assistant':
@@ -162,6 +164,8 @@ const TimelineRow = memo(
         // left is an error, and the mark a rollover leaves where the session
         // changed — and a message between this project's lead and another's.
         if (row.item.projectMessage) return <ProjectMessageCard item={row.item} />;
+        // And what you wrote from here to one of the project's agents.
+        if (row.item.to) return <ToldMessage item={row.item} chatRef={chatRef} />;
         // And one of the project's scheduled tasks arriving.
         if (row.item.scheduledRun) return <ScheduledRunChip item={row.item} project={isLeadRef(chatRef) ? chatRef.split('/')[0] : undefined} />;
         // And agents finishing, with what they showed they checked.
@@ -171,14 +175,14 @@ const TimelineRow = memo(
         // And one of the project's agents asking permission, answered here.
         if (row.item.agentPermission) return <AgentPermissionCard item={row.item} />;
         return row.item.kind === 'error' ? (
-          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-2.5 text-[13px] text-rose-100" role="alert" data-chat-item="error" data-chat-id={row.item.id}>
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-2.5 text-ui text-rose-100" role="alert" data-chat-item="error" data-chat-id={row.item.id}>
             <CircleAlert className="mt-0.5 size-4 shrink-0 text-rose-300" />
             <p className="min-w-0 break-words leading-relaxed" data-chat-text>
               {row.item.text}
             </p>
           </div>
         ) : (
-          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[13px] text-muted" data-chat-item="notice" data-chat-id={row.item.id}>
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-ui text-muted" data-chat-item="notice" data-chat-id={row.item.id}>
             <Info className="mt-0.5 size-4 shrink-0 text-subtle" />
             <div className="min-w-0 flex-1 leading-relaxed">
               <p className="break-words" data-chat-text>
@@ -188,11 +192,11 @@ const TimelineRow = memo(
                   session is told, in the open rather than slipped into its prompt. */}
               {row.item.handoff && (
                 <details className="group/handoff mt-1" data-chat-handoff>
-                  <summary className="flex cursor-default list-none items-center gap-1 text-[12px] text-subtle hover:text-tertiary">
+                  <summary className="flex cursor-default list-none items-center gap-1 text-caption text-subtle hover:text-tertiary">
                     {t('chat.timeline.handoff')}
                     <ChevronRight className="size-3.5 transition-transform group-open/handoff:rotate-90" />
                   </summary>
-                  <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-raised p-2.5 font-mono text-[11.5px] text-tertiary">{row.item.handoff}</pre>
+                  <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-raised p-2.5 font-mono text-caption text-tertiary">{row.item.handoff}</pre>
                 </details>
               )}
             </div>
@@ -263,6 +267,9 @@ const deliveries: Record<string, { label: MessageKey; className: string }> = {
   lost: { label: 'chat.delivery.lost', className: 'text-rose-300/80' },
   held: { label: 'chat.delivery.held', className: 'text-amber-300/70' },
   waking: { label: 'chat.delivery.waking', className: 'text-amber-300/70' },
+  // Sent before the AI tool could take it: its session, or the agent's
+  // machine, is still starting. It goes in once that is done.
+  starting: { label: 'chat.delivery.starting', className: 'text-subtle' },
 };
 
 // CompactionCard is the chat saving its conversation to the project's memory
@@ -275,7 +282,7 @@ function CompactionCard({ item }: { item: T.ChatItem }) {
   const waiting = c.waiting ?? 0;
   if (c.state === 'running') {
     return (
-      <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[13px]" role="status" data-chat-item="compaction" data-chat-compaction="running">
+      <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-ui" role="status" data-chat-item="compaction" data-chat-compaction="running">
         <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-subtle" />
         <div className="min-w-0 leading-relaxed">
           <p className="chat-shine">{t('chat.compaction.running')}</p>
@@ -292,7 +299,7 @@ function CompactionCard({ item }: { item: T.ChatItem }) {
   return (
     <div
       className={cn(
-        'mb-4 flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-[13px]',
+        'mb-4 flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-ui',
         failed ? 'border-amber-500/20 bg-amber-500/[0.06] text-amber-100' : 'border-line bg-surface-faint text-muted',
       )}
       data-chat-item="compaction"
@@ -301,7 +308,7 @@ function CompactionCard({ item }: { item: T.ChatItem }) {
       {failed ? <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-300" /> : <Archive className="mt-0.5 size-4 shrink-0 text-subtle" />}
       <div className="min-w-0 leading-relaxed">
         <p className="break-words">{item.text}</p>
-        {failed && c.error && <p className="break-words text-[12.5px] text-amber-200/70">{c.error}</p>}
+        {failed && c.error && <p className="break-words text-ui text-amber-200/70">{c.error}</p>}
       </div>
     </div>
   );
@@ -312,9 +319,29 @@ function Delivered({ item }: { item: T.ChatItem }) {
   const delivery = item.delivery ? deliveries[item.delivery] : undefined;
   if (!delivery) return null;
   return (
-    <span className={cn('pr-1 text-[11.5px]', delivery.className)} data-chat-delivery={item.delivery}>
+    // On its way, it says so only if that takes long enough to notice.
+    <span className={cn('pr-1 text-caption', delivery.className, isSending(item) && 'appear-late')} data-chat-delivery={item.delivery}>
       {t(delivery.label)}
     </span>
+  );
+}
+
+// NotSent is a message that didn't reach the daemon (lib/sending.ts): why,
+// with the ways to send it again as it was or after changing it.
+function NotSent({ item }: { item: T.ChatItem }) {
+  const t = useT();
+  const error = findSending(item.id)?.error ?? '';
+  return (
+    <div className="flex max-w-[85%] flex-wrap items-center justify-end gap-x-2 gap-y-1 pr-1 text-caption" data-chat-not-sent>
+      <CircleAlert className="size-3.5 shrink-0 text-rose-300" />
+      <span className="min-w-0 break-words text-rose-300/90">{t('chat.composer.notSent', { error })}</span>
+      <button className="rounded-md px-1.5 py-0.5 font-medium text-rose-100 transition hover:bg-rose-400/15" onClick={() => retrySending(item.id)}>
+        {t('chat.sending.retry')}
+      </button>
+      <button className="rounded-md px-1.5 py-0.5 text-tertiary transition hover:bg-surface-raised" onClick={() => editSending(item.id)}>
+        {t('chat.sending.edit')}
+      </button>
+    </div>
   );
 }
 
@@ -383,6 +410,27 @@ function Mentions({ text }: { text: string }) {
 // UserMessage is what you sent: its pictures and files, the elements you
 // picked in a browser (lib/picks.ts) as chips with their crops rather than
 // the text and pictures the AI tool reads, and what you wrote.
+// ToldMessage is a message you wrote in a project's chat to one of its agents
+// (lib/messageTarget.ts): your bubble, tagged with the agent it went to.
+// Clicking the tag points the composer at that agent again.
+function ToldMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
+  const t = useT();
+  const to = item.to!;
+  return (
+    <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item="told" data-chat-to={to} data-chat-id={item.id}>
+      <Tip label={t('chat.target.toldTip', { name: to })}>
+        <button className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium text-brand-300 transition hover:bg-brand-500/15" onClick={() => chooseTarget(chatRef, to)} data-chat-told-tag>
+          <ArrowRight className="size-3" />
+          {to}
+        </button>
+      </Tip>
+      <UserMessage item={item} chatRef={chatRef} />
+      {item.delivery === failed ? <NotSent item={item} /> : isSending(item) && <Delivered item={item} />}
+      {!isSending(item) && <Meta item={item} className="justify-end pr-1" />}
+    </div>
+  );
+}
+
 function UserMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
   const split = useMemo(() => splitPicked(item.text ?? ''), [item.text]);
   const images = item.images ?? [];

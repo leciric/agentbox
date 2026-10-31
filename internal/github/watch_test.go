@@ -108,3 +108,47 @@ func TestWatchPullRequestsNoAccess(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoAccess", err)
 	}
 }
+
+// With events asked for, the same request reads who the account is, the
+// default branch's head and its checks, the issues with the labels named,
+// and who opened each pull request and whom a review is asked of.
+func TestWatchRepositoryEvents(t *testing.T) {
+	var query string
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		query = string(b)
+		_, _ = w.Write([]byte(`{"data":{"viewer":{"login":"me"},"repository":{
+			"open":{"nodes":[{"number":9,"state":"OPEN","author":null,"createdAt":"2026-10-20T10:00:00Z",
+				"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"me"}},{"requestedReviewer":{"__typename":"Team"}}]},"commits":{"nodes":[]}}]},
+			"defaultBranchRef":{"name":"trunk","target":{"oid":"abc","url":"u","messageHeadline":"Bump","statusCheckRollup":{"state":"ERROR",
+				"contexts":{"nodes":[{"__typename":"StatusContext","context":"ci/build","state":"ERROR","targetUrl":"https://ci/b"}]}}}},
+			"issues":{"nodes":[{"number":4,"title":"Crash","url":"i4","body":"b","author":{"login":"rep"},"labels":{"nodes":[{"name":"bug"}]}}]}}}}`))
+	}))
+	defer stub.Close()
+	c := Client{Token: "tok", BaseURL: stub.URL}
+	w, err := c.WatchRepository(context.Background(), Repo{"acme", "hello"}, nil, WatchOptions{Events: true, Labels: []string{"bug", "p\"1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, `labels: [\"bug\",\"p\\\"1\"]`) || !strings.Contains(query, "viewer { login }") {
+		t.Errorf("query = %s", query)
+	}
+	ev := w.Events
+	if ev == nil || ev.Viewer != "me" || ev.DefaultBranch != "trunk" || ev.Head.SHA != "abc" || ev.Head.Checks != "failing" ||
+		len(ev.Head.Failing) != 1 || ev.Head.Failing[0].Name != "ci/build" {
+		t.Fatalf("events = %+v", ev)
+	}
+	if len(ev.Issues) != 1 || ev.Issues[0].Author != "rep" || ev.Issues[0].Labels[0] != "bug" {
+		t.Errorf("issues = %+v", ev.Issues)
+	}
+	if pr := w.Open[0]; pr.Author != "" || len(pr.ReviewRequested) != 1 || pr.ReviewRequested[0] != "me" || pr.CreatedAt.IsZero() {
+		t.Errorf("pull request = %+v", pr)
+	}
+	// Without events, none of it is asked for.
+	if _, err := c.WatchPullRequests(context.Background(), Repo{"acme", "hello"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(query, `\n  viewer {`) || strings.Contains(query, "defaultBranchRef") || strings.Contains(query, "issues(") {
+		t.Errorf("a plain watch asked for events: %s", query)
+	}
+}

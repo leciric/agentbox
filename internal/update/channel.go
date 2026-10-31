@@ -81,10 +81,12 @@ func ValidChannel(c string) bool {
 // On the nightly channel it is whichever of the two is newer, when that is
 // newer than current: a stable release outranks the nightlies that led up to
 // it. On the stable channel it is the latest stable when that is newer — or,
-// when current is a nightly, whenever it isn't current itself: switching back
-// from nightly to stable offers the latest stable even though its version is
-// lower than the nightly's.
-func Offer(channel, current string, stable, nightly Latest) (Latest, bool) {
+// when current is a nightly whose user switched it to stable (leaving), the
+// latest stable whenever it isn't current itself, even though its version is
+// lower than the nightly's. A nightly on the stable channel that nobody
+// switched there (installed by hand over a stable install, or a channel
+// chosen long before) waits for the next stable instead of going backwards.
+func Offer(channel, current string, stable, nightly Latest, leaving bool) (Latest, bool) {
 	if channel == ChannelNightly {
 		best := stable
 		if !valid(best.Version) || Newer(nightly.Version, best.Version) {
@@ -95,7 +97,7 @@ func Offer(channel, current string, stable, nightly Latest) (Latest, bool) {
 	if Newer(stable.Version, current) {
 		return stable, true
 	}
-	if IsNightly(current) && valid(stable.Version) && !IsNightly(stable.Version) && canonical(stable.Version) != canonical(current) {
+	if leaving && IsNightly(current) && valid(stable.Version) && !IsNightly(stable.Version) && canonical(stable.Version) != canonical(current) {
 		return stable, true
 	}
 	return Latest{}, false

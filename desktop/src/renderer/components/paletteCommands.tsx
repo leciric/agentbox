@@ -106,9 +106,9 @@ export function currentAgent(view: View): string | undefined {
   return view.kind === 'agent' && !isProjectChat(view.ref) ? view.ref : undefined;
 }
 export function currentProject(view: View): string | undefined {
-  if (view.kind === 'project' || view.kind === 'today') return view.project;
+  if (view.kind === 'project' || view.kind === 'work') return view.project || undefined;
   if (view.kind === 'agent') return view.ref.split('/')[0];
-  if (view.kind === 'pastAgents') return view.project ?? view.ref?.split('/')[0];
+  if (view.kind === 'pastAgents') return view.ref.split('/')[0];
   return undefined;
 }
 
@@ -234,8 +234,7 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
     project('project-chat', MessageSquare, { kind: 'project', project: '', tab: 'chat' }),
     project('project-pulls', GitPullRequest, { kind: 'project', project: '', tab: 'pulls' }),
     project('project-media', Images, { kind: 'project', project: '', tab: 'media' }),
-    project('project-past', History, { kind: 'pastAgents', project: '' } as View),
-    project('project-today', CalendarClock, { kind: 'today', project: '' }),
+    project('project-past', History, { kind: 'work', project: '' }),
     project('project-settings', Settings, { kind: 'project', project: '', tab: 'settings' }),
     project('project-repository', GitBranch, { kind: 'project', project: '', tab: 'repository' }),
     project('project-notes', NotebookPen, { kind: 'project', project: '', tab: 'brief' }),
@@ -265,7 +264,7 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
     ...(v2 ? [] : [action('home-chat', MessageSquare, () => select({ kind: 'homeChat' }))]),
     action('jobs', Briefcase, () => select({ kind: 'jobs' })),
     action('all-media', Images, () => select({ kind: 'media' })),
-    action('past-agents', Bot, () => select({ kind: 'pastAgents' })),
+    action('past-agents', Bot, () => select({ kind: 'work' })),
     action('settings', Settings, () => select({ kind: 'settings' }), { keys: ['Mod', ','] }),
     ...(v2 ? [action('shortcuts', Keyboard, () => setSheetOpen(true), { keys: ['Mod', '/'] })] : []),
 
