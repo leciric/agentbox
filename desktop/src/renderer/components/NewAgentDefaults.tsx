@@ -256,55 +256,92 @@ export function DefaultContextWindow({ role }: { role: Role }) {
   );
 }
 
-// NewAgentEffort chooses how hard new Claude Code agents think, beside the
-// model above and for the same reason: it says what you want an agent to cost
-// and be capable of, which doesn't change from one repository to the next.
-// Either can be overridden for one agent as it is created.
+// The remembered-menu settings: how hard a role's Claude Code chats think, and
+// the permission mode the lead's chat starts in. Effort says what you want a
+// chat to cost and be capable of, which doesn't change from one repository to
+// the next; the mode is what you'd otherwise pick in every new lead session.
+// The agents' effort can be overridden for one agent as it is created; the
+// lead's two give way to a choice in the project chat's own menu, and reach
+// chats that already exist the next time they start.
 //
-// A plain select, not the model's menu: the effort levels are a short
-// ungrouped list with nothing to describe or search. They are still only the
-// ones an adapter advertised (rememberChoices) — the levels differ per model,
-// and some models offer none at all, so an invented one would set nothing.
-export function NewAgentEffort() {
+// A plain select, not the model's menu: these are short ungrouped lists with
+// nothing to describe or search. They are still only the ones an adapter
+// advertised (rememberChoices) — the levels differ per model, and some models
+// offer none at all, so an invented one would set nothing.
+const choiceSettings = {
+  agentEffort: {
+    label: 'defaults.newAgent.effortLabel',
+    description: 'defaults.newAgent.effortDescription',
+    later: 'defaults.newAgent.effortLevelsLater',
+    details: 'defaults.newAgent.effortDetails',
+    empty: 'defaults.newAgent.effortDefault',
+    choices: (s: T.Settings) => s.claudeEffortChoices,
+    value: (s: T.Settings) => s.defaultClaudeEffort,
+    save: (v: string): T.UpdateSettingsRequest => ({ defaultClaudeEffort: v }),
+  },
+  leadEffort: {
+    label: 'defaults.newAgent.lead.effortLabel',
+    description: 'defaults.newAgent.lead.effortDescription',
+    later: 'defaults.newAgent.effortLevelsLater',
+    details: 'defaults.newAgent.lead.effortDetails',
+    empty: 'defaults.newAgent.lead.emptyName',
+    choices: (s: T.Settings) => s.claudeEffortChoices,
+    value: (s: T.Settings) => s.defaultLeadEffort,
+    save: (v: string): T.UpdateSettingsRequest => ({ defaultLeadEffort: v }),
+  },
+  leadMode: {
+    label: 'defaults.newAgent.lead.modeLabel',
+    description: 'defaults.newAgent.lead.modeDescription',
+    later: 'defaults.newAgent.lead.modesLater',
+    details: 'defaults.newAgent.lead.modeDetails',
+    empty: 'defaults.newAgent.lead.emptyName',
+    choices: (s: T.Settings) => s.claudeModeChoices,
+    value: (s: T.Settings) => s.defaultLeadMode,
+    save: (v: string): T.UpdateSettingsRequest => ({ defaultLeadMode: v }),
+  },
+} as const;
+
+export function DefaultChoice({ setting }: { setting: keyof typeof choiceSettings }) {
   const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
+  const s = choiceSettings[setting];
   const save = useMutation({
-    mutationFn: (defaultClaudeEffort: string) => api.updateSettings({ defaultClaudeEffort }),
+    mutationFn: (value: string) => api.updateSettings(s.save(value)),
     onSuccess: (next) => queryClient.setQueryData(['settings'], next),
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const choices = settings.data?.claudeEffortChoices ?? [];
-  const value = settings.data?.defaultClaudeEffort ?? '';
+  const choices = (settings.data && s.choices(settings.data)) ?? [];
+  const value = (settings.data && s.value(settings.data)) ?? '';
 
   return (
     <SettingRow
-      label={t('defaults.newAgent.effortLabel')}
+      label={t(s.label)}
       description={
         <>
-          {t('defaults.newAgent.effortDescription')}
-          {settings.data && !settings.data.claudeMenuKnown && ` ${t('defaults.newAgent.effortLevelsLater')}`}
+          {t(s.description)}
+          {settings.data && choices.length === 0 && ` ${t(s.later)}`}
         </>
       }
-      details={t('defaults.newAgent.effortDetails')}
+      details={t(s.details)}
 
       control={
         <Select
-          data-default-effort
-          aria-label={t('defaults.newAgent.effortLabel')}
+          data-default-choice={setting}
+          aria-label={t(s.label)}
           disabled={save.isPending || settings.data === undefined}
           value={value}
           onChange={(next) => save.mutate(next)}
         >
-          <SelectOption value="">{t('defaults.newAgent.effortDefault')}</SelectOption>
+          <SelectOption value="">{t(s.empty)}</SelectOption>
           {choices.map((choice) => (
             <SelectOption key={choice.value} value={choice.value}>
               {choiceName(choice) || choice.value}
             </SelectOption>
           ))}
-          {/* A level this account has stopped offering keeps its place, so the
-              control never shows something else as though you had picked it. */}
+          {/* A choice this account has stopped offering keeps its place, so
+              the control never shows something else as though you had picked it. */}
           {value !== '' && !choices.some((c) => c.value === value) && <SelectOption value={value}>{t('defaults.newAgent.unavailable', { value })}</SelectOption>}
         </Select>
       }

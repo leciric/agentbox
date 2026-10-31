@@ -2224,6 +2224,15 @@ func (c *conversation) wanted(id string) (api.ChatOption, string, bool) {
 	if option.Category == "mode" {
 		value, ok = c.wantedMode(option) // plan.go
 	}
+	if !ok && id != "model" {
+		// A lead's default in Settings, for a setting its composer never
+		// chose. The model is left out: it is the lead's at launch already
+		// (launchSettings), like the window; and plan is never a default
+		// mode, only a toggle (plan.go).
+		if v := c.storedOption(id); v != "" && v != planChoice(option) {
+			value, ok = v, true
+		}
+	}
 	if !ok || value == option.Value {
 		return option, value, false
 	}
@@ -3282,6 +3291,7 @@ func (c *conversation) rememberChoices() {
 	case "claude":
 		categories[state.SettingClaudeModelChoices] = "model"
 		categories[state.SettingClaudeEffortChoices] = "thought_level"
+		categories[state.SettingClaudeModeChoices] = "mode"
 	case "opencode":
 		categories[state.SettingOpenCodeModelChoices] = "model"
 	}
@@ -3297,6 +3307,11 @@ func (c *conversation) rememberChoices() {
 	}
 	c.mu.Unlock()
 	for key, choices := range menus {
+		if key == state.SettingClaudeModeChoices {
+			// Plan is a toggle beside the mode, not a level to default to
+			// (plan.go), so the menu Settings offers is the levels alone.
+			choices = slices.DeleteFunc(choices, func(ch api.ChatOptionChoice) bool { return ch.Kind == "plan" })
+		}
 		if key == state.SettingClaudeModelChoices {
 			// setOptions folds AgentBox's own pinned models into the live
 			// menu; they don't belong in what's remembered as the adapter's,
