@@ -30,6 +30,9 @@ type fakeGemini struct {
 	model string
 	calls []string
 	hold  chan struct{}
+	// history is what session/load replays: like Gemini CLI, it answers
+	// first and streams the history after.
+	history []string
 }
 
 func (g *fakeGemini) launch(_ context.Context, _ state.Agent, _ func(string)) (*Process, error) {
@@ -83,8 +86,27 @@ func (g *fakeGemini) Request(method string, params json.RawMessage, reply func(a
 	case acp.MethodInitialize:
 		reply(map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"loadSession": true},
 			"agentInfo": map[string]any{"name": "gemini-cli", "title": "Gemini CLI", "version": "0.64.0"}}, nil)
-	case acp.MethodSessionNew, acp.MethodSessionLoad:
+	case acp.MethodSessionNew:
 		reply(g.session(), nil)
+	case acp.MethodSessionLoad:
+		reply(g.session(), nil)
+		go func() {
+			g.mu.Lock()
+			conn, history := g.conn, g.history
+			g.mu.Unlock()
+			for i, text := range history {
+				kind := "user_message_chunk"
+				if i%2 == 1 {
+					kind = "agent_message_chunk"
+				}
+				time.Sleep(20 * time.Millisecond)
+				_ = conn.Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": req.SessionID,
+					"update": map[string]any{"sessionUpdate": kind, "content": map[string]string{"type": "text", "text": text}}})
+			}
+			if g.hold != nil {
+				close(g.hold) // the model answers after the replay, as it takes seconds to
+			}
+		}()
 	case "session/set_mode":
 		g.mu.Lock()
 		g.mode = req.ModeID
@@ -222,5 +244,36 @@ func TestGeminiCLIModeNoticeStaysOutOfTheReply(t *testing.T) {
 		if strings.Contains(it.Text, "MODE_UPDATE") {
 			t.Errorf("a %s item reads %q", it.Kind, it.Text)
 		}
+	}
+}
+
+// Gemini CLI answers session/load before it replays the conversation, which
+// it streams after: a chat resumed by a message gained the whole history
+// again as part of that message's turn, once more with every restart.
+func TestGeminiCLIReplayStaysOutOfTheTurn(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	g := &fakeGemini{mode: "default", model: "auto", hold: make(chan struct{}), history: []string{"Say hi", "Earlier reply", "Say hi again", "Another earlier reply"}}
+	a := state.Agent{Project: "hello", Name: "agent-01", AI: "gemini", Worktree: t.TempDir()}
+	if err := store.SaveChat(context.Background(), a.Project, a.Name, state.Chat{SessionID: "g-1"}); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{Store: store, Version: "test", Publish: func(api.ChatEvent) {}, Launch: g.launch}
+	t.Cleanup(m.Close)
+	if _, err := m.Send(a, "Say hello"); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m, a, "the turn finishing", turnsEnded(1))
+	if !g.called(acp.MethodSessionLoad) {
+		t.Fatalf("Gemini CLI was asked %v", g.calls)
+	}
+	var said []string
+	for _, it := range th.Items {
+		if it.Kind == "assistant" {
+			said = append(said, it.Text)
+		}
+	}
+	if !slices.Equal(said, []string{"Hello from Gemini"}) {
+		t.Errorf("the turn said %q, want only its own reply", said)
 	}
 }

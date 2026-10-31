@@ -1618,6 +1618,8 @@ type adapter struct {
 	thinking  bool   // it was started asking for adaptive thinking (acp.ClaudeSessionMeta)
 	sizeOf    string // the model and window last remembered from its usage_update
 	lostTurn  bool   // a turn's prompt failed because its output closed: it exited mid-turn
+	// replayed is when a loaded session's replay last said anything (awaitReplay).
+	replayed time.Time
 	// models is what the store knew of Claude model windows when it started,
 	// and what its own results have said since: the model's whole window the
 	// context ring measures against (contextSize).
@@ -2040,6 +2042,9 @@ func (c *conversation) connect(ad *adapter) error {
 		case caps.LoadSession:
 			c.setReplaying(ad, true)
 			resumeErr = ad.conn.Call(ctx, acp.MethodSessionLoad, req, &resp)
+			if resumeErr == nil && c.agent.AI == "gemini" {
+				c.awaitReplay(ctx, ad)
+			}
 			c.setReplaying(ad, false)
 		default:
 			resumeErr = errors.New("its adapter can't resume sessions")
@@ -2160,6 +2165,38 @@ func (c *conversation) setReplaying(ad *adapter, replaying bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ad.replaying = replaying
+}
+
+// How long a loaded Gemini CLI session must say nothing for its replay to
+// count as over, and the longest awaitReplay waits for that.
+const (
+	replayQuiet = 300 * time.Millisecond
+	replayMax   = 10 * time.Second
+)
+
+// awaitReplay waits out the history Gemini CLI replays after it has answered
+// session/load (its loadSession doesn't wait for streamHistory), so that it
+// is still taken for a replay: until the adapter has said nothing for
+// replayQuiet. Otherwise a chat resumed by a message gained the whole
+// conversation again as part of that message's turn.
+func (c *conversation) awaitReplay(ctx context.Context, ad *adapter) {
+	deadline := time.Now().Add(replayMax)
+	c.mu.Lock()
+	ad.replayed = time.Now()
+	c.mu.Unlock()
+	for {
+		c.mu.Lock()
+		wait := time.Until(ad.replayed.Add(replayQuiet))
+		c.mu.Unlock()
+		if wait <= 0 || !time.Now().Before(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(min(wait, time.Until(deadline))):
+		}
+	}
 }
 
 // wanted returns the value a setting should get: the one you chose, or full
@@ -2605,6 +2642,9 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	// Whatever it is, and whichever session it's for — a subagent's own
 	// updates are the turn's too — the adapter is alive and getting on.
 	c.progressed()
+	if h.ad.replaying {
+		h.ad.replayed = time.Now()
+	}
 	if strings.HasPrefix(u.SessionUpdate, "async_task_") {
 		// The adapter's, whichever of its sessions started it.
 		c.taskUpdate(h.ad, u)
