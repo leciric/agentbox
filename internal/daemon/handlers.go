@@ -1528,6 +1528,7 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 		}
 		s.countFeature(api.FeatureAgentRestore)
 		m.EnsureImageCache(ctx, a)
+		m.EnsureDockerOnDemand(ctx, a)
 		m.EnsurePackageCache(ctx, a)
 		m.EnsureBrowser(ctx, a)
 		s.refreshAgents(ctx)

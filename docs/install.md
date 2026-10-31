@@ -109,7 +109,14 @@ to swap, and resumed once it eases. For that the VM gets compressed swap in memo
 of its cap) as AgentBox starts, used before any swapfile from `agentbox vm swap on`. The oldest one
 always keeps running, so they all finish in turn. The agent shows **Paused for memory** or
 **Waiting for memory** meanwhile. Claude Code agents do this around their tests and builds by
-themselves; any other command can join in as `agentbox heavy -- <command>`.
+themselves; any other command can join in as `agentbox heavy -- <command>`. Tests and builds that
+start while memory is short also run half as many parallel jobs (Go, make, cargo, vitest, turbo,
+nx, pnpm workspaces), back to the usual count two minutes after it eases.
+
+An agent that's only editing code holds little: its browser closes after five minutes unused (no
+browser or desktop tool call, nothing watching its Desktop tab) and opens again on the next use,
+and its Docker starts on the first `docker` command instead of at boot, and stops after five
+minutes with no container running.
 
 ## Moving an installation from before the VM
 
