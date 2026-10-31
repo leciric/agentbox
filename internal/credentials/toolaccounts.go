@@ -25,7 +25,8 @@ import (
 //   - Cursor: the SDK's auth.json (see CursorLogin), a key typed in or one
 //     Cursor minted at a browser sign-in.
 //   - Gemini CLI: its oauth_creds.json, a Google sign-in, or for an API key
-//     {"GEMINI_API_KEY": key}, which agents get in ~/.gemini/.env (see
+//     {"GEMINI_API_KEY": key}, which a chat sends Gemini CLI over ACP and
+//     Gemini CLI on the command line gets from a file only it reads (see
 //     GeminiLogin).
 //   - OpenCode: one provider's entry from its auth.json. OpenCode keeps every
 //     provider's key in one file, so its accounts are per provider ("work" for

@@ -12,8 +12,8 @@ import (
 // A Gemini CLI agent needs a login and nothing in the image: every base has
 // Gemini CLI. Its model is Gemini CLI's own id, stored for the chat to apply as
 // its session starts, and it has no effort. Its chat is Gemini CLI's own ACP
-// mode, started without the variables that would replace its login, and with
-// an API key login read into GEMINI_API_KEY from the file AgentBox wrote.
+// mode, started without the variables that would replace its login, and an
+// API key login goes to it as ACP's authenticate, never in its environment.
 func TestGeminiAgent(t *testing.T) {
 	f := setup(t, fakeIncus(t, `case "$1" in
   list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}},{"name":"ab-hello-stack-agent-02","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.6"}]}}}}]' ;;
@@ -63,10 +63,20 @@ exit 0`))
 		t.Fatal(err)
 	}
 	script := cmd.Args[len(cmd.Args)-1]
-	for _, want := range []string{"exec env -u GEMINI_API_KEY", `GEMINI_API_KEY="$(cat '/home/`, `/.gemini/agentbox-api-key')" mise exec 'npm:@google/gemini-cli@`, "-- 'gemini' '--acp'"} {
+	for _, want := range []string{"exec env -u GEMINI_API_KEY", "mise exec 'npm:@google/gemini-cli@", "-- 'gemini' '--acp'"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("the chat's command %q doesn't have %q", script, want)
 		}
+	}
+	if strings.Contains(script, "GEMINI_API_KEY=") || strings.Contains(script, "agentbox-api-key") {
+		t.Errorf("the chat's command hands Gemini CLI its key: %q", script)
+	}
+	auth, err := f.m.ChatAuth(ctx, a)
+	if err != nil || auth == nil || auth.MethodID != "gemini-api-key" || auth.Meta["api-key"] != "AIza-test" {
+		t.Errorf("ChatAuth = %+v, %v", auth, err)
+	}
+	if auth, err := f.m.ChatAuth(ctx, state.Agent{AI: "codex"}); auth != nil || err != nil {
+		t.Errorf("ChatAuth for Codex = %+v, %v", auth, err)
 	}
 
 	// It has a command line too, unlike Cursor.

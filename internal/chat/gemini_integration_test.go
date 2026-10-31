@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"agentbox/internal/acp"
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
@@ -18,7 +19,9 @@ import (
 // TestGeminiCLITurn runs the chat against Gemini CLI itself (`gemini --acp`),
 // in a home of its own: the session starts with Gemini CLI's model menu, an
 // autonomous agent's session switches itself to YOLO, and the model chosen
-// for it is set. With a real key in GEMINI_API_KEY a turn runs and lands in
+// for it is set. The key goes over ACP, as AgentBox's own chats send it
+// (Process.Auth), not in Gemini CLI's environment, and settings.json names no
+// sign-in. With a real key in GEMINI_API_KEY a turn runs and lands in
 // the token ledger as "gemini" under the model; without one the key is a
 // placeholder, which Gemini CLI takes until it asks Google, so the turn fails
 // with Google's refusal and the chat says so.
@@ -40,7 +43,7 @@ func TestGeminiCLITurn(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	settings := `{"security":{"auth":{"selectedType":"gemini-api-key"},"folderTrust":{"enabled":false}},"general":{"enableAutoUpdate":false}}`
+	settings := `{"security":{"folderTrust":{"enabled":false}},"general":{"enableAutoUpdate":false},"privacy":{"usageStatisticsEnabled":false}}`
 	if err := os.WriteFile(filepath.Join(home, ".gemini", "settings.json"), []byte(settings), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -54,8 +57,17 @@ func TestGeminiCLITurn(t *testing.T) {
 		Launch: func(ctx context.Context, _ state.Agent, _ func(string)) (*Process, error) {
 			cmd := exec.CommandContext(ctx, gemini, "--acp")
 			cmd.Dir = a.Worktree
-			cmd.Env = append(os.Environ(), "HOME="+home, "GEMINI_API_KEY="+key)
-			return StartCommand(cmd)
+			for _, kv := range os.Environ() {
+				if !strings.HasPrefix(kv, "GEMINI_API_KEY=") {
+					cmd.Env = append(cmd.Env, kv)
+				}
+			}
+			cmd.Env = append(cmd.Env, "HOME="+home, "GEMINI_CLI_NO_RELAUNCH=1")
+			proc, err := StartCommand(cmd)
+			if proc != nil {
+				proc.Auth = &acp.AuthenticateRequest{MethodID: "gemini-api-key", Meta: map[string]any{"api-key": key}}
+			}
+			return proc, err
 		},
 	}
 	t.Cleanup(m.Close)

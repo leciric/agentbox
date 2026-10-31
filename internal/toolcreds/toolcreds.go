@@ -42,8 +42,9 @@ var Variables = map[string][]string{
 		"GROQ_API_KEY", "XAI_API_KEY", "DEEPSEEK_API_KEY", "MISTRAL_API_KEY", "OPENCODE_API_KEY",
 	},
 	// Gemini CLI reads a Gemini or Vertex AI key, or Google Cloud's own
-	// credentials, before the login it keeps in ~/.gemini; AgentBox gives it
-	// an API key login in GEMINI_API_KEY itself (agent.geminiKeyEnv).
+	// credentials, before the login it keeps in ~/.gemini; AgentBox gives a
+	// chat an API key login over ACP (agent.ChatAuth), and the command line
+	// one in GEMINI_API_KEY itself (agent.geminiKeyEnv).
 	"gemini": {
 		"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA",
 		"GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_ACCESS_TOKEN",

@@ -16,7 +16,6 @@ import (
 	"github.com/creack/pty"
 
 	"agentbox/internal/credentials"
-	"agentbox/internal/opencode"
 )
 
 // Signing in to Gemini CLI with a Google account has no command of its own:
@@ -52,7 +51,7 @@ func (m *Manager) GeminiSignIn(ctx context.Context, ev SetupTokenEvents, codes <
 	if status == nil {
 		status = func(string) {}
 	}
-	gemini, nodeBin, err := m.ensureNPMTool(ctx, "gemini", opencode.V1, status)
+	gemini, nodeBin, err := m.ensureNPMTool(ctx, "gemini", leadNPMTools["gemini"], status)
 	if err != nil {
 		return nil, err
 	}

@@ -253,6 +253,10 @@ func (m *Manager) ToolCredential(ctx context.Context, a state.Agent) (ToolCreden
 		if name := m.geminiKeyAccountOf(sum); name != "" {
 			cred.Account = name
 		}
+	} else if key := m.geminiKeyLogin(a); key != "" && cred.Variable == "" && a.Interface == state.InterfaceChat {
+		// The key its chat signed it in with over ACP (ChatAuth), which
+		// no environment shows.
+		cred.Account = m.geminiKeyAccountOf(sha256Hex(key))
 	}
 	return cred, nil
 }

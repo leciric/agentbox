@@ -235,7 +235,8 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 			return nil, err
 		}
 	}
-	script := fmt.Sprintf("cd %s && %sexec %s%s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), m.geminiKeyEnv(a, hide), cmdline)
+	// A Gemini CLI API key isn't in it: the chat sends it (ChatAuth).
+	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), cmdline)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
 }
 
@@ -311,7 +312,9 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	return a, nil
 }
 
-// prepareToolWindow gives the terminal's OpenCode what a chat's gets from
+// prepareToolWindow gives the terminal's Gemini CLI its sign-in, an API key
+// in the file only the command line reads (syncGeminiKeyFile), and the
+// terminal's OpenCode what a chat's gets from
 // PrepareChatModel before every chat: the config in the shape of the version
 // running now, and OpenCode 2's logins (installing it first with
 // ensureOpenCode2InAgent if the agent doesn't have it), so an agent switched in
@@ -319,7 +322,16 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 // about to be opened, and a failure is logged, not returned: the tool reports
 // what it is missing, and a machine without the network still gets its shell.
 func (m *Manager) prepareToolWindow(ctx context.Context, a state.Agent) {
-	if a.AI != "opencode" || a.Interface == state.InterfaceChat {
+	if a.Interface == state.InterfaceChat {
+		return
+	}
+	if a.AI == "gemini" {
+		if err := m.prepareAgentGeminiSettings(ctx, a); err != nil {
+			m.logf("preparing %s's Gemini CLI: %v", a.Ref(), err)
+		}
+		return
+	}
+	if a.AI != "opencode" {
 		return
 	}
 	if err := m.prepareAgentOpenCodeSettings(ctx, a); err != nil {

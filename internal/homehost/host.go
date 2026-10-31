@@ -217,6 +217,9 @@ func (h *Host) sessionDir(session string) (string, error) {
 	return filepath.Join(h.Dir, "sessions", session), nil
 }
 
+// geminiEnv is what Gemini CLI is started with on the user's computer.
+var geminiEnv = []string{"GEMINI_CLI_NO_RELAUNCH=1", "GEMINI_TELEMETRY_ENABLED=false"}
+
 // command is the adapter for spec, its working directory filled in.
 func (h *Host) command(ctx context.Context, spec Spec, status func(string)) (*exec.Cmd, error) {
 	find := h.Find
@@ -259,7 +262,13 @@ func (h *Host) command(ctx context.Context, spec Spec, status func(string)) (*ex
 	case "opencode":
 		command, args = tool.Path, []string{"acp"}
 	case "gemini":
+		// In this process, not a child it would relaunch itself as, which
+		// stopping the chat would leave running (agent.geminiNoRelaunch);
+		// and without its OpenTelemetry, which the settings.json the
+		// daemon sent also turns off, but which an untrusted folder's
+		// settings can't.
 		command, args = tool.Path, []string{"--acp"}
+		env = append(env, geminiEnv...)
 	default:
 		return nil, fmt.Errorf("the Home chat can't run %q on your computer", spec.Tool)
 	}

@@ -1618,8 +1618,11 @@ type adapter struct {
 	thinking  bool   // it was started asking for adaptive thinking (acp.ClaudeSessionMeta)
 	sizeOf    string // the model and window last remembered from its usage_update
 	lostTurn  bool   // a turn's prompt failed because its output closed: it exited mid-turn
-	// replayed is when a loaded session's replay last said anything (awaitReplay).
-	replayed time.Time
+	// replayed is when a loaded session's replay last said anything, and
+	// replayTail that it may still be going on after awaitReplay stopped
+	// waiting for it (repeatsHistory).
+	replayed   time.Time
+	replayTail bool
 	// models is what the store knew of Claude model windows when it started,
 	// and what its own results have said since: the model's whole window the
 	// context ring measures against (contextSize).
@@ -2001,13 +2004,21 @@ func (c *conversation) connect(ad *adapter) error {
 		ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
 		defer cancel()
 		init = acp.InitializeResponse{}
-		return explain(ad.conn.Call(ctx, acp.MethodInitialize, acp.InitializeRequest{
+		if err := ad.conn.Call(ctx, acp.MethodInitialize, acp.InitializeRequest{
 			ProtocolVersion: acp.ProtocolVersion,
 			// Subagents as sessions of their own, each shown as a card (D86).
 			// An adapter that doesn't know the capability ignores it.
 			ClientCapabilities: acp.ClientCapabilities{Subagents: &struct{}{}, Meta: acp.SubagentSessionsMeta()},
 			ClientInfo:         &acp.Implementation{Name: "agentbox", Title: "AgentBox", Version: c.m.Version},
-		}, &init))
+		}, &init); err != nil {
+			return explain(err)
+		}
+		if proc.Auth != nil {
+			if err := ad.conn.Call(ctx, acp.MethodAuthenticate, proc.Auth, nil); err != nil {
+				return explain(fmt.Errorf("signing %s in: %w", tool, err))
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -2167,23 +2178,36 @@ func (c *conversation) setReplaying(ad *adapter, replaying bool) {
 	ad.replaying = replaying
 }
 
-// How long a loaded Gemini CLI session must say nothing for its replay to
-// count as over, and the longest awaitReplay waits for that.
+// How long a loaded Gemini CLI session must say nothing before its first
+// prompt goes, and the longest awaitReplay waits for that.
 const (
 	replayQuiet = 300 * time.Millisecond
 	replayMax   = 10 * time.Second
+	// replayShortest is the shortest message repeatsHistory takes for a
+	// replayed one, in bytes.
+	replayShortest = 40
 )
 
 // awaitReplay waits out the history Gemini CLI replays after it has answered
-// session/load (its loadSession doesn't wait for streamHistory), so that it
-// is still taken for a replay: until the adapter has said nothing for
-// replayQuiet. Otherwise a chat resumed by a message gained the whole
-// conversation again as part of that message's turn.
+// session/load, so that it is still taken for a replay rather than become
+// part of the turn of the message that resumed the chat. Gemini CLI (0.64)
+// gives the replay no end: loadSession answers once the first entry is out
+// and streams the rest without waiting (streamHistory), and nothing it can be
+// asked is answered after the last. So the first prompt waits until the
+// adapter has said nothing for replayQuiet, and that silence doesn't end the
+// replay: until the session says something new, what repeats the
+// conversation is still taken for it (repeatsHistory), so a replay that
+// stops for longer and goes on stays out of the turn too.
 func (c *conversation) awaitReplay(ctx context.Context, ad *adapter) {
 	deadline := time.Now().Add(replayMax)
 	c.mu.Lock()
 	ad.replayed = time.Now()
 	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		ad.replayTail = true
+		c.mu.Unlock()
+	}()
 	for {
 		c.mu.Lock()
 		wait := time.Until(ad.replayed.Add(replayQuiet))
@@ -2645,6 +2669,10 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	if h.ad.replaying {
 		h.ad.replayed = time.Now()
 	}
+	if h.ad.replayTail && (h.ad.sessionID == "" || n.SessionID == h.ad.sessionID) && c.repeatsHistory(h.ad, u) {
+		h.ad.replayed = time.Now()
+		return
+	}
 	if strings.HasPrefix(u.SessionUpdate, "async_task_") {
 		// The adapter's, whichever of its sessions started it.
 		c.taskUpdate(h.ad, u)
@@ -2768,6 +2796,57 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	case "plan":
 		c.updatePlan(u.Entries)
 	}
+}
+
+// repeatsHistory reports whether u, said by a Gemini CLI session after
+// awaitReplay stopped waiting for its replay, is the replay going on: a
+// user_message_chunk, which Gemini CLI sends only when it replays; a tool
+// call the conversation already has; or a message or thought it already has
+// whole. The first update that says something new ends the replay, and is
+// the turn's, as does a pause of replayMax. A short message is neither: a
+// reply as short as "Done." may well say what an earlier one did, and is
+// kept rather than lost. Caller holds c.mu.
+func (c *conversation) repeatsHistory(ad *adapter, u acp.SessionUpdate) bool {
+	if time.Since(ad.replayed) > replayMax {
+		ad.replayTail = false
+		return false
+	}
+	text := strings.TrimSpace(u.Text())
+	var repeat bool
+	switch u.SessionUpdate {
+	case "user_message_chunk":
+		repeat = true
+	case "tool_call", "tool_call_update":
+		repeat = u.ToolCallID != "" && c.had(func(it *api.ChatItem) bool { return it.Tool != nil && it.Tool.CallID == u.ToolCallID })
+	case "agent_message_chunk":
+		if len(text) < replayShortest || geminiModeNotice(u.Text()) {
+			return false
+		}
+		repeat = c.had(func(it *api.ChatItem) bool { return it.Kind == "assistant" && strings.TrimSpace(it.Text) == text })
+	case "agent_thought_chunk":
+		if text == "" {
+			return false
+		}
+		// A turn's thoughts are kept as one item, and replayed one by one.
+		repeat = c.had(func(it *api.ChatItem) bool { return it.Kind == "thought" && strings.Contains(it.Text, text) })
+	default:
+		return false // usage, commands, options: not the conversation
+	}
+	if !repeat {
+		ad.replayTail = false
+	}
+	return repeat
+}
+
+// had reports whether the conversation, before the turn running now, has an
+// item match says it has. Caller holds c.mu.
+func (c *conversation) had(match func(*api.ChatItem) bool) bool {
+	for _, it := range c.items {
+		if (c.turn == nil || it.Turn != c.turn.id) && match(it) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h handler) Request(method string, params json.RawMessage, reply func(any, error)) {

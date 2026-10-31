@@ -31,8 +31,13 @@ type fakeGemini struct {
 	calls []string
 	hold  chan struct{}
 	// history is what session/load replays: like Gemini CLI, it answers
-	// first and streams the history after.
+	// first and streams the history after, pausing for pause before the
+	// entry at pauseAt (none for 0).
 	history []string
+	pauseAt int
+	pause   time.Duration
+	// auth is what authenticate was sent.
+	auth string
 }
 
 func (g *fakeGemini) launch(_ context.Context, _ state.Agent, _ func(string)) (*Process, error) {
@@ -86,13 +91,18 @@ func (g *fakeGemini) Request(method string, params json.RawMessage, reply func(a
 	case acp.MethodInitialize:
 		reply(map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{"loadSession": true},
 			"agentInfo": map[string]any{"name": "gemini-cli", "title": "Gemini CLI", "version": "0.64.0"}}, nil)
+	case acp.MethodAuthenticate:
+		g.mu.Lock()
+		g.auth = string(params)
+		g.mu.Unlock()
+		reply(map[string]any{}, nil)
 	case acp.MethodSessionNew:
 		reply(g.session(), nil)
 	case acp.MethodSessionLoad:
 		reply(g.session(), nil)
 		go func() {
 			g.mu.Lock()
-			conn, history := g.conn, g.history
+			conn, history, pauseAt, pause := g.conn, g.history, g.pauseAt, g.pause
 			g.mu.Unlock()
 			for i, text := range history {
 				kind := "user_message_chunk"
@@ -100,6 +110,9 @@ func (g *fakeGemini) Request(method string, params json.RawMessage, reply func(a
 					kind = "agent_message_chunk"
 				}
 				time.Sleep(20 * time.Millisecond)
+				if i == pauseAt && i > 0 {
+					time.Sleep(pause)
+				}
 				_ = conn.Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": req.SessionID,
 					"update": map[string]any{"sessionUpdate": kind, "content": map[string]string{"type": "text", "text": text}}})
 			}
@@ -279,6 +292,80 @@ func TestGeminiCLIReplayStaysOutOfTheTurn(t *testing.T) {
 	}
 	if !slices.Equal(said, []string{"Hello from Gemini"}) {
 		t.Errorf("the turn said %q, want only its own reply", said)
+	}
+}
+
+// A Gemini CLI API key reaches the tool as authenticate, after initialize
+// and before the session, rather than in its environment.
+func TestGeminiCLISignsInWithTheProcessAuth(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	g := &fakeGemini{mode: "default", model: "auto"}
+	a := state.Agent{Project: "hello", Name: "agent-01", AI: "gemini", Worktree: t.TempDir()}
+	launch := func(ctx context.Context, a state.Agent, status func(string)) (*Process, error) {
+		proc, err := g.launch(ctx, a, status)
+		if proc != nil {
+			proc.Auth = &acp.AuthenticateRequest{MethodID: "gemini-api-key", Meta: map[string]any{"api-key": "AIza-x"}}
+		}
+		return proc, err
+	}
+	m := &Manager{Store: store, Version: "test", Publish: func(api.ChatEvent) {}, Launch: launch}
+	t.Cleanup(m.Close)
+	if _, err := m.Send(a, "Say hello"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, a, "the turn finishing", turnsEnded(1))
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.calls) < 3 || g.calls[0] != acp.MethodInitialize || g.calls[1] != acp.MethodAuthenticate || g.calls[2] != acp.MethodSessionNew {
+		t.Errorf("Gemini CLI was asked %v", g.calls)
+	}
+	if g.auth != `{"methodId":"gemini-api-key","_meta":{"api-key":"AIza-x"}}` {
+		t.Errorf("authenticate = %s", g.auth)
+	}
+}
+
+// A replay that stops for longer than replayQuiet (a loaded machine) and then
+// goes on is still a replay: what it says after the pause repeats the
+// conversation AgentBox already has, and stays out of the turn the prompt
+// sent during the pause started.
+func TestGeminiCLIReplayPauseStaysOutOfTheTurn(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	history := []string{"Say hi", "Hi! What would you like me to work on today?", "Say hi again", "Hi again: still here, and ready when you are."}
+	g := &fakeGemini{mode: "default", model: "auto", hold: make(chan struct{}), history: history, pauseAt: 2, pause: 4 * replayQuiet}
+	a := state.Agent{Project: "hello", Name: "agent-01", AI: "gemini", Worktree: t.TempDir()}
+	ctx := context.Background()
+	if err := store.SaveChat(ctx, a.Project, a.Name, state.Chat{SessionID: "g-1"}); err != nil {
+		t.Fatal(err)
+	}
+	var items []state.ChatItem
+	for i, text := range history {
+		kind := "user"
+		if i%2 == 1 {
+			kind = "assistant"
+		}
+		it := api.ChatItem{ID: fmt.Sprintf("h-%d", i), Turn: fmt.Sprintf("t-%d", i/2), Kind: kind, Text: text, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+		data, _ := json.Marshal(it)
+		items = append(items, state.ChatItem{ID: it.ID, Position: int64(i + 1), Data: data})
+	}
+	if err := store.SaveChatItems(ctx, a.Project, a.Name, items); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{Store: store, Version: "test", Publish: func(api.ChatEvent) {}, Launch: g.launch}
+	t.Cleanup(m.Close)
+	if _, err := m.Send(a, "Say hello"); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m, a, "the turn finishing", turnsEnded(1))
+	var said []string
+	for _, it := range th.Items {
+		if it.Kind == "assistant" {
+			said = append(said, it.Text)
+		}
+	}
+	if want := []string{history[1], history[3], "Hello from Gemini"}; !slices.Equal(said, want) {
+		t.Errorf("the conversation says %q, want %q", said, want)
 	}
 }
 
