@@ -164,7 +164,7 @@ export function MediaView({ agent, project, onSelect, heading }: { agent?: T.Age
               <SelectOption value="">
                 {t('shell.allMedia.allProjects')} ({everything.data?.total ?? 0})
               </SelectOption>
-              {everything.data?.projects.map(({ project: name, count }) => (
+              {everything.data?.projects?.map(({ project: name, count }) => (
                 <SelectOption key={name} value={name}>
                   {projectName(name)} ({count})
                 </SelectOption>
@@ -174,7 +174,7 @@ export function MediaView({ agent, project, onSelect, heading }: { agent?: T.Age
           {scope !== 'agent' && filter.project && (
             <Select value={filter.agent} onChange={(v) => set({ agent: v })} aria-label={t('project.media.agentFilter')} data-media-agents className="w-60">
               <SelectOption value="">{t('project.media.allAgents')}</SelectOption>
-              {counts.data?.agents.map(({ name, title, count, gone }) => (
+              {counts.data?.agents?.map(({ name, title, count, gone }) => (
                 <SelectOption key={name} value={name}>
                   {title ? `${name} · ${title}` : name}
                   {gone && ` ${t('project.media.removed')}`} ({count})
@@ -213,9 +213,9 @@ export function MediaView({ agent, project, onSelect, heading }: { agent?: T.Age
             {t('project.media.everything')}
           </FilterChip>
           {mediaKinds
-            .filter((k) => k.kind === 'screenshot' || k.kind === 'recording' || counts.data?.kinds[k.kind] || filter.kind === k.kind)
+            .filter((k) => k.kind === 'screenshot' || k.kind === 'recording' || counts.data?.kinds?.[k.kind] || filter.kind === k.kind)
             .map((k) => (
-              <FilterChip key={k.kind} icon={k.icon} active={filter.kind === k.kind} count={counts.data?.kinds[k.kind] ?? 0} onClick={() => set({ kind: filter.kind === k.kind ? '' : k.kind })}>
+              <FilterChip key={k.kind} icon={k.icon} active={filter.kind === k.kind} count={counts.data?.kinds?.[k.kind] ?? 0} onClick={() => set({ kind: filter.kind === k.kind ? '' : k.kind })}>
                 {k.label}
               </FilterChip>
             ))}
