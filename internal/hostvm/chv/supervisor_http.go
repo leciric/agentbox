@@ -123,6 +123,10 @@ func (s *supervisor) resize(ctx context.Context, req api.VMResizeRequest) error 
 	if req.MemoryCap != 0 && (req.MemoryCap < live.MinMemory || req.MemoryCap > live.MaxMemory) {
 		return errConflict(fmt.Sprintf("the VM booted with room for %s of memory: a cap of %s needs a restart", gib(live.MaxMemory), gib(req.MemoryCap)))
 	}
+	if most := MaxCap(hostTotal()); !c.VZ() && most > 0 && req.MemoryCap > most {
+		return errConflict(fmt.Sprintf("a cap of %s would leave this machine less than the %s it keeps for itself: the most is %s",
+			gib(req.MemoryCap), gib(HostReserve(hostTotal())), gib(most)))
+	}
 	if req.Disk != 0 && req.Disk != live.MinDisk {
 		switch {
 		case live.MaxDisk == 0:
@@ -254,6 +258,10 @@ func offStatus(c Config, l Layout) api.VMStatus {
 		CPUs:   c.CPUs,
 		Memory: api.VMMemory{Min: c.MemoryMin, Cap: c.MemoryMin + hotplugSize(c)},
 		Limits: &api.VMLimits{MinCPUs: 1, MaxCPUs: max(hostCPUs(), c.CPUs), MinMemory: c.MemoryMin, MaxMemory: max(hostMemory(), c.MemoryCap)},
+	}
+	if host := hostTotal(); !c.VZ() && host > 0 {
+		st.Memory.HostReserve = HostReserve(host)
+		st.Limits.MaxMemory = max(MaxCap(host), c.MemoryMin)
 	}
 	st.Disk = diskStatus(l)
 	// A disk only grows, and a VM that's off has the size it was given

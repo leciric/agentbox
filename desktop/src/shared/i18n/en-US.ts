@@ -3340,6 +3340,8 @@ export const enUS = {
   'vm.size.memoryCapLabel': 'Memory cap, in GiB',
   'vm.size.memoryHintCHV': '{min} to {max} GiB, all of this computer\'s. The VM only takes what its agents use.',
   'vm.size.memoryHintCHVBad': '{min} to {max} GiB.',
+  'vm.size.memoryHintCHVReserve': '{min} to {max} GiB. This computer keeps {reserve} GiB for itself: the VM stops growing while it has less than that free, and gives memory back. The VM only takes what its agents use.',
+  'vm.size.memoryHintCHVReserveBad': '{min} to {max} GiB: this computer keeps {reserve} GiB for itself.',
   'vm.size.diskLabel': 'Disk, in GiB',
   'vm.size.diskHint': '{now} GiB now: it can grow, up to {max} GiB, but not shrink.',
   'vm.size.diskHintBad': '{now} to {max} GiB: a disk can grow, but not shrink.',

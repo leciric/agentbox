@@ -80,6 +80,10 @@ func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
 	if err != nil {
 		return err
 	}
+	// A cap from an earlier release may leave the host less than its reserve.
+	if fit, lowered := FitHost(c, hostTotal()); lowered {
+		c = fit
+	}
 	s := &supervisor{
 		c: c, l: l, p: p, self: self,
 		log:    log.New(os.Stderr, "", log.LstdFlags),

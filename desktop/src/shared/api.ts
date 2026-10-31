@@ -3447,6 +3447,7 @@ export interface VMMemory {
   min: number;
   cap: number;
   granted: number;
+  hostReserve?: number;
   used: number;
   resident: number;
   hostCache: number;

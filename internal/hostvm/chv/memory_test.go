@@ -283,7 +283,7 @@ func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 
 	// The host is stalling: up to memTrimMax every memTrimEvery.
 	trims := run(busy(7*GiB, 5*GiB, 8*GiB, 25), 240) // 120 s
-	if len(trims) != 4 || trims[0].Trim != memTrimMax || !trims[0].HostShort || !strings.Contains(trims[0].Reason, "stalled") {
+	if len(trims) != int(120*time.Second/memTrimEvery) || trims[0].Trim != memTrimMax || !trims[0].HostShort || !strings.Contains(trims[0].Reason, "stalled") {
 		t.Errorf("host stalling: %+v", trims)
 	}
 	// The host has little available: the inactive part, when it's less.
@@ -353,8 +353,11 @@ func TestMemPolicyRealHostHeadroom(t *testing.T) {
 	// replay runs the policy for ticks samples, with the guest doing what it's
 	// told: a trim drops that much inactive cache and the compaction after it
 	// hands every free page back, so the host holds use and cache; a shrink
-	// unplugs, and its reclaim drops the cache.
+	// unplugs, and its reclaim drops the cache. What the host gets back it
+	// has available.
 	replay := func(x *memSample, st *memState, ticks int) (trims []int64, shrinks []int64) {
+		held := x.Resident
+		defer func() { x.HostAvailable += held - x.Resident }()
 		for i := range ticks {
 			x.CPUTotal, x.CPUBusy = uint64(i)*100, uint64(i)*60
 			d := p.decide(st, x, start.Add(time.Duration(i)*memTick))
@@ -401,5 +404,143 @@ func TestMemPolicyRealHostHeadroom(t *testing.T) {
 	x.Idle = 0
 	if d := p.decide(&st, x, start.Add(601*memTick)); d.Target != 13*GiB || d.Shrink {
 		t.Errorf("all busy again: %+v, want a grow to 13 GiB at once", d)
+	}
+}
+
+// The host keeps the larger of 4 GiB and a fifth of its memory, and a cap
+// leaves it that, in whole GiB, never under what the VM boots with.
+func TestHostReserve(t *testing.T) {
+	for _, tc := range []struct{ total, reserve, most int64 }{
+		{8 * GiB, 4 * GiB, 4 * GiB},
+		{6 * GiB, 4 * GiB, DefaultMemoryMin}, // never below what it boots with
+		{16 * GiB, 4 * GiB, 12 * GiB},
+		{20 * GiB, 4 * GiB, 16 * GiB},
+		{24 * GiB, 24 * GiB / 5, 19 * GiB}, // a fifth: 4.8 GiB
+		{32 * GiB, 32 * GiB / 5, 25 * GiB},
+		{64 * GiB, 64 * GiB / 5, 51 * GiB},
+		{0, 4 * GiB, 0}, // unknown: no limit
+	} {
+		if got := HostReserve(tc.total); got != tc.reserve {
+			t.Errorf("HostReserve(%s) = %s, want %s", gib(tc.total), gib(got), gib(tc.reserve))
+		}
+		if got := MaxCap(tc.total); got != tc.most {
+			t.Errorf("MaxCap(%s) = %s, want %s", gib(tc.total), gib(got), gib(tc.most))
+		}
+	}
+}
+
+// A cap that leaves the host less than its reserve is lowered to MaxCap; one
+// within it, a Mac's, and one on a host that can't be read are left alone.
+func TestFitHost(t *testing.T) {
+	// 24 GiB keeps 4.8: 19 is the most. The 17.8 GiB cap that left a desktop
+	// struggling fits: what keeps the host its reserve then is the growth
+	// gate (TestMemPolicyHostGate).
+	c := Config{MemoryMin: 4 * GiB, MemoryCap: 17*GiB + 800<<20}
+	if got, lowered := FitHost(c, 24*GiB); lowered || got != c {
+		t.Errorf("17.8 GiB on 24: lowered to %s", gib(got.MemoryCap))
+	}
+	c.MemoryCap = 22 * GiB
+	if got, lowered := FitHost(c, 24*GiB); !lowered || got.MemoryCap != 19*GiB {
+		t.Errorf("22 GiB on 24: %s, lowered %v; want 19 GiB", gib(got.MemoryCap), lowered)
+	}
+	for name, tc := range map[string]struct {
+		c     Config
+		total int64
+	}{
+		"within it": {Config{MemoryMin: 4 * GiB, MemoryCap: 16 * GiB}, 24 * GiB},
+		"a Mac's":   {Config{MemoryMin: 4 * GiB, MemoryCap: 24 * GiB, Driver: DriverVZ}, 24 * GiB},
+		"unknown":   {Config{MemoryMin: 4 * GiB, MemoryCap: 24 * GiB}, 0},
+	} {
+		if got, lowered := FitHost(tc.c, tc.total); lowered || got != tc.c {
+			t.Errorf("%s: lowered to %s", name, gib(got.MemoryCap))
+		}
+	}
+}
+
+// Growing stops where the host would be left less than its reserve,
+// whatever the agents want or the guest's stalls say; with the host
+// unknown it grows as before.
+func TestMemPolicyHostGate(t *testing.T) {
+	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
+	now := time.Now()
+	// 32 GiB keeps 6.4. The VM holds 8, and 8 agents want 3+8 = 11.
+	host := func(avail int64) *memSample {
+		x := sample(3*GiB, 8*GiB, 8, 0)
+		x.Resident = 8 * GiB
+		x.HostTotal, x.HostAvailable = 32*GiB, avail
+		return x
+	}
+	for _, tc := range []struct {
+		name  string
+		avail int64
+		want  int64 // 0: no grow
+	}{
+		{"plenty", 20 * GiB, 11 * GiB},
+		{"room for 1.5 GiB more", 8 * GiB, 9*GiB + 512<<20},
+		{"at the reserve", 6*GiB + 400<<20, 0},
+		{"below it", 3 * GiB, 0},
+	} {
+		st := memState{Requested: 8 * GiB}
+		d := p.decide(&st, host(tc.avail), now)
+		if d.Target != tc.want || d.Shrink {
+			t.Errorf("%s: %+v, want a target of %s", tc.name, d, gib(tc.want))
+		}
+		if tc.want != 0 && tc.want != 11*GiB && !strings.Contains(d.Reason, "keeps 6.4 GiB for itself") {
+			t.Errorf("%s: reason %q", tc.name, d.Reason)
+		}
+	}
+	// What's plugged stands in for what's held when that's unknown.
+	x := host(8 * GiB)
+	x.Resident = 0
+	if d := p.decide(&memState{Requested: 8 * GiB}, x, now); d.Target != 9*GiB+512<<20 {
+		t.Errorf("held unknown: %+v", d)
+	}
+	// A stall doesn't get past it.
+	x = host(6 * GiB)
+	x.Available, x.Pressure = GiB, 50
+	x.Total = 8 * GiB
+	if d := p.decide(&memState{Requested: 8 * GiB}, x, now); d.Target != 0 {
+		t.Errorf("stalled, host below its reserve: %+v, want no grow", d)
+	}
+	// The host unknown: no gate.
+	x = host(0)
+	x.HostTotal = 0
+	if d := p.decide(&memState{Requested: 8 * GiB}, x, now); d.Target != 11*GiB {
+		t.Errorf("host unknown: %+v", d)
+	}
+}
+
+// With the host below its reserve, the VM gives back within
+// memShrinkAfterHost what's beyond use and memHeadroomMin, rather than
+// keeping a busy agent's headroom for memShrinkAfter.
+func TestMemPolicyGivesBackToTheHost(t *testing.T) {
+	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
+	start := time.Now()
+	// Six busy agents, 7 GiB in use, 13 plugged: 7+6 is just what they keep.
+	x := sample(7*GiB, 13*GiB, 6, 0)
+	x.Resident = 13 * GiB
+	x.HostTotal, x.HostAvailable = 32*GiB, 5*GiB // keeps 6.4
+	st := memState{Requested: 13 * GiB}
+	var got memDecision
+	var at time.Duration
+	for i := range 40 {
+		if d := p.decide(&st, x, start.Add(time.Duration(i)*memTick)); d.Target != 0 {
+			got, at = d, time.Duration(i)*memTick
+			break
+		}
+	}
+	if !got.Shrink || got.Target != 9*GiB || at != memShrinkAfterHost {
+		t.Fatalf("host short: %+v after %s, want a shrink to 9 GiB after %s", got, at, memShrinkAfterHost)
+	}
+	if !strings.Contains(got.Reason, "5.0 GiB available of the 6.4 GiB it keeps") {
+		t.Errorf("reason %q", got.Reason)
+	}
+	// With the host fine, the same VM keeps its headroom.
+	x.HostAvailable = 20 * GiB
+	st = memState{Requested: 13 * GiB}
+	for i := range 240 {
+		if d := p.decide(&st, x, start.Add(time.Duration(i)*memTick)); d.Target != 0 {
+			t.Fatalf("host fine: %+v", d)
+		}
 	}
 }
