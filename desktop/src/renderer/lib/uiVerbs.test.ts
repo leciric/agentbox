@@ -8,6 +8,7 @@ test('each view lights its verb', () => {
   assert.equal(verbOf({ kind: 'agent', ref: 'p/agent-1' }), 'ask');
   assert.equal(verbOf({ kind: 'watch', ref: 'p/agent-1' }), 'watch');
   assert.equal(verbOf({ kind: 'review', tab: 'proof' }), 'review');
+  assert.equal(verbOf({ kind: 'group', id: 'g1' }), 'review');
   assert.equal(verbOf({ kind: 'settings' }), 'settings');
 });
 

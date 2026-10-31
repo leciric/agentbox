@@ -5,7 +5,8 @@
 // project, the tabs Classic's agent page had (AgentView), with the machine's
 // bar above them (AgentMachineBar). With no agent picked, the middle is every
 // project's agents and the machine's load, v2 Home's Status tab
-// (HomeStatusV2). Its chat is Ask's: "Open chat" goes there.
+// (HomeStatusV2). Its chat is Ask's: "Open chat" goes there. Below lg an
+// agent's machine takes the whole width, with a back arrow to the list.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, MessagesSquare, Monitor, Smartphone, SquareTerminal } from 'lucide-react';
 import type * as T from '../../../shared/api';
@@ -54,7 +55,7 @@ export function WatchView({
 
   return (
     <div className="flex h-full min-h-0">
-      <aside className={cn('w-full shrink-0 flex-col border-r border-line bg-rail md:flex md:w-[300px]', agent ? 'hidden' : 'flex')} data-watch-list>
+      <aside className={cn('w-full shrink-0 flex-col border-r border-line bg-rail md:w-[300px]', agent ? 'hidden lg:flex' : 'flex')} data-watch-list>
         <div className="flex shrink-0 flex-col gap-2 px-3 pb-2 pt-4">
           <div>
             <h1 className="text-base font-semibold text-title">{t('verbs.watch')}</h1>
@@ -112,7 +113,7 @@ function Machine({ agent, place, onSelect }: { agent: T.Agent; place: WatchPlace
   return (
     <Tabs value={shown} onValueChange={go} className="flex min-h-0 flex-1 flex-col" data-watch-machine={agent.ref}>
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-2 pt-3 md:px-6">
-        <Button size="icon-sm" variant="ghost" className="md:hidden" aria-label={t('verbs.watch.all')} onClick={() => onSelect({ kind: 'watch', project: agent.project })}>
+        <Button size="icon-sm" variant="ghost" className="lg:hidden" aria-label={t('verbs.watch.all')} onClick={() => onSelect({ kind: 'watch', project: agent.project })}>
           <ArrowLeft />
         </Button>
         <div className="min-w-0 flex-1">

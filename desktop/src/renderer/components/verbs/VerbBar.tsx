@@ -33,7 +33,9 @@ export function VerbBar({ view, onSelect }: { view: View; onSelect: (view: View)
     review: counts.all.review > 0 ? { count: counts.all.review, tone: 'bg-emerald-400 text-black' } : undefined,
     settings: undefined,
   };
-  const item = (verb: Verb, Icon: LucideIcon, label: string, hint: string, to: View, alert?: boolean) => {
+  // Settings, at the foot, is its icon alone: no name of it fits the column
+  // in every language.
+  const item = (verb: Verb, Icon: LucideIcon, label: string, hint: string, to: View, alert?: boolean, named = true) => {
     const active = on === verb;
     const b = badge[verb];
     return (
@@ -53,7 +55,7 @@ export function VerbBar({ view, onSelect }: { view: View; onSelect: (view: View)
         >
           {active && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-brand-400" aria-hidden />}
           <Icon className={cn('size-5', active ? 'text-brand-300' : 'text-subtle')} />
-          <span className="max-w-full truncate">{label}</span>
+          {named && <span className="max-w-full truncate">{label}</span>}
           {b && (
             <span className={cn('absolute right-1 top-1 min-w-4 rounded-full px-1 text-center text-[10px] font-semibold tabular-nums leading-4', b.tone)} data-verb-count={b.count}>
               {b.count > 99 ? '99+' : b.count}
@@ -71,7 +73,7 @@ export function VerbBar({ view, onSelect }: { view: View; onSelect: (view: View)
       </div>
       {verbs.map(({ verb, icon, label, hint, view: to }) => item(verb, icon, t(label), t(hint), to))}
       <div className="flex-1" />
-      {item('settings', Settings, t('common.settings'), t('verbs.settings.hint'), { kind: 'settings' }, setup.data && !setup.data.ready)}
+      {item('settings', Settings, t('common.settings'), t('verbs.settings.hint'), { kind: 'settings' }, setup.data && !setup.data.ready, false)}
     </nav>
   );
 }

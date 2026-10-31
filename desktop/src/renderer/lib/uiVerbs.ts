@@ -46,7 +46,12 @@ export function verbOf(view: View): Verb {
   switch (view.kind) {
     case 'watch':
       return 'watch';
+    // Reading a past agent, the week's recap and comparing a fan-out's
+    // agents are reviewing what was made.
     case 'review':
+    case 'pastAgents':
+    case 'recap':
+    case 'group':
       return 'review';
     case 'settings':
       return 'settings';
