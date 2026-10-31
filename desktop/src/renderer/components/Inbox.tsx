@@ -14,7 +14,7 @@ import { useDnd } from '../lib/notifyPrefs';
 import { countLabel } from '../lib/review';
 import { isUnseen, markAllSeen, useReviewing, useSeenReady, useUnseen } from '../lib/reviewAlert';
 import { cn, timeAgo } from '../lib/utils';
-import { MoreMedia } from './MediaTab';
+import { MoreMedia } from './media/MediaParts';
 import { useProjectNames } from './Notifications';
 import { ReviewDialog, ReviewSection, type ReviewSession } from './ReadyToReview';
 import { openSettingsSection } from './SettingsPage';

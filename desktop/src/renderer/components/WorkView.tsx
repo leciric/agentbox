@@ -20,7 +20,7 @@ import { byDay, dayLabel, outcomeOf, type WorkFilter, workFilters, workKey, work
 import { workStatus } from '../lib/agentCounts';
 import { useAgentCounts } from '../lib/useAgentCounts';
 import { cn, errorMessage } from '../lib/utils';
-import { MoreMedia } from './MediaTab';
+import { MoreMedia } from './media/MediaParts';
 import { PrChip } from './PrChip';
 import { OutcomeBadge, ReviewDialog } from './ReadyToReview';
 import { AIIcon } from './state';

@@ -14,10 +14,10 @@ import { SnapComposer } from "./components/SnapComposer";
 import { HomeChatPanel } from "./components/HomeChatPanel";
 import { openHomeChatEvent } from "./lib/doctor";
 import { HomeView } from "./components/HomeView";
-import { AllMediaView } from "./components/AllMediaView";
+import { MediaView } from "./components/media/MediaView";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { MediaPlace } from "./components/MediaPlace";
-import { MediaViewer } from "./components/MediaTab";
+import { MediaViewer } from "./components/media/MediaParts";
 import { NoticeToast } from "./components/Notifications";
 import { PageArrivals } from "./components/pages/PageArrivals";
 import { PagePreviewHost } from "./components/pages/PagePreview";
@@ -778,7 +778,7 @@ export function App({ initial }: { initial?: View } = {}) {
                 )}
                 {view.kind === "review" && <ReviewView tab={view.tab} project={view.project} filter={view.filter} onSelect={select} />}
                 {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
-                {view.kind === "media" && <AllMediaView onSelect={select} />}
+                {view.kind === "media" && <MediaView heading onSelect={select} />}
                 {view.kind === "work" && <WorkPage project={view.project} filter={view.filter} onSelect={select} />}
                 {view.kind === "recap" && <RecapView onSelect={select} />}
                 {view.kind === "pastAgents" && <PastAgentView agentRef={view.ref} onBack={() => select({ kind: "work" })} onSelect={select} />}
