@@ -859,7 +859,16 @@ export function App({ initial }: { initial?: View } = {}) {
           })
         }
       />
-      <SearchModal onOpen={openFound} />
+      <SearchModal
+        onOpen={openFound}
+        palette={{
+          view,
+          select,
+          addProject: () => setAddingProject(true),
+          newAgent: setNewAgentProject,
+          whatsNew: () => setWhatsNew(true),
+        }}
+      />
       {v2 && <NewTaskDialog onSelect={select} />}
       <FanOutDialog onSelect={select} />
       {v2 && <ShortcutSheet />}
