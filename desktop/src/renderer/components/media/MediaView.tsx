@@ -174,6 +174,8 @@ export function MediaView({ agent, project, onSelect, heading }: { agent?: T.Age
           {scope !== 'agent' && filter.project && (
             <Select value={filter.agent} onChange={(v) => set({ agent: v })} aria-label={t('project.media.agentFilter')} data-media-agents className="w-60">
               <SelectOption value="">{t('project.media.allAgents')}</SelectOption>
+              {/* An agent with pages but no media, opened from its page badge. */}
+              {filter.agent && !counts.data?.agents?.some((a) => a.name === filter.agent) && <SelectOption value={filter.agent}>{filter.agent} (0)</SelectOption>}
               {counts.data?.agents?.map(({ name, title, count, gone }) => (
                 <SelectOption key={name} value={name}>
                   {title ? `${name} · ${title}` : name}
