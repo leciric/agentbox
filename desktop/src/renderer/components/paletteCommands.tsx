@@ -174,6 +174,11 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
     .filter(([name]) => states.includes(name))
     .map(([name, icon, done]) => agent(`agent-${name}`, icon, (ref) => report(api.agentAction(ref, name), t(done, { agent: nameOf(ref) }))));
 
+  // Android only where it can run: the agent you're on is in an Android
+  // project (asked for, any agent may be).
+  const hereProject = here ? projects.data?.find((p) => p.name === here.split('/')[0]) : undefined;
+  const android = !here || !!hereProject?.android;
+
   const actions: PaletteAction[] = [
     // Making things.
     action('new-agent', Plus, () => ctx.newAgent(currentProject(ctx.view) ?? '')),
@@ -198,7 +203,7 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
     agent('screenshot', Camera, (ref) => {
       void api.screenshot(ref, { target: 'display', name: 'screen' }).then(savedToast, (err) => toast.error(errorMessage(err)));
     }),
-    agent('android-start', Smartphone, (ref) => {
+    ...(android ? [agent('android-start', Smartphone, (ref) => {
       select({ kind: 'agent', ref, tab: 'android' });
       // The request lasts until Android has booted; the tab shows it starting.
       setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['android', ref] }), 1_500);
@@ -206,20 +211,20 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
         (next) => queryClient.setQueryData(['android', ref], next),
         (err) => toast.error(errorMessage(err)),
       );
-    }),
-    agent('android-stop', Smartphone, (ref) => {
+    })] : []),
+    ...(android ? [agent('android-stop', Smartphone, (ref) => {
       void api.stopAndroid(ref).then(
         (next) => queryClient.setQueryData(['android', ref], next),
         (err) => toast.error(errorMessage(err)),
       );
-    }),
+    })] : []),
     ...lifecycle,
 
     // An agent's places.
     agent('agent-chat', MessageSquare, agentTab('chat')),
     agent('agent-terminal', SquareTerminal, agentTab('terminal')),
     agent('agent-desktop', Monitor, (ref) => (v2 ? (select({ kind: 'agent', ref }), openPanelOn(ref, 'desktop', ref)) : select({ kind: 'agent', ref, tab: 'browser' }))),
-    agent('agent-android', Smartphone, agentTab('android')),
+    ...(android ? [agent('agent-android', Smartphone, agentTab('android'))] : []),
     agent('agent-media', Images, agentTab('media')),
     agent('agent-snapshots', History, agentTab('snapshots')),
     agent('agent-settings', SlidersHorizontal, agentTab('settings')),
