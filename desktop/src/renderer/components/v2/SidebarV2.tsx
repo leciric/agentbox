@@ -566,13 +566,16 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         onDragLeave={(e: DragEvent) => !e.currentTarget.contains(e.relatedTarget as Node | null) && dnd.aim(null)}
       >
         <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} badge={verbs ? badges.ask : undefined} />
-        {verbs && (
-          <>
-            <VerbRow verb="watch" icon={MonitorPlay} active={on === 'watch'} badge={badges.watch} onClick={() => onSelect({ kind: 'watch' })} />
-            <VerbRow verb="review" icon={ClipboardCheck} active={on === 'review'} badge={badges.review} onClick={() => onSelect({ kind: 'review' })} />
-          </>
+        {verbs ? (
+          // Home has its row; Watch, Review and New task share the next one.
+          <div className="mb-1 grid grid-cols-3 gap-1" data-v2-verbs>
+            <VerbTile verb="watch" icon={MonitorPlay} label={t('verbs.watch')} hint={t('verbs.watch.hint')} active={on === 'watch'} badge={badges.watch} onClick={() => onSelect({ kind: 'watch' })} />
+            <VerbTile verb="review" icon={ClipboardCheck} label={t('verbs.review')} hint={t('verbs.review.hint')} active={on === 'review'} badge={badges.review} onClick={() => onSelect({ kind: 'review' })} />
+            <VerbTile verb="new-task" icon={SquarePen} label={t('v2.sidebar.newTask')} hint={`${t('v2.sidebar.newTask')} (${shortcut('N')})`} onClick={openNewTask} />
+          </div>
+        ) : (
+          <NewTaskRow />
         )}
-        <NewTaskRow />
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />
         {projects.data?.length === 0 && (
           <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
@@ -865,18 +868,32 @@ function CountBadge({ badge, verb }: { badge: VerbBadge; verb: string }) {
   );
 }
 
-// VerbRow is Watch or Review (lib/uiVerbs.ts) in HomeRow's style. Pressed
-// again where you are, it goes back to its start.
-function VerbRow({ verb, icon: Icon, active, badge, onClick }: { verb: 'watch' | 'review'; icon: LucideIcon; active: boolean; badge?: VerbBadge; onClick: () => void }) {
-  const t = useT();
+// VerbTile is Watch, Review or New task (lib/uiVerbs.ts), one of three
+// sharing a row under Home. Pressed again where you are, Watch and Review
+// go back to their start.
+function VerbTile({ verb, icon: Icon, label, hint, active, badge, onClick }: { verb: string; icon: LucideIcon; label: string; hint: string; active?: boolean; badge?: VerbBadge; onClick: () => void }) {
   return (
-    <Lead active={active} onClick={onClick} data={{ 'data-verb': verb }} title={t(`verbs.${verb}.hint`)}>
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-strong text-secondary">
-        <Icon className="size-3.5" />
-      </span>
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-title">{t(`verbs.${verb}`)}</span>
-      {badge && <CountBadge badge={badge} verb={verb} />}
-    </Lead>
+    <Tip label={hint}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        aria-current={active ? 'page' : undefined}
+        className={cn(
+          'relative flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-[11.5px] font-medium leading-none transition-colors hover:bg-surface hover:text-title focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+          active ? 'bg-surface-raised text-title' : 'text-secondary',
+        )}
+        data-verb={verb}
+      >
+        <Icon className={cn('size-4', active && 'text-brand-300')} />
+        <span className="max-w-full truncate">{label}</span>
+        {badge && (
+          <span className="absolute right-1 top-1">
+            <CountBadge badge={badge} verb={verb} />
+          </span>
+        )}
+      </button>
+    </Tip>
   );
 }
 
