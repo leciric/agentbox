@@ -9,6 +9,7 @@ import { useT, type MessageKey } from '../../lib/i18n';
 import { chatPanel, fitsBeside, hasView, openPanelOn, panelTarget, machineBarViews, usePanel, viewOf, type PanelView } from '../../lib/rightPanel';
 import { cn } from '../../lib/utils';
 import { deskLine, DesktopPeek, DeskGlyph, useDesk, useDeskUp } from './DesktopPeek';
+import { useHasEvidence } from './useEvidence';
 
 const icon: Partial<Record<PanelView, LucideIcon>> = { desktop: Monitor, terminal: SquareTerminal, files: FolderTree, evidence: Images };
 const label: Partial<Record<PanelView, MessageKey>> = { desktop: 'panel.view.desktop', terminal: 'panel.view.terminal', files: 'panel.view.files', evidence: 'panel.view.evidence' };
@@ -20,6 +21,8 @@ export function AgentMachineBar({ agent }: { agent: T.Agent }) {
   const state = usePanel();
   const panel = chatPanel(state, agent.ref);
   const whose = { kind: 'agent', agent } as const;
+  // Evidence, once there's something in it (lib/agentTabs.ts); the panel's + opens it before.
+  const evidence = useHasEvidence(agent.project, agent.name);
   // Shown in the panel beside the chat (always there where it fits), or in its drawer.
   if ((fitsBeside() || panel.open) && !panel.wide && panelTarget(state, agent.ref) === agent.ref) return null;
   const last = viewOf(state, whose);
@@ -36,7 +39,7 @@ export function AgentMachineBar({ agent }: { agent: T.Agent }) {
         <span className="truncate pl-5 text-caption text-subtle">{t(deskLine(desk, up))}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1">
-        {machineBarViews.map((v) => {
+        {machineBarViews.filter((v) => v !== 'evidence' || evidence || last === v).map((v) => {
           const Icon = icon[v]!;
           return (
             <button

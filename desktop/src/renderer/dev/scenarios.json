@@ -3095,5 +3095,61 @@
     "query": "app=pulls&v2=1&theme=dark",
     "width": 800,
     "height": 600
+  },
+  {
+    "id": "tabs-idle-agent",
+    "description": "Classic's tab bar of agent-99 with nothing in its contextual tabs: only the tabs always there, and the + menu — dark",
+    "query": "app=agent-99&tabs=idle&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "tabs-busy-agent",
+    "description": "Classic's tab bar of agent-99 with something in every contextual tab: all of them shown — dark",
+    "query": "app=agent-99&tabs=busy&theme=dark&android=1",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "tabs-idle-project",
+    "description": "Classic's tab bar of a project with nothing in its contextual tabs: only the tabs always there, and the + menu — dark",
+    "query": "app=project&tabs=idle&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "tabs-busy-project",
+    "description": "Classic's tab bar of a project with something in every contextual tab: all of them shown — dark",
+    "query": "app=project&tabs=busy&theme=dark&android=1",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "tabs-v2-idle-agent",
+    "description": "UI v2: agent-99, its panel on Terminal, with nothing in its contextual views: the switch without them, and its + — dark",
+    "query": "app=agent-99&v2=1&panel=terminal:agent-99&tabs=idle&theme=dark",
+    "width": 1600,
+    "height": 900
+  },
+  {
+    "id": "tabs-v2-busy-agent",
+    "description": "UI v2: agent-99, its panel on Terminal, with something in every contextual view: all of them on the switch — dark",
+    "query": "app=agent-99&v2=1&panel=terminal:agent-99&tabs=busy&theme=dark&android=1",
+    "width": 1600,
+    "height": 900
+  },
+  {
+    "id": "tabs-v2-idle-project",
+    "description": "UI v2: the lead, its panel home, with nothing in its contextual views: the switch without them, and its + — dark",
+    "query": "app=project&v2=1&tabs=idle&theme=dark",
+    "width": 1600,
+    "height": 900
+  },
+  {
+    "id": "tabs-v2-busy-project",
+    "description": "UI v2: the lead, its panel home, with something in every contextual view: all of them on the switch — dark",
+    "query": "app=project&v2=1&tabs=busy&theme=dark&android=1",
+    "width": 1600,
+    "height": 900
   }
 ]

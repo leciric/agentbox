@@ -20,6 +20,7 @@ import {
   Pencil,
   Play,
   Plug,
+  Plus,
   Settings,
   SlidersHorizontal,
   Smartphone,
@@ -29,10 +30,13 @@ import {
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
+import { LeadName } from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
 import { api, type AgentAction } from '../lib/api';
+import { browserInUse, contextualAgentTabs, hiddenTabs, type ContextualAgentTab } from '../lib/agentTabs';
+import { composeIn } from '../lib/drafts';
 import { useMediaCounts } from '../lib/mediaPages';
 import { useChatOpenAt } from '../lib/reveal';
 import { useAgentPr, useAgentReview, type Wake } from './v2/ReviewV2';
@@ -108,9 +112,15 @@ export function AgentView({
   const agent = agents.data?.find((a) => a.ref === agentRef);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const android = useQuery({ queryKey: ['android', agentRef], queryFn: () => api.android(agentRef), enabled: agent?.state === 'running' });
-  // Only Android projects get the tab, unless an emulator was started anyway.
-  const hasAndroid = projects.data?.some((p) => p.name === agent?.project && p.android) || android.data?.running === true;
+  const androidProject = projects.data?.some((p) => p.name === agent?.project && p.android) === true;
+  // Only Android projects get v2's item, unless an emulator was started anyway.
+  const hasAndroid = androidProject || android.data?.running === true;
   const v2 = useUiV2();
+  // What Classic's contextual tabs show, read whatever tab is open: each
+  // shows once it has something in it (lib/agentTabs.ts). v2's ⋯ names
+  // Snapshots and Android by what they start until then.
+  const snapshots = useQuery({ queryKey: ['snapshots', agentRef], queryFn: () => api.snapshots(agentRef), enabled: !!agent });
+  const browser = useQuery({ queryKey: ['browser', agentRef], queryFn: () => api.browser(agentRef), enabled: !v2 && agent?.state === 'running', refetchInterval: 10_000 });
   // Its pull request, the one its review card and its row in the panel name too.
   const pr = useAgentPr({ ref: agentRef, project: refProject }, v2);
   const chatMenu = useChatMenu(agent && usesChat(agent) ? agent : undefined);
@@ -204,11 +214,11 @@ export function AgentView({
             {t('agent.tab.settings')}
           </MenuItem>
           <MenuItem icon={Camera} onSelect={() => onTab('snapshots')}>
-            {t('agent.tab.snapshots')}
+            {t((snapshots.data?.length ?? 0) > 0 ? 'agent.tab.snapshots' : 'agent.view.openSnapshots')}
           </MenuItem>
           {hasAndroid && (
             <MenuItem icon={Smartphone} onSelect={() => onTab('android')}>
-              {t('agent.tab.android')}
+              {t(android.data?.running ? 'agent.tab.android' : 'agent.view.openAndroid')}
             </MenuItem>
           )}
         </>
@@ -242,6 +252,21 @@ export function AgentView({
   }
 
   const mediaCount = mediaCounts.data?.total ?? 0;
+  const hidden = hiddenTabs(contextualAgentTabs, {
+    browser: browserInUse(browser.data),
+    android: android.data?.running === true,
+    media: mediaCount > 0,
+    snapshots: (snapshots.data?.length ?? 0) > 0,
+  }, active);
+  const shown = (tab: ContextualAgentTab) => !hidden.includes(tab);
+  // The + menu: a hidden tab, where starting what it shows begins. Android
+  // only for a project that has it on.
+  const opening = hidden.filter((tab) => tab !== 'android' || androidProject);
+  // Media's empty state asks the lead, in its chat, to have this agent record its work.
+  const askLead = () => {
+    composeIn(`${agent.project}/${LeadName}`, t('agent.mediaTab.askText', { agent: agent.name }));
+    onSelect({ kind: 'project', project: agent.project });
+  };
   const error = action.error ?? rename.error;
 
   // The header has the agent's title, its state as one badge, which opens its
@@ -313,7 +338,8 @@ export function AgentView({
           )
         ) : (
         <div className="flex shrink-0 items-center gap-3 border-t border-line-faint px-4 py-2 md:px-6">
-          <TabsList className="min-w-0 flex-1 overflow-x-auto">
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+          <TabsList className="min-w-0 overflow-x-auto">
             {chatty && (
               <TabsTrigger value="chat">
                 <MessageSquare />
@@ -330,31 +356,56 @@ export function AgentView({
               <SquareTerminal />
               {t('agent.tab.terminal')}
             </TabsTrigger>
-            <TabsTrigger value="browser">
-              <Monitor />
-              {t('agent.tab.desktop')}
-            </TabsTrigger>
-            {hasAndroid && (
+            {shown('browser') && (
+              <TabsTrigger value="browser">
+                <Monitor />
+                {t('agent.tab.desktop')}
+              </TabsTrigger>
+            )}
+            {shown('android') && (
               <TabsTrigger value="android">
                 <Smartphone />
                 {t('agent.tab.android')}
                 {android.data?.booted && <span className="size-1.5 rounded-full bg-emerald-400" aria-label={t('agent.view.running')} />}
               </TabsTrigger>
             )}
-            <TabsTrigger value="media">
-              <Images />
-              {t('agent.tab.media')}
-              {mediaCount > 0 && <span className="rounded-full bg-brand-500/20 px-1.5 text-caption tabular-nums text-brand-200">{mediaCount}</span>}
-            </TabsTrigger>
+            {shown('media') && (
+              <TabsTrigger value="media">
+                <Images />
+                {t('agent.tab.media')}
+                {mediaCount > 0 && <span className="rounded-full bg-brand-500/20 px-1.5 text-caption tabular-nums text-brand-200">{mediaCount}</span>}
+              </TabsTrigger>
+            )}
             <TabsTrigger value="settings">
               <SlidersHorizontal />
               {t('agent.tab.settings')}
             </TabsTrigger>
-            <TabsTrigger value="snapshots">
-              <Camera />
-              {t('agent.tab.snapshots')}
-            </TabsTrigger>
+            {shown('snapshots') && (
+              <TabsTrigger value="snapshots">
+                <Camera />
+                {t('agent.tab.snapshots')}
+              </TabsTrigger>
+            )}
           </TabsList>
+          {opening.length > 0 && (
+            <Menu>
+              <Tip label={t('agent.view.openTab')}>
+                <MenuTrigger asChild>
+                  <Button size="icon-sm" variant="ghost" className="shrink-0" aria-label={t('agent.view.openTab')} data-agent-tab-menu>
+                    <Plus />
+                  </Button>
+                </MenuTrigger>
+              </Tip>
+              <MenuContent>
+                {opening.map((tab) => (
+                  <MenuItem key={tab} icon={openTab[tab].icon} onSelect={() => onTab(tab)}>
+                    {t(openTab[tab].label)}
+                  </MenuItem>
+                ))}
+              </MenuContent>
+            </Menu>
+          )}
+          </div>
           {chatty && active === 'chat' && (
             <div className="flex shrink-0 items-center gap-2">
               <ChatStatus agent={agent} />
@@ -375,13 +426,11 @@ export function AgentView({
           <TabsContent value="browser" className="flex flex-col">
             <BrowserTab agent={agent} onOpenMedia={() => onTab('media')} />
           </TabsContent>
-          {hasAndroid && (
-            <TabsContent value="android" className="flex flex-col">
-              <AndroidTab agent={agent} onOpenMedia={() => onTab('media')} onSetup={() => onSelect({ kind: 'settings' })} />
-            </TabsContent>
-          )}
+          <TabsContent value="android" className="flex flex-col">
+            <AndroidTab agent={agent} onOpenMedia={() => onTab('media')} onSetup={() => onSelect({ kind: 'settings' })} />
+          </TabsContent>
           <TabsContent value="media" className="flex flex-col">
-            <MediaView key={agent.ref} agent={agent} onSelect={onSelect} />
+            <MediaView key={agent.ref} agent={agent} onSelect={onSelect} onAskLead={askLead} />
           </TabsContent>
           <TabsContent value="settings" className="flex flex-col">
             <SettingsSections label={t('agent.view.settingsOf', { name: agent.title || agent.name })} sections={agentSettingsSections(t)} value={place.section} onValueChange={onTab}>
@@ -406,6 +455,14 @@ export function AgentView({
     </div>
   );
 }
+
+// The + menu's item for each contextual tab: what opening it starts.
+const openTab: Record<ContextualAgentTab, { icon: ComponentType; label: MessageKey }> = {
+  browser: { icon: Monitor, label: 'agent.view.openDesktop' },
+  android: { icon: Smartphone, label: 'agent.view.openAndroid' },
+  media: { icon: Images, label: 'agent.view.openMedia' },
+  snapshots: { icon: Camera, label: 'agent.view.openSnapshots' },
+};
 
 // The header's button for each lifecycle action lifecycleActions allows; the
 // one that brings the agent back is the primary.
