@@ -46,6 +46,12 @@ const (
 	// SettingDefaultLeadContextWindow is SettingDefaultAgentContextWindow for
 	// the lead's chat, read the way SettingDefaultLeadModel is.
 	SettingDefaultLeadContextWindow = "default_lead_context_window"
+	// SettingDefaultLeadEffort is the "effort" chat option the lead's chat
+	// falls back to, and SettingDefaultLeadMode its permission mode ("mode"),
+	// both read the way SettingDefaultLeadModel is. Empty means Claude Code's
+	// own default.
+	SettingDefaultLeadEffort = "default_lead_effort"
+	SettingDefaultLeadMode   = "default_lead_mode"
 	// SettingClaudeModelChoices is the model menu the Claude Code adapter last
 	// advertised, as JSON. AgentBox never invents a model list here — it
 	// arrives over ACP, per account — so this remembers the real one between
@@ -69,6 +75,10 @@ const (
 	// (Haiku 4.5 sent none; Haiku 5.5 sends them all). So this is the levels Claude Code
 	// has been seen to name, not a promise about one model.
 	SettingClaudeEffortChoices = "claude_effort_choices"
+	// SettingClaudeModeChoices is the permission-mode menu the Claude Code
+	// adapter last advertised, as JSON, remembered so Settings can offer the
+	// lead's default mode with no chat running.
+	SettingClaudeModeChoices = "claude_mode_choices"
 	// SettingOpenCodeModelChoices is the model menu OpenCode last advertised,
 	// as JSON, remembered for the same reason as the Claude Code menus: which
 	// models OpenCode can run depends on which providers the login has keys

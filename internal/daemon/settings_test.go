@@ -250,6 +250,43 @@ func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
 	}
 }
 
+// The lead's effort and permission mode are stored as chosen while no menu has
+// been remembered, checked against the remembered menu once one has, and never
+// move the agents' effort.
+func TestLeadEffortAndModeDefaults(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	out, err := patchSettings(t, d, `{"defaultLeadEffort":"high","defaultLeadMode":"plan"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.DefaultLeadEffort != "high" || out.DefaultLeadMode != "plan" || out.DefaultClaudeEffort != "" {
+		t.Errorf("before any menu: lead effort, mode, agents' effort = %q, %q, %q", out.DefaultLeadEffort, out.DefaultLeadMode, out.DefaultClaudeEffort)
+	}
+	for key, menu := range map[string]string{
+		state.SettingClaudeEffortChoices: `[{"value":"low","name":"Low"},{"value":"high","name":"High"}]`,
+		state.SettingClaudeModeChoices:   `[{"value":"default","name":"Manual"},{"value":"acceptEdits","name":"Accept edits"}]`,
+	} {
+		if err := d.srv.store.SetSetting(ctx, key, menu); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := patchSettings(t, d, `{"defaultLeadMode":"yolo"}`); err == nil || !strings.Contains(err.Error(), "permission mode") {
+		t.Errorf("a mode off the menu: err = %v", err)
+	}
+	if _, err := patchSettings(t, d, `{"defaultLeadEffort":"max"}`); err == nil {
+		t.Error("an effort off the menu was accepted")
+	}
+	out, err = patchSettings(t, d, `{"defaultLeadEffort":"","defaultLeadMode":"acceptEdits"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.DefaultLeadEffort != "" || out.DefaultLeadMode != "acceptEdits" || len(out.ClaudeModeChoices) != 2 {
+		t.Errorf("lead effort, mode, mode menu = %q, %q, %v", out.DefaultLeadEffort, out.DefaultLeadMode, out.ClaudeModeChoices)
+	}
+}
+
 // Settings offers both roles 200k and 1M on opus, and on Claude Code's own
 // default — before any chat has remembered the adapter's menu, and after a
 // session reported opus's whole window.
