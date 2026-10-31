@@ -31,9 +31,9 @@ func TestParseMemory(t *testing.T) {
 
 func TestCHVLimits(t *testing.T) {
 	// A Linux VM takes 1 CPU to every core, and a cap from what it boots
-	// with to all of the host's memory.
+	// with to all of the host's memory but its reserve: 6.4 of 32 GiB.
 	l := chvLimits(chv.Config{MemoryMin: 4 << 30}, 16, 32<<30)
-	for _, ok := range [][2]int64{{1, 4 << 30}, {16, 32 << 30}} {
+	for _, ok := range [][2]int64{{1, 4 << 30}, {16, 25 << 30}} {
 		if err := l.Check(int(ok[0]), ok[1]); err != nil {
 			t.Errorf("%d CPUs, %d bytes: %v", ok[0], ok[1], err)
 		}
@@ -41,8 +41,12 @@ func TestCHVLimits(t *testing.T) {
 	if err := l.Check(17, 0); err == nil {
 		t.Error("17 CPUs on 16 cores: no error")
 	}
-	if err := l.Check(0, 33<<30); err == nil || strings.Contains(err.Error(), "for itself") || !strings.Contains(err.Error(), "4GiB to 32GiB") {
-		t.Errorf("a cap over the host's memory: %v", err)
+	if err := l.Check(0, 26<<30); err == nil || !strings.Contains(err.Error(), "4GiB to 25GiB") || !strings.Contains(err.Error(), "for itself") {
+		t.Errorf("a cap into the host's reserve: %v", err)
+	}
+	// A Mac's may take all of it.
+	if err := chvLimits(chv.Config{MemoryMin: 4 << 30, Driver: chv.DriverVZ}, 16, 32<<30).Check(0, 32<<30); err != nil {
+		t.Errorf("vz: %v", err)
 	}
 }
 

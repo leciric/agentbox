@@ -76,6 +76,15 @@ func newCHV() (*VM, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A cap from an earlier release, or set by hand, may leave this machine
+	// less than it keeps for itself: it's lowered once, for good.
+	if fit, lowered := chv.FitHost(c, hostMemory()); lowered {
+		if err := fit.Save(p); err == nil {
+			_, _ = fmt.Fprintf(os.Stderr, "note: AgentBox's VM's memory cap is %s now, from %s, so this machine keeps %s for itself\n",
+				sizeWords(fit.MemoryCap), sizeWords(c.MemoryCap), sizeWords(chv.HostReserve(hostMemory())))
+			c = fit
+		}
+	}
 	return NewCHV(p, c)
 }
 
@@ -101,19 +110,16 @@ func NewCHV(p paths.Paths, c chv.Config) (*VM, error) {
 	}, nil
 }
 
-// linuxReserve is what a Linux host keeps of its memory for itself, its
-// desktop and the app, when a VM's cap is worked out for it.
-const linuxReserve = 4 * chv.GiB
-
 // DefaultConfig is the VM `agentbox vm init` makes for a user on a host with
 // cpus cores and memory bytes of memory: DefaultSize's CPUs; chv's minimum to
 // boot with, growing as agents need it to three quarters of the host's memory
-// but never to more than all of it less linuxReserve; chv's pool disk. The
+// but never to more than all of it less what it keeps for itself
+// (chv.MaxCap); chv's pool disk. The
 // VM's user is the host's, with the same IDs, and its home is its own, beside
 // the host's (which the VM has at the same path, shared).
 func DefaultConfig(name, username string, uid, gid int, home string, cpus int, memory int64) chv.Config {
 	// In whole GiB, which is how people say it back (vm resize --memory-cap).
-	capacity := min(memory-linuxReserve, memory/4*3) / chv.GiB * chv.GiB
+	capacity := min(chv.MaxCap(memory), memory/4*3/chv.GiB*chv.GiB)
 	return chv.Config{
 		Name:      name,
 		CPUs:      defaultCPUs(cpus),
@@ -165,7 +171,10 @@ func checkConfig(c chv.Config, hostCPUs int, hostMem int64) error {
 	if c.MemoryCap < c.MemoryMin {
 		errs = append(errs, fmt.Errorf("--memory-cap %s is less than --memory-min %s", sizeWords(c.MemoryCap), sizeWords(c.MemoryMin)))
 	}
-	if hostMem > 0 && c.MemoryCap > hostMem {
+	if most := chv.MaxCap(hostMem); most > 0 && c.MemoryCap > most && !c.VZ() {
+		errs = append(errs, fmt.Errorf("--memory-cap %s would leave this machine (%s) less than the %s it keeps for itself: the most is %s",
+			sizeWords(c.MemoryCap), sizeWords(hostMem), sizeWords(chv.HostReserve(hostMem)), sizeWords(most)))
+	} else if hostMem > 0 && c.MemoryCap > hostMem {
 		errs = append(errs, fmt.Errorf("--memory-cap %s is more than this machine has (%s)", sizeWords(c.MemoryCap), sizeWords(hostMem)))
 	}
 	if c.Disk < 20*chv.GiB {

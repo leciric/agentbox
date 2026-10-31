@@ -89,7 +89,10 @@ slow as your network. `AGENTBOX_VM_DISKS_URL=off` always does that. The release 
 package in the disk, with where its sources are.
 
 The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
-of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
+of your memory by default), and gives it back as they stop. Your computer always keeps the larger
+of 4 GiB and a fifth of its memory for itself: the cap can't go past the rest (a cap set higher by
+an earlier version is lowered to it), the VM stops growing while your computer has less than that
+free, and gives back what it can spare within seconds. The top bar's **Free resources** stops
 every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap, as does
 `agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
 shared with the VM at the same path, so projects and agents' worktrees stay where they are.

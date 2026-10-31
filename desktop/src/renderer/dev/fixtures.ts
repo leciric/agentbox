@@ -2088,11 +2088,13 @@ export function seedMacVZ(queryClient: QueryClient, kind: string): void {
 // seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
 // Resources section, whose VM size card sizes the Cloud Hypervisor VM:
 // running with room to grow (live), started by an older AgentBox with none
-// (old), or off.
+// (old), or off. A 32 GiB machine keeps 6.4 GiB for itself, so the cap goes to
+// 25 GiB, but the older AgentBox says neither.
 export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
   seedSettings(queryClient);
   const GiB = 1024 ** 3;
-  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
+  const old = kind === 'old';
+  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: (old ? 32 : 25) * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
   const chv: T.VMStatus = {
     mode: 'vm',
     driver: 'cloud-hypervisor',
@@ -2100,7 +2102,15 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
     state: kind === 'off' ? 'off' : 'running',
     since: new Date(Date.now() - 3_600_000).toISOString(),
     cpus: 8,
-    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0, hostCache: 0 },
+    memory: {
+      min: 4 * GiB,
+      cap: 24 * GiB,
+      granted: kind === 'off' ? 0 : 9 * GiB,
+      hostReserve: old ? undefined : 6.4 * GiB,
+      used: 6.2 * GiB,
+      resident: 0,
+      hostCache: 0,
+    },
     disk: { size: 120 * GiB, allocated: 14 * GiB, pool: { size: 100 * GiB, allocated: 10 * GiB }, root: { size: 20 * GiB, allocated: 4 * GiB } },
     limits: room,
     live: kind === 'live' ? room : undefined,

@@ -3341,6 +3341,8 @@ export const ptBR: Messages = {
   'vm.size.memoryCapLabel': 'Limite de memória, em GiB',
   'vm.size.memoryHintCHV': 'De {min} a {max} GiB, toda a memória deste computador. A VM só usa o que os agentes usam.',
   'vm.size.memoryHintCHVBad': 'De {min} a {max} GiB.',
+  'vm.size.memoryHintCHVReserve': 'De {min} a {max} GiB. Este computador reserva {reserve} GiB para si: a VM para de crescer enquanto ele tiver menos que isso livre, e devolve memória. A VM só usa o que os agentes usam.',
+  'vm.size.memoryHintCHVReserveBad': 'De {min} a {max} GiB: este computador reserva {reserve} GiB para si.',
   'vm.size.diskLabel': 'Disco, em GiB',
   'vm.size.diskHint': '{now} GiB agora: pode crescer, até {max} GiB, mas não encolher.',
   'vm.size.diskHintBad': 'De {now} a {max} GiB: um disco pode crescer, mas não encolher.',
