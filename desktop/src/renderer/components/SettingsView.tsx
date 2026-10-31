@@ -819,8 +819,8 @@ function Finished({
 // you, the phone), AI and agents (the logins, the models, what agents do and
 // what they can use), and this computer (what agents may take of it, what it
 // needs). Each project's settings follow them, as
-// a section per project. Each section leads with the few settings people
-// change; the rest are marked advanced, and folded at the end of it.
+// a section per project. The few settings a new user changes are marked
+// essential: Settings opens on them, and keeps the sections under Advanced.
 function InstalledSettings({
   steps,
   error,
@@ -894,10 +894,12 @@ function InstalledSettings({
   // guess.
   const changed = (test: (s: T.Settings) => boolean) => (s ? test(s) : undefined);
 
-  const stepEntry = (step: Step, alwaysShow = false) => ({
+  const stepEntry = (step: Step, alwaysShow = false, essential = false) => ({
     id: step.id,
     label: step.title,
-    keywords: `${step.description} ${step.detail ?? ""}`,
+    description: step.description,
+    keywords: step.detail ?? "",
+    essential,
     render: () => (
       <ChecklistStep step={step} alwaysShow={alwaysShow} />
     ),
@@ -943,6 +945,8 @@ function InstalledSettings({
           entries: [
             {
               id: "appearance",
+              description: t("settings.appearance.description"),
+              essential: true,
               label: t("settings.entry.appearance.label"),
               keywords: t("settings.entry.appearance.keywords"),
               modified: theme.data ? theme.data.appearance !== "follow" : undefined,
@@ -950,6 +954,8 @@ function InstalledSettings({
             },
             {
               id: "language",
+              description: t("common.languageDescription"),
+              essential: true,
               label: t("common.language"),
               keywords: t("settings.languageKeywords"),
               modified: changed((s) => s.language !== T.DefaultLanguage),
@@ -957,6 +963,7 @@ function InstalledSettings({
             },
             {
               id: "layout",
+              description: t("settings.layout.description"),
               label: t("settings.entry.layout.label"),
               keywords: t("settings.entry.layout.keywords"),
               modified: !uiV2,
@@ -966,6 +973,7 @@ function InstalledSettings({
               ? [
                   {
                     id: "group-idle",
+                    description: t("settings.groupIdle.description"),
                     label: t("settings.entry.group-idle.label"),
                     keywords: t("settings.entry.group-idle.keywords"),
                     modified: groupIdle,
@@ -979,6 +987,7 @@ function InstalledSettings({
               ? [
                   {
                     id: "environment",
+                    description: t("settings.environment.description"),
                     label: t("settings.entry.environment.label"),
                     keywords: t("settings.entry.environment.keywords"),
                     render: () => <EnvironmentSetting />,
@@ -993,6 +1002,7 @@ function InstalledSettings({
           entries: [
             {
               id: "reviewing",
+              description: t("settings.reviewing.description"),
               label: t("settings.entry.reviewing.label"),
               keywords: t("settings.entry.reviewing.keywords"),
               modified: !reviewing,
@@ -1000,9 +1010,9 @@ function InstalledSettings({
             },
             {
               id: "topbar-detailed",
+              description: t("settings.topbarDetailed.description"),
               label: t("settings.entry.topbar-detailed.label"),
               keywords: t("settings.entry.topbar-detailed.keywords"),
-              advanced: true,
               modified: topBarDetailed,
               render: () => <TopBarDetailedSetting />,
             },
@@ -1010,9 +1020,9 @@ function InstalledSettings({
               ? [
                   {
                     id: "pages-stack",
+                    description: t("settings.pagesStack.description"),
                     label: t("settings.entry.pages-stack.label"),
                     keywords: t("settings.entry.pages-stack.keywords"),
-                    advanced: true,
                     modified: pageStack !== "new",
                     render: () => <PagesStackSetting />,
                   },
@@ -1026,6 +1036,7 @@ function InstalledSettings({
           entries: [
             {
               id: "credit-ai-tool",
+              description: t("settings.creditAITool.description"),
               label: t("settings.entry.credit-ai-tool.label"),
               keywords: t("settings.entry.credit-ai-tool.keywords"),
               modified: changed((s) => s.creditAITool),
@@ -1039,6 +1050,7 @@ function InstalledSettings({
           entries: [
             {
               id: "update-channel",
+              description: t("settings.channel.description"),
               label: t("settings.entry.update-channel.label"),
               keywords: t("settings.entry.update-channel.keywords"),
               modified: update.data ? update.data.channel !== (update.data.nightly ? "nightly" : "stable") : undefined,
@@ -1048,6 +1060,7 @@ function InstalledSettings({
               ? [
                   {
                     id: "whats-new",
+                    description: t("settings.whatsNew.description"),
                     label: t("settings.entry.whats-new.label"),
                     keywords: t("settings.entry.whats-new.keywords"),
                     render: () => <WhatsNewRow version={info.version} />,
@@ -1056,15 +1069,16 @@ function InstalledSettings({
               : []),
             {
               id: "report-problem",
+              description: t("settings.reportProblem.description"),
               label: t("settings.entry.report-problem.label"),
               keywords: t("settings.entry.report-problem.keywords"),
               render: () => <ReportProblemRow />,
             },
             {
               id: "update-check",
+              description: t("settings.updateCheck.description"),
               label: t("settings.entry.update-check.label"),
               keywords: t("settings.entry.update-check.keywords"),
-              advanced: true,
               modified: changed((s) => !s.updateCheck),
               render: () => <UpdateCheck />,
             },
@@ -1076,6 +1090,7 @@ function InstalledSettings({
           entries: [
             {
               id: "usage-stats",
+              description: t("settings.usageStats.description"),
               label: t("settings.entry.usage-stats.label"),
               keywords: t("settings.entry.usage-stats.keywords"),
               modified: changed((s) => !s.usageStats),
@@ -1083,6 +1098,7 @@ function InstalledSettings({
             },
             {
               id: "error-reports",
+              description: t("settings.errorReports.description"),
               label: t("settings.entry.error-reports.label"),
               keywords: t("settings.entry.error-reports.keywords"),
               modified: changed((s) => !s.errorReports),
@@ -1109,6 +1125,7 @@ function InstalledSettings({
           entries: [
             {
               id: "notify-dnd",
+              description: t("notify.dnd.description"),
               label: t("notify.dnd.title"),
               keywords: t("notify.dnd.keywords"),
               modified: dnd.on,
@@ -1116,6 +1133,7 @@ function InstalledSettings({
             },
             {
               id: "notify-kinds",
+              essential: true,
               label: t("settings.entry.notify-kinds.label"),
               keywords: t("settings.entry.notify-kinds.keywords"),
               modified: notifyChanged,
@@ -1123,6 +1141,7 @@ function InstalledSettings({
             },
             {
               id: "notify-volume",
+              description: t("notify.volume.description"),
               label: t("settings.reviewSound.volume"),
               keywords: t("settings.entry.review-sound.keywords"),
               render: () => <ChimeVolume />,
@@ -1156,13 +1175,14 @@ function InstalledSettings({
           cards: true,
           // Every tool's accounts are managed here even once they're done:
           // accounts to add, rename or remove, a key to change.
-          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor"].includes(step.id))),
+          // Every AI tool and GitHub are essential: agents run on nothing else.
+          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor"].includes(step.id), true)),
         },
         {
           id: "github",
           title: t("settings.group.github.title"),
           cards: true,
-          entries: githubSteps.map((step) => stepEntry({ ...step, body: step.settingsBody ?? step.body }, true)),
+          entries: githubSteps.map((step) => stepEntry({ ...step, body: step.settingsBody ?? step.body }, true, true)),
         },
       ],
     },
@@ -1180,6 +1200,8 @@ function InstalledSettings({
           entries: [
             {
               id: "agent-model",
+              description: t("defaults.newAgent.agents.about"),
+              essential: true,
               label: t("settings.entry.agent-model.label"),
               keywords: t("settings.entry.agent-model.keywords"),
               modified: changed((s) => s.defaultClaudeModel !== ""),
@@ -1187,6 +1209,7 @@ function InstalledSettings({
             },
             {
               id: "agent-window",
+              description: t("defaults.newAgent.agents.windowAbout"),
               label: t("settings.entry.agent-window.label"),
               keywords: t("settings.entry.agent-window.keywords"),
               modified: changed((s) => s.defaultAgentContextWindow !== ""),
@@ -1194,6 +1217,7 @@ function InstalledSettings({
             },
             {
               id: "agent-effort",
+              description: t("defaults.newAgent.effortDescription"),
               label: t("settings.entry.agent-effort.label"),
               keywords: t("settings.entry.agent-effort.keywords"),
               modified: changed((s) => s.defaultClaudeEffort !== ""),
@@ -1201,7 +1225,7 @@ function InstalledSettings({
             },
             {
               id: "cursor-model",
-              advanced: true,
+              description: t("defaults.cursor.modelDescription"),
               label: t("settings.entry.cursor-model.label"),
               keywords: t("settings.entry.cursor-model.keywords"),
               modified: changed((s) => s.defaultCursorModel !== ""),
@@ -1209,7 +1233,7 @@ function InstalledSettings({
             },
             {
               id: "cursor-effort",
-              advanced: true,
+              description: t("defaults.cursor.effortDescription"),
               label: t("settings.entry.cursor-effort.label"),
               keywords: t("settings.entry.cursor-effort.keywords"),
               modified: changed((s) => s.defaultCursorEffort !== ""),
@@ -1217,7 +1241,7 @@ function InstalledSettings({
             },
             {
               id: "enforce",
-              advanced: true,
+              description: `${t("settings.enforce.descriptionOff")} ${t("settings.enforce.descriptionOn")}`,
               label: t("settings.entry.enforce.label"),
               keywords: t("settings.entry.enforce.keywords"),
               modified: changed((s) => s.enforceAgentDefaults),
@@ -1232,6 +1256,7 @@ function InstalledSettings({
           entries: [
             {
               id: "lead-model",
+              description: t("defaults.newAgent.lead.about"),
               label: t("settings.entry.lead-model.label"),
               keywords: t("settings.entry.lead-model.keywords"),
               modified: changed((s) => s.defaultLeadModel !== ""),
@@ -1239,6 +1264,7 @@ function InstalledSettings({
             },
             {
               id: "lead-window",
+              description: t("defaults.newAgent.lead.windowAbout"),
               label: t("settings.entry.lead-window.label"),
               keywords: t("settings.entry.lead-window.keywords"),
               modified: changed((s) => s.defaultLeadContextWindow !== ""),
@@ -1252,6 +1278,7 @@ function InstalledSettings({
           entries: [
             {
               id: "claude-code-update",
+              description: t("settings.claudeCodeUpdate.description"),
               label: t("settings.entry.claude-code-update.label"),
               keywords: t("settings.entry.claude-code-update.keywords"),
               modified: changed((s) => s.claudeCodeUpdate.on),
@@ -1266,7 +1293,7 @@ function InstalledSettings({
           entries: [
             {
               id: "compact",
-              advanced: true,
+              description: t("defaults.newAgent.compactDescription"),
               label: t("settings.entry.compact.label"),
               keywords: t("settings.entry.compact.keywords"),
               modified: changed((s) => s.claudeCompactWindow !== s.defaultClaudeCompactWindow),
@@ -1274,6 +1301,7 @@ function InstalledSettings({
             },
             {
               id: "resume",
+              description: t("defaults.newAgent.resumeDescription"),
               label: t("settings.entry.resume.label"),
               keywords: t("settings.entry.resume.keywords"),
               modified: changed((s) => !s.resumeAfterLimit),
@@ -1281,6 +1309,7 @@ function InstalledSettings({
             },
             {
               id: "continue-after-restart",
+              description: t("defaults.newAgent.continueDescription"),
               label: t("settings.entry.continueAfterRestart.label"),
               keywords: t("settings.entry.continueAfterRestart.keywords"),
               modified: changed((s) => !s.continueAfterRestart),
@@ -1318,6 +1347,7 @@ function InstalledSettings({
           entries: [
             {
               id: "pr-watch",
+              description: t("settings.prWatch.description"),
               label: t("settings.entry.pr-watch.label"),
               keywords: t("settings.entry.pr-watch.keywords"),
               modified: changed((s) => !s.prWatch),
@@ -1332,6 +1362,7 @@ function InstalledSettings({
           entries: [
             {
               id: "lead-recheck",
+              description: t("defaults.newAgent.recheckDescription"),
               label: t("settings.entry.lead-recheck.label"),
               keywords: t("settings.entry.lead-recheck.keywords"),
               modified: changed((s) => s.leadRecheck),
@@ -1345,6 +1376,7 @@ function InstalledSettings({
           entries: [
             {
               id: "auto-stop",
+              description: t("defaults.newAgent.idleDescription"),
               label: t("settings.entry.auto-stop.label"),
               keywords: t("settings.entry.auto-stop.keywords"),
               modified: changed((s) => s.autoStopIdle),
@@ -1358,6 +1390,7 @@ function InstalledSettings({
           entries: [
             {
               id: "agent-gpu",
+              description: t("settings.agentGPU.description"),
               label: t("settings.entry.agent-gpu.label"),
               keywords: t("settings.entry.agent-gpu.keywords"),
               modified: changed((s) => s.agentGPU),
@@ -1381,6 +1414,7 @@ function InstalledSettings({
           entries: [
             {
               id: "skills",
+              description: t("settings.section.skills.description"),
               label: t("settings.section.skills.title"),
               keywords: t("settings.entry.skills.keywords"),
               render: () => <SkillsPanel embedded />,
@@ -1403,6 +1437,7 @@ function InstalledSettings({
           entries: [
             {
               id: "connectors",
+              description: t("settings.section.connectors.description"),
               label: t("settings.section.connectors.title"),
               keywords: t("settings.entry.connectors.keywords"),
               render: () => <ConnectorsTab target="" embedded />,
@@ -1426,6 +1461,7 @@ function InstalledSettings({
           entries: [
             {
               id: "global-memory",
+              description: t("settings.section.memory.description"),
               label: t("settings.section.memory.title"),
               keywords: t("settings.entry.memory.keywords"),
               render: () => <GlobalMemoryPanel />,
@@ -1447,6 +1483,7 @@ function InstalledSettings({
           entries: [
             {
               id: "disk-floor",
+              description: t("defaults.newAgent.diskDescription"),
               label: t("settings.entry.disk-floor.label"),
               keywords: t("settings.entry.disk-floor.keywords"),
               modified: changed((s) => s.diskFloorMin !== 10 * 1024 ** 3 || s.diskFloorPercent !== 5),
@@ -1454,6 +1491,7 @@ function InstalledSettings({
             },
             {
               id: "media-retention",
+              description: t("defaults.newAgent.mediaDescription"),
               label: t("settings.entry.media-retention.label"),
               keywords: t("settings.entry.media-retention.keywords"),
               modified: changed((s) => s.mediaRetention !== "1d"),
@@ -1461,7 +1499,7 @@ function InstalledSettings({
             },
             {
               id: "docker-prune",
-              advanced: true,
+              description: t("defaults.newAgent.pruneDescription"),
               label: t("settings.entry.docker-prune.label"),
               keywords: t("settings.entry.docker-prune.keywords"),
               modified: changed((s) => !s.dockerPruneOnStop),
@@ -1469,7 +1507,7 @@ function InstalledSettings({
             },
             {
               id: "docker-image-cache",
-              advanced: true,
+              description: t("defaults.newAgent.imageCacheDescription"),
               label: t("settings.entry.docker-image-cache.label"),
               keywords: t("settings.entry.docker-image-cache.keywords"),
               modified: changed((s) => !s.imageCache || s.imageCacheMaxBytes !== s.defaultImageCacheMaxBytes),
@@ -1477,7 +1515,7 @@ function InstalledSettings({
             },
             {
               id: "package-caches",
-              advanced: true,
+              description: t("defaults.newAgent.pkgCacheDescription"),
               label: t("settings.entry.package-caches.label"),
               keywords: t("settings.entry.package-caches.keywords"),
               modified: changed((s) => !s.packageCache || s.packageCacheMaxBytes !== s.defaultPackageCacheMaxBytes),
@@ -1494,6 +1532,8 @@ function InstalledSettings({
                 entries: [
                   {
                     id: "vm-size",
+                    description: chv ? t("vm.size.descriptionCHV") : t("vm.size.descriptionMac"),
+                    essential: true,
                     label: t("settings.entry.vm-size.label"),
                     keywords: t("settings.entry.vm-size.keywords"),
                     render: () =>
@@ -1505,6 +1545,7 @@ function InstalledSettings({
                   },
                   {
                     id: "vm-swap",
+                    description: t("vm.swap.description"),
                     label: t("settings.entry.vm-swap.label"),
                     keywords: t("settings.entry.vm-swap.keywords"),
                     render: () =>
@@ -1565,6 +1606,7 @@ function InstalledSettings({
           entries: [
             {
               id: "checklist",
+              description: t("settings.section.setup.description"),
               label: t("settings.checklist.title"),
               keywords: checklist.map((step) => `${step.title} ${step.description} ${step.detail ?? ""}`).join(" "),
               render: () => (
@@ -1592,7 +1634,7 @@ function InstalledSettings({
           entries: [
             {
               id: "opencode-image",
-              advanced: true,
+              description: t("defaults.newAgent.openCodeDescription"),
               label: t("settings.entry.opencode-image.label"),
               keywords: t("settings.entry.opencode-image.keywords"),
               modified: setup.data ? setup.data.image.components.opencode : undefined,
@@ -1616,6 +1658,7 @@ function InstalledSettings({
           entries: [
             {
               id: "diagnostics",
+              description: t("settings.section.diagnostics.description"),
               label: t("settings.section.diagnostics.title"),
               keywords: t("settings.entry.diagnostics.keywords"),
               render: () => <DiagnosticsPanel version={info?.version} />,

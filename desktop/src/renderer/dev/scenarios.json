@@ -417,8 +417,23 @@
     "height": 900
   },
   {
+    "id": "settings-essentials-dark",
+    "description": "Settings as it first opens: Essentials, with every section folded under Advanced in the sidebar and at the page's end — dark",
+    "query": "settings=essentials&theme=dark",
+    "width": 1280,
+    "height": 1500
+  },
+  {
+    "id": "settings-essentials-pt-light",
+    "description": "Essentials in Portuguese, Advanced unfolded at the page's end — light",
+    "query": "settings=essentials&theme=light&lang=pt-BR",
+    "width": 1280,
+    "height": 1500,
+    "click": "[data-settings-advanced] > button"
+  },
+  {
     "id": "settings-project-light",
-    "description": "Settings open at a project's own settings, its advanced ones folded — light",
+    "description": "Settings open at a project's own settings, every one of them, under an unfolded Advanced — light",
     "query": "settings=project:agentbox&theme=light",
     "width": 1280,
     "height": 900

@@ -41,6 +41,8 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'name',
+          description: t('defaults.project.nameDescription', { id: project.name }),
+          essential: true,
           label: t('defaults.project.nameLabel'),
           keywords: t('defaults.project.nameKeywords'),
           // Keyed on the saved name, so a save (or another client's) starts the draft over.
@@ -55,6 +57,8 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'model',
+          description: t('defaults.project.modelDescription'),
+          essential: true,
           label: t('defaults.project.modelLabel'),
           keywords: t('defaults.project.modelKeywords'),
           modified: project.agentModel !== '',
@@ -62,9 +66,9 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'branch-prefix',
+          description: t('defaults.project.prefixDescription', { example: `${project.branchPrefix}fix-login-redirect` }),
           label: t('defaults.project.prefixLabel'),
           keywords: t('defaults.project.prefixKeywords'),
-          advanced: true,
           modified: project.branchPrefix !== 'agentbox/',
           // Keyed on the saved value, so a save (or another client's) starts the draft over.
           render: () => <BranchPrefixField key={project.branchPrefix} project={project} />,
@@ -78,6 +82,8 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'claude-account',
+          description: t('project.accounts.claudeDescription'),
+          essential: true,
           label: t('defaults.project.claudeAccountLabel'),
           keywords: t('defaults.project.claudeAccountKeywords'),
           modified: project.claudeAccount !== '',
@@ -85,6 +91,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'claude-accounts',
+          description: t('project.accounts.allowedDescription', { state: 'all' }),
           label: t('defaults.project.allowedLabel'),
           keywords: t('defaults.project.allowedKeywords'),
           modified: project.claudeAccounts.length > 0,
@@ -92,6 +99,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'codex-account',
+          description: t('project.accounts.codexDescription'),
           label: t('project.accounts.codexLabel'),
           keywords: t('project.accounts.codexKeywords'),
           modified: project.codexAccount !== '',
@@ -99,6 +107,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'opencode-accounts',
+          description: t('project.accounts.openCodeDescription'),
           label: t('project.accounts.openCodeLabel'),
           keywords: t('project.accounts.openCodeKeywords'),
           modified: Object.keys(project.openCodeAccounts ?? {}).length > 0,
@@ -106,6 +115,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'cursor-account',
+          description: t('project.accounts.cursorDescription'),
           label: t('project.accounts.cursorLabel'),
           keywords: t('project.accounts.cursorKeywords'),
           modified: project.cursorAccount !== '',
@@ -113,6 +123,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'tool-credentials',
+          description: t('project.accounts.runningOnDescription'),
           label: t('project.accounts.runningOnLabel'),
           keywords: t('project.accounts.runningOnKeywords'),
           modified: false,
@@ -124,6 +135,8 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'github-account',
+          description: t('project.accounts.githubDescription'),
+          essential: true,
           label: t('defaults.project.githubAccountLabel'),
           keywords: t('defaults.project.githubAccountKeywords'),
           modified: project.githubAccount !== '',
@@ -138,6 +151,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'sync-base',
+          description: t('defaults.project.syncOnDescription'),
           label: t('defaults.project.syncLabel'),
           keywords: t('defaults.project.syncKeywords'),
           modified: !project.syncBase,
@@ -152,6 +166,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'agent-prs',
+          description: t('defaults.project.agentPRsOnDescription'),
           label: t('defaults.project.agentPRsLabel'),
           keywords: t('defaults.project.agentPRsKeywords'),
           modified: project.agentPRs,
@@ -159,6 +174,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'pr-watch',
+          description: t('defaults.project.prWatchDescription'),
           label: t('defaults.project.prWatchLabel'),
           keywords: t('defaults.project.prWatchKeywords'),
           modified: project.prWatch !== '',
@@ -173,6 +189,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'autonomy',
+          description: t('defaults.project.autonomyOnDescription'),
           label: t('defaults.project.autonomyLabel'),
           keywords: t('defaults.project.autonomyKeywords'),
           modified: project.autonomy === 'on',
@@ -180,6 +197,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
         {
           id: 'finish-notices',
+          description: t('defaults.project.finishDescription'),
           label: t('defaults.project.finishLabel'),
           keywords: t('defaults.project.finishKeywords'),
           modified: project.finishNotices !== 'lead',
@@ -193,9 +211,9 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       entries: [
         {
           id: 'nesting',
+          description: t('defaults.project.nestingDescription'),
           label: t('defaults.project.nestingLabel'),
           keywords: t('defaults.project.nestingKeywords'),
-          advanced: true,
           modified: project.nesting,
           render: () => <NestingToggle project={project} />,
         },
@@ -215,7 +233,9 @@ export function projectSection(project: T.Project): SettingSection {
   };
 }
 
-// ProjectSettings is the same groups, on the project's Overview.
+// ProjectSettings is the same groups, on the project's Settings tab: its
+// essential ones (its name, the model and the accounts its agents get), and
+// the rest folded under Advanced.
 export function ProjectSettings({ project }: { project: T.Project }) {
   useT();
   return (
