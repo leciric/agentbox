@@ -2046,6 +2046,7 @@ export const enUS = {
   'chat.status.error': '{tool} stopped',
   'chat.status.adapter': '{tool} through its ACP adapter',
   'chat.home.agentTitle': 'Home',
+  'chat.home.title': 'Main chat',
   'chat.home.subtitle': 'Your main chat, across every project.',
   'chat.connectionLost': 'Lost the connection to AgentBox. Trying again…',
   'chat.unavailable': 'The chat is unavailable.',
