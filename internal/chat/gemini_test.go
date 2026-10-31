@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,13 +20,16 @@ import (
 // models in a session's older fields, changed with session/set_mode and
 // session/set_model (it has no set_config_option), a usage_update with the
 // context window after each model result, and a turn's tokens in its own
-// snake_case _meta.quota.
+// snake_case _meta.quota. Like Gemini CLI, it answers session/set_mode with
+// an agent_message_chunk that reads "[MODE_UPDATE] <mode>". With hold set, a
+// turn waits for it to close before it says anything.
 type fakeGemini struct {
 	mu    sync.Mutex
 	conn  *acp.Conn
 	mode  string
 	model string
 	calls []string
+	hold  chan struct{}
 }
 
 func (g *fakeGemini) launch(_ context.Context, _ state.Agent, _ func(string)) (*Process, error) {
@@ -84,7 +88,10 @@ func (g *fakeGemini) Request(method string, params json.RawMessage, reply func(a
 	case "session/set_mode":
 		g.mu.Lock()
 		g.mode = req.ModeID
+		conn := g.conn
 		g.mu.Unlock()
+		_ = conn.Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": req.SessionID,
+			"update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "[MODE_UPDATE] " + req.ModeID}}})
 		reply(map[string]any{}, nil)
 	case "session/set_model":
 		g.mu.Lock()
@@ -94,8 +101,11 @@ func (g *fakeGemini) Request(method string, params json.RawMessage, reply func(a
 	case acp.MethodSessionPrompt:
 		go func() {
 			g.mu.Lock()
-			conn, model := g.conn, g.model
+			conn, model, hold := g.conn, g.model, g.hold
 			g.mu.Unlock()
+			if hold != nil {
+				<-hold
+			}
 			_ = conn.Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": req.SessionID,
 				"update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "Hello from Gemini"}}})
 			_ = conn.Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": req.SessionID,
@@ -182,5 +192,35 @@ func TestAGeminiCLITurn(t *testing.T) {
 	raw, err := store.Setting(context.Background(), state.SettingGeminiModelChoices)
 	if err != nil || len(state.ChoiceValues(raw)) != 3 {
 		t.Errorf("remembered menu = %s, %v", raw, err)
+	}
+}
+
+// TestGeminiCLIModeNoticeStaysOutOfTheReply changes a Gemini CLI chat's mode
+// while a turn runs: Gemini CLI's "[MODE_UPDATE] plan" notice is for its own
+// interface, and the reply must not gain it.
+func TestGeminiCLIModeNoticeStaysOutOfTheReply(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	g := &fakeGemini{mode: "default", model: "auto", hold: make(chan struct{})}
+	a := state.Agent{Project: "hello", Name: "agent-01", AI: "gemini", Worktree: t.TempDir()}
+	m := &Manager{Store: store, Version: "test", Publish: func(api.ChatEvent) {}, Launch: g.launch}
+	t.Cleanup(m.Close)
+	if _, err := m.Start(a); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, a, "a ready session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
+	if _, err := m.Send(a, "Say hello"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, a, "the turn running", func(th api.ChatThread) bool { return th.Session.State == api.ChatRunning })
+	if _, err := m.SetOption(context.Background(), a, "mode", "autoEdit"); err != nil {
+		t.Fatal(err)
+	}
+	close(g.hold)
+	th := waitThread(t, m, a, "the turn finishing", turnsEnded(1))
+	for _, it := range th.Items {
+		if strings.Contains(it.Text, "MODE_UPDATE") {
+			t.Errorf("a %s item reads %q", it.Kind, it.Text)
+		}
 	}
 }

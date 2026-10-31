@@ -2715,6 +2715,11 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	}
 	switch u.SessionUpdate {
 	case "agent_message_chunk":
+		if c.agent.AI == "gemini" && geminiModeNotice(u.Text()) {
+			// Gemini CLI answers session/set_mode with this chunk, meant
+			// for its own interface; the composer already shows the mode.
+			return
+		}
 		c.appendText("assistant", u.MessageID, u.Text())
 	case "agent_thought_chunk":
 		c.appendText("thought", u.MessageID, u.Text())
@@ -3414,4 +3419,11 @@ func clone[T any](v T) T {
 		panic("chat: " + err.Error())
 	}
 	return out
+}
+
+// geminiModeNotice is whether a message chunk is Gemini CLI's
+// "[MODE_UPDATE] yolo", which it sends whenever its mode changes.
+func geminiModeNotice(text string) bool {
+	mode, ok := strings.CutPrefix(text, "[MODE_UPDATE] ")
+	return ok && mode != "" && !strings.ContainsAny(mode, " \n")
 }
