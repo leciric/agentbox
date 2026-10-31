@@ -266,7 +266,7 @@ var systemProcs = map[string]bool{
 
 // chatWords are what an AI tool's processes, its adapter's and AgentBox's
 // own in the machine have in their command lines.
-var chatWords = []string{"claude", "agentclientprotocol", "codex", "opencode", "cursor-agent"}
+var chatWords = []string{"claude", "agentclientprotocol", "codex", "opencode", "cursor-agent", "gemini"}
 
 // keepsRunning says whether a process is one the machine or its chat needs.
 func keepsRunning(p *idleProc) bool {

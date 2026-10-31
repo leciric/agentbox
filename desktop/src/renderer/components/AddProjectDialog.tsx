@@ -71,12 +71,14 @@ export function AddProjectDialog({
   const [githubAccount, setGitHubAccount] = useState('');
   const [codexAccount, setCodexAccount] = useState('');
   const [cursorAccount, setCursorAccount] = useState('');
+  const [geminiAccount, setGeminiAccount] = useState('');
   const [openCodeAccounts, setOpenCodeAccounts] = useState<Record<string, string>>({});
   // The AI tool the project's agents run when they name none; "" keeps what
   // every project does without one (Project.agentTool).
   const [agentTool, setAgentTool] = useState('');
   const codexAccounts = accountsOf(auth.data, 'codex');
   const cursorAccounts = accountsOf(auth.data, 'cursor');
+  const geminiAccounts = accountsOf(auth.data, 'gemini');
   const openCodeAll = accountsOf(auth.data, 'opencode');
   const providers = [...new Set(openCodeAll.map((a) => a.provider ?? ''))].filter(Boolean);
   const signedOut = [
@@ -84,6 +86,7 @@ export function AddProjectDialog({
     codexAccounts.length === 0 && aiLabel('codex'),
     providers.length === 0 && aiLabel('opencode'),
     cursorAccounts.length === 0 && aiLabel('cursor'),
+    geminiAccounts.length === 0 && aiLabel('gemini'),
     githubAccounts.length === 0 && 'GitHub',
   ].filter((name): name is string => !!name);
   // On Windows, the picker gives a folder on a Windows drive as /mnt/<drive>/...:
@@ -95,6 +98,7 @@ export function AddProjectDialog({
     githubAccount: githubAccount || undefined,
     codexAccount: codexAccount || undefined,
     cursorAccount: cursorAccount || undefined,
+    geminiAccount: geminiAccount || undefined,
     openCodeAccounts: Object.values(openCodeAccounts).some(Boolean) ? openCodeAccounts : undefined,
   };
   const added = async (project: T.Project) => {
@@ -159,6 +163,7 @@ export function AddProjectDialog({
     setGitHubAccount('');
     setCodexAccount('');
     setCursorAccount('');
+    setGeminiAccount('');
     setOpenCodeAccounts({});
     add.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -359,7 +364,7 @@ export function AddProjectDialog({
           <Field label={t('project.add.toolLabel')} htmlFor="project-agent-tool" hint={t('project.add.toolHint')}>
             <Select id="project-agent-tool" value={agentTool} onChange={setAgentTool}>
               <SelectOption value="">{t('defaults.project.toolNone')}</SelectOption>
-              {['claude', 'codex', 'opencode', 'cursor'].map((tool) => (
+              {['claude', 'codex', 'opencode', 'cursor', 'gemini'].map((tool) => (
                 <SelectOption key={tool} value={tool}>
                   {aiLabel(tool)}
                 </SelectOption>
@@ -399,6 +404,11 @@ export function AddProjectDialog({
               {cursorAccounts.length > 0 && (
                 <AccountRow tool="cursor" label={aiLabel('cursor')} accounts={cursorAccounts} value={cursorAccount} onChange={setCursorAccount}>
                   <ToolAccountState accounts={cursorAccounts} chosen={cursorAccount} />
+                </AccountRow>
+              )}
+              {geminiAccounts.length > 0 && (
+                <AccountRow tool="gemini" label={aiLabel('gemini')} accounts={geminiAccounts} value={geminiAccount} onChange={setGeminiAccount}>
+                  <ToolAccountState accounts={geminiAccounts} chosen={geminiAccount} />
                 </AccountRow>
               )}
               {githubAccounts.length > 0 && (

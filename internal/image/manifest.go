@@ -109,6 +109,12 @@ var Downloads = []Download{
 		MB:      17,
 	},
 	{
+		// Measured on 2026-10-30: node_modules after installing it (100 MB).
+		Name:    "Gemini CLI",
+		Purpose: "Google's Gemini CLI, for agents created with --ai gemini. It is its own ACP adapter.",
+		MB:      100,
+	},
+	{
 		Name:    "Codex CLI",
 		Purpose: "OpenAI's Codex, for agents created with --ai codex.",
 		MB:      141,

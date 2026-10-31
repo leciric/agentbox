@@ -57,6 +57,8 @@ func accountOf(a state.Agent) string {
 		return a.CodexAccount
 	case "cursor":
 		return a.CursorAccount
+	case "gemini":
+		return a.GeminiAccount
 	case "opencode":
 		return formatOpenCode(a.OpenCodeAccounts)
 	}
@@ -88,7 +90,7 @@ func (s *Server) agentRunners(w http.ResponseWriter, r *http.Request) error {
 		if row.Accounts, err = s.leadAccountRows(ctx, p); err != nil {
 			return err
 		}
-	case "codex", "cursor":
+	case "codex", "cursor", "gemini":
 		out.ToolAccounts[a.AI] = accountOf(a)
 		if row.Accounts, err = s.leadToolRows(p, a.AI); err != nil {
 			return err
@@ -134,8 +136,8 @@ func loginsFor(tool, account string, openCode map[string]string) agent.Logins {
 		return agent.Logins{Claude: account}
 	case "codex":
 		return agent.Logins{Codex: account}
-	case "cursor":
-		return agent.Logins{Cursor: account}
+	case "cursor", "gemini":
+		return agent.LoginsFor(tool, account)
 	}
 	return agent.Logins{OpenCode: state.AccountMap(openCode)}
 }

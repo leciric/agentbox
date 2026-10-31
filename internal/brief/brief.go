@@ -191,6 +191,9 @@ type LeadData struct {
 	// create Cursor agents. Its models aren't listed here: create_agent's own
 	// description names them, with each one's effort levels.
 	CursorReady bool
+	// GeminiReady is whether agents have a Gemini CLI login, so the lead may
+	// create Gemini CLI agents. Its models are create_agent's to list too.
+	GeminiReady bool
 	// ClaudeAccounts are the names of the Claude Code accounts this project may
 	// use: the machine's, less any its allow-list leaves out. The brief says
 	// nothing about spreading agents across them unless there is more than one

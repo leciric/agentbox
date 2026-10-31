@@ -28,6 +28,8 @@ export function agentAccount(agent: T.Agent): string {
       return agent.codexAccount ?? '';
     case 'cursor':
       return agent.cursorAccount ?? '';
+    case 'gemini':
+      return agent.geminiAccount ?? '';
     case 'opencode':
       return Object.entries(agent.openCodeAccounts ?? {})
         .toSorted(([a], [b]) => a.localeCompare(b))
@@ -49,7 +51,7 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
   // asks no more often than that however often it's hovered.
   const disk = useQuery({ queryKey: ['agentDisk', agent.ref], queryFn: () => api.agentDisk(agent.ref), staleTime: 60_000 });
   // What its AI tool really runs on, read from the running process.
-  const reads = agent.ai === 'claude' || agent.ai === 'codex' || agent.ai === 'opencode';
+  const reads = agent.ai === 'claude' || agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'gemini';
   const credential = useToolCredential(agent.ref, reads);
 
   const options = chat.data?.session?.options ?? [];

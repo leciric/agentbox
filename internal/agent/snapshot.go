@@ -228,7 +228,7 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 		return state.Agent{}, err
 	}
 	// The fork keeps the original's accounts.
-	logins, err := m.CheckLogin(src.AI, p, Logins{Claude: src.ClaudeAccount, Codex: src.CodexAccount, OpenCode: src.OpenCodeAccounts, Cursor: src.CursorAccount})
+	logins, err := m.CheckLogin(src.AI, p, Logins{Claude: src.ClaudeAccount, Codex: src.CodexAccount, OpenCode: src.OpenCodeAccounts, Cursor: src.CursorAccount, Gemini: src.GeminiAccount})
 	if err != nil {
 		return state.Agent{}, err
 	}

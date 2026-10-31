@@ -322,6 +322,28 @@ esac`), Store: openInternalStore(t)}
 	}
 }
 
+// Gemini CLI's chat runs in the process the chat started: left to itself it
+// starts a child with more heap and ignores SIGTERM, so stopping the chat
+// killed only the parent and left the session running behind it.
+func TestGeminiChatsDontRelaunchThemselves(t *testing.T) {
+	t.Parallel()
+	m := &Manager{Creds: credentials.Store{Dir: t.TempDir()}, Incus: fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-sai-agent-01","status":"Running"}]' ;;
+esac`), Store: openInternalStore(t)}
+	m.User.Name = "dev"
+	for ai, want := range map[string]bool{"gemini": true, "codex": false} {
+		a := claudeAgent("")
+		a.AI, a.Interface = ai, state.InterfaceChat
+		cmd, err := m.ChatCommand(context.Background(), a, func(string) {})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s := cmd.Args[len(cmd.Args)-1]; strings.Contains(s, "&& GEMINI_CLI_NO_RELAUNCH=1 exec ") != want {
+			t.Errorf("the %s chat's script:\n%s", ai, s)
+		}
+	}
+}
+
 // OpenCode 2 keeps every credential it is given, and `auth import` skips one
 // it already has: a sync gives it exactly the accounts asked for, logging out
 // the ones it replaced so a removed or renamed account can't keep answering.

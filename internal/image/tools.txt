@@ -28,6 +28,7 @@
 # (internal/cursor/adapter.mjs), written into the agent as its chat starts:
 # what is pinned here is the SDK it runs on, which has no command of its own,
 # so its check looks for the package where mise's npm backend puts it.
+# Gemini CLI is its own ACP adapter, behind its --acp flag.
 #
 # A "host" line is AgentBox's own, not an agent's: no image has it. cloudflared
 # is the Cloudflare Tunnel the daemon starts so a phone can chat from anywhere
@@ -45,6 +46,7 @@
 -        npm:@playwright/mcp@0.0.79                        playwright-mcp --version && playwright-mcp --help | grep -q -- --cdp-endpoint
 -        npm:@agentclientprotocol/claude-agent-acp@0.93.0  command -v claude-agent-acp
 -        npm:@cursor/sdk@1.0.35                            d="$(mise where npm:@cursor/sdk)" && ls "$d"/node_modules/@cursor/sdk/package.json "$d"/lib/node_modules/@cursor/sdk/package.json 2>/dev/null | grep -q .
+-        npm:@google/gemini-cli@0.64.0                     gemini --version && gemini --help | grep -q -- --acp
 codex    codex@0.155.0                                     codex --version
 codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
 # OpenCode is pinned as `opencode`, not `npm:opencode-ai`: the npm package

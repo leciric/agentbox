@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Codex, OpenCode and Cursor logins are named accounts too, the way Claude
+// Codex, OpenCode, Cursor and Gemini CLI logins are named accounts too, the way Claude
 // Code's and GitHub's are: a project picks one per tool, an agent gets a copy
 // of the one its project names, and `agentbox auth <tool> --account <name>`
 // adds one. Each account is the file the tool itself reads, kept whole:
@@ -24,6 +24,10 @@ import (
 //   - Codex: its auth.json (CODEX_HOME), a ChatGPT sign-in or an API key.
 //   - Cursor: the SDK's auth.json (see CursorLogin), a key typed in or one
 //     Cursor minted at a browser sign-in.
+//   - Gemini CLI: its oauth_creds.json, a Google sign-in, or for an API key
+//     {"GEMINI_API_KEY": key}, which a chat sends Gemini CLI over ACP and
+//     Gemini CLI on the command line gets from a file only it reads (see
+//     GeminiLogin).
 //   - OpenCode: one provider's entry from its auth.json. OpenCode keeps every
 //     provider's key in one file, so its accounts are per provider ("work" for
 //     anthropic, "personal" for openai), a project picks one per provider, and
@@ -38,10 +42,11 @@ const (
 	ToolCodex    = "codex"
 	ToolOpenCode = "opencode"
 	ToolCursor   = "cursor"
+	ToolGemini   = "gemini"
 )
 
 // AccountTools are the tools with ToolAccounts, in the order they're listed.
-var AccountTools = []string{ToolCodex, ToolOpenCode, ToolCursor}
+var AccountTools = []string{ToolCodex, ToolOpenCode, ToolCursor, ToolGemini}
 
 // ToolName is how a tool is called in messages.
 func ToolName(tool string) string {
@@ -52,13 +57,15 @@ func ToolName(tool string) string {
 		return "OpenCode"
 	case ToolCursor:
 		return "Cursor"
+	case ToolGemini:
+		return "Gemini CLI"
 	}
 	return tool
 }
 
 const authSuffix = ".json"
 
-// ToolAccount is one stored Codex, OpenCode or Cursor login.
+// ToolAccount is one stored Codex, OpenCode, Cursor or Gemini CLI login.
 type ToolAccount struct {
 	Tool string
 	// Provider is the OpenCode provider the account signs in to
@@ -69,8 +76,9 @@ type ToolAccount struct {
 	// neither the agent nor its project names one.
 	Default bool
 	SavedAt time.Time
-	// Kind is how it signs in: "apikey", "chatgpt" (Codex), "oauth" or
-	// "wellknown" (OpenCode's own words), "" when the file doesn't say.
+	// Kind is how it signs in: "apikey", "chatgpt" (Codex), "google"
+	// (Gemini CLI), "oauth" or "wellknown" (OpenCode's own words), "" when
+	// the file doesn't say.
 	Kind string
 	// Email is whose account it is, when the file says.
 	Email string
@@ -94,7 +102,7 @@ var providerRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 func checkTool(tool, provider string) error {
 	switch tool {
-	case ToolCodex, ToolCursor:
+	case ToolCodex, ToolCursor, ToolGemini:
 		if provider != "" {
 			return fmt.Errorf("%s accounts have no provider: only OpenCode's do", ToolName(tool))
 		}
@@ -105,7 +113,7 @@ func checkTool(tool, provider string) error {
 		}
 		return ValidateProvider(provider)
 	}
-	return fmt.Errorf("%q has no accounts: use codex, opencode or cursor", tool)
+	return fmt.Errorf("%q has no accounts: use codex, opencode, cursor or gemini", tool)
 }
 
 // toolDir holds a tool's accounts, one provider's for OpenCode.
@@ -452,6 +460,10 @@ func describe(a *ToolAccount, b []byte) {
 		login, ok := parseCursor(b)
 		a.Kind, a.Email, a.Expiry = "apikey", login.Email, login.Expiry
 		a.Expired = !ok
+	case ToolGemini:
+		if login, ok := parseGemini(b); ok {
+			a.Kind, a.Email = login.Kind(), login.Email
+		}
 	}
 }
 
@@ -533,8 +545,9 @@ func (s Store) OpenCodeAuth(chosen map[string]string) (auth []byte, used map[str
 }
 
 // ToolLogin is the file an agent on tool gets, and the account it is, for the
-// account named ("" for the default): Codex's and Cursor's auth.json, nil
-// when there is none or Cursor's key has expired. OpenCode's is OpenCodeAuth.
+// account named ("" for the default): Codex's and Cursor's auth.json and
+// Gemini CLI's stored login, nil when there is none or Cursor's key has
+// expired. OpenCode's is OpenCodeAuth.
 func (s Store) ToolLogin(tool, name string) ([]byte, string, error) {
 	b, resolved, err := s.ToolAuth(tool, "", name)
 	if err != nil || b == nil {
@@ -542,6 +555,11 @@ func (s Store) ToolLogin(tool, name string) ([]byte, string, error) {
 	}
 	if tool == ToolCursor {
 		if _, ok := parseCursor(b); !ok {
+			return nil, "", nil
+		}
+	}
+	if tool == ToolGemini {
+		if _, ok := parseGemini(b); !ok {
 			return nil, "", nil
 		}
 	}
@@ -609,6 +627,83 @@ func parseCursor(b []byte) (CursorLogin, bool) {
 func (s Store) HasCursorLogin(account string) bool {
 	_, ok := s.CursorLogin(account)
 	return ok
+}
+
+// GeminiLogin is what AgentBox knows of a Gemini CLI login: a Google sign-in
+// (OAuth, Gemini CLI's own oauth_creds.json kept whole) or a Gemini API key.
+type GeminiLogin struct {
+	// OAuth is the oauth_creds.json Gemini CLI wrote at a Google sign-in;
+	// nil for an API key. Agents get it at ~/.gemini/oauth_creds.json, where
+	// Gemini CLI refreshes its access token itself: Google's refresh tokens
+	// don't rotate, so every copy keeps working.
+	OAuth  []byte
+	APIKey string
+	Email  string // whose Google account, from the sign-in's ID token
+}
+
+// Kind is how the login signs in, in ToolAccount.Kind's words.
+func (l GeminiLogin) Kind() string {
+	if l.OAuth != nil {
+		return "google"
+	}
+	return "apikey"
+}
+
+// AuthType is the auth method Gemini CLI's settings.json names for the login
+// (security.auth.selectedType), the same ids its ACP authMethods have.
+func (l GeminiLogin) AuthType() string {
+	if l.OAuth != nil {
+		return "oauth-personal"
+	}
+	return "gemini-api-key"
+}
+
+// GeminiLogin reads a stored Gemini CLI account, the default for "".
+func (s Store) GeminiLogin(account string) (GeminiLogin, bool) {
+	b, _, err := s.ToolAuth(ToolGemini, "", account)
+	if err != nil || b == nil {
+		return GeminiLogin{}, false
+	}
+	return parseGemini(b)
+}
+
+// ParseGeminiLogin reads a Gemini CLI account's file, as ToolLogin returns it.
+func ParseGeminiLogin(b []byte) (GeminiLogin, bool) { return parseGemini(b) }
+
+// parseGemini reads a stored Gemini CLI login: an oauth_creds.json holds a
+// refresh token, an API key login its GEMINI_API_KEY.
+func parseGemini(b []byte) (GeminiLogin, bool) {
+	var f struct {
+		APIKey       string `json:"GEMINI_API_KEY"`
+		RefreshToken string `json:"refresh_token"`
+		IDToken      string `json:"id_token"`
+	}
+	if json.Unmarshal(b, &f) != nil {
+		return GeminiLogin{}, false
+	}
+	switch {
+	case strings.TrimSpace(f.RefreshToken) != "":
+		return GeminiLogin{OAuth: b, Email: jwtEmail(f.IDToken)}, true
+	case strings.TrimSpace(f.APIKey) != "":
+		return GeminiLogin{APIKey: strings.TrimSpace(f.APIKey)}, true
+	}
+	return GeminiLogin{}, false
+}
+
+// HasGeminiLogin reports whether a Gemini CLI account, the default for "", is
+// stored.
+func (s Store) HasGeminiLogin(account string) bool {
+	_, ok := s.GeminiLogin(account)
+	return ok
+}
+
+// GeminiAPIKeyAuth is the login stored for a Gemini API key.
+func GeminiAPIKeyAuth(key string) ([]byte, error) {
+	key = strings.TrimSpace(key)
+	if key == "" || strings.ContainsAny(key, " \t\r\n") {
+		return nil, errors.New("the API key must be a single non-empty line")
+	}
+	return json.Marshal(map[string]string{"GEMINI_API_KEY": key})
 }
 
 // CodexAPIKeyAuth is the auth.json `codex login --with-api-key` writes, for

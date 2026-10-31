@@ -113,7 +113,7 @@ export function NextTool({ next }: { next: string }) {
 // toolIcons are the tools' marks as MenuItem icons, made once so a row's icon
 // keeps its identity between renders.
 const toolIcons: Record<string, ComponentType<{ className?: string }>> = Object.fromEntries(
-  ['claude', 'codex', 'opencode', 'cursor'].map((ai) => [ai, ({ className }: { className?: string }) => <ToolMark ai={ai} className={className} />]),
+  ['claude', 'codex', 'opencode', 'cursor', 'gemini'].map((ai) => [ai, ({ className }: { className?: string }) => <ToolMark ai={ai} className={className} />]),
 );
 
 // AccountUsage is an account's limits, as the top bar's meter shows them.

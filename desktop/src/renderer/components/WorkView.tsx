@@ -5,7 +5,8 @@
 // report on top, its media, diff and details, and its verdicts only while it
 // waits for one; "N to review" opens it filtered to what waits.
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { ArrowRight, Briefcase, CornerDownRight, Film, GitBranch, Images, Layers, LoaderCircle, Search, Sparkles } from 'lucide-react';
+import { ArrowRight, Briefcase, CornerDownRight, Film, GitBranch, Images, Layers, LoaderCircle, Plus, Search, Sparkles } from 'lucide-react';
+import { Button } from './ui/button';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -89,12 +90,15 @@ export function WorkList({
   limit = 50,
   onShowAll,
   onSelect,
+  onNewAgent,
 }: {
   project?: string;
   initial?: WorkFilter;
   limit?: number;
   onShowAll?: () => void;
   onSelect: (view: View) => void;
+  // Offered by an empty list: the way to have some work to show.
+  onNewAgent?: () => void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -191,6 +195,12 @@ export function WorkList({
           <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-ui text-subtle" data-work-empty>
             <Briefcase className="size-5 text-faint" />
             {q || filter ? t('work.noMatch') : t('work.empty')}
+            {!q && !filter && onNewAgent && (
+              <Button size="sm" variant="primary" className="mt-1" onClick={onNewAgent}>
+                <Plus />
+                {t('project.view.newAgent')}
+              </Button>
+            )}
           </div>
         ) : (
           groups.map((g) => (

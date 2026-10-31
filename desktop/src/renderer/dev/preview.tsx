@@ -226,6 +226,9 @@
 //                           (lib/groupIdle.ts; off otherwise)
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
+//   &tabs=idle|busy         with ?app=, Classic's contextual tabs (lib/agentTabs.ts): idle,
+//                           agents with no snapshots, pages, emulator, media or Hatch pages; busy,
+//                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
 //   &verbs=1                with &v2=1, the prototype navigation, Ask, Watch and Review
 //                           (lib/uiVerbs.ts); ?app=watch opens Watch, ?app=watch:agent-41
@@ -562,6 +565,7 @@ if (iosScenario) {
 
 // &android=1: the project is an Android one, so its agents' panels have Android.
 const androidProject = params.get('android') === '1';
+const tabsScenario = params.get('tabs');
 if (androidProject) fixtures.projects.find((p) => p.name === PROJECT)!.android = true;
 // &stream=ws://…: the bridge's streams are the browser's own WebSockets
 // there, and agents' desktops are up, so their views connect to it too.
@@ -644,7 +648,7 @@ if (chat === 'limited') {
   });
   // Signed in, on both accounts, so the composer isn't the signed-out one.
   queryClient.setQueryData<T.AuthStatus>(['auth'], (auth) => ({
-    ...(auth ?? { claude: true, codex: false, opencode: false, cursor: false, codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], github: false, githubAccounts: [] }),
+    ...(auth ?? { claude: true, codex: false, opencode: false, cursor: false, gemini: false, codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], geminiAccounts: [], github: false, githubAccounts: [] }),
     claude: true,
     claudeAccounts: [{ name: 'personal', default: true, savedAt: personal.at }, { name: 'work', default: false, savedAt: work.at }],
   }));
@@ -692,6 +696,8 @@ if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (review || appView) seedReview(queryClient);
+// &tabs=idle: nothing published either, so the lead's Evidence has nothing in it.
+if (tabsScenario === 'idle') queryClient.setQueryData(['pages', PROJECT], { connector: 'hatch', artifacts: [] } satisfies T.Artifacts);
 // The fixture agents' timelines (dev/timeline.ts), for the right panel's
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
@@ -769,6 +775,17 @@ if (appView) {
     if (androidProject && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/android$/.test(path)) {
       const booted: T.AndroidStatus = { available: true, images: ['android-35'], running: true, booted: true, image: 'android-35', device: 'emulator-5554', gpu: true };
       return { status: 200, body: JSON.stringify(booted), contentType: 'application/json' };
+    }
+    const contextual = tabsScenario && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/(snapshots|browser|android)$/.exec(path);
+    if (contextual || (tabsScenario && method === 'GET' && path.startsWith('/v1/media/counts'))) {
+      const busy = tabsScenario === 'busy';
+      const answers: Record<string, unknown> = {
+        snapshots: busy ? [{ name: 'before-migration', createdAt: new Date(Date.now() - 3_600_000).toISOString(), head: 'a13c0ba8' }] : [],
+        browser: { display: true, running: true, pages: busy ? [{ id: '1', url: 'http://localhost:3000/checkout', title: 'Checkout' }] : [{ id: '1', url: 'about:blank', title: '' }] },
+        android: { available: true, images: ['android-35'], running: busy, booted: busy, gpu: true },
+      };
+      const counts = { total: busy ? 12 : 0, bytes: 0, kinds: {}, favorites: 0, unseen: 0, agents: [], projects: [], matching: busy ? 12 : 0 };
+      return { status: 200, body: JSON.stringify(contextual ? answers[contextual[1]] : counts), contentType: 'application/json' };
     }
     if (iosScenario && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/ios$/.test(path)) {
       return { status: 200, body: JSON.stringify(iosStatus()), contentType: 'application/json' };
@@ -999,7 +1016,7 @@ function SeededFreeRun({ run }: { run: FreeRun }) {
 function AvatarRow({ mood, big = true }: { mood: Mood; big?: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'end', gap: 28 }}>
-      {['claude', 'codex', 'opencode', 'cursor', 'none'].map((ai) => (
+      {['claude', 'codex', 'opencode', 'cursor', 'gemini', 'none'].map((ai) => (
         <figure key={ai} style={{ display: 'grid', justifyItems: 'center', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <AgentAvatar ai={ai} mood={mood} state={moodState[mood]} seed={`${ai}-${mood}`} />
@@ -1111,7 +1128,7 @@ function Preview() {
   if (media === 'project') {
     return (
       <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-        <MediaView project={PROJECT} />
+        <MediaView project={PROJECT} onAskLead={() => {}} />
       </div>
     );
   }
@@ -1127,7 +1144,7 @@ function Preview() {
   if (media === 'agent') {
     return (
       <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-        <MediaView agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-12`)!} />
+        <MediaView agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-12`)!} onAskLead={() => {}} />
       </div>
     );
   }

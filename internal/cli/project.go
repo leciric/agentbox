@@ -14,7 +14,7 @@ import (
 )
 
 func newAddCmd(a *app) *cobra.Command {
-	var name, claudeAccount, githubAccount, codexAccount, cursorAccount string
+	var name, claudeAccount, githubAccount, codexAccount, cursorAccount, geminiAccount string
 	var openCodeAccounts map[string]string
 	var copyToLinux, create, commitFiles bool
 	var cloneURL string
@@ -60,7 +60,7 @@ machine's own git credentials.`,
 			}
 			req := api.AddProjectRequest{
 				Path: path, Name: name, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CopyToLinux: copyToLinux,
-				CodexAccount: codexAccount, OpenCodeAccounts: openCodeAccounts, CursorAccount: cursorAccount,
+				CodexAccount: codexAccount, OpenCodeAccounts: openCodeAccounts, CursorAccount: cursorAccount, GeminiAccount: geminiAccount,
 				Create: create, CommitFiles: commitFiles,
 			}
 			var p api.Project
@@ -97,6 +97,7 @@ machine's own git credentials.`,
 	cmd.Flags().StringVar(&githubAccount, "github-account", "", "GitHub account its agents use (default: this machine's default account)")
 	cmd.Flags().StringVar(&codexAccount, "codex-account", "", "Codex account its agents and chat use (default: this machine's default account)")
 	cmd.Flags().StringVar(&cursorAccount, "cursor-account", "", "Cursor account its agents and chat use (default: this machine's default account)")
+	cmd.Flags().StringVar(&geminiAccount, "gemini-account", "", "Gemini CLI account its agents and chat use (default: this machine's default account)")
 	cmd.Flags().StringToStringVar(&openCodeAccounts, "opencode-account", nil, "OpenCode account its agents use for a provider, as provider=account; repeat it for several (default: each provider's default)")
 	cmd.Flags().BoolVar(&create, "new", false, "make <path> a new repository, on main with an initial commit, and add that")
 	cmd.Flags().BoolVar(&commitFiles, "commit-files", false, "with --new, commit the files already in <path> as the initial commit")

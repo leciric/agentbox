@@ -12,7 +12,7 @@ export const firstRunSteps: readonly FirstRunStep[] = ['tool', 'machine', 'login
 
 // The AI tools a first run offers, Claude Code first and chosen unless
 // another is.
-export const firstRunTools = ['claude', 'codex', 'opencode', 'cursor'] as const;
+export const firstRunTools = ['claude', 'codex', 'opencode', 'cursor', 'gemini'] as const;
 export type FirstRunTool = (typeof firstRunTools)[number];
 export const isFirstRunTool = (ai: string | undefined): ai is FirstRunTool => firstRunTools.includes(ai as FirstRunTool);
 

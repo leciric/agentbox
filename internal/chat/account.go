@@ -22,7 +22,7 @@ import (
 // the new account has no reason to wait.
 
 // runsOn is the account an agent's tool signs in with: its Claude Code,
-// Codex or Cursor account, or its OpenCode accounts, one per provider.
+// Codex, Cursor or Gemini CLI account, or its OpenCode accounts, one per provider.
 func runsOn(a state.Agent) string {
 	switch a.AI {
 	case "claude":
@@ -31,6 +31,8 @@ func runsOn(a state.Agent) string {
 		return a.CodexAccount
 	case "cursor":
 		return a.CursorAccount
+	case "gemini":
+		return a.GeminiAccount
 	case "opencode":
 		return a.OpenCodeAccounts.String()
 	}
@@ -60,7 +62,7 @@ func (m *Manager) AccountChanged(a state.Agent) string {
 		return ""
 	}
 	c.agent.ClaudeAccount = a.ClaudeAccount
-	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount
+	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount
 	ad := c.adapter
 	asleepElsewhere := ad == nil && c.asleep && c.sleptOn != runsOn(a)
 	if (ad == nil && !asleepElsewhere) || (ad != nil && ad.login == runsOn(a)) {
@@ -142,7 +144,7 @@ func (m *Manager) AccountRenamed(a state.Agent) {
 	if c.gone || c.agent.AI != a.AI {
 		return
 	}
-	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount
+	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount
 	if c.adapter != nil {
 		c.adapter.login = runsOn(c.agent)
 	}

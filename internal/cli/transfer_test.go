@@ -39,7 +39,7 @@ func TestExportChoices(t *testing.T) {
 		}
 	}
 	all, _ := exportChoices(pv, []string{"api"}, nil, nil, []string{"all"}, false, false)
-	if len(all.Projects) != 1 || len(all.Logins) != 5 || slices.Contains(all.Projects[0].Categories, "secrets") {
+	if len(all.Projects) != 1 || len(all.Logins) != 6 || slices.Contains(all.Projects[0].Categories, "secrets") {
 		t.Errorf("all = %+v", all)
 	}
 }

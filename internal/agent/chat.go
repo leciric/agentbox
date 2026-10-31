@@ -45,6 +45,9 @@ var ChatAdapters = map[string]ChatAdapter{
 	// Cursor's adapter is AgentBox's own, over Cursor's TypeScript SDK
 	// (internal/cursor): Package is the SDK.
 	"cursor": {Tool: "Cursor", Command: "node", Package: cursor.SDKPackage, Script: cursor.Script, ScriptPath: cursorScriptFile, SDKEnv: cursor.SDKEnv},
+	// Gemini CLI speaks ACP itself, behind --acp (--experimental-acp until
+	// 0.6x, deprecated since).
+	"gemini": {Tool: "Gemini CLI", Command: "gemini", Args: []string{"--acp"}, Package: image.Pin("npm:@google/gemini-cli")},
 }
 
 // openCodeAdapter is the chat adapter for the OpenCode this installation runs.
@@ -66,6 +69,12 @@ func openCodeAdapter(adapter ChatAdapter, version opencode.Release) ChatAdapter 
 // extension. Inferred from a small sample (one account, two sessions per
 // label). The terminal interface really is "cli" and sets nothing.
 const claudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT=agentbox"
+
+// geminiNoRelaunch keeps Gemini CLI in the process the chat started. Without
+// it, `gemini` starts itself again as a child with more heap and waits on it,
+// ignoring SIGTERM: stopping the chat kills the parent and leaves the child,
+// the one running the session, behind.
+const geminiNoRelaunch = "GEMINI_CLI_NO_RELAUNCH=1"
 
 // installTimeout bounds installing an adapter in an agent whose machine doesn't have it.
 const installTimeout = 5 * time.Minute
@@ -107,6 +116,9 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 	env = append(env, toolEnv()...)
 	if a.AI == "claude" {
 		env = append(env, claudeEntrypoint)
+	}
+	if a.AI == "gemini" {
+		env = append(env, geminiNoRelaunch)
 	}
 	if term := os.Getenv("TERM"); term != "" {
 		env = append(env, "TERM="+term)
@@ -193,6 +205,9 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	if a.AI == "claude" {
 		env = claudeEntrypoint + " "
 	}
+	if a.AI == "gemini" {
+		env = geminiNoRelaunch + " "
+	}
 	if adapter.Script != nil {
 		// Written every time, so the adapter is always this daemon's own.
 		path := "/home/" + m.User.Name + "/" + adapter.ScriptPath
@@ -220,6 +235,7 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 			return nil, err
 		}
 	}
+	// A Gemini CLI API key isn't in it: the chat sends it (ChatAuth).
 	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), cmdline)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
 }
@@ -251,7 +267,7 @@ func interfaceFor(ai, iface string) (string, error) {
 	case iface != "" && iface != state.InterfaceChat && iface != state.InterfaceCLI:
 		return "", fmt.Errorf("unknown interface %q: use chat or cli", iface)
 	case ai == "none" && iface == state.InterfaceChat:
-		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex, opencode or cursor")
+		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex, opencode, cursor or gemini")
 	case ai == "none", iface == state.InterfaceCLI:
 		return state.InterfaceCLI, nil
 	}
@@ -296,7 +312,9 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	return a, nil
 }
 
-// prepareToolWindow gives the terminal's OpenCode what a chat's gets from
+// prepareToolWindow gives the terminal's Gemini CLI its sign-in, an API key
+// in the file only the command line reads (syncGeminiKeyFile), and the
+// terminal's OpenCode what a chat's gets from
 // PrepareChatModel before every chat: the config in the shape of the version
 // running now, and OpenCode 2's logins (installing it first with
 // ensureOpenCode2InAgent if the agent doesn't have it), so an agent switched in
@@ -304,7 +322,16 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 // about to be opened, and a failure is logged, not returned: the tool reports
 // what it is missing, and a machine without the network still gets its shell.
 func (m *Manager) prepareToolWindow(ctx context.Context, a state.Agent) {
-	if a.AI != "opencode" || a.Interface == state.InterfaceChat {
+	if a.Interface == state.InterfaceChat {
+		return
+	}
+	if a.AI == "gemini" {
+		if err := m.prepareAgentGeminiSettings(ctx, a); err != nil {
+			m.logf("preparing %s's Gemini CLI: %v", a.Ref(), err)
+		}
+		return
+	}
+	if a.AI != "opencode" {
 		return
 	}
 	if err := m.prepareAgentOpenCodeSettings(ctx, a); err != nil {
@@ -338,5 +365,5 @@ func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, 
 	// Typed into a shell, so the window stays open when the tool exits. The
 	// shell keeps the secrets; env execs the tool without them.
 	return fmt.Sprintf("tmux new-window -t %[1]s -n %[2]s -c %[3]s\ntmux send-keys -t %[1]s:%[2]s %[4]s Enter\n",
-		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+command)), nil
+		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+m.geminiKeyEnv(a, hide)+command)), nil
 }

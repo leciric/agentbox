@@ -80,7 +80,7 @@ func (m *Manager) LeadToolDefault(ctx context.Context, p state.Project) ToolDefa
 	tool := cmp.Or(choice.NextTool, choice.Tool)
 	want := leadAgentLogins(tool, choice)
 	err = m.agentsCanRun(ctx, p, tool, want)
-	if err != nil && want.Claude+want.Codex+want.Cursor != "" {
+	if err != nil && want.Claude+want.Codex+want.Cursor+want.Gemini != "" {
 		// The lead's own account for it is gone, or no longer allowed: the
 		// project's, as for the lead itself (leadLogins).
 		want = Logins{}
@@ -93,7 +93,7 @@ func (m *Manager) LeadToolDefault(ctx context.Context, p state.Project) ToolDefa
 }
 
 // leadAgentLogins is the account the lead's composer chose for tool, as an
-// agent's Logins: Claude Code's, Codex's or Cursor's. OpenCode's are always
+// agent's Logins: Claude Code's, Codex's, Cursor's or Gemini CLI's. OpenCode's are always
 // the project's, for the lead too.
 func leadAgentLogins(tool string, choice LeadChoice) Logins {
 	switch tool {
@@ -101,15 +101,15 @@ func leadAgentLogins(tool string, choice LeadChoice) Logins {
 		return Logins{Claude: choice.Account}
 	case "codex":
 		return Logins{Codex: choice.ToolAccounts["codex"]}
-	case "cursor":
-		return Logins{Cursor: choice.ToolAccounts["cursor"]}
+	case "cursor", "gemini":
+		return LoginsFor(tool, choice.ToolAccounts[tool])
 	}
 	return Logins{}
 }
 
 // agentsCanRun says why an agent of p can't run tool on want's accounts: nil
 // when it can. Codex and OpenCode must be in the base image too; Cursor's SDK
-// is in every one (CursorReady).
+// and Gemini CLI are in every one (CursorReady, GeminiReady).
 func (m *Manager) agentsCanRun(ctx context.Context, p state.Project, tool string, want Logins) error {
 	if tool == "claude" && want.Claude == "" {
 		// Claude Code is every agent's tool: a missing login is the same
@@ -146,7 +146,7 @@ func (m *Manager) agentsCanRun(ctx context.Context, p state.Project, tool string
 }
 
 // claudeAliases are the model names Claude Code resolves itself, which no
-// other tool uses: Cursor's and OpenCode's ids name their vendor.
+// other tool uses: Cursor's, OpenCode's and Gemini CLI's ids name their vendor.
 var claudeAliases = []string{"opus", "sonnet", "haiku", "fable", "best", "opusplan"}
 
 // NamesClaudeModel reports whether model is one of Claude Code's own names:

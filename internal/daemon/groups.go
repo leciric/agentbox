@@ -126,7 +126,7 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 			Project: req.Project, Title: req.Title + " · " + label, Branch: groupBranch(base, i+1), From: req.From,
 			Task: groupTask(req.Task, label, len(req.Variants)),
 			AI:   v.AI, Model: v.Model, Effort: v.Effort, ContextWindow: v.ContextWindow,
-			ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, OpenCodeAccounts: v.OpenCodeAccounts, CursorAccount: v.CursorAccount,
+			ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, OpenCodeAccounts: v.OpenCodeAccounts, CursorAccount: v.CursorAccount, GeminiAccount: v.GeminiAccount,
 			LeadSession: req.LeadSession,
 		}
 		checked, err := s.checkCreate(ctx, one, byLead)

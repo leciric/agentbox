@@ -218,3 +218,48 @@ func TestAPIKeyLogins(t *testing.T) {
 		t.Fatalf("SplitOpenCodeAuth = %v, %v", split, err)
 	}
 }
+
+// Gemini CLI's login is its own oauth_creds.json for a Google sign-in, or an
+// API key; the ID token says whose Google account it is.
+func TestGeminiAccounts(t *testing.T) {
+	s := store(t)
+	if s.HasGeminiLogin("") {
+		t.Fatal("a store with nothing in it has a Gemini CLI login")
+	}
+	// {"email":"dev@example.com"} as an unsigned JWT's payload.
+	idToken := "e30.eyJlbWFpbCI6ImRldkBleGFtcGxlLmNvbSJ9.sig"
+	save(t, s, credentials.ToolGemini, "", "google", `{"access_token":"ya29.x","refresh_token":"1//r","id_token":"`+idToken+`","expiry_date":1}`)
+	login, ok := s.GeminiLogin("")
+	if !ok || login.OAuth == nil || login.Email != "dev@example.com" || login.AuthType() != "oauth-personal" || login.Kind() != "google" {
+		t.Fatalf("GeminiLogin = %+v, %v", login, ok)
+	}
+	key, err := credentials.GeminiAPIKeyAuth(" AIza-key \n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := credentials.GeminiAPIKeyAuth("two words"); err == nil {
+		t.Error("a key with a space in it was taken")
+	}
+	save(t, s, credentials.ToolGemini, "", "studio", string(key))
+	if login, ok := s.GeminiLogin("studio"); !ok || login.APIKey != "AIza-key" || login.OAuth != nil || login.AuthType() != "gemini-api-key" {
+		t.Fatalf("an API key login: %+v, %v", login, ok)
+	}
+	save(t, s, credentials.ToolGemini, "", "empty", `{"access_token":"ya29.x"}`)
+	if s.HasGeminiLogin("empty") {
+		t.Error("a sign-in that can't be refreshed counts as a login")
+	}
+	if b, _, _ := s.ToolLogin(credentials.ToolGemini, "empty"); b != nil {
+		t.Error("a sign-in that can't be refreshed is given to agents")
+	}
+	if err := s.SaveToolAccount(credentials.ToolGemini, "google", "x", key); err == nil {
+		t.Error("a Gemini CLI account was stored with a provider")
+	}
+	accounts, _ := s.ToolAccounts(credentials.ToolGemini)
+	kinds := map[string]string{}
+	for _, a := range accounts {
+		kinds[a.Name] = a.Kind + " " + a.Email
+	}
+	if kinds["google"] != "google dev@example.com" || kinds["studio"] != "apikey " {
+		t.Errorf("ToolAccounts = %v", kinds)
+	}
+}

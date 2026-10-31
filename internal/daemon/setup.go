@@ -136,6 +136,17 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 	}
 	checks = append(checks, cursorCheck)
 
+	// Gemini CLI needs only a login too: every base image has it.
+	geminiCheck := api.SetupCheck{ID: "gemini", Title: "Gemini CLI sign-in", Status: api.SetupOptional,
+		Detail: "optional: agents can't run Gemini CLI yet", Fix: "agentbox auth gemini"}
+	if login, ok := creds.GeminiLogin(""); ok {
+		geminiCheck.Status, geminiCheck.Detail = api.SetupOK, "AgentBox has its own Gemini CLI login for agents"
+		if login.Email != "" {
+			geminiCheck.Detail += " (" + login.Email + ")"
+		}
+	}
+	checks = append(checks, geminiCheck)
+
 	if sdk, err := s.manager(nil).AndroidHost(); err == nil {
 		checks = append(checks, api.SetupCheck{ID: "android", Title: "Android emulators", Status: api.SetupOK,
 			Detail: fmt.Sprintf("KVM, and the Android SDK in %s with %s", sdk.Path, sdk.Images[0].ID)})

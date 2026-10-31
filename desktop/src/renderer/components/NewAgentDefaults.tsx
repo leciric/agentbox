@@ -416,6 +416,46 @@ export function CursorDefaults({ part }: { part: 'model' | 'effort' }) {
   );
 }
 
+// GeminiDefaults is the model new Gemini CLI agents start on: one of Gemini
+// CLI's own, as the daemon remembered them; "" is Gemini CLI's Auto. Gemini CLI
+// has no effort setting.
+export function GeminiDefaults() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const choices = settings.data?.geminiModelChoices ?? [];
+  const model = settings.data?.defaultGeminiModel ?? '';
+  const ready = settings.data?.geminiReady ?? false;
+  const disabled = save.isPending || settings.data === undefined || !ready;
+  const note = settings.data === undefined ? null : !ready ? t('defaults.gemini.signIn') : choices.length === 0 ? t('defaults.gemini.listLater') : null;
+
+  return (
+    <SettingRow
+      label={t('defaults.gemini.modelLabel')}
+      description={t('defaults.gemini.modelDescription')}
+      control={
+        <Select data-default-gemini-model aria-label={t('defaults.gemini.modelLabel')} disabled={disabled} value={model} onChange={(next) => save.mutate({ defaultGeminiModel: next })}>
+          <SelectOption value="">{t('defaults.gemini.modelAuto')}</SelectOption>
+          {choices.map((choice) => (
+            <SelectOption key={choice.value} value={choice.value}>
+              {choiceName(choice) || choice.value}
+            </SelectOption>
+          ))}
+          {model !== '' && !choices.some((c) => c.value === model) && <SelectOption value={model}>{t('defaults.newAgent.unavailable', { value: model })}</SelectOption>}
+        </Select>
+      }
+    >
+      {note && <SettingNote tone={ready ? 'muted' : 'warning'}>{note}</SettingNote>}
+    </SettingRow>
+  );
+}
+
 // ResourceField is a labelled CommitInput.
 function ResourceField({
   id,
@@ -1234,7 +1274,7 @@ export function DefaultTool() {
   );
 }
 
-const defaultTools = ['claude', 'codex', 'opencode', 'cursor'];
+const defaultTools = ['claude', 'codex', 'opencode', 'cursor', 'gemini'];
 
 export function MediaRetention() {
   const t = useT();

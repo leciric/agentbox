@@ -719,6 +719,25 @@ func (c *Client) ClaudeLogin(ctx context.Context, job string) (ClaudeLogin, erro
 	return login, c.do(ctx, http.MethodGet, "/v1/auth/claude/login/"+url.PathEscape(job), nil, &login)
 }
 
+// StartGeminiLogin runs Gemini CLI's Google sign-in on the daemon's machine,
+// as a job: the page to approve comes back from GeminiLogin as CodeURL, and
+// the sign-in is stored under the account when it finishes.
+func (c *Client) StartGeminiLogin(ctx context.Context, account string) (Job, error) {
+	var job Job
+	return job, c.do(ctx, http.MethodPost, "/v1/auth/gemini/login", ClaudeLoginRequest{Account: account}, &job)
+}
+
+// GeminiLogin is how far a Gemini CLI sign-in has got.
+func (c *Client) GeminiLogin(ctx context.Context, job string) (ClaudeLogin, error) {
+	var login ClaudeLogin
+	return login, c.do(ctx, http.MethodGet, "/v1/auth/gemini/login/"+url.PathEscape(job), nil, &login)
+}
+
+// GeminiLoginCode hands a running Gemini CLI sign-in the code its page ended on.
+func (c *Client) GeminiLoginCode(ctx context.Context, job, code string) error {
+	return c.do(ctx, http.MethodPost, "/v1/auth/gemini/login/"+url.PathEscape(job)+"/code", ClaudeLoginCodeRequest{Code: code}, nil)
+}
+
 // ClaudeLoginCode hands a running login the code from its fallback page.
 func (c *Client) ClaudeLoginCode(ctx context.Context, job, code string) error {
 	return c.do(ctx, http.MethodPost, "/v1/auth/claude/login/"+url.PathEscape(job)+"/code", ClaudeLoginCodeRequest{Code: code}, nil)
