@@ -359,10 +359,14 @@ func count(ms []*Machine, yes func(*Machine) bool) int {
 
 // Fits reports whether a machine's boot fits in m now: what is available,
 // with what the VM may still grow by, less the boots not showing yet, over
-// BootCost plus the floor.
+// BootCost plus the floor. Never while the VM has paged to its disk swap:
+// zram is full, and a boot would be paged to the disk too.
 func (f *Fleet) Fits(m Mem, now time.Time) bool {
 	if !m.Known() {
 		return true
+	}
+	if m.DiskSwapOut() {
+		return false
 	}
 	room := float64(m.Available)
 	if m.Cap > m.Total {
