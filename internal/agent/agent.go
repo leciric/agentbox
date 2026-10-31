@@ -789,6 +789,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 	a.Status = state.AgentReady
 	m.EnsureImageCache(ctx, a)
+	m.EnsureDockerOnDemand(ctx, a)
 	m.EnsureBrowser(ctx, a)
 	m.EnsureNesting(ctx, a, pl.project)
 	return a, nil
@@ -1494,8 +1495,9 @@ func agentMCPServers(home string, connectors []string) []mcpServer {
 		// call that takes longer than playwrightCallTimeout and restarts the
 		// server: browser_evaluate is page.evaluate, which no flag of the
 		// server's bounds, and one that never returned held an agent's turn
-		// until the agent was stopped.
-		{"playwright", AgentBinaryPath, append([]string{"desktop", "guard", "--name", "Playwright", "--timeout", playwrightCallTimeout.String(), "--",
+		// until the agent was stopped. --browser opens the machine's
+		// browser before a call when it closed for being idle (browser.sh).
+		{"playwright", AgentBinaryPath, append([]string{"desktop", "guard", "--name", "Playwright", "--browser", "--timeout", playwrightCallTimeout.String(), "--",
 			home + "/.local/share/mise/shims/playwright-mcp"},
 			"--cdp-endpoint", BrowserDevTools, "--output-dir", home+"/.cache/playwright-mcp", "--image-responses", "omit"), false},
 		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},
@@ -2147,6 +2149,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		return inst, err
 	}
 	m.EnsureImageCache(ctx, a)
+	m.EnsureDockerOnDemand(ctx, a)
 	m.EnsureBrowser(ctx, a)
 	return inst, nil
 }

@@ -273,6 +273,10 @@ func (s *Server) plugAgentSockets(ctx context.Context) bool {
 			// agents made before the cache existed get it here, with no
 			// rebuild, the first time a daemon that has it starts.
 			m.EnsureImageCache(ctx, a)
+			// And its Docker started on first use rather than at boot, and
+			// its browser closed when idle, without waiting for a restart.
+			m.EnsureDockerOnDemand(ctx, a)
+			m.RefreshBrowser(ctx, a)
 			// And the same for the shared package caches.
 			m.EnsurePackageCache(ctx, a)
 			// And /t's cap, so one already running stops growing its tmpfs

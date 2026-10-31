@@ -157,3 +157,50 @@ func TestBrowserScriptHoldsVNC(t *testing.T) {
 		t.Error("the client outlived the server")
 	}
 }
+
+// What keeps the browser open: a viewer of the display through AgentBox's
+// device (no process in the machine), or a DevTools client in the machine
+// other than Playwright's MCP server. Neither the device asking which pages
+// are open nor hold_vnc's clock does.
+func TestBrowserScriptInUse(t *testing.T) {
+	t.Parallel()
+	fn := regexp.MustCompile(`(?s)\nin_use\(\) \{.*?\n\}\n`).FindString(string(BrowserScript()))
+	if fn == "" {
+		t.Fatal("browser.sh has no in_use")
+	}
+	playwright := exec.Command("sh", "-c", "sleep 30; :", "/x/node_modules/@playwright/mcp/cli.js")
+	if err := playwright.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = playwright.Process.Kill(); _ = playwright.Wait() })
+	conn := func(port, pid int) string {
+		users := ""
+		if pid > 0 {
+			users = ` users:(("x",pid=` + strconv.Itoa(pid) + `,fd=3))`
+		}
+		return "0 0 127.0.0.1:40000 127.0.0.1:" + strconv.Itoa(port) + users + "\n"
+	}
+	for name, c := range map[string]struct {
+		vnc, cdp string
+		want     bool
+	}{
+		"nothing":                     {"", "", false},
+		"hold_vnc's clock":            {conn(5900, os.Getpid()), "", false},
+		"the app watching":            {conn(5900, 0), "", true},
+		"the device asking for pages": {"", conn(9222, 0), false},
+		"playwright, connected":       {"", conn(9222, playwright.Process.Pid), false},
+		"a recording":                 {"", conn(9222, os.Getpid()), true},
+	} {
+		bin := t.TempDir()
+		ss := "#!/bin/sh\ncase \"$*\" in *5900*) printf '%s' \"$VNC\" ;; *9222*) printf '%s' \"$CDP\" ;; esac\n"
+		if err := os.WriteFile(filepath.Join(bin, "ss"), []byte(ss), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("sh", "-c", fn+"in_use")
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "VNC="+c.vnc, "CDP="+c.cdp)
+		err := cmd.Run()
+		if got := err == nil; got != c.want {
+			t.Errorf("%s: in use = %v (%v), want %v", name, got, err, c.want)
+		}
+	}
+}
