@@ -89,7 +89,10 @@ slow as your network. `AGENTBOX_VM_DISKS_URL=off` always does that. The release 
 package in the disk, with where its sources are.
 
 The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
-of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
+of your memory by default), and gives it back as they stop. Your computer always keeps the larger
+of 4 GiB and a fifth of its memory for itself: the cap can't go past the rest (a cap set higher by
+an earlier version is lowered to it), the VM stops growing while your computer has less than that
+free, and gives back what it can spare within seconds. The top bar's **Free resources** stops
 every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap, as does
 `agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
 shared with the VM at the same path, so projects and agents' worktrees stay where they are.
@@ -106,7 +109,14 @@ to swap, and resumed once it eases. For that the VM gets compressed swap in memo
 of its cap) as AgentBox starts, used before any swapfile from `agentbox vm swap on`. The oldest one
 always keeps running, so they all finish in turn. The agent shows **Paused for memory** or
 **Waiting for memory** meanwhile. Claude Code agents do this around their tests and builds by
-themselves; any other command can join in as `agentbox heavy -- <command>`.
+themselves; any other command can join in as `agentbox heavy -- <command>`. Tests and builds that
+start while memory is short also run half as many parallel jobs (Go, make, cargo, vitest, turbo,
+nx, pnpm workspaces), back to the usual count two minutes after it eases.
+
+An agent that's only editing code holds little: its browser closes after five minutes unused (no
+browser or desktop tool call, nothing watching its Desktop tab) and opens again on the next use,
+and its Docker starts on the first `docker` command instead of at boot, and stops after five
+minutes with no container running.
 
 ## Moving an installation from before the VM
 

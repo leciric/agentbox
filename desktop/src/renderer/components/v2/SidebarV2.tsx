@@ -41,6 +41,7 @@ import { arrange, hide, pinsAfterHide, sections, unhide, type Slot } from '../..
 import { drop as dropOn, listEnd, sectionsAside, stepTarget, type DropTarget, type SidebarList } from '../../lib/sidebar';
 import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
+import { useUiVerbs } from '../../lib/uiVerbs';
 import { useGrace } from '../../lib/grace';
 import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, type Attention } from '../../lib/attention';
 import { useReviewHead } from '../../lib/inboxPages';
@@ -84,6 +85,7 @@ const countKeys: { st: AgentSt; key: MessageKey }[] = [
 
 export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: View; onSelect: (view: View) => void; onAddProject: () => void; onNewAgent: (project: string) => void }) {
   const t = useT();
+  const verbs = useUiVerbs();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const activity = useQuery({ queryKey: ['projectActivity'], queryFn: api.projectActivity, refetchInterval: 60_000 });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
@@ -598,16 +600,18 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           which opens straight away, Past agents, Media and Jobs, the places
           across every project, the one open highlighted, and the update check.
           Home, the chat and its Status tab, heads the list above; which
-          AgentBox this window drives is under Settings → General. */}
+          AgentBox this window drives is under Settings → General. With the
+          prototype navigation (lib/uiVerbs.ts) they're its verb bar's, Work
+          and Media in Review, Jobs in Settings: the update check is left. */}
       <div className="flex items-center gap-1 border-t border-line p-2" data-v2-foot>
-        {(
+        {(verbs ? [] : (
           [
             { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
             { kind: 'work', icon: Briefcase, label: t('work.title'), alert: false },
             { kind: 'media', icon: Images, label: t('shell.nav.media'), alert: false },
             { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), alert: false },
           ] as const
-        ).map(({ kind, icon: Icon, label, alert }) => {
+        )).map(({ kind, icon: Icon, label, alert }) => {
           const active = view.kind === kind;
           return (
             <Tip key={kind} label={label}>

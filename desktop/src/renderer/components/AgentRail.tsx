@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, GitBranch, HardDrive, PanelRight, Plus, Server } from 'lucide-react';
 import { useState } from 'react';
-import type * as T from '../../shared/api';
+import * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { pageKind, requestMediaFilter } from '../lib/mediaFilter';
 import { countByAgent, livePages } from '../lib/pages';
 import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
@@ -14,7 +15,6 @@ import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
 import { ErrorBoundary } from './ErrorBoundary';
 import { PageIcon } from './pages/PageThumb';
-import { PagesPanel } from './pages/PagesPanel';
 import { useProjectPages } from './pages/usePages';
 import { AgentAvatar } from './state';
 import { Skeleton, skeletonWidths } from './ui/skeleton';
@@ -48,21 +48,20 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
   const projectName = useProjectName(project ?? '');
   const rail = useRailAgents(project);
   const folded = foldedHere && !onClose;
-  // The Pages tab, beside Agents while Hatch is connected and the project has
-  // a page Hatch still has; an agent's page icon opens it on that agent.
+  // Pages, beside Agents while Hatch is connected and the project has a page
+  // Hatch still has, opens the project's Media on its pages; an agent's page
+  // icon opens them on that agent's.
   const pagesQuery = useProjectPages(project);
-  const [railTab, setRailTab] = useState<'agents' | 'pages'>('agents');
-  const [pagesAgent, setPagesAgent] = useState('');
 
   if (!project) return null;
   const pages = livePages(pagesQuery.data);
   const pageCounts = countByAgent(pages);
-  const tab = pages.length > 0 ? railTab : 'agents';
   const leadRef = `${project}/lead`;
   const leadPages = pageCounts.get(leadRef) ?? 0;
-  const openPages = (ref: string) => {
-    setPagesAgent(ref);
-    setRailTab('pages');
+  const openPages = (ref = '') => {
+    const name = ref.split('/')[1] ?? '';
+    requestMediaFilter({ project, agent: name === T.LeadName ? '' : name, kind: pageKind });
+    onSelect({ kind: 'project', project, tab: 'media' });
   };
   const { agents, mine, moving, finished, stopped, done, disk, prs, lastReport, asking, mood, lead, remote, remoteMoving, remoteDone } = rail;
   const finishedOpen = rail.showFinished || finished.some((a) => view.kind === 'agent' && view.ref === a.ref);
@@ -152,28 +151,20 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
   return (
     <aside className="flex w-[268px] shrink-0 flex-col border-l border-line bg-rail backdrop-blur-xl xl:w-[312px]" data-agent-rail="open" aria-label={t('agent.rail.agentsOf', { project })}>
       <div className="flex h-12 shrink-0 items-center gap-2 px-3">
-        {pages.length > 0 ? (
-          <div className="flex min-w-0 items-center gap-0.5" role="tablist" aria-label={t('agent.rail.agentsOf', { project })}>
-            <RailTab active={tab === 'agents'} count={mine.length} onClick={() => setRailTab('agents')} data-rail-tab="agents">
-              {t('agent.rail.agents')}
-            </RailTab>
-            <RailTab
-              active={tab === 'pages'}
-              count={pages.length}
-              onClick={() => {
-                setPagesAgent('');
-                setRailTab('pages');
-              }}
-              data-rail-tab="pages"
+        <span className="text-caption font-medium text-subtle">{t('agent.rail.agents')}</span>
+        {mine.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-caption tabular-nums text-subtle">{mine.length}</span>}
+        {pages.length > 0 && (
+          <Tip label={t('pages.rail.open')}>
+            <button
+              onClick={() => openPages()}
+              data-rail-pages={pages.length}
+              className="flex items-center gap-1 rounded-md px-1.5 py-1 text-caption font-medium text-subtle transition-colors hover:bg-surface hover:text-primary"
             >
+              <PageIcon className="size-3.5" />
               {t('pages.rail.tab')}
-            </RailTab>
-          </div>
-        ) : (
-          <>
-            <span className="text-caption font-medium text-subtle">{t('agent.rail.agents')}</span>
-            {mine.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-caption tabular-nums text-subtle">{mine.length}</span>}
-          </>
+              <span className="rounded-full bg-surface-raised px-1.5 text-caption font-normal tabular-nums text-subtle">{pages.length}</span>
+            </button>
+          </Tip>
         )}
         <Tip label={t('agent.rail.newAgentIn', { project: projectName })}>
           <button
@@ -196,50 +187,46 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
         </Tip>
       </div>
 
-      {tab === 'pages' ? (
-        <PagesPanel project={project} pages={pages} agents={mine} agent={pagesAgent} onAgent={setPagesAgent} />
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
-          <div className="relative">
-            <button
-              onClick={() => onSelect({ kind: 'project', project })}
-              className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', onLead ? 'bg-surface-strong' : 'hover:bg-surface')}
-            >
-              {onLead && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
-              <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} />
-              <span className="min-w-0 flex-1">
-                <span className={cn('block truncate text-ui font-medium', onLead ? 'text-title' : 'text-secondary')}>{t('agent.rail.projectChat')}</span>
-                <span className="block truncate text-caption text-subtle">{t('agent.rail.leadConversation')}</span>
-              </span>
-            </button>
-            {leadPages > 0 && <PagesBadge count={leadPages} onClick={() => openPages(leadRef)} />}
-          </div>
-
-          {(moving.length > 0 || !agents.data) && <div className="my-1.5 border-t border-line-faint" />}
-
-          {/* Until the first list arrives, rows where the agents will be: "No
-              agents yet" would be a guess. */}
-          {!agents.data && <RailSkeleton />}
-
-          {moving.map((a) => row(a))}
-          {remoteMoving.map((a) => <RemoteRow key={`${a.machineId}/${a.name}`} agent={a} />)}
-
-          {stopped.length > 0 && (
-            <StoppedSection agents={stopped} disk={disk}>
-              {stopped.map((a) => row(a, disk.get(a.ref)))}
-            </StoppedSection>
-          )}
-
-          {done.length + remoteDone.length > 0 && (
-            <FinishedSection count={done.length + remoteDone.length} open={finishedOpen} onToggle={setShowFinished}>
-              {done.map((a) => row(a))}
-              {remoteDone.map((a) => <RemoteRow key={`${a.machineId}/${a.name}`} agent={a} />)}
-            </FinishedSection>
-          )}
-
-          {agents.data && mine.length === 0 && remote.length === 0 && <RailEmpty project={projectName} onNewAgent={() => onNewAgent(project)} />}
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
+        <div className="relative">
+          <button
+            onClick={() => onSelect({ kind: 'project', project })}
+            className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', onLead ? 'bg-surface-strong' : 'hover:bg-surface')}
+          >
+            {onLead && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
+            <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} />
+            <span className="min-w-0 flex-1">
+              <span className={cn('block truncate text-ui font-medium', onLead ? 'text-title' : 'text-secondary')}>{t('agent.rail.projectChat')}</span>
+              <span className="block truncate text-caption text-subtle">{t('agent.rail.leadConversation')}</span>
+            </span>
+          </button>
+          {leadPages > 0 && <PagesBadge count={leadPages} onClick={() => openPages(leadRef)} />}
         </div>
-      )}
+
+        {(moving.length > 0 || !agents.data) && <div className="my-1.5 border-t border-line-faint" />}
+
+        {/* Until the first list arrives, rows where the agents will be: "No
+            agents yet" would be a guess. */}
+        {!agents.data && <RailSkeleton />}
+
+        {moving.map((a) => row(a))}
+        {remoteMoving.map((a) => <RemoteRow key={`${a.machineId}/${a.name}`} agent={a} />)}
+
+        {stopped.length > 0 && (
+          <StoppedSection agents={stopped} disk={disk}>
+            {stopped.map((a) => row(a, disk.get(a.ref)))}
+          </StoppedSection>
+        )}
+
+        {done.length + remoteDone.length > 0 && (
+          <FinishedSection count={done.length + remoteDone.length} open={finishedOpen} onToggle={setShowFinished}>
+            {done.map((a) => row(a))}
+            {remoteDone.map((a) => <RemoteRow key={`${a.machineId}/${a.name}`} agent={a} />)}
+          </FinishedSection>
+        )}
+
+        {agents.data && mine.length === 0 && remote.length === 0 && <RailEmpty project={projectName} onNewAgent={() => onNewAgent(project)} />}
+      </div>
     </aside>
   );
 }
@@ -434,25 +421,6 @@ export function RailEmpty({ project, onNewAgent }: { project: string; onNewAgent
   );
 }
 
-// RailTab is Agents or Pages at the top of the column.
-function RailTab({ active, count, onClick, children, ...rest }: { active: boolean; count: number; onClick: () => void; children: React.ReactNode; 'data-rail-tab': string }) {
-  return (
-    <button
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-caption font-medium transition-colors',
-        active ? 'bg-surface-strong text-secondary' : 'text-subtle hover:bg-surface hover:text-primary',
-      )}
-      {...rest}
-    >
-      <span className="truncate">{children}</span>
-      {count > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-caption font-normal tabular-nums text-subtle">{count}</span>}
-    </button>
-  );
-}
-
 function AgentRow({
   agent,
   active,
@@ -577,7 +545,7 @@ function useShowFinished(): [boolean, (open: boolean) => void] {
 
 // PagesBadge is a tiny page on an agent's row when it published pages Hatch
 // still has, with how many when there's more than one. Clicking it opens the
-// Pages tab on that agent.
+// project's Media on that agent's pages.
 function PagesBadge({ count, onClick }: { count: number; onClick: () => void }) {
   const t = useT();
   return (

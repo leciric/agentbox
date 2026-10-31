@@ -1653,6 +1653,8 @@ let defaultsSettings = {
   defaultLeadModel: '',
   defaultLeadContextWindow: '',
   cloneFolder: '/home/you/src',
+  defaultLeadEffort: '',
+  defaultLeadMode: '',
   language: new URLSearchParams(location.search).get('lang') ?? 'en-US',
   timezone: 'Europe/Lisbon',
   mediaRetention: '1d',
@@ -1665,6 +1667,11 @@ let defaultsSettings = {
   claudeMenuKnown: true,
   defaultClaudeEffort: '',
   claudeEffortChoices: [],
+  claudeModeChoices: [
+    { value: 'default', name: 'Ask before edits' },
+    { value: 'acceptEdits', name: 'Accept edits' },
+    { value: 'bypassPermissions', name: 'Bypass permissions' },
+  ],
   openCodeModelChoices: [],
   openCodeReady: false,
   openCodeVersion: "1",
@@ -1754,6 +1761,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.firstRunDone) next.firstRun = false;
   if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
+  if (req.defaultLeadEffort !== undefined) next.defaultLeadEffort = req.defaultLeadEffort;
+  if (req.defaultLeadMode !== undefined) next.defaultLeadMode = req.defaultLeadMode;
   if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
   if (req.enforceAgentDefaults !== undefined) next.enforceAgentDefaults = req.enforceAgentDefaults;
   if (req.language !== undefined) next.language = req.language || 'en-US';
@@ -2079,11 +2088,13 @@ export function seedMacVZ(queryClient: QueryClient, kind: string): void {
 // seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
 // Resources section, whose VM size card sizes the Cloud Hypervisor VM:
 // running with room to grow (live), started by an older AgentBox with none
-// (old), or off.
+// (old), or off. A 32 GiB machine keeps 6.4 GiB for itself, so the cap goes to
+// 25 GiB, but the older AgentBox says neither.
 export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
   seedSettings(queryClient);
   const GiB = 1024 ** 3;
-  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
+  const old = kind === 'old';
+  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: (old ? 32 : 25) * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
   const chv: T.VMStatus = {
     mode: 'vm',
     driver: 'cloud-hypervisor',
@@ -2091,7 +2102,15 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
     state: kind === 'off' ? 'off' : 'running',
     since: new Date(Date.now() - 3_600_000).toISOString(),
     cpus: 8,
-    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0, hostCache: 0 },
+    memory: {
+      min: 4 * GiB,
+      cap: 24 * GiB,
+      granted: kind === 'off' ? 0 : 9 * GiB,
+      hostReserve: old ? undefined : 6.4 * GiB,
+      used: 6.2 * GiB,
+      resident: 0,
+      hostCache: 0,
+    },
     disk: { size: 120 * GiB, allocated: 14 * GiB, pool: { size: 100 * GiB, allocated: 10 * GiB }, root: { size: 20 * GiB, allocated: 4 * GiB } },
     limits: room,
     live: kind === 'live' ? room : undefined,
@@ -2425,6 +2444,25 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };
       }
       if (method === 'GET' && path === '/v1/snaps') return { status: 200, body: '[]', contentType: 'application/json' };
+      // The search palette's answer, from the fixtures' projects and agents,
+      // so its content rows can be seen beside the actions and settings.
+      if (method === 'GET' && path.startsWith('/v1/search?')) {
+        const q = (new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('q') ?? '').toLowerCase();
+        const has = (...texts: (string | undefined)[]) => q !== '' && texts.some((x) => x?.toLowerCase().includes(q));
+        const projects = devState.projects.filter((p) => has(p.name, p.displayName)).map((p): T.SearchHit => ({ id: p.name, title: p.displayName || p.name, project: p.name }));
+        const agents = (devState.agents ?? [])
+          .filter((a) => has(a.title, a.name))
+          .slice(0, 5)
+          .map((a): T.SearchHit => ({ id: a.ref, title: a.title || a.name, project: a.project, agent: a.name }));
+        const results: T.SearchResults = {
+          query: q,
+          groups: [
+            { kind: 'projects', hits: projects, total: projects.length },
+            { kind: 'agents', hits: agents, total: agents.length },
+          ],
+        };
+        return { status: 200, body: JSON.stringify(results), contentType: 'application/json' };
+      }
       if (method === 'GET' && path === '/v1/disk') return { status: 200, body: JSON.stringify({ level: 'ok', disks: [], paused: [], since: '', message: '' }), contentType: 'application/json' };
       if (method === 'GET' && devState.diskUsage && path === '/v1/usage/disk') return { status: 200, body: JSON.stringify(devState.diskUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };

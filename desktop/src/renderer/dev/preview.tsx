@@ -228,6 +228,10 @@
 //                           agents with no snapshots, pages, emulator or media; busy,
 //                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
+//   &verbs=1                with &v2=1, the prototype navigation, Ask, Watch and Review
+//                           (lib/uiVerbs.ts); ?app=watch opens Watch, ?app=watch:agent-41
+//                           that agent's machine, ?app=review Review, ?app=review:pulls
+//                           and ?app=review:proof its other tabs
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General
 //                           → Layout): leads with their last lines
 //                           and agents folded under them, filters, and the
@@ -317,9 +321,7 @@ import { DefaultContextWindow, DefaultModel } from '../components/NewAgentDefaul
 import { OverviewTab } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
-import { MediaTab } from '../components/MediaTab';
-import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
-import { AllMediaView } from '../components/AllMediaView';
+import { MediaView } from '../components/media/MediaView';
 import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { SettingsGroup } from '../components/ui/settings';
@@ -356,7 +358,6 @@ import { PastAgentView } from '../components/PastAgents';
 import { WorkView } from '../components/WorkView';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
-import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 import { ReviewPreview, seedEvidence, seedLeadLines, seedReview, seedV2 } from './review';
@@ -365,6 +366,7 @@ import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { seedIssues } from './issues';
 import { setUiV2 } from '../lib/uiV2';
+import { setUiVerbs } from '../lib/uiVerbs';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -668,7 +670,7 @@ if (artifacts) {
   seedPages(queryClient);
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
-if (pulls || appView === 'pulls') queryClient.setQueryData(['pulls', PROJECT], pullRequests());
+if (pulls || appView === 'pulls' || appView?.startsWith('review')) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (past || appView === 'work') seedPastAgents(queryClient);
 if (home) {
   const at = new Date().toISOString();
@@ -692,6 +694,7 @@ if (appView) seedTimelines();
 if (appView === 'issues') seedIssues(queryClient);
 // UI v2 only where asked for: the flag is the preview origin's, kept between pages.
 setUiV2(params.get('v2') === '1');
+setUiVerbs(params.get('verbs') === '1');
 // No tour plays over a scenario unless &tour= asks for one.
 {
   const tour = params.get('tour');
@@ -1114,10 +1117,8 @@ function Preview() {
 
   if (media === 'project') {
     return (
-      <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
-        <ScopedMediaPages project={PROJECT} variant="page">
-          <ProjectMediaPanel project={PROJECT} onAskLead={() => {}} />
-        </ScopedMediaPages>
+      <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
+        <MediaView project={PROJECT} onAskLead={() => {}} />
       </div>
     );
   }
@@ -1125,7 +1126,7 @@ function Preview() {
   if (media === 'all') {
     return (
       <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-        <AllMediaView onSelect={() => {}} />
+        <MediaView heading onSelect={() => {}} />
       </div>
     );
   }
@@ -1133,9 +1134,7 @@ function Preview() {
   if (media === 'agent') {
     return (
       <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-        <ScopedMediaPages project={PROJECT} agent={`${PROJECT}/agent-12`} variant="fill">
-          <MediaTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} onAskLead={() => {}} />
-        </ScopedMediaPages>
+        <MediaView agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-12`)!} onAskLead={() => {}} />
       </div>
     );
   }
@@ -1665,6 +1664,8 @@ if (phoneMode === 'frame') {
     : appView === 'recap' ? { kind: 'recap' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
+    : appView === 'watch' || appView.startsWith('watch:') ? { kind: 'watch', ref: appView.startsWith('watch:') ? `${PROJECT}/${appView.slice(6)}` : undefined }
+    : appView === 'review' || appView.startsWith('review:') ? { kind: 'review', tab: appView === 'review:pulls' ? 'pulls' : appView === 'review:proof' ? 'proof' : 'work' }
     : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
   createRoot(document.getElementById('root')!).render(

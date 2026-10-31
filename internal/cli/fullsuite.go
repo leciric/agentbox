@@ -246,6 +246,28 @@ func withoutPrefixes(words []string) []string {
 	return words
 }
 
+// informational are the flags that make any runner print something and run
+// no test: its version, its help, or the tests it would run.
+var informational = []string{"--version", "-V", "--help", "-h", "--list", "-list", "--listTests", "--showConfig",
+	"--list-tests", "--fixtures", "--markers"}
+
+// asksInformation says whether a runner's arguments only ask for
+// information, as in `vitest --version`, `go test -list .` or `cargo test --
+// --list`. -v is a version flag only for some of them (it is verbose for go
+// and pytest).
+func asksInformation(name string, args []string) bool {
+	for _, a := range args {
+		flag, _, _ := strings.Cut(a, "=")
+		if slices.Contains(informational, flag) {
+			return true
+		}
+		if flag == "-v" && slices.Contains([]string{"vitest", "jest", "make", "just", "gradle", "gradlew", "mvn", "mvnw"}, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // flags is what a runner's arguments say: the positional ones (files,
 // packages, test names) and the flags, each with its value if it takes one.
 type flags struct {
@@ -290,6 +312,9 @@ func (f flags) has(names ...string) bool {
 // a whole test suite in dir.
 func wholeSuite(words []string, dir string) (suiteRun, bool) {
 	name, args := words[0], words[1:]
+	if asksInformation(name, args) {
+		return suiteRun{}, false
+	}
 	switch name {
 	case "go":
 		f := parseFlags(args, "-C")

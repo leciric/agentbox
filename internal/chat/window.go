@@ -40,10 +40,12 @@ func (c *conversation) windows() (state.ClaudeWindows, int64) {
 var leadDefaults = map[string]string{
 	"model":                       state.SettingDefaultLeadModel,
 	state.ChatOptionContextWindow: state.SettingDefaultLeadContextWindow,
+	"effort":                      state.SettingDefaultLeadEffort,
+	"mode":                        state.SettingDefaultLeadMode,
 }
 
-// storedOption is the value this chat keeps for an option — the model or the
-// context window — or, for a lead's Claude Code chat that chose none, the
+// storedOption is the value this chat keeps for an option — the model, the
+// context window, the effort or the permission mode — or, for a lead's Claude Code chat that chose none, the
 // lead's default in Settings. Caller holds c.mu.
 func (c *conversation) storedOption(id string) string {
 	value := c.stored.Options[id]

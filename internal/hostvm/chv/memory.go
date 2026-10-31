@@ -50,13 +50,21 @@ import (
 // has been given, and stays resident on the host however short the host gets:
 // the host can't reclaim it, only the guest can. So when the host is short —
 // stalling on memory (its own PSI above memHostPressure) or with less than
-// memHostAvailableShare of its memory available — or the guest's file cache
+// its reserve (HostReserve) available — or the guest's file cache
 // holds more than the allowance a build needs (cacheAllowance) and the host
 // holds that too, the policy asks for a trim: the guest reclaims up to memTrimMax of its inactive file pages (memory.reclaim
 // on its root cgroup, which takes the coldest first and, with swappiness=0,
 // never swaps), then compacts, and free page reporting returns it. A build
 // keeps the files it keeps reading, which are on the active list. At most
 // every memTrimEvery under pressure and memTrimIdleEvery otherwise.
+//
+// The host keeps HostReserve for itself, its desktop and the app: the cap is
+// never more than its memory less that (MaxCap), and growing stops short of
+// leaving it less than that available (hostCeiling), whatever the VM's
+// agents want. While it has less, the VM gives back sooner: it keeps only
+// memHeadroomMin beyond use, shrinks after memShrinkAfterHost rather than
+// memShrinkAfter by as little as memGranule, and trims its cache every
+// memTrimEvery.
 //
 // Headroom isn't kept resident on the host: it's there for growth, which is
 // instant, and cache filling it would otherwise stay on the host for as long
@@ -98,11 +106,16 @@ const (
 	memReclaimMin   = 1 * GiB
 	memReclaimEvery = 10 * time.Minute
 
-	// memHostPressure is the host's PSI "some avg10" percentage, and
-	// memHostAvailableShare the share of its memory available, past which the
-	// host is short.
-	memHostPressure       = 10.0
-	memHostAvailableShare = 0.10
+	// memHostPressure is the host's PSI "some avg10" percentage past which
+	// the host is short, as it is with less than HostReserve available.
+	memHostPressure = 10.0
+	// memHostReserveMin and memHostReserveShare (of its memory) make
+	// HostReserve.
+	memHostReserveMin   = 4 * GiB
+	memHostReserveShare = 0.20
+	// memShrinkAfterHost is how long a lower target waits to be given back
+	// while the host has less than its reserve.
+	memShrinkAfterHost = 5 * time.Second
 	// memCacheAllowanceMin and memCacheAllowanceShare (of use) are the file
 	// cache the VM keeps with the host not short: more than that, which sits
 	// in the headroom, is trimmed.
@@ -110,7 +123,7 @@ const (
 	memCacheAllowanceShare = 0.25
 	memTrimMin             = 256 << 20
 	memTrimMax             = 2 * GiB
-	memTrimEvery           = 30 * time.Second
+	memTrimEvery           = 10 * time.Second
 	memTrimIdleEvery       = 2 * time.Minute
 )
 
@@ -121,6 +134,9 @@ type memSample struct {
 	// SwapTotal and SwapFree are the swap `agentbox vm swap` gave it, and
 	// what of it is free.
 	SwapTotal, SwapFree int64
+	// DiskSwapUsed is how much of the swap in use is on a disk swapfile
+	// rather than zram (/proc/swaps).
+	DiskSwapUsed int64
 	// Pressure is the share of the last 10 s some task stalled on memory
 	// (PSI "some avg10"), in percent.
 	Pressure float64
@@ -148,9 +164,63 @@ type memSample struct {
 	HostPressure             float64
 }
 
-// hostShort reports whether the host is short of memory.
+// HostReserve is what a Linux host with total bytes of memory keeps for
+// itself, its desktop and the app: the larger of memHostReserveMin, what a
+// desktop session with a browser and the app needs to stay responsive, and
+// memHostReserveShare of it, as a bigger machine runs more beside the VM. A
+// quarter would hold 8 to 16 GiB idle on 32 to 64 GiB machines, and stop the
+// VM growing while the host is comfortable.
+func HostReserve(total int64) int64 {
+	return max(memHostReserveMin, int64(float64(total)*memHostReserveShare))
+}
+
+// MaxCap is the most a VM's memory cap may be on a host with total bytes of
+// memory: all of it less HostReserve, in whole GiB, and never less than
+// DefaultMemoryMin; 0 when total is unknown.
+func MaxCap(total int64) int64 {
+	if total <= 0 {
+		return 0
+	}
+	return max((total-HostReserve(total))/GiB*GiB, DefaultMemoryMin)
+}
+
+// FitHost lowers c's memory cap to MaxCap for a host with total bytes of
+// memory, and reports whether it did: a cap from an earlier release, or set
+// by hand, may leave the host less than its reserve. A Mac's VM (vz) is
+// left as it is.
+func FitHost(c Config, total int64) (Config, bool) {
+	most := MaxCap(total)
+	if c.VZ() || most == 0 || c.MemoryCap <= most {
+		return c, false
+	}
+	c.MemoryCap = max(most, c.MemoryMin)
+	return c, true
+}
+
+// hostShort reports whether the host is short of memory: stalling on it, or
+// with less than its reserve available.
 func (s memSample) hostShort() bool {
-	return s.HostTotal > 0 && (s.HostPressure > memHostPressure || float64(s.HostAvailable) < float64(s.HostTotal)*memHostAvailableShare)
+	return s.HostTotal > 0 && (s.HostPressure > memHostPressure || s.HostAvailable < HostReserve(s.HostTotal))
+}
+
+// belowReserve reports whether the host has less than its reserve available.
+func (s memSample) belowReserve() bool {
+	return s.HostTotal > 0 && s.HostAvailable < HostReserve(s.HostTotal)
+}
+
+// hostCeiling is the most the VM may be given while the host keeps its
+// reserve available: what it holds of the host's memory now (what's plugged,
+// when that's unknown) and what the host has available beyond the reserve,
+// in whole memGranules; 0 when the host can't be read, which sets no limit.
+func (s memSample) hostCeiling() int64 {
+	if s.HostTotal <= 0 {
+		return 0
+	}
+	held := s.Resident
+	if held <= 0 {
+		held = s.Total
+	}
+	return max(held+s.HostAvailable-HostReserve(s.HostTotal), 0) / memGranule * memGranule
 }
 
 // Used is what the guest's programs use, without the page cache.
@@ -200,16 +270,24 @@ type memDecision struct {
 }
 
 // target is what the VM should have for s: what it uses plus headroom,
-// rounded up to memGranule, within Min and Cap.
+// rounded up to memGranule, within Min and Cap. Use rising doesn't add to
+// the headroom while the host has less than its reserve.
 func (p memPolicy) target(s memSample, rate float64) int64 {
+	if s.belowReserve() {
+		rate = 0
+	}
 	return p.clamp(s.Used() + max(s.headroom(), int64(rate*memLookahead.Seconds())))
 }
 
 // busy is how many agents' machines are running with work under way.
 func (s memSample) busy() int { return s.Agents - min(max(s.Idle, 0), s.Agents) }
 
-// headroom is what the VM keeps beyond use for its agents to grow into.
+// headroom is what the VM keeps beyond use for its agents to grow into: only
+// memHeadroomMin while the host has less than its reserve.
 func (s memSample) headroom() int64 {
+	if s.belowReserve() {
+		return memHeadroomMin
+	}
 	return max(memHeadroomMin, int64(s.busy())*memHeadroomPerAgent+int64(s.Agents-s.busy())*memHeadroomIdleAgent)
 }
 
@@ -285,19 +363,29 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 			reason = fmt.Sprintf("stalled on memory %.0f%% of the last 10s", s.Pressure)
 		}
 	}
+	// Growing stops where the host would be left less than its reserve.
+	if ceiling := s.hostCeiling(); s.HostTotal > 0 && want > st.Requested && want > ceiling {
+		want = max(ceiling, min(want, st.Requested))
+		reason = fmt.Sprintf("this machine has %s available and keeps %s for itself", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)))
+	}
+	shrinkMin, shrinkAfter := memShrinkMin, memShrinkAfter
+	if s.belowReserve() {
+		shrinkMin, shrinkAfter = memGranule, memShrinkAfterHost
+		reason += fmt.Sprintf(", and this machine has %s available of the %s it keeps", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)))
+	}
 	var d memDecision
 	switch {
 	case want > st.Requested:
 		st.Requested, st.lastGrow = want, now
 		st.lowSince, st.lowMax = time.Time{}, 0
 		d = memDecision{Target: want, Reason: reason}
-	case want <= st.Requested-memShrinkMin:
+	case want <= st.Requested-shrinkMin:
 		if st.lowSince.IsZero() {
 			st.lowSince, st.lowMax = now, want
 		}
 		st.lowMax = max(st.lowMax, want)
-		if now.Sub(st.lowSince) >= memShrinkAfter {
-			d = memDecision{Target: st.lowMax, Shrink: true, Reason: reason + fmt.Sprintf(" for %s", memShrinkAfter)}
+		if now.Sub(st.lowSince) >= shrinkAfter {
+			d = memDecision{Target: st.lowMax, Shrink: true, Reason: reason + fmt.Sprintf(" for %s", shrinkAfter)}
 			st.Requested = st.lowMax
 			st.lowSince, st.lowMax = time.Time{}, 0
 		}
@@ -357,6 +445,7 @@ func gib(n int64) string { return fmt.Sprintf("%.1f GiB", float64(n)/float64(GiB
 // beside its .monitor.
 const memScript = `cat /proc/meminfo /proc/pressure/memory 2>/dev/null
 head -n1 /proc/stat
+echo "disk_swap_used $(awk 'NR>1 && $1 !~ /^\/dev\/zram/ {u+=$4} END {print u+0}' /proc/swaps 2>/dev/null)"
 echo "auto_online $(cat /sys/devices/system/memory/auto_online_blocks 2>/dev/null)"
 echo "agents $(ls -d /sys/fs/cgroup/lxc.payload.* /sys/fs/cgroup/agentbox/*/ 2>/dev/null | grep -vc '\.monitor/*$')"`
 
@@ -389,6 +478,9 @@ func parseMemSample(out string) (memSample, error) {
 			} else {
 				s.SwapFree = kb << 10
 			}
+		case "disk_swap_used":
+			kb, _ := strconv.ParseInt(f[1], 10, 64)
+			s.DiskSwapUsed = kb << 10
 		case "some":
 			s.Pressure = psiSome(sc.Text())
 		case "Active(file):", "Inactive(file):":

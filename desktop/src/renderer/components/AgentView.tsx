@@ -49,8 +49,7 @@ import { BrowserTab } from './BrowserTab';
 import { ChatStatus, ChatTab, FilesOpen, useChatMenu } from './chat/ChatTab';
 import { ConnectorsTab } from './ConnectorsTab';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
-import { MediaTab } from './MediaTab';
-import { ScopedMediaPages } from './pages/MediaPages';
+import { MediaView } from './media/MediaView';
 import { OverviewTab } from './OverviewTab';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
@@ -430,9 +429,7 @@ export function AgentView({
             <AndroidTab agent={agent} onOpenMedia={() => onTab('media')} onSetup={() => onSelect({ kind: 'settings' })} />
           </TabsContent>
           <TabsContent value="media" className="flex flex-col">
-            <ScopedMediaPages project={agent.project} agent={agent.ref} variant="fill">
-              <MediaTab agent={agent} onAskLead={askLead} />
-            </ScopedMediaPages>
+            <MediaView key={agent.ref} agent={agent} onSelect={onSelect} onAskLead={askLead} />
           </TabsContent>
           <TabsContent value="settings" className="flex flex-col">
             <SettingsSections label={t('agent.view.settingsOf', { name: agent.title || agent.name })} sections={agentSettingsSections(t)} value={place.section} onValueChange={onTab}>

@@ -12,7 +12,7 @@ import { mergeBlockReason } from '../lib/review';
 import { stackHead, stackOrder } from '../lib/stacks';
 import { cn, errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
-import { FilterChip } from './MediaTab';
+import { FilterChip } from './media/MediaParts';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Code, EmptyState, Notice } from './ui/card';

@@ -216,6 +216,9 @@ type Room struct {
 // hostCPUs is the host's cores.
 var hostCPUs = runtime.NumCPU
 
+// hostTotal is the host's memory, for what it keeps for itself (MaxCap).
+var hostTotal = hostMemory
+
 // roomFor is the Room for c on a host with cpus cores and memory bytes.
 func roomFor(c Config, cpus int, memory int64) Room {
 	return Room{CPUs: max(cpus, c.CPUs, 1), Memory: max(memory, c.MemoryCap)}

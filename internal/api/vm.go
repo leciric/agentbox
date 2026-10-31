@@ -104,6 +104,10 @@ type VMSwap struct {
 	// off, and when that can't be read cheaply (a Lima VM).
 	Total int64 `json:"total"`
 	Used  int64 `json:"used"`
+	// DiskUsed is how much of Used is on the swapfile rather than zram: the
+	// agents' memory paged to the VM's disk, which slows everything. 0 when
+	// it can't be read.
+	DiskUsed int64 `json:"diskUsed,omitempty"`
 }
 
 // VMSwapDefault is the swapfile `agentbox vm swap on` makes when it isn't
@@ -147,6 +151,11 @@ type VMMemory struct {
 	Min     int64 `json:"min"`     // what it boots with, and never goes below
 	Cap     int64 `json:"cap"`     // the most it may be granted, as the user set it
 	Granted int64 `json:"granted"` // what it may use now
+	// HostReserve is what a Linux host keeps of its memory for itself: Cap
+	// is never more than the host's memory less this, and the VM stops
+	// growing while the host has less than this available. 0 on a Mac, and
+	// when the host's memory is unknown.
+	HostReserve int64 `json:"hostReserve,omitempty"`
 	// Used is what the VM's programs use, without its page cache: what it
 	// would need if it gave back everything it could.
 	Used int64 `json:"used"`
