@@ -314,9 +314,7 @@ import { DefaultContextWindow, DefaultModel } from '../components/NewAgentDefaul
 import { OverviewTab } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
-import { MediaTab } from '../components/MediaTab';
-import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
-import { AllMediaView } from '../components/AllMediaView';
+import { MediaView } from '../components/media/MediaView';
 import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { SettingsGroup } from '../components/ui/settings';
@@ -353,7 +351,6 @@ import { PastAgentView } from '../components/PastAgents';
 import { WorkView } from '../components/WorkView';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
-import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 import { ReviewPreview, seedEvidence, seedLeadLines, seedReview, seedV2 } from './review';
@@ -1099,10 +1096,8 @@ function Preview() {
 
   if (media === 'project') {
     return (
-      <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
-        <ScopedMediaPages project={PROJECT} variant="page">
-          <ProjectMediaPanel project={PROJECT} />
-        </ScopedMediaPages>
+      <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
+        <MediaView project={PROJECT} />
       </div>
     );
   }
@@ -1110,7 +1105,7 @@ function Preview() {
   if (media === 'all') {
     return (
       <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-        <AllMediaView onSelect={() => {}} />
+        <MediaView heading onSelect={() => {}} />
       </div>
     );
   }
@@ -1118,9 +1113,7 @@ function Preview() {
   if (media === 'agent') {
     return (
       <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-        <ScopedMediaPages project={PROJECT} agent={`${PROJECT}/agent-12`} variant="fill">
-          <MediaTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
-        </ScopedMediaPages>
+        <MediaView agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-12`)!} />
       </div>
     );
   }

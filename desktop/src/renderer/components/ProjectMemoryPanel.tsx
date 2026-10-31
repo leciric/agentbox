@@ -29,7 +29,7 @@ import { formatNumber, useT, type MessageKey, type Translate } from '../lib/i18n
 import { pendingReveal, useReveal, type MemorySection, type Reveal } from '../lib/reveal';
 import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
-import { FilterChip } from './MediaTab';
+import { FilterChip } from './media/MediaParts';
 import { Sparkline } from './Sparkline';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';

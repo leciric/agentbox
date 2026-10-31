@@ -84,7 +84,7 @@ import { IOSTab } from '../IOSTab';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { FileBrowser } from '../files/FilePanel';
-import { MediaViewer, MoreMedia } from '../MediaTab';
+import { MediaViewer, MoreMedia } from '../media/MediaParts';
 import { PageThumb } from '../pages/PageThumb';
 import { useProjectPages } from '../pages/usePages';
 import { standIn } from '../pip/standIn';

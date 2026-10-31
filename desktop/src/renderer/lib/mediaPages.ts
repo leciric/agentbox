@@ -56,8 +56,10 @@ export function mediaQuery(scope: MediaScope, cursor = ''): URLSearchParams {
 
 // useMediaPages is a Media list, loaded a page at a time: fetchNextPage reads
 // the next. It isn't refetched on a timer: the media events keep it current.
-export function useMediaPages(scope: MediaScope) {
+// enabled false reads nothing, for a view showing only Hatch pages.
+export function useMediaPages(scope: MediaScope, enabled = true) {
   return useInfiniteQuery({
+    enabled,
     queryKey: ['mediaPages', scopeKey(scope)],
     queryFn: ({ pageParam }) => {
       const q = mediaQuery(scope, pageParam);

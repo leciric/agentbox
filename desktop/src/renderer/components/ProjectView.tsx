@@ -17,8 +17,7 @@ import { ConnectorsTab } from './ConnectorsTab';
 import { leadAgentFrom, ProjectChatPanel, useCurrentSession } from './ProjectChatPanel';
 import { WorkList } from './WorkView';
 import { ProjectBasePanel } from './ProjectBasePanel';
-import { ProjectMediaPanel } from './ProjectMediaPanel';
-import { ScopedMediaPages } from './pages/MediaPages';
+import { MediaView } from './media/MediaView';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { ProjectSettings } from './ProjectSettings';
 import { PullRequestsPanel } from './PullRequestsPanel';
@@ -290,12 +289,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
         </div>
       </TabsContent>
 
-      <TabsContent value="media" className="overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-          <ScopedMediaPages project={name} variant="page">
-            <ProjectMediaPanel project={name} />
-          </ScopedMediaPages>
-        </div>
+      <TabsContent value="media" className="flex flex-col">
+        <MediaView key={name} project={name} onSelect={onSelect} />
       </TabsContent>
 
       {/* The project's Work (WorkView), what was its Past agents tab. */}
