@@ -15,9 +15,10 @@ import (
 
 // Pausing whole agents for memory (Settings → Experimental, off by default;
 // pressure.Fleet decides, this applies it). With it on, memory pressure
-// freezes agents' machines whole, newest first and never the oldest working
-// one, and thaws them oldest first; a machine boots once the VM really has
-// the memory for it; and heavy commands start at once, as what they would
+// freezes agents' machines whole, newest first and never the one kept going,
+// and they wait in line: they thaw oldest first once memory is really back,
+// and none waits longer than pressure.Queue.MaxHeld; a machine boots once the
+// VM really has the memory for it, behind the held ones; and heavy commands start at once, as what they would
 // have been paused for is now done to their machines. With it off, nothing
 // here runs and the heavy commands' governor (pressure.go) is as it was.
 //
@@ -302,6 +303,7 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	acts := fl.f.Step(now, sample)
 	why, trend := fl.f.Why(), fl.f.Trend()
 	swapFull := fl.f.SwapFull()
+	maxHeld := fl.f.Queue.MaxHeld
 	spared := fl.f.Spared() && !fl.spared
 	fl.spared = fl.f.Spared()
 	diskSwap := sample.Mem.DiskSwapOut()
@@ -377,6 +379,9 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	}
 	if spared {
 		s.logf("memory: swap is full: the machines left running are idle, and freezing them would free nothing: %s", sample)
+	}
+	for _, ref := range acts.Rotated {
+		s.logf("memory: %s has waited %s for memory: its turn, the next in line held in its place if memory is short", ref, maxHeld)
 	}
 	for _, ref := range acts.Start {
 		s.logf("memory: %s's machine may boot: %s", ref, sample)

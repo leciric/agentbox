@@ -72,6 +72,7 @@ func newFleetTest(t *testing.T, on bool) *fleetTest {
 	p.srv.machineCgroups = mc
 	pol := p.srv.heavy.g.Policy
 	p.srv.frozen.f.Policy = pol
+	p.srv.frozen.f.Queue = pressure.Queue{}
 	ctx := context.Background()
 	newer := state.Agent{
 		Project: "hello-stack", Name: "agent-02", Instance: "ab-hello-stack-agent-02", AI: "none",

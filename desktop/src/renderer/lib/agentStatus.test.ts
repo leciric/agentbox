@@ -71,24 +71,24 @@ test('memory pressure holding back a running agent’s commands shows as a warni
   assert.equal(projectTone([agent('running'), waiting]), 'warning');
 });
 
-test('a whole machine paused or waiting for memory says how many are ahead, in its row and its chat', () => {
+test('a whole machine paused or waiting for memory says its place in line, in its row and its chat', () => {
   const since = '2026-10-22T10:00:00Z';
   const gib = 1024 ** 3;
   // Frozen mid-turn: its chat still says running, and the machine paused.
   const frozen = { ...agent('paused', 'running'), memory: { machine: 'paused', ahead: 2, since, why: 'stalling', stalled: 40 } } as T.Agent;
-  assert.deepEqual(chatLabel(frozen), { text: 'Paused: waiting for memory, 2 ahead', tone: 'warning' });
-  assert.match(statusTip(frozen) ?? '', /resumes by itself, oldest first.*stalled on it 40%/);
-  assert.deepEqual(memoryHold(frozen), { text: 'Paused: waiting for memory, 2 ahead', tip: statusTip(frozen) });
+  assert.deepEqual(chatLabel(frozen), { text: 'Paused: waiting for memory, 3rd in line', tone: 'warning' });
+  assert.match(statusTip(frozen) ?? '', /resumes by itself once memory is back, oldest first.*take turns.*stalled on it 40%/);
+  assert.deepEqual(memoryHold(frozen), { text: 'Paused: waiting for memory, 3rd in line', tip: statusTip(frozen) });
   // Waiting to boot, while it is being made.
   const booting = { ...agent('initializing'), memory: { machine: 'waiting', since, why: 'low', available: gib, total: 16 * gib } } as T.Agent;
-  assert.deepEqual(chatLabel(booting), { text: 'Waiting for memory, 0 ahead', tone: 'warning' });
+  assert.deepEqual(chatLabel(booting), { text: 'Waiting for memory, 1st in line', tone: 'warning' });
   assert.match(statusTip(booting) ?? '', /memory to boot it/);
 });
 
 test('a machine or a command paused with swap full says pausing it frees nothing', () => {
   const since = '2026-10-23T01:14:00Z';
   const frozen = { ...agent('paused', 'running'), memory: { machine: 'paused', ahead: 1, since, why: 'low', swapFull: true } } as T.Agent;
-  assert.deepEqual(chatLabel(frozen), { text: 'Paused, swap full: waiting for memory, 1 ahead', tone: 'warning' });
+  assert.deepEqual(chatLabel(frozen), { text: 'Paused, swap full: waiting for memory, 2nd in line', tone: 'warning' });
   assert.match(statusTip(frozen) ?? '', /swap is full.*frees nothing/);
   const build = { ...agent('running', 'running'), memory: { paused: 1, since, why: 'low', swapFull: true } } as T.Agent;
   assert.equal(memoryHold(build)?.text, 'Paused for memory, swap full');

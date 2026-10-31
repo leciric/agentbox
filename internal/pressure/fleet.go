@@ -1,6 +1,7 @@
 package pressure
 
 import (
+	"cmp"
 	"sort"
 	"time"
 )
@@ -15,10 +16,22 @@ import (
 // pressure holds (PSI over Freeze for FreezeAfter, or the headroom Short or
 // Out, as Judge says), one machine is frozen whole (its cgroup, its memory
 // pushed out to zram by the daemon), and, once that has had FreezeSettle to
-// show, another if it still holds; they thaw, oldest first, once it has
-// stayed calm. The oldest working agent is never frozen, so one always makes
-// progress: an agent waiting on the model is working, and so is one with a
-// heavy command going.
+// show, another if it still holds. The oldest working agent is never
+// frozen, so one always makes progress: an agent waiting on the model is
+// working, and so is one with a heavy command going. Once one is kept going
+// it stays the one kept for as long as it works, an older one coming back to
+// work notwithstanding.
+//
+// The held are a queue, not a time share (Queue): one resumes, oldest first,
+// only once memory is really back (calm for ResumeAfter, and room for what
+// that machine used over the floor), one every ResumeStep; one resumed isn't
+// held again within Grace while another can be; and one held, or waiting to
+// boot, longer than MaxHeld takes its turn, the machine the fleet would hold
+// next held in its place. On 2026-10-31 (14:44–14:51), thawing after ten
+// seconds of calm, one every ten, the fleet froze and thawed agents
+// 671/676/677/678 every minute or two, each thawed machine paging back in
+// from zram and so read as the one growing fastest, while the newest (680)
+// stayed frozen 20 minutes and new agents waited 30 to boot.
 //
 // Which one: the machine whose memory grows fastest, then one with a heavy
 // command going, then the newest. On 2026-10-23, on an 18 GB VM with its
@@ -66,6 +79,11 @@ type Machine struct {
 	Growth float64
 
 	acted time.Time // when the fleet last froze it or paused its runs
+	// need is what it used as the fleet first held it: what it takes back
+	// as it resumes.
+	need int64
+	// resumed is when the fleet last let it go.
+	resumed time.Time
 }
 
 // held reports whether the fleet holds the machine, whole or its runs.
@@ -83,6 +101,9 @@ type FleetActions struct {
 	// PauseRuns are the agents whose heavy commands to pause rather than
 	// their whole machine, swap being full; ResumeRuns those to resume.
 	PauseRuns, ResumeRuns []string
+	// Rotated are those of Thaw, ResumeRuns and Start let go as they had
+	// waited Queue.MaxHeld, memory short or not.
+	Rotated []string
 }
 
 // Empty reports whether there is nothing to apply.
@@ -104,6 +125,28 @@ const (
 	Growing = float64(8 << 20) // 8 MiB/s
 )
 
+// Queue is how held machines, and those waiting to boot, take their turns.
+type Queue struct {
+	// ResumeAfter is how long it stays calm before the first in line
+	// resumes; ResumeStep the least time between one resume (or freeze) and
+	// the next resume or boot, for the machine paging back in to show.
+	ResumeAfter, ResumeStep time.Duration
+	// Grace is how long after resuming a machine isn't held again while
+	// another can be, Out aside: paging back in, it reads as growing.
+	Grace time.Duration
+	// MaxHeld is the longest a machine is held or waits to boot before it
+	// takes its turn; 0 for no limit.
+	MaxHeld time.Duration
+}
+
+// DefaultQueue is the daemon's.
+var DefaultQueue = Queue{
+	ResumeAfter: time.Minute,
+	ResumeStep:  30 * time.Second,
+	Grace:       3 * time.Minute,
+	MaxHeld:     10 * time.Minute,
+}
+
 // Boot costs: what the fleet holds against available memory for a machine
 // starting, until it shows (BootSettle).
 const (
@@ -122,8 +165,11 @@ type Fleet struct {
 	BootCost int64
 	// Settle is FreezeSettle, or a test's.
 	Settle time.Duration
+	// Queue is DefaultQueue, or a test's.
+	Queue Queue
 
 	machines  []*Machine // oldest first
+	kept      string     // the agent kept going (protected)
 	waiting   []*Waiter  // in the order they asked
 	booting   []booting
 	highSince time.Time
@@ -153,7 +199,7 @@ type booting struct {
 
 // NewFleet is a fleet with policy.
 func NewFleet(policy Policy) *Fleet {
-	return &Fleet{Policy: policy, BootCost: DefaultBootCost, Settle: FreezeSettle, used: map[string][]used{}}
+	return &Fleet{Policy: policy, BootCost: DefaultBootCost, Settle: FreezeSettle, Queue: DefaultQueue, used: map[string][]used{}}
 }
 
 // Sync is the machines running now at now, frozen or with runs paused by the
@@ -172,12 +218,15 @@ func (f *Fleet) Sync(now time.Time, running []Machine) {
 	seen := map[string]bool{}
 	for _, r := range running {
 		m := &Machine{Agent: r.Agent, Since: r.Since, Working: r.Working, Heavy: r.Heavy, Memory: r.Memory}
+		if k := known[r.Agent]; k != nil {
+			m.resumed = k.resumed
+		}
 		if k := known[r.Agent]; k != nil && k.held() {
 			settling := now.Sub(k.acted) < f.Settle
 			m.Frozen = k.Frozen && (r.Frozen || settling)
 			m.RunsPaused = k.RunsPaused && (r.RunsPaused || settling)
 			if m.held() {
-				m.FrozenAt, m.Why, m.acted = k.FrozenAt, k.Why, k.acted
+				m.FrozenAt, m.Why, m.acted, m.need = k.FrozenAt, k.Why, k.acted, k.need
 			}
 		}
 		// Frozen, and told of as the fleet's own though it had forgotten it
@@ -368,6 +417,12 @@ func (f *Fleet) Fits(m Mem, now time.Time) bool {
 	if m.DiskSwapOut() {
 		return false
 	}
+	return f.room(m, now)-float64(f.BootCost) >= f.Policy.floor(m)
+}
+
+// room is what is available in m, with what the VM may still grow by, less
+// the boots not showing yet.
+func (f *Fleet) room(m Mem, now time.Time) float64 {
 	room := float64(m.Available)
 	if m.Cap > m.Total {
 		room += float64(m.Cap - m.Total)
@@ -377,27 +432,92 @@ func (f *Fleet) Fits(m Mem, now time.Time) bool {
 			room -= float64(f.BootCost)
 		}
 	}
-	return room-float64(f.BootCost) >= f.Policy.floor(m)
+	return room
 }
 
-// protected is the machine never frozen: the oldest working one, frozen or
-// not, or nil when none works.
-func (f *Fleet) protected() *Machine {
+// fitsResume reports whether m has room for a held machine to resume: what
+// it used as it was held (MinBootCost at least) over the floor. Only its
+// heavy commands paused, or memory unknown, it has.
+func (f *Fleet) fitsResume(h *Machine, m Mem, now time.Time) bool {
+	if !m.Known() || !h.Frozen {
+		return true
+	}
+	return f.room(m, now)-float64(max(h.need, MinBootCost)) >= f.Policy.floor(m)
+}
+
+// keep picks the machine never frozen: the one kept so far while it works,
+// else the oldest working one, frozen or not; none when none works.
+func (f *Fleet) keep() {
+	if k := f.find(f.kept); k != nil && k.Working {
+		return
+	}
+	f.kept = ""
 	for _, m := range f.machines {
 		if m.Working {
-			return m
+			f.kept = m.Agent
+			return
 		}
 	}
-	return nil
+}
+
+// protected is the machine keep picked, or nil.
+func (f *Fleet) protected() *Machine {
+	if f.kept == "" {
+		return nil
+	}
+	return f.find(f.kept)
+}
+
+// resting reports whether m resumed within Queue.Grace.
+func (f *Fleet) resting(m *Machine, now time.Time) bool {
+	return !m.resumed.IsZero() && now.Sub(m.resumed) < f.Queue.Grace
+}
+
+// starved is the machine held, or the first waiting to boot, the longest,
+// once that is Queue.MaxHeld or more; nil and nil for none.
+func (f *Fleet) starved(now time.Time) (*Machine, *Waiter) {
+	if f.Queue.MaxHeld <= 0 {
+		return nil, nil
+	}
+	var m *Machine
+	keep := f.protected()
+	for _, c := range f.machines {
+		if c.held() && c != keep && (m == nil || c.FrozenAt.Before(m.FrozenAt)) {
+			m = c
+		}
+	}
+	var w *Waiter
+	if len(f.waiting) > 0 {
+		w = f.waiting[0]
+	}
+	switch {
+	case m != nil && (w == nil || !w.Asked.Before(m.FrozenAt)):
+		if now.Sub(m.FrozenAt) >= f.Queue.MaxHeld {
+			return m, nil
+		}
+	case w != nil:
+		if now.Sub(w.Asked) >= f.Queue.MaxHeld {
+			return nil, w
+		}
+	}
+	return nil, nil
 }
 
 // toHold is the machine to hold next, and whether to pause only its heavy
 // commands: the one growing fastest (Growing or more), else the newest with
 // a heavy command going, else the newest; never one frozen already or the
-// protected one. With swap full, freezing frees nothing and only stops
-// growth: an idle machine isn't held, and of one with a heavy command going
-// only its commands are paused, unless it grows still with them paused.
-func (f *Fleet) toHold(swapFull bool) (m *Machine, runsOnly bool) {
+// protected one, nor, unless urgent finds no other, one resumed within
+// Queue.Grace. With swap full, freezing frees nothing and only stops growth:
+// an idle machine isn't held, and of one with a heavy command going only its
+// commands are paused, unless it grows still with them paused.
+func (f *Fleet) toHold(now time.Time, swapFull, urgent bool) (m *Machine, runsOnly bool) {
+	if m, runsOnly := f.pick(now, swapFull, false); m != nil || !urgent {
+		return m, runsOnly
+	}
+	return f.pick(now, swapFull, true)
+}
+
+func (f *Fleet) pick(now time.Time, swapFull, resting bool) (m *Machine, runsOnly bool) {
 	keep := f.protected()
 	rank := func(m *Machine) int {
 		switch {
@@ -411,7 +531,7 @@ func (f *Fleet) toHold(swapFull bool) (m *Machine, runsOnly bool) {
 	var best *Machine
 	for i := len(f.machines) - 1; i >= 0; i-- {
 		c := f.machines[i]
-		if c.Frozen || c == keep || (c.RunsPaused && c.Growth < Growing) {
+		if c.Frozen || c == keep || (c.RunsPaused && c.Growth < Growing) || !resting && f.resting(c, now) {
 			continue
 		}
 		r := rank(c)
@@ -471,16 +591,18 @@ func (f *Fleet) Step(now time.Time, s Sample) FleetActions {
 		f.why = ""
 	}
 	var out FleetActions
+	q := f.Queue
 	swapFull := f.SwapFull()
+	f.keep()
 	// hold freezes the next machine, or pauses its heavy commands.
 	hold := func(why Reason) {
-		m, runsOnly := f.toHold(swapFull)
+		m, runsOnly := f.toHold(now, swapFull, room == Out)
 		f.spared = m == nil && swapFull && f.spareable()
 		if m == nil {
 			return
 		}
 		if !m.held() {
-			m.FrozenAt, m.Why = now, why
+			m.FrozenAt, m.Why, m.need = now, why, m.Memory
 		}
 		m.acted = now
 		f.changed = now
@@ -494,6 +616,7 @@ func (f *Fleet) Step(now time.Time, s Sample) FleetActions {
 	}
 	thaw := func(m *Machine) {
 		f.changed = now
+		m.resumed = now
 		if m.Frozen {
 			m.Frozen = false
 			out.Thaw = append(out.Thaw, m.Agent)
@@ -510,11 +633,18 @@ func (f *Fleet) Step(now time.Time, s Sample) FleetActions {
 		thaw(keep)
 	}
 	frozen := f.frozen()
+	rotate := f.rotation(now, s.Mem, swapFull, calm, room == Room && !high, thaw, hold)
 	switch {
 	case !f.working() && len(f.booting) == 0 && len(f.waiting) > 0:
 		// Nothing works: the first waiter starts, whatever the pressure, or
 		// a VM full of idle machines would never start another.
 		out.Start = append(out.Start, f.start(now))
+	case rotate != nil:
+		ref, boots := rotate()
+		out.Rotated = append(out.Rotated, ref)
+		if boots {
+			out.Start = append(out.Start, ref)
+		}
 	case room == Out || room == Short:
 		// One at a time, Out too: what the VM has available shows a freeze
 		// only at the next reading, and its trend later still.
@@ -523,15 +653,20 @@ func (f *Fleet) Step(now time.Time, s Sample) FleetActions {
 		}
 	case high && now.Sub(f.highSince) >= p.FreezeAfter && now.Sub(f.changed) >= p.Step:
 		hold(Stalling)
-	case calm && frozen > 0 && now.Sub(f.calmSince) >= p.CalmAfter && now.Sub(f.changed) >= p.Step:
+	case calm && frozen > 0 && now.Sub(f.calmSince) >= max(p.CalmAfter, q.ResumeAfter) &&
+		now.Sub(f.changed) >= max(p.Step, q.ResumeStep):
+		// The first in line resumes once there is room for it; the others
+		// wait behind it.
 		for _, m := range f.machines {
 			if m.held() {
-				thaw(m)
+				if f.fitsResume(m, s.Mem, now) {
+					thaw(m)
+				}
 				break
 			}
 		}
 	case frozen == 0 && len(f.waiting) > 0 && psi.Some.Avg10 < p.Admit && room == Room &&
-		now.Sub(f.admitted) >= p.AdmitStep && f.Fits(s.Mem, now):
+		now.Sub(f.admitted) >= p.AdmitStep && now.Sub(f.changed) >= q.ResumeStep && f.Fits(s.Mem, now):
 		out.Start = append(out.Start, f.start(now))
 	}
 	if room == Room && !high {
@@ -544,6 +679,49 @@ func (f *Fleet) Step(now time.Time, s Sample) FleetActions {
 		f.why = Low
 	}
 	return out
+}
+
+// rotation is, for the machine held or waiting to boot Queue.MaxHeld or
+// more, its turn, to take now: it resumes or boots, and, short of memory, the
+// machine held next takes its place. nil while there is none, it is too soon
+// after the last change, or it can't go: short of memory with nothing to
+// hold in its place, or, to boot, nothing whose freezing frees memory. The
+// turn returns the agent let go, and whether it is let boot.
+func (f *Fleet) rotation(now time.Time, m Mem, swapFull, calm, easy bool, thaw func(*Machine), hold func(Reason)) func() (string, bool) {
+	if now.Sub(f.changed) < f.Settle {
+		return nil
+	}
+	why := cmp.Or(f.why, Low)
+	starved, starving := f.starved(now)
+	c, runsOnly := f.toHold(now, swapFull, false)
+	switch {
+	case starved != nil:
+		eased := calm && f.fitsResume(starved, m, now)
+		if c == nil && !eased && !easy {
+			return nil
+		}
+		return func() (string, bool) {
+			thaw(starved)
+			if !eased && c != nil {
+				hold(why)
+			}
+			return starved.Agent, false
+		}
+	case starving != nil:
+		fits := easy && f.Fits(m, now)
+		swap := c != nil && !runsOnly && !swapFull
+		if !fits && !swap {
+			return nil
+		}
+		return func() (string, bool) {
+			ref := f.start(now)
+			if !fits {
+				hold(why)
+			}
+			return ref, true
+		}
+	}
+	return nil
 }
 
 // judge is Policy.Judge, and Short sooner: under the floor with swap at

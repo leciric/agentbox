@@ -181,3 +181,22 @@ func TestOneLine(t *testing.T) {
 		t.Errorf("oneLine(long) doesn't cut at 200 runes")
 	}
 }
+
+func TestMemoryHeldSaysAMachinesPlaceInLine(t *testing.T) {
+	for _, c := range []struct {
+		h    *api.MemoryHold
+		want string
+	}{
+		{&api.MemoryHold{Machine: "paused", Ahead: 1}, "paused, waiting for memory, 2nd in line"},
+		{&api.MemoryHold{Machine: "waiting"}, "waiting for memory to boot, 1st in line"},
+		{&api.MemoryHold{Machine: "waiting", Ahead: 10}, "waiting for memory to boot, 11th in line"},
+		{&api.MemoryHold{Paused: 1}, "1 test/build command paused for memory"},
+	} {
+		if got := memoryHeld(c.h); !strings.HasPrefix(got, c.want) {
+			t.Errorf("memoryHeld(%+v) = %q, want %q", *c.h, got, c.want)
+		}
+	}
+	if got := ordinal(23); got != "23rd" {
+		t.Errorf("ordinal(23) = %q", got)
+	}
+}
