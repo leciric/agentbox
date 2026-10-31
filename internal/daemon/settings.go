@@ -67,22 +67,32 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	if req.DefaultClaudeEffort != nil {
-		// Checked, unlike the model: the adapter resolves no aliases for this
-		// option and refuses anything outside the list it advertised, so a
+	for _, choice := range []struct {
+		what, key, menu string
+		value           *string
+	}{
+		{"effort", state.SettingDefaultClaudeEffort, state.SettingClaudeEffortChoices, req.DefaultClaudeEffort},
+		{"effort", state.SettingDefaultLeadEffort, state.SettingClaudeEffortChoices, req.DefaultLeadEffort},
+		{"permission mode", state.SettingDefaultLeadMode, state.SettingClaudeModeChoices, req.DefaultLeadMode},
+	} {
+		if choice.value == nil {
+			continue
+		}
+		// Checked, unlike the model: the adapter resolves no aliases for these
+		// options and refuses anything outside the list it advertised, so a
 		// value that has never been on this account's menu can only end in a
 		// setting silently doing nothing. Nothing is rejected before a menu
 		// has ever arrived, since there is then nothing true to check against.
-		want := strings.TrimSpace(*req.DefaultClaudeEffort)
-		menu, err := s.store.Setting(r.Context(), state.SettingClaudeEffortChoices)
+		want := strings.TrimSpace(*choice.value)
+		menu, err := s.store.Setting(r.Context(), choice.menu)
 		if err != nil {
 			return err
 		}
 		offered := state.ChoiceValues(menu)
 		if want != "" && len(offered) > 0 && !slices.Contains(offered, want) {
-			return fmt.Errorf("this agent's Claude Code doesn't offer the effort %q: it offers %s", want, strings.Join(offered, ", "))
+			return fmt.Errorf("this agent's Claude Code doesn't offer the %s %q: it offers %s", choice.what, want, strings.Join(offered, ", "))
 		}
-		if err := s.store.SetSetting(r.Context(), state.SettingDefaultClaudeEffort, want); err != nil {
+		if err := s.store.SetSetting(r.Context(), choice.key, want); err != nil {
 			return err
 		}
 	}
@@ -523,11 +533,13 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	var agentWindow, leadModel, leadWindow string
+	var agentWindow, leadModel, leadWindow, leadEffort, leadMode string
 	for key, into := range map[string]*string{
 		state.SettingDefaultAgentContextWindow: &agentWindow,
 		state.SettingDefaultLeadModel:          &leadModel,
 		state.SettingDefaultLeadContextWindow:  &leadWindow,
+		state.SettingDefaultLeadEffort:         &leadEffort,
+		state.SettingDefaultLeadMode:           &leadMode,
 	} {
 		if *into, err = s.store.Setting(r.Context(), key); err != nil {
 			return api.Settings{}, err
@@ -543,6 +555,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	menuKnown := len(models) > 0
 	models = state.MergePinnedClaudeModels(models)
 	efforts, err := s.rememberedMenu(r, state.SettingClaudeEffortChoices)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	modes, err := s.rememberedMenu(r, state.SettingClaudeModeChoices)
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -731,11 +747,14 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		EnforceAgentDefaults:      enforce,
 		DefaultLeadModel:          leadModel,
 		DefaultLeadContextWindow:  leadWindow,
+		DefaultLeadEffort:         leadEffort,
+		DefaultLeadMode:           leadMode,
 		ClaudeModelChoices:        models,
 		ClaudeContextWindows:      contextWindows,
 		ClaudeMenuKnown:           menuKnown,
 		DefaultClaudeEffort:       effort,
 		ClaudeEffortChoices:       efforts,
+		ClaudeModeChoices:         modes,
 
 		OpenCodeModelChoices: openCodeModels,
 		OpenCodeReady:        openCodeReady,

@@ -208,7 +208,7 @@ func (s *supervisor) status(ctx context.Context) api.VMStatus {
 	if s.sample != nil {
 		st.Memory.Used = s.sample.Used()
 		if running {
-			st.Swap = &api.VMSwap{Total: s.sample.SwapTotal, Used: s.sample.SwapTotal - s.sample.SwapFree}
+			st.Swap = &api.VMSwap{Total: s.sample.SwapTotal, Used: s.sample.SwapTotal - s.sample.SwapFree, DiskUsed: s.sample.DiskSwapUsed}
 		}
 	}
 	requested := s.mem.Requested

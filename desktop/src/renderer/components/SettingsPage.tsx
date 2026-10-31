@@ -11,6 +11,7 @@ import { useT } from '../lib/i18n';
 import type { Anchor } from '../lib/featureDots';
 import { dotLabel, dotOf, FeatureDot, usePendingFeatures, useSeeFeature } from './FeatureDot';
 import { Tip } from './ui/tooltip';
+import { pendingReveal, useReveal } from '../lib/reveal';
 
 // The Settings page once setup is done: a sidebar of sections, one open at a
 // time, with a search across all of them above it. The installation's own
@@ -395,7 +396,14 @@ function Entry({ entry }: { entry: SettingEntry }) {
 // of them are changed, so a change never hides behind the fold.
 function Advanced({ entries }: { entries: SettingEntry[] }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  // Opened from the command palette at a setting folded here, it unfolds.
+  const asked = (id?: string) => !!id && entries.some((e) => e.id === id);
+  const [open, setOpen] = useState(() => asked(pendingReveal()?.setting));
+  const reveal = useReveal();
+  useEffect(() => {
+    if (asked(pendingReveal()?.setting)) setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal]);
   const changed = entries.filter((e) => e.modified).length;
   return (
     <section className="grid gap-2.5" data-settings-advanced>

@@ -16,6 +16,9 @@ const GiB = 1024 ** 3;
 // `agentbox vm swap on` makes (hostvm.MinSwap).
 const defaultGiB = 8;
 const minGiB = 0.5;
+// How much of the swapfile in use counts as memory being out
+// (pressure.DiskSwapTolerance).
+const diskSwapTolerance = 256 * 1024 ** 2;
 
 function gib(bytes: number): string {
   return String(Math.round((bytes / GiB) * 10) / 10);
@@ -68,6 +71,7 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
   const sizeOk = form.trim() !== '' && Number.isFinite(gibs) && gibs >= minGiB;
   const changed = on ? Math.abs(gibs * GiB - size) >= GiB / 20 : size > 0;
   const busy = apply.isPending;
+  const diskUsed = swap?.diskUsed ?? 0;
   const inUse = swap && swap.total > 0 ? t('vm.swap.inUse', { used: gibText(swap.used), total: gibText(swap.total) }) : null;
 
   return (
@@ -103,6 +107,10 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
           }}
         />
       </div>
+
+      {running && diskUsed >= diskSwapTolerance && (
+        <Notice tone="warning">{t('vm.swap.inUseWarning', { used: gibText(diskUsed) })}</Notice>
+      )}
 
       {!running && <p className="text-caption text-subtle">{t('vm.swap.vmOff')}</p>}
 
