@@ -18,7 +18,7 @@
 // was picked there. Dragged at its left edge, the list and an agent each
 // keep their own width. lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Crown, Film, FileText, FolderTree, CircleDot, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, Smartphone, SquareTerminal, TabletSmartphone, Unplug, Users, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Crown, Film, FileText, FolderTree, CircleDot, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, MessagesSquare, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, Smartphone, SquareTerminal, TabletSmartphone, Unplug, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -69,6 +69,7 @@ import {
   usePanel,
   viewOf,
   viewsOf,
+  browserPorts,
   whoseRef,
   type PanelState,
   type LeadTab,
@@ -97,6 +98,10 @@ import { ShareButton } from '../ShareButton';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
 import { Tip } from '../ui/tooltip';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../ui/menu';
+import { useHasEvidence } from './useEvidence';
+import { browserInUse, hiddenTabs } from '../../lib/agentTabs';
+import { composeIn } from '../../lib/drafts';
 import { PanelBrowser } from './PanelBrowser';
 import { AgentList, AgentStrip } from './AgentList';
 import { chatOf } from './PanelButton';
@@ -311,6 +316,17 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   const iosStatus = useQuery({ queryKey: ['ios', live?.ref], queryFn: () => api.ios(live!.ref), enabled: mac && !!live, refetchInterval: 30_000 });
   const ios = hasIOS(info.data?.platform, projects.data?.find((p) => p.name === project), iosStatus.data);
   let view: PanelView | undefined = panel.wide ?? (whose && viewOf(state, whose));
+  // Browser, Android and Evidence are on the switch once there's something
+  // in them (a port its Chromium has open, a running emulator, media or a
+  // page), or while open; the switch's + opens the others (lib/agentTabs.ts).
+  const browserStatus = useQuery({ queryKey: ['browser', live?.ref], queryFn: () => api.browser(live!.ref), enabled: live?.state === 'running', refetchInterval: 10_000 });
+  const evidence = useHasEvidence(project, whose && whose.kind !== 'lead' ? whoseName(whose) : undefined);
+  const views = whose ? viewsOf(whose, android, ios) : [];
+  const hiddenViews = hiddenTabs<PanelView>(views.filter((v) => v === 'browser' || v === 'android' || v === 'evidence'), {
+    browser: browserPorts(browserStatus.data?.pages ?? []).length > 0 || browserInUse(browserStatus.data),
+    android: androidStatus.data?.running === true,
+    evidence,
+  } as Record<PanelView, boolean>, view ?? '');
   // Android, last shown for an agent of a project no longer one: its default.
   if (view === 'android' && whose && projects.isSuccess && !android) view = defaultView(whose);
   if (view === 'ios' && whose && info.isSuccess && projects.isSuccess && (!mac || iosStatus.isFetched) && !ios) view = defaultView(whose);
@@ -365,7 +381,8 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
             </span>
           )
         )}
-        {whose && switcher && <ViewSwitch chat={chat} whose={whose} views={viewsOf(whose, android, ios)} view={view} named={fit.named} booted={androidStatus.data?.booted === true} />}
+        {whose && switcher && <ViewSwitch chat={chat} whose={whose} views={views.filter((v) => !hiddenViews.includes(v))} view={view} named={fit.named} booted={androidStatus.data?.booted === true} />}
+        {whose && switcher && <MoreViews views={hiddenViews} onOpen={(v) => setView(chat, whoseRef(whose), v)} />}
         <span className="min-w-0 flex-1" />
         {!whose && !over && (
           <Tip label={t('agent.rail.newAgentIn', { project: projectName })}>
@@ -454,6 +471,8 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
   const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open').length;
   // The sidebar row's "N to review" and the list's group, the same count.
   const ready = useAgentCounts().of(project).review;
+  // Evidence is a tab once the project has some, or while open (lib/agentTabs.ts).
+  const hidden = hiddenTabs<PanelView>(['evidence'], { evidence: useHasEvidence(project) } as Record<PanelView, boolean>, tab);
   const tabs: Record<LeadTab, { icon: LucideIcon; label: string; on: boolean; tip?: string }> = {
     agents: { icon: Users, label: t('panel.lead.agents'), on: tab === 'agents' },
     pulls: {
@@ -468,8 +487,9 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
     schedules: { icon: AlarmClock, label: t('panel.view.schedules'), on: tab === 'schedules' },
   };
   return (
+    <>
     <div role="radiogroup" aria-label={t('panel.lead.switch')} className="flex min-w-0 shrink items-center rounded-lg border border-line bg-surface-faint p-0.5" data-panel-lead-switch={tab}>
-      {leadTabs.filter((v) => v !== 'pulls' || pullsTab).map((v) => {
+      {leadTabs.filter((v) => (v !== 'pulls' || pullsTab) && !hidden.includes(v as PanelView)).map((v) => {
         const { icon: Icon, label, on, tip } = tabs[v];
         const named = on;
         const button = (
@@ -503,8 +523,36 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
         );
       })}
     </div>
+    <MoreViews views={hidden} onOpen={(v) => setLeadTab(project, v as LeadTab)} />
+    </>
   );
 }
+
+// MoreViews is the + after a switch: the views it leaves out for having
+// nothing in them yet, by what opening one starts.
+function MoreViews({ views, onOpen }: { views: PanelView[]; onOpen: (view: PanelView) => void }) {
+  const t = useT();
+  if (views.length === 0) return null;
+  return (
+    <Menu>
+      <Tip label={t('agent.view.openTab')}>
+        <MenuTrigger asChild>
+          <Button size="icon-sm" variant="ghost" className="shrink-0" aria-label={t('agent.view.openTab')} data-panel-more-views>
+            <Plus />
+          </Button>
+        </MenuTrigger>
+      </Tip>
+      <MenuContent>
+        {views.map((v) => (
+          <MenuItem key={v} icon={viewIcon[v]} onSelect={() => onOpen(v)}>
+            {t(openLabel[v] ?? viewLabel[v])}
+          </MenuItem>
+        ))}
+      </MenuContent>
+    </Menu>
+  );
+}
+const openLabel: Partial<Record<PanelView, MessageKey>> = { browser: 'panel.more.browser', android: 'agent.view.openAndroid', evidence: 'panel.view.evidence' };
 
 // ProjectButtons are the lead's panel's project-wide places, beside its ⋯:
 // Work (every agent's work, which takes the main column) and Settings (over
@@ -643,7 +691,7 @@ function Body({ project, chat, whose, view, width, focus, onSelect }: { project:
     case 'files':
       return <Files project={project} whose={whose} width={width} />;
     case 'evidence':
-      return <Evidence project={project} whose={whose} focus={focus} />;
+      return <Evidence project={project} whose={whose} focus={focus} onSelect={onSelect} />;
     case 'browser':
       return whose.kind === 'agent' ? titled(<PanelBrowser agent={whose.agent} />) : null;
     case 'android':
@@ -896,7 +944,7 @@ function Thumb({ item, className }: { item: T.MediaItem; className?: string }) {
 // first: a recording large (the one opened from the Desktop's strip, else
 // the latest), with its chapters; the screenshots and other recordings; then
 // pages and reports. The repository's is the whole project's.
-function Evidence({ project, whose, focus }: { project: string; whose: Whose; focus?: string }) {
+function Evidence({ project, whose, focus, onSelect }: { project: string; whose: Whose; focus?: string; onSelect: (view: View) => void }) {
   const t = useT();
   const name = whoseName(whose);
   const media = useMediaPages({ project, ...(name ? { agent: name } : {}) });
@@ -927,6 +975,20 @@ function Evidence({ project, whose, focus }: { project: string; whose: Whose; fo
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center" data-panel-evidence-empty>
         <Images className="size-7 text-faint" />
         <p className="max-w-[300px] text-[12.5px] text-subtle">{whose.kind === 'lead' ? t('panel.evidence.emptyRepo') : t('panel.evidence.empty', { name })}</p>
+        {/* Asks the lead, in its chat, to have this agent (or the agents) record their work: a draft, not sent. */}
+        <Button
+          size="sm"
+          variant="primary"
+          className="mt-1"
+          onClick={() => {
+            composeIn(leadOf(project), whose.kind === 'lead' ? t('project.media.askText') : t('agent.mediaTab.askText', { agent: name }));
+            if (whose.kind !== 'lead') onSelect({ kind: 'project', project });
+          }}
+          data-panel-evidence-ask
+        >
+          <MessagesSquare />
+          {t('agent.mediaTab.askLead')}
+        </Button>
       </div>
     );
   }

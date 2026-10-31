@@ -225,7 +225,7 @@
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
 //   &tabs=idle|busy         with ?app=, Classic's contextual tabs (lib/agentTabs.ts): idle,
-//                           agents with no snapshots, pages, emulator or media; busy,
+//                           agents with no snapshots, pages, emulator, media or Hatch pages; busy,
 //                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
 //   &verbs=1                with &v2=1, the prototype navigation, Ask, Watch and Review
@@ -688,6 +688,8 @@ if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (review || appView) seedReview(queryClient);
+// &tabs=idle: nothing published either, so the lead's Evidence has nothing in it.
+if (tabsScenario === 'idle') queryClient.setQueryData(['pages', PROJECT], { connector: 'hatch', artifacts: [] } satisfies T.Artifacts);
 // The fixture agents' timelines (dev/timeline.ts), for the right panel's
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();

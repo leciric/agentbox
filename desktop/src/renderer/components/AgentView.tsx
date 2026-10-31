@@ -117,8 +117,9 @@ export function AgentView({
   const hasAndroid = androidProject || android.data?.running === true;
   const v2 = useUiV2();
   // What Classic's contextual tabs show, read whatever tab is open: each
-  // shows once it has something in it (lib/agentTabs.ts).
-  const snapshots = useQuery({ queryKey: ['snapshots', agentRef], queryFn: () => api.snapshots(agentRef), enabled: !v2 && !!agent });
+  // shows once it has something in it (lib/agentTabs.ts). v2's ⋯ names
+  // Snapshots and Android by what they start until then.
+  const snapshots = useQuery({ queryKey: ['snapshots', agentRef], queryFn: () => api.snapshots(agentRef), enabled: !!agent });
   const browser = useQuery({ queryKey: ['browser', agentRef], queryFn: () => api.browser(agentRef), enabled: !v2 && agent?.state === 'running', refetchInterval: 10_000 });
   // Its pull request, the one its review card and its row in the panel name too.
   const pr = useAgentPr({ ref: agentRef, project: refProject }, v2);
@@ -213,11 +214,11 @@ export function AgentView({
             {t('agent.tab.settings')}
           </MenuItem>
           <MenuItem icon={Camera} onSelect={() => onTab('snapshots')}>
-            {t('agent.tab.snapshots')}
+            {t((snapshots.data?.length ?? 0) > 0 ? 'agent.tab.snapshots' : 'agent.view.openSnapshots')}
           </MenuItem>
           {hasAndroid && (
             <MenuItem icon={Smartphone} onSelect={() => onTab('android')}>
-              {t('agent.tab.android')}
+              {t(android.data?.running ? 'agent.tab.android' : 'agent.view.openAndroid')}
             </MenuItem>
           )}
         </>
