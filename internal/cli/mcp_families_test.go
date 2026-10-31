@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"agentbox/internal/features"
 	"context"
 	"encoding/json"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/mcp"
@@ -164,5 +166,91 @@ func TestLeadToolsBudget(t *testing.T) {
 		if tool.Description == "" || strings.Contains(tool.Description, "  ") {
 			t.Errorf("%s's description is empty or has a double space: %q", name, tool.Description)
 		}
+	}
+}
+
+// TestEveryCommandIsAFeature holds the feature catalogue, which the lead
+// answers "can AgentBox…?" from, to the CLI: a new command needs an entry in
+// internal/features/features.json that names it.
+func TestEveryCommandIsAFeature(t *testing.T) {
+	named := map[string]bool{}
+	for _, f := range features.All() {
+		for _, c := range f.CLI {
+			if words := strings.Fields(c); len(words) > 1 {
+				named[words[1]] = true
+			}
+		}
+	}
+	for _, cmd := range NewRootCmd().Commands() {
+		if cmd.Hidden || cmd.Name() == "help" {
+			continue
+		}
+		if !named[cmd.Name()] {
+			t.Errorf("agentbox %s is in no feature's cli in internal/features/features.json", cmd.Name())
+		}
+	}
+}
+
+// TestLeadFeatures: list_resources features answers from the catalogue, and
+// offer lets the lead suggest each feature once per project.
+func TestLeadFeatures(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "lead.sock")
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var events []api.MemoryEvent
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/project/settings", func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(api.Settings{}) })
+	mux.HandleFunc("GET /v1/project/memory/events", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.URL.Query().Get("type") != features.OfferedEvent {
+			t.Errorf("asked for events of type %q", r.URL.Query().Get("type"))
+		}
+		_ = json.NewEncoder(w).Encode(events)
+	})
+	mux.HandleFunc("POST /v1/project/memory/events", func(w http.ResponseWriter, r *http.Request) {
+		var req api.AddMemoryEventRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		e := api.MemoryEvent{ID: "ev-1", Type: req.Type, Payload: req.Payload, At: time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC)}
+		mu.Lock()
+		events = append(events, e)
+		mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(e)
+	})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	byName := map[string]mcp.Tool{}
+	for _, tool := range projectTools(context.Background(), api.NewClient(socket)) {
+		byName[tool.Name] = tool
+	}
+	run := func(args string) string {
+		t.Helper()
+		out, err := byName["list_resources"].Run(json.RawMessage(args))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	out := run(`{"kind":"features","query":"can AgentBox record a video of the change?"}`)
+	if !strings.HasPrefix(out, "- Recordings and screenshots as proof: ") || !strings.Contains(out, "Command: agentbox media.") {
+		t.Errorf("features for a recording:\n%s", out)
+	}
+	if out := run(`{"kind":"features","query":"zxqv"}`); !strings.HasPrefix(out, "No feature matches.") {
+		t.Errorf("features for nothing: %s", out)
+	}
+	if out := run(`{"kind":"features","offer":"recordings and screenshots as proof"}`); !strings.HasPrefix(out, "Never suggested before") {
+		t.Errorf("first offer: %s", out)
+	}
+	if out := run(`{"kind":"features","offer":"Recordings and screenshots as proof"}`); out != "Recordings and screenshots as proof was suggested to this project on 31 October 2026: don't suggest it again." {
+		t.Errorf("second offer: %s", out)
+	}
+	if _, err := byName["list_resources"].Run(json.RawMessage(`{"kind":"features","offer":"teleportation"}`)); err == nil {
+		t.Error("offered a feature the catalogue doesn't have")
 	}
 }
