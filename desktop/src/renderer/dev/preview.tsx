@@ -257,6 +257,10 @@
 //                           agents' v2 panels have iOS: the Mac's simulators shut
 //                           down, one booted, Xcode not installed, or the
 //                           simulator helper not running
+//   &click=<selector>       with ?app=, that element clicked once it's on screen,
+//                           and the next &click='s after it: ?app=agent-41&v2=1
+//                           &click=[data-review-open] is agent-41's review open,
+//                           for tools that only load a URL
 //   &pick=1                 with &pip=1&panel=desktop:agent-25, the element picker:
 //                           Pick element, a click on agent-25's page, and the
 //                           element in the lead's composer (dev/pick.tsx)
@@ -1680,6 +1684,7 @@ if (phoneMode === 'frame') {
         <App initial={initial} />
         <Toasts />
         {params.get('pip') === '1' && <PipFinish />}
+        {params.has('click') && <ClickOnLoad selectors={params.getAll('click')} />}
       </TooltipProvider>
     </QueryClientProvider>,
   );
@@ -1705,6 +1710,29 @@ if (phoneMode === 'frame') {
     </TooltipProvider>
   </QueryClientProvider>,
 );
+
+// ClickOnLoad clicks each of selectors in turn, once it's on screen (&click=,
+// with ?app=, repeated for more), so a state clicks open, such as a review on
+// its details, is a URL tools that only load pages can photograph.
+function ClickOnLoad({ selectors }: { selectors: string[] }) {
+  useEffect(() => {
+    let next = 0;
+    const id = setInterval(() => {
+      const el = document.querySelector<HTMLElement>(selectors[next]);
+      if (!el) return;
+      el.click();
+      if (++next === selectors.length) clearInterval(id);
+    }, 150);
+    const stop = setTimeout(() => clearInterval(id), 15_000);
+    return () => {
+      clearInterval(id);
+      clearTimeout(stop);
+    };
+    // The selectors' text, not the array, which is new each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectors.join('\n')]);
+  return null;
+}
 
 // PastAgentsPreview is the Work page of every project, or one past agent
 // read in its chat (?past=chat), at the height the app gives it.
