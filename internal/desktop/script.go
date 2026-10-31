@@ -239,6 +239,7 @@ func (s Script) Run(ctx context.Context, opts RunOptions) (int, error) {
 	}
 	r := runner{sc: sc, devtools: devtoolsOf(s.DevTools), note: opts.Note}
 	for i, st := range s.Steps {
+		MarkBrowserUsed()
 		// A note already holds ChapterPause after itself, so the step it
 		// introduces starts without another gap.
 		if i > 0 && st.Do != "note" && s.Steps[i-1].Do != "note" {
