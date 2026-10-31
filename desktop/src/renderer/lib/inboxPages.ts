@@ -29,21 +29,6 @@ const query = (size: number, cursor = '') => {
   return q;
 };
 
-// useQuestions is the questions not seen yet, newest first.
-export function useQuestions() {
-  return useInfiniteQuery({
-    queryKey: questionsKey,
-    queryFn: ({ pageParam }) => {
-      const q = query(inboxPageSize, pageParam);
-      q.set('unseen', '1');
-      return api.notificationPage(q);
-    },
-    initialPageParam: '',
-    getNextPageParam: (last) => last.next || undefined,
-    staleTime: Infinity,
-  });
-}
-
 // useReviewPages is what's ready to review, or with reviewed the agents
 // already reviewed; the Reviewed section reads only once it's open.
 export function useReviewPages(reviewed: boolean, enabled: boolean) {

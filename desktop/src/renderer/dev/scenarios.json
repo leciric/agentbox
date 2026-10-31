@@ -2081,7 +2081,7 @@
   },
   {
     "id": "window-v2-sections-dark",
-    "description": "At 1280×900 with the user's sections (Classic's): Work and Side projects between Pinned and Projects, storefront pinned out of its place, and an empty Later to drop into — dark",
+    "description": "At 1280×900 with the user's sections: Work and Side projects between Pinned and Projects, storefront pinned out of its place, and an empty Later to drop into — dark",
     "query": "app=project&pins=storefront&sections=1&theme=dark",
     "width": 1280,
     "height": 900

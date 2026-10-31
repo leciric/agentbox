@@ -586,7 +586,7 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     courier: { source: 'chosen', emoji: '📦', hasDetected: false },
     'old-blog': { source: 'chosen', emoji: '📝', hasDetected: false },
   };
-  // &sections=1: the user's sections (lib/sidebar.ts, Classic's), Work, Side
+  // &sections=1: the user's sections (lib/sidebar.ts), Work, Side
   // projects and an empty Later, kept as the daemon keeps them until the page
   // reloads: moves, renames, folds, new ones and deletes. Without it, none.
   const createdAt = ago(30 * day);
