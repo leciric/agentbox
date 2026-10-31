@@ -3357,6 +3357,7 @@ export const ptBR: Messages = {
   'vm.swap.toastOn': 'A VM do AgentBox agora tem {size} GiB de swap',
   'vm.swap.toastDescription': 'Todos os agentes continuaram em execução.',
   'vm.swap.inUse': '{used} de {total} GiB em uso',
+  'vm.swap.inUseWarning': 'O arquivo de swap está em uso: {used} GiB da memória dos agentes estão no disco da VM, porque a memória comprimida (zram) está cheia. Tudo fica mais lento enquanto isso, pois o disco é muito mais lento que a memória. O AgentBox trata isso como a VM sem memória: pausa agentes e segura os novos antes que paginem mais para o disco, até a memória voltar.',
   'vm.swap.label': 'Swap',
   'vm.swap.current': 'Arquivo de swap de {size} GiB',
   'vm.swap.description': 'Espaço em disco que a VM pode usar como memória extra, para agentes que por pouco tempo precisam de mais que o limite de memória. Criá-lo não para nenhum agente, e ele continua entre reinicializações. Ele ocupa o seu tamanho no disco da VM, e precisa deixar livre o espaço de “Manter livre em cada disco”.',

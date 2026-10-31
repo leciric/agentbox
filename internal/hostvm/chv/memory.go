@@ -121,6 +121,9 @@ type memSample struct {
 	// SwapTotal and SwapFree are the swap `agentbox vm swap` gave it, and
 	// what of it is free.
 	SwapTotal, SwapFree int64
+	// DiskSwapUsed is how much of the swap in use is on a disk swapfile
+	// rather than zram (/proc/swaps).
+	DiskSwapUsed int64
 	// Pressure is the share of the last 10 s some task stalled on memory
 	// (PSI "some avg10"), in percent.
 	Pressure float64
@@ -357,6 +360,7 @@ func gib(n int64) string { return fmt.Sprintf("%.1f GiB", float64(n)/float64(GiB
 // beside its .monitor.
 const memScript = `cat /proc/meminfo /proc/pressure/memory 2>/dev/null
 head -n1 /proc/stat
+echo "disk_swap_used $(awk 'NR>1 && $1 !~ /^\/dev\/zram/ {u+=$4} END {print u+0}' /proc/swaps 2>/dev/null)"
 echo "auto_online $(cat /sys/devices/system/memory/auto_online_blocks 2>/dev/null)"
 echo "agents $(ls -d /sys/fs/cgroup/lxc.payload.* /sys/fs/cgroup/agentbox/*/ 2>/dev/null | grep -vc '\.monitor/*$')"`
 
@@ -389,6 +393,9 @@ func parseMemSample(out string) (memSample, error) {
 			} else {
 				s.SwapFree = kb << 10
 			}
+		case "disk_swap_used":
+			kb, _ := strconv.ParseInt(f[1], 10, 64)
+			s.DiskSwapUsed = kb << 10
 		case "some":
 			s.Pressure = psiSome(sc.Text())
 		case "Active(file):", "Inactive(file):":

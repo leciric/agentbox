@@ -92,6 +92,8 @@ type fleetState struct {
 	// spared is whether the log says machines are left running as freezing
 	// them would free nothing (pressure.Fleet.Spared).
 	spared bool
+	// diskSwap is whether the log says the VM has paged to its disk swap.
+	diskSwap bool
 }
 
 func newFleetState() *fleetState {
@@ -304,6 +306,9 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	maxHeld := fl.f.Queue.MaxHeld
 	spared := fl.f.Spared() && !fl.spared
 	fl.spared = fl.f.Spared()
+	diskSwap := sample.Mem.DiskSwapOut()
+	diskSwapChanged := diskSwap != fl.diskSwap
+	fl.diskSwap = diskSwap
 	instance := func(ref string) string { return fl.instance[ref] }
 	type change struct{ ref, instance string }
 	var freeze, thaw []change
@@ -364,6 +369,13 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	}
 	for _, ref := range acts.PauseRuns {
 		s.pauseRuns(ctx, ref, now, why, sample, trend)
+	}
+	if diskSwapChanged {
+		if diskSwap {
+			s.logf("memory: the VM is paging to its disk swap, so zram is full: counting it as out of memory (agents pause and starts wait): %s", sample)
+		} else {
+			s.logf("memory: the VM is off its disk swap again: %s", sample)
+		}
 	}
 	if spared {
 		s.logf("memory: swap is full: the machines left running are idle, and freezing them would free nothing: %s", sample)
