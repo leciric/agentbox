@@ -385,7 +385,7 @@ func TestFleetKeepsTheFrozenListWhileTheDatabaseIsBusy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -409,7 +409,7 @@ func TestFleetKeepsTheFrozenListWhileTheDatabaseIsBusy(t *testing.T) {
 	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
 		t.Fatal(err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	// The next step finds saved behind want, and writes it.
 	f.srv.saveFrozenSet(ctx)
