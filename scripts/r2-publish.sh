@@ -9,6 +9,8 @@
 #                               first, in the shape of GitHub's release list
 #                               (internal/update reads it)
 #   index.html                  the same page, led by the stable release
+#   install.sh                  the Linux install script (internal/installsh), from
+#                               this checkout, with each stable release only
 #
 # The release workflow runs it after publishing a release, and the nightly
 # workflow after publishing a nightly. Run it by hand to copy a release that
@@ -101,6 +103,11 @@ aws s3 cp "$tmp/new.json" "s3://$bucket/releases.json" \
 echo "==> Writing index.html"
 aws s3 cp "$tmp/pages/index.html" "s3://$bucket/index.html" \
   --content-type 'text/html; charset=utf-8' --cache-control 'max-age=300' --only-show-errors
+if ! [[ $tag =~ $nightly ]]; then
+  echo "==> Writing install.sh"
+  aws s3 cp "$(dirname "$0")/../internal/installsh/install.sh" "s3://$bucket/install.sh" \
+    --content-type 'text/plain; charset=utf-8' --cache-control 'max-age=300' --only-show-errors
+fi
 
 # What the list no longer holds goes from the bucket too.
 jq -r -s '

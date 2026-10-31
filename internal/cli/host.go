@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"os/user"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -15,6 +16,7 @@ import (
 	"agentbox/internal/bridgecheck"
 	"agentbox/internal/hostsetup"
 	"agentbox/internal/incus"
+	"agentbox/internal/kvm"
 )
 
 func newHostCmd(a *app) *cobra.Command {
@@ -27,7 +29,7 @@ func newHostCmd(a *app) *cobra.Command {
 		// host, agentbox vm init sets AgentBox up.
 		Hidden: true,
 	}
-	cmd.AddCommand(newHostSetupCmd(), newHostCheckCmd(a), newProbeBridgeCmd())
+	cmd.AddCommand(newHostSetupCmd(), newHostKVMCmd(), newHostCheckCmd(a), newProbeBridgeCmd())
 	return cmd
 }
 
@@ -116,6 +118,42 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 	cmd.Flags().BoolVar(&print, "print", false, "only print the script")
 	cmd.Flags().StringVar(&forUser, "user", "", "the user to set this machine up for, when sudo and pkexec don't say")
 	cmd.Flags().StringVar(&bridgeSubnet, "bridge-subnet", "", "the Incus bridge's address and subnet, like 10.87.0.1/24, instead of one Incus picks")
+	return cmd
+}
+
+// newHostKVMCmd gives the user who runs AgentBox /dev/kvm, which its VM
+// needs, as root and without a new login (internal/kvm): what the app's Setup
+// runs through pkexec when the VM can't be made for want of it.
+func newHostKVMCmd() *cobra.Command {
+	var forUser string
+	cmd := &cobra.Command{
+		Use:   "kvm",
+		Short: "Give your user /dev/kvm for AgentBox's VM, with no new login (once, as root)",
+		Long: `AgentBox's VM needs /dev/kvm. Debian and Ubuntu give it only to the kvm group,
+which counts from your next login. This gives it to your user at once: an ACL on
+/dev/kvm for the processes you run now, and the kvm group for later logins (or,
+with no kvm group, a udev rule giving it to whoever is at the screen). When there's
+no /dev/kvm and the CPU can virtualize, it loads KVM's module, now and at every boot.
+Safe to run again. Run it with sudo:
+
+  ` + kvm.Command + `
+
+The app's Setup runs the same thing through pkexec. --user names the user when
+neither sudo nor pkexec says who ran it.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			target, err := hostsetup.TargetUser(os.Getenv("SUDO_USER"), os.Getenv("PKEXEC_UID"), forUser, hostsetup.System())
+			if err != nil {
+				return err
+			}
+			u, err := user.Lookup(target)
+			if err != nil {
+				return err
+			}
+			return kvm.Grant(cmd.Context(), u, cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&forUser, "user", "", "the user to give /dev/kvm, when sudo and pkexec don't say")
 	return cmd
 }
 

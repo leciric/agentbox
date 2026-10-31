@@ -1,8 +1,10 @@
 package chat
 
 import (
+	"fmt"
 	"time"
 
+	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
 
@@ -21,9 +23,13 @@ type Progress struct {
 	// — an update, a subagent's, a permission request — or, failing that,
 	// when the turn began or somebody last answered one of its requests.
 	LastProgress time.Time
-	// ToolRunning says one of the turn's tool calls hasn't ended, so the
-	// adapter may rightly have nothing to say until it does.
+	// ToolRunning says one of the turn's tool calls hasn't ended, or one of
+	// its subagents' has, so the adapter may rightly have nothing to say
+	// until it does.
 	ToolRunning bool
+	// RunningTool names that call: the tool's own name, or its title, and
+	// the subagent it runs in, if it does.
+	RunningTool string
 	// Waiting says the turn is waiting on a person: a permission request.
 	Waiting bool
 	// Stalled is when the turn was marked stalled (SetStalled), from.
@@ -44,17 +50,49 @@ func (m *Manager) Progress(ref string) (p Progress, ok bool) {
 		return Progress{}, false
 	}
 	p = Progress{Turn: t.id, StartedAt: t.startedAt, LastProgress: t.progressAt, Waiting: len(c.pending) > 0}
-	for _, it := range c.tools {
-		if it.Tool.Status == "pending" || it.Tool.Status == "in_progress" {
-			p.ToolRunning = true
-			break
+	// A subagent's call comes first: the agent's own running call is then
+	// most likely the Agent call that started it, which says less. A
+	// subagent in the background has no call of the agent's running at all.
+	if c.adapter != nil {
+		for _, sa := range c.adapter.subagents {
+			if it := runningTool(sa.tools); it != nil {
+				p.ToolRunning = true
+				p.RunningTool = fmt.Sprintf("%s, in its subagent %q", toolLabel(it.Tool), sa.card.Subagent.Name)
+				break
+			}
 		}
+	}
+	if it := runningTool(c.tools); it != nil && !p.ToolRunning {
+		p.ToolRunning, p.RunningTool = true, toolLabel(it.Tool)
 	}
 	if c.session.StalledSince != nil {
 		since := *c.session.StalledSince
 		p.Stalled = &since
 	}
 	return p, true
+}
+
+// runningTool is one of tools that hasn't ended, or nil.
+func runningTool(tools map[string]*api.ChatItem) *api.ChatItem {
+	for _, it := range tools {
+		if it.Tool != nil && (it.Tool.Status == "pending" || it.Tool.Status == "in_progress") {
+			return it
+		}
+	}
+	return nil
+}
+
+// toolLabel is what a tool call is called in a notice: the tool's own name,
+// like mcp__playwright__browser_evaluate, or else its title.
+func toolLabel(t *api.ChatTool) string {
+	if t.Name != "" {
+		return t.Name
+	}
+	title := []rune(cmp(t.Title, "a tool call"))
+	if len(title) > 80 {
+		return string(title[:79]) + "…"
+	}
+	return string(title)
 }
 
 // SetStalled marks turn stalled since the moment it last showed progress, or

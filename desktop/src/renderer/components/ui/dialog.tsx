@@ -50,7 +50,7 @@ export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElem
 }
 
 export function DialogTitle({ className, ...props }: ComponentProps<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title className={cn('text-lg font-semibold tracking-tight text-title', className)} {...props} />;
+  return <DialogPrimitive.Title className={cn('text-heading font-semibold tracking-tight text-title', className)} {...props} />;
 }
 
 export function DialogDescription({ className, ...props }: ComponentProps<typeof DialogPrimitive.Description>) {

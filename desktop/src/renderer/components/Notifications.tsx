@@ -21,7 +21,7 @@ function NoticeArt({ notice }: { notice: T.Notification }) {
 function Headline({ notice }: { notice: T.Notification }) {
   return (
     <>
-      <span className="font-mono text-[12.5px]">{notice.agent}</span> {noticeVerb(notice)}
+      <span className="font-mono text-ui">{notice.agent}</span> {noticeVerb(notice)}
     </>
   );
 }
@@ -43,13 +43,13 @@ export function NoticeToast({ notice, projectName, onOpen }: { notice: T.Notific
     >
       <NoticeArt notice={notice} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-title">
+        <span className="block truncate text-ui font-medium text-title">
           <Headline notice={notice} />
         </span>
-        {notice.text && <span className="mt-0.5 block truncate text-[12px] text-muted">{notice.text}</span>}
-        <span className="mt-1 block truncate text-[11px] text-subtle">{[projectName, notice.title].filter(Boolean).join(' · ')}</span>
+        {notice.text && <span className="mt-0.5 block truncate text-caption text-muted">{notice.text}</span>}
+        <span className="mt-1 block truncate text-caption text-subtle">{[projectName, notice.title].filter(Boolean).join(' · ')}</span>
       </span>
-      <span className="shrink-0 self-center text-[11.5px] font-medium text-brand-300 [:root[data-appearance=light]_&]:text-brand-600">{t('shell.app.view')}</span>
+      <span className="shrink-0 self-center text-caption font-medium text-brand-300">{t('shell.app.view')}</span>
     </button>
   );
 }

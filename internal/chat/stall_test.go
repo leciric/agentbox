@@ -58,7 +58,7 @@ func TestProgressFollowsTheAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := waitProgress(t, m, "the tool call", func(p Progress, ok bool) bool { return ok && p.ToolRunning })
-	if !p.LastProgress.Equal(clock) || p.Turn == "" || p.Waiting || p.Stalled != nil {
+	if !p.LastProgress.Equal(clock) || p.Turn == "" || p.Waiting || p.Stalled != nil || p.RunningTool != "go test ./..." {
 		t.Fatalf("progress = %+v", p)
 	}
 

@@ -318,3 +318,72 @@ func TestRetireNamedAgentStillProtectsUncommittedWork(t *testing.T) {
 		t.Error("--force deleted the branch and its unpushed commit; it should only discard the uncommitted worktree")
 	}
 }
+
+// An agent made from "HEAD" while the main checkout had a side branch out,
+// whose main moved after it started and which took main in, has changed only
+// what it changed: in the fleet, in the review list (whatever count its
+// finish was recorded with, as an older daemon measured it) and in its diff,
+// all three the same. Measured from where it started it owned every pull
+// request merged to main since: #587 said 940 files where GitHub said 57.
+func TestChangesAfterMainMovesAgree(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	commitFile := func(dir, file string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(file+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		testutil.Git(t, dir, "add", file)
+		testutil.Git(t, dir, "commit", "--quiet", "-m", "add "+file)
+	}
+	testutil.Git(t, repo, "checkout", "--quiet", "-b", "side")
+	commitFile(repo, "side.txt")
+	start := testutil.Git(t, repo, "rev-parse", "HEAD")
+	a := state.Agent{
+		Project: "hello-stack", Name: "agent-01", Title: "Reminders page", Instance: "ab-hello-stack-agent-01",
+		AI: "claude", Branch: "agentbox/reminders", BaseRef: "HEAD", BaseCommit: start,
+		Worktree: d.paths.Worktree("hello-stack", "agent-01"), Status: state.AgentReady, CreatedAt: time.Now(),
+		Interface: state.InterfaceChat,
+	}
+	testutil.Git(t, repo, "worktree", "add", "--quiet", "-b", a.Branch, a.Worktree, start)
+	if err := d.srv.store.AddAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	commitFile(a.Worktree, "mine.txt")
+
+	// main moves after the agent starts, and the agent takes it in.
+	testutil.Git(t, repo, "checkout", "--quiet", "main")
+	for _, f := range []string{"m1.txt", "m2.txt", "m3.txt", "m4.txt"} {
+		commitFile(repo, f)
+	}
+	testutil.Git(t, repo, "checkout", "--quiet", "side")
+	testutil.Git(t, a.Worktree, "merge", "--quiet", "-m", "take in main", "main")
+	d.srv.record(ctx, finishedEvent(a, api.AgentChanges{Files: 940, Insertions: 91425, Deletions: 8460}, nil, "Added the reminders page.", time.Now()))
+
+	// Into main, as its pull request would go: its own file and the side
+	// commit main never had, not main's four.
+	want := api.AgentChanges{Files: 2, Insertions: 2}
+	fleet, err := d.client.Fleet(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fleet.Agents) != 1 || fleet.Agents[0].Changes != want {
+		t.Errorf("fleet changes = %+v, want %+v", fleet.Agents[0].Changes, want)
+	}
+	list := readyToReview(t, d, "hello-stack")
+	if len(list) != 1 || list[0].Changes == nil || *list[0].Changes != want {
+		t.Errorf("review item = %+v, want changes %+v, measured now", list, want)
+	}
+	stat, err := d.client.Diff(ctx, a.Ref(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stat, "2 files changed, 2 insertions(+)") || strings.Contains(stat, "m1.txt") {
+		t.Errorf("diff --stat:\n%s", stat)
+	}
+}

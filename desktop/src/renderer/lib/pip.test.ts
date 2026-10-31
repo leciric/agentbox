@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { docked, mentionHref, mentionOf, remarkAgentMentions } from './pip.ts';
+import { docked, usingDesktop, mentionHref, mentionOf, remarkAgentMentions } from './pip.ts';
 
 const now = Date.parse('2026-10-17T15:00:00Z');
 const at = (min: number) => new Date(now - min * 60_000).toISOString();
@@ -48,3 +48,11 @@ test('the remark plugin links names in text, not in code or links', () => {
   );
 });
 
+
+test('usingDesktop is true only for a running agent that used its desktop recently', () => {
+  const a = agent('a');
+  assert.equal(usingDesktop('p/a', [a], [use('a', 1)], now), true);
+  assert.equal(usingDesktop('p/a', [a], [use('a', 10)], now), false);
+  assert.equal(usingDesktop('p/a', [a], [], now), false);
+  assert.equal(usingDesktop('p/gone', [a], [use('a', 1)], now), false);
+});

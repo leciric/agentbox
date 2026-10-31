@@ -27,6 +27,9 @@ const (
 	// always been the agents' — the lead never read it — so splitting the two
 	// moved nothing.
 	SettingDefaultClaudeModel = "default_claude_model"
+	// SettingCloneFolder is where projects added from a link are cloned
+	// (Settings.CloneFolder); empty is ~/src.
+	SettingCloneFolder = "clone_folder"
 	// SettingDefaultAgentContextWindow is the context window (D91) new Claude
 	// Code agents start with: "" for the installation's compact window, which
 	// is what every agent had before this setting, or ClaudeFullWindow as a
@@ -73,6 +76,13 @@ const (
 	// either from an OpenCode chat's ACP session or from `opencode models`
 	// (internal/opencode), and its values are OpenCode's "provider/model" ids.
 	SettingOpenCodeModelChoices = "opencode_model_choices"
+	// SettingOpenCodeVersion is which OpenCode an installation runs: "1" for
+	// the one the base image pins, "2" for OpenCode 2, installed beside it as
+	// `opencode2`. Empty is "1", which is what every installation ran before
+	// the setting existed, so an installation that does not choose stays
+	// exactly where it was. "2" needs nothing from the image: each agent installs
+	// OpenCode 2 itself the first time it starts on it.
+	SettingOpenCodeVersion = "opencode_version"
 	// SettingCursorModelChoices is Cursor's model menu, as JSON, remembered
 	// for the same reason: which models a Cursor account can run is Cursor's
 	// answer. It arrives from a Cursor chat's ACP session or from the
@@ -85,6 +95,16 @@ const (
 	// Cursor's "Auto" and the model's own default level.
 	SettingDefaultCursorModel  = "default_cursor_model"
 	SettingDefaultCursorEffort = "default_cursor_effort"
+	// SettingLastAgentPick is the tool, model and effort the app's New agent
+	// dialog last created an agent with, as JSON ({"ai", "model", "effort"}),
+	// which the dialog opens on in a project that names no tool. It is the
+	// installation's, like the Settings → Models defaults it comes before.
+	SettingLastAgentPick = "last_agent_pick"
+	// SettingFirstRun is "1" while the app's first-run screen is still to be
+	// gone through: written only into a database made just now
+	// (freshInstallSettings), so an installation that already existed never
+	// shows it, and removed once it is finished or skipped.
+	SettingFirstRun = "first_run"
 	// SettingImageAndroid, SettingImageCodex, SettingImageOpenCode and
 	// SettingImageDevCaches are the
 	// optional components the base image is built with, stored as flags. They
@@ -102,8 +122,8 @@ const (
 	SettingImageIncus = "image_incus"
 	// SettingAppearance is what AgentBox wears: api.AppearanceFollow (the
 	// desktop theme this machine is running, in its own window and on every
-	// agent's desktop), or api.AppearanceLight or api.AppearanceDark for its
-	// own colours one way round or the other. Unlike the image flags above it
+	// agent's desktop), api.AppearanceLight or api.AppearanceDark for its
+	// own colours one way round or the other, or api.AppearanceDracula. Unlike the image flags above it
 	// has a default that isn't the zero value, which is why it is read with
 	// Appearance rather than Setting: a machine running Omarchy should match
 	// the desktop around it without anyone having found a switch, and a
@@ -134,6 +154,17 @@ const (
 	// written into each agent's tool configuration and git hooks as it starts
 	// (internal/agent/attribution.go).
 	SettingCreditAITool = "credit_ai_tool"
+	// SettingBuiltWithBadge says whether agents end their pull requests'
+	// descriptions with a small "Built with AgentBox" line and badge. Off
+	// until somebody turns it on (Flag), and read as an agent's brief is
+	// rendered.
+	SettingBuiltWithBadge = "built_with_badge"
+	// SettingBuiltWithBadgeOffer is where the one-time offer of the setting
+	// above stands: BadgeOfferReady once an agent's pull request has been
+	// merged through AgentBox, BadgeOfferDone once the user has answered it
+	// (by turning the setting on or off, or by dismissing the card). Empty
+	// until the first merge, so the offer is made once and never again.
+	SettingBuiltWithBadgeOffer = "built_with_badge_offer"
 	// SettingClaudeCompactWindow is how full a chat's context may get before
 	// its AI tool compacts it (D83), as a count of tokens. Empty means
 	// DefaultClaudeCompactWindow and "0" means the model's whole window. Named
@@ -168,6 +199,24 @@ const (
 	// (agent.FindVMGPU), when it has one. Off until somebody turns it on
 	// (Flag). Not #66's gpu_for_agents, which a migration deletes.
 	SettingAgentGPU = "agent_gpu"
+	// SettingAgentFreeze says whether memory pressure freezes whole agents'
+	// machines, newest first, and new machines start on the VM's real free
+	// memory (pressure.Fleet), rather than only heavy commands being held
+	// (pressure.Governor). Experimental: off until somebody turns it on
+	// (Flag).
+	SettingAgentFreeze = "agent_freeze"
+	// SettingAgentFreezeFrozen is the agents the fleet froze, a JSON list of
+	// refs, so a daemon that restarts thaws them.
+	SettingAgentFreezeFrozen = "agent_freeze_frozen"
+	// SettingBootCosts is what the last machines' boots took, a JSON list of
+	// bytes, newest last: what the fleet holds a new machine's start to.
+	SettingBootCosts = "boot_costs"
+	// SettingBlockFullSuite says whether a Claude Code agent's whole test
+	// suite (`go test ./...`, a bare `npm test`) is refused before it runs,
+	// with what to run instead (internal/cli/fullsuite.go), unless its
+	// project allows them (Project.FullTestSuite). Experimental: off until
+	// somebody turns it on (Flag).
+	SettingBlockFullSuite = "block_full_suite"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a
@@ -208,6 +257,13 @@ const (
 	// installation that has never touched it keeps exactly the behaviour it
 	// had before this setting existed.
 	SettingAutoStopIdle = "auto_stop_idle"
+	// SettingRemoveStopped says whether the daemon removes the machine and
+	// worktree of an agent stopped for SettingRemoveStoppedDays, when nothing
+	// would be lost (internal/daemon/removestopped.go). The agent stays as a
+	// past agent, with its branch, pull request and chat. Off until somebody
+	// turns it on.
+	SettingRemoveStopped     = "remove_stopped"
+	SettingRemoveStoppedDays = "remove_stopped_days"
 	// SettingDockerPruneOnStop says whether stopping an agent first frees its
 	// Docker space: its build cache and every image no container uses, never
 	// its volumes (agent.Manager.PruneDocker). On until somebody turns it off
@@ -222,6 +278,12 @@ const (
 	// user turns it on.
 	SettingLeadRecheck        = "lead_recheck"
 	SettingLeadRecheckMinutes = "lead_recheck_minutes"
+	// SettingLeadSleep says whether a project's chat that sat idle
+	// SettingLeadSleepMinutes has its AI tool stopped, until its next turn
+	// resumes the session (internal/chat/idle.go). On until somebody turns
+	// it off (FlagOn); empty minutes is DefaultLeadSleep.
+	SettingLeadSleep        = "lead_sleep"
+	SettingLeadSleepMinutes = "lead_sleep_minutes"
 	// SettingImageCache says whether agents' Docker pulls Docker Hub's images
 	// through the daemon's shared cache. On until somebody turns it off
 	// (FlagOn).
@@ -236,12 +298,74 @@ const (
 	// SettingPackageCacheMax is the most the shared package caches may hold,
 	// in bytes. Empty means DefaultPackageCacheMax.
 	SettingPackageCacheMax = "package_cache_max"
+	// SettingLocalNodeModules says whether new agents' node_modules are on
+	// the VM's disk rather than in their worktrees, where worktrees are in a
+	// shared folder. On until somebody turns it off (FlagOn).
+	SettingLocalNodeModules = "local_node_modules"
+	// SettingIdleReclaim says whether the daemon reclaims idle agents'
+	// memory (daemon/idlereclaim.go): an agent idle SettingIdleFreezeAfter has
+	// what it left running frozen and pushed out to swap, woken when touched,
+	// and one that finished and stayed idle SettingIdleStopAfter has its
+	// machine stopped, started again by the next message. Experimental, off
+	// until somebody turns it on.
+	SettingIdleReclaim = "idle_reclaim"
+	// SettingIdleFreezeAfter and SettingIdleStopAfter are SettingIdleReclaim's
+	// waits, as counts of seconds. Empty means DefaultIdleFreezeAfter and
+	// DefaultIdleStopAfter.
+	SettingIdleFreezeAfter = "idle_freeze_after"
+	SettingIdleStopAfter   = "idle_stop_after"
 )
+
+// The stages of SettingBuiltWithBadgeOffer.
+const (
+	BadgeOfferReady = "ready"
+	BadgeOfferDone  = "done"
+)
+
+// OfferBuiltWithBadge makes the offer of the badge setting, once: it does
+// nothing when the offer has already been made or answered.
+func (s *Store) OfferBuiltWithBadge(ctx context.Context) error {
+	v, err := s.Setting(ctx, SettingBuiltWithBadgeOffer)
+	if err != nil || v != "" {
+		return err
+	}
+	return s.SetSetting(ctx, SettingBuiltWithBadgeOffer, BadgeOfferReady)
+}
+
+// DefaultIdleFreezeAfter is how long an agent's chat is idle before idle
+// reclaim freezes what it left running, when nobody chose: longer than the
+// pause between reading a reply and answering it, short enough that a dev
+// server nobody looks at gives its memory back within minutes.
+const DefaultIdleFreezeAfter = 5 * time.Minute
+
+// DefaultIdleStopAfter is how long a finished agent stays idle before idle
+// reclaim stops its machine, when nobody chose: time to read what it did and
+// ask for a change without waiting on its machine to start.
+const DefaultIdleStopAfter = 10 * time.Minute
+
+// IdleReclaim reads "reclaim idle agents' memory": off until somebody turns
+// it on, and its two waits, the defaults when nobody chose.
+func (s *Store) IdleReclaim(ctx context.Context) (on bool, freezeAfter, stopAfter time.Duration, err error) {
+	if on, err = s.Flag(ctx, SettingIdleReclaim); err != nil {
+		return false, 0, 0, err
+	}
+	freezeAfter, stopAfter = DefaultIdleFreezeAfter, DefaultIdleStopAfter
+	for key, d := range map[string]*time.Duration{SettingIdleFreezeAfter: &freezeAfter, SettingIdleStopAfter: &stopAfter} {
+		raw, err := s.Setting(ctx, key)
+		if err != nil {
+			return false, 0, 0, err
+		}
+		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+			*d = time.Duration(secs) * time.Second
+		}
+	}
+	return on, freezeAfter, stopAfter, nil
+}
 
 // DefaultPackageCacheMax is the shared package caches' cap when nobody chose,
 // on a disk big enough for it: a few projects' dependencies, Go modules and
 // Playwright browsers.
-const DefaultPackageCacheMax int64 = 20 << 30
+const DefaultPackageCacheMax int64 = 10 << 30
 
 // PackageCache reads the shared package caches' settings: whether they're
 // on, and the cap chosen for them in bytes, 0 when nobody chose. The daemon
@@ -301,6 +425,27 @@ func (s *Store) LeadRecheck(ctx context.Context) (on bool, every time.Duration, 
 	return on, every, nil
 }
 
+// DefaultLeadSleep is how long a project's chat sits idle before its AI tool
+// is stopped, when nobody chose: past the five-minute prompt cache, short
+// enough that a day of leads nobody writes to doesn't hold the VM's memory.
+const DefaultLeadSleep = 15 * time.Minute
+
+// LeadSleep reads "stop idle chats": whether it's on, and after how long.
+func (s *Store) LeadSleep(ctx context.Context) (on bool, after time.Duration, err error) {
+	if on, err = s.FlagOn(ctx, SettingLeadSleep); err != nil {
+		return false, 0, err
+	}
+	after = DefaultLeadSleep
+	raw, err := s.Setting(ctx, SettingLeadSleepMinutes)
+	if err != nil {
+		return false, 0, err
+	}
+	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+		after = time.Duration(n) * time.Minute
+	}
+	return on, after, nil
+}
+
 // DefaultIdleTime is how long an agent may go idle before "auto-stop idle
 // agents" stops it, when nobody has chosen a time of their own: long enough
 // that stepping away for a coffee doesn't lose a running agent, short enough
@@ -324,6 +469,30 @@ func (s *Store) AutoStopIdle(ctx context.Context) (on bool, idleTime time.Durati
 		idleTime = time.Duration(secs) * time.Second
 	}
 	return on, idleTime, nil
+}
+
+// DefaultRemoveStoppedDays is how many days an agent stays stopped before
+// "remove stopped agents' machines" removes it, when nobody chose: a week
+// is long enough to come back to an agent after a weekend.
+const DefaultRemoveStoppedDays = 7
+
+// RemoveStopped reads "remove stopped agents' machines": off until somebody
+// turns it on, and after how many days, DefaultRemoveStoppedDays when nobody
+// chose.
+func (s *Store) RemoveStopped(ctx context.Context) (on bool, days int, err error) {
+	on, err = s.Flag(ctx, SettingRemoveStopped)
+	if err != nil {
+		return false, 0, err
+	}
+	raw, err := s.Setting(ctx, SettingRemoveStoppedDays)
+	if err != nil {
+		return false, 0, err
+	}
+	days = DefaultRemoveStoppedDays
+	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+		days = n
+	}
+	return on, days, nil
 }
 
 // DefaultMediaRetention is how long a removed agent's media is kept when
@@ -458,6 +627,7 @@ var freshInstallSettings = [][2]string{
 	{SettingDefaultAgentContextWindow, strconv.FormatInt(ClaudeFullWindow, 10)},
 	{SettingDefaultLeadModel, DefaultLeadModel},
 	{SettingDefaultLeadContextWindow, strconv.FormatInt(ClaudeFullWindow, 10)},
+	{SettingFirstRun, "1"},
 }
 
 // DefaultContextWindow checks a context window chosen as a default in
@@ -644,14 +814,14 @@ func (s *Store) DeleteSetting(ctx context.Context, key string) error {
 	return err
 }
 
-// Appearance reads SettingAppearance: api.AppearanceFollow, AppearanceLight or
-// AppearanceDark. Anything else — never written, or the "1" this setting used
+// Appearance reads SettingAppearance: api.AppearanceFollow, AppearanceLight,
+// AppearanceDark or AppearanceDracula. Anything else — never written, or the "1" this setting used
 // to be stored as — is following, which is the default. See the constant for
 // why "0" reads as dark.
 func (s *Store) Appearance(ctx context.Context) (string, error) {
 	value, err := s.Setting(ctx, SettingAppearance)
 	switch value {
-	case api.AppearanceLight, api.AppearanceDark:
+	case api.AppearanceLight, api.AppearanceDark, api.AppearanceDracula:
 		return value, err
 	case "0":
 		return api.AppearanceDark, err

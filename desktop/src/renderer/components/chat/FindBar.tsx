@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, Globe, List, LoaderCircle, Search, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import * as T from '../../../shared/api';
-import { api } from '../../lib/api';
+import { api, isLeadName } from '../../lib/api';
 import { findKinds, hitsByDay, localDay, stepHit, type FindFrom } from '../../lib/chatFind';
 import { useLanguage, useT } from '../../lib/i18n';
 import { openSearch } from '../../lib/searchOpen';
@@ -143,7 +143,7 @@ export function FindBar({
   const total = found.data?.more ? `${hits.length}+` : String(hits.length);
   const status =
     query.trim() === '' ? '' : found.isPending ? '' : hits.length === 0 ? t('chat.find.none') : t('chat.find.count', { current: at < 0 ? 0 : hits.length - at, total });
-  const lead = chatRef.split('/')[1] === T.LeadName;
+  const lead = isLeadName(chatRef.split('/')[1]);
   const who = (kind: string) => (kind === 'user' || kind === 'aside' ? t('chat.find.from.you') : kind === 'assistant' ? (lead ? t('chat.find.from.lead') : t('chat.find.from.agent')) : t('chat.find.notice'));
   const froms: [FindFrom, string][] = [
     ['anyone', t('chat.find.from.anyone')],
@@ -187,7 +187,7 @@ export function FindBar({
           }}
           placeholder={t('chat.find.placeholder')}
           aria-label={t('chat.find.label')}
-          className="h-8 min-w-0 flex-1 bg-transparent text-[13.5px] text-primary placeholder:text-faint focus:outline-none"
+          className="h-8 min-w-0 flex-1 bg-transparent text-body text-primary placeholder:text-faint focus:outline-none"
           spellCheck={false}
         />
         <Menu>
@@ -195,7 +195,7 @@ export function FindBar({
             <button
               type="button"
               className={cn(
-                'flex h-7 shrink-0 items-center gap-1 rounded-lg border px-2 text-[11.5px] transition-colors',
+                'flex h-7 shrink-0 items-center gap-1 rounded-lg border px-2 text-caption transition-colors',
                 from === 'anyone' ? 'border-line text-muted hover:text-title' : 'border-brand-400/40 bg-brand-400/15 text-brand-200',
               )}
               data-chat-find-from={from}
@@ -213,7 +213,7 @@ export function FindBar({
           </MenuContent>
         </Menu>
         <span className="mx-1 h-4 w-px shrink-0 bg-line" />
-        <span className="flex min-w-16 items-center justify-end gap-1 px-1 text-[12px] tabular-nums text-subtle" aria-live="polite" data-chat-find-count>
+        <span className="flex min-w-16 items-center justify-end gap-1 px-1 text-caption tabular-nums text-subtle" aria-live="polite" data-chat-find-count>
           {(loading || (found.isFetching && hits.length === 0 && query.trim() !== '')) && <LoaderCircle className="size-3 animate-spin" />}
           {status}
         </span>
@@ -270,10 +270,10 @@ function HitList({ hits, current, more, who, onPick }: { hits: T.ChatSearchHit[]
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-2 md:px-6">
       <div ref={box} className="max-h-[min(300px,38vh)] overflow-y-auto overscroll-contain rounded-xl border border-line bg-modal" data-chat-find-list>
-        <div className="sticky top-0 z-10 border-b border-line bg-modal px-3 py-1.5 text-[11px] text-subtle">{t('chat.find.messages', { n: more ? `${hits.length}+` : String(hits.length) })}</div>
+        <div className="sticky top-0 z-10 border-b border-line bg-modal px-3 py-1.5 text-caption text-subtle">{t('chat.find.messages', { n: more ? `${hits.length}+` : String(hits.length) })}</div>
         {hitsByDay(hits).map((group) => (
           <div key={group.day}>
-            <h3 className="px-3 pb-0.5 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{dayLabel(group.day)}</h3>
+            <h3 className="px-3 pb-0.5 pt-2 text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{dayLabel(group.day)}</h3>
             {group.hits.map((hit) => {
               const on = hit.id === current;
               const mine = hit.kind === 'user' || hit.kind === 'aside';
@@ -281,12 +281,12 @@ function HitList({ hits, current, more, who, onPick }: { hits: T.ChatSearchHit[]
                 <button
                   key={hit.id}
                   type="button"
-                  className={cn('mx-1 flex w-[calc(100%-0.5rem)] items-start gap-3 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-colors', on ? 'bg-surface-raised' : 'hover:bg-surface-faint')}
+                  className={cn('mx-1 flex w-[calc(100%-0.5rem)] items-start gap-3 rounded-lg px-2 py-1.5 text-left text-ui transition-colors', on ? 'bg-surface-raised' : 'hover:bg-surface-faint')}
                   onClick={() => onPick(hit.id)}
                   data-chat-find-hit={hit.id}
                   data-chat-find-current={on || undefined}
                 >
-                  <span className={cn('w-14 shrink-0 truncate text-[11.5px]', mine ? 'text-brand-300' : 'text-subtle')}>{who(hit.kind)}</span>
+                  <span className={cn('w-14 shrink-0 truncate text-caption', mine ? 'text-brand-300' : 'text-subtle')}>{who(hit.kind)}</span>
                   <span className="min-w-0 flex-1 truncate text-primary">
                     {hit.snippet.map((part, i) =>
                       part.match ? (
@@ -298,7 +298,7 @@ function HitList({ hits, current, more, who, onPick }: { hits: T.ChatSearchHit[]
                       ),
                     )}
                   </span>
-                  {hit.at && <span className="shrink-0 text-[11px] tabular-nums text-faint">{new Date(hit.at).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })}</span>}
+                  {hit.at && <span className="shrink-0 text-caption tabular-nums text-faint">{new Date(hit.at).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })}</span>}
                 </button>
               );
             })}

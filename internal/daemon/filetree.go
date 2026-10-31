@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -325,7 +327,7 @@ func (s *Server) readFile(from agentFrom) func(http.ResponseWriter, *http.Reques
 		if err != nil {
 			return fileErr(err)
 		}
-		if q.Get("base") == "1" && !content.Binary && !content.TooLarge && (content.Image == "" || content.Text != "") {
+		if q.Get("base") == "1" && !content.Binary && !content.PDF && !content.TooLarge && (content.Image == "" || content.Text != "") {
 			if st, err := s.worktreeStatus(a, root, branch); err == nil && st.Base != "" {
 				content.Base = st.Base
 				content.Status = statusOf(st.Changes, content.Path)
@@ -337,6 +339,43 @@ func (s *Server) readFile(from agentFrom) func(http.ResponseWriter, *http.Reques
 		}
 		return writeJSON(w, http.StatusOK, content)
 	}
+}
+
+// readSQLite is the viewer's SQLite browser (worktreefs.SQLite): a
+// database's tables, or with table, a page of its rows from offset.
+func (s *Server) readSQLite(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		_, root, _, err := s.fileRoot(r, from)
+		if err != nil {
+			return err
+		}
+		q := r.URL.Query()
+		offset, limit := sqlitePage(q)
+		out, err := worktreefs.SQLite(r.Context(), root, q.Get("path"), q.Get("table"), offset, limit)
+		if err != nil {
+			return sqliteErr(err)
+		}
+		return writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// sqlitePage is the offset and limit asked for, RowsLimit by default.
+func sqlitePage(q url.Values) (offset, limit int) {
+	offset, _ = strconv.Atoi(q.Get("offset"))
+	limit, err := strconv.Atoi(q.Get("limit"))
+	if err != nil {
+		limit = worktreefs.RowsLimit
+	}
+	return offset, limit
+}
+
+// sqliteErr makes a missing file or table a 404; any other failure, such as
+// a database SQLite can't read, is the viewer's to show.
+func sqliteErr(err error) error {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, worktreefs.ErrNoTable) {
+		return fmt.Errorf("%w: %v", state.ErrNotFound, err)
+	}
+	return err
 }
 
 // statusOf is a path's status, its own or an untracked folder's it is in.
