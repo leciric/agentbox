@@ -8,6 +8,9 @@ import { Kbd, Notice, Panel } from './ui/card';
 import { ScrollRow } from './ui/scroll-row';
 import { SettingsGroup } from './ui/settings';
 import { useT } from '../lib/i18n';
+import type { Anchor } from '../lib/featureDots';
+import { dotLabel, dotOf, FeatureDot, usePendingFeatures, useSeeFeature } from './FeatureDot';
+import { Tip } from './ui/tooltip';
 import { pendingReveal, useReveal } from '../lib/reveal';
 
 // The Settings page once setup is done: a sidebar of sections, one open at a
@@ -87,6 +90,14 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
   useEffect(() => {
     if (openId) countFeature(settingsSectionFeatures[openId.startsWith('project:') ? 'project' : openId]);
   }, [openId]);
+  // A section marked new (lib/featureDots.ts) is used once it's open.
+  const marked = usePendingFeatures();
+  const see = useSeeFeature();
+  const dotFor = (id: string) => dotOf(`settings:${id}` as Anchor, marked, see);
+  const openDot = openId && !searching ? dotFor(openId) : undefined;
+  useEffect(() => {
+    if (openDot?.on) openDot.clear();
+  }, [openId, openDot?.on]); // eslint-disable-line react-hooks/exhaustive-deps
   // A search is counted once per visit, when it's first typed.
   const counted = useRef(false);
   useEffect(() => {
@@ -134,7 +145,8 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
     const Icon = icons[section.id] ?? FolderGit2;
     const hits = foundIn.get(section.id) ?? 0;
     const active = !searching && section.id === open?.id;
-    return (
+    const dot = dotFor(section.id);
+    const button = (
       <button
         key={section.id}
         type="button"
@@ -153,6 +165,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
       >
         <Icon className={cn('size-4 shrink-0', active ? 'text-brand-300' : 'text-subtle')} />
         <span className="min-w-0 truncate">{section.title}</span>
+        <FeatureDot dot={dot} className="static size-1.5 shrink-0" />
         {searching ? (
           hits > 0 && <span className="ml-auto rounded-full bg-surface-raised px-1.5 text-caption tabular-nums text-tertiary">{hits}</span>
         ) : (
@@ -166,6 +179,13 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
           )
         )}
       </button>
+    );
+    return dot.on ? (
+      <Tip key={section.id} label={dotLabel(section.title, dot)} side="right">
+        {button}
+      </Tip>
+    ) : (
+      button
     );
   };
 

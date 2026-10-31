@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -125,6 +126,21 @@ func TestCreditAIToolIsOffUntilItIsTurnedOn(t *testing.T) {
 	}
 	if out, err := patchSettings(t, d, `{"creditAITool":false}`); err != nil || out.CreditAITool {
 		t.Errorf("after turning it back off: %+v, %v", out, err)
+	}
+}
+
+func TestSeeFeatureClearsItsDot(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	out, err := d.srv.currentSettings(httptest.NewRequest(http.MethodGet, "/v1/settings", nil))
+	if err != nil || out.SeenFeatures == nil || len(out.SeenFeatures) != 0 {
+		t.Fatalf("a fresh installation has seen features: %#v, %v", out.SeenFeatures, err)
+	}
+	if out, err := patchSettings(t, d, `{"seeFeature":"work-page"}`); err != nil || !slices.Equal(out.SeenFeatures, []string{"work-page"}) {
+		t.Fatalf("after seeing one: %#v, %v", out.SeenFeatures, err)
+	}
+	if _, err := patchSettings(t, d, `{"seeFeature":"../x"}`); err == nil {
+		t.Error("an id that isn't one was accepted")
 	}
 }
 

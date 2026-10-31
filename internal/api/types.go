@@ -576,6 +576,10 @@ type Settings struct {
 	// an agent's pull request has been merged, and the user hasn't answered
 	// yet. It is made once.
 	BuiltWithBadgeOffer bool `json:"builtWithBadgeOffer"`
+	// SeenFeatures is the new features whose dot the app has cleared, by
+	// their id in its registry (desktop/src/renderer/lib/featureDots.ts):
+	// each was used once, wherever the app runs.
+	SeenFeatures []string `json:"seenFeatures"`
 	// ClaudeCompactWindow is how many tokens of context a Claude Code or Codex
 	// chat holds before its tool compacts it (D83); 0 is the model's whole
 	// window. OpenCode has no equivalent to set: its own compaction settings
@@ -794,6 +798,8 @@ type UpdateSettingsRequest struct {
 	// DismissBuiltWithBadgeOffer closes the offer without turning the
 	// footer on.
 	DismissBuiltWithBadgeOffer *bool `json:"dismissBuiltWithBadgeOffer,omitempty"`
+	// SeeFeature adds a feature's id to SeenFeatures, clearing its dot.
+	SeeFeature *string `json:"seeFeature,omitempty"`
 	// ClaudeCompactWindow is 0 for the model's whole window, or between
 	// 100000 and 1000000 tokens.
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"agentbox/internal/api"
@@ -175,6 +176,9 @@ const (
 	// (by turning the setting on or off, or by dismissing the card). Empty
 	// until the first merge, so the offer is made once and never again.
 	SettingBuiltWithBadgeOffer = "built_with_badge_offer"
+	// SettingSeenFeatures is the ids of the new features whose dot the app
+	// has cleared, one per line (SeeFeature).
+	SettingSeenFeatures = "seen_features"
 	// SettingClaudeCompactWindow is how full a chat's context may get before
 	// its AI tool compacts it (D83), as a count of tokens. Empty means
 	// DefaultClaudeCompactWindow and "0" means the model's whole window. Named
@@ -340,6 +344,37 @@ func (s *Store) OfferBuiltWithBadge(ctx context.Context) error {
 		return err
 	}
 	return s.SetSetting(ctx, SettingBuiltWithBadgeOffer, BadgeOfferReady)
+}
+
+// validFeature is what a feature's id in the app's registry looks like.
+var validFeature = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+// SeeFeature adds id to SettingSeenFeatures, once. One statement, so two
+// dots cleared at the same moment can't lose either.
+func (s *Store) SeeFeature(ctx context.Context, id string) error {
+	if !validFeature.MatchString(id) {
+		return fmt.Errorf("invalid feature id %q", id)
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = CASE
+			WHEN instr(char(10) || value || char(10), char(10) || ? || char(10)) > 0 THEN value
+			ELSE value || char(10) || ? END`, SettingSeenFeatures, id, id, id)
+	return err
+}
+
+// SeenFeatures reads SettingSeenFeatures, never nil.
+func (s *Store) SeenFeatures(ctx context.Context) ([]string, error) {
+	v, err := s.Setting(ctx, SettingSeenFeatures)
+	if err != nil {
+		return nil, err
+	}
+	seen := []string{}
+	for _, id := range strings.Split(v, "\n") {
+		if id != "" {
+			seen = append(seen, id)
+		}
+	}
+	return seen, nil
 }
 
 // DefaultIdleFreezeAfter is how long an agent's chat is idle before idle

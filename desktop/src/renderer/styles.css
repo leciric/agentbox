@@ -1576,3 +1576,24 @@ html[data-blurred] .ab-monitor * {
   pointer-events: none;
   background-color: color-mix(in oklab, var(--session, transparent) var(--ab-session-wash), transparent);
 }
+
+/* revealFeature's pulse on a feature's dot (components/FeatureDot.tsx), as
+   What's new points at it. */
+.feature-dot-reveal {
+  animation: feature-dot-reveal 0.9s ease-out 3;
+}
+@keyframes feature-dot-reveal {
+  from {
+    box-shadow: 0 0 0 0 var(--color-brand-400);
+  }
+  to {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .feature-dot-reveal {
+    animation: none;
+    outline: 2px solid var(--color-brand-400);
+    outline-offset: 3px;
+  }
+}

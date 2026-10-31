@@ -18,6 +18,8 @@
 //   ?app=work               the Work page (components/WorkView), of every
 //                           project, from dev/pastAgents.ts; any ?app= has the
 //                           fixture timelines
+//   ?dots=0.13.0            feature dots (lib/featureDots.ts) for someone who
+//                           updated from 0.13.0 (default: none, a first run)
 //   ?badge=offer            the one-time offer of "Built with AgentBox" on pull
 //                           requests, shown over the page (dismissed it stays off)
 //   ?lang=pt-BR             the app in another language (default: en-US), for
@@ -384,6 +386,8 @@ const firstRunAt = params.get('firstrun');
 localStorage.removeItem('agentbox.firstRun');
 if (firstRunAt && firstRunAt !== 'tool') localStorage.setItem('agentbox.firstRun.tool', 'claude');
 else localStorage.removeItem('agentbox.firstRun.tool');
+if (params.get('dots')) localStorage.setItem('agentbox.featureDots.since', params.get('dots')!);
+else localStorage.removeItem('agentbox.featureDots.since');
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
 const openAgent = params.get('open'); // e.g. "agent-99"
