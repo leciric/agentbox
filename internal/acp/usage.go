@@ -127,6 +127,19 @@ func (r PromptResponse) ByModel(fallback string) map[string]Spent {
 	return out
 }
 
+// MainOutput is the output tokens of the turn's main loop alone, without the
+// subagents it started: the usage field, which claude-agent-acp fills from
+// the main loop only, else the quota's whole count. 0 when neither says.
+func (r PromptResponse) MainOutput() int64 {
+	if r.Usage != nil {
+		return r.Usage.OutputTokens
+	}
+	if r.Meta != nil && r.Meta.Quota != nil && r.Meta.Quota.TokenCount != nil {
+		return r.Meta.Quota.TokenCount.OutputTokens
+	}
+	return 0
+}
+
 // RateLimit is claude-agent-acp's _meta["_claude/rateLimit"]: what Anthropic
 // said about the account's usage limits in the response that carried them
 // (D85). Utilization is 0 to 1 and times are Unix seconds. Captured live:
