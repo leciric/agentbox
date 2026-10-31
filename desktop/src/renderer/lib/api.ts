@@ -189,16 +189,11 @@ export const api = {
   projectIcon: (name: string) => call<T.ProjectIcon>('GET', `${project(name)}/icon`),
   setProjectIcon: (name: string, req: T.SetProjectIconRequest) => call<T.ProjectIcon>('PUT', `${project(name)}/icon`, req),
   resetProjectIcon: (name: string) => call<T.ProjectIcon>('DELETE', `${project(name)}/icon`),
-  // How the projects list is organised (D79): the sections, and one call that
-  // carries a whole new order rather than a move for the daemon to infer.
+  // The sections the projects are in (D79), which New task orders them by.
   sections: () => call<T.Section[]>('GET', '/v1/sections'),
-  addSection: (name: string) => call<T.Section>('POST', '/v1/sections', { name } satisfies T.AddSectionRequest),
-  updateSection: (id: string, req: T.UpdateSectionRequest) => call<T.Section>('PATCH', `/v1/sections/${encodeURIComponent(id)}`, req),
-  removeSection: (id: string) => call<void>('DELETE', `/v1/sections/${encodeURIComponent(id)}`),
   // UI v2's sidebar's hidden projects, replaced whole.
   sidebarLayout: () => call<T.SidebarLayout>('GET', '/v1/sidebar'),
   setSidebarLayout: (layout: T.SidebarLayout) => call<T.SidebarLayout>('PUT', '/v1/sidebar', layout),
-  setProjectLayout: (layout: T.ProjectLayout) => call<T.Project[]>('PUT', '/v1/projects/layout', layout),
   brief: (name: string) => text('GET', `${project(name)}/brief`),
   notes: (name: string) => call<T.Notes>('GET', `${project(name)}/notes`),
   saveNotes: (name: string, text: string) => call<T.Notes>('PUT', `${project(name)}/notes`, { text } satisfies T.NotesRequest),
@@ -547,8 +542,6 @@ export const api = {
   notificationPage: (query: URLSearchParams) => page<T.NotificationPage>(`/v1/notifications?${query}`),
   seeNotifications: (req: T.SeeNotificationsRequest) => call<T.SeeNotificationsResult>('POST', '/v1/notifications/seen', req),
   // Bulk deletes: the items named by id, or everything the list filters match.
-  deleteProjectMedia: (project: string, req: T.DeleteMediaRequest) =>
-    call<T.DeleteMediaResult>('POST', `/v1/projects/${encodeURIComponent(project)}/media/delete`, req),
   deleteAgentMedia: (ref: string, req: T.DeleteMediaRequest) => call<T.DeleteMediaResult>('POST', `${agent(ref)}/media/delete`, req),
   screenshot: (ref: string, req: T.ScreenshotRequest = {}) => call<T.MediaItem>('POST', `${agent(ref)}/media/screenshot`, req),
   recording: (ref: string) => call<T.RecordingStatus>('GET', `${agent(ref)}/media/record`),
