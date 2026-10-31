@@ -21,6 +21,8 @@ export type CatalogSetting = {
   advanced?: boolean;
   // v2 settings are only on the page under UI v2's layout.
   v2?: boolean;
+  // verbs ones only with the prototype navigation on too (uiVerbs.ts).
+  verbs?: boolean;
 };
 
 export const sectionTitles: Record<string, MessageKey> = {
@@ -38,6 +40,7 @@ export const sectionTitles: Record<string, MessageKey> = {
   setup: 'settings.section.setup.title',
   transfer: 'settings.section.transfer.title',
   diagnostics: 'settings.section.diagnostics.title',
+  jobs: 'shell.nav.jobs',
 };
 
 export const catalog: CatalogSetting[] = [
@@ -46,6 +49,7 @@ export const catalog: CatalogSetting[] = [
   { section: 'general', group: 'settings.group.appearance.title', id: 'layout', label: 'settings.entry.layout.label', keywords: 'settings.entry.layout.keywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'tray', label: 'settings.entry.tray.label', keywords: 'settings.entry.tray.keywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'group-idle', label: 'settings.entry.group-idle.label', keywords: 'settings.entry.group-idle.keywords', v2: true },
+  { section: 'general', group: 'settings.group.appearance.title', id: 'verbs', label: 'settings.entry.verbs.label', keywords: 'settings.entry.verbs.keywords', v2: true },
   { section: 'general', group: 'settings.group.appearance.title', id: 'environment', label: 'settings.entry.environment.label', keywords: 'settings.entry.environment.keywords', v2: true },
   { section: 'general', group: 'settings.group.working.title', id: 'reviewing', label: 'settings.entry.reviewing.label', keywords: 'settings.entry.reviewing.keywords' },
   { section: 'general', group: 'settings.group.working.title', id: 'topbar-detailed', label: 'settings.entry.topbar-detailed.label', keywords: 'settings.entry.topbar-detailed.keywords', advanced: true },
@@ -112,4 +116,5 @@ export const catalog: CatalogSetting[] = [
   { section: 'transfer', group: 'settings.section.transfer.title', id: 'export', label: 'transfer.export.title', keywords: 'settings.entry.transfer.keywords' },
   { section: 'transfer', group: 'settings.section.transfer.title', id: 'import', label: 'transfer.import.title', keywords: 'settings.entry.transfer.keywords' },
   { section: 'diagnostics', group: 'settings.group.diagnostics.title', id: 'diagnostics', label: 'settings.section.diagnostics.title', keywords: 'settings.entry.diagnostics.keywords' },
+  { section: 'jobs', group: 'shell.nav.jobs', id: 'jobs', label: 'shell.nav.jobs', keywords: 'settings.entry.jobs.keywords', v2: true, verbs: true },
 ];
