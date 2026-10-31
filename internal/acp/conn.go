@@ -193,6 +193,7 @@ func (c *Conn) read(r io.Reader) {
 	c.err = err
 	pending := c.pending
 	c.pending = nil
+	c.legacy = nil
 	c.mu.Unlock()
 	for _, ch := range pending {
 		ch <- response{err: err}
@@ -215,7 +216,7 @@ func (c *Conn) dispatch(line []byte) {
 		})
 	case m.Method != "":
 		if m.Method == MethodSessionUpdate {
-			c.noteLegacyUpdate(m.Params)
+			m.Params = c.legacyUpdate(m.Params)
 		}
 		c.handler.Notify(m.Method, m.Params)
 	case hasID:

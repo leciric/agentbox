@@ -13,7 +13,7 @@ const geminiSession = `{"sessionId":"g-1",
 	"models":{"availableModels":[{"modelId":"auto","name":"Auto"},{"modelId":"gemini-3.1-pro-preview","name":"gemini-3.1-pro-preview"}],"currentModelId":"auto"}}`
 
 func TestLegacyModesAndModelsReadAsConfigOptions(t *testing.T) {
-	c, agent, _ := connect(t)
+	c, agent, rec := connect(t)
 	done := make(chan error, 1)
 	var resp SessionResponse
 	go func() {
@@ -73,6 +73,18 @@ func TestLegacyModesAndModelsReadAsConfigOptions(t *testing.T) {
 	if set.ConfigOptions[0].Value != "plan" {
 		t.Errorf("mode after current_mode_update = %q", set.ConfigOptions[0].Value)
 	}
+	// And the client is told, as a config_option_update with every option,
+	// like an agent with configOptions tells it.
+	var told bool
+	for _, n := range rec.seen() {
+		if strings.Contains(n, `"current_mode_update"`) {
+			t.Errorf("the client got the older update: %s", n)
+		}
+		told = told || strings.Contains(n, `"sessionUpdate":"config_option_update"`) && strings.Contains(n, `"currentValue":"plan"`) && strings.Contains(n, `"currentValue":"gemini-3.1-pro-preview"`)
+	}
+	if !told {
+		t.Errorf("the client wasn't told the mode: %q", rec.seen())
+	}
 
 	// The mode goes out as session/set_mode.
 	go func() {
@@ -85,6 +97,22 @@ func TestLegacyModesAndModelsReadAsConfigOptions(t *testing.T) {
 	agent.send(t, `{"jsonrpc":"2.0","id":`+string(m.ID)+`,"result":{}}`)
 	if err := <-done; err != nil || set.ConfigOptions[0].Value != "yolo" {
 		t.Fatalf("set_config_option = %+v, %v", set, err)
+	}
+
+	// Once the session is closed its translation is forgotten.
+	go func() {
+		done <- c.Call(context.Background(), "session/close", map[string]string{"sessionId": "g-1"}, nil)
+	}()
+	m = agent.next(t)
+	agent.send(t, `{"jsonrpc":"2.0","id":`+string(m.ID)+`,"result":{}}`)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	left := len(c.legacy)
+	c.mu.Unlock()
+	if left != 0 {
+		t.Errorf("%d sessions still translated after session/close", left)
 	}
 }
 

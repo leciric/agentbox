@@ -13,10 +13,12 @@ import (
 // them, so the rest of AgentBox sees configOptions from every agent. A session
 // whose answer has configOptions is left alone.
 
-// The methods of the older fields.
+// The methods of the older fields, and ACP's session/close, after which a
+// session's translation is forgotten.
 const (
-	methodSetMode  = "session/set_mode"
-	methodSetModel = "session/set_model"
+	methodSetMode      = "session/set_mode"
+	methodSetModel     = "session/set_model"
+	methodSessionClose = "session/close"
 )
 
 // The ids the translation gives the two options, which are the categories
@@ -86,8 +88,18 @@ func (c *Conn) callLegacy(ctx context.Context, method string, params any) (json.
 			return nil, err
 		}
 		return c.readLegacySession(params, raw), nil
+	case methodSessionClose:
+		c.forgetLegacy(sessionIDOf(params))
 	}
 	return c.call(ctx, method, params)
+}
+
+// forgetLegacy drops what a session that has ended said about its modes and
+// models. A connection's own end drops them all (Conn.read).
+func (c *Conn) forgetLegacy(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.legacy, id)
 }
 
 // readLegacySession remembers a session answered with the older fields and
@@ -205,15 +217,17 @@ func (c *Conn) setLegacyOption(ctx context.Context, params any) (raw json.RawMes
 	return raw, true, err
 }
 
-// noteLegacyUpdate keeps a legacy session's mode in step with a
+// legacyUpdate keeps a legacy session's mode in step with a
 // current_mode_update the agent sends, so the next answer the translation
-// makes has it.
-func (c *Conn) noteLegacyUpdate(params json.RawMessage) {
+// makes has it, and returns the notification to deliver in its place: a
+// config_option_update with every option as it now is, as an agent with
+// configOptions sends. Anything else is returned as it came.
+func (c *Conn) legacyUpdate(params json.RawMessage) json.RawMessage {
 	c.mu.Lock()
 	none := len(c.legacy) == 0
 	c.mu.Unlock()
 	if none {
-		return
+		return params
 	}
 	var n struct {
 		SessionID string `json:"sessionId"`
@@ -223,11 +237,20 @@ func (c *Conn) noteLegacyUpdate(params json.RawMessage) {
 		} `json:"update"`
 	}
 	if json.Unmarshal(params, &n) != nil || n.Update.Kind != "current_mode_update" || n.Update.Mode == "" {
-		return
+		return params
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if l := c.legacy[n.SessionID]; l != nil && l.modes != nil {
-		l.modes.Current = n.Update.Mode
+	l := c.legacy[n.SessionID]
+	if l == nil || l.modes == nil {
+		c.mu.Unlock()
+		return params
 	}
+	l.modes.Current = n.Update.Mode
+	opts := l.options()
+	c.mu.Unlock()
+	b, err := json.Marshal(map[string]any{"sessionId": n.SessionID, "update": map[string]any{"sessionUpdate": "config_option_update", "configOptions": opts}})
+	if err != nil {
+		return params
+	}
+	return b
 }

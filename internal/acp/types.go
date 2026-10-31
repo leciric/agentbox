@@ -13,6 +13,7 @@ const ProtocolVersion = 1
 // Methods the client calls.
 const (
 	MethodInitialize      = "initialize"
+	MethodAuthenticate    = "authenticate"
 	MethodSessionNew      = "session/new"
 	MethodSessionLoad     = "session/load"
 	MethodSessionResume   = "session/resume"
@@ -31,6 +32,14 @@ const (
 	MethodSessionUpdate     = "session/update"
 	MethodRequestPermission = "session/request_permission"
 )
+
+// AuthenticateRequest signs the agent in with one of the methods its
+// initialize offered. Meta carries what the method needs, such as Gemini
+// CLI's API key.
+type AuthenticateRequest struct {
+	MethodID string         `json:"methodId"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+}
 
 type InitializeRequest struct {
 	ProtocolVersion    int                `json:"protocolVersion"`
