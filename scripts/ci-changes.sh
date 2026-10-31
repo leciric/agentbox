@@ -33,9 +33,10 @@ go_too='^(desktop/src/shared/api\.ts|scripts/check-coverage\.sh|\.github/coverag
 go=false
 if grep -qvE "$not_go" "$files" || has "$go_too"; then go=true; fi
 
-# The desktop app, and the vnc.js its build writes into the Go tree.
+# The desktop app, the vnc.js its build writes into the Go tree, and the
+# feature catalogue its tests hold to the app's tabs (lib/features.test.ts).
 desktop=false
-if has '^(desktop/|internal/machinesweb/static/vnc\.js$|mise\.toml$)'; then desktop=true; fi
+if has '^(desktop/|internal/machinesweb/static/vnc\.js$|internal/features/features\.json$|mise\.toml$)'; then desktop=true; fi
 
 # The phone app, and what it imports of the desktop's: the API's types and
 # the text's catalogs.
