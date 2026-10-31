@@ -171,11 +171,14 @@ export interface Settings {
   defaultLeadModel: string;
   defaultLeadContextWindow: string;
   cloneFolder: string;
+  defaultLeadEffort: string;
+  defaultLeadMode: string;
   claudeModelChoices: ChatOptionChoice[];
   claudeContextWindows: Record<string, number[]>;
   claudeMenuKnown: boolean;
   defaultClaudeEffort: string;
   claudeEffortChoices: ChatOptionChoice[];
+  claudeModeChoices: ChatOptionChoice[];
   openCodeModelChoices: ChatOptionChoice[];
   openCodeReady: boolean;
   openCodeVersion: string;
@@ -254,6 +257,8 @@ export interface UpdateSettingsRequest {
   defaultLeadContextWindow?: string;
   cloneFolder?: string;
   defaultClaudeEffort?: string;
+  defaultLeadEffort?: string;
+  defaultLeadMode?: string;
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
   lastAgentPick?: AgentPick;
@@ -3469,6 +3474,7 @@ export interface VMSwap {
   size: number;
   total: number;
   used: number;
+  diskUsed?: number;
 }
 
 export interface VMLimits {

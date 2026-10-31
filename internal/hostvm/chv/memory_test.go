@@ -147,6 +147,7 @@ Active(file):    1000000 kB
 Inactive(file):   500000 kB
 some avg10=12.50 avg60=3.00 avg300=1.00 total=123
 full avg10=1.00 avg60=0.00 avg300=0.00 total=12
+disk_swap_used 2048
 auto_online online_movable
 agents 3
 `
@@ -154,7 +155,7 @@ agents 3
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := memSample{Total: 8024064 << 10, Available: 7000000 << 10, SwapTotal: 8388604 << 10, SwapFree: 8000000 << 10, Pressure: 12.5, Agents: 3, AutoOnline: "online_movable",
+	want := memSample{Total: 8024064 << 10, Available: 7000000 << 10, SwapTotal: 8388604 << 10, SwapFree: 8000000 << 10, DiskSwapUsed: 2048 << 10, Pressure: 12.5, Agents: 3, AutoOnline: "online_movable",
 		FileCache: 1500000 << 10, InactiveFile: 500000 << 10}
 	if s != want {
 		t.Errorf("parseMemSample = %+v, want %+v", s, want)

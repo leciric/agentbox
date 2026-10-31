@@ -1,8 +1,11 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
   ArrowDownUp,
+  ChevronRight,
+  SlidersHorizontal,
+  Zap,
   Bot,
   Brain,
   CalendarDays,
@@ -19,7 +22,7 @@ import {
   Wand2,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { api, isLeadName } from '../lib/api';
 import { matchesIn } from '../lib/chatFind';
@@ -30,9 +33,11 @@ import { useLanguage, useT, type MessageKey } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
 import { projectLabel } from '../lib/projectName';
 import { highlight, moveActive, newestFirst, searchItems, searchTarget, type SearchItem, type SearchTarget } from '../lib/search';
+import { commandsOnly, looksLikeVerb, paletteRows, pickChoices, rankCommands, type PaletteRow } from '../lib/palette';
 import { closeSearch, sinceTime, useSearchModal, type SearchScope, type SearchSince } from '../lib/searchOpen';
 import { countFeature } from '../lib/usageStats';
-import { cn, errorMessage, timeAgo } from '../lib/utils';
+import { cn, errorMessage, onMac, timeAgo } from '../lib/utils';
+import { currentAgent, currentProject, runSetting, usePaletteCommands, type PaletteAction, type PaletteCommand, type PaletteContext } from './paletteCommands';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 
 const kinds: Record<string, { label: MessageKey; icon: LucideIcon }> = {
@@ -71,16 +76,25 @@ export function isSearchShortcut(event: KeyboardEvent): boolean {
 // and the one you're on read in place beside it before you go there. It is
 // the app's one search: App renders it, and openSearch (lib/searchOpen.ts)
 // opens it from anywhere, on a scope of the caller's.
-export function SearchModal({ onOpen }: { onOpen: (target: SearchTarget) => void }) {
+//
+// It is the command palette too: actions (verbs with a handler each) and every
+// setting, matched as you type (lib/palette.ts, components/paletteCommands.tsx),
+// above what was found when what you typed starts with a verb, below it
+// otherwise, and alone after ">". An action for an agent or a project runs on
+// the one you're on, or asks for one in the palette.
+export function SearchModal({ onOpen, palette }: { onOpen: (target: SearchTarget) => void; palette: PaletteContext }) {
   const t = useT();
   const { open, scope, opening } = useSearchModal();
   const focusReturn = useFocusReturn();
+  // Escape steps back out of a pick first, and only then closes.
+  const back = useRef<(() => boolean) | null>(null);
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && closeSearch()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-scrim backdrop-blur-[3px]" />
         <DialogPrimitive.Content
           {...focusReturn}
+          onEscapeKeyDown={(event) => back.current?.() && event.preventDefault()}
           aria-describedby={undefined}
           className="fixed left-1/2 top-[8vh] z-50 flex h-[80vh] w-[calc(100vw-2rem)] max-w-6xl -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-modal shadow-[0_40px_120px_-30px_var(--ab-shadow-deep)] focus:outline-none"
           data-search-modal
@@ -90,6 +104,8 @@ export function SearchModal({ onOpen }: { onOpen: (target: SearchTarget) => void
             <Searching
               key={opening}
               scope={scope}
+              palette={palette}
+              back={back}
               onOpen={(target) => {
                 closeSearch();
                 onOpen(target);
@@ -102,12 +118,24 @@ export function SearchModal({ onOpen }: { onOpen: (target: SearchTarget) => void
   );
 }
 
-function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: SearchTarget) => void }) {
+// The palette's own chips, beside the daemon's kinds.
+const actionsKind = '@actions';
+const settingsKind = '@settings';
+const commandKinds: Record<string, { label: MessageKey; icon: LucideIcon; group: 'actions' | 'settings' }> = {
+  [actionsKind]: { label: 'palette.group.actions', icon: Zap, group: 'actions' },
+  [settingsKind]: { label: 'palette.group.settings', icon: SlidersHorizontal, group: 'settings' },
+};
+
+type Row = PaletteRow<PaletteCommand, SearchItem>;
+const rowKey = (row: Row) => (row.kind === 'command' ? `command:${row.command.id}` : `${row.item.kind}:${row.item.hit.project ?? ''}:${row.item.hit.agent ?? ''}:${row.item.hit.id}`);
+const keyName = (k: string) => (k === 'Mod' ? (onMac ? '⌘' : 'Ctrl') : k);
+
+function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palette: PaletteContext; back: MutableRefObject<(() => boolean) | null>; onOpen: (target: SearchTarget) => void }) {
   const t = useT();
   // v2 calls the Home chat Home, as its sidebar does.
   const homeName = t(useUiV2() ? 'shell.nav.home' : 'shell.nav.mainChat');
   const [query, setQuery] = useState(scope.query ?? '');
-  const [asked, setAsked] = useState((scope.query ?? '').trim());
+  const [asked, setAsked] = useState(commandsOnly(scope.query ?? '').only ? '' : (scope.query ?? '').trim());
   const [kind, setKind] = useState(scope.kind ?? '');
   const [project, setProject] = useState(scope.project ?? '');
   const [since, setSince] = useState<SearchSince>(scope.since ?? '');
@@ -115,19 +143,33 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
   // Past agents' chats are left out unless asked for: they open read-only.
   const [archived, setArchived] = useState(false);
   const [active, setActive] = useState(0);
+  // An action that asked which agent or project it's for, and what's typed
+  // to find one.
+  const [picking, setPicking] = useState<PaletteAction | null>(null);
+  const [pickQuery, setPickQuery] = useState('');
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
+  const commands = usePaletteCommands(palette, useQueryClient());
+  const verbs = t('palette.verbs').split(/\s+/);
 
   useEffect(() => countFeature(T.FeatureSearchOpen), []);
   useEffect(() => {
-    const timer = setTimeout(() => setAsked(query.trim()), debounceMs);
+    // ">" asks for commands only: nothing to ask the daemon.
+    const timer = setTimeout(() => setAsked(commandsOnly(query).only ? '' : query.trim()), debounceMs);
     return () => clearTimeout(timer);
   }, [query]);
+  back.current = () => {
+    if (!picking) return false;
+    setPicking(null);
+    input.current?.focus();
+    return true;
+  };
 
   // Every kind at once, for the chips' counts and the list when no chip is
   // picked; the picked kind on its own, for more of it.
+  const daemonKind = commandKinds[kind] ? '' : kind;
   const filters = { project, since: sinceTime(since), archived };
   const all = useQuery({
     queryKey: ['search', asked, project, since, archived],
@@ -139,33 +181,86 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
     staleTime: 5_000,
   });
   const one = useQuery({
-    queryKey: ['search', asked, project, since, archived, kind],
-    queryFn: () => api.search(asked, { ...filters, kinds: [kind], limit: kindLimit }),
-    enabled: asked !== '' && kind !== '',
+    queryKey: ['search', asked, project, since, archived, daemonKind],
+    queryFn: () => api.search(asked, { ...filters, kinds: [daemonKind], limit: kindLimit }),
+    enabled: asked !== '' && daemonKind !== '',
     placeholderData: keepPreviousData,
     staleTime: 5_000,
   });
-  const results = kind ? one : all;
+  const results = daemonKind ? one : all;
   const shown = asked === '' ? undefined : results.data;
   const found = searchItems(shown);
   const items = newest ? newestFirst(found) : found;
+  const only = commandsOnly(query).only;
   // Still answering what was typed: the list up is the one before it.
-  const pending = query.trim() !== asked || results.isPlaceholderData;
+  const pending = !only && (query.trim() !== asked || results.isPlaceholderData);
+
+  // The commands answer at once, from what's typed now. With nothing typed,
+  // the actions are the list, settings being too many to list unasked.
+  const ranked = rankCommands(commands, query);
+  const typed = commandsOnly(query).rest !== '';
+  const rankedActions = ranked.filter((r) => r.command.group === 'actions');
+  const rankedSettings = ranked.filter((r) => r.command.group === 'settings');
+  const rows: Row[] = commandKinds[kind]
+    ? ranked.filter((r) => r.command.group === commandKinds[kind].group).map((r) => ({ kind: 'command', command: r.command }))
+    : kind
+      ? items.map((item) => ({ kind: 'found', item }))
+      : !typed
+        ? rankedActions.map((r) => ({ kind: 'command', command: r.command }))
+        : paletteRows(ranked, items, query, verbs);
+  const commandsFirst = only || !!commandKinds[kind] || !typed || looksLikeVerb(query, verbs);
+
+  // What a pick offers: the agents (not a lead) or the projects, the one
+  // you're on first.
+  const pickCurrent = picking?.needs === 'agent' ? currentAgent(palette.view) : currentProject(palette.view);
+  const choices = !picking
+    ? []
+    : pickChoices(
+        picking.needs === 'agent'
+          ? (agents.data ?? []).filter((a) => !isLeadName(a.name)).map((a) => ({ id: a.ref, title: a.title || a.name, detail: `${a.name} · ${projectLabel(a.project, projects.data)}` }))
+          : (projects.data ?? []).map((p) => ({ id: p.name, title: projectLabel(p.name, projects.data), detail: p.name })),
+        pickQuery,
+        pickCurrent,
+      );
+  const count = picking ? choices.length : rows.length;
 
   // A new answer starts at its first result.
-  useEffect(() => setActive(0), [shown, newest]);
+  useEffect(() => setActive(0), [shown, newest, kind, query, picking, pickQuery]);
   useEffect(() => {
     list.current?.querySelector('[data-search-active]')?.scrollIntoView({ block: 'nearest' });
   }, [active, shown]);
 
+  const run = (command: PaletteCommand, other = false) => {
+    if (command.group === 'settings') {
+      closeSearch();
+      return runSetting(command);
+    }
+    const current = command.needs === 'agent' ? currentAgent(palette.view) : command.needs === 'project' ? currentProject(palette.view) : '';
+    if (command.needs && (other || !current)) {
+      setPicking(command);
+      setPickQuery('');
+      return;
+    }
+    closeSearch();
+    void command.run(current ?? '');
+  };
+  const pick = (id: string | undefined) => {
+    if (!picking || !id) return;
+    closeSearch();
+    void picking.run(id);
+  };
+
   // Enter pressed before the answer to what was typed came back opens that
-  // answer's first result when it comes, not the first of the one before.
+  // answer's first row when it comes, not the first of the one before.
   const [openWhenAnswered, setOpenWhenAnswered] = useState(false);
   useEffect(() => {
     if (!openWhenAnswered || pending || results.isFetching) return;
     setOpenWhenAnswered(false);
-    if (items[0]) onOpen(searchTarget(items[0]));
-  }, [openWhenAnswered, pending, results.isFetching, items, onOpen]);
+    const first = rows[0];
+    if (first?.kind === 'command') run(first.command);
+    else if (first) onOpen(searchTarget(first.item));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openWhenAnswered, pending, results.isFetching, rows, onOpen]);
 
   const agentTitle = (project: string, name: string) => (isLeadName(name) ? t('chat.find.from.lead') : agents.data?.find((a) => a.ref === `${project}/${name}`)?.title || name);
   const whereOf = ({ kind, hit }: SearchItem) =>
@@ -177,37 +272,76 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
   // A chat message opens at itself, or, asked to find there, with the chat's
   // find bar on what was searched for.
   const open = (item: SearchItem | undefined, find = false) => item && onOpen(searchTarget(item, find && item.kind === T.SearchChats ? asked : undefined));
-  const current = items[active];
+  const go = (row: Row | undefined, shift = false) => (row?.kind === 'command' ? run(row.command, shift) : open(row?.item, shift));
+  const current = rows[active];
+  const currentItem = current?.kind === 'found' ? current.item : undefined;
+  const currentCommand = current?.kind === 'command' ? current.command : undefined;
 
-  // The chips: every kind something was found of, with how many, and the
-  // picked one even when it found nothing.
+  // The chips: the actions and settings that answer, every kind something
+  // was found of, with how many, and the picked one even when it found
+  // nothing.
   const groups = (asked === '' ? [] : (all.data?.groups ?? [])).filter((g) => g.total > 0 || g.hits.length > 0 || g.kind === kind);
-  if (kind && !groups.some((g) => g.kind === kind)) groups.push({ kind, hits: [], total: 0 });
-  const count = (g: { total: number; capped?: boolean }) => `${g.total}${g.capped ? '+' : ''}`;
-  const total = groups.reduce((n, g) => n + g.total, 0);
+  if (daemonKind && !groups.some((g) => g.kind === daemonKind)) groups.push({ kind: daemonKind, hits: [], total: 0 });
+  const countOf = (g: { total: number; capped?: boolean }) => `${g.total}${g.capped ? '+' : ''}`;
+  const total = groups.reduce((n, g) => n + g.total, 0) + (typed ? ranked.length : 0);
   const capped = groups.some((g) => g.capped);
+  const commandChips = (
+    [
+      [actionsKind, rankedActions.length],
+      [settingsKind, typed ? rankedSettings.length : 0],
+    ] as const
+  ).filter(([k, n]) => n > 0 || kind === k);
+  // Tab walks the chips, as the arrows walk the rows.
+  const chips = ['', ...commandChips.map(([k]) => k), ...groups.map((g) => g.kind)];
+
+  const actionFor = (command: PaletteCommand) => {
+    if (command.group !== 'actions' || !command.needs) return undefined;
+    const ref = command.needs === 'agent' ? currentAgent(palette.view) : currentProject(palette.view);
+    if (!ref) return t(command.needs === 'agent' ? 'palette.asksAgent' : 'palette.asksProject');
+    return command.needs === 'agent' ? agentTitle(ref.split('/')[0], ref.split('/')[1]) : projectLabel(ref, projects.data);
+  };
 
   return (
     <>
       <div className="flex items-center gap-3 border-b border-line px-4">
-        {pending && asked !== '' ? <LoaderCircle className="size-4 shrink-0 animate-spin text-subtle" /> : <SearchIcon className="size-4 shrink-0 text-subtle" />}
+        {pending && asked !== '' && !picking ? <LoaderCircle className="size-4 shrink-0 animate-spin text-subtle" /> : <SearchIcon className="size-4 shrink-0 text-subtle" />}
+        {picking && (
+          <button
+            type="button"
+            className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-full border border-brand-400/40 bg-brand-400/15 px-2.5 py-1 text-caption text-brand-200"
+            onClick={() => back.current?.()}
+            data-palette-picking={picking.id}
+          >
+            <picking.icon className="size-3.5 shrink-0" />
+            <span className="truncate">{picking.title}</span>
+            <ChevronRight className="size-3.5 shrink-0 opacity-70" />
+          </button>
+        )}
         <input
           ref={input}
           autoFocus
           aria-label={t('search.label')}
           className="h-14 min-w-0 flex-1 bg-transparent text-heading text-primary outline-none placeholder:text-faint"
-          placeholder={t('search.placeholder')}
-          value={query}
+          placeholder={picking ? t(picking.needs === 'agent' ? 'palette.pick.agent' : 'palette.pick.project') : t('search.placeholder')}
+          value={picking ? pickQuery : query}
           spellCheck={false}
           data-search-input
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => (picking ? setPickQuery(event.target.value) : setQuery(event.target.value))}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               event.preventDefault();
-              setActive((i) => moveActive(i, event.key === 'ArrowDown' ? 1 : -1, items.length));
+              setActive((i) => moveActive(i, event.key === 'ArrowDown' ? 1 : -1, count));
+            } else if (event.key === 'Tab' && !picking && chips.length > 1) {
+              event.preventDefault();
+              setKind(chips[moveActive(Math.max(0, chips.indexOf(kind)), event.shiftKey ? -1 : 1, chips.length)]);
+            } else if (event.key === 'Backspace' && picking && pickQuery === '') {
+              event.preventDefault();
+              back.current?.();
             } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
               event.preventDefault();
-              if (!pending) return open(items[active], event.shiftKey);
+              if (picking) return pick(choices[active]?.id);
+              // Commands answer at once; what the daemon finds is waited for.
+              if (!pending || (commandsFirst && current?.kind === 'command')) return go(current, event.shiftKey);
               setAsked(query.trim());
               setOpenWhenAnswered(true);
             }
@@ -216,121 +350,161 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
         <kbd className="hidden rounded-md border border-line px-1.5 py-0.5 font-mono text-caption text-subtle sm:block">Esc</kbd>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-3 py-2" data-search-filters>
-        <Chip on={kind === ''} onClick={() => setKind('')} data-search-kind="">
-          {t('search.all')}
-          {groups.length > 0 && <Count>{`${total}${capped ? '+' : ''}`}</Count>}
-        </Chip>
-        {groups.map((g) => {
-          const k = kindOf(g.kind);
-          return (
-            <Chip key={g.kind} on={kind === g.kind} onClick={() => setKind(kind === g.kind ? '' : g.kind)} data-search-kind={g.kind}>
-              <k.icon className="size-3.5" />
-              {t(k.label)}
-              <Count>{count(g)}</Count>
-            </Chip>
-          );
-        })}
-        <span className="flex-1" />
-        <Chip on={archived} onClick={() => setArchived((on) => !on)} data-search-archived>
-          <Archive className="size-3.5" />
-          {t('search.includePast')}
-        </Chip>
-        <Pick
-          icon={FolderGit2}
-          value={project}
-          onChange={setProject}
-          label={t('search.project')}
-          options={[
-            ['', t('search.anyProject')],
-            ...(projects.data ?? []).map((p): [string, string] => [p.name, projectLabel(p.name, projects.data)]),
-            [T.HomeProject, homeName],
-          ]}
-        />
-        <Pick
-          icon={CalendarDays}
-          value={since}
-          onChange={(v) => setSince(v as SearchSince)}
-          label={t('search.when')}
-          options={[
-            ['', t('search.since.any')],
-            ['day', t('search.since.day')],
-            ['week', t('search.since.week')],
-            ['month', t('search.since.month')],
-          ]}
-        />
-      </div>
+      {!picking && (
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-3 py-2" data-search-filters>
+          <Chip on={kind === ''} onClick={() => setKind('')} data-search-kind="">
+            {t('search.all')}
+            {(groups.length > 0 || typed) && <Count>{`${total}${capped ? '+' : ''}`}</Count>}
+          </Chip>
+          {commandChips.map(([k, n]) => {
+            const c = commandKinds[k];
+            return (
+              <Chip key={k} on={kind === k} onClick={() => setKind(kind === k ? '' : k)} data-search-kind={k}>
+                <c.icon className="size-3.5" />
+                {t(c.label)}
+                <Count>{String(n)}</Count>
+              </Chip>
+            );
+          })}
+          {groups.map((g) => {
+            const k = kindOf(g.kind);
+            return (
+              <Chip key={g.kind} on={kind === g.kind} onClick={() => setKind(kind === g.kind ? '' : g.kind)} data-search-kind={g.kind}>
+                <k.icon className="size-3.5" />
+                {t(k.label)}
+                <Count>{countOf(g)}</Count>
+              </Chip>
+            );
+          })}
+          <span className="flex-1" />
+          <Chip on={archived} onClick={() => setArchived((on) => !on)} data-search-archived>
+            <Archive className="size-3.5" />
+            {t('search.includePast')}
+          </Chip>
+          <Pick
+            icon={FolderGit2}
+            value={project}
+            onChange={setProject}
+            label={t('search.project')}
+            options={[
+              ['', t('search.anyProject')],
+              ...(projects.data ?? []).map((p): [string, string] => [p.name, projectLabel(p.name, projects.data)]),
+              [T.HomeProject, homeName],
+            ]}
+          />
+          <Pick
+            icon={CalendarDays}
+            value={since}
+            onChange={(v) => setSince(v as SearchSince)}
+            label={t('search.when')}
+            options={[
+              ['', t('search.since.any')],
+              ['day', t('search.since.day')],
+              ['week', t('search.since.week')],
+              ['month', t('search.since.month')],
+            ]}
+          />
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <div ref={list} className="min-w-0 flex-1 overflow-y-auto overscroll-contain p-2" role="listbox" aria-label={t('search.results')}>
-          {asked === '' ? (
+          {picking ? (
+            choices.length === 0 ? (
+              <p className="px-3 py-8 text-center text-ui text-muted" data-search-empty>
+                {t(picking.needs === 'agent' ? 'palette.pick.noAgent' : 'palette.pick.noProject')}
+              </p>
+            ) : (
+              choices.map((c, i) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === active}
+                  data-palette-choice={c.id}
+                  data-search-active={i === active || undefined}
+                  className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors', i === active ? 'bg-surface-raised' : 'hover:bg-surface-faint')}
+                  onClick={() => pick(c.id)}
+                >
+                  {picking.needs === 'agent' ? <Bot className="size-4 shrink-0 text-subtle" /> : <FolderGit2 className="size-4 shrink-0 text-subtle" />}
+                  <span className="min-w-0 flex-1 truncate text-ui text-primary">
+                    <Marked text={c.title} query={pickQuery} />
+                  </span>
+                  <span className="max-w-[40%] shrink-0 truncate text-caption text-subtle">{c.id === pickCurrent ? t('palette.pick.current') : c.detail}</span>
+                </button>
+              ))
+            )
+          ) : asked === '' && !typed && rows.length === 0 ? (
             <p className="px-3 py-8 text-center text-ui text-muted">{t('search.hint')}</p>
-          ) : results.error ? (
+          ) : results.error && rows.length === 0 ? (
             <p className="px-3 py-8 text-center text-ui text-rose-300">{errorMessage(results.error)}</p>
-          ) : shown && items.length === 0 && !pending ? (
+          ) : rows.length === 0 && (only || !!commandKinds[kind] || (shown && !pending)) ? (
             <p className="px-3 py-8 text-center text-ui text-muted" data-search-empty>
-              {t('search.nothing', { query: asked })}
+              {t('search.nothing', { query: commandsOnly(query).rest || query })}
             </p>
           ) : (
-            items.length > 0 && (
+            rows.length > 0 && (
               <>
-                <div className="flex items-center justify-between px-3 pb-1 pt-1 text-caption text-subtle">
-                  <span>{kind ? t('search.showing', { n: items.length, total: count(groups.find((g) => g.kind === kind) ?? { total: 0 }) }) : t('search.bestOfEach')}</span>
-                  <button type="button" className="flex items-center gap-1 rounded px-1 hover:text-title" onClick={() => setNewest((n) => !n)} data-search-sort>
-                    <ArrowDownUp className="size-3" />
-                    {newest ? t('search.sort.newest') : t('search.sort.best')}
-                  </button>
-                </div>
-                {items.map((item, i) => {
-                  const { hit } = item;
-                  const k = kindOf(item.kind);
-                  const where = whereOf(item);
+                {!typed && !kind && <p className="px-3 pb-2 pt-1 text-caption text-subtle">{t('palette.hint')}</p>}
+                {rows.map((row, i) => {
+                  const previous = rows[i - 1];
+                  const groupOf = (r: Row | undefined) => (r ? (r.kind === 'command' ? r.command.group : 'found') : '');
+                  const header = groupOf(row) !== groupOf(previous);
                   return (
-                    <button
-                      key={`${item.kind}:${hit.project ?? ''}:${hit.agent ?? ''}:${hit.id}`}
-                      type="button"
-                      role="option"
-                      aria-selected={i === active}
-                      data-search-hit={hit.id}
-                      data-search-active={i === active || undefined}
-                      className={cn('flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors', i === active ? 'bg-surface-raised' : 'hover:bg-surface-faint')}
-                      onClick={() => {
-                        setActive(i);
-                        input.current?.focus();
-                      }}
-                      onDoubleClick={() => open(item)}
-                    >
-                      <k.icon className={cn('mt-0.5 size-4 shrink-0', i === active ? 'text-brand-300' : 'text-subtle')} />
-                      <span className="grid min-w-0 flex-1 gap-0.5">
-                        <span className="flex min-w-0 items-baseline gap-2">
-                          <span className={cn('truncate text-ui text-primary', item.kind === T.SearchEvents && 'font-mono text-caption')}>
-                            <Marked text={plainText(hit.title)} query={asked} />
-                          </span>
-                          {hit.tag && <span className="max-w-[40%] shrink-0 truncate font-mono text-caption text-subtle">{hit.tag}</span>}
-                        </span>
-                        {hit.detail && (
-                          <span className="line-clamp-2 break-words text-caption leading-snug text-muted">
-                            <Marked text={plainText(hit.detail)} query={asked} />
-                          </span>
-                        )}
-                      </span>
-                      <span className="flex max-w-[34%] shrink-0 flex-col items-end gap-0.5 pt-0.5 text-caption text-subtle">
-                        {where.length > 0 && <span className="max-w-full truncate">{where.join(' · ')}</span>}
-                        {hit.at && <span className="text-faint">{timeAgo(hit.at)}</span>}
-                      </span>
-                    </button>
+                    <div key={rowKey(row)}>
+                      {header &&
+                        (row.kind === 'command' ? (
+                          <div className="px-3 pb-1 pt-2 text-caption font-semibold uppercase tracking-[0.08em] text-subtle" data-palette-group={row.command.group}>
+                            {t(row.command.group === 'actions' ? 'palette.group.actions' : 'palette.group.settings')}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between px-3 pb-1 pt-2 text-caption text-subtle">
+                            <span>{kind ? t('search.showing', { n: items.length, total: countOf(groups.find((g) => g.kind === kind) ?? { total: 0 }) }) : t('search.bestOfEach')}</span>
+                            <button type="button" className="flex items-center gap-1 rounded px-1 hover:text-title" onClick={() => setNewest((n) => !n)} data-search-sort>
+                              <ArrowDownUp className="size-3" />
+                              {newest ? t('search.sort.newest') : t('search.sort.best')}
+                            </button>
+                          </div>
+                        ))}
+                      {row.kind === 'command' ? (
+                        <CommandRow
+                          command={row.command}
+                          query={commandsOnly(query).rest}
+                          on={i === active}
+                          forWhom={actionFor(row.command)}
+                          onClick={() => {
+                            setActive(i);
+                            input.current?.focus();
+                          }}
+                          onRun={() => run(row.command)}
+                        />
+                      ) : (
+                        <FoundRow
+                          item={row.item}
+                          query={asked}
+                          on={i === active}
+                          where={whereOf(row.item)}
+                          onClick={() => {
+                            setActive(i);
+                            input.current?.focus();
+                          }}
+                          onOpen={() => open(row.item)}
+                        />
+                      )}
+                    </div>
                   );
                 })}
               </>
             )
           )}
         </div>
-        {current && asked !== '' && (
-          <Preview item={current} query={asked} where={whereOf(current)} agentTitle={agentTitle} onOpen={(find) => open(current, find)} />
+        {!picking && currentItem && asked !== '' && (
+          <Preview item={currentItem} query={asked} where={whereOf(currentItem)} agentTitle={agentTitle} onOpen={(find) => open(currentItem, find)} />
         )}
+        {!picking && currentCommand && <CommandPreview command={currentCommand} forWhom={actionFor(currentCommand)} onRun={(other) => run(currentCommand, other)} />}
       </div>
 
-      <div className="flex shrink-0 items-center gap-4 border-t border-line px-4 py-2 text-caption text-subtle">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-caption text-subtle">
         <span className="flex items-center gap-1.5">
           <kbd className="rounded border border-line px-1 font-mono">↑</kbd>
           <kbd className="rounded border border-line px-1 font-mono">↓</kbd>
@@ -338,16 +512,148 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
         </span>
         <span className="flex items-center gap-1.5">
           <kbd className="rounded border border-line px-1 font-mono">↵</kbd>
-          {t('search.keys.open')}
+          {picking || currentCommand?.group === 'actions' ? t('palette.keys.run') : t('search.keys.open')}
         </span>
-        {current?.kind === T.SearchChats && (
+        {currentItem?.kind === T.SearchChats && !picking && (
           <span className="flex items-center gap-1.5">
             <kbd className="rounded border border-line px-1 font-mono">⇧↵</kbd>
             {t('search.keys.find')}
           </span>
         )}
+        {currentCommand?.group === 'actions' && currentCommand.needs && !picking && (
+          <span className="flex items-center gap-1.5">
+            <kbd className="rounded border border-line px-1 font-mono">⇧↵</kbd>
+            {t(currentCommand.needs === 'agent' ? 'palette.keys.otherAgent' : 'palette.keys.otherProject')}
+          </span>
+        )}
+        {picking ? (
+          <span className="flex items-center gap-1.5">
+            <kbd className="rounded border border-line px-1 font-mono">Esc</kbd>
+            {t('palette.keys.back')}
+          </span>
+        ) : (
+          <>
+            <span className="flex items-center gap-1.5">
+              <kbd className="rounded border border-line px-1 font-mono">⇥</kbd>
+              {t('palette.keys.filter')}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <kbd className="rounded border border-line px-1 font-mono">&gt;</kbd>
+              {t('palette.keys.commandsOnly')}
+            </span>
+          </>
+        )}
       </div>
     </>
+  );
+}
+
+// CommandRow is an action or a setting in the list: what it does, where it
+// lives or whom it's for, and its own shortcut.
+function CommandRow({ command, query, on, forWhom, onClick, onRun }: { command: PaletteCommand; query: string; on: boolean; forWhom?: string; onClick: () => void; onRun: () => void }) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={on}
+      data-palette-command={command.id}
+      data-search-active={on || undefined}
+      className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors', on ? 'bg-surface-raised' : 'hover:bg-surface-faint')}
+      onClick={onClick}
+      onDoubleClick={onRun}
+    >
+      <command.icon className={cn('size-4 shrink-0', on ? 'text-brand-300' : 'text-subtle')} />
+      <span className="min-w-0 flex-1 truncate text-ui text-primary">
+        <Marked text={command.title} query={query} />
+      </span>
+      {(command.where || forWhom) && <span className="max-w-[40%] shrink-0 truncate text-caption text-subtle">{command.where ?? forWhom}</span>}
+      {command.group === 'actions' && command.keys && (
+        <span className="flex shrink-0 gap-0.5">
+          {command.keys.map((k) => (
+            <kbd key={k} className="rounded border border-line px-1 font-mono text-caption text-subtle">
+              {keyName(k)}
+            </kbd>
+          ))}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// CommandPreview is the command you're on, said in full: what it does, where
+// or on whom, and the keys that run it.
+function CommandPreview({ command, forWhom, onRun }: { command: PaletteCommand; forWhom?: string; onRun: (other: boolean) => void }) {
+  const t = useT();
+  const action = command.group === 'actions' ? command : undefined;
+  return (
+    <aside className="hidden w-[42%] min-w-0 shrink-0 flex-col border-l border-line bg-surface-faint md:flex" data-palette-preview={command.id}>
+      <div className="flex items-center gap-1.5 border-b border-line px-4 py-2.5 text-caption text-subtle">
+        {action ? <Zap className="size-3.5 shrink-0" /> : <SlidersHorizontal className="size-3.5 shrink-0" />}
+        <span className="truncate">{action ? t('palette.group.actions') : (command.where ?? t('palette.group.settings'))}</span>
+      </div>
+      <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-4 py-4 text-ui leading-relaxed">
+        <span className="flex items-center gap-2 font-medium text-title">
+          <command.icon className="size-4 shrink-0 text-brand-300" />
+          {command.title}
+        </span>
+        <p className="text-muted">{action ? t(`palette.${action.id}.about` as MessageKey) : t('palette.about.setting')}</p>
+        {command.keywords && !action && <p className="line-clamp-4 text-caption text-subtle">{command.keywords}</p>}
+        {forWhom && (
+          <p className="text-caption text-subtle" data-palette-for>
+            {action?.needs === 'agent' ? t('palette.for.agent', { name: forWhom }) : t('palette.for.project', { name: forWhom })}
+          </p>
+        )}
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-4 py-2.5">
+        <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-caption font-medium text-white hover:bg-brand-400" onClick={() => onRun(false)} data-palette-run>
+          {action ? t('palette.run') : t('palette.openSetting')}
+          <kbd className="font-mono text-caption opacity-80">↵</kbd>
+        </button>
+        {action?.needs && (
+          <button type="button" className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-caption text-muted hover:text-title" onClick={() => onRun(true)} data-palette-other>
+            {t(action.needs === 'agent' ? 'palette.keys.otherAgent' : 'palette.keys.otherProject')}
+            <kbd className="font-mono text-caption text-subtle">⇧↵</kbd>
+          </button>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+// FoundRow is one thing the daemon found.
+function FoundRow({ item, query, on, where, onClick, onOpen }: { item: SearchItem; query: string; on: boolean; where: string[]; onClick: () => void; onOpen: () => void }) {
+  const { hit } = item;
+  const k = kindOf(item.kind);
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={on}
+      data-search-hit={hit.id}
+      data-search-active={on || undefined}
+      className={cn('flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors', on ? 'bg-surface-raised' : 'hover:bg-surface-faint')}
+      onClick={onClick}
+      onDoubleClick={onOpen}
+    >
+      <k.icon className={cn('mt-0.5 size-4 shrink-0', on ? 'text-brand-300' : 'text-subtle')} />
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className={cn('truncate text-ui text-primary', item.kind === T.SearchEvents && 'font-mono text-caption')}>
+            <Marked text={plainText(hit.title)} query={query} />
+          </span>
+          {hit.tag && <span className="max-w-[40%] shrink-0 truncate font-mono text-caption text-subtle">{hit.tag}</span>}
+        </span>
+        {hit.detail && (
+          <span className="line-clamp-2 break-words text-caption leading-snug text-muted">
+            <Marked text={plainText(hit.detail)} query={query} />
+          </span>
+        )}
+      </span>
+      <span className="flex max-w-[34%] shrink-0 flex-col items-end gap-0.5 pt-0.5 text-caption text-subtle">
+        {where.length > 0 && <span className="max-w-full truncate">{where.join(' · ')}</span>}
+        {hit.at && <span className="text-faint">{timeAgo(hit.at)}</span>}
+      </span>
+    </button>
   );
 }
 

@@ -482,6 +482,14 @@ type Settings struct {
 	// CloneFolder is where a project added from a link is cloned when its
 	// request names no folder (CloneProjectRequest): ~/src until it is set.
 	CloneFolder string `json:"cloneFolder"`
+	// DefaultLeadEffort is how hard the lead's chat thinks, one of
+	// ClaudeEffortChoices, applied the way DefaultLeadModel is. Empty means
+	// Claude Code's own default.
+	DefaultLeadEffort string `json:"defaultLeadEffort"`
+	// DefaultLeadMode is the permission mode the lead's chat starts in, one of
+	// ClaudeModeChoices, applied the way DefaultLeadModel is. Empty means
+	// Claude Code's own default, which asks before edits.
+	DefaultLeadMode string `json:"defaultLeadMode"`
 	// ClaudeModelChoices is the model menu the Claude Code adapter last
 	// advertised for this account, plus AgentBox's own small pinned list
 	// (D69, marked in each choice's Description). The adapter's part is
@@ -507,6 +515,10 @@ type Settings struct {
 	// have none at all, so this is the levels Claude Code has been seen to
 	// name rather than a promise about any one model.
 	ClaudeEffortChoices []ChatOptionChoice `json:"claudeEffortChoices"`
+	// ClaudeModeChoices is the permission-mode menu the Claude Code adapter
+	// last advertised, remembered the same way, and empty until a Claude Code
+	// chat has started.
+	ClaudeModeChoices []ChatOptionChoice `json:"claudeModeChoices"`
 	// OpenCodeModelChoices is the model menu OpenCode last named, as
 	// "provider/model" ids. Like the Claude Code menus it is remembered rather
 	// than composed: it comes from an OpenCode chat's ACP session, or from
@@ -750,6 +762,11 @@ type UpdateSettingsRequest struct {
 	CloneFolder *string `json:"cloneFolder,omitempty"`
 	// DefaultClaudeEffort is "" to go back to AgentBox's own default.
 	DefaultClaudeEffort *string `json:"defaultClaudeEffort,omitempty"`
+	// DefaultLeadEffort and DefaultLeadMode are "" to go back to Claude
+	// Code's own default. Each is refused when the remembered menu doesn't
+	// have it.
+	DefaultLeadEffort *string `json:"defaultLeadEffort,omitempty"`
+	DefaultLeadMode   *string `json:"defaultLeadMode,omitempty"`
 	// DefaultCursorModel and DefaultCursorEffort are what new Cursor agents
 	// start on, in Cursor's own names; "" goes back to Cursor's Auto and the
 	// model's own default level.

@@ -104,6 +104,10 @@ type VMSwap struct {
 	// off, and when that can't be read cheaply (a Lima VM).
 	Total int64 `json:"total"`
 	Used  int64 `json:"used"`
+	// DiskUsed is how much of Used is on the swapfile rather than zram: the
+	// agents' memory paged to the VM's disk, which slows everything. 0 when
+	// it can't be read.
+	DiskUsed int64 `json:"diskUsed,omitempty"`
 }
 
 // VMSwapDefault is the swapfile `agentbox vm swap on` makes when it isn't
