@@ -1658,6 +1658,8 @@ let defaultsSettings = {
   defaultLeadModel: '',
   defaultLeadContextWindow: '',
   cloneFolder: '/home/you/src',
+  defaultLeadEffort: '',
+  defaultLeadMode: '',
   language: new URLSearchParams(location.search).get('lang') ?? 'en-US',
   timezone: 'Europe/Lisbon',
   mediaRetention: '1d',
@@ -1670,6 +1672,11 @@ let defaultsSettings = {
   claudeMenuKnown: true,
   defaultClaudeEffort: '',
   claudeEffortChoices: [],
+  claudeModeChoices: [
+    { value: 'default', name: 'Ask before edits' },
+    { value: 'acceptEdits', name: 'Accept edits' },
+    { value: 'bypassPermissions', name: 'Bypass permissions' },
+  ],
   openCodeModelChoices: [],
   openCodeReady: false,
   openCodeVersion: "1",
@@ -1762,6 +1769,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.firstRunDone) next.firstRun = false;
   if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
+  if (req.defaultLeadEffort !== undefined) next.defaultLeadEffort = req.defaultLeadEffort;
+  if (req.defaultLeadMode !== undefined) next.defaultLeadMode = req.defaultLeadMode;
   if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
   if (req.enforceAgentDefaults !== undefined) next.enforceAgentDefaults = req.enforceAgentDefaults;
   if (req.language !== undefined) next.language = req.language || 'en-US';

@@ -184,7 +184,7 @@ func (c *conversation) consolidate(ctx context.Context, ad *adapter, ask, kind s
 	defer c.mu.Unlock()
 	// This hidden prompt heads no turn to time its streamed text against, so
 	// its whole round trip is what's booked.
-	c.book(ad, kind, newID(), &res, time.Since(started).Milliseconds())
+	c.book(ad, kind, newID(), &res, time.Since(started).Milliseconds(), 0)
 	answer := ""
 	if c.capture != nil {
 		answer = c.capture.String()

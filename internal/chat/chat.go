@@ -1574,6 +1574,16 @@ type turn struct {
 	// generate: ACP's own messages carry no timing, so this is this turn's
 	// own clock on them as they arrive.
 	firstOutputAt, lastOutputAt time.Time
+	// generated is how long the turn's model has spent generating, tools and
+	// permissions left out, for the average TPS (D83): the time from each
+	// point the model was asked — the turn's start, a tool's result — or last
+	// streamed, to what it streams next. ACP carries no timing of its own,
+	// and claude-agent-acp doesn't pass the SDK's API time on. genFrom is
+	// where the next stretch starts, zero while a tool runs or a permission
+	// waits, when the model isn't generating. Only the main loop's own
+	// stream counts: a subagent is another session, on its own model.
+	generated time.Duration
+	genFrom   time.Time
 	// progressAt is when the adapter last sent anything while this turn ran,
 	// or the turn began, or somebody last answered it: the clock the daemon's
 	// stall watch reads (Progress).
@@ -1586,6 +1596,43 @@ type turn struct {
 	woken bool
 	// subagents is whether the turn started any subagent (subagents.go).
 	subagents bool
+}
+
+// streamed adds the stretch the model has been generating until now, when it
+// streamed something of its own: text, a thought, a tool call it is writing.
+func (t *turn) streamed(now time.Time) {
+	if !t.genFrom.IsZero() && now.After(t.genFrom) {
+		t.generated += now.Sub(t.genFrom)
+	}
+	t.genFrom = now
+}
+
+// asked starts a stretch: the model was given something to answer.
+func (t *turn) asked(now time.Time) { t.genFrom = now }
+
+// waits ends one without counting it: the model handed over to a tool or a
+// permission, at whatever it last streamed.
+func (t *turn) waits() { t.genFrom = time.Time{} }
+
+// toolUpdate times a main-loop tool_call or tool_call_update. A call the
+// model is writing streams its title and input, from the tool_call that
+// opens it (claude-agent-acp sends it as the call starts and refines it as
+// its input streams); in_progress is the tool running, and its progress
+// beats and output say nothing of the model; a result asks the model again.
+// With calls in parallel the last result is the one that counts, since
+// each one starts the stretch over.
+func (t *turn) toolUpdate(u acp.SessionUpdate, now time.Time) {
+	switch {
+	case u.Status == "completed" || u.Status == "failed" || u.Returned():
+		t.asked(now)
+	case u.Status == "in_progress":
+		if u.SessionUpdate == "tool_call" {
+			t.streamed(now) // codex-acp opens a call as it runs it
+		}
+		t.waits()
+	case u.SessionUpdate == "tool_call" || len(u.RawInput) > 0 || (u.Title != nil && *u.Title != "") || u.Kind != "":
+		t.streamed(now)
+	}
 }
 
 // generationMS is how long a turn took to generate: from its first to its
@@ -2240,6 +2287,15 @@ func (c *conversation) wanted(id string) (api.ChatOption, string, bool) {
 	if option.Category == "mode" {
 		value, ok = c.wantedMode(option) // plan.go
 	}
+	if !ok && id != "model" {
+		// A lead's default in Settings, for a setting its composer never
+		// chose. The model is left out: it is the lead's at launch already
+		// (launchSettings), like the window; and plan is never a default
+		// mode, only a toggle (plan.go).
+		if v := c.storedOption(id); v != "" && v != planChoice(option) {
+			value, ok = v, true
+		}
+	}
 	if !ok || value == option.Value {
 		return option, value, false
 	}
@@ -2333,6 +2389,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	}
 	// Read under the lock: conversation replaces c.agent on every call.
 	a := c.agent
+	t.asked(time.Now())
 	c.mu.Unlock()
 
 	var res acp.PromptResponse
@@ -2347,7 +2404,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	defer c.mu.Unlock()
 	// A turn that failed still spent what it spent before it did: its
 	// response is empty, so what is booked is the cost alone.
-	c.book(ad, state.TokensTurn, t.id, &res, generationMS(t))
+	c.book(ad, state.TokensTurn, t.id, &res, generationMS(t), t.generated.Milliseconds())
 	if err != nil {
 		if errors.Is(err, acp.ErrClosed) && c.turn == t && !t.cancelled {
 			ad.lostTurn = true
@@ -2753,7 +2810,7 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		// and it goes in the ledger now: there is no turn for it to wait for.
 		// Everything else is booked when its prompt answers.
 		if u.Cost != nil && c.turn == nil && !c.rolling && !h.ad.replaying {
-			c.book(h.ad, state.TokensBackground, newID(), nil, 0)
+			c.book(h.ad, state.TokensBackground, newID(), nil, 0, 0)
 		}
 		// And the result that ends a turn the session started by itself
 		// (background.go), which has no prompt call to answer.
@@ -2792,6 +2849,7 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	case "agent_thought_chunk":
 		c.appendText("thought", u.MessageID, u.Text())
 	case "tool_call", "tool_call_update":
+		c.turn.toolUpdate(u, time.Now())
 		c.updateTool(u)
 	case "plan":
 		c.updatePlan(u.Entries)
@@ -2869,6 +2927,11 @@ func (h handler) Request(method string, params json.RawMessage, reply func(any, 
 		return
 	}
 	c.progressed()
+	if req.SessionID == h.ad.sessionID || h.ad.subagents[req.SessionID] == nil {
+		// The main loop's model is done with the call it asks about: what it
+		// waits for now, the answer and then the tool, isn't generating.
+		c.turn.waits()
+	}
 	title := ""
 	if req.ToolCall.Title != nil {
 		title = *req.ToolCall.Title
@@ -2914,6 +2977,9 @@ func (h handler) Request(method string, params json.RawMessage, reply func(any, 
 func (c *conversation) appendText(kind, messageID, text string) {
 	if text == "" {
 		return
+	}
+	if c.turn != nil {
+		c.turn.streamed(time.Now())
 	}
 	if kind == "assistant" && c.turn != nil {
 		now := time.Now()
@@ -3358,6 +3424,7 @@ func (c *conversation) rememberChoices() {
 	case "claude":
 		categories[state.SettingClaudeModelChoices] = "model"
 		categories[state.SettingClaudeEffortChoices] = "thought_level"
+		categories[state.SettingClaudeModeChoices] = "mode"
 	case "opencode":
 		categories[state.SettingOpenCodeModelChoices] = "model"
 	case "gemini":
@@ -3375,6 +3442,11 @@ func (c *conversation) rememberChoices() {
 	}
 	c.mu.Unlock()
 	for key, choices := range menus {
+		if key == state.SettingClaudeModeChoices {
+			// Plan is a toggle beside the mode, not a level to default to
+			// (plan.go), so the menu Settings offers is the levels alone.
+			choices = slices.DeleteFunc(choices, func(ch api.ChatOptionChoice) bool { return ch.Kind == "plan" })
+		}
 		if key == state.SettingClaudeModelChoices {
 			// setOptions folds AgentBox's own pinned models into the live
 			// menu; they don't belong in what's remembered as the adapter's,

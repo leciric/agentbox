@@ -2536,6 +2536,69 @@ func TestTheLeadStartsOnTheLeadDefaults(t *testing.T) {
 	}
 }
 
+// TestTheLeadTakesItsEffortAndModeDefaults: the effort and permission mode in
+// Settings → Models reach a lead's chat whose composer chose neither, sent as
+// its session is set up, and the composer's own choice wins. An agent's chat
+// never reads them. The mode menu is remembered for Settings to offer.
+func TestTheLeadTakesItsEffortAndModeDefaults(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	ctx := context.Background()
+	for key, value := range map[string]string{
+		state.SettingDefaultLeadEffort: "high",
+		state.SettingDefaultLeadMode:   "bypassPermissions",
+	} {
+		if err := store.SetSetting(ctx, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lead := state.Agent{Project: "hello", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/hello"}
+	chose := state.Agent{Project: "chosen", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/chosen"}
+	if err := store.SaveChat(ctx, chose.Project, chose.Name, state.Chat{Options: map[string]string{"effort": "xhigh", "mode": "default"}}); err != nil {
+		t.Fatal(err)
+	}
+	// A default of plan, from before plan was a toggle, is no default at all.
+	planned := state.Agent{Project: "planned", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/planned"}
+	for _, c := range []struct {
+		a            state.Agent
+		effort, mode string
+	}{
+		{lead, "high", "bypassPermissions"},
+		{chose, "xhigh", "default"},
+		{testAgent, "default", "default"},
+		{planned, "high", "default"},
+	} {
+		if c.a.Project == planned.Project {
+			if err := store.SetSetting(ctx, state.SettingDefaultLeadMode, "plan"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f := newFakeTool(answerHello)
+		f.effort, f.plan = true, true
+		f.values["effort"], f.values["mode"] = "default", "default"
+		m, _ := newManager(t, store, f)
+		if _, err := m.Start(c.a); err != nil {
+			t.Fatal(err)
+		}
+		waitThread(t, m, c.a, c.a.Ref()+"'s effort and mode", func(th api.ChatThread) bool {
+			return th.Session.State == api.ChatReady && optionValue(th.Session, "effort") == c.effort && optionValue(th.Session, "mode") == c.mode
+		})
+		f.mu.Lock()
+		running := f.values["mode"]
+		f.mu.Unlock()
+		if running != c.mode {
+			t.Errorf("%s's tool runs mode %q, want %q", c.a.Ref(), running, c.mode)
+		}
+	}
+	menu, err := store.Setting(ctx, state.SettingClaudeModeChoices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.ChoiceValues(menu); !slices.Equal(got, []string{"default", "bypassPermissions"}) {
+		t.Errorf("the remembered mode menu = %v", got)
+	}
+}
+
 // A project's chat is started when it's opened, so its settings are there
 // before the first message; on a fresh installation no menu has been
 // remembered yet. A model chosen while the tool is still starting is kept and
