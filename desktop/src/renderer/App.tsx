@@ -595,13 +595,13 @@ export function App({ initial }: { initial?: View } = {}) {
   const shell = (
     <div className="flex h-full">
       <div className={cn("hidden", navDocksAtXl ? "xl:flex" : "lg:flex")}>
-          <SidebarV2
-            view={view}
-            onSelect={select}
-            onAddProject={() => setAddingProject(true)}
-            onNewAgent={setNewAgentProject}
+        <SidebarV2
+          view={view}
+          onSelect={select}
+          onAddProject={() => setAddingProject(true)}
+          onNewAgent={setNewAgentProject}
+        />
       </div>
-        </div>
       {navOpen && (
         <div className={cn("fixed inset-0 z-40 flex", navDocksAtXl ? "xl:hidden" : "lg:hidden")} data-nav-drawer>
           <div
