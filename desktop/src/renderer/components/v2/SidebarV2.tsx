@@ -22,7 +22,7 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
+import { Briefcase, Check, ClipboardCheck, MonitorPlay, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -41,7 +41,7 @@ import { arrange, hide, pinsAfterHide, sections, unhide, type Slot } from '../..
 import { drop as dropOn, listEnd, sectionsAside, stepTarget, type DropTarget, type SidebarList } from '../../lib/sidebar';
 import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
-import { useUiVerbs } from '../../lib/uiVerbs';
+import { useUiVerbs, verbOf } from '../../lib/uiVerbs';
 import { useGrace } from '../../lib/grace';
 import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, type Attention } from '../../lib/attention';
 import { useReviewHead } from '../../lib/inboxPages';
@@ -99,6 +99,14 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // Every agent's state and every count, the same reading the panel, its
   // Pull requests tab and Home make (lib/useAgentCounts.ts).
   const counts = useAgentCounts();
+  // The prototype navigation's verbs (lib/uiVerbs.ts) are rows here, each
+  // with the count that would make you go there.
+  const on = verbOf(view);
+  const badges = {
+    ask: counts.all.needs > 0 ? { count: counts.all.needs, tone: 'bg-amber-400 text-black' } : undefined,
+    watch: counts.all.working > 0 ? { count: counts.all.working, tone: 'bg-sky-400/90 text-black' } : undefined,
+    review: counts.all.review > 0 ? { count: counts.all.review, tone: 'bg-emerald-400 text-black' } : undefined,
+  };
   const kept = useV2Projects();
   const [q, setQ] = useState('');
   const filters: Filters = { st: kept.st, projects: kept.projects, q };
@@ -558,8 +566,17 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         onDragOver={(e: DragEvent) => !e.isDefaultPrevented() && dnd.draggingRef.current && dnd.aim(null)}
         onDragLeave={(e: DragEvent) => !e.currentTarget.contains(e.relatedTarget as Node | null) && dnd.aim(null)}
       >
-        <NewTaskRow />
-        <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} />
+        <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} badge={verbs ? badges.ask : undefined} />
+        {verbs ? (
+          // Home has its row; Watch, Review and New task share the next one.
+          <div className="mb-1 grid grid-cols-3 gap-1" data-v2-verbs>
+            <VerbTile verb="watch" icon={MonitorPlay} label={t('verbs.watch')} hint={t('verbs.watch.hint')} active={on === 'watch'} badge={badges.watch} onClick={() => onSelect({ kind: 'watch' })} />
+            <VerbTile verb="review" icon={ClipboardCheck} label={t('verbs.review')} hint={t('verbs.review.hint')} active={on === 'review'} badge={badges.review} onClick={() => onSelect({ kind: 'review' })} />
+            <VerbTile verb="new-task" icon={SquarePen} label={t('v2.sidebar.newTask')} hint={`${t('v2.sidebar.newTask')} (${shortcut('N')})`} onClick={openNewTask} />
+          </div>
+        ) : (
+          <NewTaskRow />
+        )}
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />
         {projects.data?.length === 0 && (
           <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
@@ -604,10 +621,11 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           across every project, the one open highlighted, and the update check.
           Home, the chat and its Status tab, heads the list above; which
           AgentBox this window drives is under Settings → General. With the
-          prototype navigation (lib/uiVerbs.ts) they're its verb bar's, Work
-          and Media in Review, Jobs in Settings: the update check is left. */}
+          prototype navigation (lib/uiVerbs.ts) Watch and Review head the list
+          with Home, Work and Media are in Review and Jobs in Settings: Settings
+          and the update check are left. */}
       <div className="flex items-center gap-1 border-t border-line p-2" data-v2-foot>
-        {(verbs ? [] : (
+        {(verbs ? ([{ kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready }] as const) : (
           [
             { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
             { kind: 'work', icon: Briefcase, label: t('work.title'), alert: false },
@@ -841,8 +859,47 @@ function NewTaskRow() {
   );
 }
 
+type VerbBadge = { count: number; tone: string };
+
+function CountBadge({ badge, verb }: { badge: VerbBadge; verb: string }) {
+  return (
+    <span className={cn('min-w-4 shrink-0 rounded-full px-1 text-center text-[10px] font-semibold tabular-nums leading-4', badge.tone)} data-verb-count={badge.count} data-verb-badge={verb}>
+      {badge.count > 99 ? '99+' : badge.count}
+    </span>
+  );
+}
+
+// VerbTile is Watch, Review or New task (lib/uiVerbs.ts), one of three
+// sharing a row under Home. Pressed again where you are, Watch and Review
+// go back to their start.
+function VerbTile({ verb, icon: Icon, label, hint, active, badge, onClick }: { verb: string; icon: LucideIcon; label: string; hint: string; active?: boolean; badge?: VerbBadge; onClick: () => void }) {
+  return (
+    <Tip label={hint}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        aria-current={active ? 'page' : undefined}
+        className={cn(
+          'relative flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-[11.5px] font-medium leading-none transition-colors hover:bg-surface hover:text-title focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+          active ? 'bg-surface-raised text-title' : 'text-secondary',
+        )}
+        data-verb={verb}
+      >
+        <Icon className={cn('size-4', active && 'text-brand-300')} />
+        <span className="max-w-full truncate">{label}</span>
+        {badge && (
+          <span className="absolute right-1 top-1">
+            <CountBadge badge={badge} verb={verb} />
+          </span>
+        )}
+      </button>
+    </Tip>
+  );
+}
+
 // HomeRow is the Home chat, across every project, with its last line.
-function HomeRow({ active, onClick }: { active: boolean; onClick: () => void }) {
+function HomeRow({ active, onClick, badge }: { active: boolean; onClick: () => void; badge?: VerbBadge }) {
   const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', A.HomeProject], queryFn: () => api.projectChat(A.HomeProject), refetchInterval: 60_000 });
   const line = leadLine(chat.data?.last);
@@ -860,6 +917,7 @@ function HomeRow({ active, onClick }: { active: boolean; onClick: () => void }) 
         </span>
         <span className="block truncate text-[11.5px] text-subtle">{line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.homeHint')}</span>
       </span>
+      {badge && <CountBadge badge={badge} verb="ask" />}
     </Lead>
   );
 }

@@ -2674,5 +2674,33 @@
     "query": "app=project&tabs=busy&theme=dark&android=1",
     "width": 1600,
     "height": 900
+  },
+  {
+    "id": "sidebar-verbs-on-light",
+    "description": "The v2 sidebar with Home, Watch, Review and New task (flag on) — light",
+    "query": "app=watch&v2=1&verbs=1&theme=light",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "sidebar-verbs-on-dark",
+    "description": "The v2 sidebar with Home, Watch, Review and New task (flag on) — dark",
+    "query": "app=watch&v2=1&verbs=1&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "sidebar-verbs-off-light",
+    "description": "The v2 sidebar with Home, Watch, Review and New task (flag off) — light",
+    "query": "app=watch&v2=1&verbs=0&theme=light",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "sidebar-verbs-off-dark",
+    "description": "The v2 sidebar with Home, Watch, Review and New task (flag off) — dark",
+    "query": "app=watch&v2=1&verbs=0&theme=dark",
+    "width": 1280,
+    "height": 800
   }
 ]
