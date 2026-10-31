@@ -350,6 +350,8 @@ func aiName(ai string) string {
 		return "OpenCode"
 	case "cursor":
 		return "Cursor"
+	case "gemini":
+		return "Gemini CLI"
 	}
 	return ai
 }

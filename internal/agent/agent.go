@@ -61,6 +61,9 @@ var Tools = map[string]Tool{
 	// Cursor runs through its SDK, which has no command line, so a Cursor
 	// agent has only the chat (interfaceFor).
 	"cursor": {},
+	// Gemini CLI's terminal interface is its TUI, and --yolo approves every
+	// tool call, which an autonomous agent's machine-as-sandbox allows.
+	"gemini": {Command: "gemini", Autonomous: "gemini --yolo"},
 	"none":   {},
 }
 
@@ -218,6 +221,18 @@ func (m *Manager) ChatChoices(ctx context.Context, ai string, model, effort *str
 		}
 		return nil
 	}
+	if ai == "gemini" {
+		// Gemini CLI has a model and no effort: its ACP mode offers no
+		// thinking setting. Its models aren't checked here either: the
+		// menu is the one its session names, which depends on the login.
+		if effort != nil {
+			return errors.New("the effort is a Claude Code and Cursor setting, and Gemini CLI agents have none: leave it out")
+		}
+		if model != nil && strings.TrimSpace(*model) == "" {
+			return errors.New("an empty model isn't a choice: leave it out to use the model Gemini CLI agents start on")
+		}
+		return nil
+	}
 	if ai != "claude" {
 		return fmt.Errorf("the model and the effort are Claude Code settings, and %s agents have none: leave them out", ai)
 	}
@@ -367,12 +382,13 @@ type CreateOptions struct {
 	// ClaudeAccount picks a stored Claude Code account for this agent;
 	// empty means the project's account, then the machine's default.
 	ClaudeAccount string
-	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
-	// do the same for the other tools; each only applies to an agent that
-	// runs its tool.
+	// CodexAccount, OpenCodeAccounts (provider → account), CursorAccount
+	// and GeminiAccount do the same for the other tools; each only applies
+	// to an agent that runs its tool.
 	CodexAccount     string
 	OpenCodeAccounts state.AccountMap
 	CursorAccount    string
+	GeminiAccount    string
 	// GitHubAccount picks a stored GitHub account for this agent; empty means
 	// the project's account, then the machine's default, then none.
 	GitHubAccount string
@@ -413,7 +429,7 @@ type CreateOptions struct {
 // Create builds an agent from the project's saved base, or from the base image.
 func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions) (state.Agent, error) {
 	if _, ok := Tools[opts.AI]; !ok {
-		return state.Agent{}, fmt.Errorf("unknown AI tool %q: use claude, codex, opencode, cursor or none", opts.AI)
+		return state.Agent{}, fmt.Errorf("unknown AI tool %q: use claude, codex, opencode, cursor, gemini or none", opts.AI)
 	}
 	if opts.FinishNotice != "" && opts.FinishNotice != state.FinishNoticesChat && opts.FinishNotice != state.FinishNoticesOff {
 		return state.Agent{}, fmt.Errorf("unknown finish notice %q: use chat or off, or leave it out to follow the project", opts.FinishNotice)
@@ -456,7 +472,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	}
 	// Before anything is copied: the agent needs a login for its AI tool, and
 	// a machine with the tool on it.
-	logins, err := m.CheckLogin(opts.AI, p, Logins{Claude: opts.ClaudeAccount, Codex: opts.CodexAccount, OpenCode: opts.OpenCodeAccounts, Cursor: opts.CursorAccount})
+	logins, err := m.CheckLogin(opts.AI, p, Logins{Claude: opts.ClaudeAccount, Codex: opts.CodexAccount, OpenCode: opts.OpenCodeAccounts, Cursor: opts.CursorAccount, Gemini: opts.GeminiAccount})
 	if err != nil {
 		return state.Agent{}, err
 	}
@@ -659,6 +675,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		CodexAccount:     pl.logins.Codex,
 		OpenCodeAccounts: pl.logins.OpenCode,
 		CursorAccount:    pl.logins.Cursor,
+		GeminiAccount:    pl.logins.Gemini,
 		GitHubAccount:    pl.githubAccount,
 		Interface:        pl.iface,
 		FinishNotice:     pl.finishNotice,
@@ -727,6 +744,21 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	// else none, which is Cursor's own Auto.
 	if a.AI == "cursor" {
 		options, err := m.cursorChatDefaults(ctx, pl.project, pl.model, pl.effort)
+		if err != nil {
+			return fail("chat defaults", err)
+		}
+		if len(options) > 0 {
+			if err := m.Store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: options}); err != nil {
+				return fail("chat defaults", err)
+			}
+		}
+	}
+
+	// Gemini CLI's model: the one chosen for this agent, else the project's,
+	// else the one Settings → Models names for new Gemini CLI agents, else
+	// none, which is Gemini CLI's own Auto.
+	if a.AI == "gemini" {
+		options, err := m.geminiChatDefaults(ctx, pl.project, pl.model)
 		if err != nil {
 			return fail("chat defaults", err)
 		}
@@ -996,6 +1028,11 @@ func (m *Manager) OpenCodeReady(ctx context.Context) (bool, error) {
 // in a machine that still lacks it), so only the sign-in decides.
 func (m *Manager) CursorReady() bool { return m.Creds.HasCursorLogin("") }
 
+// GeminiReady reports whether an agent could run Gemini CLI right now. Every
+// base image has it (or gets it from image.UpdateTools, and a chat installs
+// it in a machine that still lacks it), so only the login decides.
+func (m *Manager) GeminiReady() bool { return m.Creds.HasGeminiLogin("") }
+
 // setModeKind stores the permission mode a project starts its agents on, by
 // kind: plan is the chat's Plan toggle (chat/plan.go), on beside whatever
 // level the agent would have had, and any other kind is turned into its tool's
@@ -1037,6 +1074,27 @@ func (m *Manager) cursorChatDefaults(ctx context.Context, p state.Project, model
 		options["effort"] = strings.TrimSpace(*effort)
 	} else if v := strings.TrimSpace(defEffort); v != "" && model == nil {
 		options["effort"] = v
+	}
+	return options, nil
+}
+
+// geminiChatDefaults is the chat options a new Gemini CLI agent of p starts
+// with: the model chosen for it, else the project's, else Settings → Models',
+// and the project's permission mode.
+func (m *Manager) geminiChatDefaults(ctx context.Context, p state.Project, model *string) (map[string]string, error) {
+	options := map[string]string{}
+	defModel, _, _, mode := p.AgentDefaults("gemini")
+	setModeKind(options, mode)
+	if defModel == "" {
+		var err error
+		if defModel, err = m.Store.Setting(ctx, state.SettingDefaultGeminiModel); err != nil {
+			return nil, err
+		}
+	}
+	if model != nil {
+		options["model"] = strings.TrimSpace(*model)
+	} else if v := strings.TrimSpace(defModel); v != "" {
+		options["model"] = v
 	}
 	return options, nil
 }
@@ -1296,6 +1354,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		file{home + "/.codex/config.toml", codexConfig, 0o600},
 		file{home + "/.config/opencode/opencode.json", string(opencodeConfig), 0o600},
 		file{home + "/" + cursorMCPFile, string(cursorMCPConfig(servers)), 0o600},
+		file{home + "/" + geminiSettingsFile, string(geminiSettings(servers, m.geminiAuthType(ctx, a))), 0o600},
 	)
 
 	text, err := m.brief(ctx, a, ip, envFiles, task)
@@ -1658,7 +1717,7 @@ func (m *Manager) blockFullSuite(ctx context.Context) bool {
 // tool, and the one Claude Code and Codex each read before their first token.
 func (m *Manager) briefPaths() []string {
 	home := "/home/" + m.User.Name
-	return []string{home + "/AGENTBOX.md", home + "/.claude/CLAUDE.md", home + "/.codex/AGENTS.md"}
+	return []string{home + "/AGENTBOX.md", home + "/.claude/CLAUDE.md", home + "/.codex/AGENTS.md", home + "/" + geminiBriefFile}
 }
 
 // EnvPath is the shell file every agent sources, with its Compose project name

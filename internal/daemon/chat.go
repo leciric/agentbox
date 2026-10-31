@@ -38,11 +38,15 @@ func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(stri
 	if err != nil {
 		return nil, err
 	}
+	auth, err := m.ChatAuth(ctx, a)
+	if err != nil {
+		return nil, err
+	}
 	proc, err := chat.StartCommand(cmd)
 	if err != nil {
 		return nil, err
 	}
-	proc.Notice, proc.Moved = where.notice, where.moved
+	proc.Notice, proc.Moved, proc.Auth = where.notice, where.moved, auth
 	return proc, nil
 }
 
@@ -199,7 +203,7 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		}
 		item := t.item
 		if a.IsLead() {
-			s.countFeature(agentFeature(a.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode, api.FeatureLeadTurnCursor))
+			s.countFeature(agentFeature(a.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode, api.FeatureLeadTurnCursor, api.FeatureLeadTurnGemini))
 		} else {
 			s.countFeature(api.FeatureAgentTurn)
 		}

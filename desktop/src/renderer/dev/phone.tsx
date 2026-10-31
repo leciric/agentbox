@@ -174,7 +174,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
     // Claude Code signed in, as on a computer the phone was paired from: or
     // every composer says to log in first, over a permission to give.
     if (method === 'GET' && route === '/v1/auth') {
-      return answer({ claude: true, codex: false, opencode: false, cursor: false, claudeAccounts: [{ name: 'default', default: true, savedAt: at(86_400_000) }], codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], github: true, githubAccounts: [] } satisfies T.AuthStatus);
+      return answer({ claude: true, codex: false, opencode: false, cursor: false, gemini: false, claudeAccounts: [{ name: 'default', default: true, savedAt: at(86_400_000) }], codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], geminiAccounts: [], github: true, githubAccounts: [] } satisfies T.AuthStatus);
     }
     const pullsOf = method === 'GET' ? /^\/v1\/projects\/([^/]+)\/pulls$/.exec(route) : null;
     if (pullsOf) return answer(pulls(decodeURIComponent(pullsOf[1])));

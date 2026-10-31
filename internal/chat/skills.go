@@ -20,8 +20,9 @@ import (
 //     earlier ones become `/name` inline, which the model still follows with
 //     its Skill tool.
 //   - Cursor invokes skills with `/name` anywhere.
-//   - OpenCode has no user-side invocation: its model loads a skill with its
-//     skill tool when told to, so the prompt says which.
+//   - OpenCode and Gemini CLI have no user-side invocation: the model loads a
+//     skill with its own tool (OpenCode's skill, Gemini CLI's activate_skill)
+//     when told to, so the prompt says which.
 //
 // A `$word` that isn't an installed skill's name stays as it is: `$HOME` in
 // prose must not become a command.
@@ -84,7 +85,7 @@ func skillPrompt(tool, text string, known map[string]bool) []string {
 		return []string{leading, command}
 	case "cursor":
 		return []string{slashes(text, mentions)}
-	case "opencode":
+	case "opencode", "gemini":
 		var names []string
 		seen := map[string]bool{}
 		for _, m := range mentions {

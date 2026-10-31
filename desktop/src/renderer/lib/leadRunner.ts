@@ -14,11 +14,12 @@ export function leadOn(agent: T.Agent, session?: T.ChatSession): T.Agent {
     claudeAccount: on('claude', agent.claudeAccount),
     codexAccount: on('codex', agent.codexAccount),
     cursorAccount: on('cursor', agent.cursorAccount),
+    geminiAccount: on('gemini', agent.geminiAccount),
   };
 }
 
-// RunnerChoice is one row of the picker: a tool, or Claude Code, Codex or
-// Cursor on one of the accounts the chat may use.
+// RunnerChoice is one row of the picker: a tool, or Claude Code, Codex,
+// Cursor or Gemini CLI on one of the accounts the chat may use.
 export interface RunnerChoice {
   tool: string;
   account: string; // '' for OpenCode, whose accounts are the project's, one per provider
@@ -73,13 +74,13 @@ export function fiveHour(reading: T.ClaudeLimit | undefined, now = Date.now()): 
 // runnerLabel names the picker's icon-only trigger, as its tooltip and label:
 // the tool, and the account when the chat runs on one.
 export function runnerLabel(tool: string, account?: string): string {
-  const name = tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'opencode' ? 'OpenCode' : tool === 'cursor' ? 'Cursor' : tool;
+  const name = tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'opencode' ? 'OpenCode' : tool === 'cursor' ? 'Cursor' : tool === 'gemini' ? 'Gemini CLI' : tool;
   return account ? t('chat.runner.labelAccount', { tool: name, account }) : t('chat.runner.label', { tool: name });
 }
 
 // accountTools are the tools whose account an agent's composer can change:
 // OpenCode's are one per provider, which the lead's switch_agent_account sets.
-export const accountTools = ['claude', 'codex', 'cursor'];
+export const accountTools = ['claude', 'codex', 'cursor', 'gemini'];
 
 // hasRoom says an account's reading leaves room in both its 5-hour and its
 // weekly window; an account with no reading may have room, and is offered.

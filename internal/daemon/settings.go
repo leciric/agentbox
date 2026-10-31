@@ -96,6 +96,12 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	// Gemini CLI's is stored as chosen too, for the same reason.
+	if req.DefaultGeminiModel != nil {
+		if err := s.store.SetSetting(r.Context(), state.SettingDefaultGeminiModel, strings.TrimSpace(*req.DefaultGeminiModel)); err != nil {
+			return err
+		}
+	}
 	// Cursor's are stored as chosen: its menu is the account's, and a model or
 	// level it doesn't offer is reported by the chat that tries it. Choosing
 	// a model clears an effort it didn't come with, since levels belong to
@@ -599,6 +605,20 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	// Gemini CLI's menu comes from its chats' sessions (rememberChoices) and,
+	// until one has run, from asking Gemini CLI on this machine.
+	geminiModels, err := s.rememberedMenu(r, state.SettingGeminiModelChoices)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	geminiReady := s.manager(nil).GeminiReady()
+	if geminiReady && len(geminiModels) == 0 {
+		s.refreshGeminiModels(false)
+	}
+	geminiModel, err := s.store.Setting(r.Context(), state.SettingDefaultGeminiModel)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	var lastPick api.AgentPick
 	if raw, err := s.store.Setting(r.Context(), state.SettingLastAgentPick); err != nil {
 		return api.Settings{}, err
@@ -764,6 +784,9 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		CursorReady:         cursorReady,
 		DefaultCursorModel:  cursorModel,
 		DefaultCursorEffort: cursorEffort,
+		GeminiModelChoices:  geminiModels,
+		GeminiReady:         geminiReady,
+		DefaultGeminiModel:  geminiModel,
 		LastAgentPick:       lastPick,
 		FirstRun:            firstRun,
 

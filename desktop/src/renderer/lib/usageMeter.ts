@@ -27,7 +27,7 @@ export interface MeterPick {
 //
 // Claude and Codex accounts have readings: claude-agent-acp relays Anthropic's
 // limits on usage_update, and the daemon reads Codex's off codex-acp's /status
-// after a Codex chat's turn. OpenCode and Cursor report none (noLimits), so
+// after a Codex chat's turn. OpenCode, Cursor and Gemini CLI report none (noLimits), so
 // their pick has no reading and the meter says so rather than vanishing. A
 // Codex account that hasn't had a turn since the daemon started has none yet
 // either.
@@ -57,7 +57,7 @@ export function pickMeter({ limits, codexLimits = [], project, agent, lead }: { 
 // noLimits is whether a tool has no source of usage limits at all, so the
 // meter shows a quiet "no usage limits reported" for it instead of nothing.
 export function noLimits(tool: string): boolean {
-  return tool === 'opencode' || tool === 'cursor';
+  return tool === 'opencode' || tool === 'cursor' || tool === 'gemini';
 }
 
 // projectLimits is the readings a project's Tokens tab shows: the account it

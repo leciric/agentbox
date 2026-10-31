@@ -21,6 +21,8 @@ func TestLookupFindsTheModelHoweverItsToolNamesIt(t *testing.T) {
 		"claude-opus-4-1-20250805":       "claude-opus-4-1",
 		"claude-3-5-haiku-20241022":      "claude-3-5-haiku",
 		"opencode/anthropic/gpt-5-codex": "gpt-5-codex",
+		// Gemini CLI's 3.1 Pro on an API key.
+		"gemini-3.1-pro-preview-customtools": "gemini-3.1-pro-preview",
 	} {
 		got, ok := Lookup(model)
 		if !ok || got != table[want] {

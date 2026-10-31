@@ -21,7 +21,7 @@ const withYou = '#c4b5fd';
 const panel = 'rgba(255,255,255,0.045)';
 const edge = 'rgba(255,255,255,0.09)';
 
-const aiNames: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' };
+const aiNames: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor', gemini: 'Gemini CLI' };
 
 export type CardOptions = { format: CardFormat; names: boolean };
 

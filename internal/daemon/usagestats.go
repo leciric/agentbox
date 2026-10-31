@@ -47,7 +47,7 @@ func (s *Server) countFeature(feature string) {
 // agentFeature is feature with the agent's AI tool on the end, for the
 // features counted per tool. A tool AgentBox doesn't know yet is counted as
 // Claude Code, its default, rather than inventing a key.
-func agentFeature(ai string, claude, codex, openCode, cursor string) string {
+func agentFeature(ai string, claude, codex, openCode, cursor, gemini string) string {
 	switch ai {
 	case "codex":
 		return codex
@@ -55,6 +55,8 @@ func agentFeature(ai string, claude, codex, openCode, cursor string) string {
 		return openCode
 	case "cursor":
 		return cursor
+	case "gemini":
+		return gemini
 	}
 	return claude
 }

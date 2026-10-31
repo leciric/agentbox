@@ -78,6 +78,7 @@ const needs: Record<FirstRunTool, MessageKey> = {
   codex: "firstRun.tool.needs.codex",
   opencode: "firstRun.tool.needs.opencode",
   cursor: "firstRun.tool.needs.cursor",
+  gemini: "firstRun.tool.needs.gemini",
 };
 
 // The steps of Setup the machine step waits for: everything agents can't

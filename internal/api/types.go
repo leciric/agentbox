@@ -68,13 +68,14 @@ type Project struct {
 	// GitHubAccount is the GitHub account this project's new agents use;
 	// empty means the machine's default account.
 	GitHubAccount string `json:"githubAccount"`
-	// CodexAccount and CursorAccount are the Codex and Cursor accounts this
-	// project's new agents and its chat use; empty means the machine's
+	// CodexAccount, CursorAccount and GeminiAccount are the Codex, Cursor and
+	// Gemini CLI accounts this project's new agents and its chat use; empty means the machine's
 	// default. OpenCodeAccounts is OpenCode's, one per provider (provider →
 	// account); a provider it leaves out gets that provider's default.
 	CodexAccount     string            `json:"codexAccount"`
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts"`
 	CursorAccount    string            `json:"cursorAccount"`
+	GeminiAccount    string            `json:"geminiAccount"`
 	// Autonomy is how much this project's chat does on its own: "ask" (propose
 	// and wait for you) or "on" (act, within a budget of turns).
 	Autonomy string `json:"autonomy"`
@@ -331,13 +332,14 @@ type UpdateProjectRequest struct {
 	// account, as it is after ClaudeAccount is applied.
 	ClaudeAccounts *[]string `json:"claudeAccounts,omitempty"`
 	GitHubAccount  *string   `json:"githubAccount,omitempty"` // "" goes back to the machine's default
-	// CodexAccount and CursorAccount pick the project's Codex and Cursor
-	// accounts, "" for the machine's default; OpenCodeAccounts replaces its
+	// CodexAccount, CursorAccount and GeminiAccount pick the project's
+	// Codex, Cursor and Gemini CLI accounts, "" for the machine's default; OpenCodeAccounts replaces its
 	// OpenCode account per provider. Agents already created keep theirs; the
 	// project's chat moves to them as its tool next starts.
 	CodexAccount     *string            `json:"codexAccount,omitempty"`
 	OpenCodeAccounts *map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    *string            `json:"cursorAccount,omitempty"`
+	GeminiAccount    *string            `json:"geminiAccount,omitempty"`
 	// MoveClaudeAgents, alongside ClaudeAccount, also moves the project's
 	// agents still on the account it replaces to the new one; ignored without
 	// ClaudeAccount, and when there's nothing on the old account to move.
@@ -409,11 +411,12 @@ type AddProjectRequest struct {
 	// UpdateProjectRequest.
 	ClaudeAccount string `json:"claudeAccount,omitempty"`
 	GitHubAccount string `json:"githubAccount,omitempty"`
-	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// CodexAccount, OpenCodeAccounts (provider → account), CursorAccount and GeminiAccount
 	// are its accounts for the other tools, the same way.
 	CodexAccount     string            `json:"codexAccount,omitempty"`
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
+	GeminiAccount    string            `json:"geminiAccount,omitempty"`
 	// CopyToLinux, in WSL, makes a Path on a Windows drive a clone of it in
 	// ~/src/<name> on the distro's own disk, and adds that clone instead of
 	// refusing the path (D91). Elsewhere it changes nothing.
@@ -545,6 +548,16 @@ type Settings struct {
 	// start on; "" is Cursor's Auto and the model's own default level.
 	DefaultCursorModel  string `json:"defaultCursorModel"`
 	DefaultCursorEffort string `json:"defaultCursorEffort"`
+	// GeminiModelChoices is the model menu Gemini CLI names, from a Gemini
+	// CLI chat's session or asked of Gemini CLI on this machine in the
+	// background; empty until one of those has answered.
+	GeminiModelChoices []ChatOptionChoice `json:"geminiModelChoices"`
+	// GeminiReady is true when agents have a Gemini CLI login, which is all a
+	// Gemini CLI agent needs: every base image has it.
+	GeminiReady bool `json:"geminiReady"`
+	// DefaultGeminiModel is what new Gemini CLI agents start on; "" is its
+	// Auto.
+	DefaultGeminiModel string `json:"defaultGeminiModel"`
 	// LastAgentPick is the tool, model and effort last picked in the app's
 	// New agent dialog, which it opens on next time in a project that names
 	// no tool of its own; empty before the first pick.
@@ -776,6 +789,9 @@ type UpdateSettingsRequest struct {
 	// model's own default level.
 	DefaultCursorModel  *string `json:"defaultCursorModel,omitempty"`
 	DefaultCursorEffort *string `json:"defaultCursorEffort,omitempty"`
+	// DefaultGeminiModel is what new Gemini CLI agents start on, in Gemini
+	// CLI's own ids; "" goes back to its Auto.
+	DefaultGeminiModel *string `json:"defaultGeminiModel,omitempty"`
 	// LastAgentPick remembers what the New agent dialog just created an agent
 	// with (Settings.LastAgentPick).
 	LastAgentPick *AgentPick `json:"lastAgentPick,omitempty"`
@@ -914,12 +930,13 @@ type Agent struct {
 	Source     string `json:"source"`
 	// ClaudeAccount is the Claude Code account whose token the agent holds.
 	ClaudeAccount string `json:"claudeAccount"`
-	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// CodexAccount, OpenCodeAccounts (provider → account), CursorAccount and GeminiAccount
 	// are the accounts whose login it was given for its tool, when it runs
 	// that tool.
 	CodexAccount     string            `json:"codexAccount,omitempty"`
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
+	GeminiAccount    string            `json:"geminiAccount,omitempty"`
 	// GitHubAccount is the GitHub account whose token the agent holds; empty
 	// means it has none.
 	GitHubAccount string `json:"githubAccount"`
@@ -1087,11 +1104,12 @@ type CreateAgentRequest struct {
 	StartAt string `json:"startAt,omitempty"`
 	// ClaudeAccount overrides the project's Claude Code account for this agent.
 	ClaudeAccount string `json:"claudeAccount,omitempty"`
-	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// CodexAccount, OpenCodeAccounts (provider → account), CursorAccount and GeminiAccount
 	// override the project's for an agent on that tool.
 	CodexAccount     string            `json:"codexAccount,omitempty"`
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
+	GeminiAccount    string            `json:"geminiAccount,omitempty"`
 	// GitHubAccount overrides the project's GitHub account for this agent.
 	GitHubAccount string `json:"githubAccount,omitempty"`
 	NoEnv         bool   `json:"noEnv,omitempty"`
@@ -1246,8 +1264,8 @@ type UpdateAgentRequest struct {
 }
 
 // AgentAccountRequest moves a running agent to another account of its AI
-// tool (the lead's switch_agent_account): Account for Claude Code, Codex or
-// Cursor, "" for the project's; OpenCodeAccounts, provider → account, laid
+// tool (the lead's switch_agent_account): Account for Claude Code, Codex,
+// Cursor or Gemini CLI, "" for the project's; OpenCodeAccounts, provider → account, laid
 // over the ones an OpenCode agent has.
 type AgentAccountRequest struct {
 	Account          string            `json:"account,omitempty"`
@@ -1655,15 +1673,20 @@ type AuthStatus struct {
 	// Cursor is true when agents are signed in to Cursor, with an API key or
 	// Cursor's browser sign-in; CursorEmail is whose account it is, when
 	// Cursor said.
-	Cursor         bool            `json:"cursor"`
-	CursorEmail    string          `json:"cursorEmail,omitempty"`
+	Cursor      bool   `json:"cursor"`
+	CursorEmail string `json:"cursorEmail,omitempty"`
+	// Gemini is true when agents have a Gemini CLI login, a Google sign-in or
+	// a Gemini API key; GeminiEmail is whose Google account, for a sign-in.
+	Gemini         bool            `json:"gemini"`
+	GeminiEmail    string          `json:"geminiEmail,omitempty"`
 	ClaudeAccounts []ClaudeAccount `json:"claudeAccounts"`
-	// CodexAccounts, OpenCodeAccounts and CursorAccounts are the stored logins
-	// for the other tools; Codex, OpenCode and Cursor say there is a default
-	// one agents can use.
+	// CodexAccounts, OpenCodeAccounts, CursorAccounts and GeminiAccounts are
+	// the stored logins for the other tools; Codex, OpenCode, Cursor and
+	// Gemini say there is a default one agents can use.
 	CodexAccounts    []ToolAccount `json:"codexAccounts"`
 	OpenCodeAccounts []ToolAccount `json:"openCodeAccounts"`
 	CursorAccounts   []ToolAccount `json:"cursorAccounts"`
+	GeminiAccounts   []ToolAccount `json:"geminiAccounts"`
 	// GitHub is true when at least one GitHub account is stored.
 	GitHub         bool            `json:"github"`
 	GitHubAccounts []GitHubAccount `json:"githubAccounts"`
@@ -1712,10 +1735,10 @@ type GitHubTokenRequest struct {
 	Account string `json:"account,omitempty"`
 }
 
-// ToolAccount is one stored Codex, OpenCode or Cursor login agents can be
-// given.
+// ToolAccount is one stored Codex, OpenCode, Cursor or Gemini CLI login
+// agents can be given.
 type ToolAccount struct {
-	Tool string `json:"tool"` // codex, opencode or cursor
+	Tool string `json:"tool"` // codex, opencode, cursor or gemini
 	// Provider is the OpenCode provider it signs in to ("anthropic"); empty
 	// for Codex and Cursor.
 	Provider string `json:"provider,omitempty"`
@@ -1724,8 +1747,8 @@ type ToolAccount struct {
 	// neither the agent nor its project names one.
 	Default bool      `json:"default"`
 	SavedAt time.Time `json:"savedAt"`
-	// Kind is how it signs in: apikey, chatgpt (Codex), oauth or wellknown
-	// (OpenCode's), empty when its file doesn't say.
+	// Kind is how it signs in: apikey, chatgpt (Codex), google (Gemini CLI),
+	// oauth or wellknown (OpenCode's), empty when its file doesn't say.
 	Kind string `json:"kind,omitempty"`
 	// Email is whose account it is, when its file says.
 	Email string `json:"email,omitempty"`
@@ -3756,6 +3779,7 @@ const (
 	FeatureAgentCreateCodex    = "agent.create.codex"
 	FeatureAgentCreateOpenCode = "agent.create.opencode"
 	FeatureAgentCreateCursor   = "agent.create.cursor"
+	FeatureAgentCreateGemini   = "agent.create.gemini"
 	FeatureAgentCreateByLead   = "agent.create.by_lead"
 	FeatureAgentDestroy        = "agent.destroy"
 	FeatureAgentRetire         = "agent.retire"
@@ -3771,6 +3795,7 @@ const (
 	FeatureLeadTurnCodex       = "lead.turn.codex"
 	FeatureLeadTurnOpenCode    = "lead.turn.opencode"
 	FeatureLeadTurnCursor      = "lead.turn.cursor"
+	FeatureLeadTurnGemini      = "lead.turn.gemini"
 	FeatureAgentCreateModel    = "agent.create.model"
 	FeatureAgentCreateEffort   = "agent.create.effort"
 	FeatureAgentCreateContext  = "agent.create.context"

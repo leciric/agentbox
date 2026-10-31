@@ -23,7 +23,7 @@ Each project's data comes in kinds, each of which you can leave out:
 | `secrets` | Its secrets, only when asked for |
 
 Logins are only exported when asked for, each on its own: GitHub accounts, and the Claude Code,
-Codex, OpenCode and Cursor accounts AgentBox keeps.
+Codex, OpenCode, Cursor and Gemini CLI accounts AgentBox keeps.
 
 Machines, images and worktrees are never in it: the other AgentBox makes them again. Uncommitted
 changes in a repository aren't either, bundled or not.

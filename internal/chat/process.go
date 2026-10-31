@@ -35,6 +35,10 @@ type Process struct {
 	// Moved says it runs on another machine than the adapter before it, which
 	// keeps the session: it starts a new one, told the conversation.
 	Moved bool
+	// Auth, when set, is sent as authenticate once the adapter has answered
+	// initialize, before any session: how a Gemini CLI API key reaches the
+	// tool without being in its environment.
+	Auth *acp.AuthenticateRequest
 }
 
 // sessionCwd is where a session of a's on proc starts.

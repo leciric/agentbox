@@ -28,7 +28,7 @@ func toolAgentFixture(t *testing.T, f fixture, ai string, edit func(*state.Agent
 	if err := f.st.AddAgent(context.Background(), a); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.st.SetAgentToolAccounts(context.Background(), a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount); err != nil {
+	if err := f.st.SetAgentToolAccounts(context.Background(), a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount); err != nil {
 		t.Fatal(err)
 	}
 	return a

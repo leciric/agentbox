@@ -1,4 +1,4 @@
-import { Bot, LoaderCircle, MousePointer2, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
+import { Bot, Gem, LoaderCircle, MousePointer2, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
 import { type Mood, useMood } from '../lib/agentStatus';
 import { t, useT, type MessageKey } from '../lib/i18n';
 import { cn } from '../lib/utils';
@@ -85,20 +85,21 @@ export function JobStatusBadge({ status }: { status: string }) {
   );
 }
 
-const aiLabels: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' };
+const aiLabels: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor', gemini: 'Gemini CLI' };
 
 export function aiLabel(ai: string): string {
   return aiLabels[ai] ?? t('agent.ai.shellOnly');
 }
 
 export function AIIcon({ ai, className }: { ai: string; className?: string }) {
-  const Icon = ai === 'claude' ? Sparkles : ai === 'codex' ? Bot : ai === 'opencode' ? Terminal : ai === 'cursor' ? MousePointer2 : SquareTerminal;
+  const Icon = ai === 'claude' ? Sparkles : ai === 'codex' ? Bot : ai === 'opencode' ? Terminal : ai === 'cursor' ? MousePointer2 : ai === 'gemini' ? Gem : SquareTerminal;
   return <Icon className={className} />;
 }
 
 // ToolMark is an AI tool's own mark, small and at rest, for a picker or a
 // row: Claude Code's Clawd, Codex's cloud and OpenCode's frame, as the agents'
-// tiles draw them, and Cursor's cube, which has no character.
+// tiles draw them, Cursor's cube, which has no character, and Gemini CLI's
+// plain icon (AIIcon), which has neither.
 export function ToolMark({ ai, className }: { ai: string; className?: string }) {
   if (hasCharacter(ai)) return <AgentCharacter ai={ai} mood="idle" className={cn('inline-block size-5 shrink-0', className)} />;
   if (ai === 'cursor') {

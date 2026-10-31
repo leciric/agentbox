@@ -62,6 +62,7 @@ const originIcons: Record<SkillOrigin | 'agentbox', LucideIcon> = {
   agents: Bot,
   opencode: Code2,
   cursor: Code2,
+  gemini: Sparkles,
   folder: Folder,
   git: GitBranch,
 };
@@ -77,6 +78,7 @@ function useOriginLabel() {
       agents: '~/.agents',
       opencode: 'OpenCode',
       cursor: 'Cursor',
+      gemini: 'Gemini CLI',
       folder: t('skills.origin.folder'),
       git: t('skills.origin.git'),
     })[origin];

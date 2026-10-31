@@ -594,6 +594,7 @@ func leadEnv(t *testing.T, f fixture, a state.Agent) map[string]string {
 	for _, path := range []string{
 		filepath.Join(f.m.Paths.Tools(), ".local", "bin", "claude"),
 		filepath.Join(f.m.Paths.Tools(), "node_modules", ".bin", "claude-agent-acp"),
+		filepath.Join(f.m.Paths.Tools(), "node_modules", ".bin", "gemini"),
 		f.m.GHPath(),
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -623,6 +624,26 @@ func TestLeadChatReportsTheAgentboxEntrypoint(t *testing.T) {
 	}
 	if got := leadEnv(t, f, a)["CLAUDE_CODE_ENTRYPOINT"]; got != "agentbox" {
 		t.Errorf("the lead's CLAUDE_CODE_ENTRYPOINT is %q", got)
+	}
+}
+
+// A lead on Gemini CLI keeps it in the process the chat stops
+// (geminiNoRelaunch); other tools aren't told.
+func TestLeadGeminiDoesntRelaunchItself(t *testing.T) {
+	f := leadFixture(t)
+	a, err := f.m.EnsureLead(context.Background(), "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := leadEnv(t, f, a)["GEMINI_CLI_NO_RELAUNCH"]; ok {
+		t.Error("a Claude Code lead is told GEMINI_CLI_NO_RELAUNCH")
+	}
+	if err := f.m.Creds.SaveToolAccount("gemini", "", "", []byte(`{"GEMINI_API_KEY":"AIza-test"}`)); err != nil {
+		t.Fatal(err)
+	}
+	a.AI = "gemini"
+	if got := leadEnv(t, f, a)["GEMINI_CLI_NO_RELAUNCH"]; got != "1" {
+		t.Errorf("the Gemini CLI lead's GEMINI_CLI_NO_RELAUNCH is %q", got)
 	}
 }
 

@@ -19,7 +19,7 @@ container of its own.
   `agentbox/<slug>` (prefix configurable, `internal/agent/branch.go`), its own network and a tmux
   terminal with its AI tool running. A project's **lead** is its chat: it runs on the host with no
   machine, directs the agents over MCP and never does the work itself.
-- **Three AI tools**: Claude Code, Codex and OpenCode, driven by the app's chat through **ACP**
+- **Five AI tools**: Claude Code, Codex, OpenCode, Cursor and Gemini CLI, driven by the app's chat through **ACP**
   adapters (`internal/acp`, `ChatAdapters` in `internal/agent/chat.go`, D40).
 - **Project memory** (`internal/memory`, D72): events, memories, tasks, artifacts and reports in the
   same database, searched with FTS5; no model calls or embeddings in the store. Capture from the

@@ -118,6 +118,9 @@ func (s *Server) launchHome(ctx context.Context, m *agent.Manager, a state.Agent
 	case a.AI == "codex" && !host.Login:
 		return nil, s.homePlaced(a.Ref(), "vm:login:codex",
 			"Codex isn't signed in on your computer (codex login), so the Home chat runs in AgentBox's VM.")
+	case a.AI == "gemini" && !host.Login && !s.homeGeminiKey(a):
+		return nil, s.homePlaced(a.Ref(), "vm:login:gemini",
+			"Gemini CLI isn't signed in on your computer (run gemini once and sign in), so the Home chat runs in AgentBox's VM.")
 	}
 	spec, err := m.HostHomeSpec(ctx, a, info)
 	if err != nil {
@@ -185,4 +188,12 @@ func acpServers(in []homehost.MCPServer) []acp.McpServer {
 		out = append(out, acp.McpServer{Name: s.Name, Command: s.Command, Args: s.Args, Env: env})
 	}
 	return out
+}
+
+// homeGeminiKey reports whether the Home chat's Gemini CLI account is an API
+// key, which the host's Gemini CLI can be given in its environment when it has
+// no login of its own (agent.HostHomeSpec).
+func (s *Server) homeGeminiKey(a state.Agent) bool {
+	login, ok := s.manager(nil).Creds.GeminiLogin(a.GeminiAccount)
+	return ok && login.APIKey != ""
 }

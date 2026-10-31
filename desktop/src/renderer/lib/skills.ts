@@ -107,7 +107,7 @@ export function skillHue(name: string): number {
 }
 
 // The places a skill can come from, in the order the import dialog lists them.
-export const skillOrigins = ['claude', 'claude-plugin', 'codex', 'agents', 'opencode', 'cursor', 'folder', 'git'] as const;
+export const skillOrigins = ['claude', 'claude-plugin', 'codex', 'agents', 'opencode', 'cursor', 'gemini', 'folder', 'git'] as const;
 export type SkillOrigin = (typeof skillOrigins)[number];
 
 // originOf reads a stored skill's source back into where it came from.

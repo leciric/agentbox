@@ -555,6 +555,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		ModelMenu:            models,
 		OpenCodeMenu:         openCodeModels,
 		CursorReady:          m.CursorReady(),
+		GeminiReady:          m.GeminiReady(),
 		ClaudeAccounts:       accountNames,
 		CanSpawn:             socket != "",
 		AgentPRs:             p.AgentPRs,

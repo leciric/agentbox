@@ -208,6 +208,8 @@ var sessionDirs = map[string][]string{
 	"opencode": {".local/share/opencode"},
 	// Cursor's SDK keeps each workspace's agents under ~/.cursor/projects.
 	"cursor": {".cursor/projects"},
+	// Gemini CLI keeps each project's chats under ~/.gemini/tmp.
+	"gemini": {".gemini/tmp"},
 }
 
 // MigrateOptions are migrateCHV's.

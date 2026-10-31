@@ -36,8 +36,8 @@ func TestChatRunnersOfferWhatIsSignedIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runners.Tool != "claude" || runners.Account != "default" || len(runners.Runners) != 4 {
-		t.Fatalf("runners = %+v, want Claude Code on default, four tools", runners)
+	if runners.Tool != "claude" || runners.Account != "default" || len(runners.Runners) != 5 {
+		t.Fatalf("runners = %+v, want Claude Code on default, five tools", runners)
 	}
 	byTool := map[string]api.LeadRunner{}
 	for _, r := range runners.Runners {

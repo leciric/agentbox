@@ -648,7 +648,7 @@ if (chat === 'limited') {
   });
   // Signed in, on both accounts, so the composer isn't the signed-out one.
   queryClient.setQueryData<T.AuthStatus>(['auth'], (auth) => ({
-    ...(auth ?? { claude: true, codex: false, opencode: false, cursor: false, codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], github: false, githubAccounts: [] }),
+    ...(auth ?? { claude: true, codex: false, opencode: false, cursor: false, gemini: false, codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], geminiAccounts: [], github: false, githubAccounts: [] }),
     claude: true,
     claudeAccounts: [{ name: 'personal', default: true, savedAt: personal.at }, { name: 'work', default: false, savedAt: work.at }],
   }));
@@ -1016,7 +1016,7 @@ function SeededFreeRun({ run }: { run: FreeRun }) {
 function AvatarRow({ mood, big = true }: { mood: Mood; big?: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'end', gap: 28 }}>
-      {['claude', 'codex', 'opencode', 'cursor', 'none'].map((ai) => (
+      {['claude', 'codex', 'opencode', 'cursor', 'gemini', 'none'].map((ai) => (
         <figure key={ai} style={{ display: 'grid', justifyItems: 'center', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <AgentAvatar ai={ai} mood={mood} state={moodState[mood]} seed={`${ai}-${mood}`} />

@@ -50,6 +50,7 @@ const agent = (name: string, title: string, ai: string, chat: string, createdMin
     codexAccount: '',
     openCodeAccounts: {},
     cursorAccount: '',
+    geminiAccount: '',
     interface: ai,
     state: 'running',
     ip: '',

@@ -715,7 +715,7 @@ export const api = {
   saveCursorKey: (apiKey: string, account?: string) =>
     call<T.CursorKeyResponse>('POST', '/v1/auth/cursor', { apiKey, account } satisfies T.CursorKeyRequest),
   startCursorLogin: (account?: string) => call<T.CursorLogin>('POST', '/v1/auth/cursor/login', { account } satisfies T.CursorLoginRequest),
-  // Codex, OpenCode and Cursor accounts: an API key stored under a name
+  // Codex, OpenCode, Cursor and Gemini CLI accounts: an API key stored under a name
   // (OpenCode's for a provider), and the stored ones managed like GitHub's.
   saveToolAccount: (tool: string, req: T.ToolAccountRequest) => call<void>('POST', `/v1/auth/accounts/${encodeURIComponent(tool)}`, req),
   removeToolAccount: (tool: string, account: string, provider?: string) =>
@@ -729,6 +729,12 @@ export const api = {
       { name } satisfies T.RenameToolAccountRequest,
     ),
   cursorLogin: () => call<T.CursorLogin>('GET', '/v1/auth/cursor/login'),
+  // Gemini CLI's Google sign-in from the app: the same "open this page, paste
+  // the code" flow as Claude Code's, run by the daemon as a job.
+  startGeminiLogin: (account?: string) => call<T.Job>('POST', '/v1/auth/gemini/login', { account } satisfies T.ClaudeLoginRequest),
+  geminiLogin: (job: string) => call<T.ClaudeLogin>('GET', `/v1/auth/gemini/login/${encodeURIComponent(job)}`),
+  geminiLoginCode: (job: string, code: string) =>
+    call<void>('POST', `/v1/auth/gemini/login/${encodeURIComponent(job)}/code`, { code } satisfies T.ClaudeLoginCodeRequest),
   saveClaudeToken: (token: string, account?: string) => call<void>('POST', '/v1/auth/claude', { token, account } satisfies T.ClaudeTokenRequest),
   // Logging in from the app: the daemon runs `claude setup-token` as a job, and
   // says which page to open while it waits for you to approve it.

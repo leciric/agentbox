@@ -23,7 +23,7 @@
 </p>
 
 Tell a project's **lead** what you want. It starts the agents the work needs, each one Claude
-Code, Codex, OpenCode or Cursor on **a Linux machine of its own**: its own branch and worktree,
+Code, Codex, OpenCode, Cursor or Gemini CLI on **a Linux machine of its own**: its own branch and worktree,
 Docker, ports and databases, and a desktop with a browser that you can watch live and take over.
 Agents test their work in the real app and keep screenshots and recordings as proof, so you
 review what they built, not their word for it, and merge from the same window. The lead answers
@@ -49,7 +49,7 @@ learned for the next agent. It all runs on your computer, and it's MIT-licensed.
   the project, and every new agent starts briefed on it.
 - **On your phone.** Pair a phone with a QR code to follow the lead and the agents live, answer
   their questions and merge ([docs/phone.md](docs/phone.md)).
-- **Four AI tools, your own accounts.** Claude Code, Codex, OpenCode and Cursor in the same chat,
+- **Five AI tools, your own accounts.** Claude Code, Codex, OpenCode, Cursor and Gemini CLI in the same chat,
   with tool calls, diffs, plans and subagents in one timeline. Use several Claude and GitHub
   accounts, and see what each agent spent in tokens.
 - **Local and open.** Agents run in a VM on your own computer, with the CPUs and memory you give it,
@@ -88,7 +88,7 @@ directs it. Checked against each product's own site and README in October 2026. 
 | Recordings and screenshots as proof of work | ✅ | — | — | — | — | — |
 | Diff and pull request review | ✅ | ✅ | ✅ | 🟡 diff view | ✅ | ✅ |
 | Phone | ✅ | ✅ iOS, Android | 🟡 Pro plan | — | — | ✅ ChatGPT app |
-| AI tools | Claude Code, Codex, OpenCode, Cursor | Claude, Codex, Cursor, OpenCode, Grok, Antigravity | Claude Code, Codex, Cursor, OpenCode | Claude Code, Codex, Gemini, Aider, OpenCode, Amp | 10+, Claude Code to Qwen Code | Codex |
+| AI tools | Claude Code, Codex, OpenCode, Cursor, Gemini CLI | Claude, Codex, Cursor, OpenCode, Grok, Antigravity | Claude Code, Codex, Cursor, OpenCode | Claude Code, Codex, Gemini, Aider, OpenCode, Amp | 10+, Claude Code to Qwen Code | Codex |
 | Runs | On your computer, in a VM | On your computer | On your Mac | In your terminal | On your computer | OpenAI's cloud |
 | Platforms | Linux; macOS, Windows in alpha | macOS, Windows, Linux, web | macOS | Wherever tmux runs | macOS, Linux, Windows | Web, apps, CLI |
 | License and price | MIT, free | MIT, free | Proprietary; free, Pro $50/mo | AGPL-3.0, free | Apache-2.0, free; [sunsetting](https://github.com/BloopAI/vibe-kanban) | Proprietary, with ChatGPT plans |
@@ -159,7 +159,7 @@ for agents.
   than Linux ([docs/install.md](docs/install.md#macos-and-windows-alpha)).
 - On Linux: Arch, Debian 12 or 13, Ubuntu 22.04 or newer, or Fedora; 8 GB of memory at least (each
   running agent uses 1–2 GB), 4 cores and 30 GB of free disk; `/dev/kvm`, for AgentBox's VM.
-- An account for the AI tool you use: Claude Code, Codex, OpenCode or Cursor.
+- An account for the AI tool you use: Claude Code, Codex, OpenCode, Cursor or Gemini CLI.
 - Remote environments go through a hub, a separate program that isn't open source; this
   repository carries only its side of the protocol, in [`hubapi/`](hubapi/).
 - Each [release](https://downloads.agentbox.linting.dev/index.html)'s notes list what it can't do yet

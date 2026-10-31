@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -113,6 +114,34 @@ func TestSpawnRefusesAMissingTool(t *testing.T) {
 	_, err := hub.Runner().Spawn(context.Background(), Spec{Tool: "claude"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "Claude Code isn't installed on this computer") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Gemini CLI on the user's computer stays in the process the chat started,
+// as an agent's and a lead's do, so stopping the chat stops it, and runs
+// without its OpenTelemetry; its settings.json goes into its folder.
+func TestGeminiStartsInItsOwnProcess(t *testing.T) {
+	dir := t.TempDir()
+	h := &Host{Dir: dir, Find: func() map[string]Tool { return map[string]Tool{"gemini": {Path: "/opt/bin/gemini"}} }}
+	cmd, err := h.command(context.Background(), Spec{Tool: "gemini", Files: map[string]string{".gemini/settings.json": "{}"}}, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(cmd.Args, " ") != "/opt/bin/gemini --acp" {
+		t.Errorf("args = %q", cmd.Args)
+	}
+	for _, want := range []string{"GEMINI_CLI_NO_RELAUNCH=1", "GEMINI_TELEMETRY_ENABLED=false"} {
+		if !slices.Contains(cmd.Env, want) {
+			t.Errorf("its environment lacks %s", want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".gemini", "settings.json")); err != nil {
+		t.Error(err)
+	}
+	// Other tools aren't told.
+	h.Find = func() map[string]Tool { return map[string]Tool{"opencode": {Path: "/opt/bin/opencode"}} }
+	if cmd, err = h.command(context.Background(), Spec{Tool: "opencode"}, func(string) {}); err != nil || slices.Contains(cmd.Env, "GEMINI_CLI_NO_RELAUNCH=1") {
+		t.Errorf("OpenCode: %v, %v", err, cmd)
 	}
 }
 

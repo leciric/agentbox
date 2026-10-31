@@ -73,6 +73,7 @@ const tools: { ai: string; label?: string; labelKey?: MessageKey; hint?: string;
   { ai: 'codex', label: 'Codex', hint: 'OpenAI' },
   { ai: 'opencode', label: 'OpenCode', hintKey: 'project.newAgent.tool.openSource' },
   { ai: 'cursor', label: 'Cursor', hintKey: 'project.newAgent.tool.cursor' },
+  { ai: 'gemini', label: 'Gemini CLI', hint: 'Google' },
   { ai: 'none', labelKey: 'project.newAgent.tool.shellOnly', hintKey: 'project.newAgent.tool.noAI' },
 ];
 
@@ -125,6 +126,8 @@ export function NewAgentDialog({
   // Cursor's own model ids, and the effort levels each one takes (most take
   // none). With no model picked, the one Settings names decides the levels.
   const cursorModels = settings.data?.cursorModelChoices ?? [];
+  // Gemini CLI's model ids, with "" for its own Auto; it has no effort.
+  const geminiModels = settings.data?.geminiModelChoices ?? [];
   // What the project names for agents on the tool picked, which the daemon
   // applies to whatever is left on its default (Project.agentTool).
   const projectDefaults = selected ? projectAgentDefaults(selected, form.ai) : { model: '', effort: '', window: '' };
@@ -160,7 +163,7 @@ export function NewAgentDialog({
         autonomous: form.autonomous,
         // Left out when nothing was picked, so the model and effort new agents
         // start on apply. "" would be a choice of no model at all, and is refused.
-        model: form.ai === 'claude' || form.ai === 'opencode' || form.ai === 'cursor' ? form.model || undefined : undefined,
+        model: form.ai === 'claude' || form.ai === 'opencode' || form.ai === 'cursor' || form.ai === 'gemini' ? form.model || undefined : undefined,
         effort: form.ai === 'claude' ? form.effort || undefined : form.ai === 'cursor' ? cursorEffort || undefined : undefined,
         contextWindow: form.ai === 'claude' ? contextWindow || undefined : undefined,
         from: form.from.trim() || undefined,
@@ -226,7 +229,8 @@ export function NewAgentDialog({
     (form.ai === 'claude' && auth.data?.claude === false) ||
     (form.ai === 'codex' && auth.data?.codex === false) ||
     (form.ai === 'opencode' && auth.data?.opencode === false) ||
-    (form.ai === 'cursor' && auth.data?.cursor === false);
+    (form.ai === 'cursor' && auth.data?.cursor === false) ||
+    (form.ai === 'gemini' && auth.data?.gemini === false);
   // An AI tool that is optional in the base image is no use until the image
   // has it: saying so here is the same answer the daemon would give, before
   // the form is filled in rather than after it is sent.
@@ -438,6 +442,20 @@ export function NewAgentDialog({
                       </Field>
                     )}
                   </div>
+                )}
+                {form.ai === 'gemini' && (
+                  <Field label={t('project.newAgent.modelLabel')} htmlFor="agent-gemini-model" hint={t('project.newAgent.geminiModelHint')}>
+                    <Select id="agent-gemini-model" value={form.model} onChange={(value) => set('model', value)}>
+                      <SelectOption value="">
+                        {projectDefaults.model ? t('project.newAgent.defaultOption', { value: settingLabel(geminiModels, projectDefaults.model, '') }) : t('project.newAgent.geminiDefault')}
+                      </SelectOption>
+                      {geminiModels.map((choice) => (
+                        <SelectOption key={choice.value} value={choice.value}>
+                          {choiceName(choice) || choice.value}
+                        </SelectOption>
+                      ))}
+                    </Select>
+                  </Field>
                 )}
                 {form.ai === 'claude' && (
                   <div className="grid grid-cols-2 gap-4">
