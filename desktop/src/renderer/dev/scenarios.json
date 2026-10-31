@@ -2646,5 +2646,33 @@
     "query": "app=settings&verbs=1&theme=dark",
     "width": 800,
     "height": 600
+  },
+  {
+    "id": "tabs-idle-agent",
+    "description": "agent-99, its panel on Terminal, with nothing in its contextual views: the switch without them, and its + — dark",
+    "query": "app=agent-99&panel=terminal:agent-99&tabs=idle&theme=dark",
+    "width": 1600,
+    "height": 900
+  },
+  {
+    "id": "tabs-busy-agent",
+    "description": "agent-99, its panel on Terminal, with something in every contextual view: all of them on the switch — dark",
+    "query": "app=agent-99&panel=terminal:agent-99&tabs=busy&theme=dark&android=1",
+    "width": 1600,
+    "height": 900
+  },
+  {
+    "id": "tabs-idle-project",
+    "description": "the lead, its panel home, with nothing in its contextual views: the switch without them, and its + — dark",
+    "query": "app=project&tabs=idle&theme=dark",
+    "width": 1600,
+    "height": 900
+  },
+  {
+    "id": "tabs-busy-project",
+    "description": "the lead, its panel home, with something in every contextual view: all of them on the switch — dark",
+    "query": "app=project&tabs=busy&theme=dark&android=1",
+    "width": 1600,
+    "height": 900
   }
 ]

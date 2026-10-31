@@ -25,10 +25,12 @@ import {
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
+import { LeadName } from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
 import { api, type AgentAction } from '../lib/api';
+import { composeIn } from '../lib/drafts';
 import { useChatOpenAt } from '../lib/reveal';
 import { useAgentPr, useAgentReview, type Wake } from './v2/ReviewV2';
 import { useT, type MessageKey } from '../lib/i18n';
@@ -102,6 +104,8 @@ export function AgentView({
   const android = useQuery({ queryKey: ['android', agentRef], queryFn: () => api.android(agentRef), enabled: agent?.state === 'running' });
   // Only Android projects get the tab, unless an emulator was started anyway.
   const hasAndroid = projects.data?.some((p) => p.name === agent?.project && p.android) || android.data?.running === true;
+  // v2's ⋯ names Snapshots and Android by what they start until there is something in them.
+  const snapshots = useQuery({ queryKey: ['snapshots', agentRef], queryFn: () => api.snapshots(agentRef), enabled: !!agent });
   // Its pull request, the one its review card and its row in the panel name too.
   const pr = useAgentPr({ ref: agentRef, project: refProject });
   const chatMenu = useChatMenu(agent && usesChat(agent) ? agent : undefined);
@@ -185,11 +189,11 @@ export function AgentView({
         {t('agent.tab.settings')}
       </MenuItem>
       <MenuItem icon={Camera} onSelect={() => onTab('snapshots')}>
-        {t('agent.tab.snapshots')}
+        {t((snapshots.data?.length ?? 0) > 0 ? 'agent.tab.snapshots' : 'agent.view.openSnapshots')}
       </MenuItem>
       {hasAndroid && (
         <MenuItem icon={Smartphone} onSelect={() => onTab('android')}>
-          {t('agent.tab.android')}
+          {t(android.data?.running ? 'agent.tab.android' : 'agent.view.openAndroid')}
         </MenuItem>
       )}
       <MenuMore label={t('common.more')}>
@@ -216,6 +220,11 @@ export function AgentView({
     );
   }
 
+  // Media's empty state asks the lead, in its chat, to have this agent record its work.
+  const askLead = () => {
+    composeIn(`${agent.project}/${LeadName}`, t('agent.mediaTab.askText', { agent: agent.name }));
+    onSelect({ kind: 'project', project: agent.project });
+  };
   const error = action.error ?? rename.error;
 
   // The header has the agent's title, its state as one badge, which opens its
@@ -296,13 +305,11 @@ export function AgentView({
           <TabsContent value="browser" className="flex flex-col">
             <BrowserTab agent={agent} onOpenMedia={() => onTab('media')} />
           </TabsContent>
-          {hasAndroid && (
-            <TabsContent value="android" className="flex flex-col">
-              <AndroidTab agent={agent} onOpenMedia={() => onTab('media')} onSetup={() => onSelect({ kind: 'settings' })} />
-            </TabsContent>
-          )}
+          <TabsContent value="android" className="flex flex-col">
+            <AndroidTab agent={agent} onOpenMedia={() => onTab('media')} onSetup={() => onSelect({ kind: 'settings' })} />
+          </TabsContent>
           <TabsContent value="media" className="flex flex-col">
-            <MediaView key={agent.ref} agent={agent} onSelect={onSelect} />
+            <MediaView key={agent.ref} agent={agent} onSelect={onSelect} onAskLead={askLead} />
           </TabsContent>
           <TabsContent value="settings" className="flex flex-col">
             <SettingsSections label={t('agent.view.settingsOf', { name: agent.title || agent.name })} sections={agentSettingsSections(t)} value={place.section} onValueChange={onTab}>
@@ -327,6 +334,7 @@ export function AgentView({
     </div>
   );
 }
+
 
 // The header's button for each lifecycle action lifecycleActions allows; the
 // one that brings the agent back is the primary.

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, Check, Circle, Download, Images, LoaderCircle, MousePointerClick, Star, StickyNote } from 'lucide-react';
+import { Camera, Check, Circle, Download, Images, LoaderCircle, MessagesSquare, MousePointerClick, Star, StickyNote } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -48,7 +48,7 @@ import { FilterChip, MediaCard, MediaSearch, MediaSelection, MediaViewer, MoreMe
 // home: an agent's Media tab (agent), a project's (project), the sidebar's
 // Media (neither). Links open it on a filter of their own with
 // requestMediaFilter (lib/mediaFilter.ts), as the rail's Pages does.
-export function MediaView({ agent, project, onSelect, heading }: { agent?: T.Agent; project?: string; onSelect?: (view: View) => void; heading?: boolean }) {
+export function MediaView({ agent, project, onSelect, heading, onAskLead }: { agent?: T.Agent; project?: string; onSelect?: (view: View) => void; heading?: boolean; onAskLead?: () => void }) {
   const t = useT();
   const home: MediaHome = agent ? { project: agent.project, agent: agent.name } : { project };
   const scopes = scopesOf(home);
@@ -257,9 +257,20 @@ export function MediaView({ agent, project, onSelect, heading }: { agent?: T.Age
           </div>
         ) : total === 0 && !filtered ? (
           own ? (
-            <AgentEmpty agent={agent} />
+            <AgentEmpty onAskLead={onAskLead} />
           ) : (
-            <EmptyState icon={Images} title={t('project.media.emptyTitle')}>
+            <EmptyState
+              icon={Images}
+              title={t('project.media.emptyTitle')}
+              action={
+                onAskLead && filter.project ? (
+                  <Button variant="primary" onClick={onAskLead}>
+                    <MessagesSquare />
+                    {t('agent.mediaTab.askLead')}
+                  </Button>
+                ) : undefined
+              }
+            >
               {filter.project ? t('project.media.emptyDescription', { project: who }) : t('shell.allMedia.emptyBody')}
             </EmptyState>
           )
@@ -484,33 +495,23 @@ function useCapture(agent: T.Agent) {
   return { shot, record, recording, isRecording, running };
 }
 
-// AgentEmpty is an agent's own Media before it has kept anything: how to.
-function AgentEmpty({ agent }: { agent: T.Agent }) {
+// AgentEmpty is an agent's own Media before it has kept anything: ask the lead.
+function AgentEmpty({ onAskLead }: { onAskLead?: () => void }) {
   const t = useT();
-  const { shot, record, running } = useCapture(agent);
   return (
     <EmptyState
       icon={Images}
       title={t('agent.mediaTab.emptyTitle')}
       action={
-        <>
-          <Button variant="primary" disabled={!running || shot.isPending} onClick={() => shot.mutate()}>
-            <Camera />
-            {t('agent.mediaTab.takeScreenshot')}
+        onAskLead ? (
+          <Button variant="primary" onClick={onAskLead}>
+            <MessagesSquare />
+            {t('agent.mediaTab.askLead')}
           </Button>
-          <Button disabled={!running || record.isPending} onClick={() => record.mutate()}>
-            <span className="size-2.5 rounded-full bg-rose-500" />
-            {t('agent.browser.recordScreen')}
-          </Button>
-        </>
+        ) : undefined
       }
     >
-      <p>{t('agent.mediaTab.emptyBody')}</p>
-      <pre className="mt-4 rounded-xl border border-line bg-well p-3.5 text-left font-mono text-caption leading-relaxed text-muted">
-        <span className="text-faint">$ </span>agentbox media screenshot --name checkout{'\n'}
-        <span className="text-faint">$ </span>agentbox media record start --name demo{'\n'}
-        <span className="text-faint">$ </span>agentbox media add playwright-report/
-      </pre>
+      {t('agent.mediaTab.emptyBody')}
     </EmptyState>
   );
 }
