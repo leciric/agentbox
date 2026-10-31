@@ -59,13 +59,17 @@ func (s *spend) take() float64 {
 // own: the response's tokens — none, for a turn that failed or a result no
 // prompt asked for — and the cost since the last booking. Nothing is written
 // when there is neither. generationMS is how long it took to generate, 0 when
-// nothing timed it (state.TokenRow.GenerationMS). The conversation is locked;
+// nothing timed it (state.TokenRow.GenerationMS), and timedMS how long its
+// main loop's model spent generating (turn.generated), 0 when nothing timed
+// that. The conversation is locked;
 // the write happens off the lock.
-func (c *conversation) book(ad *adapter, kind, turn string, res *acp.PromptResponse, generationMS int64) {
+func (c *conversation) book(ad *adapter, kind, turn string, res *acp.PromptResponse, generationMS, timedMS int64) {
 	model := optionValueOf(c.session.Options, "model")
 	var spent map[string]acp.Spent
+	var timed timing
 	if res != nil {
 		spent = res.ByModel(model)
+		timed = timing{output: res.MainOutput(), ms: timedMS}
 	}
 	cost := ad.spend.take()
 	rows := tokenRows(state.TokenRow{
@@ -78,17 +82,23 @@ func (c *conversation) book(ad *adapter, kind, turn string, res *acp.PromptRespo
 		Kind:    kind,
 		At:      c.m.now(),
 		Context: c.session.ContextUsed,
-	}, spent, model, cost, generationMS)
+	}, spent, model, cost, generationMS, timed)
 	if len(rows) > 0 {
 		go c.m.recordTokens(rows)
 	}
 }
 
+// timing is what a turn's main loop generated, in output tokens, and how
+// long its model took to, in milliseconds: what average TPS is measured on
+// (state.TokenRow.TimedOutput).
+type timing struct{ output, ms int64 }
+
 // tokenRows makes a turn's ledger rows: one per model, the busiest first,
-// carrying the turn's whole cost and generation time. A turn that reported a
+// carrying the turn's whole cost and generation time, and the main loop's
+// timing on the row of the model it ran on (mainRow). A turn that reported a
 // cost and no tokens — a failed turn, or a result the session made by itself —
 // is one row under the model the session was on.
-func tokenRows(base state.TokenRow, spent map[string]acp.Spent, fallback string, cost float64, generationMS int64) []state.TokenRow {
+func tokenRows(base state.TokenRow, spent map[string]acp.Spent, fallback string, cost float64, generationMS int64, timed timing) []state.TokenRow {
 	if len(spent) == 0 {
 		if cost <= 0 {
 			return nil
@@ -123,7 +133,32 @@ func tokenRows(base state.TokenRow, spent map[string]acp.Spent, fallback string,
 		}
 		rows = append(rows, row)
 	}
+	if timed.output > 0 && timed.ms > 0 {
+		i := mainRow(rows, fallback, timed.output)
+		rows[i].TimedOutput, rows[i].TimedMS = timed.output, timed.ms
+	}
 	return rows
+}
+
+// mainRow is which of a turn's rows, busiest first, its main loop ran on:
+// the model the session was set to, when the rows' full names contain it
+// ("sonnet" in claude-sonnet-5), else the busiest that output at least as
+// much as the main loop did — a subagent's model, on a smaller one, can't
+// have — else the busiest.
+func mainRow(rows []state.TokenRow, session string, output int64) int {
+	if session = strings.ToLower(session); session != "" {
+		for i, r := range rows {
+			if strings.Contains(strings.ToLower(r.Model), session) {
+				return i
+			}
+		}
+	}
+	for i, r := range rows {
+		if r.Output >= output {
+			return i
+		}
+	}
+	return 0
 }
 
 // recordTokens writes rows to the ledger. A row that can't be written is

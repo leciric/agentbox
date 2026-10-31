@@ -228,7 +228,7 @@ export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
               title={locked ? t('project.accounts.locked') : undefined}
               onClick={() => toggle(account.name)}
               className={cn(
-                'flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[13px] text-muted transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:cursor-default',
+                'flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-ui text-muted transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:cursor-default',
                 on && 'border-transparent bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]',
               )}
             >
@@ -424,7 +424,7 @@ export function OpenCodeAccountsPicker({ project }: { project: T.Project }) {
             const value = chosen[provider] ?? '';
             return (
               <div key={provider} className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="w-24 shrink-0 truncate font-mono text-[12px] text-secondary">{provider}</span>
+                <span className="w-24 shrink-0 truncate font-mono text-caption text-secondary">{provider}</span>
                 <div className="w-48 min-w-0">
                   <Select
                     aria-label={t('project.accounts.providerAria', { provider })}
@@ -473,7 +473,7 @@ export function ToolAccountState({ accounts, chosen, inline }: { accounts: T.Too
   }
   return (
     <span
-      className={cn('flex min-w-0 items-start gap-1.5 text-[12px] leading-snug', !inline && 'mt-1', tone === 'warning' ? 'text-amber-300' : 'text-subtle')}
+      className={cn('flex min-w-0 items-start gap-1.5 text-caption leading-snug', !inline && 'mt-1', tone === 'warning' ? 'text-amber-300' : 'text-subtle')}
       data-account-state={tone}
     >
       <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', tone === 'ok' ? 'bg-emerald-400' : tone === 'warning' ? 'bg-amber-400' : 'bg-faint')} />
@@ -503,7 +503,7 @@ export function ClaudeAccountState({ chosen }: { chosen: string }) {
   if (used !== null) parts.push(t('project.accounts.usage', { percent: Math.round(used * 100) }));
   const rejected = on.valid === 'rejected';
   return (
-    <span className={cn('mt-1 flex min-w-0 items-start gap-1.5 text-[12px] leading-snug', rejected ? 'text-amber-300' : 'text-subtle')} data-account-state={rejected ? 'warning' : 'ok'}>
+    <span className={cn('mt-1 flex min-w-0 items-start gap-1.5 text-caption leading-snug', rejected ? 'text-amber-300' : 'text-subtle')} data-account-state={rejected ? 'warning' : 'ok'}>
       <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', rejected ? 'bg-amber-400' : 'bg-emerald-400')} />
       <span className="min-w-0 break-words">{rejected ? t('project.accounts.rejectedState', { account: on.name }) : parts.join(' · ')}</span>
     </span>

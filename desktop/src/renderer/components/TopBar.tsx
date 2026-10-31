@@ -16,6 +16,7 @@ import { DiskGuardPill } from './DiskGuardPill';
 import { openSettingsSection } from './SettingsPage';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
+import { useCurrentSession } from './ProjectChatPanel';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 const backToLeadKeys = onMac ? '⌥←' : 'Alt+←';
@@ -24,13 +25,17 @@ export function TopBar({
   view,
   onSelect,
   onOpenNav,
+  navDocksAtXl,
   onSearch,
 }: {
   view: View;
   onSelect: (view: View) => void;
   // onOpenNav opens the sidebar's drawer, in a window too narrow for it to
-  // sit beside the page (App).
-  onOpenNav: () => void;
+  // sit beside the page (App); a page with no sidebar has no onOpenNav.
+  onOpenNav?: () => void;
+  // navDocksAtXl: the sidebar is a drawer up to xl, not lg, because the
+  // right-hand panel sits beside the page (App).
+  navDocksAtXl?: boolean;
   // onSearch opens the search palette; without it there's no search button.
   onSearch?: () => void;
 }) {
@@ -65,9 +70,22 @@ export function TopBar({
     case 'group':
       crumbs.push({ label: t('group.crumb') });
       break;
+    case 'watch': {
+      const agent = view.ref ? agents.data?.find((a) => a.ref === view.ref) : undefined;
+      crumbs.push({ label: t('verbs.watch'), view: view.ref ? { kind: 'watch', project: view.ref.split('/')[0] } : undefined });
+      if (view.ref) crumbs.push({ label: agent?.title || view.ref.split('/')[1], mono: !agent?.title });
+      break;
+    }
+    case 'review':
+      crumbs.push({ label: t('verbs.review') });
+      break;
+    case 'work':
+      if (view.project) crumbs.push({ label: projectLabel(view.project, projects.data), view: { kind: 'project', project: view.project } });
+      crumbs.push({ label: t('work.title') });
+      break;
     case 'pastAgents':
-      crumbs.push({ label: t('pastAgents.title'), view: view.ref ? { kind: 'pastAgents' } : undefined });
-      if (view.ref) crumbs.push({ label: view.ref.split('/')[1], mono: true });
+      crumbs.push({ label: t('work.title'), view: { kind: 'work' } });
+      crumbs.push({ label: view.ref.split('/')[1], mono: true });
       break;
     case 'agent': {
       const [project, name] = view.ref.split('/');
@@ -81,15 +99,17 @@ export function TopBar({
     // run off the edge: the breadcrumb takes what's left of the first, and
     // gives way to them only below 8rem.
     <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-3 py-2 md:gap-x-4 md:px-5" data-top-bar>
-      <button
-        aria-label={t('shell.top.openMenu')}
-        className="-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary lg:hidden"
-        onClick={onOpenNav}
-        data-open-nav
-      >
-        <MenuIcon className="size-5" />
-      </button>
-      <nav className="flex min-w-32 grow basis-0 items-center gap-1.5 text-[13px]" aria-label={t('shell.top.breadcrumb')}>
+      {onOpenNav && (
+        <button
+          aria-label={t('shell.top.openMenu')}
+          className={cn('-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary', navDocksAtXl ? 'xl:hidden' : 'lg:hidden')}
+          onClick={onOpenNav}
+          data-open-nav
+        >
+          <MenuIcon className="size-5" />
+        </button>
+      )}
+      <nav className="flex min-w-32 grow basis-0 items-center gap-1.5 text-ui" aria-label={t('shell.top.breadcrumb')}>
         {/* In an agent's chat, the way back to its lead's: ←, Alt+← (App), or the project's name. */}
         {crumbProject && view.kind === 'agent' && (
           <Tip label={`${t('v2.header.backToLead')} (${backToLeadKeys})`}>
@@ -114,7 +134,7 @@ export function TopBar({
                 {crumb.label}
               </button>
             ) : (
-              <span className={cn('truncate font-medium text-primary', crumb.mono && 'font-mono text-[12.5px]')}>{crumb.label}</span>
+              <span className={cn('truncate font-medium text-primary', crumb.mono && 'font-mono text-ui')}>{crumb.label}</span>
             )}
           </span>
         ))}
@@ -169,8 +189,8 @@ function SearchButton({ onClick }: { onClick: () => void }) {
       onClick={onClick}
     >
       <SearchIcon className="size-3.5" />
-      <span className="hidden text-[12px] md:inline">{t('common.search')}</span>
-      <kbd className="hidden whitespace-nowrap rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle md:inline">{shortcut('K')}</kbd>
+      <span className="hidden text-caption md:inline">{t('common.search')}</span>
+      <kbd className="hidden whitespace-nowrap rounded-md bg-surface-raised px-1.5 font-mono text-caption text-subtle md:inline">{shortcut('K')}</kbd>
     </button>
   );
 }
@@ -186,7 +206,8 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   const project = projectName ? projects.data?.find((p) => p.name === projectName) : undefined;
   // On a project's page, or Home, its chat's own tool and account: what the
   // composer chose spends there (RunnerPicker).
-  const chatOf = view.kind === 'project' ? project?.name : view.kind === 'home' || view.kind === 'homeChat' ? '_home' : undefined;
+  const session = useCurrentSession(view.kind === 'project' ? project?.name : undefined);
+  const chatOf = view.kind === 'project' ? session?.ref : view.kind === 'home' || view.kind === 'homeChat' ? `${T.HomeProject}/${T.LeadName}` : undefined;
   const runners = useQuery({ queryKey: ['chatRunners', chatOf], queryFn: () => api.chatRunners(chatOf!), enabled: !!chatOf, refetchInterval: 30_000 });
   const pick = pickMeter({ limits: limits.data ?? [], codexLimits: codexLimits.data ?? [], project, agent, lead: chatOf ? runners.data : undefined });
   const account = pick.reading;
@@ -198,7 +219,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   if ((!account || !five) && (noLimits(pick.tool) || codex)) {
     return (
       <span
-        className="hidden items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 text-[11.5px] text-faint ring-1 ring-inset ring-line sm:flex"
+        className="hidden items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 text-caption text-faint ring-1 ring-inset ring-line sm:flex"
         title={t('shell.top.noLimitsHint', { tool: toolName(pick.tool) })}
         data-usage-quiet={pick.tool}
       >
@@ -232,13 +253,13 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
           data-claude-account={account.account}
         >
           {codex ? <ToolMark ai="codex" className="!size-3.5" /> : <ClaudeMark />}
-          <span className="text-[12px] font-medium text-primary">{toolName(pick.tool)}</span>
-          <span className="text-[11px] text-muted">{fiveLeft ?? t('shell.top.fiveHourShort')}</span>
-          <span className={cn('font-mono text-[11px] font-semibold tabular-nums', limitText(fiveNow))}>{percent(fiveNow)}</span>
+          <span className="text-caption font-medium text-primary">{account.account && account.account !== 'default' ? account.account : toolName(pick.tool)}</span>
+          <span className="text-caption text-muted">{fiveLeft ?? t('shell.top.fiveHourShort')}</span>
+          <span className={cn('font-mono text-caption font-semibold tabular-nums', limitText(fiveNow))}>{percent(fiveNow)}</span>
           {week && (
             <span className="hidden items-center gap-1.5 md:flex">
-              <span className="text-[11px] text-muted">{t('shell.top.weekShort')}</span>
-              <span className={cn('font-mono text-[11px] tabular-nums', limitText(weekNow))}>{percent(weekNow)}</span>
+              <span className="text-caption text-muted">{t('shell.top.weekShort')}</span>
+              <span className={cn('font-mono text-caption tabular-nums', limitText(weekNow))}>{percent(weekNow)}</span>
             </span>
           )}
         </button>
@@ -246,22 +267,22 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
       <PopoverContent className="w-80">
         <div className="grid gap-3" data-claude-popover>
           <div className="grid gap-0.5">
-            <span className="flex items-center gap-2 text-[13px] font-medium text-primary">
+            <span className="flex items-center gap-2 text-ui font-medium text-primary">
               {codex ? <ToolMark ai="codex" className="!size-4" /> : <ClaudeMark className="size-4" />}
               {t(codex ? 'shell.top.codexTitle' : 'shell.top.claudeTitle', { account: account.account })}
             </span>
-            <span className="text-[11.5px] text-muted">{t(codex ? 'shell.top.codexWhose' : 'shell.top.claudeWhose', { whose: pick.whose })}</span>
+            <span className="text-caption text-muted">{t(codex ? 'shell.top.codexWhose' : 'shell.top.claudeWhose', { whose: pick.whose })}</span>
           </div>
           {account.windows.map((w) => (
             <LimitRow key={w.name} window={w} clock={clock} bar={codex ? 'bg-brand-500' : undefined} />
           ))}
           {fiveNow !== null && fiveNow > 0.85 && (
-            <span className="rounded-lg bg-rose-400/10 px-2.5 py-2 text-[11.5px] leading-relaxed text-rose-200 ring-1 ring-inset ring-rose-400/25">
+            <span className="rounded-lg bg-rose-400/10 px-2.5 py-2 text-caption leading-relaxed text-rose-200 ring-1 ring-inset ring-rose-400/25">
               {t(codex ? 'shell.top.codexAtLimit' : 'shell.top.claudeAtLimit', { left: fiveLeft ?? timeUntil(five.resetsAt, clock) })}
             </span>
           )}
           <OtherAccounts limits={(codex ? codexLimits.data : limits.data) ?? []} shown={account.account} clock={clock} />
-          <span className="text-[11px] text-faint">{t('shell.top.asOf', { ago: timeAgo(account.at) })}</span>
+          <span className="text-caption text-faint">{t('shell.top.asOf', { ago: timeAgo(account.at) })}</span>
         </div>
       </PopoverContent>
     </Popover>
@@ -286,9 +307,9 @@ export function LimitRow({ window: w, clock, bar = 'bg-claude' }: { window: T.Cl
   const tone = limitTone(now);
   return (
     <div className="grid gap-1" data-limit={w.name}>
-      <div className="flex items-baseline justify-between gap-3 text-[12px]">
+      <div className="flex items-baseline justify-between gap-3 text-caption">
         <span className="text-secondary">{w.label}</span>
-        <span className="font-mono text-[11px] tabular-nums">
+        <span className="font-mono text-caption tabular-nums">
           {now === null ? (
             <span className="text-faint">{t('shell.top.resetAgo', { ago: timeAgo(w.resetsAt) })}</span>
           ) : (
@@ -317,7 +338,7 @@ function OtherAccounts({ limits, shown, clock }: { limits: T.ClaudeLimit[]; show
   const others = limits.filter((l) => l.account !== shown);
   if (others.length === 0) return null;
   return (
-    <div className="grid gap-1 border-t border-line pt-2.5 text-[11.5px]">
+    <div className="grid gap-1 border-t border-line pt-2.5 text-caption">
       <span className="font-medium text-secondary">{t('shell.top.otherAccounts')}</span>
       {others.map((l) => (
         <span key={l.account} className="flex min-w-0 items-center justify-between gap-3 text-muted">

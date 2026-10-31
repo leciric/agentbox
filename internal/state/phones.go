@@ -64,6 +64,12 @@ const (
 	SettingLANTunnelHubToken    = "lan_tunnel_hub_token"
 	SettingLANTunnelHubHostname = "lan_tunnel_hub_hostname"
 	SettingLANTunnelHubFor      = "lan_tunnel_hub_for"
+	// SettingLANTunnelHubTransport is how the hub's address reaches this
+	// machine: hubapi.TransportCloudflare ("" too, as kept before Tailscale)
+	// or TransportTailscale, when the token is an auth key into the tailnet
+	// SettingLANTunnelHubTailnet names and the hostname is the node's name.
+	SettingLANTunnelHubTransport = "lan_tunnel_hub_transport"
+	SettingLANTunnelHubTailnet   = "lan_tunnel_hub_tailnet"
 )
 
 // DefaultLANTunnelPort is the port, on the loopback address of AgentBox's own

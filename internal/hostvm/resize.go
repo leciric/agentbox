@@ -49,10 +49,14 @@ func limitsFor(cpus int, memory int64) Limits {
 
 // chvLimits are the Limits for a Cloud Hypervisor VM made as c, on a host
 // with cpus cores and memory bytes: 1 CPU to every core, and a memory cap
-// from what it boots with to all of the host's memory. Like the Mac's, the
-// cap may take all of it: the VM only takes what its agents use.
+// from what it boots with to all of the host's memory but what it keeps for
+// itself (chv.MaxCap). A Mac's (vz) may take all of it.
 func chvLimits(c chv.Config, cpus int, memory int64) Limits {
-	return Limits{MinCPUs: 1, MaxCPUs: max(cpus, 1), MinMemory: c.MemoryMin, MaxMemory: max(memory, c.MemoryMin)}
+	l := Limits{MinCPUs: 1, MaxCPUs: max(cpus, 1), MinMemory: c.MemoryMin, MaxMemory: max(memory, c.MemoryMin)}
+	if most := chv.MaxCap(memory); most > 0 && !c.VZ() {
+		l.MaxMemory, l.reserve = max(most, c.MemoryMin), chv.HostReserve(memory)
+	}
+	return l
 }
 
 // Check says what's wrong with cpus and memory (bytes) for this machine; zero

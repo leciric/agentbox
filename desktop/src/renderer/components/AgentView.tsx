@@ -30,7 +30,7 @@ import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentAc
 import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
 import { api, type AgentAction } from '../lib/api';
 import { useChatOpenAt } from '../lib/reveal';
-import { useAgentReview } from './v2/ReviewV2';
+import { useAgentPr, useAgentReview, type Wake } from './v2/ReviewV2';
 import { useT, type MessageKey } from '../lib/i18n';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
@@ -40,8 +40,7 @@ import { BrowserTab } from './BrowserTab';
 import { ChatTab, useChatMenu } from './chat/ChatTab';
 import { ConnectorsTab } from './ConnectorsTab';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
-import { MediaTab } from './MediaTab';
-import { ScopedMediaPages } from './pages/MediaPages';
+import { MediaView } from './media/MediaView';
 import { OverviewTab } from './OverviewTab';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
@@ -90,7 +89,7 @@ export function AgentView({
   onTab: (tab: AgentPlaceName) => void;
   onSelect: (view: View) => void;
   // Over the chat's composer: the review card (v2/ReviewV2.tsx).
-  chatCard?: (agent: T.Agent) => ReactNode;
+  chatCard?: (agent: T.Agent, wake?: Wake) => ReactNode;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -103,8 +102,8 @@ export function AgentView({
   const android = useQuery({ queryKey: ['android', agentRef], queryFn: () => api.android(agentRef), enabled: agent?.state === 'running' });
   // Only Android projects get the tab, unless an emulator was started anyway.
   const hasAndroid = projects.data?.some((p) => p.name === agent?.project && p.android) || android.data?.running === true;
-  // Its pull request, from the fleet the panel's agent list reads too (v2/AgentList).
-  const fleet = useQuery({ queryKey: ['fleet', refProject], queryFn: () => api.fleet(refProject), refetchInterval: 30_000 });
+  // Its pull request, the one its review card and its row in the panel name too.
+  const pr = useAgentPr({ ref: agentRef, project: refProject });
   const chatMenu = useChatMenu(agent && usesChat(agent) ? agent : undefined);
   const [destroying, setDestroying] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -224,26 +223,31 @@ export function AgentView({
   // its pull request or else its branch. Of the lifecycle actions only one
   // that brings it back stays in view; the rest are in the ⋯ menu, with the
   // chat's own while the chat is open.
-  const pr = fleet.data?.agents?.find((a) => a.ref === agent.ref)?.pr;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:px-6 2xl:flex-nowrap">
+    <div className={'flex h-full flex-col bg-chat'}>
+      {/* The title and its chips wrap among themselves; the buttons stay on the
+          first row, at the right, however narrow the column gets. */}
+      <div className="flex shrink-0 items-start gap-x-3 px-4 py-2.5 md:px-6">
         <LiveAgentAvatar agent={agent} />
-        <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <StatusDetails agent={agent} pr={pr} />
-          {pr ? (
-            <Chip icon={GitPullRequest} mono label={pr.title} onClick={() => void window.agentbox.openExternal(pr.url)}>
-              #{pr.number} {prState(pr)}
-            </Chip>
-          ) : (
-            <Chip icon={GitBranch} mono label={t('agent.view.branch')}>
-              {agent.branch}
-            </Chip>
-          )}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2 self-center">
+          {/* The top bar's breadcrumb names it once (its h1): here only while
+              it's renamed, from the ⋯. */}
+          {editingTitle && <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />}
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <StatusDetails agent={agent} pr={pr} />
+            {pr ? (
+              <Chip icon={GitPullRequest} mono label={pr.title} onClick={() => void window.agentbox.openExternal(pr.url)}>
+                #{pr.number} {prState(pr)}
+              </Chip>
+            ) : (
+              <Chip icon={GitBranch} mono label={t('agent.view.branch')}>
+                {agent.branch}
+              </Chip>
+            )}
+          </div>
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5 self-center">
           {busy && <LoaderCircle className="size-4 animate-spin text-subtle" />}
           {primary && (
             <Button size="sm" variant="primary" disabled={busy} onClick={() => run(primary)}>
@@ -280,10 +284,10 @@ export function AgentView({
             <span className="text-sm text-subtle">{t(placeLabel[active])}</span>
           </div>
         )}
-        <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-sunken shadow-[0_30px_80px_-40px_var(--ab-shadow-deep)] md:mx-6 md:mb-6">
+        <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden', active !== 'chat' && 'mx-2 mb-2 rounded-2xl border border-line bg-sunken shadow-[0_30px_80px_-40px_var(--ab-shadow-deep)] md:mx-6 md:mb-6')}>
           {chatty && (
             <TabsContent value="chat" className="flex flex-col">
-              <ChatTab agent={agent} starting={busy} onStart={() => run(agent.state === 'paused' ? 'resume' : 'start')} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} openAt={openAt} aboveComposer={chatCard?.(agent)} />
+              <ChatTab agent={agent} starting={busy} onStart={() => run(agent.state === 'paused' ? 'resume' : 'start')} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} openAt={openAt} aboveComposer={chatCard && ((wake) => chatCard(agent, wake))} />
             </TabsContent>
           )}
           <TabsContent value="terminal" className="flex flex-col">
@@ -298,9 +302,7 @@ export function AgentView({
             </TabsContent>
           )}
           <TabsContent value="media" className="flex flex-col">
-            <ScopedMediaPages project={agent.project} agent={agent.ref} variant="fill">
-              <MediaTab agent={agent} />
-            </ScopedMediaPages>
+            <MediaView key={agent.ref} agent={agent} onSelect={onSelect} />
           </TabsContent>
           <TabsContent value="settings" className="flex flex-col">
             <SettingsSections label={t('agent.view.settingsOf', { name: agent.title || agent.name })} sections={agentSettingsSections(t)} value={place.section} onValueChange={onTab}>
@@ -365,13 +367,13 @@ function AgentTitle({ agent, editing, onEditing, onSave }: { agent: T.Agent; edi
           if (event.key === 'Enter') finish(true);
           if (event.key === 'Escape') finish(false);
         }}
-        className="w-full max-w-64 rounded-lg border border-brand-400/40 bg-well px-2 py-0.5 text-[15px] font-semibold tracking-tight text-title outline-none ring-2 ring-brand-400/20 placeholder:text-faint"
+        className="w-full max-w-64 rounded-lg border border-brand-400/40 bg-well px-2 py-0.5 text-heading font-semibold tracking-tight text-title outline-none ring-2 ring-brand-400/20 placeholder:text-faint"
       />
     );
   }
   return (
     <button className="group flex min-w-24 max-w-64 shrink items-center gap-1.5 text-left" onClick={() => onEditing(true)} aria-label={t('agent.view.editTitleLabel')}>
-      <span className="truncate text-[15px] font-semibold tracking-tight text-title">{agent.title || agent.name}</span>
+      <span className="truncate text-heading font-semibold tracking-tight text-title">{agent.title || agent.name}</span>
       {!agent.title && <span className="hidden shrink-0 text-xs text-faint opacity-0 transition group-hover:opacity-100 sm:inline">{t('agent.view.addTitle')}</span>}
       <Pencil className="size-3.5 shrink-0 text-faint opacity-0 transition group-hover:opacity-100" />
     </button>
@@ -392,8 +394,8 @@ function Chip({
   children: ReactNode;
 }) {
   const className = cn(
-    'inline-flex max-w-[280px] items-center gap-1.5 rounded-md border border-line bg-surface-faint px-2 py-0.5 text-[11.5px] text-muted',
-    mono && 'font-mono text-[11px]',
+    'inline-flex max-w-[280px] items-center gap-1.5 rounded-md border border-line bg-surface-faint px-2 py-0.5 text-caption text-muted',
+    mono && 'font-mono text-caption',
     onClick && 'transition hover:bg-surface-raised hover:text-secondary',
   );
   const content = (

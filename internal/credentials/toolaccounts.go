@@ -433,12 +433,19 @@ func describe(a *ToolAccount, b []byte) {
 		}
 	case ToolOpenCode:
 		var f struct {
-			Type string `json:"type"`
+			Type     string `json:"type"`
+			Metadata *struct {
+				Email string `json:"email"`
+			} `json:"metadata"`
 		}
 		if json.Unmarshal(b, &f) == nil {
-			a.Kind = map[string]string{"api": "apikey"}[f.Type]
+			// OpenCode 1 calls an API key "api"; OpenCode 2 calls it "key".
+			a.Kind = map[string]string{"api": "apikey", "key": "apikey"}[f.Type]
 			if a.Kind == "" {
 				a.Kind = f.Type
+			}
+			if f.Metadata != nil {
+				a.Email = f.Metadata.Email
 			}
 		}
 	case ToolCursor:
@@ -516,7 +523,7 @@ func (s Store) OpenCodeAuth(chosen map[string]string) (auth []byte, used map[str
 		if b == nil {
 			return nil, nil, s.noAccount(ToolOpenCode, provider, chosen[provider])
 		}
-		merged[provider], used[provider] = json.RawMessage(b), name
+		merged[provider], used[provider] = openCodeV1Entry(b), name
 	}
 	if len(merged) == 0 {
 		return nil, used, nil

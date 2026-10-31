@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ExternalLink, GitBranch, GitMerge, GitPullRequest, LoaderCircle, MessageSquare, RotateCw, Tag, User } from 'lucide-react';
+import { Check, CornerDownRight, ExternalLink, GitBranch, GitMerge, GitPullRequest, Layers, LoaderCircle, MessageSquare, RotateCw, Tag, User } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -8,14 +8,16 @@ import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { useReveal } from '../lib/reveal';
 import { byAuthor, byState, labelHex, labelStyle, labelToggle, matchLabels, readMine, withEdits, withLabels, writeMine, type LabelEdit, type PullsState } from '../lib/pulls';
+import { mergeBlockReason } from '../lib/review';
+import { stackHead, stackOrder } from '../lib/stacks';
 import { cn, errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
-import { FilterChip } from './MediaTab';
+import { FilterChip } from './media/MediaParts';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Code, EmptyState, Notice } from './ui/card';
 import { LabelRemoveButton } from './LabelRemoveButton';
-import { PullRequestModal } from './PullRequestModal';
+import { MergeBlocked, PullRequestModal, usePrefetchPull } from './PullRequestModal';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Select, SelectOption } from './ui/select';
 import { Tip } from './ui/tooltip';
@@ -83,6 +85,7 @@ export function PullRequestsPanel({
   const [viewing, setViewing] = useState<number | null>(null);
   const { edits, toggleLabel } = usePullLabels(project);
   const merge = usePullMerge(project);
+  const prefetch = usePrefetchPull(project);
 
   const data = pulls.data;
   if (!data) {
@@ -226,20 +229,26 @@ export function PullRequestsPanel({
             <p className="px-1 text-[13px] text-subtle">{t('memory.pulls.noMatch')}</p>
           ) : (
             <div className="flex flex-col gap-2">
-              {visible.map((pr) => {
+              {/* A pull request stacked on another's branch comes right after it, indented: the chain reads top down, merging from the top. */}
+              {stackOrder(visible, stackHead, (pr) => pr.baseBranch).map(({ item: pr, depth, parent, children }) => {
                 return (
                   <PullRequestRow
                     key={pr.number}
                     pr={pr}
+                    depth={depth}
+                    stackedOn={parent?.number}
+                    stackedBy={children.map((c) => c.number)}
                     project={project}
                     labels={withEdits(pr.labels, pr.number, edits)}
                     onToggleLabel={(label, on) => toggleLabel(pr, label, on)}
                     canMerge={canOfferMerge(pr)}
+                    mergeBlocked={mergeBlockReason(pr, data)}
                     mergeRunning={merge.running.has(pr.number)}
                     mergeError={merge.failed[pr.number]}
                     onOpenAgent={pr.agent ? () => onSelect({ kind: 'agent', ref: `${project}/${pr.agent}` }) : undefined}
                     onMerge={() => merge.request(pr)}
                     onOpen={() => setViewing(pr.number)}
+                    prefetch={prefetch(pr.number)}
                   />
                 );
               })}
@@ -253,6 +262,7 @@ export function PullRequestsPanel({
         pr={viewed}
         onClose={() => setViewing(null)}
         canMerge={!!viewed && canOfferMerge(viewed)}
+        mergeBlocked={viewed ? mergeBlockReason(viewed, data) : undefined}
         mergeRunning={!!viewed && merge.running.has(viewed.number)}
         mergeError={viewed ? merge.failed[viewed.number] : undefined}
         onMerge={() => viewed && merge.request(viewed)}
@@ -268,7 +278,7 @@ export function PullRequestsPanel({
 
 // GitHubErrorFix is what to do about it, in the same sentence: the two fixes
 // are somewhere in this app, so they are links rather than advice.
-function GitHubErrorFix({ err, onOpenAccount, onOpenSetup }: { err: T.GitHubError; onOpenAccount: () => void; onOpenSetup: () => void }) {
+export function GitHubErrorFix({ err, onOpenAccount, onOpenSetup }: { err: T.GitHubError; onOpenAccount: () => void; onOpenSetup: () => void }) {
   const t = useT();
   const link = (onClick: () => void) => (c: ReactNode) => (
     <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onClick}>
@@ -309,24 +319,35 @@ export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => 
 
   const merge = useMutation({
     mutationFn: ({ number, method }: { number: number; method: string }) => api.mergePullRequest(project, number, method),
-    onMutate: ({ number }) => {
+    // Shown merged the moment it's confirmed, wherever the project's list is
+    // read (the row, the modal, the review), and put back as it was if
+    // GitHub refuses, with why beside it.
+    onMutate: async ({ number }) => {
       setRunning((r) => new Set(r).add(number));
       setFailed((f) => without(f, number));
+      await queryClient.cancelQueries({ queryKey: ['pulls', project] });
+      const listed = queryClient.getQueryData<T.ProjectPullRequests>(['pulls', project])?.pullRequests.find((p) => p.number === number);
+      const detail = queryClient.getQueryData<T.PullRequestDetail>(['pull', project, number]);
+      queryClient.setQueryData<T.ProjectPullRequests>(['pulls', project], (d) => d && withState(d, number, 'merged'));
+      queryClient.setQueryData<T.PullRequestDetail>(['pull', project, number], (d) => d && { ...d, state: 'merged' });
+      return { listed, detail };
     },
     onSuccess: async (pr) => {
       if (!quiet) toast(t('memory.pulls.merged', { number: pr.number }), { description: pr.title });
       onMergedRef.current?.(pr);
-      // The daemon answers with the list it had, this pull request marked
-      // merged, and re-reads GitHub behind it; the list on screen stays
-      // until that answer replaces it. The spinner lasts until then too, so
-      // the row never flicks back to an open one with a Merge button.
+      // The daemon marks it merged in the list it has and re-reads GitHub
+      // behind it; the row shown merged stays until that answer replaces it.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['pulls', project] }),
         queryClient.invalidateQueries({ queryKey: ['fleet', project] }),
         queryClient.invalidateQueries({ queryKey: ['pull', project, pr.number] }),
       ]);
     },
-    onError: (err, { number }) => setFailed((f) => ({ ...f, [number]: errorMessage(err) })),
+    onError: (err, { number }, before) => {
+      setFailed((f) => ({ ...f, [number]: errorMessage(err) }));
+      if (before?.listed) queryClient.setQueryData<T.ProjectPullRequests>(['pulls', project], (d) => d && withState(d, number, before.listed!.state));
+      if (before?.detail) queryClient.setQueryData<T.PullRequestDetail>(['pull', project, number], (d) => d && { ...d, state: before.detail!.state });
+    },
     onSettled: (_pr, _err, { number }) =>
       setRunning((r) => {
         const next = new Set(r);
@@ -382,6 +403,11 @@ export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => 
   return { request, mergeWith, methods: offered, running, failed, dialog };
 }
 
+// withState is a project's list with one pull request's state changed.
+function withState(d: T.ProjectPullRequests, number: number, state: string): T.ProjectPullRequests {
+  return { ...d, pullRequests: d.pullRequests.map((p) => (p.number === number ? { ...p, state } : p)) };
+}
+
 // usePullLabels adds and removes a project's pull requests' labels.
 // Edits GitHub hasn't answered yet are shown over the list as though they
 // had landed (lib/pulls.ts withEdits). One that fails is dropped,
@@ -412,7 +438,7 @@ function without(errors: Readonly<Record<number, string>>, number: number): Reco
   return rest;
 }
 
-const stateVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
+export const stateVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
 const checksVariants: Record<string, BadgeVariant> = { passing: 'success', failing: 'danger', pending: 'warning' };
 
 // useMine is the Mine filter, remembered per project.
@@ -434,30 +460,46 @@ function PullRequestRow({
   labels,
   onToggleLabel,
   canMerge,
+  mergeBlocked,
   mergeRunning,
   mergeError,
   onOpenAgent,
   onMerge,
   onOpen,
+  prefetch,
+  depth = 0,
+  stackedOn,
+  stackedBy = [],
 }: {
   pr: T.PullRequest;
   project: string;
+  // depth is how far down a stack it is; stackedOn the pull request whose
+  // branch it targets, and stackedBy those targeting its own.
+  depth?: number;
+  stackedOn?: number;
+  stackedBy?: number[];
   labels: T.Label[];
   onToggleLabel: (label: T.Label, on: boolean) => void;
   canMerge: boolean;
+  // mergeBlocked is why Merge can't, said beside it as the review says it.
+  mergeBlocked?: string;
   mergeRunning: boolean;
   mergeError?: string;
   onOpenAgent?: () => void;
   onMerge: () => void;
   onOpen: () => void;
+  prefetch?: { onFocus: () => void; onMouseEnter: () => void; onMouseLeave: () => void };
 }) {
   const t = useT();
   return (
     // A click anywhere on the row but its buttons opens the pull request in the
     // app, its title included; the arrow beside the title still goes to GitHub.
     <div
-      className="panel cursor-pointer rounded-2xl px-4 py-3.5 transition-colors hover:border-line-strong"
+      className="panel relative cursor-pointer rounded-2xl px-4 py-3.5 transition-colors hover:border-line-strong"
+      style={depth > 0 ? { marginLeft: `${Math.min(depth, 3) * 1.75}rem` } : undefined}
       data-pull-request={pr.number}
+      data-stacked-on={stackedOn}
+      {...prefetch}
       onClick={(event) => {
         // The label picker's popover is portalled out of the row, but its clicks still bubble here.
         const target = event.target as Element;
@@ -467,19 +509,21 @@ function PullRequestRow({
         }
       }}
     >
-      <div className="flex flex-wrap items-start gap-3">
+      <div className="flex items-start gap-3">
+        {depth > 0 && <CornerDownRight aria-hidden className="absolute top-4 -left-6 size-4 text-faint" />}
         <GitPullRequest className="mt-0.5 size-4 shrink-0 text-subtle" />
         <div className="min-w-0 flex-1">
-          <a href={pr.url} target="_blank" rel="noreferrer" className="group flex min-w-0 items-center gap-1.5 text-[14px] font-medium text-primary hover:text-brand-300">
-            <span className="truncate">{pr.title}</span>
-            <ExternalLink data-external className="size-3.5 shrink-0 text-faint group-hover:text-brand-300" />
+          {/* The title comes first: two lines of it before anything beside it gives way. */}
+          <a href={pr.url} target="_blank" rel="noreferrer" className="group flex min-w-0 items-start gap-1.5 text-[14px] font-medium text-primary hover:text-brand-300" title={pr.title}>
+            <span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]">{pr.title}</span>
+            <ExternalLink data-external className="mt-[3px] size-3.5 shrink-0 text-faint group-hover:text-brand-300" />
           </a>
-          <p className="truncate font-mono text-[11.5px] text-subtle">
+          <p className="truncate font-mono text-[12px] text-subtle">
             #{pr.number} · {pr.headBranch} → {pr.baseBranch}
           </p>
           <PullRequestLabels project={project} labels={labels} onToggle={onToggleLabel} />
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <div className="flex max-w-[40%] min-w-0 shrink-0 flex-wrap items-center justify-end gap-1" data-pull-pills>
           {pr.draft ? (
             <Badge>{t('memory.pulls.draft')}</Badge>
           ) : (
@@ -490,13 +534,23 @@ function PullRequestRow({
               {t('memory.pulls.checks', { state: checksLabels[pr.checks] ? t(checksLabels[pr.checks]) : pr.checks })}
             </Badge>
           )}
+          {stackedOn !== undefined && (
+            <Tip label={t('memory.pulls.stackedOnTip', { number: stackedOn, base: pr.baseBranch ?? '' })}>
+              <span data-pull-stacked-on={stackedOn}>
+                <Badge variant="info">
+                  <Layers className="size-3" />
+                  {t('memory.pulls.stackedOn', { number: stackedOn })}
+                </Badge>
+              </span>
+            </Tip>
+          )}
           {pr.conflict && <Badge variant={checksVariants.failing}>{t('memory.pulls.conflicts')}</Badge>}
           {pr.review === 'changes_requested' && <Badge variant={checksVariants.pending}>{t('memory.pulls.changesRequested')}</Badge>}
         </div>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">
         {pr.author && (
-          <span className="flex min-w-0 items-center gap-1.5">
+          <span className="flex max-w-40 min-w-0 items-center gap-1.5" title={pr.author}>
             {pr.authorAvatar ? (
               <img src={pr.authorAvatar} alt="" className="size-4 shrink-0 rounded-full" />
             ) : (
@@ -518,6 +572,12 @@ function PullRequestRow({
             {t('memory.pulls.comments', { count: pr.comments ?? 0 })}
           </span>
         )}
+        {stackedBy.length > 0 && (
+          <span className="flex items-center gap-1.5" data-pull-stacked-by={stackedBy.join(' ')}>
+            <Layers className="size-3.5" />
+            {t('memory.pulls.stackedBy', { count: stackedBy.length, numbers: stackedBy.map((n) => `#${n}`).join(', ') })}
+          </span>
+        )}
         {onOpenAgent && (
           <button type="button" onClick={onOpenAgent} className="font-medium text-brand-300 hover:underline">
             {t('memory.pulls.agentOf', { name: pr.agent ?? '' })}
@@ -525,10 +585,13 @@ function PullRequestRow({
         )}
         <span className="ml-auto text-faint">{pr.updatedAt && timeAgo(pr.updatedAt)}</span>
         {canMerge && (
-          <Button size="sm" variant="ghost" disabled={mergeRunning || pr.checks === 'failing'} title={pr.checks === 'failing' ? t('review.mergeBlocked.failing') : undefined} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
-            {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
-            {t('memory.pulls.merge')}
-          </Button>
+          <span className="flex min-w-0 items-center gap-2">
+            {mergeBlocked && <MergeBlocked reason={mergeBlocked} />}
+            <Button size="sm" variant="ghost" disabled={mergeRunning || !!mergeBlocked} title={mergeBlocked} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
+              {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
+              {t('memory.pulls.merge')}
+            </Button>
+          </span>
         )}
       </div>
       {mergeError && (

@@ -17,7 +17,9 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostvm/chv"
+	"agentbox/internal/kvm"
 	"agentbox/internal/paths"
+	"agentbox/internal/setupfunnel"
 	"agentbox/internal/state"
 )
 
@@ -74,6 +76,15 @@ func newCHV() (*VM, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A cap from an earlier release, or set by hand, may leave this machine
+	// less than it keeps for itself: it's lowered once, for good.
+	if fit, lowered := chv.FitHost(c, hostMemory()); lowered {
+		if err := fit.Save(p); err == nil {
+			_, _ = fmt.Fprintf(os.Stderr, "note: AgentBox's VM's memory cap is %s now, from %s, so this machine keeps %s for itself\n",
+				sizeWords(fit.MemoryCap), sizeWords(c.MemoryCap), sizeWords(chv.HostReserve(hostMemory())))
+			c = fit
+		}
+	}
 	return NewCHV(p, c)
 }
 
@@ -99,19 +110,16 @@ func NewCHV(p paths.Paths, c chv.Config) (*VM, error) {
 	}, nil
 }
 
-// linuxReserve is what a Linux host keeps of its memory for itself, its
-// desktop and the app, when a VM's cap is worked out for it.
-const linuxReserve = 4 * chv.GiB
-
 // DefaultConfig is the VM `agentbox vm init` makes for a user on a host with
 // cpus cores and memory bytes of memory: DefaultSize's CPUs; chv's minimum to
 // boot with, growing as agents need it to three quarters of the host's memory
-// but never to more than all of it less linuxReserve; chv's pool disk. The
+// but never to more than all of it less what it keeps for itself
+// (chv.MaxCap); chv's pool disk. The
 // VM's user is the host's, with the same IDs, and its home is its own, beside
 // the host's (which the VM has at the same path, shared).
 func DefaultConfig(name, username string, uid, gid int, home string, cpus int, memory int64) chv.Config {
 	// In whole GiB, which is how people say it back (vm resize --memory-cap).
-	capacity := min(memory-linuxReserve, memory/4*3) / chv.GiB * chv.GiB
+	capacity := min(chv.MaxCap(memory), memory/4*3/chv.GiB*chv.GiB)
 	return chv.Config{
 		Name:      name,
 		CPUs:      defaultCPUs(cpus),
@@ -163,7 +171,10 @@ func checkConfig(c chv.Config, hostCPUs int, hostMem int64) error {
 	if c.MemoryCap < c.MemoryMin {
 		errs = append(errs, fmt.Errorf("--memory-cap %s is less than --memory-min %s", sizeWords(c.MemoryCap), sizeWords(c.MemoryMin)))
 	}
-	if hostMem > 0 && c.MemoryCap > hostMem {
+	if most := chv.MaxCap(hostMem); most > 0 && c.MemoryCap > most && !c.VZ() {
+		errs = append(errs, fmt.Errorf("--memory-cap %s would leave this machine (%s) less than the %s it keeps for itself: the most is %s",
+			sizeWords(c.MemoryCap), sizeWords(hostMem), sizeWords(chv.HostReserve(hostMem)), sizeWords(most)))
+	} else if hostMem > 0 && c.MemoryCap > hostMem {
 		errs = append(errs, fmt.Errorf("--memory-cap %s is more than this machine has (%s)", sizeWords(c.MemoryCap), sizeWords(hostMem)))
 	}
 	if c.Disk < 20*chv.GiB {
@@ -220,7 +231,7 @@ func hostAgents(p paths.Paths) []string {
 			continue
 		}
 		for _, agent := range entries {
-			if agent.IsDir() && agent.Name() != state.LeadName {
+			if agent.IsDir() && !state.IsLeadName(agent.Name()) {
 				agents = append(agents, project.Name()+"/"+agent.Name())
 			}
 		}
@@ -238,7 +249,10 @@ func canMake(ctx context.Context, p paths.Paths, want chv.Config) error {
 		if err := hostModeInUse(ctx, p); err != nil {
 			return err
 		}
-		return checkKVM()
+		began := time.Now()
+		err := checkKVM()
+		setupfunnel.Note(p, setupfunnel.KVM, setupfunnel.KVMOutcome(err), began, err)
+		return err
 	}
 	exe, err := self()
 	if err != nil {
@@ -261,13 +275,14 @@ func canMake(ctx context.Context, p paths.Paths, want chv.Config) error {
 	return nil
 }
 
-// checkKVM says why this user can't run a VM, or nil.
+// checkKVM says why this user can't run a VM, and what fixes it, or nil.
 func checkKVM() error {
-	f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
-	if err != nil {
-		return fmt.Errorf("the VM needs /dev/kvm, which this user can't open (%w): turn virtualization on in the firmware, and join the kvm group (sudo usermod -aG kvm $USER, then log in again)", err)
+	probe := kvm.System()
+	err := probe.Open()
+	if err == nil {
+		return nil
 	}
-	return f.Close()
+	return kvm.Error(kvm.Check(probe), err)
 }
 
 // initCHV is `agentbox vm init` on a Linux host: it makes the VM want asks
@@ -275,8 +290,10 @@ func checkKVM() error {
 // it, waits for its first boot to set it up, and sets AgentBox up in it. Like
 // Lima's, it is safe to run again: a step already done is quick. Every step
 // says how long it took.
-func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool, log io.Writer) error {
+func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool, log io.Writer) (err error) {
 	began := time.Now()
+	var vm *VM
+	defer func() { noteVMReady(ctx, p, vm, began, err) }()
 	c, err := chv.Load(p, want.Name)
 	made := false
 	switch {
@@ -306,7 +323,7 @@ func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool,
 	case sizesSet:
 		_, _ = fmt.Fprintln(log, "note: AgentBox's VM exists already and keeps its size: change it with agentbox vm resize")
 	}
-	vm, err := NewCHV(p, c)
+	vm, err = NewCHV(p, c)
 	if err != nil {
 		return err
 	}
@@ -653,6 +670,12 @@ func describe(st api.VMStatus) string {
 			fmt.Fprintf(&b, ", %s of memory (%s in use), growing to at most %s", sizeWords(m.Granted), sizeWords(m.Used), sizeWords(m.Cap))
 		} else {
 			fmt.Fprintf(&b, ", memory from %s to %s", sizeWords(m.Min), sizeWords(m.Cap))
+		}
+	}
+	if m.Resident > 0 {
+		fmt.Fprintf(&b, ", holding %s of this machine's memory", sizeWords(m.Resident))
+		if m.HostCache > 0 {
+			fmt.Fprintf(&b, " (and %s of its cache for the VM's disks)", sizeWords(m.HostCache))
 		}
 	}
 	if st.Disk.Size > 0 {

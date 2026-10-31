@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/opencode"
 	"agentbox/internal/schedule"
 	"agentbox/internal/state"
 )
@@ -49,27 +50,49 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
+	if req.CloneFolder != nil {
+		dir := ""
+		if strings.TrimSpace(*req.CloneFolder) != "" {
+			var err error
+			if dir, err = fullPath(*req.CloneFolder); err != nil {
+				return err
+			}
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingCloneFolder, dir); err != nil {
+			return err
+		}
+	}
 	if req.EnforceAgentDefaults != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingEnforceAgentDefaults, *req.EnforceAgentDefaults); err != nil {
 			return err
 		}
 	}
-	if req.DefaultClaudeEffort != nil {
-		// Checked, unlike the model: the adapter resolves no aliases for this
-		// option and refuses anything outside the list it advertised, so a
+	for _, choice := range []struct {
+		what, key, menu string
+		value           *string
+	}{
+		{"effort", state.SettingDefaultClaudeEffort, state.SettingClaudeEffortChoices, req.DefaultClaudeEffort},
+		{"effort", state.SettingDefaultLeadEffort, state.SettingClaudeEffortChoices, req.DefaultLeadEffort},
+		{"permission mode", state.SettingDefaultLeadMode, state.SettingClaudeModeChoices, req.DefaultLeadMode},
+	} {
+		if choice.value == nil {
+			continue
+		}
+		// Checked, unlike the model: the adapter resolves no aliases for these
+		// options and refuses anything outside the list it advertised, so a
 		// value that has never been on this account's menu can only end in a
 		// setting silently doing nothing. Nothing is rejected before a menu
 		// has ever arrived, since there is then nothing true to check against.
-		want := strings.TrimSpace(*req.DefaultClaudeEffort)
-		menu, err := s.store.Setting(r.Context(), state.SettingClaudeEffortChoices)
+		want := strings.TrimSpace(*choice.value)
+		menu, err := s.store.Setting(r.Context(), choice.menu)
 		if err != nil {
 			return err
 		}
 		offered := state.ChoiceValues(menu)
 		if want != "" && len(offered) > 0 && !slices.Contains(offered, want) {
-			return fmt.Errorf("this agent's Claude Code doesn't offer the effort %q: it offers %s", want, strings.Join(offered, ", "))
+			return fmt.Errorf("this agent's Claude Code doesn't offer the %s %q: it offers %s", choice.what, want, strings.Join(offered, ", "))
 		}
-		if err := s.store.SetSetting(r.Context(), state.SettingDefaultClaudeEffort, want); err != nil {
+		if err := s.store.SetSetting(r.Context(), choice.key, want); err != nil {
 			return err
 		}
 	}
@@ -92,6 +115,70 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.LastAgentPick != nil {
+		pick := *req.LastAgentPick
+		if pick.AI != "" && pick.AI != "none" && !slices.Contains(state.AgentTools, pick.AI) {
+			return fmt.Errorf("%q isn't an AI tool", pick.AI)
+		}
+		raw, err := json.Marshal(pick)
+		if err != nil {
+			return err
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingLastAgentPick, string(raw)); err != nil {
+			return err
+		}
+	}
+	if req.FirstRunDone != nil && *req.FirstRunDone {
+		if err := s.store.DeleteSetting(r.Context(), state.SettingFirstRun); err != nil {
+			return err
+		}
+	}
+	// OpenCode's version is one choice for the installation: the agents and
+	// their chat all read it, so a change reaches them the next time their
+	// tool starts. A menu belongs to a version's providers, so a switch
+	// forgets it and the next read asks the version now in effect.
+	if req.OpenCodeVersion != nil {
+		want := strings.TrimSpace(*req.OpenCodeVersion)
+		switch want {
+		case opencode.V1.String(), opencode.V2.String():
+		default:
+			return fmt.Errorf("unknown OpenCode version %q: use 1 or 2", want)
+		}
+		was, err := s.store.Setting(r.Context(), state.SettingOpenCodeVersion)
+		if err != nil {
+			return err
+		}
+		if opencode.ReleaseOf(was) != opencode.ReleaseOf(want) {
+			// The menu belongs to the version that named it. Dropped first,
+			// so a failed write below can't leave the version moved with the
+			// old menu still answering for it.
+			if err := s.store.DeleteSetting(r.Context(), state.SettingOpenCodeModelChoices); err != nil {
+				return err
+			}
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingOpenCodeVersion, want); err != nil {
+			return err
+		}
+		if opencode.ReleaseOf(was) != opencode.ReleaseOf(want) {
+			// The hourly limit was for one version's answers; the other one's
+			// menu has never been asked for.
+			s.mu.Lock()
+			s.openCodeModels.last = time.Time{}
+			s.mu.Unlock()
+			// A project's chat reads opencode.json from its HOME, and the two
+			// versions read different shapes: rewrite it now rather than at
+			// some later change to the project.
+			s.reconfigureLeads(r.Context())
+			// A chat already running is on the old release: it starts its
+			// adapter again before its next message, on the one in effect now.
+			s.chat.ToolsChanged("", "")
+			if projects, err := s.store.Projects(r.Context()); err == nil {
+				for _, p := range projects {
+					s.chat.ToolsChanged(p.Name, "")
+				}
+			}
+		}
+	}
 	if req.ResumeAfterLimit != nil {
 		// Stored as a flag rather than as "" / "1", because this one is on
 		// until it is turned off: see state.FlagOn. Turning it off leaves any
@@ -111,6 +198,24 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	if req.CreditAITool != nil {
 		// Off until turned on, so a plain flag. Agents read it as they start.
 		if err := s.store.SetFlag(r.Context(), state.SettingCreditAITool, *req.CreditAITool); err != nil {
+			return err
+		}
+	}
+	if req.BuiltWithBadge != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingBuiltWithBadge, *req.BuiltWithBadge); err != nil {
+			return err
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingBuiltWithBadgeOffer, state.BadgeOfferDone); err != nil {
+			return err
+		}
+	}
+	if req.DismissBuiltWithBadgeOffer != nil && *req.DismissBuiltWithBadgeOffer {
+		if err := s.store.SetSetting(r.Context(), state.SettingBuiltWithBadgeOffer, state.BadgeOfferDone); err != nil {
+			return err
+		}
+	}
+	if req.SeeFeature != nil {
+		if err := s.store.SeeFeature(r.Context(), *req.SeeFeature); err != nil {
 			return err
 		}
 	}
@@ -173,6 +278,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.LocalNodeModules != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingLocalNodeModules, *req.LocalNodeModules); err != nil {
+			return err
+		}
+	}
 	if req.IdleTimeSeconds != nil {
 		if *req.IdleTimeSeconds < 60 {
 			return fmt.Errorf("idle time is at least 60 seconds; %d isn't", *req.IdleTimeSeconds)
@@ -181,8 +291,39 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	for key, secs := range map[string]*int{state.SettingIdleFreezeAfter: req.IdleFreezeSeconds, state.SettingIdleStopAfter: req.IdleStopSeconds} {
+		if secs == nil {
+			continue
+		}
+		if *secs < 60 || *secs > 24*60*60 {
+			return fmt.Errorf("idle reclaim waits 60 seconds to a day; %d seconds isn't", *secs)
+		}
+		if err := s.store.SetSetting(r.Context(), key, strconv.Itoa(*secs)); err != nil {
+			return err
+		}
+	}
+	if req.IdleReclaim != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingIdleReclaim, *req.IdleReclaim); err != nil {
+			return err
+		}
+		// Turned off, what it froze wakes now rather than at the next step.
+		go s.stepIdleReclaim(s.background(), time.Now())
+	}
 	if req.AutoStopIdle != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingAutoStopIdle, *req.AutoStopIdle); err != nil {
+			return err
+		}
+	}
+	if req.RemoveStoppedDays != nil {
+		if n := *req.RemoveStoppedDays; n < 1 || n > 365 {
+			return fmt.Errorf("stopped agents are removed after 1 to 365 days; %d isn't", n)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingRemoveStoppedDays, strconv.Itoa(*req.RemoveStoppedDays)); err != nil {
+			return err
+		}
+	}
+	if req.RemoveStopped != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingRemoveStopped, *req.RemoveStopped); err != nil {
 			return err
 		}
 	}
@@ -204,6 +345,21 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.LeadSleepMinutes != nil {
+		if n := *req.LeadSleepMinutes; n < 5 || n > 1440 {
+			return fmt.Errorf("an idle chat stops after 5 to 1440 minutes; %d isn't", n)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingLeadSleepMinutes, strconv.Itoa(*req.LeadSleepMinutes)); err != nil {
+			return err
+		}
+	}
+	if req.LeadSleep != nil {
+		// Read by each chat as its idle wait ends, so it reaches running
+		// chats without anything restarting.
+		if err := s.store.SetFlag(r.Context(), state.SettingLeadSleep, *req.LeadSleep); err != nil {
+			return err
+		}
+	}
 	if req.LeadRecheck != nil {
 		// Every chat's brief says whether it has rechecks.
 		if projects, err := s.store.Projects(r.Context()); err == nil {
@@ -219,6 +375,10 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		// now rather than at the next tick, so check right away instead of
 		// leaving it stuck until the next sweep.
 		go s.stopIdleAgents(s.background(), time.Now())
+	}
+	if req.RemoveStopped != nil || req.RemoveStoppedDays != nil {
+		// As above: what the setting now allows needn't wait for the hour.
+		go s.removeStoppedMachines(s.background(), time.Now())
 	}
 	if req.UpdateCheck != nil {
 		if err := s.setUpdateCheck(r.Context(), *req.UpdateCheck); err != nil {
@@ -246,6 +406,27 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		}
 		if *req.AgentGPU {
 			s.readyVMGPU(s.runCtx, true)
+		}
+	}
+	if req.AgentFreeze != nil {
+		if err := s.setFleet(r.Context(), *req.AgentFreeze); err != nil {
+			return err
+		}
+	}
+	if req.BlockFullSuite != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingBlockFullSuite, *req.BlockFullSuite); err != nil {
+			return err
+		}
+		// A project that allows whole suites says so in its agents' briefs
+		// only while they are blocked.
+		if projects, err := s.store.Projects(r.Context()); err == nil {
+			for _, p := range projects {
+				if p.FullTestSuite {
+					if err := s.manager(nil).RewriteBriefs(r.Context(), p.Name); err != nil {
+						s.logf("rewriting %s's briefs after a full test suite change: %v", p.Name, err)
+					}
+				}
+			}
 		}
 	}
 	if req.ErrorReports != nil {
@@ -352,11 +533,13 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	var agentWindow, leadModel, leadWindow string
+	var agentWindow, leadModel, leadWindow, leadEffort, leadMode string
 	for key, into := range map[string]*string{
 		state.SettingDefaultAgentContextWindow: &agentWindow,
 		state.SettingDefaultLeadModel:          &leadModel,
 		state.SettingDefaultLeadContextWindow:  &leadWindow,
+		state.SettingDefaultLeadEffort:         &leadEffort,
+		state.SettingDefaultLeadMode:           &leadMode,
 	} {
 		if *into, err = s.store.Setting(r.Context(), key); err != nil {
 			return api.Settings{}, err
@@ -375,11 +558,19 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	modes, err := s.rememberedMenu(r, state.SettingClaudeModeChoices)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	openCodeModels, err := s.rememberedMenu(r, state.SettingOpenCodeModelChoices)
 	if err != nil {
 		return api.Settings{}, err
 	}
 	openCodeReady, err := s.manager(nil).OpenCodeReady(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
+	openCodeVersion, err := s.store.Setting(r.Context(), state.SettingOpenCodeVersion)
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -408,6 +599,17 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	var lastPick api.AgentPick
+	if raw, err := s.store.Setting(r.Context(), state.SettingLastAgentPick); err != nil {
+		return api.Settings{}, err
+	} else if raw != "" {
+		// A pick that no longer reads is only a start value lost.
+		_ = json.Unmarshal([]byte(raw), &lastPick)
+	}
+	firstRun, err := s.store.Flag(r.Context(), state.SettingFirstRun)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	resumeAfterLimit, err := s.store.FlagOn(r.Context(), state.SettingResumeAfterLimit)
 	if err != nil {
 		return api.Settings{}, err
@@ -417,6 +619,18 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	creditAITool, err := s.store.Flag(r.Context(), state.SettingCreditAITool)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	builtWithBadge, err := s.store.Flag(r.Context(), state.SettingBuiltWithBadge)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	badgeOffer, err := s.store.Setting(r.Context(), state.SettingBuiltWithBadgeOffer)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	seenFeatures, err := s.store.SeenFeatures(r.Context())
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -432,12 +646,20 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	vmGPU := s.vmGPU()
+	blockFullSuite, err := s.store.Flag(r.Context(), state.SettingBlockFullSuite)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	vmGPU := s.vmGPU(agentGPU)
 	errorReports, err := s.store.FlagOn(r.Context(), state.SettingErrorReports)
 	if err != nil {
 		return api.Settings{}, err
 	}
 	prWatch, err := s.store.FlagOn(r.Context(), state.SettingPRWatch)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	agentFreeze, err := s.store.Flag(r.Context(), state.SettingAgentFreeze)
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -472,6 +694,14 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	diskFloor := s.diskFloor(r.Context())
+	idleReclaim, idleFreeze, idleStop, err := s.store.IdleReclaim(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
+	removeStopped, removeStoppedDays, err := s.store.RemoveStopped(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	autoStopIdle, idleTime, err := s.store.AutoStopIdle(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -481,6 +711,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	leadRecheck, recheckEvery, err := s.store.LeadRecheck(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
+	leadSleep, sleepAfter, err := s.store.LeadSleep(r.Context())
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -494,39 +728,59 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	packageCacheMax, packageCacheDefault := s.cacheMax(r.Context(), s.cfg.Paths.PackageCache(), packageCacheChosen, state.DefaultPackageCacheMax)
+	localNodeModules, err := s.store.FlagOn(r.Context(), state.SettingLocalNodeModules)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	claudeUpdate, err := s.toolAutoUpdate(r.Context(), claudeAutoUpdate)
 	if err != nil {
 		return api.Settings{}, err
 	}
+	cloneFolder, err := s.cloneFolder(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
+		CloneFolder:               cloneFolder,
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
 		EnforceAgentDefaults:      enforce,
 		DefaultLeadModel:          leadModel,
 		DefaultLeadContextWindow:  leadWindow,
+		DefaultLeadEffort:         leadEffort,
+		DefaultLeadMode:           leadMode,
 		ClaudeModelChoices:        models,
 		ClaudeContextWindows:      contextWindows,
 		ClaudeMenuKnown:           menuKnown,
 		DefaultClaudeEffort:       effort,
 		ClaudeEffortChoices:       efforts,
+		ClaudeModeChoices:         modes,
 
 		OpenCodeModelChoices: openCodeModels,
 		OpenCodeReady:        openCodeReady,
+		OpenCodeVersion:      opencode.ReleaseOf(openCodeVersion).String(),
 
 		CursorModelChoices:  cursorModels,
 		CursorReady:         cursorReady,
 		DefaultCursorModel:  cursorModel,
 		DefaultCursorEffort: cursorEffort,
+		LastAgentPick:       lastPick,
+		FirstRun:            firstRun,
 
 		ResumeAfterLimit:     resumeAfterLimit,
 		ContinueAfterRestart: continueAfterRestart,
 		CreditAITool:         creditAITool,
+		BuiltWithBadge:       builtWithBadge,
+		BuiltWithBadgeOffer:  badgeOffer == state.BadgeOfferReady,
+		SeenFeatures:         seenFeatures,
 		UpdateCheck:          updateCheck,
 		UsageStats:           usageStats,
 		AgentGPU:             agentGPU,
+		BlockFullSuite:       blockFullSuite,
 		VMGPU:                vmGPU,
 		ErrorReports:         errorReports,
 		PRWatch:              prWatch,
+		AgentFreeze:          agentFreeze,
 		MediaRetention:       mediaRetention,
 		Language:             language,
 		Timezone:             timezone,
@@ -537,13 +791,22 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		DiskFloorMin:     diskFloor.Min,
 		DiskFloorPercent: diskFloor.Percent,
 
-		AutoStopIdle:    autoStopIdle,
-		IdleTimeSeconds: int(idleTime / time.Second),
+		AutoStopIdle:      autoStopIdle,
+		RemoveStopped:     removeStopped,
+		RemoveStoppedDays: removeStoppedDays,
+		IdleTimeSeconds:   int(idleTime / time.Second),
+
+		IdleReclaim:       idleReclaim,
+		IdleFreezeSeconds: int(idleFreeze / time.Second),
+		IdleStopSeconds:   int(idleStop / time.Second),
 
 		DockerPruneOnStop: dockerPrune,
 
 		LeadRecheck:        leadRecheck,
 		LeadRecheckMinutes: int(recheckEvery / time.Minute),
+
+		LeadSleep:        leadSleep,
+		LeadSleepMinutes: int(sleepAfter / time.Minute),
 
 		ImageCache:                imageCache,
 		ImageCacheMaxBytes:        imageCacheMax,
@@ -554,6 +817,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		PackageCacheMaxBytes:        packageCacheMax,
 		DefaultPackageCacheMaxBytes: packageCacheDefault,
 		PackageCacheBytes:           s.packageCache.Size(),
+		LocalNodeModules:            localNodeModules,
 
 		ClaudeCodeUpdate: claudeUpdate,
 	}, nil

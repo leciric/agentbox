@@ -51,11 +51,15 @@ export function AllAgentsPanel({ project, onSelect, onNewAgent }: { project?: st
   const all = (agents.data ?? []).filter((a) => !project || a.project === project).toSorted(compareAgents);
   // A project can only be said to have no agents once they're known.
   const emptyProjects = agents.data ? (projects.data ?? []).filter((p) => (!project || p.name === project) && !all.some((a) => a.project === p.name)) : [];
+  // A column that says the same thing on every row says nothing: Project
+  // only when the rows are from more than one, Activity only when some
+  // agent has any.
+  const columns = { project: all.some((a) => a.project !== all[0].project), activity: all.some((a) => activityOf(a, usage.data)) };
 
   if (agents.data && all.length === 0) {
     return (
       <div className="panel grid justify-items-center gap-3 rounded-2xl px-4 py-10 text-center">
-        <p className="text-[13.5px] text-muted">{t('project.all.empty')}</p>
+        <p className="text-ui text-muted">{t('project.all.empty')}</p>
         <Button size="sm" onClick={onNewAgent}>
           <Plus />
           {t('project.view.newAgent')}
@@ -66,12 +70,12 @@ export function AllAgentsPanel({ project, onSelect, onNewAgent }: { project?: st
 
   return (
     <div>
-      <div className="hidden items-center gap-3 px-4 pb-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-faint sm:flex">
-        <span className="w-8 shrink-0" />
-        <span className="w-24 shrink-0 md:w-32 lg:w-40">{t('project.all.project')}</span>
+      <div className="hidden items-center gap-3 pb-1.5 pl-4 pr-3 text-xs font-medium text-subtle sm:flex">
+        <span className="w-10 shrink-0" />
+        {columns.project && <span className="w-24 shrink-0 md:w-32 lg:w-40">{t('project.all.project')}</span>}
         <span className="min-w-0 flex-1">{t('project.all.agent')}</span>
         <span className="w-[124px] shrink-0">{t('project.all.status')}</span>
-        <span className="hidden w-[200px] shrink-0 md:block">{t('project.all.activity')}</span>
+        {columns.activity && <span className="hidden w-[200px] shrink-0 md:block">{t('project.all.activity')}</span>}
         <span className="w-4 shrink-0" />
       </div>
       <Panel className="divide-y divide-line-faint overflow-hidden rounded-2xl" aria-label={t('project.all.label')} aria-busy={!agents.data}>
@@ -82,7 +86,8 @@ export function AllAgentsPanel({ project, onSelect, onNewAgent }: { project?: st
           <AgentFleetRow
             key={agent.ref}
             agent={agent}
-            sample={usage.data?.agents?.find((u) => u.ref === agent.ref)}
+            sample={activityOf(agent, usage.data)}
+            columns={columns}
             cpuHistory={history.get(agent.ref) ?? []}
             onSelect={() => onSelect({ kind: 'agent', ref: agent.ref })}
             onOpen={onSelect}
@@ -90,7 +95,7 @@ export function AllAgentsPanel({ project, onSelect, onNewAgent }: { project?: st
         ))}
       </Panel>
       {emptyProjects.length > 0 && (
-        <p className="mt-3 px-1 text-[12.5px] leading-relaxed text-subtle">
+        <p className="mt-3 px-1 text-xs leading-relaxed text-subtle">
           {t.rich('project.all.emptyProjects', {
             list: (
               <>
@@ -114,6 +119,12 @@ export function AllAgentsPanel({ project, onSelect, onNewAgent }: { project?: st
       )}
     </div>
   );
+}
+
+// activityOf is an agent's latest load sample, while its machine runs: what
+// the Activity column draws.
+function activityOf(agent: T.Agent, usage?: T.Usage): T.AgentUsage | undefined {
+  return agent.state === 'running' ? usage?.agents?.find((u) => u.ref === agent.ref) : undefined;
 }
 
 // AgentFleetRowSkeleton holds an agent's row, the same height and columns,
@@ -142,12 +153,14 @@ function AgentFleetRowSkeleton({ width }: { width: string }) {
 function AgentFleetRow({
   agent,
   sample,
+  columns,
   cpuHistory,
   onSelect,
   onOpen,
 }: {
   agent: T.Agent;
   sample?: T.AgentUsage;
+  columns: { project: boolean; activity: boolean };
   cpuHistory: number[];
   onSelect: () => void;
   onOpen: (view: View) => void;
@@ -169,41 +182,33 @@ function AgentFleetRow({
       data-agent={agent.ref}
       onClick={onSelect}
       className={cn(
-        'group relative flex w-full items-center gap-3 py-2 pl-4 pr-3 text-left transition-colors',
-        status.tone === 'urgent' && 'bg-amber-400/[0.035] hover:bg-amber-400/[0.06]',
-        status.tone === 'error' && 'bg-rose-400/[0.035] hover:bg-rose-400/[0.06]',
-        status.tone !== 'urgent' && status.tone !== 'error' && 'hover:bg-surface',
+        'group flex w-full items-center gap-3 py-2 pl-4 pr-3 text-left transition-colors hover:bg-surface',
         quiet && 'opacity-55 hover:opacity-90',
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          'absolute inset-y-1.5 left-0 w-[3px] rounded-full',
-          status.tone === 'urgent' && 'bg-amber-400',
-          status.tone === 'error' && 'bg-rose-400',
-          status.tone === 'warning' && 'bg-amber-400/70',
-          status.tone === 'live' && 'bg-sky-400',
-          status.tone === 'muted' && 'bg-transparent',
-        )}
-      />
+      {/* The row itself stays neutral, whatever the status: its colour is the
+          status column's alone. */}
       <LiveAgentAvatar agent={agent} />
-      <span className="hidden w-24 shrink-0 items-center gap-1.5 truncate text-[12px] text-subtle sm:flex md:w-32 lg:w-40" title={projectName}>
-        {project ? <ProjectIcon project={project} className="size-4 rounded text-[9px]" /> : <FolderGit2 className="size-3.5 shrink-0 text-faint" />}
-        <span className="truncate">{projectName}</span>
-      </span>
+      {columns.project && (
+        <span className="hidden w-24 shrink-0 items-center gap-1.5 truncate text-xs text-subtle sm:flex md:w-32 lg:w-40" title={projectName}>
+          {project ? <ProjectIcon project={project} className="size-4 rounded text-caption" /> : <FolderGit2 className="size-3.5 shrink-0 text-faint" />}
+          <span className="truncate">{projectName}</span>
+        </span>
+      )}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-primary">{agent.title || agent.name}</span>
-          {agent.title && <span className="hidden shrink-0 font-mono text-[11px] text-faint lg:inline">{agent.name}</span>}
+          <span className="truncate text-ui font-medium text-primary">{agent.title || agent.name}</span>
+          {agent.title && <span className="hidden shrink-0 font-mono text-xs text-faint lg:inline">{agent.name}</span>}
         </span>
-        <span className="flex items-center gap-1.5 truncate text-[11px] text-faint sm:hidden">
-          <FolderGit2 className="size-3 shrink-0" />
-          {projectName}
-        </span>
+        {columns.project && (
+          <span className="flex items-center gap-1.5 truncate text-xs text-faint sm:hidden">
+            <FolderGit2 className="size-3 shrink-0" />
+            {projectName}
+          </span>
+        )}
       </span>
-      <span className="flex w-[124px] shrink-0 items-center gap-1.5 text-[11.5px]">
-        {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
+      <span className="flex w-[124px] shrink-0 items-center gap-1.5 text-xs">
+        {status.tone === 'urgent' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />}
         {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
         <span
           title={memoryHold(agent)?.tip}
@@ -219,11 +224,12 @@ function AgentFleetRow({
           {status.text}
         </span>
       </span>
+      {columns.activity && (
       <span className="hidden w-[200px] shrink-0 items-center gap-2 md:flex">
-        {sample && agent.state === 'running' ? (
+        {sample ? (
           <>
             <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
-            <span className="font-mono text-[10.5px] tabular-nums text-subtle" title={t('project.all.usage', {
+            <span className="font-mono text-xs tabular-nums text-subtle" title={t('project.all.usage', {
                 cpu: sample.cpu.toFixed(0),
                 memory: humanBytes(sample.memory),
                 read: humanRate(sample.diskRead),
@@ -233,9 +239,10 @@ function AgentFleetRow({
             </span>
           </>
         ) : (
-          <span className="text-[11px] text-ghost">—</span>
+          <span className="text-xs text-ghost">—</span>
         )}
       </span>
+      )}
       <ChevronRight className="hidden size-4 shrink-0 text-ghost transition group-hover:translate-x-0.5 group-hover:text-muted sm:block" />
     </button>
     </AgentContextMenu>

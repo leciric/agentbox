@@ -1,12 +1,13 @@
-import { Check, ChevronLeft, ChevronRight, CircleAlert, ExternalLink, Film, Image as ImageIcon, Maximize2, Minimize2, Pause, Play } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, CircleAlert, Columns2, ExternalLink, Film, Image as ImageIcon, Maximize2, Minimize2, Pause, Play } from 'lucide-react';
 import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type Ref } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
-import { chapterAt, gallery, readableName, step, type Proof, type Shown, type Take } from '../lib/review';
+import { chapterAt, gallery, readableName, shownKey, step, type Proof, type Shown, type Take } from '../lib/review';
 import { cn } from '../lib/utils';
 import { PageIcon } from './pages/PageThumb';
+import { ReviewCompare, ReviewVideos, type CompareHandle } from './ReviewCompare';
 import { Button } from './ui/button';
 import { Kbd } from './ui/card';
 
@@ -14,10 +15,13 @@ import { Kbd } from './ui/card';
 // checked, in one gallery (lib/review.ts gallery). The stage shows one piece
 // of it, a recording, a screenshot or a page, and the strip under it lists
 // all of them, the one on stage lit; a recording's chapters (what it checked
-// at each moment) are beside it, to jump to. ← → step through the gallery
-// whatever the kind, Space plays and pauses, [ ] move through the chapters
-// and F fills the review with the piece on stage (ProofHandle, the keys
-// being the review's: ReviewCarousel).
+// at each moment) are beside it, to jump to. A before/after pair is one
+// piece: two screenshots compared on stage (ReviewCompare), two recordings
+// played one after the other (ReviewVideos). ← → step through the gallery
+// whatever the kind, Space plays and pauses (or flips a pair in Flip), [ ]
+// move through the chapters, F fills the review with the piece on stage,
+// and Q and H work a pair's comparison (ProofHandle, the keys being the
+// review's: ReviewCarousel).
 
 // clock is seconds as m:ss.
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -31,6 +35,8 @@ export interface ProofHandle {
   // collapse leaves the expanded view, and says whether it was in it, so
   // Esc does that before it closes the review.
   collapse: () => boolean;
+  compareMode: () => void;
+  highlight: () => void;
 }
 
 export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; project: string; proof: Proof }) {
@@ -40,6 +46,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
   const [time, setTime] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const player = useRef<PlayerHandle>(null);
+  const compare = useRef<CompareHandle>(null);
   const root = useRef<HTMLDivElement>(null);
   const current = shown[Math.min(at, shown.length - 1)];
   const rec = current?.kind === 'recording' ? current.take : undefined;
@@ -59,7 +66,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
   };
   useImperativeHandle(ref, () => ({
     step: (by) => shown.length && pick(step(at, shown.length, by)),
-    togglePlay: () => player.current?.toggle(),
+    togglePlay: () => (current?.kind === 'pair' ? compare.current?.space() : player.current?.toggle()),
     chapter: (by) => player.current?.chapter(by),
     toggleExpand: () => current && expand(!expanded),
     collapse: () => {
@@ -67,6 +74,8 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
       setExpanded(false);
       return true;
     },
+    compareMode: () => compare.current?.cycle(),
+    highlight: () => compare.current?.highlight(),
   }));
 
   if (!current) {
@@ -83,11 +92,12 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
 
   const stage = (
     <Stage
-      key={current.kind === 'recording' ? current.take.media.id : current.kind === 'screenshot' ? current.media.id : current.page.id}
+      key={shownKey(current)}
       shown={current}
       project={project}
       expanded={expanded}
       player={player}
+      compare={compare}
       chapter={chapter}
       onTime={setTime}
       onExpand={() => expand(!expanded)}
@@ -127,14 +137,15 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
 }
 
 // nameOf is what a piece of proof is called.
-const nameOf = (s: Shown) => (s.kind === 'recording' ? readableName(s.take.media.name) : s.kind === 'screenshot' ? readableName(s.media.name) : s.page.title);
+const nameOf = (s: Shown) =>
+  s.kind === 'pair' ? readableName(s.pair.name) : s.kind === 'recording' ? readableName(s.take.media.name) : s.kind === 'screenshot' ? readableName(s.media.name) : s.page.title;
 
 // StageBar is under the stage: where the piece is in the gallery, its name,
 // and Expand.
 function StageBar({ shown, n, count, expanded, onStep, onExpand }: { shown: Shown; n: number; count: number; expanded: boolean; onStep: (by: number) => void; onExpand: () => void }) {
   const t = useT();
   return (
-    <div className={cn('flex min-w-0 items-center gap-2 text-[12.5px]', expanded ? 'text-white/80' : 'text-secondary')} data-review-stage-bar>
+    <div className={cn('flex min-w-0 items-center gap-2 text-ui', expanded ? 'text-white/80' : 'text-secondary')} data-review-stage-bar>
       <Button size="icon-sm" variant="ghost" disabled={n === 0} onClick={() => onStep(-1)} aria-label={t('review.previous')} title={`${t('review.previous')} (←)`}>
         <ChevronLeft />
       </Button>
@@ -162,6 +173,7 @@ function StageBar({ shown, n, count, expanded, onStep, onExpand }: { shown: Show
 }
 
 function KindIcon({ shown, className }: { shown: Shown; className?: string }) {
+  if (shown.kind === 'pair') return <Columns2 className={className} />;
   if (shown.kind === 'recording') return <Film className={className} />;
   if (shown.kind === 'screenshot') return <ImageIcon className={className} />;
   return <PageIcon className={className} />;
@@ -174,6 +186,7 @@ function Stage({
   project,
   expanded,
   player,
+  compare,
   chapter,
   onTime,
   onExpand,
@@ -182,12 +195,17 @@ function Stage({
   project: string;
   expanded: boolean;
   player: Ref<PlayerHandle>;
+  compare: Ref<CompareHandle>;
   chapter: number;
   onTime: (seconds: number) => void;
   onExpand: () => void;
 }) {
   const box = expanded ? 'size-full' : 'mx-auto aspect-[16/10] w-full';
   const width = expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' };
+  if (shown.kind === 'pair') {
+    const Halves = shown.pair.before.kind === 'recording' ? ReviewVideos : ReviewCompare;
+    return <Halves ref={compare} pair={shown.pair} expanded={expanded} />;
+  }
   if (shown.kind === 'recording') return <Player ref={player} take={shown.take} chapter={chapter} onTime={onTime} expanded={expanded} />;
   if (shown.kind === 'screenshot') {
     return (
@@ -203,6 +221,7 @@ function Stage({
 function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: ReadonlySet<string>; onPick: (n: number) => void }) {
   const t = useT();
   const counts = [
+    shown.filter((s) => s.kind === 'pair').length && t('review.count.pairs', { count: shown.filter((s) => s.kind === 'pair').length }),
     shown.filter((s) => s.kind === 'recording').length && t('review.count.recordings', { count: shown.filter((s) => s.kind === 'recording').length }),
     shown.filter((s) => s.kind === 'screenshot').length && t('review.count.screenshots', { count: shown.filter((s) => s.kind === 'screenshot').length }),
     shown.filter((s) => s.kind === 'page').length && t('review.count.pages', { count: shown.filter((s) => s.kind === 'page').length }),
@@ -210,7 +229,7 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
   if (shown.length < 2) return null;
   return (
     <section className="min-w-0">
-      <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">
+      <h3 className="mb-2 flex items-center gap-2 text-caption font-semibold uppercase tracking-wide text-subtle">
         {t('review.media')}
         <span className="font-normal normal-case tracking-normal">{counts.join(' · ')}</span>
         <span className="ml-auto font-normal normal-case tracking-normal max-md:hidden">{t('review.mediaKeys')}</span>
@@ -218,20 +237,21 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
       <div className="flex max-w-full gap-2 overflow-x-auto overscroll-x-contain p-0.5 pb-1 [scrollbar-width:thin]" data-review-shots>
         {shown.map((s, i) => (
           <button
-            key={s.kind === 'recording' ? s.take.media.id : s.kind === 'screenshot' ? s.media.id : s.page.id}
+            key={shownKey(s)}
             type="button"
             title={nameOf(s)}
             aria-current={i === at || undefined}
             onClick={() => onPick(i)}
             className={cn(
-              'w-36 shrink-0 overflow-hidden rounded-lg border bg-surface text-left transition hover:border-line-heavy',
+              s.kind === 'pair' ? 'w-56' : 'w-36',
+              'shrink-0 overflow-hidden rounded-lg border bg-surface text-left transition hover:border-line-heavy',
               i === at ? 'border-brand-400 ring-1 ring-brand-400' : s.kind === 'screenshot' && lit.has(s.media.id) ? 'border-brand-400/50' : 'border-line-strong',
             )}
             data-review-media={i + 1}
             data-review-media-kind={s.kind}
           >
             <Thumb shown={s} />
-            <span className="flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-[11.5px] text-secondary">
+            <span className="flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-caption text-secondary">
               <KindIcon shown={s} className="size-3 shrink-0 text-subtle" />
               <span className="min-w-0 truncate">{nameOf(s)}</span>
             </span>
@@ -243,12 +263,28 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
 }
 
 function Thumb({ shown }: { shown: Shown }) {
+  if (shown.kind === 'pair') {
+    // Its halves, before then after.
+    return (
+      <span className="grid aspect-[32/10] w-full grid-cols-2 gap-px bg-line-strong">
+        {[shown.pair.before, shown.pair.after].map((m) =>
+          m.kind === 'screenshot' ? (
+            <img key={m.id} src={mediaUrl(m)} alt="" draggable={false} className="size-full bg-black object-cover object-top" />
+          ) : (
+            <span key={m.id} className="flex size-full items-center justify-center bg-black text-white/80">
+              <Play className="size-5 fill-current" />
+            </span>
+          ),
+        )}
+      </span>
+    );
+  }
   if (shown.kind === 'screenshot') return <img src={mediaUrl(shown.media)} alt="" draggable={false} className="aspect-[16/10] w-full bg-black object-cover object-top" />;
   if (shown.kind === 'recording') {
     return (
       <span className="relative flex aspect-[16/10] w-full items-center justify-center bg-black text-white/80">
         <Play className="size-6 fill-current" />
-        {shown.take.media.meta.duration ? <span className="absolute bottom-1 right-1.5 rounded bg-black/70 px-1 text-[10.5px] tabular-nums">{clock(shown.take.media.meta.duration)}</span> : null}
+        {shown.take.media.meta.duration ? <span className="absolute bottom-1 right-1.5 rounded bg-black/70 px-1 text-caption tabular-nums">{clock(shown.take.media.meta.duration)}</span> : null}
       </span>
     );
   }
@@ -265,7 +301,7 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
   const t = useT();
   return (
     <section className="min-w-0" data-review-chapters>
-      <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">
+      <h3 className="mb-2 flex items-center gap-2 text-caption font-semibold uppercase tracking-wide text-subtle">
         {t('review.checked')}
         {take.chapters.length > 1 && (
           <span className="ml-auto flex gap-1 font-normal normal-case max-md:hidden" aria-hidden>
@@ -275,7 +311,7 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
         )}
       </h3>
       {take.chapters.length === 0 ? (
-        <p className="text-[12px] leading-relaxed text-subtle">{t('review.noChapters')}</p>
+        <p className="text-caption leading-relaxed text-subtle">{t('review.noChapters')}</p>
       ) : (
         <ol className="grid grid-cols-[minmax(0,1fr)] gap-0.5">
           {take.chapters.map((c, i) => (
@@ -292,10 +328,10 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
-                    <span className={cn('min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px]', i === at ? 'text-title' : 'text-primary')}>{c.title}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-faint">{clock(c.at)}</span>
+                    <span className={cn('min-w-0 flex-1 [overflow-wrap:anywhere] text-ui', i === at ? 'text-title' : 'text-primary')}>{c.title}</span>
+                    <span className="shrink-0 text-caption tabular-nums text-faint">{clock(c.at)}</span>
                   </span>
-                  {c.detail && <span className="mt-0.5 line-clamp-3 block [overflow-wrap:anywhere] text-[12px] leading-snug text-subtle">{c.detail}</span>}
+                  {c.detail && <span className="mt-0.5 line-clamp-3 block [overflow-wrap:anywhere] text-caption leading-snug text-subtle">{c.detail}</span>}
                 </span>
               </button>
             </li>
@@ -377,7 +413,7 @@ function Player({ ref, take, chapter, onTime, expanded }: { ref: Ref<PlayerHandl
           className={cn('block w-full cursor-pointer object-contain', expanded ? 'h-full' : 'aspect-[16/10]')}
         />
         {current && (
-          <span className="pointer-events-none absolute left-3 top-3 max-w-[80%] truncate rounded-md bg-black/65 px-2 py-1 text-[12px] text-white backdrop-blur">
+          <span className="pointer-events-none absolute left-3 top-3 max-w-[80%] truncate rounded-md bg-black/65 px-2 py-1 text-caption text-white backdrop-blur">
             <span className="tabular-nums text-white/60">{t('review.position', { n: chapter + 1, count: take.chapters.length })}</span> {current.title}
           </span>
         )}
@@ -411,7 +447,7 @@ function Player({ ref, take, chapter, onTime, expanded }: { ref: Ref<PlayerHandl
             );
           })}
         </div>
-        <span className="shrink-0 text-[11.5px] tabular-nums text-white/70">
+        <span className="shrink-0 text-caption tabular-nums text-white/70">
           {clock(time)} / {clock(length)}
         </span>
       </div>

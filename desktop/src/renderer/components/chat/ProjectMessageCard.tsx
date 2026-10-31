@@ -15,7 +15,7 @@ export function openProject(project: string) {
 }
 
 // ProjectMessageCard is a message between this project's lead and another
-// project's (message_project, reply_project), or an alignment between them
+// project's (message_project), or an alignment between them
 // settled: the same message shows in both chats, each from its own side, with
 // the other project's name and a link there.
 export function ProjectMessageCard({ item }: { item: T.ChatItem }) {
@@ -34,7 +34,7 @@ export function ProjectMessageCard({ item }: { item: T.ChatItem }) {
   return (
     <div
       className={cn(
-        'mb-4 min-w-0 rounded-xl border px-3.5 py-2.5 text-[13px]',
+        'mb-4 min-w-0 rounded-xl border px-3.5 py-2.5 text-ui',
         settled ? 'border-emerald-500/30 bg-emerald-500/[0.06]' : 'border-violet-500/30 bg-violet-500/[0.06]',
         !incoming && !settled && 'ml-8',
       )}
@@ -47,11 +47,11 @@ export function ProjectMessageCard({ item }: { item: T.ChatItem }) {
         <span className="min-w-0 truncate font-medium text-primary" title={t('chat.project.hop', { n: pm.hop + 1 })}>
           {title}
         </span>
-        {pm.topic && !settled && <span className="min-w-0 truncate rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[11.5px] text-violet-200">{t('chat.project.aligning', { topic: pm.topic })}</span>}
-        {pm.expectsReply && !pm.topic && <span className="rounded-md bg-surface-strong px-1.5 py-0.5 text-[11.5px] text-tertiary">{t('chat.project.expectsReply')}</span>}
+        {pm.topic && !settled && <span className="min-w-0 truncate rounded-md bg-violet-500/15 px-1.5 py-0.5 text-caption text-violet-200">{t('chat.project.aligning', { topic: pm.topic })}</span>}
+        {pm.expectsReply && !pm.topic && <span className="rounded-md bg-surface-strong px-1.5 py-0.5 text-caption text-tertiary">{t('chat.project.expectsReply')}</span>}
         <button
           type="button"
-          className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary"
+          className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-subtle transition hover:bg-surface-strong hover:text-primary"
           onClick={() => openProject(pm.project)}
           data-open-project={pm.project}
         >
@@ -59,7 +59,7 @@ export function ProjectMessageCard({ item }: { item: T.ChatItem }) {
           <ExternalLink className="size-3.5" />
         </button>
       </div>
-      {settled && <p className="mt-1 text-[12px] text-emerald-200/80">{pm.topic ? `${pm.topic} · ${t('chat.project.agreed')}` : t('chat.project.agreed')}</p>}
+      {settled && <p className="mt-1 text-caption text-emerald-200/80">{pm.topic ? `${pm.topic} · ${t('chat.project.agreed')}` : t('chat.project.agreed')}</p>}
       <div className="mt-1.5 min-w-0 break-words text-secondary" data-chat-text>
         <Markdown text={item.text ?? ''} />
       </div>

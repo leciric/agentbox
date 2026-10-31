@@ -7,6 +7,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agentbox/internal/acp"
+	"agentbox/internal/state"
 )
 
 // Process is a running ACP adapter.
@@ -19,6 +22,35 @@ type Process struct {
 	Wait func() error
 	// Stderr returns the end of what the process wrote to stderr.
 	Stderr func() string
+
+	// Set for an adapter running somewhere the agent's paths don't reach —
+	// the Home chat's on the user's computer (package homehost): its sessions
+	// start in Cwd rather than the agent's worktree, with MCPServers rather
+	// than none, as its tool's configuration there doesn't name AgentBox's.
+	Cwd        string
+	MCPServers []acp.McpServer
+	// Notice, when set, is said in the chat as the adapter starts: where it
+	// runs, when that changed.
+	Notice string
+	// Moved says it runs on another machine than the adapter before it, which
+	// keeps the session: it starts a new one, told the conversation.
+	Moved bool
+}
+
+// sessionCwd is where a session of a's on proc starts.
+func sessionCwd(proc *Process, a state.Agent) string {
+	if proc != nil && proc.Cwd != "" {
+		return proc.Cwd
+	}
+	return a.Worktree
+}
+
+// sessionMCP is the MCP servers a session on proc starts with.
+func sessionMCP(proc *Process) []acp.McpServer {
+	if proc != nil && proc.MCPServers != nil {
+		return proc.MCPServers
+	}
+	return []acp.McpServer{}
 }
 
 // StartCommand starts cmd as an ACP adapter, which speaks over its stdin and stdout.

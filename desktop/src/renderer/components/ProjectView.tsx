@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, Clapperboard, Wand2, Coins, FileText, FolderGit2, FolderOpen, KeyRound, Moon, NotebookPen, Plug, SlidersHorizontal, Smile, Trash } from 'lucide-react';
+import { Brain, Wand2, Coins, FileText, FolderGit2, FolderOpen, KeyRound, Moon, NotebookPen, Plug, SlidersHorizontal, Smile, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -13,7 +13,7 @@ import { errorMessage, timeAgo } from '../lib/utils';
 import { ChatStatus, useChatMenu } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
-import { leadAgentFrom, ProjectChatPanel } from './ProjectChatPanel';
+import { leadAgentFrom, ProjectChatPanel, useCurrentSession } from './ProjectChatPanel';
 import { ProjectBasePanel } from './ProjectBasePanel';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { ProjectSettings } from './ProjectSettings';
@@ -22,11 +22,10 @@ import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SkillsPanel } from './SkillsPanel';
 import { TokensPanel } from './TokensPanel';
 import { Button } from './ui/button';
-import { Tip } from './ui/tooltip';
 import { Card, Row } from './ui/card';
 import { Textarea } from './ui/input';
 import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
-import { InTopBar, ProjectMenu, ProjectPlaces } from './v2/ProjectHeader';
+import { InTopBar, ProjectMenu } from './v2/ProjectHeader';
 import { AgentMentionsProvider } from './pip/Mentions';
 import { PanelButton } from './v2/PanelButton';
 import { openPanelOn, setPanel } from '../lib/rightPanel';
@@ -75,7 +74,7 @@ function ProjectNotes({ project, className }: { project: string; className?: str
       <Textarea
         aria-label={t('project.notes.title')}
         data-project-notes
-        className="min-h-44 font-mono text-[12.5px]"
+        className="min-h-44 font-mono text-ui"
         spellCheck={false}
         value={text}
         placeholder={t('project.notes.placeholder')}
@@ -114,7 +113,7 @@ const projectSettingsSections = (t: Translate): SettingsSection<ProjectSection>[
   { id: 'skills', title: t('project.view.section.skills'), icon: Wand2 },
 ];
 
-export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name: string; tab?: ProjectPlaceName; onSelect: (view: View) => void; onNewAgent: () => void }) {
+export function ProjectView({ name, tab: opensAt, onNewAgent }: { name: string; tab?: ProjectPlaceName; onNewAgent: () => void }) {
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   // A project's page is its lead's chat, with no tabs: Media and Past agents
@@ -123,7 +122,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   useEffect(() => {
     if (!opensAt) return;
     const place = projectPlace(opensAt);
-    if (place.tab === 'pulls') openPanelOn(`${name}/${T.LeadName}`, 'pulls');
+    if (place.tab === 'pulls' || place.tab === 'issues') openPanelOn(`${name}/${T.LeadName}`, place.tab);
     else if (place.tab === 'settings') {
       setPanel({ section: place.section });
       openPanelOn(`${name}/${T.LeadName}`, 'settings');
@@ -131,11 +130,14 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   }, [opensAt, name]);
   const [iconOpen, setIconOpen] = useState(false);
   useEffect(() => countFeature(projectTabFeatures.chat), [name]);
-  const leadChat = useQuery({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name) });
+  // The session its chat shows (ProjectChatPanel's tabs): its status, files
+  // and ⋯ are that session's.
+  const session = useCurrentSession(name);
+  const leadChat = useQuery({ queryKey: ['projectChat', name, session?.id], queryFn: () => api.projectChat(name, session!.id), enabled: !!session });
   const project = projects.data?.find((p) => p.name === name);
   // ProjectMenu in the top bar takes the chat's New chat and Reload tools as
   // items; the rest are its sidebar menu's and its Settings' (ProjectActions).
-  const lead = project && leadChat.data ? leadAgentFrom(project, leadChat.data) : undefined;
+  const lead = project && leadChat.data && session ? leadAgentFrom(project, leadChat.data, session.topic) : undefined;
   const chatMenu = useChatMenu(lead);
 
   if (!project) {
@@ -149,12 +151,6 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
         {chatMenu?.dialogs}
         {chatMenu?.untracked}
         <InTopBar end>
-          <ProjectPlaces project={name} leadRef={`${name}/${T.LeadName}`} />
-          <Tip label={t('today.open')}>
-            <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project: name })} data-open-today>
-              <Clapperboard />
-            </Button>
-          </Tip>
           {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} newChat={chatMenu?.newChat} more={chatMenu?.reload} />}
           <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
         </InTopBar>
@@ -286,7 +282,7 @@ export function ProjectSettingsBody({ project, section, onSection, onSelect, onO
       {section === 'general' && (
         <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
           <Card className="mb-4" title={t('projectIcon.label')} icon={Smile} description={t('projectIcon.description')} action={<Button size="sm" onClick={() => setIconOpen(true)} data-project-settings-icon>{t('projectIcon.change')}</Button>}>
-            <ProjectIcon project={project} className="size-10 rounded-xl text-[16px]" />
+            <ProjectIcon project={project} className="size-10 rounded-xl text-heading" />
           </Card>
           <ProjectSettings project={project} />
           <ProjectActions project={project} onSelect={onSelect} />
@@ -307,7 +303,7 @@ export function ProjectSettingsBody({ project, section, onSection, onSelect, onO
             }
           >
             {showBrief && (
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-[12px] leading-relaxed text-tertiary">
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-caption leading-relaxed text-tertiary">
                 {brief.data ?? t('common.loading')}
               </pre>
             )}

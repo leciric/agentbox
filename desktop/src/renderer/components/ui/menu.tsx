@@ -32,14 +32,14 @@ export function MenuItem({
   return (
     <MenuPrimitive.Item
       className={cn(
-        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[disabled]:opacity-65 data-[highlighted]:bg-surface-raised',
+        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-ui text-secondary outline-none data-[disabled]:opacity-65 data-[highlighted]:bg-surface-raised',
         destructive && 'text-rose-300 data-[highlighted]:bg-rose-500/10',
       )}
       {...props}
     >
       {Icon && <Icon className={cn('size-4 text-subtle', destructive && 'text-rose-400')} />}
       <span className="flex-1">{children}</span>
-      {hint && <span className="text-[11px] text-subtle">{hint}</span>}
+      {hint && <span className="text-caption text-subtle">{hint}</span>}
     </MenuPrimitive.Item>
   );
 }
@@ -49,7 +49,7 @@ export function MenuSeparator() {
 }
 
 export function MenuLabel({ children }: { children: ReactNode }) {
-  return <MenuPrimitive.Label className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wider text-subtle">{children}</MenuPrimitive.Label>;
+  return <MenuPrimitive.Label className="px-2.5 pb-1 pt-1.5 text-caption font-medium text-muted">{children}</MenuPrimitive.Label>;
 }
 
 // MenuSub is an item that opens a submenu: its icon, its name, and what it's
@@ -57,10 +57,10 @@ export function MenuLabel({ children }: { children: ReactNode }) {
 export function MenuSub({ icon: Icon, label, value, children, className, ...rest }: { icon?: ComponentType<{ className?: string }>; label: ReactNode; value?: ReactNode; children: ReactNode; className?: string } & Record<`data-${string}`, string | undefined>) {
   return (
     <MenuPrimitive.Sub>
-      <MenuPrimitive.SubTrigger className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[highlighted]:bg-surface-raised data-[state=open]:bg-surface-raised" {...rest}>
+      <MenuPrimitive.SubTrigger className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-ui text-secondary outline-none data-[highlighted]:bg-surface-raised data-[state=open]:bg-surface-raised" {...rest}>
         {Icon && <Icon className="size-4 shrink-0 text-subtle" />}
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        {value && <span className="max-w-[10rem] truncate text-[12px] text-subtle">{value}</span>}
+        {value && <span className="max-w-[10rem] truncate text-caption text-subtle">{value}</span>}
         <ChevronRight className="size-3.5 shrink-0 text-subtle" />
       </MenuPrimitive.SubTrigger>
       <MenuPrimitive.Portal>

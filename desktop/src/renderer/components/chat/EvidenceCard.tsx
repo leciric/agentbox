@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PrNumberLink } from '../PrNumberLink';
 import { Check, CircleAlert, CircleCheck, GitMerge, GitPullRequest, Play } from 'lucide-react';
 import { useState } from 'react';
@@ -18,7 +18,8 @@ import { useProjectPages } from '../pages/usePages';
 import { clock } from '../ReviewProof';
 import { AIIcon } from '../state';
 import { Button } from '../ui/button';
-import { useAgentReview, useOpenReview } from '../v2/ReviewV2';
+import { mergedFinishes, visibleFinishes } from '../../lib/finished';
+import { agentReviewQuery, useAgentReview, useOpenReview } from '../v2/ReviewV2';
 
 // What an agent finished with, in its lead's chat, where the lead tells of it
 // (api.ChatItem.Finished on the notice the daemon writes the lead): its latest
@@ -33,13 +34,50 @@ import { useAgentReview, useOpenReview } from '../v2/ReviewV2';
 // its current state, so only the notice that is its latest (`latest`, from
 // lib/finished) shows the card; the earlier ones are a line that scrolls to it.
 export function FinishedCards({ item, latest }: { item: T.ChatItem; latest: Map<string, string> }) {
+  const t = useT();
+  const refs = item.finished ?? [];
+  const [showMerged, setShowMerged] = useState(false);
+  const merged = useMergedAgents(refs);
+  const { shown, hidden } = visibleFinishes(refs, merged, showMerged);
+  if (shown.length === 0 && hidden === 0) return null;
   return (
     <div className="mb-4 grid gap-3" data-chat-item="finished" data-chat-id={item.id}>
-      {(item.finished ?? []).map((ref) =>
-        latest.get(ref) === item.id ? <EvidenceCard key={ref} agentRef={ref} /> : <SupersededFinish key={ref} agentRef={ref} />,
+      {shown.map((ref) => (latest.get(ref) === item.id ? <EvidenceCard key={ref} agentRef={ref} /> : <SupersededFinish key={ref} agentRef={ref} />))}
+      {(hidden > 0 || (showMerged && merged.size > 0)) && (
+        <button
+          type="button"
+          onClick={() => setShowMerged((v) => !v)}
+          className="flex min-w-0 items-center gap-1.5 px-1 text-left text-[12.5px] text-subtle hover:text-title"
+          data-finished-merged-toggle
+        >
+          <GitMerge className="size-3.5 shrink-0" />
+          <span className="min-w-0 truncate">{showMerged ? t('evidence.hideMerged') : t('evidence.mergedHidden', { count: hidden })}</span>
+        </button>
       )}
     </div>
   );
+}
+
+// useMergedAgents is which of `refs` have their pull request merged, as the app
+// sees it now: the Pull requests list's read where it has the PR (kept fresh by
+// the pulls event, so a merge seen hides the card live), else the review item's.
+function useMergedAgents(refs: string[]): Set<string> {
+  const reviews = useQueries({ queries: refs.map(agentReviewQuery) });
+  const projects = [...new Set(refs.map((ref) => ref.split('/')[0]))];
+  const lists = useQueries({
+    queries: projects.map((project) => ({
+      queryKey: ['pulls', project],
+      queryFn: () => api.projectPullRequests(project),
+      enabled: refs.some((ref, i) => ref.split('/')[0] === project && !!reviews[i]?.data?.pr),
+    })),
+  });
+  const prs = new Map<string, T.PullRequest | null | undefined>();
+  refs.forEach((ref, i) => {
+    const pr = reviews[i]?.data?.pr;
+    const list = lists[projects.indexOf(ref.split('/')[0])]?.data;
+    prs.set(ref, (pr && list?.pullRequests.find((p) => p.number === pr.number)) || pr);
+  });
+  return mergedFinishes(refs, prs);
 }
 
 function SupersededFinish({ agentRef }: { agentRef: string }) {
@@ -52,7 +90,7 @@ function SupersededFinish({ agentRef }: { agentRef: string }) {
     cards[cards.length - 1]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
   return (
-    <button type="button" onClick={show} className="flex min-w-0 items-center gap-1.5 px-1 text-left text-[12.5px] text-subtle hover:text-title" data-finished-earlier={agentRef}>
+    <button type="button" onClick={show} className="flex min-w-0 items-center gap-1.5 px-1 text-left text-ui text-subtle hover:text-title" data-finished-earlier={agentRef}>
       <Check className="size-3.5 shrink-0" />
       <span className="min-w-0 truncate">{t('evidence.finishedEarlier', { title })}</span>
     </button>
@@ -123,7 +161,7 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
                 })}
               </span>
             )}
-            <span className="absolute inset-x-0 bottom-0 flex items-end gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2 pt-8 text-left text-[11.5px] text-white">
+            <span className="absolute inset-x-0 bottom-0 flex items-end gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2 pt-8 text-left text-caption text-white">
               <span className="min-w-0 flex-1 truncate">{chapters[at] ? t('evidence.chapter', { title: chapters[at].title }) : readableName(rec.media.name)}</span>
               {length ? <span className="shrink-0 tabular-nums text-white/70">{clock(length)}</span> : null}
             </span>
@@ -138,10 +176,10 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
             <span className="min-w-0 flex-1 truncate font-medium text-title" title={title}>
               {title}
             </span>
-            <span className="shrink-0 text-[11.5px] text-subtle">{t('evidence.finished', { agent: name })}</span>
+            <span className="shrink-0 text-caption text-subtle">{t('evidence.finished', { agent: name })}</span>
           </div>
           {chapters.length > 0 ? (
-            <ul className="grid gap-1 text-[12.5px]" data-evidence-chapters>
+            <ul className="grid gap-1 text-ui" data-evidence-chapters>
               {chapters.slice(0, 5).map((c, i) => (
                 <li key={`${c.at}-${i}`} className={cn('flex min-w-0 items-center gap-1.5', i === at ? 'text-title' : 'text-secondary')}>
                   <Check className="size-3.5 shrink-0 text-emerald-400" />
@@ -150,15 +188,15 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
               ))}
             </ul>
           ) : (
-            item?.summary && <p className="line-clamp-3 text-[12.5px] leading-relaxed text-secondary">{item.summary.replace(/[*_`#>]/g, '')}</p>
+            item?.summary && <p className="line-clamp-3 text-ui leading-relaxed text-secondary">{item.summary.replace(/[*_`#>]/g, '')}</p>
           )}
           {proof.pages[0] && (
-            <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-secondary">
+            <span className="inline-flex min-w-0 items-center gap-1.5 text-caption text-secondary">
               <PageIcon className="size-3.5 shrink-0 text-faint" />
               <span className="truncate">{proof.pages[0].title}</span>
             </span>
           )}
-          <div className="mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-subtle">
+          <div className="mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-subtle">
             {pr && (
               <span className={cn('inline-flex items-center gap-1', pr.state === 'merged' ? 'text-violet-300' : 'text-secondary')}>
                 {pr.state === 'merged' ? <GitMerge className="size-3.5" /> : <GitPullRequest className="size-3.5" />}<PrNumberLink pr={pr} />
@@ -199,7 +237,7 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
             </button>
           ))}
           {more > 0 && (
-            <button type="button" onClick={review_} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-line text-[12px] text-subtle hover:text-title">
+            <button type="button" onClick={review_} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-line text-caption text-subtle hover:text-title">
               {t('evidence.moreShots', { count: more })}
             </button>
           )}
@@ -210,7 +248,7 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
           </Button>
         )}
         {pr?.state === 'merged' ? (
-          <span className="inline-flex h-8 items-center gap-1.5 px-2 text-[12.5px] text-violet-300" data-evidence-merged>
+          <span className="inline-flex h-8 items-center gap-1.5 px-2 text-ui text-violet-300" data-evidence-merged>
             <GitMerge className="size-4" />
             {t('evidence.merged')}
           </span>

@@ -68,9 +68,9 @@ export function ReportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               />
             </div>
             <div className="grid gap-2">
-              <p className="text-[13px] font-medium text-tertiary">{t('shell.report.sentWith')}</p>
+              <p className="text-ui font-medium text-tertiary">{t('shell.report.sentWith')}</p>
               {report.isPending && (
-                <p className="flex items-center gap-2 text-[13px] text-subtle">
+                <p className="flex items-center gap-2 text-ui text-subtle">
                   <LoaderCircle className="size-4 animate-spin" /> {t('shell.report.collecting')}
                 </p>
               )}
@@ -81,7 +81,7 @@ export function ReportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               )}
               {report.data && (
                 <ul className="grid gap-1.5" data-report-sections>
-                  <li className="rounded-lg border border-line bg-sunken px-3 py-2 text-[12px] text-subtle">
+                  <li className="rounded-lg border border-line bg-sunken px-3 py-2 text-caption text-subtle">
                     {t.rich('shell.report.always', {
                       install: <span className="font-mono text-tertiary">{report.data.install}</span>,
                       version: report.data.version,
@@ -162,17 +162,17 @@ function SectionRow({ section, included, onIncluded }: { section: T.ReportSectio
           type="button"
           aria-expanded={shown}
           onClick={() => setShown((s) => !s)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left text-[13px] text-primary"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left text-ui text-primary"
         >
           <ChevronRight className={cn('size-4 shrink-0 text-subtle transition-transform', shown && 'rotate-90')} />
           <span className="min-w-0 truncate">{section.title}</span>
-          <span className="ml-auto shrink-0 font-mono text-[11px] text-faint">
+          <span className="ml-auto shrink-0 font-mono text-caption text-faint">
             {t('shell.report.lines', { count: lines })} · {size(section.content.length)}
           </span>
         </button>
       </div>
       {shown && (
-        <pre className="max-h-64 min-w-0 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] border-t border-line bg-sunken px-3 py-2 font-mono text-[11px] leading-relaxed text-secondary">
+        <pre className="max-h-64 min-w-0 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] border-t border-line bg-sunken px-3 py-2 font-mono text-caption leading-relaxed text-secondary">
           {section.content}
         </pre>
       )}
@@ -184,7 +184,7 @@ function SentReport({ id }: { id: string }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-line bg-sunken px-3 py-2 text-[13px]" data-report-sent>
+    <div className="flex items-center gap-3 rounded-lg border border-line bg-sunken px-3 py-2 text-ui" data-report-sent>
       <span className="text-subtle">{t('shell.report.idQuote')}</span>
       <span className="font-mono text-primary">{id}</span>
       <Button

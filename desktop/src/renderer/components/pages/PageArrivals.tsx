@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
-import { arrivals, onScreenChats, openPage, showsArrival } from '../../lib/pages';
+import { arrivals, isLeadRef, onScreenChats, openPage, showsArrival } from '../../lib/pages';
 import { useT } from '../../lib/i18n';
 import { t as tNow } from '../../../shared/i18n/index.ts';
 import { projectLabel } from '../../lib/projectName';
@@ -46,7 +46,7 @@ function announce(queryClient: ReturnType<typeof useQueryClient>, project: strin
   const projects = queryClient.getQueryData<T.Project[]>(['projects']);
   const agents = queryClient.getQueryData<T.Agent[]>(['agents']);
   const agent = agents?.find((a) => a.ref === page.agent);
-  const who = page.agent.endsWith('/lead') ? tNow('chat.project.agentTitle') : agent?.title || page.agent.split('/')[1];
+  const who = isLeadRef(page.agent) ? tNow('chat.project.agentTitle') : agent?.title || page.agent.split('/')[1];
   const open = () => {
     toast.dismiss(id);
     openPage(project, page);
@@ -71,13 +71,13 @@ function PageToast({ project, projectName, page, onOpen }: { project: string; pr
     >
       <PageThumb project={project} page={page} eager className="w-[88px] shrink-0 animate-page-drop rounded-lg ring-1 ring-black/10" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11.5px] text-muted">
+        <span className="block truncate text-caption text-muted">
           {t(page.version > 1 ? 'pages.toast.updatedShort' : 'pages.toast.publishedShort')} · <AgentName agentRef={page.agent} />
         </span>
-        <span className="mt-0.5 block truncate text-[13px] font-medium text-title">{page.title}</span>
-        <span className="mt-0.5 block truncate text-[11px] text-subtle">{projectName}</span>
+        <span className="mt-0.5 block truncate text-ui font-medium text-title">{page.title}</span>
+        <span className="mt-0.5 block truncate text-caption text-subtle">{projectName}</span>
       </span>
-      <span className="shrink-0 self-center pr-1 text-[11.5px] font-medium text-brand-300 [:root[data-appearance=light]_&]:text-brand-600">{t('pages.toast.open')}</span>
+      <span className="shrink-0 self-center pr-1 text-caption font-medium text-brand-300">{t('pages.toast.open')}</span>
     </button>
   );
 }

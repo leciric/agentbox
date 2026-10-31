@@ -95,9 +95,9 @@ export function SkillTile({ name, size = 'md', dim }: { name: string; size?: 'sm
       aria-hidden
       className={cn(
         'relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl font-semibold tracking-tight ring-1 ring-inset transition-opacity',
-        size === 'sm' && 'size-7 rounded-lg text-[10.5px]',
-        size === 'md' && 'size-10 text-[13px]',
-        size === 'lg' && 'size-12 text-[15px]',
+        size === 'sm' && 'size-7 rounded-lg text-caption',
+        size === 'md' && 'size-10 text-ui',
+        size === 'lg' && 'size-12 text-heading',
         dim && 'opacity-45 grayscale',
       )}
       style={{
@@ -158,14 +158,14 @@ export function SkillsPanel({ project, embedded }: { project?: string; embedded?
             </div>
           </div>
           <div className="min-w-0 flex-1 basis-72">
-            {!embedded && <h2 className="text-[19px] font-semibold tracking-tight text-title">{project ? t('skills.projectTitle') : t('skills.title')}</h2>}
-            <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted">
+            {!embedded && <h2 className="text-display font-semibold tracking-tight text-title">{project ? t('skills.projectTitle') : t('skills.title')}</h2>}
+            <p className="mt-1 max-w-2xl text-ui leading-relaxed text-muted">
               {project ? t('skills.projectDescription') : t('skills.description')}
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-subtle">
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-caption text-subtle">
               <Badge variant="brand">{t('skills.count', { count: all.length })}</Badge>
               <Badge variant={on > 0 ? 'success' : 'default'}>{t('skills.onCount', { count: on })}</Badge>
-              <span className="hidden text-faint sm:inline">{t.rich('skills.composerHint', { kbd: (c) => <kbd className="rounded-md border border-line bg-sunken px-1.5 py-px font-mono text-[11px] text-tertiary">{c}</kbd> })}</span>
+              <span className="hidden text-faint sm:inline">{t.rich('skills.composerHint', { kbd: (c) => <kbd className="rounded-md border border-line bg-sunken px-1.5 py-px font-mono text-caption text-tertiary">{c}</kbd> })}</span>
             </div>
           </div>
           <div className="flex shrink-0 gap-2">
@@ -195,7 +195,7 @@ export function SkillsPanel({ project, embedded }: { project?: string; embedded?
                 aria-checked={filter === f}
                 onClick={() => setFilter(f)}
                 className={cn(
-                  'rounded-[10px] px-3 py-1.5 text-[12.5px] font-medium transition-colors',
+                  'rounded-[10px] px-3 py-1.5 text-ui font-medium transition-colors',
                   filter === f ? 'bg-surface-raised text-title shadow-sm' : 'text-subtle hover:text-primary',
                 )}
               >
@@ -222,8 +222,8 @@ export function SkillsPanel({ project, embedded }: { project?: string; embedded?
               <BookOpen className="size-6 text-brand-300" />
             </div>
           </div>
-          <h3 className="text-[15px] font-semibold text-title">{t('skills.empty.title')}</h3>
-          <p className="max-w-md text-[13px] leading-relaxed text-muted">{t('skills.empty.body')}</p>
+          <h3 className="text-heading font-semibold text-title">{t('skills.empty.title')}</h3>
+          <p className="max-w-md text-ui leading-relaxed text-muted">{t('skills.empty.body')}</p>
           <div className="mt-2 flex flex-wrap justify-center gap-2">
             <Button variant="primary" onClick={() => setImporting(true)}>
               <Sparkles /> {t('skills.empty.import')}
@@ -235,7 +235,7 @@ export function SkillsPanel({ project, embedded }: { project?: string; embedded?
         </div>
       )}
 
-      {all.length > 0 && shown.length === 0 && <p className="py-8 text-center text-[13px] text-subtle">{t('skills.noMatch')}</p>}
+      {all.length > 0 && shown.length === 0 && <p className="py-8 text-center text-ui text-subtle">{t('skills.noMatch')}</p>}
 
       <ul className="grid gap-3 sm:grid-cols-2" aria-label={t('skills.list')}>
         {shown.map((skill) => (
@@ -293,9 +293,9 @@ function SkillCard({ skill, project, on, onOpen, onToggle }: { skill: T.Skill; p
         <SkillTile name={skill.name} dim={!on} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-2">
-            <h3 className={cn('truncate text-[14px] font-semibold', on ? 'text-title' : 'text-muted')}>{skill.name}</h3>
+            <h3 className={cn('truncate text-body font-semibold', on ? 'text-title' : 'text-muted')}>{skill.name}</h3>
           </div>
-          <code className="font-mono text-[11.5px] text-subtle">${skill.name}</code>
+          <code className="font-mono text-caption text-subtle">${skill.name}</code>
         </div>
         <Tip label={on ? t('skills.turnOff') : t('skills.turnOn')}>
           <span onClick={(e) => e.stopPropagation()} className="pt-0.5">
@@ -303,8 +303,8 @@ function SkillCard({ skill, project, on, onOpen, onToggle }: { skill: T.Skill; p
           </span>
         </Tip>
       </div>
-      <p className={cn('line-clamp-2 min-h-[2.6em] text-[12.5px] leading-relaxed', on ? 'text-muted' : 'text-subtle')}>{skill.description}</p>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-subtle">
+      <p className={cn('line-clamp-2 min-h-[2.6em] text-ui leading-relaxed', on ? 'text-muted' : 'text-subtle')}>{skill.description}</p>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-caption text-subtle">
         <Badge>
           <OriginIcon /> {originLabel(origin, origin === 'claude-plugin' ? skill.source.split(':')[1]?.split('/')[0] : undefined)}
         </Badge>
@@ -400,7 +400,7 @@ function SkillDialog({
             {creating ? (
               <DialogDescription className="mt-1">{project ? t('skills.newDescriptionProject') : t('skills.newDescription')}</DialogDescription>
             ) : (
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-subtle">
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-caption text-subtle">
                 <code className="font-mono text-faint">${name}</code>
                 {skill && (
                   <Badge>
@@ -408,7 +408,7 @@ function SkillDialog({
                   </Badge>
                 )}
                 {skill?.source && origin !== 'agentbox' && (
-                  <span className="max-w-80 truncate font-mono text-[11px] text-faint" title={skill.source}>
+                  <span className="max-w-80 truncate font-mono text-caption text-faint" title={skill.source}>
                     {skill.source}
                   </span>
                 )}
@@ -418,7 +418,7 @@ function SkillDialog({
           </div>
           {!creating && skill && !editing && (
             <div className="relative flex shrink-0 items-center gap-2">
-              <label className="mr-1 flex items-center gap-2 rounded-xl border border-line bg-sunken px-3 py-1.5 text-[12.5px] text-muted">
+              <label className="mr-1 flex items-center gap-2 rounded-xl border border-line bg-sunken px-3 py-1.5 text-ui text-muted">
                 {project ? t('skills.inThisProject') : t('skills.agentboxWide')}
                 <Switch checked={on} onCheckedChange={(v) => summary && onToggle?.(summary, v)} aria-label={t('skills.toggle', { name: name! })} />
               </label>
@@ -438,11 +438,11 @@ function SkillDialog({
           <div className="flex min-h-0 flex-1 flex-col">
             {creating && (
               <div className="flex shrink-0 items-center gap-3 border-b border-line-faint px-6 py-3">
-                <label htmlFor="skill-name" className="text-[12.5px] font-medium text-muted">
+                <label htmlFor="skill-name" className="text-ui font-medium text-muted">
                   {t('skills.name')}
                 </label>
                 <div className="relative w-72">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-[13px] text-faint">$</span>
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-ui text-faint">$</span>
                   <Input
                     id="skill-name"
                     autoFocus
@@ -456,12 +456,12 @@ function SkillDialog({
                     }}
                   />
                 </div>
-                <span className="text-[12px] text-faint">{t('skills.nameHint')}</span>
+                <span className="text-caption text-faint">{t('skills.nameHint')}</span>
               </div>
             )}
             <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-2">
               <div className="flex min-h-0 flex-col border-line-faint md:border-r">
-                <div className="flex shrink-0 items-center gap-2 px-5 py-2 text-[11.5px] font-medium uppercase tracking-wide text-faint">
+                <div className="flex shrink-0 items-center gap-2 px-5 py-2 text-caption font-medium uppercase tracking-wide text-faint">
                   <Code2 className="size-3.5" /> SKILL.md
                 </div>
                 <textarea
@@ -469,12 +469,12 @@ function SkillDialog({
                   onChange={(e) => setDraft(e.target.value)}
                   spellCheck={false}
                   aria-label="SKILL.md"
-                  className="min-h-0 flex-1 resize-none bg-sunken px-5 py-4 font-mono text-[12.5px] leading-relaxed text-primary outline-none"
+                  className="min-h-0 flex-1 resize-none bg-sunken px-5 py-4 font-mono text-ui leading-relaxed text-primary outline-none"
                   data-skill-editor
                 />
               </div>
               <div className="hidden min-h-0 flex-col md:flex">
-                <div className="flex shrink-0 items-center gap-2 px-5 py-2 text-[11.5px] font-medium uppercase tracking-wide text-faint">
+                <div className="flex shrink-0 items-center gap-2 px-5 py-2 text-caption font-medium uppercase tracking-wide text-faint">
                   <Eye className="size-3.5" /> {t('skills.preview')}
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
@@ -484,11 +484,11 @@ function SkillDialog({
             </div>
             <div className="flex shrink-0 items-center gap-3 border-t border-line px-6 py-3">
               {save.error ? (
-                <p className="flex min-w-0 items-center gap-2 text-[12.5px] text-rose-300">
+                <p className="flex min-w-0 items-center gap-2 text-ui text-rose-300">
                   <AlertTriangle className="size-4 shrink-0" /> <span className="truncate">{errorMessage(save.error)}</span>
                 </p>
               ) : (
-                <p className="text-[12px] text-faint">{t('skills.editHint')}</p>
+                <p className="text-caption text-faint">{t('skills.editHint')}</p>
               )}
               <div className="ml-auto flex gap-2">
                 <Button variant="ghost" onClick={() => (creating ? onClose() : setEditing(false))}>
@@ -503,19 +503,19 @@ function SkillDialog({
         ) : (
           <div className="flex min-h-0 flex-1">
             <nav aria-label={t('skills.filesLabel')} className="hidden w-60 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line-faint bg-sunken/40 p-3 md:flex">
-              <p className="px-2 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">{t('skills.files', { count: detail.data?.files.length ?? 0 })}</p>
+              <p className="px-2 pb-1.5 text-caption font-medium uppercase tracking-wide text-faint">{t('skills.files', { count: detail.data?.files.length ?? 0 })}</p>
               {detail.data?.files.map((f) => (
                 <button
                   key={f.path}
                   onClick={() => setFile(f.path)}
                   className={cn(
-                    'flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-colors',
+                    'flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui transition-colors',
                     f.path === file ? 'bg-surface-raised text-title' : 'text-muted hover:bg-surface hover:text-primary',
                   )}
                 >
                   {f.path === 'SKILL.md' ? <FileText className="size-3.5 shrink-0 text-brand-300" /> : <File className="size-3.5 shrink-0 text-faint" />}
-                  <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{f.path}</span>
-                  <span className="shrink-0 text-[10.5px] tabular-nums text-faint">{formatBytes(f.size)}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-caption">{f.path}</span>
+                  <span className="shrink-0 text-caption tabular-nums text-faint">{formatBytes(f.size)}</span>
                 </button>
               ))}
             </nav>
@@ -529,7 +529,7 @@ function SkillDialog({
                         role="radio"
                         aria-checked={view === v}
                         onClick={() => setView(v)}
-                        className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px]', view === v ? 'bg-surface-raised text-title' : 'text-subtle hover:text-primary')}
+                        className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-1 text-caption', view === v ? 'bg-surface-raised text-title' : 'text-subtle hover:text-primary')}
                       >
                         {v === 'preview' ? <Eye className="size-3.5" /> : <Code2 className="size-3.5" />} {t(`skills.view.${v}`)}
                       </button>
@@ -538,14 +538,14 @@ function SkillDialog({
                 </div>
               )}
               <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-2">
-                {detail.isPending && <p className="py-6 text-[13px] text-subtle">{t('common.loading')}</p>}
+                {detail.isPending && <p className="py-6 text-ui text-subtle">{t('common.loading')}</p>}
                 {detail.error && <Notice>{errorMessage(detail.error)}</Notice>}
                 {current && file === 'SKILL.md' && view === 'preview' && <SkillPreview content={current.content ?? ''} />}
                 {current && (file !== 'SKILL.md' || view === 'source') &&
                   (current.binary ? (
-                    <p className="py-6 text-[13px] text-subtle">{t('skills.binary', { size: formatBytes(current.size) })}</p>
+                    <p className="py-6 text-ui text-subtle">{t('skills.binary', { size: formatBytes(current.size) })}</p>
                   ) : (
-                    <pre className="overflow-x-auto rounded-xl border border-line-faint bg-sunken p-4 font-mono text-[12px] leading-relaxed text-tertiary">{current.content}</pre>
+                    <pre className="overflow-x-auto rounded-xl border border-line-faint bg-sunken p-4 font-mono text-caption leading-relaxed text-tertiary">{current.content}</pre>
                   ))}
               </div>
             </div>
@@ -583,12 +583,12 @@ function SkillPreview({ content }: { content: string }) {
     <div className="grid gap-5">
       {(description || rest.length > 0) && (
         <div className="rounded-2xl border border-line bg-surface p-4">
-          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">{t('skills.whenToUse')}</p>
-          <p className={cn('text-[13.5px] leading-relaxed', description ? 'text-primary' : 'italic text-rose-300')}>{description || t('skills.noDescription')}</p>
+          <p className="mb-1.5 text-caption font-medium uppercase tracking-wide text-faint">{t('skills.whenToUse')}</p>
+          <p className={cn('text-body leading-relaxed', description ? 'text-primary' : 'italic text-rose-300')}>{description || t('skills.noDescription')}</p>
           {rest.length > 0 && (
             <dl className="mt-3 flex flex-wrap gap-1.5">
               {rest.map(([k, v]) => (
-                <div key={k} className="flex max-w-full items-center gap-1.5 rounded-lg border border-line-faint bg-sunken px-2 py-1 text-[11.5px]">
+                <div key={k} className="flex max-w-full items-center gap-1.5 rounded-lg border border-line-faint bg-sunken px-2 py-1 text-caption">
                   <dt className="font-mono text-faint">{k}</dt>
                   <dd className="min-w-0 truncate text-tertiary">{v}</dd>
                 </div>
@@ -597,7 +597,7 @@ function SkillPreview({ content }: { content: string }) {
           )}
         </div>
       )}
-      <Markdown text={body} className="text-[13.5px]" />
+      <Markdown text={body} className="text-body" />
     </div>
   );
 }
@@ -667,7 +667,7 @@ function ImportDialog({ project, onClose }: { project?: string; onClose: () => v
                 aria-selected={from === id}
                 onClick={() => choose(id)}
                 className={cn(
-                  'flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-[13px] font-medium transition-all',
+                  'flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-ui font-medium transition-all',
                   from === id ? 'border-brand-400/50 bg-brand-500/10 text-title shadow-[0_8px_24px_-16px_rgb(99_102_241/0.9)]' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-primary',
                 )}
               >
@@ -688,7 +688,7 @@ function ImportDialog({ project, onClose }: { project?: string; onClose: () => v
                 value={from === 'folder' ? input.folder : input.git}
                 onChange={(e) => setInput((v) => ({ ...v, [from]: e.target.value }))}
                 placeholder={from === 'folder' ? '~/skills/review-pr' : 'https://github.com/anthropics/skills/tree/main/skills'}
-                className="font-mono text-[12.5px]"
+                className="font-mono text-ui"
                 aria-label={from === 'folder' ? t('skills.importFrom.folder') : t('skills.importFrom.git')}
               />
               <Button type="submit" variant="secondary" disabled={scan.isFetching}>
@@ -696,19 +696,19 @@ function ImportDialog({ project, onClose }: { project?: string; onClose: () => v
               </Button>
             </form>
           )}
-          {from !== 'tools' && <p className="mt-2 text-[11.5px] text-faint">{from === 'folder' ? t('skills.folderHint') : t('skills.gitHint')}</p>}
+          {from !== 'tools' && <p className="mt-2 text-caption text-faint">{from === 'folder' ? t('skills.folderHint') : t('skills.gitHint')}</p>}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto border-t border-line-faint px-6 py-4">
-          {source === null && <p className="py-10 text-center text-[13px] text-subtle">{from === 'folder' ? t('skills.folderPrompt') : t('skills.gitPrompt')}</p>}
+          {source === null && <p className="py-10 text-center text-ui text-subtle">{from === 'folder' ? t('skills.folderPrompt') : t('skills.gitPrompt')}</p>}
           {source !== null && scan.isFetching && (
-            <p className="flex items-center justify-center gap-2 py-10 text-[13px] text-subtle">
+            <p className="flex items-center justify-center gap-2 py-10 text-ui text-subtle">
               <LoaderCircle className="size-4 animate-spin" /> {from === 'git' ? t('skills.cloning') : t('skills.looking')}
             </p>
           )}
           {scan.error && !scan.isFetching && <Notice>{errorMessage(scan.error)}</Notice>}
           {source !== null && !scan.isFetching && !scan.error && found.length === 0 && (
-            <p className="py-10 text-center text-[13px] text-subtle">{from === 'tools' ? t('skills.noneInTools') : t('skills.noneThere')}</p>
+            <p className="py-10 text-center text-ui text-subtle">{from === 'tools' ? t('skills.noneInTools') : t('skills.noneThere')}</p>
           )}
           {!scan.isFetching &&
             groups.map(([key, list]) => {
@@ -716,7 +716,7 @@ function ImportDialog({ project, onClose }: { project?: string; onClose: () => v
               const Icon = originIcons[origin] ?? Folder;
               return (
                 <section key={key} className="mb-5 last:mb-0">
-                  <h4 className="mb-2 flex items-center gap-2 text-[11.5px] font-medium uppercase tracking-wide text-faint">
+                  <h4 className="mb-2 flex items-center gap-2 text-caption font-medium uppercase tracking-wide text-faint">
                     <Icon className="size-3.5" /> {originLabel(origin, list[0].plugin)} <span className="tabular-nums">· {list.length}</span>
                   </h4>
                   <ul className="grid gap-1.5">
@@ -749,18 +749,18 @@ function ImportDialog({ project, onClose }: { project?: string; onClose: () => v
                             <SkillTile name={c.name} size="sm" dim={!!c.problem} />
                             <div className="min-w-0 flex-1">
                               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                <span className="font-mono text-[13px] font-medium text-title">{c.name}</span>
-                                <span className="text-[11px] tabular-nums text-faint">
+                                <span className="font-mono text-ui font-medium text-title">{c.name}</span>
+                                <span className="text-caption tabular-nums text-faint">
                                   {t('skills.files', { count: c.files })} · {formatBytes(c.size)}
                                 </span>
                                 {c.exists && !c.problem && <Badge variant="warning">{t('skills.replaces')}</Badge>}
                               </div>
                               {c.problem ? (
-                                <p className="mt-0.5 flex items-center gap-1.5 text-[12px] text-rose-300">
+                                <p className="mt-0.5 flex items-center gap-1.5 text-caption text-rose-300">
                                   <AlertTriangle className="size-3.5" /> {t('skills.cantImport', { why: c.problem })}
                                 </p>
                               ) : (
-                                <p className={cn('mt-0.5 text-[12px] leading-relaxed text-muted', !isOpen && 'line-clamp-2')}>{c.description}</p>
+                                <p className={cn('mt-0.5 text-caption leading-relaxed text-muted', !isOpen && 'line-clamp-2')}>{c.description}</p>
                               )}
                             </div>
                             {c.content && (
@@ -787,11 +787,11 @@ function ImportDialog({ project, onClose }: { project?: string; onClose: () => v
 
         <div className="flex shrink-0 items-center gap-3 border-t border-line px-6 py-3">
           {run.error ? (
-            <p className="flex min-w-0 items-center gap-2 text-[12.5px] text-rose-300">
+            <p className="flex min-w-0 items-center gap-2 text-ui text-rose-300">
               <AlertTriangle className="size-4 shrink-0" /> <span className="truncate">{errorMessage(run.error)}</span>
             </p>
           ) : importable.length > 0 ? (
-            <div className="flex items-center gap-3 text-[12.5px]">
+            <div className="flex items-center gap-3 text-ui">
               <button className="text-brand-300 hover:underline" onClick={() => setPicked(new Set(importable.map((c) => c.name)))}>
                 {t('skills.selectAll')}
               </button>

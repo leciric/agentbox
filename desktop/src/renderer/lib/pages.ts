@@ -14,7 +14,7 @@ export const pagesKey = (project: string) => ['pages', project] as const;
 // isLeadRef is a chat ref that is a project's chat, its lead's.
 export const isLeadRef = (ref: string) => {
   const [, name] = ref.split('/');
-  return !name || name === T.LeadName;
+  return !name || name === T.LeadName || name.startsWith(`${T.LeadName}.`);
 };
 
 // isExpired is a page Hatch no longer has, by what the daemon read of it.

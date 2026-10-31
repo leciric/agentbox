@@ -71,9 +71,9 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
     <Panel className="mt-3 grid gap-3 p-4" data-vm-size>
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <div className="text-[13px] font-medium text-primary">{t('vm.agentboxVM')}</div>
+          <div className="text-ui font-medium text-primary">{t('vm.agentboxVM')}</div>
           {vm.driver === 'vz' && <Badge variant="warning">{t('vm.size.experimental')}</Badge>}
-          <div className="text-[12px] text-subtle" data-vm-size-current>
+          <div className="text-caption text-subtle" data-vm-size-current>
             {t('vm.size.currentMac', {
               status: vm.status ?? t('common.unknown'),
               cpus: vm.cpus ?? '—',
@@ -83,7 +83,7 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
             })}
           </div>
         </div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
+        <p className="mt-0.5 text-caption leading-relaxed text-subtle">
           {t('vm.size.descriptionMac')}
         </p>
       </div>
@@ -117,7 +117,7 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
                   min={limits.minCpus}
                   max={limits.maxCpus}
                   step={1}
-                  className="h-8 pl-8 font-mono text-[12.5px]"
+                  className="h-8 pl-8 font-mono text-ui"
                   disabled={busy}
                   value={form.cpus}
                   onChange={(e) => {
@@ -147,7 +147,7 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
                   min={gib(limits.minMemory)}
                   max={gib(limits.maxMemory)}
                   step={0.5}
-                  className="h-8 pl-8 font-mono text-[12.5px]"
+                  className="h-8 pl-8 font-mono text-ui"
                   disabled={busy}
                   value={form.memory}
                   onChange={(e) => {
@@ -183,7 +183,7 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
         </form>
       ) : (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">{t('vm.size.tooOld')}</p>
+          <p className="text-ui text-muted">{t('vm.size.tooOld')}</p>
           <CommandBox command="agentbox vm resize --cpus 6 --memory 12GiB" />
         </div>
       )}
@@ -259,6 +259,8 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
 
   const limits = vm.limits;
   const live = vm.live;
+  // What this computer keeps for itself: the cap's most, and where the VM stops growing.
+  const reserve = vm.memory.hostReserve ?? 0;
   const on = vm.state === 'running' || vm.state === 'starting';
   const cpus = Number(form.cpus);
   const memory = Number(form.memory);
@@ -291,9 +293,9 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
     <Panel className="mt-3 grid gap-3 p-4" data-vm-size data-chv>
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <div className="text-[13px] font-medium text-primary">{t('vm.agentboxVM')}</div>
+          <div className="text-ui font-medium text-primary">{t('vm.agentboxVM')}</div>
           {vm.driver === 'vz' && <Badge variant="warning">{t('vm.size.experimental')}</Badge>}
-          <div className="text-[12px] text-subtle" data-vm-size-current>
+          <div className="text-caption text-subtle" data-vm-size-current>
             {t('vm.size.currentCHV', {
               state: vm.state,
               cpus: vm.cpus ?? '—',
@@ -305,7 +307,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
             })}
           </div>
         </div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
+        <p className="mt-0.5 text-caption leading-relaxed text-subtle">
           {t('vm.size.descriptionCHV')}
         </p>
       </div>
@@ -341,7 +343,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
                   min={limits.minCpus}
                   max={limits.maxCpus}
                   step={1}
-                  className="h-8 pl-8 font-mono text-[12.5px]"
+                  className="h-8 pl-8 font-mono text-ui"
                   disabled={busy}
                   value={form.cpus}
                   onChange={(e) => {
@@ -355,7 +357,13 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
               label={t('vm.size.memoryCapLabel')}
               htmlFor="vm-memory"
               hint={
-                memoryOk || form.memory === '' ? (
+                reserve ? (
+                  memoryOk || form.memory === '' ? (
+                    t('vm.size.memoryHintCHVReserve', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory), reserve: gibText(reserve) })
+                  ) : (
+                    <Bad>{t('vm.size.memoryHintCHVReserveBad', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory), reserve: gibText(reserve) })}</Bad>
+                  )
+                ) : memoryOk || form.memory === '' ? (
                   t('vm.size.memoryHintCHV', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })
                 ) : (
                   <Bad>{t('vm.size.memoryHintCHVBad', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })}</Bad>
@@ -371,7 +379,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
                   min={gib(limits.minMemory)}
                   max={gib(limits.maxMemory)}
                   step={1}
-                  className="h-8 pl-8 font-mono text-[12.5px]"
+                  className="h-8 pl-8 font-mono text-ui"
                   disabled={busy}
                   value={form.memory}
                   onChange={(e) => {
@@ -402,7 +410,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
                     min={gib(hasDisk)}
                     max={gib(maxDisk)}
                     step={10}
-                    className="h-8 pl-8 font-mono text-[12.5px]"
+                    className="h-8 pl-8 font-mono text-ui"
                     disabled={busy}
                     value={form.disk}
                     onChange={(e) => {
@@ -452,7 +460,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
         </form>
       ) : (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">{t('vm.size.tooOld')}</p>
+          <p className="text-ui text-muted">{t('vm.size.tooOld')}</p>
           <CommandBox command="agentbox vm resize --cpus 6 --memory-cap 16GiB" />
         </div>
       )}

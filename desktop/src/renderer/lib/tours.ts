@@ -11,7 +11,7 @@
 //
 // A feature declares its tour in `tours` with the version it shipped in.
 // After an update, the tours not seen yet play once, one after another; a
-// first run plays the welcome tour instead, which covers them all, and they
+// first run plays the welcome tour instead, the essentials, and they
 // count as seen. Help → What's new replays any of them.
 import { useSyncExternalStore } from 'react';
 import type { MessageKey } from './i18n';
@@ -176,7 +176,7 @@ const S = {
     id: 'schedules',
     title: 'tour.schedules.title',
     body: 'tour.schedules.body',
-    anchor: ['[data-panel-more]', '[data-panel-toggle]'],
+    anchor: ['[data-panel-switch-view="schedules"]', '[data-panel-lead-tab="schedules"]', '[data-panel-toggle]'],
     go: 'panel',
   },
   help: {
@@ -198,7 +198,10 @@ export const welcomeTour: Tour = {
   id: 'welcome',
   version: v013,
   title: 'tour.welcome.name',
-  steps: [S.welcome, S.sidebar, S.computer, S.home, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.switch, S.pick, S.places, S.help],
+  // The essentials only, six of them: where the projects are, talking to a
+  // lead, what comes back to you, a review, and the way back. Every other
+  // step is in its feature's own tour, which Help replays.
+  steps: [S.welcome, S.sidebar, S.lead, S.cards, S.review, S.help],
 };
 
 // tours is What's new: each big feature's own short tour, oldest first.
@@ -216,7 +219,21 @@ export const tours: Tour[] = [
   { id: 'diff-notes', version: v015, title: 'tour.diffNotes.name', steps: [S.diffNotes] },
 ];
 
-export const tourById = (id: string): Tour | undefined => (id === welcomeTour.id ? welcomeTour : tours.find((t) => t.id === id));
+// verbsTour is the prototype navigation's (uiVerbs.ts): played when it's
+// turned on, and never after an update, since it's off by default.
+export const verbsTour: Tour = {
+  id: 'verbs',
+  version: v015,
+  title: 'tour.verbs.name',
+  steps: (['ask', 'watch', 'review', 'settings'] as const).map((verb) => ({
+    id: `verbs-${verb}`,
+    title: `tour.verbs.${verb}.title`,
+    body: `tour.verbs.${verb}.body`,
+    anchor: [`[data-verb="${verb}"]`],
+  })),
+};
+
+export const tourById = (id: string): Tour | undefined => (id === welcomeTour.id ? welcomeTour : id === verbsTour.id ? verbsTour : tours.find((t) => t.id === id));
 
 // ——— What this computer remembers ———
 
