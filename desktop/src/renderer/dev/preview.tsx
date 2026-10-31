@@ -1,5 +1,5 @@
-// A standing preview of the app's narrow fixed-width columns — the agent
-// rail, the sidebar — under the content that breaks them: long paths, URLs,
+// A standing preview of the app's narrow fixed-width columns — the sidebar,
+// the right-hand panel — under the content that breaks them: long paths, URLs,
 // branch names, stack traces, code blocks, unbroken error strings, compressed
 // JSON. Not part of the app; nothing here ships (vite.config.mts's build
 // only bundles index.html and web.html, so `npm run build` never touches
@@ -11,14 +11,10 @@
 //   ?theme=light            the light appearance (default: dark)
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
-//   ?app=today&v2=1         the project's Today page (components/timeline), from
+//   ?app=today              the project's Today page (components/timeline), from
 //                           dev/timeline.ts; any ?app= has the fixture timelines
 //   ?lang=pt-BR             the app in another language (default: en-US), for
 //                           strings longer than English's
-//   ?folded=1               the rail folded to 56px (default: open)
-//   ?open=agent-99          the named agent open, its row active (ref suffix only)
-//   ?finished=1             the rail's Finished section open (default: closed,
-//                           unless ?open names an agent in it)
 //   ?chat=agent-12          agent-12's conversation in the middle, blocked on a
 //                           credential request
 //   ?pages=lead             the project's chat with Hatch connected: the stack
@@ -143,16 +139,15 @@
 //   ?media=project|agent|all  a project's Media, 360 items across fourteen agents; all, the all-projects view
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
-//   ?review=1               "Ready to review" in the top bar's inbox, three
-//                           agents waiting, agent-12's carousel
-//   ?review=media           the same with agent-15 (first in the list) holding 6 recordings and 4 screenshots and long check titles
+//   &review=media           with ?app=, agent-15 (first waiting for review) holding 6 recordings and 4 screenshots and long check titles;
+//                           &review=lots, 36 pieces of media
 //   ?concept=evidence       a mock: agents' recordings and screenshots first, in
 //                           the lead chat's cards and the review modal
 //                           (dev/concepts/evidence.tsx lists its own params)
-//   ?notify=bell|media|viewer|toast
-//                           a mock of clickable notifications, the top bar's
-//                           inbox and its history, the all-projects Media view
-//                           and the viewer a notification opens (notifications.tsx)
+//   ?notify=media|viewer|toast
+//                           a mock of clickable notifications: the all-projects
+//                           Media view, the viewer a notification opens and its
+//                           in-app toast (notifications.tsx)
 //   ?power=host|host-start  the top bar's resource controls in host mode:
 //                           agents running (Free resources), or every one
 //                           stopped by it, with Start to bring them back
@@ -165,31 +160,30 @@
 //   ?power=wsl-running|wsl-off
 //                           the same on Windows, for AgentBox's WSL distro
 //   ?app=home|project|pulls|agent-99|settings
-//                           the whole App, sidebar, top bar, page and rail, as
+//                           the whole App, sidebar, top bar, page and panel, as
 //                           the window shows it, open on Home, the project's
 //                           chat, agent-99 or Settings: for narrow and portrait
 //                           windows, where the shell's columns turn into
 //                           drawers. "Ready to review" has agents waiting
-//                           (dev/review.tsx), for its modal and the PR's
-//   &pins=a,b               with &v2=1, those projects pinned, in that order
-//   &stale=1                with &v2=1 and &idle=1, idle-1 has unseen questions from destroyed agents
-//   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
-//   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
+//                           (dev/review.tsx), for its modal and the PR's;
+//                           leads with their last lines and agents folded
+//                           under them, filters, and the review's Merge and
+//                           Request changes, which the dev bridge answers, the
+//                           agent coming back in 6s; the lead chat ends with
+//                           agent-17's and agent-15's evidence cards,
+//                           recordings in chapters
+//   &pins=a,b               with ?app=, those projects pinned, in that order
+//   &stale=1                with ?app= and &idle=1, idle-1 has unseen questions from destroyed agents
+//   &hidden=a,b             with ?app=, those projects hidden from the sidebar
+//   &idle=12                with ?app=, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
-//   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General
-//                           → Layout): leads with their last lines
-//                           and agents folded under them, filters, and the
-//                           review's Merge and Request changes, which the dev
-//                           bridge answers, the agent coming back in 6s
-//                           (dev/review.tsx); the lead chat ends with agent-17's and
-//                           agent-15's evidence cards, recordings in chapters
-//   &tour=welcome           with &v2=1, that tour playing (lib/tours.ts: welcome,
+//   &tour=welcome           with ?app=, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
 //   &pick=1                 with &pip=1&panel=desktop:agent-25, the element picker:
 //                           Pick element, a click on agent-25's page, and the
 //                           element in the lead's composer (dev/pick.tsx)
-//   &panel=files            with &v2=1, the right-hand panel open on a tab
+//   &panel=files            with ?app=, the right-hand panel open on a tab
 //                           (files, desktop, terminal, browser, pages, media,
 //                           pulls, settings), or on its launcher (launcher);
 //                           several, comma-separated, each kind:whose
@@ -218,17 +212,9 @@
 //                           the Cloud Hypervisor VM's size, running with room
 //                           to resize it live, started by an older AgentBox
 //                           (a resize restarts it), or off
-//   ?page=settings          the project's page itself, beside the sidebar,
-//                           open at a tab or a section of its Settings tab
-//                           (?page=tokens, ?page=general…); with ?open=agent-99,
-//                           that agent's page (?page=secrets, ?page=machine…)
 //   ?phone=list|chat|lead|frame
 //                           the phone's web app against chats in every live
 //                           state, one running a turn over and over (dev/phone.tsx)
-//   ?drag=1                 a sidebar to rearrange by dragging: two sections and
-//                           projects in none, saved late and refetched as the
-//                           daemon does, while agents' statuses keep changing;
-//                           ?drag=slow takes 1.5s to save each move
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -240,24 +226,23 @@ import type { ConnectionState, HostSetupStatus } from '../../preload';
 import type * as T from '../../shared/api';
 import { Toasts } from '../components/Toasts';
 import type { View } from '../App';
-import { AgentRail } from '../components/AgentRail';
 import { HomeView } from '../components/HomeView';
 import { DefaultContextWindow, DefaultModel } from '../components/NewAgentDefaults';
 import { OverviewTab } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { MediaTab } from '../components/MediaTab';
-import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
 import { AllMediaView } from '../components/AllMediaView';
 import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { SettingsGroup } from '../components/ui/settings';
 import { AgentAvatar, aiLabel } from '../components/state';
 import type { Mood } from '../lib/agentStatus';
-import { Sidebar } from '../components/Sidebar';
 import { FreeResourcesDialog, type FreeRun } from '../components/ResourceControls';
 import { NewAgentDialog } from '../components/NewAgentDialog';
 import { TopBar } from '../components/TopBar';
+import { SidebarV2 } from '../components/v2/SidebarV2';
+import { HomeStatusV2 } from '../components/v2/PagesV2';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
 import { MovePrompt } from '../components/RunInVM';
@@ -270,7 +255,6 @@ import { Timeline } from '../components/chat/Timeline';
 import { HomeChatPanel } from '../components/HomeChatPanel';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
 import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
@@ -284,11 +268,10 @@ import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
-import { ReviewPreview, seedEvidence, seedLeadLines, seedReview, seedV2 } from './review';
+import { seedEvidence, seedLeadLines, seedReview, seedV2 } from './review';
 import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
-import { setUiV2 } from '../lib/uiV2';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
 installDevBridge();
@@ -296,10 +279,6 @@ installDevBridge();
 const params = new URLSearchParams(location.search);
 document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 'light' : '';
 applyLanguage(params.get('lang'));
-localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
-localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
-const openAgent = params.get('open'); // e.g. "agent-99"
-const page = params.get('page'); // a tab or Settings section of the project's page, or of ?open's agent
 const vm = params.get('vm');
 const wsl = params.get('wsl');
 const accounts = params.get('accounts') === '1';
@@ -314,8 +293,8 @@ const pulls = params.get('pulls') === '1';
 const home = params.get('home') === '1';
 const review = params.get('review'); // "Ready to review" (dev/review.tsx)
 const concept = params.get('concept'); // a mock concept (dev/concepts)
-const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
-const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
+const notify = params.get('notify'); // 'media' | 'viewer' | 'toast' | null
+const media = params.get('media'); // 'all' every project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "disk" | "disk-unmeasured" | "pool" | null
 const power = params.get('power');
@@ -472,15 +451,13 @@ if (review || appView) seedReview(queryClient);
 // The fixture agents' timelines (dev/timeline.ts), for the right panel's
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
-// UI v2 only where asked for: the flag is the preview origin's, kept between pages.
-setUiV2(params.get('v2') === '1');
 // No tour plays over a scenario unless &tour= asks for one.
 {
   const tour = params.get('tour');
   const all = [welcomeTour.id, ...tours.map((t) => t.id)];
   setTourState({ seen: all, dismissed: [], playing: tour ? { tours: tour.split(','), step: Number(params.get('step') ?? 0) } : null });
 }
-if (appView && params.get('v2') === '1') {
+if (appView) {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
   seedEvidence(queryClient);
@@ -559,20 +536,9 @@ if (imageUpdate) seedImageUpdate(queryClient);
 // checks: the bare { ready: true } the lists answer with has none.
 if (settingsPage || appView) seedSettings(queryClient);
 if (params.get('signedout') === '1') seedSignedOut(queryClient);
-if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
 if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
-// ?page= shows whole pages, and their sections ask for what no other
-// scenario seeds: no limits read yet, and no secrets or
-// connectors.
-if (page) {
-  queryClient.setQueryData(['claudeLimits'], []);
-  for (const target of [PROJECT, `${PROJECT}/${openAgent ?? 'agent-99'}`]) {
-    queryClient.setQueryData(['secrets', target], []);
-    queryClient.setQueryData(['connectors', target], []);
-  }
-}
 if (linuxHost === 'move') {
   seedLinuxHost(queryClient, true);
   localStorage.removeItem(laterKey);
@@ -607,7 +573,6 @@ if (meters) {
 }
 
 if (settingsPage || appView) settingsBridge();
-if (page) pageBridge();
 if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
 if (power) seedMeterUsage(queryClient);
 // The top bar's inbox, empty: the ?notify= scenarios show it full.
@@ -694,8 +659,6 @@ if (account) {
   queryClient.setQueryData<T.Agent[]>(['agents'], (as) => as?.map((a) => (a.project === PROJECT && a.ai === 'claude' ? { ...a, claudeAccount: account } : a)));
 }
 
-const view: View = openAgent ? { kind: 'agent', ref: `${PROJECT}/${openAgent}` } : { kind: 'project', project: PROJECT };
-
 // UsagePreview stands the top bar up once per kind of view, so each one's
 // meter can be compared, and hovered for its tooltip.
 function UsagePreview() {
@@ -767,40 +730,13 @@ function AvatarTransition() {
   );
 }
 
-// PagePreview is a project's page, or an agent's, as the app shows it beside
-// the sidebar (?page=), open where the URL says and clickable from there. Both
-// load once the dev bridge is in: the agent's desktop and terminal reach for
-// window.agentbox as their modules load.
-const ProjectView = lazy(() => import('../components/ProjectView').then((m) => ({ default: m.ProjectView })));
-const AgentView = lazy(() => import('../components/AgentView').then((m) => ({ default: m.AgentView })));
-
-function PagePreview({ at }: { at: string }) {
-  const [agentAt, setAgentAt] = useState(at as AgentPlaceName);
-  return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
-      <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
-      <div style={{ flex: 1, minWidth: 0, background: 'var(--color-ink)' }} data-preview-page={at}>
-        <Suspense>
-          {openAgent ? (
-            <AgentView agentRef={`${PROJECT}/${openAgent}`} tab={agentAt} onTab={setAgentAt} onSelect={() => {}} />
-          ) : (
-            <ProjectView name={PROJECT} tab={at as ProjectPlaceName} onSelect={() => {}} onNewAgent={() => {}} />
-          )}
-        </Suspense>
-      </div>
-    </div>
-  );
-}
-
 const Concepts = lazy(() => import('./concepts').then((m) => ({ default: m.Concepts })));
 
 function Preview() {
   if (concept) return <Suspense fallback={null}><Concepts which={concept} /></Suspense>;
   if (github) return <GitHubPreview />;
-  if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
   if (notify) return <NotificationsPreview scenario={notify} />;
-  if (review) return <ReviewPreview />;
   if (newAgent) return <NewAgentDialog project={PROJECT} onClose={() => {}} onCreated={() => {}} />;
 
   if (power) {
@@ -823,7 +759,7 @@ function Preview() {
   if (home) {
     return (
       <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-        <HomeChatPanel />
+        <HomeChatPanel home={{ status: <HomeStatusV2 onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />, onStatus: false, onTab: () => {} }} />
       </div>
     );
   }
@@ -834,16 +770,6 @@ function Preview() {
     return (
       <div style={{ maxWidth: 420, padding: 24, font: '13px var(--font-sans)' }}>
         <PullRequestsPanel project={PROJECT} onSelect={() => {}} onOpenAccount={() => {}} />
-      </div>
-    );
-  }
-
-  if (media === 'project') {
-    return (
-      <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
-        <ScopedMediaPages project={PROJECT} variant="page">
-          <ProjectMediaPanel project={PROJECT} />
-        </ScopedMediaPages>
       </div>
     );
   }
@@ -891,7 +817,6 @@ function Preview() {
           <div style={{ flex: 1, minWidth: 0 }}>
             {io === 'agent' ? <OverviewTab agent={agent} /> : <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />}
           </div>
-          <AgentRail view={io === 'agent' ? { kind: 'agent', ref: agent.ref } : { kind: 'home' }} onSelect={() => {}} onNewAgent={() => {}} />
         </div>
       </div>
     );
@@ -939,7 +864,7 @@ function Preview() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
-      <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
+      <SidebarV2 view={{ kind: 'project', project: PROJECT }} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, background: 'var(--color-ink)', color: 'var(--color-zinc-600)', padding: 24, font: '13px var(--font-sans)' }}>
         {avatars === 'transition' ? (
           <AvatarTransition />
@@ -1049,10 +974,9 @@ function Preview() {
             }
           />
         ) : (
-          'A standing preview of the rail and sidebar under wide content — see the comment at the top of preview.tsx for the URL params that drive it.'
+          'A standing preview of the sidebar beside wide content — see the comment at the top of preview.tsx for the URL params that drive it.'
         )}
       </div>
-      <AgentRail view={view} onSelect={() => {}} onNewAgent={() => {}} />
     </div>
   );
 }
@@ -1153,22 +1077,7 @@ function settingsBridge(): void {
   };
 }
 
-// pageBridge answers what a page's sections read and no fixture has: a
-// project's memory lists, with none, and an agent's diff, rather than the dev
-// bridge's generic {}.
-function pageBridge(): void {
-  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
-  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
-  const inner = bridge.request;
-  const lists = /^\/v1\/projects\/[^/]+\/memory\/(memories|events|artifacts|reports|duplicates)(\?|$)/;
-  bridge.request = async (method, path, body) => {
-    if (method === 'GET' && lists.test(path)) return { status: 200, body: '[]', contentType: 'application/json' };
-    if (method === 'GET' && path.endsWith('/diff?stat=true')) return { status: 200, body: JSON.stringify(' desktop/src/renderer/lib/tabs.ts | 46 ++++++\n 1 file changed, 46 insertions(+)'), contentType: 'application/json' };
-    return inner(method, path, body);
-  };
-}
-
-// slowListsBridge answers the lists the sidebar, Home and the rail read from
+// slowListsBridge answers the lists the sidebar and Home read from
 // the fixtures, but only once `hold` has passed: never, for null. With
 // `refetches`, the first answer is at once and it's every later one that
 // waits, the way a daemon busy destroying an agent answers.
@@ -1200,71 +1109,13 @@ function slowListsBridge(hold: number | null, refetches = false): void {
   if (refetches) (window as unknown as { refetchLists: () => void }).refetchLists = () => void loadingClient.invalidateQueries();
 }
 
-// dragBridge is a sidebar to rearrange (?drag=1): two sections and projects
-// in none, saved the way the daemon saves them, late and followed by the
-// event that makes the app refetch both lists, while the projects' agents
-// keep changing status, which re-renders every row mid-drag. ?drag=slow
-// takes 1.5s to save, long enough to drag again before the first one lands.
-function dragBridge(queryClient: QueryClient, delay: number): void {
-  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
-  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
-  const inner = bridge.request;
-  const createdAt = new Date().toISOString();
-  let sections: T.Section[] = [
-    { id: 'work', name: 'Work', position: 1, collapsed: false, createdAt },
-    { id: 'side', name: 'Side projects', position: 2, collapsed: false, createdAt },
-  ];
-  const groups: [string, string[]][] = [
-    ['work', [PROJECT, 'agentbox-landing', 'agentbox-hub']],
-    ['side', ['blog', 'dotfiles']],
-    ['', ['docs', 'mobile-app', 'infra', 'scratch']],
-  ];
-  const base = fixtures.projects.find((p) => p.name === PROJECT)!;
-  let projects: T.Project[] = groups.flatMap(([section, names]) => names.map((name, i) => ({ ...base, name, displayName: '', section, position: i + 1 })));
-  const chats = ['running', 'waiting', 'ready'] as const;
-  let tick = 0;
-  const agents = () => projects.slice(0, 6).map((p, i) => ({ ...fixtures.agents[i], project: p.name, ref: `${p.name}/agent-${i + 1}`, chat: chats[(i + tick) % 3] }));
-  const answer = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
-  bridge.request = async (method, path, body) => {
-    if (method === 'GET' && path === '/v1/projects') return answer(projects);
-    if (method === 'GET' && path === '/v1/sections') return answer(sections);
-    if (method === 'PUT' && path === '/v1/projects/layout') {
-      const layout = body as T.ProjectLayout;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      const named = new Map(projects.map((p) => [p.name, p]));
-      const lists: [string, string[]][] = [...layout.sections.map((s): [string, string[]] => [s.id, s.projects]), ['', layout.loose]];
-      projects = lists.flatMap(([section, names]) => names.map((name, i) => ({ ...named.get(name)!, section, position: i + 1 })));
-      sections = layout.sections.map((s, i) => ({ ...sections.find((x) => x.id === s.id)!, position: i + 1 }));
-      // EventProject, as the daemon sends it after a reorder.
-      setTimeout(() => {
-        void queryClient.invalidateQueries({ queryKey: ['projects'] });
-        void queryClient.invalidateQueries({ queryKey: ['sections'] });
-      }, 20);
-      return answer(projects);
-    }
-    if (method === 'PATCH' && path.startsWith('/v1/sections/')) {
-      const id = decodeURIComponent(path.slice('/v1/sections/'.length));
-      sections = sections.map((s) => (s.id === id ? { ...s, ...(body as T.UpdateSectionRequest) } : s));
-      return answer(sections.find((s) => s.id === id));
-    }
-    return inner(method, path, body);
-  };
-  queryClient.setQueryData(['projects'], projects);
-  queryClient.setQueryData(['sections'], sections);
-  queryClient.setQueryData(['agents'], agents());
-  setInterval(() => {
-    tick++;
-    queryClient.setQueryData(['agents'], agents());
-  }, 700);
-}
-
 // Home on a Linux machine that runs agents itself, and the Settings its
 // suggestion opens.
 function LinuxHomePreview() {
   const [view, setView] = useState<View>({ kind: 'home' });
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--color-ink)' }} data-preview-linux={view.kind}>
-      <Sidebar view={view} onSelect={setView} onAddProject={() => {}} onNewAgent={() => {}} />
+      <SidebarV2 view={view} onSelect={setView} onAddProject={() => {}} onNewAgent={() => {}} />
       <div className="min-w-0 flex-1">
         {view.kind === 'settings' ? <SettingsView /> : <HomeView onSelect={setView} onAddProject={() => {}} onNewAgent={() => {}} />}
       </div>
@@ -1273,17 +1124,16 @@ function LinuxHomePreview() {
   );
 }
 
-// The sidebar, Home and the rail side by side, against a client nothing is
+// The sidebar and Home side by side, against a client nothing is
 // seeded into, so each reads what it shows through its own query.
 const loadingClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
 function LoadingPreview() {
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
-      <Sidebar view={{ kind: 'home' }} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
+      <SidebarV2 view={{ kind: 'home' }} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div className="min-w-0 flex-1 overflow-y-auto">
         <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       </div>
-      <AgentRail view={{ kind: 'project', project: PROJECT }} onSelect={() => {}} onNewAgent={() => {}} />
     </div>
   );
 }

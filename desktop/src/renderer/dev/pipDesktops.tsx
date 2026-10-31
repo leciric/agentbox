@@ -376,7 +376,7 @@ function NewProjectScene({ t }: { t: number }) {
   );
   return (
     <Machine clock="14:28">
-      <Browser url="localhost:5199/?app=project&v2=1" tab="AgentBox preview">
+      <Browser url="localhost:5199/?app=project" tab="AgentBox preview">
         <div style={{ position: 'absolute', inset: 0, display: 'flex', background: '#141319', color: '#e7e7ee' }}>
           <div style={{ width: 270, background: '#1b1a24', padding: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ height: 38, borderRadius: 9, background: k > 2 && k < 2.5 ? '#4f46e5' : '#6366f1', color: '#fff', fontWeight: 600, fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>+ New project</div>
