@@ -124,6 +124,15 @@ export const sheet: { title: MessageKey; rows: { keys: string[]; label: MessageK
     ],
   },
   {
+    title: 'keys.group.palette',
+    rows: [
+      { keys: ['>'], label: 'keys.paletteCommands' },
+      { keys: ['Tab'], label: 'keys.paletteFilter' },
+      { keys: ['Shift', 'Enter'], label: 'keys.paletteOther' },
+      { keys: ['Esc'], label: 'keys.paletteBack' },
+    ],
+  },
+  {
     title: 'keys.group.chat',
     rows: [
       { keys: ['Enter'], label: 'keys.send' },

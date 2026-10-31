@@ -2444,6 +2444,25 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };
       }
       if (method === 'GET' && path === '/v1/snaps') return { status: 200, body: '[]', contentType: 'application/json' };
+      // The search palette's answer, from the fixtures' projects and agents,
+      // so its content rows can be seen beside the actions and settings.
+      if (method === 'GET' && path.startsWith('/v1/search?')) {
+        const q = (new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('q') ?? '').toLowerCase();
+        const has = (...texts: (string | undefined)[]) => q !== '' && texts.some((x) => x?.toLowerCase().includes(q));
+        const projects = devState.projects.filter((p) => has(p.name, p.displayName)).map((p): T.SearchHit => ({ id: p.name, title: p.displayName || p.name, project: p.name }));
+        const agents = (devState.agents ?? [])
+          .filter((a) => has(a.title, a.name))
+          .slice(0, 5)
+          .map((a): T.SearchHit => ({ id: a.ref, title: a.title || a.name, project: a.project, agent: a.name }));
+        const results: T.SearchResults = {
+          query: q,
+          groups: [
+            { kind: 'projects', hits: projects, total: projects.length },
+            { kind: 'agents', hits: agents, total: agents.length },
+          ],
+        };
+        return { status: 200, body: JSON.stringify(results), contentType: 'application/json' };
+      }
       if (method === 'GET' && path === '/v1/disk') return { status: 200, body: JSON.stringify({ level: 'ok', disks: [], paused: [], since: '', message: '' }), contentType: 'application/json' };
       if (method === 'GET' && devState.diskUsage && path === '/v1/usage/disk') return { status: 200, body: JSON.stringify(devState.diskUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };
