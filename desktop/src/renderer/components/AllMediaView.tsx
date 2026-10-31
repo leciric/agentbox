@@ -19,7 +19,7 @@ import { EmptyState } from './ui/card';
 
 // The kinds the Media view shows: what an agent shows you, rather than notes,
 // logs and reports, which stay in each project's Media tab.
-export const shownKinds = ['screenshot', 'recording'];
+const shownKinds = ['screenshot', 'recording'];
 
 // AllMediaView is every agent's screenshots and recordings, in every project,
 // grouped by day, so you can find what an agent showed without knowing which

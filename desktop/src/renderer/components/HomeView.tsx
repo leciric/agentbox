@@ -8,7 +8,6 @@ import { formatList, formatNumber, useT } from '../lib/i18n';
 import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
-import { PastAgentsList } from './PastAgents';
 import { JobStatusBadge } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -16,26 +15,21 @@ import { Panel } from './ui/card';
 import { Skeleton } from './ui/skeleton';
 import { openSettingsSection } from './SettingsPage';
 
-// heading, project, filter and pastAgents are v2's, where this page is Home's
-// Status tab: no title of its own (Home's is above it), a project filter
-// (filter, drawn beside the summary) narrowing its lists, and no Past agents,
-// which the sidebar's foot opens.
+// HomeView is Home's Status tab: no title of its own (Home's is above it), a
+// project filter (filter, drawn beside the summary) narrowing its lists to
+// project, and no Past agents, which the sidebar's foot opens.
 export function HomeView({
   onSelect,
   onAddProject,
   onNewAgent,
-  heading = true,
   project,
   filter,
-  pastAgents = true,
 }: {
   onSelect: (view: View) => void;
   onAddProject: () => void;
   onNewAgent: () => void;
-  heading?: boolean;
   project?: string;
   filter?: ReactNode;
-  pastAgents?: boolean;
 }) {
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
@@ -58,12 +52,11 @@ export function HomeView({
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className={cn('max-w-6xl px-4 md:px-8', heading ? 'mx-auto py-6 md:py-8' : 'pb-6 pt-2 md:pb-8')}>
-        <div className={cn('flex flex-wrap gap-4', heading ? 'items-end' : 'items-center')}>
+      <div className="max-w-6xl px-4 pb-6 pt-2 md:px-8 md:pb-8">
+        <div className="flex flex-wrap items-center gap-4">
           <div>
-            {heading && <h1 className="text-2xl font-semibold tracking-tight text-title">{t('shell.home.title')}</h1>}
             {counted ? (
-              <p className={cn('text-sm text-muted', heading && 'mt-1')}>
+              <p className="text-sm text-muted">
                 {t('shell.home.summary', { running, total: all.length, projects: projects.data.length })}
               </p>
             ) : (
@@ -142,14 +135,6 @@ export function HomeView({
           {all.length > 0 && <span className="ml-1.5 rounded-full bg-surface-raised px-1.5 text-[10.5px] normal-case tracking-normal text-subtle">{all.length}</span>}
         </SectionTitle>
         <AllAgentsPanel project={project || undefined} onSelect={onSelect} onNewAgent={onNewAgent} />
-
-        {/* Every project's agents whose machine was removed, with their chats. */}
-        {pastAgents && (
-          <>
-            <SectionTitle>{t('pastAgents.title')}</SectionTitle>
-            <PastAgentsList key={project ?? ''} project={project || undefined} limit={8} onOpen={(ref) => onSelect({ kind: 'pastAgents', ref })} onShowAll={() => onSelect({ kind: 'pastAgents' })} />
-          </>
-        )}
 
         <SectionTitle>{t('shell.home.recentJobs')}</SectionTitle>
         <Panel className="divide-y divide-line-faint overflow-hidden" aria-busy={!jobs.data}>

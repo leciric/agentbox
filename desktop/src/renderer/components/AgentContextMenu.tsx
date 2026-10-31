@@ -1,11 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { CircleX, GitBranch, GitPullRequest, Info, Monitor, MessageSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
+import { CircleX, GitBranch, GitPullRequest, Info, Monitor, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import type { View } from '../App';
-import { canOpenDesktop, lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
+import { canOpenDesktop, lifecycleActions, type LifecycleAction } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { countFeature, type AppFeature } from '../lib/usageStats';
@@ -13,7 +13,6 @@ import { AgentInfoCard } from './AgentInfoCard';
 import { DesktopPeek, useDesk } from './v2/DesktopPeek';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
-import { useUiV2 } from '../lib/uiV2';
 import { openPanelOn } from '../lib/rightPanel';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
@@ -31,7 +30,7 @@ import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 // plain component in between (like this file's own Tip) would swallow
 // ContextMenuTrigger's cloned props instead of forwarding them to children.
 //
-// v2 keeps the menu to six items: Open chat goes (a click on the row opens
+// The menu is kept to six items: Open chat goes (a click on the row opens
 // it), and Stop, Info (the hover card's) and Copy branch go under More.
 export function AgentContextMenu({
   agent,
@@ -83,11 +82,10 @@ export function AgentContextMenu({
     run();
   };
 
-  const v2 = useUiV2();
   const actions = lifecycleActions(agent.state);
-  // v2 keeps Pause, Resume and Start in the menu, and Stop under More:
-  // Retire, beside it, stops the agent and frees its machine too.
-  const shown = v2 ? actions.filter((a) => a !== 'stop') : actions;
+  // Pause, Resume and Start are in the menu, and Stop under More: Retire,
+  // beside it, stops the agent and frees its machine too.
+  const shown = actions.filter((a) => a !== 'stop');
   const lifecycleIcon = { pause: Pause, resume: Play, start: Play, stop: Square };
   const lifecycleLabel: Record<LifecycleAction, MessageKey> = { pause: 'agent.action.pause', resume: 'agent.action.resume', start: 'common.start', stop: 'common.stop' };
 
@@ -128,43 +126,31 @@ export function AgentContextMenu({
           <TooltipPrimitive.Portal>
             <TooltipPrimitive.Content side={infoSide} sideOffset={6} className="z-[60] max-w-none animate-fade-in rounded-lg border border-line-strong bg-overlay p-3 text-xs text-secondary shadow-xl backdrop-blur">
               <ErrorBoundary>
-                {v2 ? (
-                  // UI v2's card leads with the agent's computer: its desktop, live or as last seen.
-                  <div className="grid w-64 gap-3">
-                    <AgentPeek agent={agent} />
-                    <AgentInfoCard agent={agent} pr={pr} />
-                  </div>
-                ) : (
+                {/* The card leads with the agent's computer: its desktop, live or as last seen. */}
+                <div className="grid w-64 gap-3">
+                  <AgentPeek agent={agent} />
                   <AgentInfoCard agent={agent} pr={pr} />
-                )}
+                </div>
               </ErrorBoundary>
             </TooltipPrimitive.Content>
           </TooltipPrimitive.Portal>
         </TooltipPrimitive.Root>
         <ContextMenuContent>
-          {!v2 && usesChat(agent) && (
-            <ContextMenuItem icon={MessageSquare} onSelect={counted(T.FeatureMenuOpenChat, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'chat' }))}>
-              {t('agent.menu.openChat')}
-            </ContextMenuItem>
-          )}
           <ContextMenuItem icon={SquareTerminal} onSelect={counted(T.FeatureMenuOpenTerminal, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'terminal' }))}>
             {t('agent.menu.openTerminal')}
           </ContextMenuItem>
-          {v2 && (
-            <ContextMenuItem
-              icon={Monitor}
-              disabled={!canOpenDesktop(agent.state)}
-              hint={canOpenDesktop(agent.state) ? undefined : t('agent.menu.openDesktopOff')}
-              onSelect={() => {
-                openPanelOn(agent.ref, 'desktop', agent.ref);
-                onSelect({ kind: 'agent', ref: agent.ref, tab: 'chat' });
-              }}
-            >
-              {t('agent.menu.openDesktop')}
-            </ContextMenuItem>
-          )}
-          {!v2 && info}
-          {v2 && openPr}
+          <ContextMenuItem
+            icon={Monitor}
+            disabled={!canOpenDesktop(agent.state)}
+            hint={canOpenDesktop(agent.state) ? undefined : t('agent.menu.openDesktopOff')}
+            onSelect={() => {
+              openPanelOn(agent.ref, 'desktop', agent.ref);
+              onSelect({ kind: 'agent', ref: agent.ref, tab: 'chat' });
+            }}
+          >
+            {t('agent.menu.openDesktop')}
+          </ContextMenuItem>
+          {openPr}
           <ContextMenuSeparator />
           {shown.map((name) => (
             <ContextMenuItem key={name} icon={lifecycleIcon[name]} onSelect={counted(T.FeatureMenuLifecycle, () => action.mutate(name))}>
@@ -174,19 +160,11 @@ export function AgentContextMenu({
           <ContextMenuItem icon={Moon} onSelect={counted(T.FeatureMenuRetire, () => retire.mutate())}>
             {t('agent.menu.retire')}
           </ContextMenuItem>
-          {v2 ? (
-            <ContextMenuMore label={t('common.more')}>
-              {actions.includes('stop') && stop}
-              {info}
-              {copyBranch}
-            </ContextMenuMore>
-          ) : (
-            <>
-              <ContextMenuSeparator />
-              {copyBranch}
-              {openPr}
-            </>
-          )}
+          <ContextMenuMore label={t('common.more')}>
+            {actions.includes('stop') && stop}
+            {info}
+            {copyBranch}
+          </ContextMenuMore>
           <ContextMenuSeparator />
           <ContextMenuItem
             icon={CircleX}

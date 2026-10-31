@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowLeft, ArrowRight, CalendarDays, GitBranch, LoaderCircle, Search, Trash2 } from 'lucide-react';
+import { Archive, ArrowLeft, CalendarDays, GitBranch, LoaderCircle, Search, Trash2 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -65,9 +65,8 @@ export function PastAgents({
   );
 }
 
-// PastAgentsList is the list itself, with its search and filters, for a page
-// or for Home (limit, with onShowAll to the whole list).
-export function PastAgentsList({ project, limit, onOpen, onShowAll }: { project?: string; limit?: number; onOpen: (ref: string) => void; onShowAll?: () => void }) {
+// PastAgentsList is the list itself, with its search and filters.
+function PastAgentsList({ project, onOpen }: { project?: string; onOpen: (ref: string) => void }) {
   const t = useT();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
@@ -82,9 +81,9 @@ export function PastAgentsList({ project, limit, onOpen, onShowAll }: { project?
   }, [query]);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: !project });
   const list = useQuery({
-    queryKey: [...pastAgentsKey, project ?? '', q, pr, since, limit ?? 0],
+    queryKey: [...pastAgentsKey, project ?? '', q, pr, since],
     // since is worked out as it's read, so the key stays the same while it is.
-    queryFn: () => api.archivedAgents({ project, q, pr, since: sinceTime(since), limit }),
+    queryFn: () => api.archivedAgents({ project, q, pr, since: sinceTime(since) }),
     placeholderData: keepPreviousData,
   });
   const agents = list.data ?? [];
@@ -167,12 +166,6 @@ export function PastAgentsList({ project, limit, onOpen, onShowAll }: { project?
           </ul>
         )}
       </Panel>
-      {onShowAll && limit !== undefined && agents.length >= limit && (
-        <button className="flex items-center gap-1 justify-self-start text-[13px] font-medium text-brand-300 hover:text-brand-200" onClick={onShowAll} data-past-show-all>
-          {t('pastAgents.showAll')}
-          <ArrowRight className="size-3.5" />
-        </button>
-      )}
 
       <DeletePastDialog
         agents={deleting}

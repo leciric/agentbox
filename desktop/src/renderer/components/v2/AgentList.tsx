@@ -1,5 +1,5 @@
-// UI v2's right-hand panel opens on its project's agents, beside the lead's
-// chat, as v1's rail had them, in one narrow column with the sidebar's quiet
+// The right-hand panel opens on its project's agents, beside the lead's
+// chat, as the old agent rail had them, in one narrow column with the sidebar's quiet
 // rows (AgentLine): what it is, what it's doing now, and what it runs on and
 // has made. Each row leads with one slot of a fixed size: an agent using its
 // desktop has it there, small and live, where the lane of desktops beside the
@@ -13,11 +13,11 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, ChevronsLeft } from 'lucide-react';
+import { Archive, ChevronRight, ChevronsLeft, Plus } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
-import { chatLabel, statusTip, type Mood } from '../../lib/agentStatus';
+import { avatarMood, chatLabel, isAsking, rank, settled, statusTip, type Mood } from '../../lib/agentStatus';
 import { chatKey, peekThread } from '../../lib/chat';
 import { choiceName } from '../../lib/modelChoices';
 import { heavy, terminalLines } from '../../lib/terminalTail';
@@ -28,11 +28,11 @@ import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
 import { cn, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
-import { FinishedSection, RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
 import { PrChip } from '../PrChip';
 import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
 import { AgentAvatar } from '../state';
+import { Skeleton, skeletonWidths } from '../ui/skeleton';
 import { Tip } from '../ui/tooltip';
 import { useOpenReview, useProjectReview } from './ReviewV2';
 import { StMark } from './SidebarV2';
@@ -375,4 +375,119 @@ export function AgentStrip({ project, chat, onSelect, onUnfold }: { project: str
       ))}
     </div>
   );
+}
+
+// ——— What was the agent rail's ———
+
+// useRailAgents is what the panel's list reads of a project's agents: its
+// agents in order, those still at something and the finished ones, each one's
+// pull request, when it last reported and what, whether it asks you
+// something, each one's fleet entry (its changes, last activity) and its
+// question.
+function useRailAgents(project: string | null) {
+  const enabled = project !== null;
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled });
+  // Pull requests come from the fleet, which already carries one per agent,
+  // matched against the repository list the daemon keeps (D54). ['agents'] is
+  // every project's agents and would have to read GitHub per project to say
+  // the same thing. It polls slowly: what moves in between arrives as an
+  // event.
+  const fleet = useQuery({
+    queryKey: ['fleet', project],
+    queryFn: () => api.fleet(project as string),
+    enabled,
+    refetchInterval: 30_000,
+  });
+  // When each agent last reported, for the time on its row, and whether it
+  // has a question waiting on you, for its avatar.
+  const events = useQuery({ queryKey: ['agentEvents', project], queryFn: () => api.agentEvents(project as string), enabled });
+  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project as string), enabled });
+  // The lead's own state, for its avatar: whether it's mid-turn or asking.
+  const lead = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project as string), enabled });
+  const [showFinished, setShowFinished] = useShowFinished();
+
+  // The events arrive newest first, so the first one seen is each agent's last.
+  // Freeing its Docker space on stop is the daemon's doing, not a report.
+  const lastReport = new Map<string, string>();
+  for (const ev of events.data ?? []) if (ev.kind !== 'docker_pruned' && !lastReport.has(ev.ref)) lastReport.set(ev.ref, ev.at);
+  // And what the latest one with words said.
+  const lastSummary = new Map<string, string>();
+  for (const ev of events.data ?? []) if (ev.summary && !lastSummary.has(ev.ref)) lastSummary.set(ev.ref, ev.summary);
+  const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
+  const asking = (agent: T.Agent) => isAsking(questions.data, agent.ref);
+  // An agent with a question waiting on you stays on top, whatever its chat is doing.
+  const moving = mine.filter((a) => !settled(a) || asking(a));
+  const finished = mine.filter((a) => settled(a) && !asking(a));
+  const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
+  const fleetOf = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a]));
+  const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
+  // The question it waits on you for, in its words.
+  const question = (ref: string) => (questions.data ?? []).find((q) => q.ref === ref && isAsking([q], ref))?.question;
+  return { agents, loaded: !!agents.data, lead, mine, moving, finished, prs, fleetOf, lastReport, lastSummary, asking, question, mood, showFinished, setShowFinished };
+}
+
+// RailSkeleton is rows where the agents will be until the first list
+// arrives: "No agents yet" would be a guess.
+function RailSkeleton() {
+  return (
+    <div aria-busy data-rail-loading>
+      {skeletonWidths.slice(0, 3).map((width) => (
+        <div key={width} className="flex items-center gap-2.5 px-2.5 py-2 xl:py-2.5">
+          <Skeleton className="size-10 shrink-0 rounded-xl" />
+          <span className="grid min-w-0 flex-1 gap-1.5">
+            <Skeleton className={cn('h-3.5', width)} />
+            <Skeleton className="h-2.5 w-1/3" />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// FinishedSection is the agents that are done, folded under their header.
+function FinishedSection({ count, open, onToggle, children }: { count: number; open: boolean; onToggle: (open: boolean) => void; children: React.ReactNode }) {
+  const t = useT();
+  return (
+    <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-finished={open ? 'open' : 'closed'}>
+      <button
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle transition hover:bg-surface hover:text-primary"
+        onClick={() => onToggle(!open)}
+      >
+        <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')} />
+        {t('agent.rail.finished')}
+        <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{count}</span>
+      </button>
+      {open && children}
+    </section>
+  );
+}
+
+// RailEmpty is a project with no agents, and the button to start one.
+function RailEmpty({ project, onNewAgent }: { project: string; onNewAgent: () => void }) {
+  const t = useT();
+  return (
+    <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
+      <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.rail.empty', { project })}</p>
+      <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={onNewAgent}>
+        <Plus className="size-3.5" />
+        {t('agent.rail.newAgent')}
+      </button>
+    </div>
+  );
+}
+
+// Whether the Finished section is open, kept in this browser. Closed until
+// somebody opens it.
+const finishedKey = 'agentbox.rail.finished';
+
+function useShowFinished(): [boolean, (open: boolean) => void] {
+  const [open, set] = useState(() => localStorage.getItem(finishedKey) === '1');
+  return [
+    open,
+    (next: boolean) => {
+      localStorage.setItem(finishedKey, next ? '1' : '0');
+      set(next);
+    },
+  ];
 }

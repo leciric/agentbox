@@ -40,33 +40,27 @@ export function homeAgentFrom(info: T.ProjectChat): T.Agent {
 // Its tools list the projects and their agents, create agents, tell a
 // project's own chat something, search any project's memory and add projects,
 // so it's there even before the first project is.
-// home is v2's, where this is Home, the one place across every project: the
-// chat, and beside it a Status tab (status) with every project's agents and
+// home makes it Home, the one place across every project: the chat, and beside it a Status tab (status) with every project's agents and
 // the machine's load, which was its own Overview page. Status is a view of
 // its own, { kind: 'home' }, which the app opens on; the chat is homeChat.
 export type HomeTabs = { status: ReactNode; onStatus: boolean; onTab: (status: boolean) => void };
 
-export function HomeChatPanel({ home }: { home?: HomeTabs }) {
+export function HomeChatPanel({ home }: { home: HomeTabs }) {
   const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', T.HomeProject], queryFn: () => api.projectChat(T.HomeProject) });
   const info = chat.data;
   const openAt = useChatOpenAt(T.HomeProject);
   // Chat or Memory, whichever was last open beside Status.
   const [inner, setInner] = useState('chat');
-  const tabs = home
-    ? {
-        value: home.onStatus ? 'status' : inner,
-        onValueChange: (v: string) => {
-          if (v !== 'status') setInner(v);
-          home.onTab(v === 'status');
-        },
-      }
-    : { defaultValue: 'chat' };
+  const onValueChange = (v: string) => {
+    if (v !== 'status') setInner(v);
+    home.onTab(v === 'status');
+  };
   return (
-    <Tabs {...tabs} className="flex h-full min-h-0 flex-col">
+    <Tabs value={home.onStatus ? 'status' : inner} onValueChange={onValueChange} className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 px-4 pb-3 pt-5 md:px-8">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-title">{t(home ? 'shell.nav.home' : 'chat.home.title')}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-title">{t('shell.nav.home')}</h1>
           <p className="mt-0.5 text-[13px] text-muted">{t('chat.home.subtitle')}</p>
         </div>
         <div className="mt-3 flex items-center gap-3">
@@ -75,12 +69,10 @@ export function HomeChatPanel({ home }: { home?: HomeTabs }) {
               <MessagesSquare />
               {t('project.view.tab.chat')}
             </TabsTrigger>
-            {home && (
-              <TabsTrigger value="status" data-home-tab="status">
-                <Activity />
-                {t('chat.home.tab.status')}
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="status" data-home-tab="status">
+              <Activity />
+              {t('chat.home.tab.status')}
+            </TabsTrigger>
             <TabsTrigger value="memory" data-home-tab="memory">
               <Brain />
               {t('chat.home.tab.memory')}
@@ -103,11 +95,9 @@ export function HomeChatPanel({ home }: { home?: HomeTabs }) {
           )}
         </div>
       </TabsContent>
-      {home && (
-        <TabsContent value="status" className="overflow-hidden">
-          {home.status}
-        </TabsContent>
-      )}
+      <TabsContent value="status" className="overflow-hidden">
+        {home.status}
+      </TabsContent>
       <TabsContent value="memory" className="overflow-y-auto">
         <div className="mx-auto max-w-4xl px-4 py-2 md:px-8 md:pb-7">
           <p className="mb-3 text-[13px] text-muted">{t('chat.home.memoryIntro')}</p>

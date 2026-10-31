@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert, Users } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert } from 'lucide-react';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
@@ -8,7 +8,6 @@ import * as T from '../../shared/api';
 import { limitTone, windowLeft, windowNow } from '../lib/tokens';
 import { noLimits, pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
-import { useUiV2 } from '../lib/uiV2';
 import { ProjectCrumb, TopEndSlot, TopSlot } from './v2/ProjectHeader';
 import { cn, onMac, shortcut, timeAgo, timeUntil } from '../lib/utils';
 import { ToolMark } from './state';
@@ -17,7 +16,6 @@ import { DiskGuardPill } from './DiskGuardPill';
 import { openSettingsSection } from './SettingsPage';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
-import { Inbox } from './Inbox';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 const backToLeadKeys = onMac ? '⌥←' : 'Alt+←';
@@ -26,18 +24,13 @@ export function TopBar({
   view,
   onSelect,
   onOpenNav,
-  onOpenRail,
-  onOpenNotice,
   onSearch,
 }: {
   view: View;
   onSelect: (view: View) => void;
-  // onOpenNav opens the sidebar's drawer, and onOpenRail the agent rail's,
-  // in a window too narrow for them to sit beside the page (App).
+  // onOpenNav opens the sidebar's drawer, in a window too narrow for it to
+  // sit beside the page (App).
   onOpenNav: () => void;
-  onOpenRail?: () => void;
-  // onOpenNotice goes where a notification in the inbox points.
-  onOpenNotice?: (notice: T.Notification) => void;
   // onSearch opens the search palette; without it there's no search button.
   onSearch?: () => void;
 }) {
@@ -46,19 +39,16 @@ export function TopBar({
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
 
-  const v2 = useUiV2();
-  // v2 names the project once, by its icon, in the top bar's breadcrumb.
-  const crumbProject = v2 && (view.kind === 'project' || view.kind === 'agent') ? projects.data?.find((p) => p.name === (view.kind === 'project' ? view.project : view.ref.split('/')[0])) : undefined;
+  // The project is named once, by its icon, in the top bar's breadcrumb.
+  const crumbProject = (view.kind === 'project' || view.kind === 'agent') ? projects.data?.find((p) => p.name === (view.kind === 'project' ? view.project : view.ref.split('/')[0])) : undefined;
   const crumbThen = view.kind === 'project' ? T.LeadName : view.kind === 'agent' ? agents.data?.find((a) => a.ref === view.ref)?.title || view.ref.split('/')[1] : '';
 
   const crumbs: { label: string; mono?: boolean; view?: View }[] = [];
   switch (view.kind) {
-    // v2's Home is one place, the Home chat and its Status tab: one name.
+    // Home is one place, the Home chat and its Status tab: one name.
     case 'home':
-      crumbs.push({ label: t('shell.nav.home') });
-      break;
     case 'homeChat':
-      crumbs.push({ label: t(v2 ? 'shell.nav.home' : 'shell.nav.mainChat') });
+      crumbs.push({ label: t('shell.nav.home') });
       break;
     case 'jobs':
       crumbs.push({ label: t('shell.nav.jobs') });
@@ -130,10 +120,8 @@ export function TopBar({
         ))}
       </nav>
 
-      {onOpenRail && (view.kind === 'project' || view.kind === 'agent') && <RailButton view={view} onClick={onOpenRail} />}
-
       <div className="ml-auto flex min-w-0 items-center gap-2">
-        {v2 && <TopSlot />}
+        <TopSlot />
         {onSearch && <SearchButton onClick={onSearch} />}
         {setup.data && !setup.data.ready && view.kind !== 'settings' && (
           <button
@@ -149,11 +137,10 @@ export function TopBar({
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />
-        {/* v2 has no inbox: what needs you is where it's answered, the lead
-            chat's cards and the sidebar's rows, and review is the sidebar's. */}
-        {!v2 && <Inbox onOpen={onOpenNotice ?? (() => {})} onSelect={onSelect} />}
-        {/* In its place, the page's ⋯ and Panel, at the far right. */}
-        {v2 && <TopEndSlot />}
+        {/* No inbox: what needs you is where it's answered, the lead chat's
+            cards and the sidebar's rows, and review is the sidebar's. In its
+            place, the page's ⋯ and Panel, at the far right. */}
+        <TopEndSlot />
       </div>
     </header>
   );
@@ -184,29 +171,6 @@ function SearchButton({ onClick }: { onClick: () => void }) {
       <SearchIcon className="size-3.5" />
       <span className="hidden text-[12px] md:inline">{t('common.search')}</span>
       <kbd className="hidden whitespace-nowrap rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle md:inline">{shortcut('K')}</kbd>
-    </button>
-  );
-}
-
-// RailButton opens the agent rail's drawer, below xl where the rail doesn't
-// sit beside the page: the project's agents, with how many there are.
-function RailButton({ view, onClick }: { view: View; onClick: () => void }) {
-  const t = useT();
-  const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : '';
-  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  const mine = agents.data?.filter((agent) => agent.project === project);
-  return (
-    <button
-      type="button"
-      className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised hover:text-primary xl:hidden"
-      aria-label={t('agent.rail.show')}
-      title={t('agent.rail.show')}
-      data-open-rail
-      onClick={onClick}
-    >
-      <Users className="size-3.5" />
-      {/* No count before the agents are in: 0 would say there are none. */}
-      {mine && <span className="tabular-nums">{mine.length}</span>}
     </button>
   );
 }

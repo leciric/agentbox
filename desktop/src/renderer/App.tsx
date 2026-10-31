@@ -2,7 +2,6 @@ import { useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-que
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AddProjectDialog } from "./components/AddProjectDialog";
-import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
 import { closeSettingsEvent, openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
 import { openProjectEvent } from "./components/chat/ProjectMessageCard";
@@ -12,7 +11,6 @@ import { openSearch, toggleSearch } from "./lib/searchOpen";
 import { ErrorReports } from "./components/ErrorReports";
 import { SnapComposer } from "./components/SnapComposer";
 import { HomeChatPanel } from "./components/HomeChatPanel";
-import { HomeView } from "./components/HomeView";
 import { AllMediaView } from "./components/AllMediaView";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { MediaPlace } from "./components/MediaPlace";
@@ -26,9 +24,7 @@ import type * as T from "../shared/api";
 import { JobsView } from "./components/JobsView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
 import { ProjectView } from "./components/ProjectView";
-import { PastAgents } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
-import { Sidebar } from "./components/Sidebar";
 import { SidebarV2 } from "./components/v2/SidebarV2";
 import { NewTaskDialog } from "./components/v2/NewTaskDialog";
 import { CompareView } from "./components/groups/CompareView";
@@ -53,8 +49,7 @@ import { StartingNotice } from "./components/StartingNotice";
 import { api, isProjectChat } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
-import { launchArrival, uiV2, useUiV2 } from "./lib/uiV2";
-import { tourFirst, tourState } from "./lib/tours";
+import { launchArrival, tourFirst, tourState } from "./lib/tours";
 import { agentPanelKind } from "./lib/tabs";
 import { openAgentChat, openPanelOn } from "./lib/rightPanel";
 import { resetChatEvents } from "./lib/chat";
@@ -90,10 +85,6 @@ export type View =
 // (dev/preview.tsx's ?app=), which opens it where a scenario points.
 export function App({ initial }: { initial?: View } = {}) {
   const t = useT();
-  // UI v2, the lead-first layout (Settings → General → Layout): its own
-  // sidebar, with each project's agents under its lead and no agent rail, and
-  // the review's decision in the carousel. It switches as the setting does.
-  const v2 = useUiV2();
   const [view, setView] = useState<View>(initial ?? { kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   const [addingProject, setAddingProject] = useState(false);
@@ -101,20 +92,17 @@ export function App({ initial }: { initial?: View } = {}) {
   const [whatsNew, setWhatsNew] = useState(false);
   // In a narrow window (below lg, 1024px: a small screen, a portrait monitor,
   // or a phone in the web app), the sidebar slides in over the page from the
-  // left; below xl (1280px), the agent rail from the right. Each is a drawer
-  // the top bar opens, so the page keeps the width.
+  // left, a drawer the top bar opens, so the page keeps the width.
   const [navOpen, setNavOpen] = useState(false);
-  const [railOpen, setRailOpen] = useState(false);
   useEffect(() => {
-    if (!navOpen && !railOpen) return;
+    if (!navOpen) return;
     const close = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setNavOpen(false);
-      setRailOpen(false);
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [navOpen, railOpen]);
+  }, [navOpen]);
   const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
   const connection = useConnection();
   // On a Mac, the daemon lives in AgentBox's Linux VM, and on Windows in its
@@ -130,9 +118,9 @@ export function App({ initial }: { initial?: View } = {}) {
   useEffect(() => {
     const version = info.data?.version;
     if (!version) return;
-    // In v2 a What's new tour for this version plays first, and its last step
+    // A What's new tour for this version plays first, and its last step
     // links to the release notes: they never open over it.
-    if (shouldShowAutomatically(version) && !(uiV2() && tourFirst(tourState(), launchArrival()))) setWhatsNew(true);
+    if (shouldShowAutomatically(version) && !tourFirst(tourState(), launchArrival())) setWhatsNew(true);
     markSeen(version);
   }, [info.data?.version]);
   const hostSetup = useQuery({
@@ -167,13 +155,13 @@ export function App({ initial }: { initial?: View } = {}) {
 
   const select = (next: View) => {
     setSettingsLink(undefined);
-    // v2 has no tabs on an agent's page: the ones that were become the right
+    // An agent's page has no tabs: the ones that were become the right
     // panel's, targeted at the agent, and the page stays on its chat.
-    const kind = next.kind === "agent" && v2 && next.tab ? agentPanelKind[next.tab as string] : undefined;
+    const kind = next.kind === "agent" && next.tab ? agentPanelKind[next.tab as string] : undefined;
     if (next.kind === "agent" && kind) {
       openPanelOn(next.ref, kind, next.ref);
       next = { kind: "agent", ref: next.ref, tab: "chat" };
-    } else if (next.kind === "agent" && v2 && (!next.tab || next.tab === "chat")) {
+    } else if (next.kind === "agent" && (!next.tab || next.tab === "chat")) {
       // Opening an agent's chat opens the panel on its Desktop.
       openAgentChat(next.ref);
     }
@@ -181,7 +169,6 @@ export function App({ initial }: { initial?: View } = {}) {
       setTabs((t) => ({ ...t, [next.ref]: next.tab! }));
     setView(next);
     setNavOpen(false);
-    setRailOpen(false);
   };
 
   // A group's card in a lead chat, or its chip, opens the Compare view.
@@ -284,9 +271,8 @@ export function App({ initial }: { initial?: View } = {}) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
-  // UI v2's New task: Ctrl+N (⌘N on a Mac), or the sidebar's first row.
+  // New task: Ctrl+N (⌘N on a Mac), or the sidebar's first row.
   useEffect(() => {
-    if (!v2) return;
     const onKey = (event: KeyboardEvent) => {
       if (!isNewTaskShortcut(event)) return;
       event.preventDefault();
@@ -294,14 +280,13 @@ export function App({ initial }: { initial?: View } = {}) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [v2]);
-  // v2's other keys (lib/shortcuts.ts): Ctrl+/ for the shortcut sheet, Ctrl+,
+  }, []);
+  // The other keys (lib/shortcuts.ts): Ctrl+/ for the shortcut sheet, Ctrl+,
   // for Settings, F6 (Shift+F6 back) to move between the sidebar, the
   // chat and the panel, and Alt+← from an agent's chat to its lead's.
   const viewRef = useRef(view);
   viewRef.current = view;
   useEffect(() => {
-    if (!v2) return;
     const onKey = (event: KeyboardEvent) => {
       if (isSheetShortcut(event)) {
         event.preventDefault();
@@ -319,7 +304,7 @@ export function App({ initial }: { initial?: View } = {}) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [v2]);
+  }, []);
   const openFound = (target: SearchTarget) => {
     switch (target.open) {
       case "media":
@@ -405,11 +390,11 @@ export function App({ initial }: { initial?: View } = {}) {
       // Not one the daemon keeps: the agent's own chat says it's waiting
       // until it isn't, so it needs no history.
       const id = `waiting:${a.ref}:${Date.now()}`;
-      // v2 answers it from the project's chat, where its card is (#323) and
-      // the lead knows about it; v1 in the agent's own.
+      // It's answered from the project's chat, where its card is (#323) and
+      // the lead knows about it.
       const open = () => {
         waiting.current.delete(id);
-        select(v2 && !isProjectChat(a.ref) ? { kind: "project", project: a.project, tab: "chat" } : { kind: "agent", ref: a.ref, tab: "chat" });
+        select(!isProjectChat(a.ref) ? { kind: "project", project: a.project, tab: "chat" } : { kind: "agent", ref: a.ref, tab: "chat" });
       };
       waiting.current.set(id, open);
       toastNotice(
@@ -501,29 +486,20 @@ export function App({ initial }: { initial?: View } = {}) {
             ? `pastAgents:${view.ref ?? ""}:${view.project ?? ""}`
             : view.kind === "group"
               ? `group:${view.id}`
-            // v2's Home keeps its chat mounted as its tabs switch.
-            : v2 && view.kind === "homeChat"
+            // Home keeps its chat mounted as its tabs switch.
+            : view.kind === "homeChat"
               ? "home"
               : view.kind;
 
   const shell = (
     <div className="flex h-full">
       <div className="hidden lg:flex">
-        {v2 ? (
-          <SidebarV2
-            view={view}
-            onSelect={select}
-            onAddProject={() => setAddingProject(true)}
-            onNewAgent={setNewAgentProject}
-          />
-        ) : (
-          <Sidebar
-            view={view}
-            onSelect={select}
-            onAddProject={() => setAddingProject(true)}
-            onNewAgent={setNewAgentProject}
-          />
-        )}
+        <SidebarV2
+          view={view}
+          onSelect={select}
+          onAddProject={() => setAddingProject(true)}
+          onNewAgent={setNewAgentProject}
+        />
       </div>
       {navOpen && (
         <div className="fixed inset-0 z-40 flex lg:hidden" data-nav-drawer>
@@ -532,33 +508,18 @@ export function App({ initial }: { initial?: View } = {}) {
             onClick={() => setNavOpen(false)}
           />
           <div className="relative flex h-full max-w-[85vw] animate-fade-in bg-modal shadow-[20px_0_60px_-20px_var(--ab-shadow-deep)]">
-            {v2 ? (
-              <SidebarV2
-                view={view}
-                onSelect={select}
-                onAddProject={() => {
-                  setNavOpen(false);
-                  setAddingProject(true);
-                }}
-                onNewAgent={(project) => {
-                  setNavOpen(false);
-                  setNewAgentProject(project);
-                }}
-              />
-            ) : (
-              <Sidebar
-                view={view}
-                onSelect={select}
-                onAddProject={() => {
-                  setNavOpen(false);
-                  setAddingProject(true);
-                }}
-                onNewAgent={(project) => {
-                  setNavOpen(false);
-                  setNewAgentProject(project);
-                }}
-              />
-            )}
+            <SidebarV2
+              view={view}
+              onSelect={select}
+              onAddProject={() => {
+                setNavOpen(false);
+                setAddingProject(true);
+              }}
+              onNewAgent={(project) => {
+                setNavOpen(false);
+                setNewAgentProject(project);
+              }}
+            />
           </div>
         </div>
       )}
@@ -567,8 +528,6 @@ export function App({ initial }: { initial?: View } = {}) {
           view={view}
           onSelect={select}
           onOpenNav={() => setNavOpen(true)}
-          onOpenRail={v2 ? undefined : () => setRailOpen(true)}
-          onOpenNotice={openNotice}
           onSearch={() => openSearch()}
         />
         <div className="flex min-h-0 min-w-0 flex-1">
@@ -608,48 +567,30 @@ export function App({ initial }: { initial?: View } = {}) {
             )}
             {!setup && (
               <div key={viewKey} className="min-h-0 flex-1 animate-fade-in">
-                {view.kind === "home" && !v2 && (
-                  <HomeView
-                    onSelect={select}
-                    onAddProject={() => setAddingProject(true)}
-                    onNewAgent={() => setNewAgentProject("")}
-                  />
-                )}
-                {/* v2's Home is one page: the chat (homeChat) and its Status
+                {/* Home is one page: the chat (homeChat) and its Status
                     tab (home), which was Overview. */}
-                {(view.kind === "homeChat" || (v2 && view.kind === "home")) && (
+                {(view.kind === "homeChat" || view.kind === "home") && (
                   <HomeChatPanel
-                    home={
-                      v2
-                        ? {
-                            onStatus: view.kind === "home",
-                            onTab: (status) => select({ kind: status ? "home" : "homeChat" }),
-                            status: (
-                              <HomeStatusV2
-                                onSelect={select}
-                                onAddProject={() => setAddingProject(true)}
-                                onNewAgent={() => setNewAgentProject("")}
-                              />
-                            ),
-                          }
-                        : undefined
-                    }
+                    home={{
+                      onStatus: view.kind === "home",
+                      onTab: (status) => select({ kind: status ? "home" : "homeChat" }),
+                      status: (
+                        <HomeStatusV2
+                          onSelect={select}
+                          onAddProject={() => setAddingProject(true)}
+                          onNewAgent={() => setNewAgentProject("")}
+                        />
+                      ),
+                    }}
                   />
                 )}
                 {view.kind === "jobs" && <JobsView />}
                 {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
                 {view.kind === "media" && <AllMediaView onSelect={select} />}
                 {view.kind === "today" && <TodayView project={view.project} onSelect={select} />}
-                {view.kind === "pastAgents" &&
-                  (v2 ? (
-                    <PastAgentsV2 open={view.ref} project={view.project} onSelect={select} />
-                  ) : (
-                    <PastAgents
-                      open={view.ref}
-                      onOpen={(ref) => select({ kind: "pastAgents", ref: ref ?? undefined })}
-                      onSelect={select}
-                    />
-                  ))}
+                {view.kind === "pastAgents" && (
+                  <PastAgentsV2 open={view.ref} project={view.project} onSelect={select} />
+                )}
                 {view.kind === "settings" && (
                   <SettingsView onHome={() => select({ kind: "home" })} linked={settingsLink} />
                 )}
@@ -667,43 +608,15 @@ export function App({ initial }: { initial?: View } = {}) {
                     tab={tabs[view.ref]}
                     onTab={(tab) => setTabs((t) => ({ ...t, [view.ref]: tab }))}
                     onSelect={select}
-                    chatCard={v2 ? (agent) => <AgentReviewCard agent={agent} /> : undefined}
+                    chatCard={(agent) => <AgentReviewCard agent={agent} />}
                   />
                 )}
               </div>
             )}
           </main>
-          {/* v2's right-hand panel: files, desktop, terminal, browser,
+          {/* The right-hand panel: files, desktop, terminal, browser,
               pages and media, beside the chat or over it. */}
-          {v2 && !setup && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
-          {!v2 && (view.kind === "project" || view.kind === "agent") && (
-            <div className="hidden xl:flex">
-              <AgentRail
-                view={view}
-                onSelect={select}
-                onNewAgent={setNewAgentProject}
-              />
-            </div>
-          )}
-          {!v2 && railOpen && (view.kind === "project" || view.kind === "agent") && (
-            <div className="fixed inset-0 z-40 flex justify-end xl:hidden" data-rail-drawer>
-              <div
-                className="absolute inset-0 animate-fade-in bg-scrim backdrop-blur-sm"
-                onClick={() => setRailOpen(false)}
-              />
-              <div className="relative flex h-full max-w-[85vw] animate-fade-in bg-modal shadow-[-20px_0_60px_-20px_var(--ab-shadow-deep)]">
-                <AgentRail
-                  view={view}
-                  onSelect={select}
-                  onNewAgent={(project) => {
-                    setRailOpen(false);
-                    setNewAgentProject(project);
-                  }}
-                  onClose={() => setRailOpen(false)}
-                />
-              </div>
-            </div>
-          )}
+          {!setup && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
         </div>
       </div>
       <AddProjectDialog
@@ -764,11 +677,11 @@ export function App({ initial }: { initial?: View } = {}) {
         }
       />
       <SearchModal onOpen={openFound} />
-      {v2 && <NewTaskDialog onSelect={select} />}
+      <NewTaskDialog onSelect={select} />
       <FanOutDialog onSelect={select} />
-      {v2 && <ShortcutSheet />}
+      <ShortcutSheet />
       {/* The first-run tour, and What's new after an update (lib/tours.ts). */}
-      {v2 && !setup && connection.state === "connected" && <TourHost view={view} onSelect={select} onReleaseNotes={() => setWhatsNew(true)} />}
+      {!setup && connection.state === "connected" && <TourHost view={view} onSelect={select} onReleaseNotes={() => setWhatsNew(true)} />}
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}
@@ -795,5 +708,5 @@ export function App({ initial }: { initial?: View } = {}) {
         )}
     </div>
   );
-  return v2 ? <ReviewV2>{shell}</ReviewV2> : shell;
+  return <ReviewV2>{shell}</ReviewV2>;
 }

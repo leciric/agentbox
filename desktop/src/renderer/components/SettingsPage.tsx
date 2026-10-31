@@ -35,15 +35,6 @@ export function rememberSection(id: string): void {
   localStorage.setItem(sectionKey, id);
 }
 
-// keepScroll carries the page's scroll position over a remount of Settings,
-// such as the layout switching to v2 or back under it: the switch is far down
-// General, and the page shouldn't jump back to the top as it's flipped.
-const scrollKey = 'agentbox.settings.scroll';
-export function keepScroll(): void {
-  const top = document.querySelector('[data-settings-main]')?.scrollTop ?? 0;
-  sessionStorage.setItem(scrollKey, String(top));
-}
-
 // openSettingsSection takes the app to a section of Settings from anywhere in
 // it; App listens for the event.
 export const openSettingsEvent = 'agentbox:open-settings';
@@ -75,12 +66,6 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
   };
   const found = useMemo(() => search(sections, query), [sections, query]);
   const searching = query.trim() !== '';
-
-  useEffect(() => {
-    const kept = Number(sessionStorage.getItem(scrollKey));
-    sessionStorage.removeItem(scrollKey);
-    if (kept > 0) requestAnimationFrame(() => main.current?.scrollTo({ top: kept }));
-  }, []);
 
   const openId = open?.id;
   useEffect(() => {

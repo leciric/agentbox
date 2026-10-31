@@ -24,7 +24,6 @@ import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { matchesIn } from '../lib/chatFind';
 import { plainText } from '../lib/plainText';
-import { useUiV2 } from '../lib/uiV2';
 import { useFocusReturn } from '../lib/focusReturn';
 import { useLanguage, useT, type MessageKey } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
@@ -104,8 +103,8 @@ export function SearchModal({ onOpen }: { onOpen: (target: SearchTarget) => void
 
 function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: SearchTarget) => void }) {
   const t = useT();
-  // v2 calls the Home chat Home, as its sidebar does.
-  const homeName = t(useUiV2() ? 'shell.nav.home' : 'shell.nav.mainChat');
+  // The Home chat is called Home, as the sidebar does.
+  const homeName = t('shell.nav.home');
   const [query, setQuery] = useState(scope.query ?? '');
   const [asked, setAsked] = useState((scope.query ?? '').trim());
   const [kind, setKind] = useState(scope.kind ?? '');

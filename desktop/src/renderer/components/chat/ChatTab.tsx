@@ -13,16 +13,15 @@ import { ProjectCredentialCards } from '../CredentialCard';
 import { AIIcon, aiLabel } from '../state';
 import { Button } from '../ui/button';
 import { Notice } from '../ui/card';
-import { Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuTrigger } from '../ui/menu';
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
 import { PageStack } from '../pages/PageStack';
 import { Composer } from './Composer';
 import { leadOn } from '../../lib/leadRunner';
 import { FindBar } from './FindBar';
-import { FileLinksProvider, FilePanel } from '../files/FilePanel';
-import { hasFiles, requestFind, setPanelPrefs, usePanelPrefs } from '../../lib/files';
+import { FileLinksProvider } from '../files/FilePanel';
+import { hasFiles, requestFind } from '../../lib/files';
 import { openPanelOn } from '../../lib/rightPanel';
-import { useUiV2 } from '../../lib/uiV2';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { Timeline } from './Timeline';
 
@@ -59,7 +58,7 @@ export function ChatTab({
   onOpenAgent?: (ref: string) => void;
   openAt?: ChatOpenAt;
   readOnly?: { onContinue: () => void; onDelete: () => void };
-  // Something to show over the composer, such as UI v2's review card.
+  // Something to show over the composer, such as the review card.
   aboveComposer?: ReactNode;
 }) {
   const t = useT();
@@ -201,22 +200,9 @@ export function ChatTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [older, loadingOlder, newer, loadingNewer, firstId, lastId]);
 
-  // The file tree and viewer beside the chat (components/files), for a chat
-  // with a worktree. available is how wide the chat and the panel are
-  // together, for the panel to leave the chat room.
+  // A chat with a worktree has its files in the right-hand panel
+  // (components/v2/RightPanel.tsx), and links to them in its messages.
   const files = hasFiles(agent.ref, past);
-  const panel = usePanelPrefs();
-  const v2 = useUiV2();
-  const outer = useRef<HTMLDivElement>(null);
-  const [available, setAvailable] = useState(0);
-  useLayoutEffect(() => {
-    const el = outer.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => setAvailable(el.clientWidth));
-    observer.observe(el);
-    setAvailable(el.clientWidth);
-    return () => observer.disconnect();
-  }, []);
 
   // Ctrl+F (⌘F) finds in the chat on screen. Every chat open in the app
   // listens, and only one is visible.
@@ -398,10 +384,8 @@ export function ChatTab({
     </div>
   );
   return (
-    <div ref={outer} className="relative flex h-full min-h-0">
+    <div className="relative flex h-full min-h-0">
       {files ? <FileLinksProvider agent={agent}>{chat}</FileLinksProvider> : chat}
-      {/* v2's files are in its right-hand panel (components/v2/RightPanel.tsx). */}
-      {files && panel.open && available > 0 && !v2 && <FilePanel agent={agent} available={available} />}
     </div>
   );
 }
@@ -413,9 +397,9 @@ export function ChatTab({
 // in view is ChatStatus, and only when the tool isn't simply ready.
 // It's null without an agent, for a page whose agent is still loading: its
 // hooks run all the same.
-// buttons is New chat as the chat header's icon, where UI v2 has it on an
-// agent's page instead of in a menu (its Find is ⌘F, its Files the panel's);
-// newChat is the same as an item, for v2's lead header, whose ⋯ has it
+// buttons is New chat as the chat header's icon, on an agent's page instead
+// of in a menu (its Find is ⌘F, its Files the panel's); newChat is the same
+// as an item, for the lead's header, whose ⋯ has it
 // (ProjectMenu), with untracked, the warning that stays beside it. reload is
 // Reload tools as an item for the page's ⋯, under More: it's rarely needed.
 export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; buttons: ReactNode; newChat: ReactNode; untracked: ReactNode; reload: ReactNode; dialogs: ReactNode } | null {
@@ -428,8 +412,6 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
   const empty = (thread.data?.items ?? []).length === 0;
   const [clearing, setClearing] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const panel = usePanelPrefs();
-  const v2 = useUiV2();
   const reload = useMutation({ mutationFn: () => api.reloadChatTools(ref), onError: (err) => toast.error(errorMessage(err)) });
   if (!agent) return null;
   const tool = aiLabel(agent.ai);
@@ -457,15 +439,10 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
       <MenuItem icon={Search} hint={shortcut('F')} onSelect={() => requestChatFind(agent.ref)} data-chat-find>
         {t('chat.menu.find')}
       </MenuItem>
-      {hasFiles(agent.ref) && v2 && (
+      {hasFiles(agent.ref) && (
         <MenuItem icon={FolderTree} hint={shortcut('P')} onSelect={() => openPanelOn(agent.ref, 'files', agent.ref)} data-files-toggle>
           {t('files.panel.files')}
         </MenuItem>
-      )}
-      {hasFiles(agent.ref) && !v2 && (
-        <MenuCheckboxItem icon={FolderTree} hint={shortcut('P')} checked={panel.open} onCheckedChange={(open) => setPanelPrefs({ open })} data-files-toggle>
-          {t('files.panel.files')}
-        </MenuCheckboxItem>
       )}
       {newChatItem}
       {reloadItem}
@@ -543,22 +520,6 @@ export function ChatMenu({ agent }: { agent: T.Agent }) {
       </Menu>
       {menu.dialogs}
     </>
-  );
-}
-
-// FilesOpen says the file panel is open, beside the status, while it is: the
-// menu's tick is out of sight, and this closes it in one click.
-export function FilesOpen({ agent }: { agent: T.Agent }) {
-  const t = useT();
-  const { open } = usePanelPrefs();
-  if (!open || !hasFiles(agent.ref)) return null;
-  return (
-    <Tip label={t('files.panel.hide')}>
-      <Button size="sm" variant="ghost" className="h-7 bg-surface-raised px-2 text-primary" aria-pressed onClick={() => setPanelPrefs({ open: false })} data-files-open>
-        <FolderTree />
-        <span className="hidden xl:inline">{t('files.panel.files')}</span>
-      </Button>
-    </Tip>
   );
 }
 

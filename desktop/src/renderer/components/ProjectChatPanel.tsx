@@ -4,7 +4,6 @@ import { api } from '../lib/api';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { ChatTab } from './chat/ChatTab';
-import { useUiV2 } from '../lib/uiV2';
 import { ReviewCount } from './v2/ReviewV2';
 
 // leadAgentFrom builds the Agent ChatTab expects out of a project's chat: the
@@ -40,8 +39,8 @@ export function leadAgentFrom(project: T.Project, info: T.ProjectChat): T.Agent 
 // chats, so the lead is handed to it as an agent.
 //
 // The conversation is what you and the lead said to each other, and only that.
-// What the project's agents reported is a thread per agent in the rail beside
-// the whole view (AgentRail), rather than notices in the middle of it.
+// What the project's agents are doing is in the right-hand panel's agent list
+// beside it (v2/AgentList), rather than notices in the middle of it.
 //
 // Opening it starts the lead's AI tool, with no turn, so its settings can be
 // chosen before the first message. A project whose chat is never opened
@@ -51,12 +50,11 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name) });
   const info = chat.data;
   const openAt = useChatOpenAt(project.name);
-  const v2 = useUiV2();
 
   if (!info) {
     return <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>;
   }
 
-  // v2 says above the composer how many of its agents wait for review.
-  return <ChatTab agent={leadAgentFrom(project, info)} starting={false} onStart={() => {}} openAt={openAt} aboveComposer={v2 ? <ReviewCount project={project.name} variant="banner" /> : undefined} />;
+  // It says above the composer how many of its agents wait for review.
+  return <ChatTab agent={leadAgentFrom(project, info)} starting={false} onStart={() => {}} openAt={openAt} aboveComposer={<ReviewCount project={project.name} variant="banner" />} />;
 }

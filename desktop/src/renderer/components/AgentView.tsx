@@ -10,18 +10,14 @@ import {
   ChevronDown,
   GitBranch,
   GitPullRequest,
-  Images,
   KeyRound,
   LoaderCircle,
-  MessageSquare,
-  Monitor,
   Network,
   Pause,
   Pencil,
   Play,
   Plug,
   Settings,
-  SlidersHorizontal,
   Smartphone,
   Square,
   SquareTerminal,
@@ -33,7 +29,6 @@ import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
 import { api, type AgentAction } from '../lib/api';
-import { useMediaCounts } from '../lib/mediaPages';
 import { useChatOpenAt } from '../lib/reveal';
 import { useAgentReview } from './v2/ReviewV2';
 import { useT, type MessageKey } from '../lib/i18n';
@@ -42,7 +37,7 @@ import { agentTabFeatures, countFeature } from '../lib/usageStats';
 import { cn, errorMessage } from '../lib/utils';
 import { AndroidTab } from './AndroidTab';
 import { BrowserTab } from './BrowserTab';
-import { ChatStatus, ChatTab, FilesOpen, useChatMenu } from './chat/ChatTab';
+import { ChatTab, useChatMenu } from './chat/ChatTab';
 import { ConnectorsTab } from './ConnectorsTab';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { MediaTab } from './MediaTab';
@@ -57,11 +52,10 @@ import { TerminalTab } from './TerminalTab';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
 import { Badge, type BadgeVariant } from './ui/badge';
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuMore, MenuSeparator, MenuTrigger } from './ui/menu';
+import { Menu, MenuContent, MenuItem, MenuMore, MenuSeparator, MenuTrigger } from './ui/menu';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Tabs, TabsContent } from './ui/tabs';
 import { Tip } from './ui/tooltip';
-import { useUiV2 } from '../lib/uiV2';
 import { PanelButton } from './v2/PanelButton';
 import { AgentMachineBar } from './v2/AgentMachineBar';
 
@@ -95,7 +89,7 @@ export function AgentView({
   tab?: AgentPlaceName; // a tab or a section of Settings (lib/tabs.ts); unset opens the agent's first tab
   onTab: (tab: AgentPlaceName) => void;
   onSelect: (view: View) => void;
-  // Over the chat's composer: UI v2's review card (v2/ReviewV2.tsx).
+  // Over the chat's composer: the review card (v2/ReviewV2.tsx).
   chatCard?: (agent: T.Agent) => ReactNode;
 }) {
   const t = useT();
@@ -103,15 +97,13 @@ export function AgentView({
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   // A message of this chat the search palette opened.
   const [refProject, refName] = agentRef.split('/');
-  // The tab's count, without reading the items.
-  const mediaCounts = useMediaCounts({ project: refProject, agent: refName });
   const openAt = useChatOpenAt(refProject, refName);
   const agent = agents.data?.find((a) => a.ref === agentRef);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const android = useQuery({ queryKey: ['android', agentRef], queryFn: () => api.android(agentRef), enabled: agent?.state === 'running' });
   // Only Android projects get the tab, unless an emulator was started anyway.
   const hasAndroid = projects.data?.some((p) => p.name === agent?.project && p.android) || android.data?.running === true;
-  // Its pull request, from the fleet the rail reads too (AgentRail).
+  // Its pull request, from the fleet the panel's agent list reads too (v2/AgentList).
   const fleet = useQuery({ queryKey: ['fleet', refProject], queryFn: () => api.fleet(refProject), refetchInterval: 30_000 });
   const chatMenu = useChatMenu(agent && usesChat(agent) ? agent : undefined);
   const [destroying, setDestroying] = useState(false);
@@ -139,10 +131,8 @@ export function AgentView({
   const active: AgentTab = !place.tab || (place.tab === 'chat' && !chatty) ? (chatty ? 'chat' : 'terminal') : place.tab;
   const actions = lifecycleActions(agent?.state ?? '');
   const primary = actions.find((name) => lifecycleButton[name].primary);
-  // In v2 the chat's New chat is the header's icon, and its ⋯ has the
-  // agent's own items, five or so, with the copies and Reload tools under
-  // More (v1 lists everything, the chat's items first).
-  const v2 = useUiV2();
+  // The chat's New chat is the header's icon, and its ⋯ has the agent's own
+  // items, five or so, with the copies and Reload tools under More.
   const copies = agent && (
     <>
       {agent.ip && (
@@ -179,13 +169,6 @@ export function AgentView({
   );
   const menuItems = agent && (
     <>
-      {chatMenu && active === 'chat' && !v2 && (
-        <>
-          {chatMenu.items}
-          <MenuSeparator />
-          <MenuLabel>{t('agent.view.agentSection')}</MenuLabel>
-        </>
-      )}
       {actions
         .filter((name) => name !== primary)
         .map((name) => (
@@ -199,29 +182,21 @@ export function AgentView({
       <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
         {t('agent.view.openWorktree')}
       </MenuItem>
-      {v2 && (
-        <>
-          <MenuItem icon={Settings} onSelect={() => onTab('machine')}>
-            {t('agent.tab.settings')}
-          </MenuItem>
-          <MenuItem icon={Camera} onSelect={() => onTab('snapshots')}>
-            {t('agent.tab.snapshots')}
-          </MenuItem>
-          {hasAndroid && (
-            <MenuItem icon={Smartphone} onSelect={() => onTab('android')}>
-              {t('agent.tab.android')}
-            </MenuItem>
-          )}
-        </>
+      <MenuItem icon={Settings} onSelect={() => onTab('machine')}>
+        {t('agent.tab.settings')}
+      </MenuItem>
+      <MenuItem icon={Camera} onSelect={() => onTab('snapshots')}>
+        {t('agent.tab.snapshots')}
+      </MenuItem>
+      {hasAndroid && (
+        <MenuItem icon={Smartphone} onSelect={() => onTab('android')}>
+          {t('agent.tab.android')}
+        </MenuItem>
       )}
-      {v2 ? (
-        <MenuMore label={t('common.more')}>
-          {copies}
-          {chatMenu && active === 'chat' && chatMenu.reload}
-        </MenuMore>
-      ) : (
-        copies
-      )}
+      <MenuMore label={t('common.more')}>
+        {copies}
+        {chatMenu && active === 'chat' && chatMenu.reload}
+      </MenuMore>
       <MenuSeparator />
       <MenuItem
         icon={CircleX}
@@ -242,7 +217,6 @@ export function AgentView({
     );
   }
 
-  const mediaCount = mediaCounts.data?.total ?? 0;
   const error = action.error ?? rename.error;
 
   // The header has the agent's title, its state as one badge, which opens its
@@ -277,7 +251,7 @@ export function AgentView({
               {t(lifecycleButton[primary].label)}
             </Button>
           )}
-          {v2 && active === 'chat' && chatMenu?.buttons}
+          {active === 'chat' && chatMenu?.buttons}
           <Menu>
             <MenuTrigger asChild>
               <Button size="icon-sm" variant="ghost" aria-label={t('agent.view.moreActions')} data-agent-menu>
@@ -286,7 +260,7 @@ export function AgentView({
             </MenuTrigger>
             <MenuContent>{menuItems}</MenuContent>
           </Menu>
-          {v2 && <PanelButton project={agent.project} chat={agent.ref} />}
+          <PanelButton project={agent.project} chat={agent.ref} />
         </div>
       </div>
       {error && (
@@ -294,70 +268,17 @@ export function AgentView({
           <Notice>{errorMessage(error)}</Notice>
         </div>
       )}
-      {v2 && <AgentMachineBar agent={agent} />}
+      <AgentMachineBar agent={agent} />
 
       <Tabs value={active} onValueChange={(value) => onTab(value as AgentTab)} className="flex min-h-0 flex-1 flex-col">
-        {v2 ? (
-          chatty && active !== 'chat' && (
-            <div className="flex shrink-0 items-center gap-2 px-4 pb-2 md:px-6">
-              <Button size="sm" variant="ghost" onClick={() => onTab('chat')}>
-                <ArrowLeft />
-                {t('agent.view.backToChat')}
-              </Button>
-              <span className="text-sm text-subtle">{t(placeLabel[active])}</span>
-            </div>
-          )
-        ) : (
-        <div className="flex shrink-0 items-center gap-3 border-t border-line-faint px-4 py-2 md:px-6">
-          <TabsList className="min-w-0 flex-1 overflow-x-auto">
-            {chatty && (
-              <TabsTrigger value="chat">
-                <MessageSquare />
-                {t('agent.tab.chat')}
-                {(agent.chat === 'running' || agent.chat === 'waiting') && (
-                  <span
-                    className={cn('size-1.5 rounded-full', agent.chat === 'waiting' ? 'bg-amber-400' : 'animate-pulse bg-sky-400')}
-                    aria-label={agent.chat === 'waiting' ? t('agent.view.waitingForYou') : t('agent.view.working')}
-                  />
-                )}
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="terminal">
-              <SquareTerminal />
-              {t('agent.tab.terminal')}
-            </TabsTrigger>
-            <TabsTrigger value="browser">
-              <Monitor />
-              {t('agent.tab.desktop')}
-            </TabsTrigger>
-            {hasAndroid && (
-              <TabsTrigger value="android">
-                <Smartphone />
-                {t('agent.tab.android')}
-                {android.data?.booted && <span className="size-1.5 rounded-full bg-emerald-400" aria-label={t('agent.view.running')} />}
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="media">
-              <Images />
-              {t('agent.tab.media')}
-              {mediaCount > 0 && <span className="rounded-full bg-brand-500/20 px-1.5 text-[10px] tabular-nums text-brand-200">{mediaCount}</span>}
-            </TabsTrigger>
-            <TabsTrigger value="settings">
-              <SlidersHorizontal />
-              {t('agent.tab.settings')}
-            </TabsTrigger>
-            <TabsTrigger value="snapshots">
-              <Camera />
-              {t('agent.tab.snapshots')}
-            </TabsTrigger>
-          </TabsList>
-          {chatty && active === 'chat' && (
-            <div className="flex shrink-0 items-center gap-2">
-              <ChatStatus agent={agent} />
-              {!v2 && <FilesOpen agent={agent} />}
-            </div>
-          )}
-        </div>
+        {chatty && active !== 'chat' && (
+          <div className="flex shrink-0 items-center gap-2 px-4 pb-2 md:px-6">
+            <Button size="sm" variant="ghost" onClick={() => onTab('chat')}>
+              <ArrowLeft />
+              {t('agent.view.backToChat')}
+            </Button>
+            <span className="text-sm text-subtle">{t(placeLabel[active])}</span>
+          </div>
         )}
         <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-sunken shadow-[0_30px_80px_-40px_var(--ab-shadow-deep)] md:mx-6 md:mb-6">
           {chatty && (

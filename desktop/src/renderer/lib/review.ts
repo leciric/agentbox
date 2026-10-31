@@ -109,9 +109,6 @@ export function step(index: number, count: number, by: number): number {
   return Math.min(count - 1, Math.max(0, index + by));
 }
 
-// countLabel is a button's count, capped so it stays a badge.
-export const countLabel = (n: number) => (n > 99 ? '99+' : String(n));
-
 // MergeBlock is why a pull request can't be merged from the review: it
 // isn't open any more, it's a draft, its checks fail, it conflicts with its
 // base, or the project's account may not merge in this repository.

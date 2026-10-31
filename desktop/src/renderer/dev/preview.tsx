@@ -806,7 +806,7 @@ function Preview() {
   if (power) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }} data-preview-power={power}>
-        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onOpenNotice={() => {}} />
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} />
         {seededRun && <SeededFreeRun run={seededRun} />}
       </div>
     );
@@ -815,7 +815,7 @@ function Preview() {
   if (meters) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>
-        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onOpenNotice={() => {}} />
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} />
       </div>
     );
   }

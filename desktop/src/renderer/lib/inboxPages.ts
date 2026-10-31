@@ -1,4 +1,4 @@
-// The inbox's lists (components/Inbox.tsx) are read a page at a time from the
+// The lists of what needs the user are read a page at a time from the
 // daemon, as the Media views are (lib/mediaPages.ts): the questions waiting
 // for an answer, the agents ready to review, and the reviewed ones when that
 // section is open. Each page says how many the whole list holds, so a badge
@@ -72,8 +72,6 @@ export function pageItems<P extends { items: unknown[] }>(data: InfiniteData<P, 
   return (data?.pages.flatMap((p) => p.items) ?? []) as P['items'];
 }
 
-// pageTotal is how many a list holds in all, as its newest page says.
-export const pageTotal = (data: InfiniteData<{ total: number }, unknown> | undefined): number => data?.pages[0]?.total ?? 0;
 
 const isPages = <P>(data: unknown): data is InfiniteData<P, unknown> => !!data && typeof data === 'object' && 'pages' in data;
 

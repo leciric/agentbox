@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, Brain, Clapperboard, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
+import { Brain, Clapperboard, Wand2, Coins, FileText, FolderGit2, FolderOpen, KeyRound, Moon, NotebookPen, Plug, SlidersHorizontal, Smile, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -7,21 +7,16 @@ import type { View } from '../App';
 import { api } from '../lib/api';
 import { useT, type Translate } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
-import { projectLabel } from '../lib/projectName';
 import { projectPlace, type ProjectPlaceName, type ProjectSection } from '../lib/tabs';
 import { countFeature, projectTabFeatures } from '../lib/usageStats';
 import { errorMessage, timeAgo } from '../lib/utils';
-import { ChatStatus, FilesOpen, useChatMenu } from './chat/ChatTab';
+import { ChatStatus, useChatMenu } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
 import { leadAgentFrom, ProjectChatPanel } from './ProjectChatPanel';
-import { PastAgents } from './PastAgents';
 import { ProjectBasePanel } from './ProjectBasePanel';
-import { ProjectMediaPanel } from './ProjectMediaPanel';
-import { ScopedMediaPages } from './pages/MediaPages';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { ProjectSettings } from './ProjectSettings';
-import { PullRequestsPanel } from './PullRequestsPanel';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SkillsPanel } from './SkillsPanel';
@@ -30,14 +25,11 @@ import { Button } from './ui/button';
 import { Tip } from './ui/tooltip';
 import { Card, Row } from './ui/card';
 import { Textarea } from './ui/input';
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
-import { useUiV2 } from '../lib/uiV2';
 import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
 import { InTopBar, ProjectMenu, ProjectPlaces } from './v2/ProjectHeader';
 import { AgentMentionsProvider } from './pip/Mentions';
 import { PanelButton } from './v2/PanelButton';
 import { openPanelOn, setPanel } from '../lib/rightPanel';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 // The project's notes: what every agent of it is told, over and above the brief
 // AgentBox writes. The user writes them here, and the project's chat adds what
@@ -125,193 +117,65 @@ const projectSettingsSections = (t: Translate): SettingsSection<ProjectSection>[
 export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name: string; tab?: ProjectPlaceName; onSelect: (view: View) => void; onNewAgent: () => void }) {
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  // v2 has no tabs: Media and Past agents are pages the sidebar's foot opens, and Pull
-  // requests and Settings are tabs of the right-hand panel, which a link to
-  // them opens.
-  const v2 = useUiV2();
-  const [where, setWhere] = useState<string>(v2 ? 'chat' : (opensAt ?? 'chat'));
+  // A project's page is its lead's chat, with no tabs: Media and Past agents
+  // are pages the sidebar's foot opens, and Pull requests and Settings are
+  // tabs of the right-hand panel, which a link to them opens.
   useEffect(() => {
-    if (!v2 || !opensAt) return;
+    if (!opensAt) return;
     const place = projectPlace(opensAt);
     if (place.tab === 'pulls') openPanelOn(`${name}/${T.LeadName}`, 'pulls');
     else if (place.tab === 'settings') {
       setPanel({ section: place.section });
       openPanelOn(`${name}/${T.LeadName}`, 'settings');
     }
-  }, [v2, opensAt, name]);
+  }, [opensAt, name]);
   const [iconOpen, setIconOpen] = useState(false);
-  const { tab, section } = projectPlace(where);
-  // The past agent read in the Past agents tab, if one is.
-  const [past, setPast] = useState<string | null>(null);
-  useEffect(() => countFeature(projectTabFeatures[tab === 'settings' ? section : tab]), [tab, section, name]);
-  const leadChat = useQuery({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name), enabled: tab === 'chat' });
+  useEffect(() => countFeature(projectTabFeatures.chat), [name]);
+  const leadChat = useQuery({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name) });
   const project = projects.data?.find((p) => p.name === name);
-  // The lead's chat controls join the project's ⋯ while the chat is open.
-  const lead = project && tab === 'chat' && leadChat.data ? leadAgentFrom(project, leadChat.data) : undefined;
+  // ProjectMenu in the top bar takes the chat's New chat and Reload tools as
+  // items; the rest are its sidebar menu's and its Settings' (ProjectActions).
+  const lead = project && leadChat.data ? leadAgentFrom(project, leadChat.data) : undefined;
   const chatMenu = useChatMenu(lead);
-  const mine = agents.data?.filter((a) => a.project === name) ?? [];
-  const { retire, setFreeing, setRemoving, dialogs: projectDialogs } = useProjectActions(name, onSelect);
-
-  // v1's ⋯. v2's is ProjectMenu in the top bar, which takes the chat's New
-  // chat and Reload tools as items; the rest are its sidebar menu's and its
-  // Settings' (ProjectActions).
-  const menuItems = project && (
-    <>
-      {chatMenu && (
-        <>
-          {chatMenu.items}
-          <MenuSeparator />
-          <MenuLabel>{t('project.view.projectSection')}</MenuLabel>
-        </>
-      )}
-      <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)}>
-        {t('project.view.openFolder')}
-      </MenuItem>
-      <MenuItem icon={Moon} disabled={mine.length === 0 || retire.isPending} onSelect={() => setFreeing(true)}>
-        {t('project.view.freeMachines')}
-      </MenuItem>
-      <MenuItem icon={Trash} destructive disabled={mine.length > 0} hint={mine.length > 0 ? t('project.view.hasAgents') : undefined} onSelect={() => setRemoving(true)}>
-        {t('project.view.removeProject')}
-      </MenuItem>
-    </>
-  );
 
   if (!project) {
     return <div className="p-6 text-sm text-subtle">{projects.isPending ? t('common.loading') : t('project.view.noProject', { name })}</div>;
   }
 
   return (
-    <Tabs value={tab} onValueChange={setWhere} className="flex h-full min-h-0 flex-col">
-      {v2 ? (
-        <InTopBar>
-          {lead && <ChatStatus agent={lead} />}
-          {chatMenu?.dialogs}
-          {chatMenu?.untracked}
-          <InTopBar end>
-            <ProjectPlaces project={name} leadRef={`${name}/${T.LeadName}`} />
-            <Tip label={t('today.open')}>
-              <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project: name })} data-open-today>
-                <Clapperboard />
-              </Button>
-            </Tip>
-            {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} newChat={chatMenu?.newChat} more={chatMenu?.reload} />}
-            <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
-          </InTopBar>
-        </InTopBar>
-      ) : (
-      <div className="w-full shrink-0 px-4 pb-3 pt-4 md:px-8 md:pb-4 md:pt-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-surface text-tertiary">
-            <FolderGit2 className="size-4" />
-          </span>
-          {/* It gives way to the actions beside it, cutting a long root short,
-              before they wrap under it. */}
-          <div className="min-w-0 flex-1 basis-40">
-            <h1 className="truncate text-[15px] font-semibold tracking-tight text-title">{projectLabel(project)}</h1>
-            <p className="truncate font-mono text-[11px] text-subtle">{project.root}</p>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button onClick={onNewAgent}>
-              <Plus />
-              {t('project.view.newAgent')}
+    <div className="flex h-full min-h-0 flex-col">
+      <InTopBar>
+        {lead && <ChatStatus agent={lead} />}
+        {chatMenu?.dialogs}
+        {chatMenu?.untracked}
+        <InTopBar end>
+          <ProjectPlaces project={name} leadRef={`${name}/${T.LeadName}`} />
+          <Tip label={t('today.open')}>
+            <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project: name })} data-open-today>
+              <Clapperboard />
             </Button>
-            <Menu>
-              <MenuTrigger asChild>
-                <Button size="icon" variant="ghost" aria-label={t('project.view.actions')} data-project-menu>
-                  <Ellipsis />
-                </Button>
-              </MenuTrigger>
-              <MenuContent>{menuItems}</MenuContent>
-            </Menu>
-          </div>
-        </div>
-        <div className="mt-3 flex items-center gap-3">
-            {/* It scrolls rather than wraps once the tabs outgrow the column, and
-                without a scrollbar: the tabs are the control, and a bar under
-                them only says the last one is a few pixels away. */}
-            <TabsList className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
-              <TabsTrigger value="chat">
-                <MessagesSquare />
-                {t('project.view.tab.chat')}
-              </TabsTrigger>
-              <TabsTrigger value="pulls">
-                <GitPullRequest />
-                {t('project.view.tab.pulls')}
-              </TabsTrigger>
-              <TabsTrigger value="media">
-                <Image />
-                {t('project.view.tab.media')}
-              </TabsTrigger>
-              <TabsTrigger value="past" data-project-tab="past">
-                <Archive />
-                {t('project.view.tab.past')}
-              </TabsTrigger>
-              <TabsTrigger value="settings">
-                <SlidersHorizontal />
-                {t('project.view.tab.settings')}
-              </TabsTrigger>
-            </TabsList>
-            {lead && (
-              <div className="flex shrink-0 items-center gap-2">
-                <ChatStatus agent={lead} />
-                <FilesOpen agent={lead} />
-              </div>
-            )}
-            {chatMenu?.dialogs}
-          </div>
+          </Tip>
+          {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} newChat={chatMenu?.newChat} more={chatMenu?.reload} />}
+          <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
+        </InTopBar>
+      </InTopBar>
+
+      <div className="relative mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
+        {/* The lead links its agents' names in the chat (components/pip);
+            the desktops they're using are in the right-hand panel's list. */}
+        <AgentMentionsProvider project={name}>
+          <ProjectChatPanel project={project} />
+        </AgentMentionsProvider>
       </div>
-      )}
 
-      <TabsContent value="chat" className="flex flex-col">
-        <div className="relative mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
-          {v2 ? (
-            // UI v2's lead links its agents' names in the chat (components/pip);
-            // the desktops they're using are in the right-hand panel's list.
-            <AgentMentionsProvider project={name}>
-              <ProjectChatPanel project={project} />
-            </AgentMentionsProvider>
-          ) : (
-            <ProjectChatPanel project={project} />
-          )}
-        </div>
-      </TabsContent>
-
-      <TabsContent value="pulls" className="overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-          <PullRequestsPanel project={name} onSelect={onSelect} onOpenAccount={() => setWhere('general')} />
-        </div>
-      </TabsContent>
-
-      <TabsContent value="media" className="overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-          <ScopedMediaPages project={name} variant="page">
-            <ProjectMediaPanel project={name} />
-          </ScopedMediaPages>
-        </div>
-      </TabsContent>
-
-      <TabsContent value="past" className="flex flex-col">
-        <div className="min-h-0 flex-1">
-          <PastAgents project={name} open={past ?? undefined} onOpen={setPast} onSelect={onSelect} />
-        </div>
-      </TabsContent>
-
-      <TabsContent value="settings" className="flex flex-col">
-        <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
-          <ProjectSettingsBody project={project} section={section} onSection={setWhere} onSelect={onSelect} onOpenMedia={() => setWhere('media')} />
-        </div>
-      </TabsContent>
-
-      {v2 && <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />}
-      {projectDialogs}
-    </Tabs>
+      <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
+    </div>
   );
 }
 
 // useProjectActions is what a project offers besides its chat: freeing its
-// idle agents' machines and removing it, with their confirmations. v1's ⋯
-// has them, and in v2 its Settings (ProjectActions).
+// idle agents' machines and removing it, with their confirmations, in its
+// Settings (ProjectActions).
 function useProjectActions(name: string, onSelect: (view: View) => void) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -361,8 +225,8 @@ function useProjectActions(name: string, onSelect: (view: View) => void) {
   return { retire, setFreeing, setRemoving, dialogs };
 }
 
-// ProjectActions is v2's place for them, in Settings → General, with the
-// repository's folder: v2 has no project ⋯.
+// ProjectActions is their place, in Settings → General, with the
+// repository's folder: there's no project ⋯ for them.
 function ProjectActions({ project, onSelect }: { project: T.Project; onSelect: (view: View) => void }) {
   const t = useT();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -390,11 +254,10 @@ function ProjectActions({ project, onSelect }: { project: T.Project; onSelect: (
 }
 
 // ProjectSettingsBody is a project's Settings: its sections down the side,
-// or along the top where it's narrow. The Settings tab of ProjectView, and in
-// UI v2 the right-hand panel's (components/v2/RightPanel.tsx).
+// or along the top where it's narrow: the right-hand panel's Settings tab
+// (components/v2/RightPanel.tsx).
 export function ProjectSettingsBody({ project, section, onSection, onSelect, onOpenMedia }: { project: T.Project; section: ProjectSection; onSection: (section: ProjectSection) => void; onSelect: (view: View) => void; onOpenMedia: () => void }) {
   const t = useT();
-  const v2 = useUiV2();
   const name = project.name;
   const [iconOpen, setIconOpen] = useState(false);
   const [showBrief, setShowBrief] = useState(false);
@@ -422,13 +285,11 @@ export function ProjectSettingsBody({ project, section, onSection, onSelect, onO
       )}
       {section === 'general' && (
         <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
-          {v2 && (
-            <Card className="mb-4" title={t('projectIcon.label')} icon={Smile} description={t('projectIcon.description')} action={<Button size="sm" onClick={() => setIconOpen(true)} data-project-settings-icon>{t('projectIcon.change')}</Button>}>
-              <ProjectIcon project={project} className="size-10 rounded-xl text-[16px]" />
-            </Card>
-          )}
+          <Card className="mb-4" title={t('projectIcon.label')} icon={Smile} description={t('projectIcon.description')} action={<Button size="sm" onClick={() => setIconOpen(true)} data-project-settings-icon>{t('projectIcon.change')}</Button>}>
+            <ProjectIcon project={project} className="size-10 rounded-xl text-[16px]" />
+          </Card>
           <ProjectSettings project={project} />
-          {v2 && <ProjectActions project={project} onSelect={onSelect} />}
+          <ProjectActions project={project} onSelect={onSelect} />
         </div>
       )}
       {section === 'brief' && (
@@ -463,7 +324,7 @@ export function ProjectSettingsBody({ project, section, onSection, onSelect, onO
       {section === 'connectors' && <ConnectorsTab target={name} />}
       {section === 'skills' && <SkillsPanel project={name} />}
     </SettingsSections>
-      {v2 && <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />}
+      <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
     </>
   );
 }

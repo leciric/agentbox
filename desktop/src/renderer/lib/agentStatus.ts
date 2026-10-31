@@ -172,21 +172,6 @@ export function settled(agent: T.Agent): boolean {
 
 const toneOrder: StatusTone[] = ['urgent', 'error', 'warning', 'live', 'muted'];
 
-// projectTone is the most urgent tone among a set of agents, standing in for
-// all of them: the same priority the rail sorts by, collapsed to one signal
-// for a place (like the project list) with no room for a row per agent.
-// A machine that's merely up (state running, chat idle) doesn't count -
-// that's not the same as an agent mid-turn or waiting on you.
-export function projectTone(agents: T.Agent[]): StatusTone | undefined {
-  let best: StatusTone | undefined;
-  for (const agent of agents) {
-    const tone = chatLabel(agent).tone;
-    if (tone === 'muted') continue;
-    if (!best || toneOrder.indexOf(tone) < toneOrder.indexOf(best)) best = tone;
-  }
-  return best;
-}
-
 // Mood is what an agent's avatar acts out: the same reading as chatLabel,
 // cut to the five poses a face can hold.
 export type Mood = 'working' | 'asking' | 'idle' | 'sleeping' | 'error';

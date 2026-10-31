@@ -15,8 +15,6 @@ export function HomeStatusV2({ onSelect, onAddProject, onNewAgent }: { onSelect:
       onSelect={onSelect}
       onAddProject={onAddProject}
       onNewAgent={onNewAgent}
-      heading={false}
-      pastAgents={false}
       project={project}
       filter={<ProjectFilter value={project} onChange={setProject} />}
     />

@@ -318,7 +318,7 @@ function scroller(el: HTMLElement): HTMLElement | null {
 // MediaSearch narrows a gallery by name, file name, type ("image", "video",
 // "note") and a note's own words. Every word has to match; a "quoted phrase"
 // matches whole. Escape clears it.
-export function MediaSearch({ value, onChange, className }: { value: string; onChange: (value: string) => void; className?: string }) {
+function MediaSearch({ value, onChange, className }: { value: string; onChange: (value: string) => void; className?: string }) {
   const t = useT();
   return (
     <div className={cn('relative flex w-56 min-w-0 max-w-full items-center', className)}>
@@ -348,7 +348,7 @@ export function MediaSearch({ value, onChange, className }: { value: string; onC
 
 // NoMatch is what a gallery shows when its filters leave nothing, with the
 // search that did it, cut short rather than widening the column.
-export function NoMatch({ query, onClear }: { query: string; onClear: () => void }) {
+function NoMatch({ query, onClear }: { query: string; onClear: () => void }) {
   const t = useT();
   return (
     <p className="flex min-w-0 items-center gap-2 px-1 text-[13px] text-subtle">
@@ -364,7 +364,7 @@ export function NoMatch({ query, onClear }: { query: string; onClear: () => void
 
 // toggled ticks or unticks one item: a Set is replaced, never mutated, so
 // React sees the change.
-export function toggled(selected: ReadonlySet<string>, id: string): ReadonlySet<string> {
+function toggled(selected: ReadonlySet<string>, id: string): ReadonlySet<string> {
   const next = new Set(selected);
   if (!next.delete(id)) next.add(id);
   return next;
@@ -375,7 +375,7 @@ export function toggled(selected: ReadonlySet<string>, id: string): ReadonlySet<
 // filters are showing. deleteMedia is the gallery's own bulk call, a whole
 // project's or one agent's, and all is the request that empties it, so
 // "Delete all" takes exactly what the filters were showing and nothing else.
-export function MediaSelection({
+function MediaSelection({
   visible,
   selecting,
   onSelecting,

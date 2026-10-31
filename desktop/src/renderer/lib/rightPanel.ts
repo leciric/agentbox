@@ -1,7 +1,7 @@
 // UI v2's right-hand panel (components/v2/RightPanel.tsx): what is pure about
 // it, and its state.
 //
-// It is always there beside a chat, as v1's rail of agents was: its home is
+// It is always there beside a chat, as the old rail of agents was: its home is
 // the project's agents (the list), which folds to a strip of their avatars
 // (one header button, or ⌘D) but never closes. Where it doesn't fit beside
 // the chat, the strip stays and the rest opens over the chat as a drawer.

@@ -42,7 +42,7 @@ import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
 import { openNewTask, requestComposerFocus } from '../../lib/newTask';
 import { openPanelOn, setPanel } from '../../lib/rightPanel';
-import { Logo } from '../Sidebar';
+import { Logo } from '../Logo';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
 import { ReviewCount, useOpenReview } from './ReviewV2';
 import { projectActions, type ProjectAction } from './ProjectHeader';
