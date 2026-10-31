@@ -1614,10 +1614,7 @@
     "query": "app=project&review=media&theme=dark",
     "width": 1920,
     "height": 1080,
-    "click": [
-      "[data-v2-review-button]",
-      "[data-review-row]"
-    ]
+    "click": "[data-v2-review-banner-open]"
   },
   {
     "id": "window-1366-review-media-dark",
@@ -1625,10 +1622,7 @@
     "query": "app=project&review=media&theme=dark",
     "width": 1366,
     "height": 768,
-    "click": [
-      "[data-v2-review-button]",
-      "[data-review-row]"
-    ]
+    "click": "[data-v2-review-banner-open]"
   },
   {
     "id": "window-800-review-media-dark",
@@ -1636,10 +1630,7 @@
     "query": "app=project&review=media&theme=dark",
     "width": 800,
     "height": 600,
-    "click": [
-      "[data-v2-review-button]",
-      "[data-review-row]"
-    ]
+    "click": "[data-v2-review-banner-open]"
   },
   {
     "id": "window-480-review-media-dark",
@@ -1647,10 +1638,7 @@
     "query": "app=project&review=media&theme=dark",
     "width": 480,
     "height": 800,
-    "click": [
-      "[data-v2-review-button]",
-      "[data-review-row]"
-    ]
+    "click": "[data-v2-review-banner-open]"
   },
   {
     "id": "window-1920-review-lots-dark",
@@ -1658,10 +1646,7 @@
     "query": "app=project&review=lots&theme=dark",
     "width": 1920,
     "height": 1080,
-    "click": [
-      "[data-v2-review-button]",
-      "[data-review-row]"
-    ]
+    "click": "[data-v2-review-banner-open]"
   },
   {
     "id": "window-1440-review-lots-dark",
@@ -1669,10 +1654,7 @@
     "query": "app=project&review=lots&theme=dark",
     "width": 1440,
     "height": 990,
-    "click": [
-      "[data-v2-review-button]",
-      "[data-review-row]"
-    ]
+    "click": "[data-v2-review-banner-open]"
   },
   {
     "id": "window-1280-review-lots-dark",
@@ -1680,10 +1662,7 @@
     "query": "app=project&review=lots&theme=dark",
     "width": 1280,
     "height": 800,
-    "click": [
-      "[data-v2-review-button]",
-      "[data-review-row]"
-    ]
+    "click": "[data-v2-review-banner-open]"
   },
   {
     "id": "window-800-review-lots-dark",
@@ -1691,9 +1670,6 @@
     "query": "app=project&review=lots&theme=dark",
     "width": 800,
     "height": 600,
-    "click": [
-      "[data-v2-review-button]",
-      "[data-review-row]"
-    ]
+    "click": "[data-v2-review-banner-open]"
   }
 ]
