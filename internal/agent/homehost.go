@@ -68,6 +68,7 @@ func (m *Manager) HostHomeSpec(ctx context.Context, a state.Agent, info homehost
 		// each tool call in its default mode. AgentBox's login can only go
 		// over as an API key: a Google sign-in is a file in its home.
 		spec.Files["GEMINI.md"] = text
+		spec.Env = []string{geminiNoRelaunch}
 		if login, ok := m.Creds.GeminiLogin(a.GeminiAccount); ok && login.APIKey != "" {
 			spec.LoginEnv = []string{"GEMINI_API_KEY=" + login.APIKey}
 		}

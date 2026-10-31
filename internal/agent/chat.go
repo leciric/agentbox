@@ -70,6 +70,12 @@ func openCodeAdapter(adapter ChatAdapter, version opencode.Release) ChatAdapter 
 // label). The terminal interface really is "cli" and sets nothing.
 const claudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT=agentbox"
 
+// geminiNoRelaunch keeps Gemini CLI in the process the chat started. Without
+// it, `gemini` starts itself again as a child with more heap and waits on it,
+// ignoring SIGTERM: stopping the chat kills the parent and leaves the child,
+// the one running the session, behind.
+const geminiNoRelaunch = "GEMINI_CLI_NO_RELAUNCH=1"
+
 // installTimeout bounds installing an adapter in an agent whose machine doesn't have it.
 const installTimeout = 5 * time.Minute
 
@@ -110,6 +116,9 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 	env = append(env, toolEnv()...)
 	if a.AI == "claude" {
 		env = append(env, claudeEntrypoint)
+	}
+	if a.AI == "gemini" {
+		env = append(env, geminiNoRelaunch)
 	}
 	if term := os.Getenv("TERM"); term != "" {
 		env = append(env, "TERM="+term)
@@ -195,6 +204,9 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	var env string
 	if a.AI == "claude" {
 		env = claudeEntrypoint + " "
+	}
+	if a.AI == "gemini" {
+		env = geminiNoRelaunch + " "
 	}
 	if adapter.Script != nil {
 		// Written every time, so the adapter is always this daemon's own.
