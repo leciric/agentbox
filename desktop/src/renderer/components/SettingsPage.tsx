@@ -343,7 +343,7 @@ function NavLabel({ className, children }: { className?: string; children: React
 // section is already what was asked for.
 function SectionView({ section, icon: Icon, children }: { section: SettingSection; icon: LucideIcon; children?: ReactNode }) {
   return (
-    <div className="grid gap-8" data-settings-section={section.id}>
+    <div className="grid grid-cols-1 gap-8" data-settings-section={section.id}>
       <header className="grid gap-3">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-overlay">
@@ -383,7 +383,7 @@ function AdvancedSections({
   const t = useT();
   const total = sections.reduce((n, s) => n + countEntries(s), 0);
   return (
-    <section className="grid gap-2.5" data-settings-advanced>
+    <section className="grid grid-cols-1 gap-2.5" data-settings-advanced>
       <AdvancedToggle open={open} onToggle={onToggle}>
         {t('settings.page.advancedSections', { count: total, sections: sections.length })}
       </AdvancedToggle>
@@ -512,7 +512,7 @@ function Advanced({ groups }: { groups: SettingGroup[] }) {
   const entries = groups.flatMap((g) => g.entries);
   const changed = entries.filter((e) => e.modified).length;
   return (
-    <section className="grid gap-8" data-settings-advanced>
+    <section className="grid grid-cols-1 gap-8" data-settings-advanced>
       <AdvancedToggle open={open} onToggle={() => setOpen((o) => !o)}>
         {t(changed > 0 ? 'settings.page.advancedCountChanged' : 'settings.page.advancedCount', { count: entries.length, changed })}
       </AdvancedToggle>
