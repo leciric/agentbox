@@ -41,7 +41,7 @@ export const useUiVerbs = () =>
 
 export type Verb = 'ask' | 'watch' | 'review' | 'settings';
 
-// verbOf is the area a view belongs to, which the verb bar lights.
+// verbOf is the area a view belongs to, which the sidebar lights.
 export function verbOf(view: View): Verb {
   switch (view.kind) {
     case 'watch':

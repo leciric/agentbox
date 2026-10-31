@@ -82,8 +82,7 @@ import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
 import { WorkPage } from "./components/WorkView";
 import { RecapView } from "./components/RecapView";
 import type { WorkFilter } from "./lib/work";
-import { asVerbView, useUiVerbs, verbOf } from "./lib/uiVerbs";
-import { VerbBar } from "./components/verbs/VerbBar";
+import { asVerbView, useUiVerbs } from "./lib/uiVerbs";
 import { WatchView } from "./components/verbs/WatchView";
 import { ReviewView } from "./components/verbs/ReviewView";
 
@@ -609,32 +608,26 @@ export function App({ initial }: { initial?: View } = {}) {
   const panelChat = v2 && !fullPage ? chatOf(view)?.chat : undefined;
   const panelBeside = !!panelChat && !(onList(panel, panelChat) && panel.listFolded);
   const navDocksAtXl = (hasRail && !railFolded) || panelBeside;
-  // With the prototype navigation, the leads' sidebar is Ask's alone: Watch
-  // and Review have their own lists, and Settings its own.
-  const hasNav = !verbs || verbOf(view) === "ask";
   const shell = (
     <div className="flex h-full">
-      {verbs && !fullPage && <VerbBar view={view} onSelect={select} />}
-      {hasNav && (
-        <div className={cn("hidden", navDocksAtXl ? "xl:flex" : "lg:flex")}>
-          {v2 ? (
-            <SidebarV2
-              view={view}
-              onSelect={select}
-              onAddProject={() => setAddingProject(true)}
-              onNewAgent={setNewAgentProject}
-            />
-          ) : (
-            <Sidebar
-              view={view}
-              onSelect={select}
-              onAddProject={() => setAddingProject(true)}
-              onNewAgent={setNewAgentProject}
-            />
-          )}
-        </div>
-      )}
-      {hasNav && navOpen && (
+      <div className={cn("hidden", navDocksAtXl ? "xl:flex" : "lg:flex")}>
+        {v2 ? (
+          <SidebarV2
+            view={view}
+            onSelect={select}
+            onAddProject={() => setAddingProject(true)}
+            onNewAgent={setNewAgentProject}
+          />
+        ) : (
+          <Sidebar
+            view={view}
+            onSelect={select}
+            onAddProject={() => setAddingProject(true)}
+            onNewAgent={setNewAgentProject}
+          />
+        )}
+      </div>
+      {navOpen && (
         <div className={cn("fixed inset-0 z-40 flex", navDocksAtXl ? "xl:hidden" : "lg:hidden")} data-nav-drawer>
           <div
             className="absolute inset-0 animate-fade-in bg-scrim backdrop-blur-sm"
@@ -675,7 +668,7 @@ export function App({ initial }: { initial?: View } = {}) {
         <TopBar
           view={view}
           onSelect={select}
-          onOpenNav={hasNav ? () => setNavOpen(true) : undefined}
+          onOpenNav={() => setNavOpen(true)}
           onOpenRail={v2 ? undefined : () => setRailOpen(true)}
           navDocksAtXl={navDocksAtXl}
           onOpenNotice={openNotice}
