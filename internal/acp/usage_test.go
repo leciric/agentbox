@@ -121,6 +121,22 @@ func TestGeminiCLISpent(t *testing.T) {
 		t.Errorf("ByModel = %+v", got)
 	}
 
+	// On "auto", the calls after the first go under the alias: they are the
+	// routed model's, as Gemini CLI 0.64 reported a read-then-edit turn.
+	const routed = `{"stopReason":"end_turn",
+		"usage":{"inputTokens":74000,"outputTokens":1100,"cachedReadTokens":44800,"thoughtTokens":20,"totalTokens":75100},
+		"_meta":{"quota":{"token_count":{"input_tokens":74000,"output_tokens":1100},"model_usage":[
+			{"model":"gemini-3.8-flash","token_count":{"input_tokens":24100,"output_tokens":20}},
+			{"model":"auto","token_count":{"input_tokens":49900,"output_tokens":1080}}]}}}`
+	r = PromptResponse{}
+	if err := json.Unmarshal([]byte(routed), &r); err != nil {
+		t.Fatal(err)
+	}
+	got = r.ByModel("auto")
+	if flash := got["gemini-3.8-flash"]; len(got) != 1 || flash != (Spent{Input: 29200, Output: 1120, CacheRead: 44800}) {
+		t.Errorf("an auto turn's ByModel = %+v, want it all on gemini-3.8-flash", got)
+	}
+
 	// codex-acp's camelCase counters still read as they did.
 	var codex TokenCount
 	if err := json.Unmarshal([]byte(`{"inputTokens":5,"outputTokens":7,"totalTokens":12}`), &codex); err != nil || codex.gemini || codex.InputTokens != 5 || codex.OutputTokens != 7 {

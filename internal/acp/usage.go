@@ -1,6 +1,9 @@
 package acp
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // What a turn spent, as the adapters report it (D83).
 //
@@ -166,10 +169,25 @@ func (r PromptResponse) ByModel(fallback string) map[string]Spent {
 // go to the model that read the most input, the one the turn was on; a turn
 // Gemini CLI routed through a small model too ("auto") gives that one its own
 // input and output alone.
+//
+// On "auto" it names the model it routed to only for a turn's first model
+// call: the calls after a tool's result go on that model under the alias
+// ("auto", "auto-gemini-3"), which has no price. They go to the first model
+// the split names, the one the turn was routed to.
 func (r PromptResponse) geminiByModel() map[string]Spent {
 	out := map[string]Spent{}
+	routed := ""
+	for _, m := range r.Meta.Quota.ModelUsage {
+		if !isGeminiAlias(m.Model) {
+			routed = m.Model
+			break
+		}
+	}
 	main := ""
 	for _, m := range r.Meta.Quota.ModelUsage {
+		if routed != "" && isGeminiAlias(m.Model) {
+			m.Model = routed
+		}
 		s := out[m.Model]
 		s.Input += m.TokenCount.InputTokens
 		s.Output += m.TokenCount.OutputTokens
@@ -192,6 +210,12 @@ func (r PromptResponse) geminiByModel() map[string]Spent {
 		}
 	}
 	return out
+}
+
+// isGeminiAlias is whether model is one of Gemini CLI's "auto" aliases, which
+// pick a model per turn rather than name one.
+func isGeminiAlias(model string) bool {
+	return model == "auto" || strings.HasPrefix(model, "auto-")
 }
 
 // RateLimit is claude-agent-acp's _meta["_claude/rateLimit"]: what Anthropic
