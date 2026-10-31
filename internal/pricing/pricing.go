@@ -103,14 +103,17 @@ var table = map[string]Price{
 	// Google, checked 30 October 2026. Gemini 3.8 Flash and 3.6 Flash go to
 	// $1.50/$7.50/$0.15 on 1 January 2027.
 	"gemini-3.1-pro-preview": {Input: 2, Output: 12, CacheRead: 0.20},
-	"gemini-3.8-flash":       {Input: 0.75, Output: 3.75, CacheRead: 0.075},
-	"gemini-3.6-flash":       {Input: 0.75, Output: 3.75, CacheRead: 0.075},
-	"gemini-3.5-flash-lite":  {Input: 0.30, Output: 2.50, CacheRead: 0.03},
-	"gemini-3.1-flash-lite":  {Input: 0.25, Output: 1.50, CacheRead: 0.025},
-	"gemini-3-flash-preview": {Input: 0.50, Output: 3, CacheRead: 0.05},
-	"gemini-2.5-pro":         {Input: 1.25, Output: 10, CacheRead: 0.125},
-	"gemini-2.5-flash":       {Input: 0.30, Output: 2.50, CacheRead: 0.03},
-	"gemini-2.5-flash-lite":  {Input: 0.10, Output: 0.40, CacheRead: 0.01},
+	// What Gemini CLI picks for 3.1 Pro on an API key: the same model, tuned
+	// for custom tools, at the same price.
+	"gemini-3.1-pro-preview-customtools": {Input: 2, Output: 12, CacheRead: 0.20},
+	"gemini-3.8-flash":                   {Input: 0.75, Output: 3.75, CacheRead: 0.075},
+	"gemini-3.6-flash":                   {Input: 0.75, Output: 3.75, CacheRead: 0.075},
+	"gemini-3.5-flash-lite":              {Input: 0.30, Output: 2.50, CacheRead: 0.03},
+	"gemini-3.1-flash-lite":              {Input: 0.25, Output: 1.50, CacheRead: 0.025},
+	"gemini-3-flash-preview":             {Input: 0.50, Output: 3, CacheRead: 0.05},
+	"gemini-2.5-pro":                     {Input: 1.25, Output: 10, CacheRead: 0.125},
+	"gemini-2.5-flash":                   {Input: 0.30, Output: 2.50, CacheRead: 0.03},
+	"gemini-2.5-flash-lite":              {Input: 0.10, Output: 0.40, CacheRead: 0.01},
 }
 
 var (
