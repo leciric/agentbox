@@ -515,6 +515,28 @@
     "height": 900
   },
   {
+    "id": "settings-essentials-dark",
+    "description": "Settings as it first opens: Essentials, with every section folded under Advanced in the sidebar and at the page's end — dark",
+    "query": "settings=essentials&theme=dark",
+    "width": 1280,
+    "height": 1500
+  },
+  {
+    "id": "settings-essentials-pt-light",
+    "description": "Essentials in Portuguese, Advanced unfolded at the page's end — light",
+    "query": "settings=essentials&theme=light&lang=pt-BR",
+    "width": 1280,
+    "height": 1500,
+    "click": "[data-settings-advanced] > button"
+  },
+  {
+    "id": "project-settings-general-dark",
+    "description": "A project's Settings tab at General: its name, model and accounts, the rest folded under Advanced — dark",
+    "query": "page=general&theme=dark",
+    "width": 1280,
+    "height": 1100
+  },
+  {
     "id": "settings-models-lead-dark",
     "description": "Settings open at Models, tall enough for the whole Lead group: its model, window, effort and permission mode — dark",
     "query": "settings=models&theme=dark",
@@ -523,7 +545,7 @@
   },
   {
     "id": "settings-project-light",
-    "description": "Settings open at a project's own settings, its advanced ones folded — light",
+    "description": "Settings open at a project's own settings, every one of them, under an unfolded Advanced — light",
     "query": "settings=project:agentbox&theme=light",
     "width": 1280,
     "height": 900
@@ -2905,5 +2927,173 @@
   {"id": "first-run-check-dark", "description": "The first run's last step, the doctor: a failure with no fix of its own offers Ask Home to fix it — dark", "query": "app=home&firstrun=check&theme=dark", "width": 1280, "height": 900},
   {"id": "first-run-tool-light", "description": "Same as first-run-tool-dark, light", "query": "app=home&firstrun=tool&theme=light", "width": 1280, "height": 900},
   {"id": "first-run-project-pt-BR-dark", "description": "Same as first-run-project-dark, in Brazilian Portuguese", "query": "app=home&firstrun=project&lang=pt-BR&theme=dark", "width": 1280, "height": 900},
-  {"id": "first-run-tool-narrow-dark", "description": "The first run's first step at a phone-narrow 480px window — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 480, "height": 900}
+  {"id": "first-run-tool-narrow-dark", "description": "The first run's first step at a phone-narrow 480px window — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 480, "height": 900},
+  {
+    "id": "window-verbs-wide-ask-dark",
+    "description": "The prototype navigation at 1920×1080. Ask: the project lead's chat, the leads' sidebar beside the verb bar — dark",
+    "query": "app=project&v2=1&verbs=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-wide-watch-dark",
+    "description": "The prototype navigation at 1920×1080. Watch: a project's agents and every agent's state and the machine's load — dark",
+    "query": "app=watch&v2=1&verbs=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-wide-watch-agent-dark",
+    "description": "The prototype navigation at 1920×1080. Watch: agent-41's machine, its Desktop — dark",
+    "query": "app=watch:agent-41&v2=1&verbs=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-wide-review-dark",
+    "description": "The prototype navigation at 1920×1080. Review: To review, the Work page on what waits — dark",
+    "query": "app=review&v2=1&verbs=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-wide-review-pulls-dark",
+    "description": "The prototype navigation at 1920×1080. Review: the project's pull requests — dark",
+    "query": "app=review:pulls&v2=1&verbs=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-wide-review-proof-dark",
+    "description": "The prototype navigation at 1920×1080. Review: Proof, every screenshot and recording — dark",
+    "query": "app=review:proof&v2=1&verbs=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-wide-settings-dark",
+    "description": "The prototype navigation at 1920×1080. Settings, the verb bar's foot — dark",
+    "query": "app=settings&v2=1&verbs=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-now-wide-ask-dark",
+    "description": "Today's v2 on the project lead's chat, for comparison with Ask, at 1920×1080 — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-now-wide-watch-dark",
+    "description": "Today's v2 Home Status, for comparison with Watch, at 1920×1080 — dark",
+    "query": "app=home&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-now-wide-watch-agent-dark",
+    "description": "Today's v2 on agent-41's chat with its Desktop in the panel, for comparison with Watch, at 1920×1080 — dark",
+    "query": "app=agent-41&panel=desktop:agent-41&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-now-wide-review-dark",
+    "description": "Today's v2 Work page, for comparison with Review, at 1920×1080 — dark",
+    "query": "app=work&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-now-wide-review-pulls-dark",
+    "description": "Today's v2 project pull requests, for comparison with Review → Pull requests, at 1920×1080 — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-verbs-small-ask-dark",
+    "description": "The prototype navigation at 800×600. Ask: the project lead's chat, the leads' sidebar beside the verb bar — dark",
+    "query": "app=project&v2=1&verbs=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-small-watch-dark",
+    "description": "The prototype navigation at 800×600. Watch: a project's agents and every agent's state and the machine's load — dark",
+    "query": "app=watch&v2=1&verbs=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-small-watch-agent-dark",
+    "description": "The prototype navigation at 800×600. Watch: agent-41's machine, its Desktop — dark",
+    "query": "app=watch:agent-41&v2=1&verbs=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-small-review-dark",
+    "description": "The prototype navigation at 800×600. Review: To review, the Work page on what waits — dark",
+    "query": "app=review&v2=1&verbs=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-small-review-pulls-dark",
+    "description": "The prototype navigation at 800×600. Review: the project's pull requests — dark",
+    "query": "app=review:pulls&v2=1&verbs=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-small-review-proof-dark",
+    "description": "The prototype navigation at 800×600. Review: Proof, every screenshot and recording — dark",
+    "query": "app=review:proof&v2=1&verbs=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-small-settings-dark",
+    "description": "The prototype navigation at 800×600. Settings, the verb bar's foot — dark",
+    "query": "app=settings&v2=1&verbs=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-now-small-ask-dark",
+    "description": "Today's v2 on the project lead's chat, for comparison with Ask, at 800×600 — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-now-small-watch-dark",
+    "description": "Today's v2 Home Status, for comparison with Watch, at 800×600 — dark",
+    "query": "app=home&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-now-small-watch-agent-dark",
+    "description": "Today's v2 on agent-41's chat with its Desktop in the panel, for comparison with Watch, at 800×600 — dark",
+    "query": "app=agent-41&panel=desktop:agent-41&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-now-small-review-dark",
+    "description": "Today's v2 Work page, for comparison with Review, at 800×600 — dark",
+    "query": "app=work&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-verbs-now-small-review-pulls-dark",
+    "description": "Today's v2 project pull requests, for comparison with Review → Pull requests, at 800×600 — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  }
 ]

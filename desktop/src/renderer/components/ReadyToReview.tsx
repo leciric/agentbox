@@ -20,7 +20,7 @@ import { awaitingReview } from '../lib/work';
 import { Markdown } from './chat/Markdown';
 import { DiffTable, useHighlighted } from './DiffTable';
 import { NotesList, ReviewNotesContext, reviewNotesKey, useReviewNotes } from './ReviewNotes';
-import { MoreMedia } from './MediaTab';
+import { MoreMedia } from './media/MediaParts';
 import { ReviewProof, type ProofHandle } from './ReviewProof';
 import { ShareButton } from './ShareButton';
 import { useProjectPages } from './pages/usePages';

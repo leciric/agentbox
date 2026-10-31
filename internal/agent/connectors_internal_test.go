@@ -121,7 +121,7 @@ func TestPlaywrightRunsBehindTheGuard(t *testing.T) {
 			continue
 		}
 		got := s.command + " " + strings.Join(s.args, " ")
-		want := "/usr/local/bin/agentbox desktop guard --name Playwright --timeout 3m0s -- /home/dev/.local/share/mise/shims/playwright-mcp --cdp-endpoint"
+		want := "/usr/local/bin/agentbox desktop guard --name Playwright --browser --timeout 3m0s -- /home/dev/.local/share/mise/shims/playwright-mcp --cdp-endpoint"
 		if !strings.HasPrefix(got, want) {
 			t.Errorf("the Playwright server is started as %q, want it to start with %q", got, want)
 		}

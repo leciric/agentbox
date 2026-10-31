@@ -1,7 +1,7 @@
 // The notifications scenarios, with fixtures: clickable notifications, the
 // top bar's inbox with its questions, the all-projects Media view, and the
 // viewer a notification opens. They render the app's own Sidebar, TopBar,
-// Inbox, NoticeToast, AllMediaView, MediaViewer and MediaPlace,
+// Inbox, NoticeToast, MediaView, MediaViewer and MediaPlace,
 // put together the way App does, over a dev bridge that answers
 // /v1/notifications and /v1/media from here (fixtures.ts setNotifications).
 //
@@ -14,10 +14,10 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
-import { AllMediaView } from '../components/AllMediaView';
+import { MediaView } from '../components/media/MediaView';
 import { HomeView } from '../components/HomeView';
 import { MediaPlace } from '../components/MediaPlace';
-import { MediaViewer } from '../components/MediaTab';
+import { MediaViewer } from '../components/media/MediaParts';
 import { NoticeToast } from '../components/Notifications';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
@@ -219,7 +219,7 @@ export function NotificationsPreview({ scenario }: { scenario: string }) {
         <main className="min-h-0 flex-1">
           <Suspense>
             {view.kind === 'home' && <HomeView onSelect={select} onAddProject={() => {}} onNewAgent={() => {}} />}
-            {view.kind === 'media' && <AllMediaView onSelect={select} />}
+            {view.kind === 'media' && <MediaView heading onSelect={select} />}
             {view.kind === 'project' && <ProjectView key={view.project} name={view.project} tab={view.tab} onSelect={select} onNewAgent={() => {}} />}
             {view.kind === 'agent' && <AgentView key={view.ref} agentRef={view.ref} tab={view.tab} onTab={(tab) => setView({ ...view, tab })} onSelect={select} />}
           </Suspense>

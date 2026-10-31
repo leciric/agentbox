@@ -15,9 +15,10 @@ import (
 
 // Pausing whole agents for memory (Settings → Experimental, off by default;
 // pressure.Fleet decides, this applies it). With it on, memory pressure
-// freezes agents' machines whole, newest first and never the oldest working
-// one, and thaws them oldest first; a machine boots once the VM really has
-// the memory for it; and heavy commands start at once, as what they would
+// freezes agents' machines whole, newest first and never the one kept going,
+// and they wait in line: they thaw oldest first once memory is really back,
+// and none waits longer than pressure.Queue.MaxHeld; a machine boots once the
+// VM really has the memory for it, behind the held ones; and heavy commands start at once, as what they would
 // have been paused for is now done to their machines. With it off, nothing
 // here runs and the heavy commands' governor (pressure.go) is as it was.
 //
@@ -80,8 +81,14 @@ type fleetState struct {
 	instance map[string]string
 	// started is closed as a waiting machine may boot, by ref.
 	started map[string]chan struct{}
-	// frozen is what was last saved of the agents the fleet froze.
-	saved []string
+	// saved is what was last saved successfully of the agents the fleet froze,
+	// and want the latest set to save. They differ while a save is pending or
+	// failed, and the next step then tries again.
+	saved, want []string
+	// saving is whether a goroutine is writing want.
+	saving bool
+	// saveBackoff is the waits between a save's attempts.
+	saveBackoff []time.Duration
 	// ours are the machines the fleet asked to freeze and hasn't thawed,
 	// by ref: kept apart from what the fleet makes of their cgroups, so one
 	// that once read as not frozen (and was forgotten as resumed) is never
@@ -101,6 +108,8 @@ func newFleetState() *fleetState {
 		instance: map[string]string{},
 		started:  map[string]chan struct{}{},
 		ours:     map[string]bool{},
+
+		saveBackoff: defaultFrozenSaveBackoff,
 	}
 }
 
@@ -186,6 +195,9 @@ func (s *Server) setFleet(ctx context.Context, on bool) error {
 	}
 	if was && !on {
 		s.resumeRuns("", time.Now())
+		fl.mu.Lock()
+		fl.want = nil
+		fl.mu.Unlock()
 		s.saveFleetFrozen(ctx, nil)
 	}
 	if on && !was {
@@ -302,6 +314,7 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	acts := fl.f.Step(now, sample)
 	why, trend := fl.f.Why(), fl.f.Trend()
 	swapFull := fl.f.SwapFull()
+	maxHeld := fl.f.Queue.MaxHeld
 	spared := fl.f.Spared() && !fl.spared
 	fl.spared = fl.f.Spared()
 	diskSwap := sample.Mem.DiskSwapOut()
@@ -330,8 +343,11 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 			frozen = append(frozen, m.Agent)
 		}
 	}
-	changed := !equalStrings(frozen, fl.saved)
-	fl.saved = frozen
+	fl.want = frozen
+	save := !fl.saving && !equalStrings(frozen, fl.saved)
+	if save {
+		fl.saving = true
+	}
 	fl.mu.Unlock()
 
 	for _, c := range thaw {
@@ -378,11 +394,14 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	if spared {
 		s.logf("memory: swap is full: the machines left running are idle, and freezing them would free nothing: %s", sample)
 	}
+	for _, ref := range acts.Rotated {
+		s.logf("memory: %s has waited %s for memory: its turn, the next in line held in its place if memory is short", ref, maxHeld)
+	}
 	for _, ref := range acts.Start {
 		s.logf("memory: %s's machine may boot: %s", ref, sample)
 	}
-	if changed {
-		go s.saveFleetFrozen(context.WithoutCancel(ctx), frozen)
+	if save {
+		go s.saveFrozenSet(context.WithoutCancel(ctx))
 	}
 	if !acts.Empty() {
 		s.refreshSoon()
@@ -454,15 +473,62 @@ func (s *Server) thawMachine(ctx context.Context, ref, instance string) {
 	}()
 }
 
-func (s *Server) saveFleetFrozen(ctx context.Context, refs []string) {
+// defaultFrozenSaveBackoff is how long saveFleetFrozen waits before trying
+// again when the database is busy.
+var defaultFrozenSaveBackoff = []time.Duration{time.Second, 3 * time.Second, 10 * time.Second}
+
+// saveFrozenSet writes the latest set of frozen agents until what is saved is
+// it. When it can't (the database stays busy), it leaves saved behind want, so
+// the next step starts it again rather than the set being dropped.
+func (s *Server) saveFrozenSet(ctx context.Context) {
+	fl := s.frozen
+	for {
+		fl.mu.Lock()
+		want := fl.want
+		if equalStrings(want, fl.saved) {
+			fl.saving = false
+			fl.mu.Unlock()
+			return
+		}
+		fl.mu.Unlock()
+		if !s.saveFleetFrozen(ctx, want) {
+			fl.mu.Lock()
+			fl.saving = false
+			fl.mu.Unlock()
+			return
+		}
+	}
+}
+
+// saveFleetFrozen stores the agents the fleet froze, which a daemon started
+// later thaws, and reports whether it did. Another writer can hold the
+// database for longer than its busy timeout, so it tries a few times.
+func (s *Server) saveFleetFrozen(ctx context.Context, refs []string) bool {
 	v := ""
 	if len(refs) > 0 {
 		b, _ := json.Marshal(refs)
 		v = string(b)
 	}
-	if err := s.store.SetSetting(ctx, state.SettingAgentFreezeFrozen, v); err != nil {
-		s.logf("memory: remembering the agents frozen for memory: %v", err)
+	backoff := s.frozen.saveBackoff
+	var err error
+	for i := 0; ; i++ {
+		if err = s.store.SetSetting(ctx, state.SettingAgentFreezeFrozen, v); err == nil {
+			break
+		}
+		if i == len(backoff) {
+			s.logf("memory: remembering the agents frozen for memory: %v (will try again)", err)
+			return false
+		}
+		select {
+		case <-time.After(backoff[i]):
+		case <-ctx.Done():
+			return false
+		}
 	}
+	s.frozen.mu.Lock()
+	s.frozen.saved = refs
+	s.frozen.mu.Unlock()
+	return true
 }
 
 func equalStrings(a, b []string) bool {

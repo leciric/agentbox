@@ -166,6 +166,7 @@ func (s *Server) runPressure(ctx context.Context) {
 	if s.pressureEvery <= 0 {
 		return // a test steps it itself
 	}
+	go s.tellMemoryShort(ctx)
 	s.protectDaemon()
 	go func() {
 		ticker := time.NewTicker(s.pressureEvery)
@@ -324,6 +325,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		why = s.fleetWhyNow()
 	}
 	s.notePressure(now, sample, err == nil, why)
+	s.memoryShort.note(now, why)
 }
 
 // forget drops what the daemon kept beside a run that went. Under mu.

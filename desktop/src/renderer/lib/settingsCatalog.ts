@@ -16,11 +16,10 @@ export type CatalogSetting = {
   group: MessageKey;
   label: MessageKey;
   keywords?: MessageKey;
-  // advanced is folded at the end of its section until opened; the palette
-  // opens the fold.
-  advanced?: boolean;
   // v2 settings are only on the page under UI v2's layout.
   v2?: boolean;
+  // verbs ones only with the prototype navigation on too (uiVerbs.ts).
+  verbs?: boolean;
 };
 
 export const sectionTitles: Record<string, MessageKey> = {
@@ -38,6 +37,7 @@ export const sectionTitles: Record<string, MessageKey> = {
   setup: 'settings.section.setup.title',
   transfer: 'settings.section.transfer.title',
   diagnostics: 'settings.section.diagnostics.title',
+  jobs: 'shell.nav.jobs',
 };
 
 export const catalog: CatalogSetting[] = [
@@ -46,16 +46,17 @@ export const catalog: CatalogSetting[] = [
   { section: 'general', group: 'settings.group.appearance.title', id: 'layout', label: 'settings.entry.layout.label', keywords: 'settings.entry.layout.keywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'tray', label: 'settings.entry.tray.label', keywords: 'settings.entry.tray.keywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'group-idle', label: 'settings.entry.group-idle.label', keywords: 'settings.entry.group-idle.keywords', v2: true },
+  { section: 'general', group: 'settings.group.appearance.title', id: 'verbs', label: 'settings.entry.verbs.label', keywords: 'settings.entry.verbs.keywords', v2: true },
   { section: 'general', group: 'settings.group.appearance.title', id: 'environment', label: 'settings.entry.environment.label', keywords: 'settings.entry.environment.keywords', v2: true },
   { section: 'general', group: 'settings.group.working.title', id: 'reviewing', label: 'settings.entry.reviewing.label', keywords: 'settings.entry.reviewing.keywords' },
-  { section: 'general', group: 'settings.group.working.title', id: 'topbar-detailed', label: 'settings.entry.topbar-detailed.label', keywords: 'settings.entry.topbar-detailed.keywords', advanced: true },
-  { section: 'general', group: 'settings.group.working.title', id: 'pages-stack', label: 'settings.entry.pages-stack.label', keywords: 'settings.entry.pages-stack.keywords', advanced: true },
+  { section: 'general', group: 'settings.group.working.title', id: 'topbar-detailed', label: 'settings.entry.topbar-detailed.label', keywords: 'settings.entry.topbar-detailed.keywords' },
+  { section: 'general', group: 'settings.group.working.title', id: 'pages-stack', label: 'settings.entry.pages-stack.label', keywords: 'settings.entry.pages-stack.keywords' },
   { section: 'general', group: 'settings.group.commits.title', id: 'credit-ai-tool', label: 'settings.entry.credit-ai-tool.label', keywords: 'settings.entry.credit-ai-tool.keywords' },
   { section: 'general', group: 'settings.group.commits.title', id: 'built-with-badge', label: 'settings.entry.built-with-badge.label', keywords: 'settings.entry.built-with-badge.keywords' },
   { section: 'general', group: 'settings.group.updates.title', id: 'update-channel', label: 'settings.entry.update-channel.label', keywords: 'settings.entry.update-channel.keywords' },
   { section: 'general', group: 'settings.group.updates.title', id: 'whats-new', label: 'settings.entry.whats-new.label', keywords: 'settings.entry.whats-new.keywords' },
   { section: 'general', group: 'settings.group.updates.title', id: 'report-problem', label: 'settings.entry.report-problem.label', keywords: 'settings.entry.report-problem.keywords' },
-  { section: 'general', group: 'settings.group.updates.title', id: 'update-check', label: 'settings.entry.update-check.label', keywords: 'settings.entry.update-check.keywords', advanced: true },
+  { section: 'general', group: 'settings.group.updates.title', id: 'update-check', label: 'settings.entry.update-check.label', keywords: 'settings.entry.update-check.keywords' },
   { section: 'general', group: 'settings.group.privacy.title', id: 'usage-stats', label: 'settings.entry.usage-stats.label', keywords: 'settings.entry.usage-stats.keywords' },
   { section: 'general', group: 'settings.group.privacy.title', id: 'error-reports', label: 'settings.entry.error-reports.label', keywords: 'settings.entry.error-reports.keywords' },
   { section: 'notifications', group: 'settings.group.notifications.title', id: 'notify-dnd', label: 'notify.dnd.title', keywords: 'notify.dnd.keywords' },
@@ -74,16 +75,16 @@ export const catalog: CatalogSetting[] = [
   { section: 'models', group: 'settings.group.new-agents.title', id: 'agent-window', label: 'settings.entry.agent-window.label', keywords: 'settings.entry.agent-window.keywords' },
   { section: 'models', group: 'settings.group.new-agents.title', id: 'agent-effort', label: 'settings.entry.agent-effort.label', keywords: 'settings.entry.agent-effort.keywords' },
   { section: 'models', group: 'settings.group.new-agents.title', id: 'default-tool', label: 'defaults.tool.label', keywords: 'defaults.tool.keywords' },
-  { section: 'models', group: 'settings.group.new-agents.title', id: 'cursor-model', label: 'settings.entry.cursor-model.label', keywords: 'settings.entry.cursor-model.keywords', advanced: true },
-  { section: 'models', group: 'settings.group.new-agents.title', id: 'cursor-effort', label: 'settings.entry.cursor-effort.label', keywords: 'settings.entry.cursor-effort.keywords', advanced: true },
-  { section: 'models', group: 'settings.group.new-agents.title', id: 'gemini-model', label: 'settings.entry.gemini-model.label', keywords: 'settings.entry.gemini-model.keywords', advanced: true },
-  { section: 'models', group: 'settings.group.new-agents.title', id: 'enforce', label: 'settings.entry.enforce.label', keywords: 'settings.entry.enforce.keywords', advanced: true },
+  { section: 'models', group: 'settings.group.new-agents.title', id: 'cursor-model', label: 'settings.entry.cursor-model.label', keywords: 'settings.entry.cursor-model.keywords' },
+  { section: 'models', group: 'settings.group.new-agents.title', id: 'cursor-effort', label: 'settings.entry.cursor-effort.label', keywords: 'settings.entry.cursor-effort.keywords' },
+  { section: 'models', group: 'settings.group.new-agents.title', id: 'gemini-model', label: 'settings.entry.gemini-model.label', keywords: 'settings.entry.gemini-model.keywords' },
+  { section: 'models', group: 'settings.group.new-agents.title', id: 'enforce', label: 'settings.entry.enforce.label', keywords: 'settings.entry.enforce.keywords' },
   { section: 'models', group: 'settings.group.lead.title', id: 'lead-model', label: 'settings.entry.lead-model.label', keywords: 'settings.entry.lead-model.keywords' },
   { section: 'models', group: 'settings.group.lead.title', id: 'lead-window', label: 'settings.entry.lead-window.label', keywords: 'settings.entry.lead-window.keywords' },
   { section: 'models', group: 'settings.group.lead.title', id: 'lead-effort', label: 'settings.entry.lead-effort.label', keywords: 'settings.entry.lead-effort.keywords' },
   { section: 'models', group: 'settings.group.lead.title', id: 'lead-mode', label: 'settings.entry.lead-mode.label', keywords: 'settings.entry.lead-mode.keywords' },
   { section: 'models', group: 'settings.group.tool-versions.title', id: 'claude-code-update', label: 'settings.entry.claude-code-update.label', keywords: 'settings.entry.claude-code-update.keywords' },
-  { section: 'models', group: 'settings.group.chats.title', id: 'compact', label: 'settings.entry.compact.label', keywords: 'settings.entry.compact.keywords', advanced: true },
+  { section: 'models', group: 'settings.group.chats.title', id: 'compact', label: 'settings.entry.compact.label', keywords: 'settings.entry.compact.keywords' },
   { section: 'models', group: 'settings.group.chats.title', id: 'resume', label: 'settings.entry.resume.label', keywords: 'settings.entry.resume.keywords' },
   { section: 'models', group: 'settings.group.chats.title', id: 'lead-sleep', label: 'settings.entry.leadSleep.label', keywords: 'settings.entry.leadSleep.keywords' },
   { section: 'models', group: 'settings.group.chats.title', id: 'continue-after-restart', label: 'settings.entry.continueAfterRestart.label', keywords: 'settings.entry.continueAfterRestart.keywords' },
@@ -97,10 +98,10 @@ export const catalog: CatalogSetting[] = [
   { section: 'memory', group: 'settings.group.memory.title', id: 'global-memory', label: 'settings.section.memory.title', keywords: 'settings.entry.memory.keywords' },
   { section: 'resources', group: 'settings.group.disk.title', id: 'disk-floor', label: 'settings.entry.disk-floor.label', keywords: 'settings.entry.disk-floor.keywords' },
   { section: 'resources', group: 'settings.group.disk.title', id: 'media-retention', label: 'settings.entry.media-retention.label', keywords: 'settings.entry.media-retention.keywords' },
-  { section: 'resources', group: 'settings.group.disk.title', id: 'docker-prune', label: 'settings.entry.docker-prune.label', keywords: 'settings.entry.docker-prune.keywords', advanced: true },
-  { section: 'resources', group: 'settings.group.disk.title', id: 'docker-image-cache', label: 'settings.entry.docker-image-cache.label', keywords: 'settings.entry.docker-image-cache.keywords', advanced: true },
-  { section: 'resources', group: 'settings.group.disk.title', id: 'package-caches', label: 'settings.entry.package-caches.label', keywords: 'settings.entry.package-caches.keywords', advanced: true },
-  { section: 'resources', group: 'settings.group.disk.title', id: 'local-node-modules', label: 'settings.entry.local-node-modules.label', keywords: 'settings.entry.local-node-modules.keywords', advanced: true },
+  { section: 'resources', group: 'settings.group.disk.title', id: 'docker-prune', label: 'settings.entry.docker-prune.label', keywords: 'settings.entry.docker-prune.keywords' },
+  { section: 'resources', group: 'settings.group.disk.title', id: 'docker-image-cache', label: 'settings.entry.docker-image-cache.label', keywords: 'settings.entry.docker-image-cache.keywords' },
+  { section: 'resources', group: 'settings.group.disk.title', id: 'package-caches', label: 'settings.entry.package-caches.label', keywords: 'settings.entry.package-caches.keywords' },
+  { section: 'resources', group: 'settings.group.disk.title', id: 'local-node-modules', label: 'settings.entry.local-node-modules.label', keywords: 'settings.entry.local-node-modules.keywords' },
   { section: 'resources', group: 'settings.group.vm.title', id: 'vm-size', label: 'settings.entry.vm-size.label', keywords: 'settings.entry.vm-size.keywords' },
   { section: 'resources', group: 'settings.group.vm.title', id: 'vm-swap', label: 'settings.entry.vm-swap.label', keywords: 'settings.entry.vm-swap.keywords' },
   { section: 'setup', group: 'settings.group.where.title', id: 'move-to-vm', label: 'settings.entry.move-to-vm.label', keywords: 'settings.setup.moveKeywords' },
@@ -108,9 +109,10 @@ export const catalog: CatalogSetting[] = [
   { section: 'setup', group: 'settings.checklist.title', id: 'checklist', label: 'settings.checklist.title' },
   { section: 'setup', group: 'settings.group.optional.title', id: 'android', label: 'settings.setup.title.android', keywords: 'settings.setup.desc.android' },
   { section: 'setup', group: 'settings.group.optional.title', id: 'preview', label: 'settings.setup.title.preview', keywords: 'settings.setup.desc.preview' },
-  { section: 'setup', group: 'settings.group.image.title', id: 'opencode-image', label: 'settings.entry.opencode-image.label', keywords: 'settings.entry.opencode-image.keywords', advanced: true },
-  { section: 'setup', group: 'settings.group.image.title', id: 'opencode-v2', label: 'settings.entry.opencode-v2.label', keywords: 'settings.entry.opencode-v2.keywords', advanced: true },
+  { section: 'setup', group: 'settings.group.image.title', id: 'opencode-image', label: 'settings.entry.opencode-image.label', keywords: 'settings.entry.opencode-image.keywords' },
+  { section: 'setup', group: 'settings.group.image.title', id: 'opencode-v2', label: 'settings.entry.opencode-v2.label', keywords: 'settings.entry.opencode-v2.keywords' },
   { section: 'transfer', group: 'settings.section.transfer.title', id: 'export', label: 'transfer.export.title', keywords: 'settings.entry.transfer.keywords' },
   { section: 'transfer', group: 'settings.section.transfer.title', id: 'import', label: 'transfer.import.title', keywords: 'settings.entry.transfer.keywords' },
   { section: 'diagnostics', group: 'settings.group.diagnostics.title', id: 'diagnostics', label: 'settings.section.diagnostics.title', keywords: 'settings.entry.diagnostics.keywords' },
+  { section: 'jobs', group: 'shell.nav.jobs', id: 'jobs', label: 'shell.nav.jobs', keywords: 'settings.entry.jobs.keywords', v2: true, verbs: true },
 ];

@@ -51,7 +51,9 @@ export function homeAgentFrom(info: T.ProjectChat, topic?: string): T.Agent {
 // its own, { kind: 'home' }, which the app opens on; the chat is homeChat.
 export type HomeTabs = { status: ReactNode; onStatus: boolean; onTab: (status: boolean) => void };
 
-export function HomeChatPanel({ home }: { home?: HomeTabs }) {
+// bare is the prototype navigation's (lib/uiVerbs.ts) Home: the chat alone,
+// its Memory being in Settings.
+export function HomeChatPanel({ home, bare }: { home?: HomeTabs; bare?: boolean }) {
   const t = useT();
   const v2 = useUiV2();
   // The session shown, for the status and menu beside the tabs: the same
@@ -80,7 +82,7 @@ export function HomeChatPanel({ home }: { home?: HomeTabs }) {
     <Tabs {...tabs} className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 px-4 pb-3 pt-5 md:px-8">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-title">{t(home ? 'shell.nav.home' : 'chat.home.title')}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-title">{t(home || bare ? 'shell.nav.home' : 'chat.home.title')}</h1>
           <p className="mt-0.5 text-ui text-muted">{t('chat.home.subtitle')}</p>
         </div>
         <div className="mt-3 flex items-center gap-3">
@@ -95,10 +97,12 @@ export function HomeChatPanel({ home }: { home?: HomeTabs }) {
                 {t('chat.home.tab.status')}
               </TabsTrigger>
             )}
-            <TabsTrigger value="memory" data-home-tab="memory">
-              <Brain />
-              {t('chat.home.tab.memory')}
-            </TabsTrigger>
+            {!bare && (
+              <TabsTrigger value="memory" data-home-tab="memory">
+                <Brain />
+                {t('chat.home.tab.memory')}
+              </TabsTrigger>
+            )}
           </TabsList>
           {info && (
             <div className="flex shrink-0 items-center gap-2">

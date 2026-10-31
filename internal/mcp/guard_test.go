@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -132,5 +133,39 @@ func TestGuardEndsWhenTheServerExits(t *testing.T) {
 	defer cancel()
 	if err := g.Serve(ctx, inR, io.Discard); err == nil || !strings.Contains(err.Error(), "exited") {
 		t.Fatalf("Serve = %v, want the server's exit", err)
+	}
+}
+
+// Before runs ahead of each tool call, and of nothing else.
+func TestGuardRunsBeforeEachToolCall(t *testing.T) {
+	t.Setenv("AGENTBOX_FAKE_MCP", "1")
+	var before atomic.Int32
+	g := &Guard{Command: []string{os.Args[0], "-test.run=^TestGuardFakeServer$"}, Timeout: time.Minute, Name: "Fake", Stderr: io.Discard,
+		Before: func() { before.Add(1) }}
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	served := make(chan error, 1)
+	go func() { served <- g.Serve(ctx, inR, outW) }()
+	out := bufio.NewScanner(outR)
+	for i, line := range []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pid","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"pid","arguments":{}}}`,
+	} {
+		if _, err := io.WriteString(inW, line+"\n"); err != nil {
+			t.Fatal(err)
+		}
+		if !out.Scan() {
+			t.Fatalf("no answer to %s", line)
+		}
+		if got := int(before.Load()); got != i {
+			t.Errorf("after %d messages, Before ran %d times; want %d", i+1, got, i)
+		}
+	}
+	_ = inW.Close()
+	if err := <-served; err != nil {
+		t.Fatalf("Serve: %v", err)
 	}
 }

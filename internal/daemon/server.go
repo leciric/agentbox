@@ -379,6 +379,9 @@ type Server struct {
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
 	heavy *heavyRuns
+	// memoryShort (memoryjobs.go) is whether the machines are told memory
+	// is short, so their builds and tests run fewer jobs.
+	memoryShort *memoryShort
 	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
 	// with Settings → Experimental's switch, and machineCgroups what
 	// freezes them.
@@ -464,6 +467,7 @@ func New(cfg Config) (*Server, error) {
 		lan:              newLANState(),
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
+		memoryShort:      newMemoryShort(),
 		frozen:           newFleetState(),
 		machineCgroups:   agentMachineCgroups{},
 		pressureEvery:    pressureInterval,

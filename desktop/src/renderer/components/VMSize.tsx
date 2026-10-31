@@ -259,6 +259,8 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
 
   const limits = vm.limits;
   const live = vm.live;
+  // What this computer keeps for itself: the cap's most, and where the VM stops growing.
+  const reserve = vm.memory.hostReserve ?? 0;
   const on = vm.state === 'running' || vm.state === 'starting';
   const cpus = Number(form.cpus);
   const memory = Number(form.memory);
@@ -355,7 +357,13 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
               label={t('vm.size.memoryCapLabel')}
               htmlFor="vm-memory"
               hint={
-                memoryOk || form.memory === '' ? (
+                reserve ? (
+                  memoryOk || form.memory === '' ? (
+                    t('vm.size.memoryHintCHVReserve', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory), reserve: gibText(reserve) })
+                  ) : (
+                    <Bad>{t('vm.size.memoryHintCHVReserveBad', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory), reserve: gibText(reserve) })}</Bad>
+                  )
+                ) : memoryOk || form.memory === '' ? (
                   t('vm.size.memoryHintCHV', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })
                 ) : (
                   <Bad>{t('vm.size.memoryHintCHVBad', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })}</Bad>

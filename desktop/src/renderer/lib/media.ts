@@ -9,6 +9,10 @@ export function mediaUrl(item: Pick<T.MediaItem, 'id'>, path?: string): string {
   return window.agentbox.mediaUrl(item.id, path);
 }
 
+// shownKinds are what an agent shows you rather than notes, logs and
+// reports: the sidebar's Media counts those unseen.
+export const shownKinds = ['screenshot', 'recording'];
+
 export const mediaKinds: { kind: string; label: string; one: string; icon: ComponentType<{ className?: string }> }[] = [
   // label and one are read when they're shown, in the language of the moment.
   {

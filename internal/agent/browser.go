@@ -98,6 +98,23 @@ func (m *Manager) EnsureBrowser(ctx context.Context, a state.Agent) {
 	}
 }
 
+// RefreshBrowser brings the current browser.sh into an agent whose desktop
+// was up before the daemon started, and has it start what that browser.sh
+// runs beside the display (its idle watcher), without opening the browser.
+// Best-effort, like EnsureBrowser.
+func (m *Manager) RefreshBrowser(ctx context.Context, a state.Agent) {
+	if m.BrowserSocket == nil || !m.displayUp(ctx, a) {
+		return
+	}
+	err := m.prepareBrowser(ctx, a)
+	if err == nil {
+		err = m.runBrowserScript(ctx, a, "refresh")
+	}
+	if err != nil {
+		m.logf("%s's browser stays open when idle: %v", a.Ref(), err)
+	}
+}
+
 func (m *Manager) StopBrowser(ctx context.Context, a state.Agent) error {
 	if err := m.prepareBrowser(ctx, a); err != nil {
 		return err

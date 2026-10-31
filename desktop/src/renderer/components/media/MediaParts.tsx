@@ -1,47 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Bot,
-  Camera,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Circle,
-  CircleAlert,
-  Download,
-  ExternalLink,
-  FileChartColumn,
-  FolderOpen,
-  Images,
-  LoaderCircle,
-  MousePointerClick,
-  Play,
-  Search,
-  SquareCheck,
-  Star,
-  StickyNote,
-  Trash,
-  User,
-  X,
-} from 'lucide-react';
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type RefObject } from 'react';
+import { Bot, Camera, Check, ChevronLeft, ChevronRight, CircleAlert, ExternalLink, FileChartColumn, FolderOpen, LoaderCircle, Play, Search, SquareCheck, Star, Trash, User, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ComponentType, type ReactNode, type RefObject } from 'react';
 import { toast } from 'sonner';
-import type * as T from '../../shared/api';
-import { api } from '../lib/api';
-import { formatDateTime, useT } from '../lib/i18n';
-import { useSeeMedia } from '../lib/notifications';
-import { clock, describeAll, kindInfo, mediaKinds, mediaUrl } from '../lib/media';
-import { applyMediaEvent, loadedItems, useMediaCounts, useMediaPages, useNextPageNear } from '../lib/mediaPages';
-import { cn, errorMessage, humanBytes, timeAgo, timeUntil } from '../lib/utils';
-import { cachedStill, Unplayable, unplayable, videoStill } from '../lib/videoStills';
-import { ConfirmDialog } from './ConfirmDialog';
-import { Badge, type BadgeVariant } from './ui/badge';
-import { Button } from './ui/button';
-import { EmptyState, Notice } from './ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Field, Input, Textarea } from './ui/input';
-import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
-import { Tip } from './ui/tooltip';
-import { ZoomableImage } from './ZoomableImage';
+import type * as T from '../../../shared/api';
+import { api } from '../../lib/api';
+import { formatDateTime, useT } from '../../lib/i18n';
+import { clock, kindInfo, mediaUrl } from '../../lib/media';
+import { applyMediaEvent } from '../../lib/mediaPages';
+import { cn, errorMessage, humanBytes, timeAgo, timeUntil } from '../../lib/utils';
+import { cachedStill, Unplayable, unplayable, videoStill } from '../../lib/videoStills';
+import { ConfirmDialog } from '../ConfirmDialog';
+import { Badge, type BadgeVariant } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Notice } from '../ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Field, Input, Textarea } from '../ui/input';
+import { Tip } from '../ui/tooltip';
+import { ZoomableImage } from '../ZoomableImage';
 
 const kindVariant: Record<string, BadgeVariant> = {
   screenshot: 'brand',
@@ -51,232 +26,6 @@ const kindVariant: Record<string, BadgeVariant> = {
   note: 'warning',
   file: 'default',
 };
-
-// MediaTab is the gallery of what shows an agent's work: screenshots,
-// recordings, reports, logs and notes, from the agent and from you.
-export function MediaTab({ agent }: { agent: T.Agent }) {
-  const t = useT();
-  const queryClient = useQueryClient();
-  const running = agent.state === 'running';
-  const recording = useQuery({
-    queryKey: ['recording', agent.ref],
-    queryFn: () => api.recording(agent.ref),
-    enabled: running,
-    refetchInterval: (query) => (query.state.data?.recording ? 2_000 : 10_000),
-  });
-  const [filter, setFilter] = useState('all');
-  const [query, setQuery] = useState('');
-  const [openId, setOpenIdState] = useState<string | null>(null);
-  const seeMedia = useSeeMedia();
-  const setOpenId = (id: string | null) => {
-    setOpenIdState(id);
-    seeMedia(id);
-  };
-  const [noting, setNoting] = useState(false);
-  const [deleting, setDeleting] = useState<T.MediaItem | null>(null);
-  const [selecting, setSelecting] = useState(false);
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-
-  const saved = (item: T.MediaItem) => toast(t('agent.mediaTab.saved', { name: item.name }));
-  const shot = useMutation({ mutationFn: () => api.screenshot(agent.ref), onSuccess: saved });
-  const isRecording = recording.data?.recording === true;
-  const record = useMutation({
-    mutationFn: (input?: string): Promise<T.MediaItem | T.RecordingStatus> =>
-      isRecording ? api.stopRecording(agent.ref) : api.startRecording(agent.ref, { name: 'screen recording', input }),
-    onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: ['recording', agent.ref] });
-      if ('id' in result) saved(result);
-    },
-  });
-  const exportAll = useMutation({
-    mutationFn: () => api.exportMedia(agent.ref),
-    onSuccess: (result) =>
-      toast(t('agent.mediaTab.exported', { count: result.items }), {
-        description: result.dir,
-        action: { label: t('agent.mediaTab.openFolder'), onClick: () => void window.agentbox.openPath(result.dir) },
-      }),
-  });
-
-  const kind = filter === 'all' ? '' : filter;
-  const search = useDeferredValue(query);
-  // The daemon filters and searches, a page at a time; the counts are of
-  // every item, not the pages loaded.
-  const scope = { project: agent.project, agent: agent.name, only: kind, q: search };
-  const media = useMediaPages(scope);
-  const counts = useMediaCounts(scope);
-  const visible = useMemo(() => loadedItems(media.data), [media.data]);
-  const total = counts.data?.total ?? visible.length;
-  const bytes = counts.data?.bytes ?? 0; // what this agent's media takes on disk, since freeing that is why you delete it
-  const index = visible.findIndex((item) => item.id === openId);
-  useNextPageNear(media, index, visible.length);
-  const error = shot.error ?? record.error ?? exportAll.error ?? media.error;
-  // A delete's media events take the items out of the list.
-  const refresh = () => setOpenId(null);
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('agent.mediaTab.filter')}>
-          <FilterChip active={filter === 'all'} count={total} onClick={() => setFilter('all')}>
-            {t('agent.mediaTab.all')}
-          </FilterChip>
-          {mediaKinds
-            .filter((k) => counts.data?.kinds[k.kind] || filter === k.kind)
-            .map((k) => (
-              <FilterChip key={k.kind} icon={k.icon} active={filter === k.kind} count={counts.data?.kinds[k.kind] ?? 0} onClick={() => setFilter(k.kind)}>
-                {k.label}
-              </FilterChip>
-            ))}
-          {bytes > 0 && <span className="pl-1.5 text-caption tabular-nums text-subtle">{humanBytes(bytes)}</span>}
-        </div>
-        {total > 0 && <MediaSearch value={query} onChange={setQuery} />}
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          {!selecting && (
-            <>
-              <Button size="sm" disabled={!running || shot.isPending} onClick={() => shot.mutate()}>
-                {shot.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
-                {t('agent.browser.screenshot')}
-              </Button>
-              {isRecording ? (
-                <Button
-                  size="sm"
-                  className="border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25"
-                  disabled={record.isPending}
-                  onClick={() => record.mutate()}
-                >
-                  {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 rounded-[3px] bg-rose-400" />}
-                  {recording.data?.input === 'desktop' ? t('agent.mediaTab.stopRecordingInput') : t('agent.browser.stopRecording')}
-                </Button>
-              ) : (
-                <Menu>
-                  <MenuTrigger asChild>
-                    <Button size="sm" disabled={!running || record.isPending}>
-                      {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500" />}
-                      {t('agent.browser.record')}
-                    </Button>
-                  </MenuTrigger>
-                  <MenuContent>
-                    <MenuItem icon={Circle} onSelect={() => record.mutate()}>
-                      {t('agent.browser.recordScreen')}
-                    </MenuItem>
-                    <MenuItem icon={MousePointerClick} onSelect={() => record.mutate('desktop')}>
-                      {t('agent.browser.recordInput')}
-                    </MenuItem>
-                  </MenuContent>
-                </Menu>
-              )}
-              {/* A past agent's (UI v2's panel, state "archived") is only read:
-                  its routes went with it. */}
-              {agent.state !== 'archived' && (
-                <Button size="sm" onClick={() => setNoting(true)}>
-                  <StickyNote />
-                  {t('agent.mediaTab.note')}
-                </Button>
-              )}
-              {agent.state !== 'archived' && <Tip label={t('agent.mediaTab.exportTip')}>
-                <Button size="sm" variant="ghost" disabled={total === 0 || exportAll.isPending} onClick={() => exportAll.mutate()}>
-                  {exportAll.isPending ? <LoaderCircle className="animate-spin" /> : <Download />}
-                  {t('agent.mediaTab.export')}
-                </Button>
-              </Tip>}
-            </>
-          )}
-          <MediaSelection
-            visible={visible}
-            selecting={selecting}
-            onSelecting={setSelecting}
-            selected={selected}
-            onSelected={setSelected}
-            all={{ all: true, kind: kind || undefined, query: search.trim() || undefined }}
-            allCount={counts.data?.matching ?? visible.length}
-            allBytes={counts.data?.matchingBytes}
-            allLabel={describeAll(counts.data?.matching ?? visible.length, kind, agent.title || agent.name, search)}
-            deleteMedia={(req) => api.deleteAgentMedia(agent.ref, req)}
-            onDeleted={refresh}
-          />
-        </div>
-      </div>
-      {error && (
-        <div className="px-4 pt-3">
-          <Notice>{errorMessage(error)}</Notice>
-        </div>
-      )}
-
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {media.isPending && !media.isPlaceholderData ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-            {Array.from({ length: 6 }, (_, i) => (
-              <div key={i} className="skeleton aspect-[4/3] rounded-xl" />
-            ))}
-          </div>
-        ) : total === 0 && !kind && !search.trim() ? (
-          <EmptyState
-            icon={Images}
-            title={t('agent.mediaTab.emptyTitle')}
-            action={
-              <>
-                <Button variant="primary" disabled={!running || shot.isPending} onClick={() => shot.mutate()}>
-                  <Camera />
-                  {t('agent.mediaTab.takeScreenshot')}
-                </Button>
-                <Button disabled={!running || record.isPending} onClick={() => record.mutate()}>
-                  <span className="size-2.5 rounded-full bg-rose-500" />
-                  {t('agent.browser.recordScreen')}
-                </Button>
-              </>
-            }
-          >
-            <p>{t('agent.mediaTab.emptyBody')}</p>
-            <pre className="mt-4 rounded-xl border border-line bg-well p-3.5 text-left font-mono text-caption leading-relaxed text-muted">
-              <span className="text-faint">$ </span>agentbox media screenshot --name checkout{'\n'}
-              <span className="text-faint">$ </span>agentbox media record start --name demo{'\n'}
-              <span className="text-faint">$ </span>agentbox media add playwright-report/
-            </pre>
-          </EmptyState>
-        ) : visible.length === 0 ? (
-          <NoMatch query={search} onClear={() => setQuery('')} />
-        ) : (
-          <>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-              {visible.map((item) => (
-                <MediaCard
-                  key={item.id}
-                  item={item}
-                  onOpen={() => setOpenId(item.id)}
-                  selecting={selecting}
-                  selected={selected.has(item.id)}
-                  onToggle={() => setSelected(toggled(selected, item.id))}
-                />
-              ))}
-            </div>
-            <MoreMedia pages={media} />
-          </>
-        )}
-      </div>
-
-      <MediaViewer
-        items={visible}
-        index={index}
-        onIndex={(i) => setOpenId(visible[i]?.id ?? null)}
-        onClose={() => setOpenId(null)}
-        onDelete={(item) => setDeleting(item)}
-      />
-      <NoteDialog agent={agent} open={noting} onOpenChange={setNoting} />
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        title={t('agent.mediaTab.deleteTitle', { name: deleting?.name ?? '' })}
-        description={t('agent.mediaTab.deleteDescription')}
-        confirmLabel={t('common.delete')}
-        destructive
-        onConfirm={async () => {
-          await api.deleteMedia(deleting!.id);
-          refresh();
-        }}
-      />
-    </div>
-  );
-}
 
 // MoreMedia is the end of a gallery read a page at a time: it reads the next
 // page as it nears the screen, with a small row while it's on its way.
@@ -924,7 +673,8 @@ export function Recording({ item }: { item: T.MediaItem }) {
   );
 }
 
-function NoteDialog({ agent, open, onOpenChange }: { agent: T.Agent; open: boolean; onOpenChange: (open: boolean) => void }) {
+// NoteDialog keeps a note with an agent's media.
+export function NoteDialog({ agent, open, onOpenChange }: { agent: T.Agent; open: boolean; onOpenChange: (open: boolean) => void }) {
   const t = useT();
   const [text, setText] = useState('');
   const [name, setName] = useState('');

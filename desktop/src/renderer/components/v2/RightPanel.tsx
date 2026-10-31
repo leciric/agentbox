@@ -84,7 +84,7 @@ import { IOSTab } from '../IOSTab';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { FileBrowser } from '../files/FilePanel';
-import { MediaViewer, MoreMedia } from '../MediaTab';
+import { MediaViewer, MoreMedia } from '../media/MediaParts';
 import { PageThumb } from '../pages/PageThumb';
 import { useProjectPages } from '../pages/usePages';
 import { standIn } from '../pip/standIn';
@@ -96,6 +96,7 @@ import { TimelinePanel, useTimeline } from '../timeline/Timeline';
 import { ShareButton } from '../ShareButton';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
+import { dotLabel, FeatureDot, useFeatureDot, type FeatureDotState } from '../FeatureDot';
 import { Tip } from '../ui/tooltip';
 import { PanelBrowser } from './PanelBrowser';
 import { AgentList, AgentStrip } from './AgentList';
@@ -454,6 +455,12 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
   const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open').length;
   // The sidebar row's "N to review" and the list's group, the same count.
   const ready = useAgentCounts().of(project).review;
+  const dots: Partial<Record<LeadTab, FeatureDotState>> = { issues: useFeatureDot('lead-tab:issues'), schedules: useFeatureDot('lead-tab:schedules') };
+  // A new tab's dot goes once it's been open, by a click or from elsewhere.
+  const lit = dots[tab];
+  useEffect(() => {
+    if (lit?.on) lit.clear();
+  }, [tab, lit?.on]); // eslint-disable-line react-hooks/exhaustive-deps
   const tabs: Record<LeadTab, { icon: LucideIcon; label: string; on: boolean; tip?: string }> = {
     agents: { icon: Users, label: t('panel.lead.agents'), on: tab === 'agents' },
     pulls: {
@@ -472,6 +479,7 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
       {leadTabs.filter((v) => v !== 'pulls' || pullsTab).map((v) => {
         const { icon: Icon, label, on, tip } = tabs[v];
         const named = on;
+        const dot = dots[v];
         const button = (
           <button
             key={v}
@@ -480,9 +488,10 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
             aria-checked={on}
             aria-label={tip ?? label}
             onClick={() => setLeadTab(project, v)}
-            className={cn('flex h-7 min-w-0 items-center gap-1.5 rounded-md text-[11.5px] font-medium transition-colors', named ? 'px-2.5' : 'shrink-0 px-2', on ? 'bg-surface-raised text-title shadow-sm' : 'text-subtle hover:text-title')}
+            className={cn('relative flex h-7 min-w-0 items-center gap-1.5 rounded-md text-[11.5px] font-medium transition-colors', named ? 'px-2.5' : 'shrink-0 px-2', on ? 'bg-surface-raised text-title shadow-sm' : 'text-subtle hover:text-title')}
             data-panel-lead-tab={v}
           >
+            {dot && <FeatureDot dot={dot} />}
             <Icon className="size-3.5 shrink-0" />
             {named && <span className="truncate">{label}</span>}
             {v === 'agents' && count > 0 && <span className="shrink-0 rounded-full bg-surface-strong px-1.5 text-[10.5px] tabular-nums text-subtle">{count}</span>}
@@ -494,10 +503,10 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
             )}
           </button>
         );
-        return named && !tip ? (
+        return named && !tip && !dot?.on ? (
           button
         ) : (
-          <Tip key={v} label={tip ?? label}>
+          <Tip key={v} label={dot ? dotLabel(tip ?? label, dot) : (tip ?? label)}>
             <span className={cn('flex', named ? 'min-w-0' : 'shrink-0')}>{button}</span>
           </Tip>
         );

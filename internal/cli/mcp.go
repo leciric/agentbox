@@ -895,16 +895,39 @@ func agentDiff(ctx context.Context, c *api.Client, agent string, stat bool, path
 
 // memoryHeld says what the VM's memory pressure holds of an agent's tests and
 // builds, "" for nothing.
+// memoryHeld is what memory holds of an agent, for list_agents: its whole
+// machine, paused or waiting to boot, with its place in line, or its heavy
+// commands.
 func memoryHeld(h *api.MemoryHold) string {
 	switch {
 	case h == nil:
 		return ""
+	case h.Machine == "paused":
+		return fmt.Sprintf("paused, waiting for memory, %s in line (it resumes by itself; messages wait for it)", ordinal(h.Ahead+1))
+	case h.Machine == "waiting":
+		return fmt.Sprintf("waiting for memory to boot, %s in line", ordinal(h.Ahead+1))
 	case h.Paused > 0 && h.Waiting > 0:
 		return fmt.Sprintf("%d test/build %s paused and %d waiting for memory", h.Paused, plural(h.Paused, "command", "commands"), h.Waiting)
 	case h.Paused > 0:
 		return fmt.Sprintf("%d test/build %s paused for memory", h.Paused, plural(h.Paused, "command", "commands"))
 	}
 	return fmt.Sprintf("%d test/build %s waiting for memory", h.Waiting, plural(h.Waiting, "command", "commands"))
+}
+
+// ordinal is n as "1st", "2nd", "3rd", "11th".
+func ordinal(n int) string {
+	suffix := "th"
+	if n%100 < 11 || n%100 > 13 {
+		switch n % 10 {
+		case 1:
+			suffix = "st"
+		case 2:
+			suffix = "nd"
+		case 3:
+			suffix = "rd"
+		}
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
 }
 
 func describeFleet(fleet api.Fleet) string {

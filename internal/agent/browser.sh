@@ -6,13 +6,14 @@
 #   (window manager), tint2 as a centred dock (launchers, the open windows and
 #   a clock) and pcmanfm and a terminal for the agent to browse files or run
 #   commands from the display itself;
-# - Chromium, maximized, with the DevTools protocol on 127.0.0.1:9222;
+# - Chromium, maximized, with the DevTools protocol on 127.0.0.1:9222, which
+#   closes when idle a few minutes and opens again on the next use (watch_idle);
 # - with a GPU, an idle VNC client that keeps Xvnc's vblank at 60 Hz (hold_vnc).
 # Runs as the agent's user. AgentBox reaches both ports through Incus proxy
 # devices, so nothing listens on the agent's network.
 # Windows are kept inside the display as the viewer resizes it: openbox opens
 # application windows maximized, and a watcher (watch_display) fits the rest.
-# Usage: browser.sh start|stop|theme|watch
+# Usage: browser.sh start|stop|theme|watch|idle|refresh
 set -eu
 
 display=99
@@ -90,6 +91,68 @@ export XCURSOR_THEME="$cursor_theme" XCURSOR_SIZE="$cursor_size"
 devtools() { curl -sf --max-time 1 "http://127.0.0.1:9222/json/version" >/dev/null; }
 listening() { ss -ltn "sport = :$1" | grep -q LISTEN; }
 display_answering() { xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; }
+
+# Chromium closes once nothing has used it for idle_after seconds (0: never),
+# and opens again on the next use (internal/desktop/browseruse.go). $used's
+# time is the last use: the desktop and Playwright tools mark it as they are
+# called, start does, and watch_idle does while in_use.
+used="$state/browser-used"
+idle_after=${AGENTBOX_BROWSER_IDLE:-300}
+
+# in_use says something holds the browser or the display right now. A
+# DevTools client in the machine does (a recording, a script of the agent's),
+# unless it is Playwright's MCP server, which stays connected used or not and
+# marks $used by its calls instead; one with no process in the machine is
+# AgentBox's proxy device asking which pages are open. A VNC client is the
+# other way round: the app's view of the display comes in through that
+# device, and the one in the machine is hold_vnc's clock.
+in_use() {
+  ss -tnpH state established '( dport = :5900 )' 2>/dev/null | grep -qv 'users:' && return 0
+  for pid in $(ss -tnpH state established '( dport = :9222 )' 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p'); do
+    tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q '@playwright/mcp/' || return 0
+  done
+  return 1
+}
+
+# stop_chromium closes the browser. SIGTERM lets Chromium write its session
+# and mark the exit clean; killing it is what makes the next start offer to
+# restore pages.
+stop_chromium() {
+  if pkill -u "$uid" -x -TERM chromium; then
+    i=0
+    while pgrep -u "$uid" -x chromium >/dev/null && [ "$i" -lt 50 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+  fi
+  pkill -u "$uid" -x chromium || true
+}
+
+start_idle_watch() {
+  if ! pgrep -u "$uid" -f "sh $0 idle" >/dev/null; then
+    setsid sh "$0" idle >>"$state/idle.log" 2>&1 </dev/null &
+  fi
+}
+
+# watch_idle closes the browser once it has been idle idle_after seconds,
+# looking every half a minute, and leaves the display up. Started by start,
+# it ends with the display.
+watch_idle() {
+  [ "$idle_after" -gt 0 ] || exit 0
+  [ -e "$used" ] || touch "$used"
+  while sleep 30; do
+    display_answering || exit 0
+    pgrep -u "$uid" -x chromium >/dev/null || continue
+    if in_use; then
+      touch "$used"
+      continue
+    fi
+    last=$(stat -c %Y "$used" 2>/dev/null || echo 0)
+    [ $(($(date +%s) - last)) -ge "$idle_after" ] || continue
+    echo "$(date '+%F %T') unused for ${idle_after}s: closing the browser"
+    stop_chromium
+  done
+}
 # render_node is the GPU's DRM render node, when "GPU for agents" gave the
 # agent one (gpu.go): Xvnc takes it for DRI3, so the desktop's OpenGL and
 # Vulkan clients render on the GPU. WSL's GPU (/dev/dxg) has none: there,
@@ -616,6 +679,8 @@ start)
   if ! pgrep -u "$uid" -f "xev -display $DISPLAY -root" >/dev/null; then
     setsid sh "$0" watch >"$state/watch.log" 2>&1 </dev/null &
   fi
+  touch "$used"
+  start_idle_watch
   if ! devtools; then
     # Same for the lock of a browser that was running.
     rm -f "$profile"/Singleton*
@@ -644,20 +709,12 @@ theme)
   reload_desktop
   ;;
 stop)
-  # SIGTERM lets Chromium write its session and mark the exit clean; killing
-  # it is what makes the next start offer to restore pages.
-  if pkill -u "$uid" -x -TERM chromium; then
-    i=0
-    while pgrep -u "$uid" -x chromium >/dev/null && [ "$i" -lt 50 ]; do
-      sleep 0.1
-      i=$((i + 1))
-    done
-  fi
-  pkill -u "$uid" -x chromium || true
+  stop_chromium
   pkill -u "$uid" -x pcmanfm || true
   pkill -u "$uid" -x xfce4-terminal || true
   pkill -u "$uid" -f "tint2 -c $config/tint2/tint2rc" || true
   pkill -u "$uid" -f "xev -display $DISPLAY -root" || true
+  pkill -u "$uid" -f "sh $0 idle" || true
   pkill -u "$uid" -f "openbox --config-file $config/openbox/rc.xml" || true
   pkill -u "$uid" -f "$vnc_clock" || true
   pkill -u "$uid" -f "Xvnc $DISPLAY " || true
@@ -666,8 +723,18 @@ watch)
   # Started by start, and runs for as long as the display does.
   watch_display
   ;;
+idle)
+  # Started by start too, and runs for as long as the display does.
+  watch_idle
+  ;;
+refresh)
+  # A newer browser.sh in a desktop that was up before it: start what it
+  # runs beside the display that start would have, without opening anything.
+  display_answering || exit 0
+  start_idle_watch
+  ;;
 *)
-  echo "usage: browser.sh start|stop|theme|watch" >&2
+  echo "usage: browser.sh start|stop|theme|watch|idle|refresh" >&2
   exit 2
   ;;
 esac

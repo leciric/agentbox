@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { pickLabel, sendPick } from '../lib/picks';
 import { cn, errorMessage } from '../lib/utils';
+import { dotLabel, FeatureDot, useFeatureDot } from './FeatureDot';
 import { Button } from './ui/button';
 import { Tip } from './ui/tooltip';
 
@@ -51,14 +52,21 @@ export function PickButton({ picking, disabled, compact, onToggle }: { picking: 
   const t = useT();
   const label = picking ? t('pick.cancel') : t('pick.start');
   const lit = picking && 'border-brand-400/50 bg-brand-500/20 text-brand-100 hover:bg-brand-500/30';
+  const dot = useFeatureDot('pick');
+  const toggle = () => {
+    dot.clear();
+    onToggle();
+  };
   return (
-    <Tip label={picking ? t('pick.cancelTip') : t('pick.tip')}>
+    <Tip label={dotLabel(picking ? t('pick.cancelTip') : t('pick.tip'), dot)}>
       {compact ? (
-        <Button size="icon-sm" variant="ghost" className={cn(lit)} aria-label={label} aria-pressed={picking} disabled={disabled && !picking} onClick={onToggle} data-pick-element={picking ? 'on' : 'off'}>
+        <Button size="icon-sm" variant="ghost" className={cn('relative', lit)} aria-label={label} aria-pressed={picking} disabled={disabled && !picking} onClick={toggle} data-pick-element={picking ? 'on' : 'off'}>
           <SquareDashedMousePointer className={cn(picking && 'animate-pulse')} />
+          <FeatureDot dot={dot} />
         </Button>
       ) : (
-        <Button size="sm" className={cn(lit)} aria-pressed={picking} disabled={disabled && !picking} onClick={onToggle} data-pick-element={picking ? 'on' : 'off'}>
+        <Button size="sm" className={cn('relative', lit)} aria-pressed={picking} disabled={disabled && !picking} onClick={toggle} data-pick-element={picking ? 'on' : 'off'}>
+          <FeatureDot dot={dot} />
           <SquareDashedMousePointer className={cn(picking && 'animate-pulse')} />
           {label}
         </Button>

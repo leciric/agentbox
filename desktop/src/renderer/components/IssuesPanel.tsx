@@ -8,7 +8,7 @@ import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { labelStyle } from '../lib/pulls';
 import { errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
-import { FilterChip } from './MediaTab';
+import { FilterChip } from './media/MediaParts';
 import { GitHubErrorFix, stateLabels, stateVariants } from './PullRequestsPanel';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';

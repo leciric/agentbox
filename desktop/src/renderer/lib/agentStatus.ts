@@ -105,20 +105,20 @@ export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: st
 }
 
 // machineHold is what pausing whole agents for memory (Settings →
-// Experimental) does to an agent's machine: "Paused: waiting for memory, 2
-// ahead" while it is frozen, "Waiting for memory, 1 ahead" while it waits to
-// boot, with what holds it for a tooltip. undefined when neither.
+// Experimental) does to an agent's machine: "Paused: waiting for memory, 3rd
+// in line" while it is frozen, "Waiting for memory, 2nd in line" while it
+// waits to boot, with what holds it for a tooltip. undefined when neither.
 export function machineHold(agent: Pick<T.Agent, 'memory'>): { text: string; tip: string } | undefined {
   const held = agent.memory;
   if (!held?.machine) return undefined;
-  const ahead = formatNumber(held.ahead ?? 0);
+  const place = (held.ahead ?? 0) + 1;
   const why = memoryWhy(held);
   const tip = (key: MessageKey) => (why ? `${t(key)} ${why}` : t(key));
   if (held.machine === 'paused' && held.swapFull) {
-    return { text: t('agent.status.machinePausedSwapFull', { ahead }), tip: `${tip('agent.status.machinePausedTip')} ${t('agent.status.memorySwapFull')}` };
+    return { text: t('agent.status.machinePausedSwapFull', { place }), tip: `${tip('agent.status.machinePausedTip')} ${t('agent.status.memorySwapFull')}` };
   }
-  if (held.machine === 'paused') return { text: t('agent.status.machinePaused', { ahead }), tip: tip('agent.status.machinePausedTip') };
-  if (held.machine === 'waiting') return { text: t('agent.status.machineWaiting', { ahead }), tip: tip('agent.status.machineWaitingTip') };
+  if (held.machine === 'paused') return { text: t('agent.status.machinePaused', { place }), tip: tip('agent.status.machinePausedTip') };
+  if (held.machine === 'waiting') return { text: t('agent.status.machineWaiting', { place }), tip: tip('agent.status.machineWaitingTip') };
   return undefined;
 }
 
