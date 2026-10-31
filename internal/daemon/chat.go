@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,11 +17,19 @@ import (
 
 // The chat: each agent's AI tool behind its ACP adapter, run by package chat.
 
-// launchChat starts an ACP adapter: inside the agent, or on the host for a
-// project's lead, which has no machine of its own.
+// launchChat starts an ACP adapter: inside the agent, beside the daemon for a
+// project's lead, which has no machine of its own, and for the Home chat on
+// the user's computer when it can (launchHome).
 func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(string)) (*chat.Process, error) {
 	// The daemon's log, so what a failing chat did is recoverable afterwards.
 	m := s.manager(s.cfg.Log)
+	var where placed
+	if a.IsHome() {
+		var proc *chat.Process
+		if proc, where = s.launchHome(ctx, m, a, status); proc != nil {
+			return proc, nil
+		}
+	}
 	launch := m.ChatCommand
 	if a.IsLead() {
 		launch = m.LeadChatCommand
@@ -29,7 +38,12 @@ func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(stri
 	if err != nil {
 		return nil, err
 	}
-	return chat.StartCommand(cmd)
+	proc, err := chat.StartCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	proc.Notice, proc.Moved = where.notice, where.moved
+	return proc, nil
 }
 
 // prepareChatModel writes the model a chat should start on, and the context it
@@ -49,7 +63,10 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	if st.State == "initializing" || st.State == state.AgentQueued {
 		// Still being made: whatever its chat, outcome or memory says is
 		// noise from the machine coming up, not news. It reads as starting
-		// in every client until the create job is done.
+		// in every client until the create job is done, or as waiting for
+		// the memory to boot its machine.
+		info.Memory = s.machineHold(info.Ref)
+		info.WaitingForImage = s.waitingOnImage(info.Ref)
 		return info
 	}
 	info.Chat = s.chat.State(info.Ref)
@@ -62,6 +79,7 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	}
 	info.ChangesRequested = s.changesRequested(context.Background(), info.Project, info.Name, info.Chat)
 	info.Memory = s.memoryHold(info.Ref)
+	info.Reclaimed = s.reclaimedOf(info.Ref, info.State)
 	if p, ok := s.chat.Progress(info.Ref); ok {
 		info.StalledSince = p.Stalled
 	}
@@ -164,6 +182,16 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		var req api.ChatMessageRequest
 		if err := readJSON(r, &req); err != nil {
 			return err
+		}
+		if req.To != "" {
+			if !a.IsLead() {
+				return errors.New("to is for a project's chat: write in the agent's own chat")
+			}
+			item, err := s.sendToAgent(r.Context(), a, req)
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusAccepted, item)
 		}
 		t, err := s.tellAgentMessage(r.Context(), a, req)
 		if err != nil {
@@ -318,7 +346,7 @@ func (s *Server) clearChat(from agentFrom) func(http.ResponseWriter, *http.Reque
 		}
 		// A new chat has no cache to lose.
 		if a.IsLead() {
-			s.settleLeadCache(a.Project, true)
+			s.settleLeadCache(a.Ref(), true)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return nil

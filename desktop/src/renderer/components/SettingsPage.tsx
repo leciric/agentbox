@@ -8,6 +8,7 @@ import { Kbd, Notice, Panel } from './ui/card';
 import { ScrollRow } from './ui/scroll-row';
 import { SettingsGroup } from './ui/settings';
 import { useT } from '../lib/i18n';
+import { pendingReveal, useReveal } from '../lib/reveal';
 
 // The Settings page once setup is done: a sidebar of sections, one open at a
 // time, with a search across all of them above it. It opens on Essentials, the
@@ -171,7 +172,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
           document.getElementById(`settings-found-${section.id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
         }}
         className={cn(
-          'flex min-w-0 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 @3xl:max-w-none @3xl:py-[7px]',
+          'flex min-w-0 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-left text-ui transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 @3xl:max-w-none @3xl:py-[7px]',
           active ? 'bg-surface-raised text-title' : 'text-muted hover:bg-surface hover:text-primary',
           searching && hits === 0 && 'opacity-40 hover:bg-transparent hover:text-muted',
         )}
@@ -179,11 +180,11 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
         <Icon className={cn('size-4 shrink-0', active ? 'text-brand-300' : 'text-subtle')} />
         <span className="min-w-0 truncate">{section.title}</span>
         {searching ? (
-          hits > 0 && <span className="ml-auto rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-tertiary">{hits}</span>
+          hits > 0 && <span className="ml-auto rounded-full bg-surface-raised px-1.5 text-caption tabular-nums text-tertiary">{hits}</span>
         ) : (
           (section.attention ?? 0) > 0 && (
             <span
-              className="ml-auto flex items-center gap-1 rounded-full bg-amber-400/15 px-1.5 text-[10.5px] font-medium tabular-nums text-amber-300"
+              className="ml-auto flex items-center gap-1 rounded-full bg-amber-400/15 px-1.5 text-caption font-medium tabular-nums text-amber-300"
               title={t('settings.page.toLookAt', { n: section.attention ?? 0 })}
             >
               {section.attention}
@@ -202,7 +203,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
             type="button"
             data-settings-back
             onClick={closeSettings}
-            className="flex w-fit items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+            className="flex w-fit items-center gap-1.5 rounded-lg px-2 py-1 text-ui text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
           >
             <ArrowLeft className="size-4" />
             {t('common.back')}
@@ -230,7 +231,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
                     setQuery('');
                   }
                 }}
-                className="h-8 w-full rounded-lg border border-line-strong bg-sunken pl-8 pr-8 text-[13px] text-primary transition-colors placeholder:text-faint hover:border-line-vivid focus-visible:border-brand-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/25 [&::-webkit-search-cancel-button]:hidden"
+                className="h-8 w-full rounded-lg border border-line-strong bg-sunken pl-8 pr-8 text-ui text-primary transition-colors placeholder:text-faint hover:border-line-vivid focus-visible:border-brand-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/25 [&::-webkit-search-cancel-button]:hidden"
               />
               {query ? (
                 <button
@@ -256,7 +257,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
                 data-settings-changed
                 onClick={() => setQuery((q) => (/@changed/i.test(q) ? q.replace(/@changed/gi, '').trim() : `@changed ${q}`.trim()))}
                 className={cn(
-                  'flex w-fit items-center gap-1.5 rounded-md px-2 text-[11.5px] transition hover:text-primary',
+                  'flex w-fit items-center gap-1.5 rounded-md px-2 text-caption transition hover:text-primary',
                   /@changed/i.test(query) ? 'text-brand-300' : 'text-subtle',
                 )}
               >
@@ -336,7 +337,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
 }
 
 function NavLabel({ className, children }: { className?: string; children: ReactNode }) {
-  return <span className={cn('hidden px-2.5 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle @3xl:block', className)}>{children}</span>;
+  return <span data-heading className={cn('hidden px-2.5 pb-1 text-caption font-semibold uppercase tracking-[0.08em] text-subtle @3xl:block', className)}>{children}</span>;
 }
 
 // SectionView draws one section, every setting in it: under Advanced, a
@@ -350,8 +351,8 @@ function SectionView({ section, icon: Icon, children }: { section: SettingSectio
             <Icon className="size-[18px] text-brand-300" />
           </span>
           <div className="min-w-0">
-            <h2 className="break-words text-lg font-semibold tracking-tight text-title">{section.title}</h2>
-            <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{section.description}</p>
+            <h2 className="break-words text-heading font-semibold tracking-tight text-title">{section.title}</h2>
+            <p className="mt-0.5 text-ui leading-relaxed text-muted">{section.description}</p>
           </div>
         </div>
         {section.header}
@@ -480,8 +481,8 @@ function Group({ group }: { group: SettingGroup }) {
 function GroupHeader({ title, description }: { title: ReactNode; description?: ReactNode }) {
   return (
     <header className="px-1">
-      <h2 className="text-[13px] font-semibold text-primary">{title}</h2>
-      {description && <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">{description}</p>}
+      <h2 className="text-ui font-semibold text-primary">{title}</h2>
+      {description && <p className="mt-0.5 text-caption leading-relaxed text-subtle">{description}</p>}
     </header>
   );
 }
@@ -508,8 +509,15 @@ function Entry({ entry }: { entry: SettingEntry }) {
 // behind the fold.
 function Advanced({ groups }: { groups: SettingGroup[] }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   const entries = groups.flatMap((g) => g.entries);
+  // Opened from the command palette at a setting folded here, it unfolds.
+  const asked = (id?: string) => !!id && entries.some((e) => e.id === id);
+  const [open, setOpen] = useState(() => asked(pendingReveal()?.setting));
+  const reveal = useReveal();
+  useEffect(() => {
+    if (asked(pendingReveal()?.setting)) setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal]);
   const changed = entries.filter((e) => e.modified).length;
   return (
     <section className="grid grid-cols-1 gap-8" data-settings-advanced>
@@ -529,7 +537,7 @@ function SearchResults({ found, query, icons, onOpen }: { found: SettingSection[
       <div className="grid justify-items-center gap-2 py-16 text-center" data-settings-results="0">
         <SearchX className="size-6 text-subtle" />
         <p className="text-sm text-secondary">{t('settings.page.noMatch', { query: query.trim() })}</p>
-        <p className="max-w-sm text-[12.5px] leading-relaxed text-subtle">
+        <p className="max-w-sm text-ui leading-relaxed text-subtle">
           {t.rich('settings.page.noMatchHint', { code: (c) => <span className="font-mono text-tertiary">{c}</span> })}
         </p>
       </div>
@@ -537,7 +545,7 @@ function SearchResults({ found, query, icons, onOpen }: { found: SettingSection[
   }
   return (
     <div className="grid gap-10" data-settings-results={total}>
-      <p className="px-1 text-[12.5px] text-subtle">
+      <p className="px-1 text-ui text-subtle">
         {t('settings.page.found', { count: total })}
       </p>
       {found.map((section) => {
@@ -547,7 +555,7 @@ function SearchResults({ found, query, icons, onOpen }: { found: SettingSection[
             <button
               type="button"
               onClick={() => onOpen(section.id, section.groups[0]?.entries[0]?.id)}
-              className="group flex min-w-0 max-w-full items-center gap-2 rounded-md text-left text-[15px] font-semibold text-title focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+              className="group flex min-w-0 max-w-full items-center gap-2 rounded-md text-left text-heading font-semibold text-title focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
             >
               <Icon className="size-4 shrink-0 text-brand-300" />
               {section.scope === 'project' && <span className="shrink-0 font-normal text-subtle">{t('settings.page.project')}</span>}

@@ -45,8 +45,10 @@ type FileStatus struct {
 }
 
 // FileContent is a file read for the viewer. A binary file has neither Text
-// nor Data; an image has Data (base64) and Image, its MIME type. Truncated
-// means only the start of Text was sent: ask with full for more.
+// nor Data; an image has Data (base64) and Image, its MIME type, and a PDF
+// Data and PDF. A binary file that is an SQLite database says so with SQLite,
+// for the viewer to browse it with SQLiteQuery. Truncated means only the start
+// of Text was sent: ask with full for more.
 //
 // Asked with base, a file that changed since its base comes with BaseText,
 // what it was there, or BaseMissing when it wasn't there at all.
@@ -58,11 +60,34 @@ type FileContent struct {
 	Data        string `json:"data,omitempty"`
 	Text        string `json:"text,omitempty"`
 	Truncated   bool   `json:"truncated,omitempty"`
-	TooLarge    bool   `json:"tooLarge,omitempty"` // an image or a file too big to send at all
+	PDF         bool   `json:"pdf,omitempty"`
+	SQLite      bool   `json:"sqlite,omitempty"`
+	TooLarge    bool   `json:"tooLarge,omitempty"` // an image, a PDF or a file too big to send at all
 	Status      string `json:"status,omitempty"`   // as in FileStatus.Changes
 	Base        string `json:"base,omitempty"`     // FileStatus.Base
 	BaseText    string `json:"baseText,omitempty"`
 	BaseMissing bool   `json:"baseMissing,omitempty"`
+}
+
+// SQLiteTable is a table or view of a database in a worktree.
+type SQLiteTable struct {
+	Name string `json:"name"`
+	View bool   `json:"view,omitempty"`
+}
+
+// SQLiteQuery is a database in a worktree, opened read-only: its tables and,
+// asked for one, a page of its rows from Offset. A cell is a string, a
+// number, null, or a blob as {"blob": its size in bytes}; an integer beyond
+// what JavaScript holds exactly is a string. Total is the table's row count,
+// -1 when counting took too long.
+type SQLiteQuery struct {
+	Path    string        `json:"path"`
+	Tables  []SQLiteTable `json:"tables"`
+	Table   string        `json:"table,omitempty"`
+	Columns []string      `json:"columns"`
+	Rows    [][]any       `json:"rows"`
+	Offset  int           `json:"offset"`
+	Total   int64         `json:"total"`
 }
 
 // EventFiles carries a FilesChange: files changed in a worktree whose folders

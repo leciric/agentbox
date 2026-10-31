@@ -215,7 +215,9 @@ func TestIncusWatchClearsOnceIncusAnswersAgain(t *testing.T) {
 			reply(w, []any{})
 			return
 		}
-		if stall.CompareAndSwap(true, false) {
+		// Every request stalls while stall is set, not only the first: the
+		// daemon's own calls may reach /1.0 before the watch's probe does.
+		if stall.Load() {
 			<-r.Context().Done()
 			return
 		}
@@ -255,6 +257,7 @@ func TestIncusWatchClearsOnceIncusAnswersAgain(t *testing.T) {
 	}
 
 	// Incus answers again: the next probe must reach it past the mark.
+	stall.Store(false)
 	d.srv.checkIncus(ctx)
 	if st := d.srv.incusStatus(); !st.Answering {
 		t.Errorf("status = %+v, want answering", st)

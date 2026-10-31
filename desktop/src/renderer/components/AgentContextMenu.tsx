@@ -1,6 +1,6 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { CircleX, GitBranch, GitPullRequest, Info, Monitor, MessageSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
+import { CircleX, GitBranch, GitPullRequest, Info, Monitor, MessageSquare, MessagesSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -14,6 +14,7 @@ import { DesktopPeek, useDesk } from './v2/DesktopPeek';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { useUiV2 } from '../lib/uiV2';
+import { errorMessage } from '../lib/utils';
 import { openPanelOn } from '../lib/rightPanel';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
@@ -174,6 +175,7 @@ export function AgentContextMenu({
           <ContextMenuItem icon={Moon} onSelect={counted(T.FeatureMenuRetire, () => retire.mutate())}>
             {t('agent.menu.retire')}
           </ContextMenuItem>
+          <HandOver agent={agent} />
           {v2 ? (
             <ContextMenuMore label={t('common.more')}>
               {actions.includes('stop') && stop}
@@ -219,4 +221,40 @@ export function AgentContextMenu({
 
 function AgentPeek({ agent }: { agent: T.Agent }) {
   return <DesktopPeek agent={agent} desk={useDesk(agent)} />;
+}
+
+// HandOver moves an agent to another session of its project's chat, whose
+// notices it goes to from then on, or to none: once the chat has more than
+// one session, or the agent belongs to one.
+function HandOver({ agent }: { agent: T.Agent }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const sessions = useQuery({ queryKey: ['leadSessions', agent.project], queryFn: () => api.leadSessions(agent.project) });
+  const move = useMutation({
+    mutationFn: (session: string) => api.handOverAgent(agent.ref, session),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+      void queryClient.invalidateQueries({ queryKey: ['leadSessions', agent.project] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const list = (sessions.data ?? []).filter((s) => s.id !== agent.leadSession);
+  if (list.length === 0 || ((sessions.data?.length ?? 0) < 2 && !agent.leadSession)) return null;
+  return (
+    <ContextMenuMore icon={MessagesSquare} label={t('sessions.handOver')}>
+      {list.map((s) => (
+        <ContextMenuItem key={s.id} onSelect={() => move.mutate(s.id)} data-hand-to={s.id}>
+          <span className="min-w-0 truncate">{s.topic}</span>
+        </ContextMenuItem>
+      ))}
+      {agent.leadSession && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => move.mutate('')} data-hand-to="">
+            {t('sessions.noSession')}
+          </ContextMenuItem>
+        </>
+      )}
+    </ContextMenuMore>
+  );
 }

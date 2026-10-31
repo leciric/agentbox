@@ -7,8 +7,9 @@ import { api } from '../lib/api';
 import { formatTokens } from '../lib/chat';
 import { useT } from '../lib/i18n';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
-import { cn, errorMessage, humanBytes, parseBytes } from '../lib/utils';
+import { cn, errorMessage, humanBytes, parseBytes, timeAgo } from '../lib/utils';
 import { JobProgress } from './JobProgress';
+import { aiLabel } from './state';
 import { Button } from './ui/button';
 import { ModelByName } from './ModelByName';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
@@ -144,7 +145,7 @@ export function DefaultModel({ role }: { role: Role }) {
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
                   placeholder={t('common.search')}
-                  className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+                  className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none"
                 />
               </div>
             )}
@@ -152,7 +153,7 @@ export function DefaultModel({ role }: { role: Role }) {
               <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
                   <span>{empty.name}</span>
-                  <span className="text-[11px] text-subtle">{empty.description}</span>
+                  <span className="text-caption text-subtle">{empty.description}</span>
                 </span>
               </MenuItem>
             )}
@@ -165,9 +166,9 @@ export function DefaultModel({ role }: { role: Role }) {
                   <span className="grid">
                     <span className="flex items-center gap-1.5 text-amber-200">
                                       {missing}
-                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
                     </span>
-                    <span className="text-[11px] text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
+                    <span className="text-caption text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
                   </span>
                 </MenuItem>
               </>
@@ -186,17 +187,17 @@ export function DefaultModel({ role }: { role: Role }) {
                       <span className="flex items-center gap-1.5">
                         {choiceName(choice)}
                         {isRecommended(choice) && (
-                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
                         )}
                       </span>
-                      {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+                      {choice.description && <span className="text-caption text-subtle">{choice.description}</span>}
                     </span>
                   </MenuItem>
                 ))}
               </div>
             ))}
             {settings.data && !settings.data.claudeMenuKnown && (
-              <div className="px-2.5 py-3 text-[12px] leading-relaxed text-subtle">
+              <div className="px-2.5 py-3 text-caption leading-relaxed text-subtle">
                 {t('defaults.newAgent.onlyOwnPicks')}
               </div>
             )}
@@ -255,55 +256,92 @@ export function DefaultContextWindow({ role }: { role: Role }) {
   );
 }
 
-// NewAgentEffort chooses how hard new Claude Code agents think, beside the
-// model above and for the same reason: it says what you want an agent to cost
-// and be capable of, which doesn't change from one repository to the next.
-// Either can be overridden for one agent as it is created.
+// The remembered-menu settings: how hard a role's Claude Code chats think, and
+// the permission mode the lead's chat starts in. Effort says what you want a
+// chat to cost and be capable of, which doesn't change from one repository to
+// the next; the mode is what you'd otherwise pick in every new lead session.
+// The agents' effort can be overridden for one agent as it is created; the
+// lead's two give way to a choice in the project chat's own menu, and reach
+// chats that already exist the next time they start.
 //
-// A plain select, not the model's menu: the effort levels are a short
-// ungrouped list with nothing to describe or search. They are still only the
-// ones an adapter advertised (rememberChoices) — the levels differ per model,
-// and some models offer none at all, so an invented one would set nothing.
-export function NewAgentEffort() {
+// A plain select, not the model's menu: these are short ungrouped lists with
+// nothing to describe or search. They are still only the ones an adapter
+// advertised (rememberChoices) — the levels differ per model, and some models
+// offer none at all, so an invented one would set nothing.
+const choiceSettings = {
+  agentEffort: {
+    label: 'defaults.newAgent.effortLabel',
+    description: 'defaults.newAgent.effortDescription',
+    later: 'defaults.newAgent.effortLevelsLater',
+    details: 'defaults.newAgent.effortDetails',
+    empty: 'defaults.newAgent.effortDefault',
+    choices: (s: T.Settings) => s.claudeEffortChoices,
+    value: (s: T.Settings) => s.defaultClaudeEffort,
+    save: (v: string): T.UpdateSettingsRequest => ({ defaultClaudeEffort: v }),
+  },
+  leadEffort: {
+    label: 'defaults.newAgent.lead.effortLabel',
+    description: 'defaults.newAgent.lead.effortDescription',
+    later: 'defaults.newAgent.effortLevelsLater',
+    details: 'defaults.newAgent.lead.effortDetails',
+    empty: 'defaults.newAgent.lead.emptyName',
+    choices: (s: T.Settings) => s.claudeEffortChoices,
+    value: (s: T.Settings) => s.defaultLeadEffort,
+    save: (v: string): T.UpdateSettingsRequest => ({ defaultLeadEffort: v }),
+  },
+  leadMode: {
+    label: 'defaults.newAgent.lead.modeLabel',
+    description: 'defaults.newAgent.lead.modeDescription',
+    later: 'defaults.newAgent.lead.modesLater',
+    details: 'defaults.newAgent.lead.modeDetails',
+    empty: 'defaults.newAgent.lead.emptyName',
+    choices: (s: T.Settings) => s.claudeModeChoices,
+    value: (s: T.Settings) => s.defaultLeadMode,
+    save: (v: string): T.UpdateSettingsRequest => ({ defaultLeadMode: v }),
+  },
+} as const;
+
+export function DefaultChoice({ setting }: { setting: keyof typeof choiceSettings }) {
   const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
+  const s = choiceSettings[setting];
   const save = useMutation({
-    mutationFn: (defaultClaudeEffort: string) => api.updateSettings({ defaultClaudeEffort }),
+    mutationFn: (value: string) => api.updateSettings(s.save(value)),
     onSuccess: (next) => queryClient.setQueryData(['settings'], next),
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const choices = settings.data?.claudeEffortChoices ?? [];
-  const value = settings.data?.defaultClaudeEffort ?? '';
+  const choices = (settings.data && s.choices(settings.data)) ?? [];
+  const value = (settings.data && s.value(settings.data)) ?? '';
 
   return (
     <SettingRow
-      label={t('defaults.newAgent.effortLabel')}
+      label={t(s.label)}
       description={
         <>
-          {t('defaults.newAgent.effortDescription')}
-          {settings.data && !settings.data.claudeMenuKnown && ` ${t('defaults.newAgent.effortLevelsLater')}`}
+          {t(s.description)}
+          {settings.data && choices.length === 0 && ` ${t(s.later)}`}
         </>
       }
-      details={t('defaults.newAgent.effortDetails')}
+      details={t(s.details)}
 
       control={
         <Select
-          data-default-effort
-          aria-label={t('defaults.newAgent.effortLabel')}
+          data-default-choice={setting}
+          aria-label={t(s.label)}
           disabled={save.isPending || settings.data === undefined}
           value={value}
           onChange={(next) => save.mutate(next)}
         >
-          <SelectOption value="">{t('defaults.newAgent.effortDefault')}</SelectOption>
+          <SelectOption value="">{t(s.empty)}</SelectOption>
           {choices.map((choice) => (
             <SelectOption key={choice.value} value={choice.value}>
               {choiceName(choice) || choice.value}
             </SelectOption>
           ))}
-          {/* A level this account has stopped offering keeps its place, so the
-              control never shows something else as though you had picked it. */}
+          {/* A choice this account has stopped offering keeps its place, so
+              the control never shows something else as though you had picked it. */}
           {value !== '' && !choices.some((c) => c.value === value) && <SelectOption value={value}>{t('defaults.newAgent.unavailable', { value })}</SelectOption>}
         </Select>
       }
@@ -473,8 +511,8 @@ export function ResumeAfterLimit() {
         <Switch
           data-resume-after-limit
           aria-label={t('defaults.newAgent.resumeLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.resumeAfterLimit ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.resumeAfterLimit ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -505,12 +543,74 @@ export function ContinueAfterRestart() {
         <Switch
           data-continue-after-restart
           aria-label={t('defaults.newAgent.continueLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.continueAfterRestart ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.continueAfterRestart ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
     />
+  );
+}
+
+// leadSleepFallback is the minutes an idle chat waits when nobody chose
+// (state.DefaultLeadSleep).
+export const leadSleepFallback = 15;
+
+// LeadSleep stops a project's chat's AI tool once the chat has sat idle a
+// while, to give the VM its memory back; the next message, notice or schedule
+// resumes the same session (internal/chat/idle.go). On by default: nothing
+// changes for you but a few seconds on the first message after the wait.
+export function LeadSleep() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const on = settings.data?.leadSleep ?? true;
+  const minutes = settings.data?.leadSleepMinutes ?? leadSleepFallback;
+  const [draft, setDraft] = useState(String(minutes));
+
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.sleepLabel')}
+      description={t('defaults.newAgent.sleepDescription')}
+      details={t('defaults.newAgent.sleepDetails')}
+      control={
+        <Switch
+          data-lead-sleep
+          aria-label={t('defaults.newAgent.sleepLabel')}
+          disabled={save.isPending || settings.data === undefined}
+          checked={on}
+          onCheckedChange={(leadSleep) => save.mutate({ leadSleep })}
+        />
+      }
+    >
+      {on && (
+        <div className="flex max-w-52 items-center gap-2">
+          <Input
+            type="number"
+            min={5}
+            max={1440}
+            aria-label={t('defaults.newAgent.sleepMinutes')}
+            data-lead-sleep-minutes
+            className="font-mono text-ui"
+            disabled={save.isPending || settings.data === undefined}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              const n = Math.min(1440, Math.max(5, Number(draft) || leadSleepFallback));
+              setDraft(String(n));
+              if (n !== minutes) save.mutate({ leadSleepMinutes: n });
+            }}
+          />
+          <span className="text-ui text-subtle">{minutes === leadSleepFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
+        </div>
+      )}
+    </SettingRow>
   );
 }
 
@@ -596,7 +696,7 @@ function CacheHolds({
   const t = useT();
   return (
     <div className="grid content-start gap-1.5">
-      <span className="text-[13px] font-medium text-tertiary" {...data}>
+      <span className="text-ui font-medium text-tertiary" {...data}>
         {t('defaults.newAgent.holds', { size: humanBytes(held) })}
       </span>
       <Button className="h-9" disabled={disabled || held === 0} onClick={onEmpty}>
@@ -677,7 +777,7 @@ export function SharedPackageCaches() {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const on = settings.data?.packageCache ?? true;
-  const max = settings.data?.packageCacheMaxBytes ?? 20 * 1024 ** 3;
+  const max = settings.data?.packageCacheMaxBytes ?? 10 * 1024 ** 3;
   const held = settings.data?.packageCacheBytes ?? 0;
   const disabled = save.isPending || settings.data === undefined;
   return (
@@ -699,7 +799,7 @@ export function SharedPackageCaches() {
         <ResourceField
           id="package-cache-max"
           label={t('defaults.newAgent.holdAtMost')}
-          placeholder="20GiB"
+          placeholder="10GiB"
           hint={t('defaults.newAgent.holdHint')}
           value={max % 1024 ** 3 === 0 ? `${max / 1024 ** 3}GiB` : humanBytes(max).replace(' ', '')}
           disabled={disabled}
@@ -707,7 +807,7 @@ export function SharedPackageCaches() {
             if (value.trim() === '') return save.mutate({ packageCacheMaxBytes: 0 });
             const bytes = parseBytes(value);
             if (bytes === undefined) {
-              toast.error(t('defaults.newAgent.sizeLike', { example: '20GiB' }));
+              toast.error(t('defaults.newAgent.sizeLike', { example: '10GiB' }));
               return;
             }
             save.mutate({ packageCacheMaxBytes: bytes });
@@ -716,6 +816,36 @@ export function SharedPackageCaches() {
         <CacheHolds held={held} disabled={disabled} onEmpty={() => save.mutate({ clearPackageCache: true })} data-package-cache-size />
       </div>
     </SettingRow>
+  );
+}
+
+// LocalNodeModules is "Keep agents' node_modules in the VM": a new agent's
+// node_modules on a disk of the VM rather than in its worktree, in a folder
+// the VM shares, and filled from an earlier agent's install of its lockfile.
+export function LocalNodeModules() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.localNodeModulesLabel')}
+      description={t('defaults.newAgent.localNodeModulesDescription')}
+      details={t('defaults.newAgent.localNodeModulesDetails')}
+      control={
+        <Switch
+          data-local-node-modules
+          aria-label={t('defaults.newAgent.localNodeModulesLabel')}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.localNodeModules ?? true}
+          onCheckedChange={(localNodeModules) => save.mutate({ localNodeModules })}
+        />
+      }
+    />
   );
 }
 
@@ -786,6 +916,122 @@ export function AutoStopIdle() {
   );
 }
 
+// removeStoppedDays are the presets offered for how many days an agent stays
+// stopped before "remove stopped agents' machines" removes it.
+const removeStoppedDays = [1, 3, 7, 14, 30];
+
+// RemoveStopped removes the machine and worktree of an agent stopped for the
+// days below, keeping it as a past agent with its branch, pull request and
+// chat, when nothing would be lost: its branch pushed, its worktree clean,
+// and its pull request merged or closed, or no changes at all
+// (internal/daemon/removestopped.go). Off by default. Below it, on or off, is
+// what it would remove now, so it can be tried, and removed at once.
+export function RemoveStopped() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => {
+      queryClient.setQueryData(['settings'], next);
+      void queryClient.invalidateQueries({ queryKey: ['stoppedMachines', 'check'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  // Every project's, judged: it reads git and GitHub, so only on demand.
+  const machines = useQuery({ queryKey: ['stoppedMachines', 'check'], queryFn: () => api.stoppedMachines('', true), staleTime: 30_000 });
+  const remove = useMutation({
+    mutationFn: (refs: string[]) => api.removeStopped(refs),
+    onSuccess: (res) => {
+      if (res.removed.length > 0) toast.success(t('defaults.newAgent.removeStoppedDone', { count: res.removed.length }));
+      if (res.kept.length > 0) toast.warning(t('defaults.newAgent.removeStoppedKept', { count: res.kept.length }));
+      void queryClient.invalidateQueries({ queryKey: ['stoppedMachines'] });
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const on = settings.data?.removeStopped ?? false;
+  const days = settings.data?.removeStoppedDays ?? 7;
+  const all = machines.data?.machines ?? [];
+  const removable = all.filter((m) => m.remove);
+  const kept = all.length - removable.length;
+  const bytes = removable.reduce((sum, m) => sum + (m.machine ?? 0), 0);
+
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.removeStoppedLabel')}
+      description={t('defaults.newAgent.removeStoppedDescription', { days })}
+      details={t('defaults.newAgent.removeStoppedDetails')}
+      control={
+        <Switch
+          data-remove-stopped
+          aria-label={t('defaults.newAgent.removeStoppedLabel')}
+          disabled={save.isPending || settings.data === undefined}
+          checked={on}
+          onCheckedChange={(removeStopped) => save.mutate({ removeStopped })}
+        />
+      }
+    >
+      <div className="grid min-w-0 gap-3">
+        <div className="max-w-40">
+          <Select
+            data-remove-stopped-days
+            aria-label={t('defaults.newAgent.removeStoppedDays')}
+            disabled={save.isPending || settings.data === undefined}
+            value={String(days)}
+            onChange={(next) => save.mutate({ removeStoppedDays: Number(next) })}
+          >
+            {removeStoppedDays.map((n) => (
+              <SelectOption key={n} value={String(n)}>
+                {n === 7 ? t('defaults.newAgent.withDefault', { label: t('defaults.newAgent.days', { count: n }) }) : t('defaults.newAgent.days', { count: n })}
+              </SelectOption>
+            ))}
+            {!removeStoppedDays.includes(days) && <SelectOption value={String(days)}>{t('defaults.newAgent.days', { count: days })}</SelectOption>}
+          </Select>
+        </div>
+        <div className="grid min-w-0 gap-2 rounded-lg border border-line bg-surface px-3 py-2.5" data-remove-stopped-preview aria-busy={machines.isFetching || undefined}>
+          {machines.isPending ? (
+            <p className="text-caption text-subtle">{t('defaults.newAgent.removeStoppedChecking')}</p>
+          ) : machines.isError ? (
+            <p className="text-caption text-rose-300">{errorMessage(machines.error)}</p>
+          ) : (
+            <>
+              <p className="text-caption text-secondary" data-remove-stopped-summary>
+                {removable.length > 0
+                  ? t('defaults.newAgent.removeStoppedWould', { count: removable.length, size: humanBytes(bytes) })
+                  : t('defaults.newAgent.removeStoppedNone')}
+              </p>
+              {removable.length > 0 && (
+                <ul className="grid min-w-0 gap-1">
+                  {removable.map((m) => (
+                    <li key={m.ref} className="flex min-w-0 items-center gap-2 text-caption" data-remove-stopped-agent={m.ref}>
+                      <span className="min-w-0 flex-1 truncate text-primary" title={m.branch}>
+                        {m.title || m.name}
+                        <span className="text-faint"> · {m.project}</span>
+                      </span>
+                      <span className="shrink-0 tabular-nums text-subtle">{t('defaults.newAgent.removeStoppedSince', { ago: timeAgo(m.stoppedSince) })}</span>
+                      {m.machine !== undefined && <span className="w-16 shrink-0 text-right font-mono text-caption tabular-nums text-secondary">{humanBytes(m.machine)}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {kept > 0 && <p className="text-caption text-faint">{t('defaults.newAgent.removeStoppedOthers', { count: kept })}</p>}
+              {removable.length > 0 && (
+                <div>
+                  <Button size="sm" variant="secondary" data-remove-stopped-now disabled={remove.isPending} onClick={() => remove.mutate(removable.map((m) => m.ref))}>
+                    {remove.isPending ? t('defaults.newAgent.removeStoppedRemoving') : t('defaults.newAgent.removeStoppedNow')}
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </SettingRow>
+  );
+}
+
 // DockerPruneOnStop frees an agent's Docker space as it stops, however it's
 // stopped (internal/daemon/dockerprune.go): its build cache and every image no
 // container uses. Never its volumes, which hold the project's databases. On by
@@ -810,8 +1056,8 @@ export function DockerPruneOnStop() {
         <Switch
           data-docker-prune-on-stop
           aria-label={t('defaults.newAgent.pruneLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.dockerPruneOnStop ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.dockerPruneOnStop ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -863,7 +1109,7 @@ export function LeadRecheck() {
             max={1440}
             aria-label={t('defaults.newAgent.recheckMinutes')}
             data-lead-recheck-minutes
-            className="font-mono text-[13px]"
+            className="font-mono text-ui"
             disabled={save.isPending || settings.data === undefined}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -873,7 +1119,7 @@ export function LeadRecheck() {
               if (n !== minutes) save.mutate({ leadRecheckMinutes: n });
             }}
           />
-          <span className="text-[12.5px] text-subtle">{minutes === leadRecheckFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
+          <span className="text-ui text-subtle">{minutes === leadRecheckFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
         </div>
       )}
     </SettingRow>
@@ -948,6 +1194,48 @@ const mediaRetentions = [
 // outlive it. It belongs to the installation rather than to a project: it is
 // about this machine's disk, and every project's removed agents fill it the
 // same way — more so now that finished agents are removed on their own.
+// DefaultTool is the installation's AI tool: what the Home chat and each
+// project's chat start on before they choose, and the New agent dialog opens
+// on in a project that names none. The first run chose it; it is the same
+// setting as the dialog's last pick (Settings.lastAgentPick), so picking a
+// tool there moves it too. A chat that has started keeps its tool.
+export function DefaultTool() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (ai: string) => api.updateSettings({ lastAgentPick: { ai, model: '', effort: '' } }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const current = settings.data?.lastAgentPick.ai;
+
+  return (
+    <SettingRow
+      label={t('defaults.tool.label')}
+      description={t('defaults.tool.description')}
+      details={t('defaults.tool.details')}
+      control={
+        <Select
+          data-default-tool
+          aria-label={t('defaults.tool.label')}
+          disabled={save.isPending || settings.data === undefined}
+          value={current && defaultTools.includes(current) ? current : 'claude'}
+          onChange={(next) => save.mutate(next)}
+        >
+          {defaultTools.map((ai) => (
+            <SelectOption key={ai} value={ai}>
+              {aiLabel(ai)}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
+const defaultTools = ['claude', 'codex', 'opencode', 'cursor'];
+
 export function MediaRetention() {
   const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });

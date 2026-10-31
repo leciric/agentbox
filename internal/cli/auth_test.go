@@ -32,7 +32,7 @@ func TestAuthOpenCodeRunsAgentBoxsOwnOpenCode(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(own), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\necho \"$@\" >\"${0%/*}/args\"\nprintf '{\"anthropic\":{\"type\":\"api\",\"key\":\"k\"}}' >\"$XDG_DATA_HOME/opencode/auth.json\"\n"
+	script := "#!/bin/sh\necho \"$@\" >\"${0%/*}/args\"\necho \"$XDG_CONFIG_HOME\" >\"${0%/*}/confighome\"\nprintf '{\"anthropic\":{\"type\":\"api\",\"key\":\"k\"}}' >\"$XDG_DATA_HOME/opencode/auth.json\"\n"
 	if err := os.WriteFile(own, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +45,13 @@ func TestAuthOpenCodeRunsAgentBoxsOwnOpenCode(t *testing.T) {
 		t.Errorf("ran opencode %q", args)
 	}
 	creds := credentials.Store{Dir: filepath.Join(home, ".config", "agentbox", "credentials")}
+	// The login must not read the host's opencode.json: this test's XDG home
+	// has one, and a config written for the other release is one this OpenCode
+	// refuses. It reads an empty config directory of AgentBox's instead.
+	configHome, _ := os.ReadFile(filepath.Join(filepath.Dir(own), "confighome"))
+	if got := strings.TrimSpace(string(configHome)); !strings.HasPrefix(got, creds.Dir) {
+		t.Errorf("the login's XDG_CONFIG_HOME = %q, want one under %s", got, creds.Dir)
+	}
 	// Kept as the provider's account of that name, and nothing else.
 	if ok, _ := creds.HasToolAccount("opencode", "anthropic", "work"); !ok || !creds.HasOpenCodeLogin(nil) {
 		t.Errorf("no anthropic account \"work\" after: %s", out)

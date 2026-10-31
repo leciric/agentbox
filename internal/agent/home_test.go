@@ -15,7 +15,7 @@ import (
 func TestEnsureHomeRegistersItsTools(t *testing.T) {
 	f := leadFixture(t)
 	f.m.Binary = "/usr/bin/agentbox"
-	f.m.LeadSocketPath = func(project string) string { return filepath.Join("/run", project+".sock") }
+	f.m.LeadSocketPath = func(project, _ string) string { return filepath.Join("/run", project+".sock") }
 	a, err := f.m.EnsureHome(context.Background())
 	if err != nil {
 		t.Fatal(err)

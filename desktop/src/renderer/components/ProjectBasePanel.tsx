@@ -128,9 +128,9 @@ export function ProjectBasePanel({ project, className, onOpenAgent }: { project:
           )}
           {previous && (
             <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line bg-surface-faint px-3.5 py-3">
-              <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-muted">
+              <p className="min-w-0 flex-1 text-ui leading-relaxed text-muted">
                 {t.rich('project.base.previous', {
-                  from: <span className="font-mono text-[12px] text-tertiary">{previous.savedFrom}</span>,
+                  from: <span className="font-mono text-caption text-tertiary">{previous.savedFrom}</span>,
                   age: age(previous.savedAt),
                 })}
               </p>
@@ -142,7 +142,7 @@ export function ProjectBasePanel({ project, className, onOpenAgent }: { project:
           )}
         </>
       ) : (
-        <p className="text-[13px] leading-relaxed text-muted">
+        <p className="text-ui leading-relaxed text-muted">
           {t.rich('project.base.none', { name, snapshot: image.data?.snapshot ? <Code>{image.data.snapshot}</Code> : '' })}
         </p>
       )}
@@ -214,7 +214,7 @@ export function ProjectBasePanel({ project, className, onOpenAgent }: { project:
           toast(t('project.base.removed', { name }));
         }}
       >
-        <p className="text-[13px] leading-relaxed text-muted">
+        <p className="text-ui leading-relaxed text-muted">
           {t('project.base.removeNote')}
         </p>
       </ConfirmDialog>
@@ -351,7 +351,7 @@ function RefreshDialog({
             <Field label={t('project.base.refreshDialog.taskLabel')} htmlFor="base-refresh-task" hint={t('project.base.refreshDialog.taskHint')}>
               <Textarea
                 id="base-refresh-task"
-                className="min-h-56 font-mono text-[12px]"
+                className="min-h-56 font-mono text-caption"
                 spellCheck={false}
                 value={task}
                 onChange={(event) => setTask(event.target.value)}
@@ -479,10 +479,10 @@ function SaveDialog({
               </Notice>
             )}
             {source && (
-              <p className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-muted">
+              <p className="flex items-start gap-2.5 text-ui leading-relaxed text-muted">
                 <TriangleAlert className="mt-px size-4 shrink-0 text-amber-300" />
                 <span>
-                  {t.rich('project.base.saveDialog.keepAlive', { ref: <span className="font-mono text-[12px] text-tertiary">{source.ref}</span> })}
+                  {t.rich('project.base.saveDialog.keepAlive', { ref: <span className="font-mono text-caption text-tertiary">{source.ref}</span> })}
                 </span>
               </p>
             )}
@@ -516,18 +516,18 @@ function BehindNotice({ behind }: { behind: T.BaseBehind }) {
   return (
     <Notice tone="warning" className="mt-3.5">
       <p>{t('project.base.behind.intro')}</p>
-      <ul className="mt-2 grid list-disc gap-1 pl-4 text-[12.5px]">
+      <ul className="mt-2 grid list-disc gap-1 pl-4 text-ui">
         {behind.imageTo && (
           <li>
             {t.rich('project.base.behind.image', {
-              from: <span className="font-mono text-[12px]">{behind.imageFrom || t('project.base.notRecorded')}</span>,
-              to: <span className="font-mono text-[12px]">{behind.imageTo}</span>,
+              from: <span className="font-mono text-caption">{behind.imageFrom || t('project.base.notRecorded')}</span>,
+              to: <span className="font-mono text-caption">{behind.imageTo}</span>,
             })}
             {changes.length > 0 && (
               <ul className="mt-1 grid list-[circle] gap-0.5 pl-4">
                 {changes.map((c) => (
                   <li key={c.version}>
-                    <span className="font-mono text-[12px]">{c.version}</span>: {c.what}
+                    <span className="font-mono text-caption">{c.version}</span>: {c.what}
                   </li>
                 ))}
               </ul>
@@ -542,7 +542,7 @@ function BehindNotice({ behind }: { behind: T.BaseBehind }) {
             {tools.map((tool, i) => (
               <span key={tool.name}>
                 {i > 0 && ', '}
-                <span className="font-mono text-[12px]">{tool.name}</span> {toolMove(tool)}
+                <span className="font-mono text-caption">{tool.name}</span> {toolMove(tool)}
               </span>
             ))}
           </li>
@@ -567,7 +567,7 @@ function Age({ iso }: { iso: string }) {
   return (
     <span className="flex flex-wrap items-baseline gap-x-2">
       <span>{formatDate(when, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-      <span className={cn('text-[12.5px]', stale(iso) ? 'text-amber-300' : 'text-subtle')}>{age(iso)}</span>
+      <span className={cn('text-ui', stale(iso) ? 'text-amber-300' : 'text-subtle')}>{age(iso)}</span>
     </span>
   );
 }

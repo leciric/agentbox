@@ -26,7 +26,7 @@ export function PrChip({ pr, className, dataAttr = 'data-pr-chip' }: { pr: Pick<
   const { icon: Icon, cls } = tone(pr);
   const state = prState(pr);
   const title = [`#${pr.number} ${state}`, pr.checks && t('agent.pr.checks', { checks: prChecksText(pr.checks) }), pr.conflict && t('agent.pr.conflictsBase'), pr.title].filter(Boolean).join(' · ');
-  const classes = cn('inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px font-mono text-[10.5px] leading-4 ring-1 ring-inset transition', cls, className);
+  const classes = cn('inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px font-mono text-caption leading-4 ring-1 ring-inset transition', cls, className);
   const body = (
     <>
       <Icon className="size-3 shrink-0" />#{pr.number}

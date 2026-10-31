@@ -70,8 +70,8 @@ export function AllMediaView({ onSelect }: { onSelect: (view: View) => void }) {
       <div className="mx-auto flex max-w-6xl flex-col gap-4">
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <h1 className="text-[20px] font-semibold text-title">{t('shell.nav.media')}</h1>
-            <p className="mt-0.5 text-[13px] text-muted">{t('shell.allMedia.subtitle')}</p>
+            <h1 className="text-display font-semibold text-title">{t('shell.nav.media')}</h1>
+            <p className="mt-0.5 text-ui text-muted">{t('shell.allMedia.subtitle')}</p>
           </div>
           {unseen > 0 && (
             <Button size="sm" variant="ghost" className="ml-auto" onClick={() => void markSeen({ allMedia: true })}>
@@ -152,22 +152,22 @@ export function AllMediaView({ onSelect }: { onSelect: (view: View) => void }) {
 
         {byDay(visible, (m) => m.createdAt).map(([day, list]) => (
           <section key={day} className="flex flex-col gap-2.5">
-            <h2 className="flex items-baseline gap-2 px-1 text-[13px] font-medium text-secondary">
+            <h2 className="flex items-baseline gap-2 px-1 text-ui font-medium text-secondary">
               {day}
-              <span className="text-[12px] font-normal text-subtle">{list.length}</span>
+              <span className="text-caption font-normal text-subtle">{list.length}</span>
             </h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {list.map((m) => (
                 <div key={m.id} className={cn('relative rounded-xl', m.unseen && 'ring-2 ring-brand-400/60 ring-offset-2 ring-offset-[var(--color-ink)]')} data-unseen={m.unseen || undefined}>
                   <MediaCard item={m} label={label(m)} onOpen={() => open(m)} />
-                  {m.unseen && <span className="pointer-events-none absolute -right-1.5 -top-1.5 rounded-full bg-brand-500 px-1.5 py-px text-[10px] font-semibold text-white">{t('shell.allMedia.new')}</span>}
+                  {m.unseen && <span className="pointer-events-none absolute -right-1.5 -top-1.5 rounded-full bg-brand-500 px-1.5 py-px text-caption font-semibold text-white">{t('shell.allMedia.new')}</span>}
                 </div>
               ))}
             </div>
           </section>
         ))}
         {loaded.length > 0 && <MoreMedia pages={media} />}
-        {total > 0 && !media.isPending && visible.length === 0 && <div className="py-16 text-center text-[13px] text-muted">{t('agent.mediaTab.noMatch')}</div>}
+        {total > 0 && !media.isPending && visible.length === 0 && <div className="py-16 text-center text-ui text-muted">{t('agent.mediaTab.noMatch')}</div>}
         </AllMediaPages>
       </div>
 

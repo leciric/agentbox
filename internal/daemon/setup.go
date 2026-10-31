@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/android"
@@ -20,6 +21,7 @@ import (
 	"agentbox/internal/hostsetup"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -43,23 +45,8 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		checks = append(checks, c)
 	}
 
-	incusErr := s.cfg.Incus.Ping(ctx)
-	incusCheck := api.SetupCheck{ID: "incus", Title: "Incus", Required: true, Status: api.SetupMissing, Detail: firstLine(incusErr), Fix: hostsetup.Command}
-	if errors.Is(incusErr, exec.ErrNotFound) {
-		incusCheck.Detail = "Incus isn't installed"
-	}
-	// Host setup puts an ACL for this user on the Incus socket, which applies
-	// to processes already running, so joining incus-admin is the fallback
-	// rather than the route. Only when that ACL isn't there — no setfacl, or a
-	// filesystem without ACLs — is logging in again what's left to do.
-	if incusErr != nil && !incus.CanOpenSocket() && joinedButInactive(s.cfg.User.Name, "incus-admin") {
-		incusCheck.Detail = "you're in incus-admin, but this session started before that: log out and back in, then open AgentBox again"
-		incusCheck.Fix = "log out and back in"
-	}
-	if st := s.incusStatus(); !st.Answering && st.Detail != "" {
-		incusCheck.Detail, incusCheck.Fix = st.Detail, "sudo systemctl restart incus.service"
-	}
-	check(incusCheck, incusErr == nil, "installed, and your user can use it")
+	incusCheck, incusErr := s.incusSetupCheck(ctx)
+	checks = append(checks, incusCheck)
 
 	hostErr := image.CheckHost(s.cfg.User)
 	check(api.SetupCheck{ID: "host", Title: "User mapping", Required: true, Status: api.SetupMissing, Detail: firstLine(hostErr), Fix: hostsetup.Command},
@@ -76,16 +63,10 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		return api.SetupStatus{}, err
 	}
 	installed, _ := image.InstalledBuild(ctx, s.cfg.Incus)
-	overrides, err := s.store.ToolOverrides(ctx)
+	built, _ := image.Ready(ctx, s.cfg.Incus)
+	base, err := s.imageSetupCheck(ctx, incusErr == nil, built, installed, wanted)
 	if err != nil {
 		return api.SetupStatus{}, err
-	}
-
-	built, _ := image.Ready(ctx, s.cfg.Incus)
-
-	base := api.SetupCheck{ID: "image", Title: "Base image", Required: true, Status: api.SetupMissing, Detail: "needs Incus first", Fix: "agentbox image build"}
-	if incusErr == nil {
-		base = s.baseImageCheck(image.PlanFor(built, installed, wanted, overrides), installed, wanted)
 	}
 	checks = append(checks, base)
 
@@ -123,9 +104,20 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 
 	// OpenCode is optional in the image and in the credentials too, and reads
 	// the same way as Codex above: the image first, then the login.
+	// Which OpenCode build counts is the one the installation chose. OpenCode 2
+	// is not in the image at all: each agent installs it when it first starts
+	// on it, so under it the image has nothing to be missing.
+	opencodeVersion := opencode.V1
+	if raw, err := s.store.Setting(ctx, state.SettingOpenCodeVersion); err == nil {
+		opencodeVersion = opencode.ReleaseOf(raw)
+	}
+	openCodeComponent := installed.Components.OpenCode
+	if opencodeVersion == opencode.V2 {
+		openCodeComponent = true
+	}
 	opencodeCheck := api.SetupCheck{ID: "opencode", Title: "OpenCode login", Status: api.SetupOptional,
 		Detail: "optional: agents can't run OpenCode yet", Fix: "agentbox auth opencode"}
-	if built && !installed.Components.OpenCode {
+	if built && !openCodeComponent {
 		opencodeCheck.Detail, opencodeCheck.Fix = "optional: "+image.OpenCodeMissing, "agentbox image build --opencode"
 		checks = append(checks, opencodeCheck)
 	} else {
@@ -162,6 +154,7 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 	check(api.SetupCheck{ID: "preview", Title: "Preview URLs", Status: api.SetupOptional, Detail: "off: another program uses the port, or AGENTBOX_PREVIEW_ADDR turned it off"},
 		preview != "", "http://<port>.<agent>.<project>.localhost:"+preview[strings.LastIndex(preview, ":")+1:])
 
+	s.noteSetupChecks(ctx, checks)
 	ready := true
 	for _, c := range checks {
 		// An image whose tools are being updated, or failed to be, is still
@@ -181,6 +174,42 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 			Hint:       image.DownloadsHint,
 		},
 	}, nil
+}
+
+// incusSetupCheck is Setup's check of Incus, and why it can't be used.
+func (s *Server) incusSetupCheck(ctx context.Context) (api.SetupCheck, error) {
+	incusErr := s.cfg.Incus.Ping(ctx)
+	incusCheck := api.SetupCheck{ID: "incus", Title: "Incus", Required: true, Status: api.SetupMissing, Detail: firstLine(incusErr), Fix: hostsetup.Command}
+	if errors.Is(incusErr, exec.ErrNotFound) {
+		incusCheck.Detail = "Incus isn't installed"
+	}
+	// Host setup puts an ACL for this user on the Incus socket, which applies
+	// to processes already running, so joining incus-admin is the fallback
+	// rather than the route. Only when that ACL isn't there — no setfacl, or a
+	// filesystem without ACLs — is logging in again what's left to do.
+	if incusErr != nil && !incus.CanOpenSocket() && joinedButInactive(s.cfg.User.Name, "incus-admin") {
+		incusCheck.Detail = "you're in incus-admin, but this session started before that: log out and back in, then open AgentBox again"
+		incusCheck.Fix = "log out and back in"
+	}
+	if st := s.incusStatus(); !st.Answering && st.Detail != "" {
+		incusCheck.Detail, incusCheck.Fix = st.Detail, "sudo systemctl restart incus.service"
+	}
+	if incusErr == nil {
+		incusCheck.Status, incusCheck.Detail = api.SetupOK, "installed, and your user can use it"
+	}
+	return incusCheck, incusErr
+}
+
+// imageSetupCheck is Setup's check of the base image, which needs Incus first.
+func (s *Server) imageSetupCheck(ctx context.Context, incusOK, built bool, installed image.Installed, wanted image.Components) (api.SetupCheck, error) {
+	if !incusOK {
+		return api.SetupCheck{ID: "image", Title: "Base image", Required: true, Status: api.SetupMissing, Detail: "needs Incus first", Fix: "agentbox image build"}, nil
+	}
+	overrides, err := s.store.ToolOverrides(ctx)
+	if err != nil {
+		return api.SetupCheck{}, err
+	}
+	return s.baseImageCheck(image.PlanFor(built, installed, wanted, overrides), installed, wanted), nil
 }
 
 // storagePoolCheck warns when the "default" storage pool isn't btrfs or zfs:
@@ -347,7 +376,15 @@ func (s *Server) claimClaudeLogin(login *claudeLogin) (api.Job, error) {
 	registered := make(chan struct{})
 	j, err := s.jobs.start("claude-login", login.account, func(ctx context.Context, log io.Writer) (any, error) {
 		<-registered
-		return s.runClaudeLogin(ctx, log, login)
+		began := time.Now()
+		out, err := s.runClaudeLogin(ctx, log, login)
+		signedIn := setupReport{step: setupSignedIn, tool: "claude", took: time.Since(began)}
+		if err != nil {
+			s.setupStepFailed(context.WithoutCancel(ctx), signedIn, err)
+		} else {
+			s.setupReached(ctx, signedIn)
+		}
+		return out, err
 	})
 	if err != nil {
 		return api.Job{}, err

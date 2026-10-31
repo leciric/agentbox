@@ -251,3 +251,20 @@ func TestNames(t *testing.T) {
 		}
 	}
 }
+
+// OpenCode 2 nests its servers under "mcp.servers"; OpenCode 1 keeps them
+// directly under "mcp", and a machine can have either file.
+func TestParseOpenCodeReadsBothShapes(t *testing.T) {
+	for _, shape := range []string{
+		`{"mcp":{"notion":{"type":"remote","url":"https://mcp.notion.com/mcp"}}}`,
+		`{"mcp":{"servers":{"notion":{"type":"remote","url":"https://mcp.notion.com/mcp"}}}}`,
+	} {
+		found, err := parseOpenCode([]byte(shape))
+		if err != nil {
+			t.Fatalf("%s: %v", shape, err)
+		}
+		if len(found) != 1 || found[0].Name != "notion" || found[0].URL != "https://mcp.notion.com/mcp" {
+			t.Fatalf("parseOpenCode(%s) = %+v", shape, found)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,7 @@ func newAddCmd(a *app) *cobra.Command {
 	var name, claudeAccount, githubAccount, codexAccount, cursorAccount string
 	var openCodeAccounts map[string]string
 	var copyToLinux, create, commitFiles bool
+	var cloneURL string
 	cmd := &cobra.Command{
 		Use:   "add <path>",
 		Short: "Register a git repository as a project",
@@ -25,24 +27,48 @@ With --new, <path> is a repository to start: AgentBox makes the folder, runs
 git init on main and makes an initial commit, so agents have a commit to branch
 from, then registers it. A folder that is already a repository with commits is
 added as it is; one with files in it and no commits is only committed with
---commit-files.`,
+--commit-files.
+
+With --clone, AgentBox clones the repository at that link (https:// or
+git@host:owner/repo, on GitHub or any other host) into <path>, or into the
+clone folder (~/src unless Settings changed it) when there is no <path>, and
+registers it. A github.com repository is cloned with the project's GitHub
+account (--github-account, or this machine's default), so a private one needs
+no other login; anything else, or one that account can't see, with this
+machine's own git credentials.`,
 		Example: `  agentbox add ~/code/my-app
-  agentbox add --new ~/code/my-new-app`,
-		Args: cobra.ExactArgs(1),
+  agentbox add --new ~/code/my-new-app
+  agentbox add --clone https://github.com/acme/my-app
+  agentbox add --clone git@gitlab.com:acme/my-app.git ~/code/my-app`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if cloneURL != "" {
+				return cobra.MaximumNArgs(1)(cmd, args)
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path, err := filepath.Abs(args[0])
-			if err != nil {
-				return err
+			var path string
+			if len(args) > 0 {
+				var err error
+				if path, err = filepath.Abs(args[0]); err != nil {
+					return err
+				}
 			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
 			}
-			p, err := c.AddProject(cmd.Context(), api.AddProjectRequest{
+			req := api.AddProjectRequest{
 				Path: path, Name: name, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CopyToLinux: copyToLinux,
 				CodexAccount: codexAccount, OpenCodeAccounts: openCodeAccounts, CursorAccount: cursorAccount,
 				Create: create, CommitFiles: commitFiles,
-			})
+			}
+			var p api.Project
+			if cloneURL != "" {
+				p, err = cloneProject(cmd, c, api.CloneProjectRequest{URL: cloneURL, AddProjectRequest: req})
+			} else {
+				p, err = c.AddProject(cmd.Context(), req)
+			}
 			if api.HasReason(err, api.ErrorFolderNotEmpty) {
 				return fmt.Errorf("%w: add --commit-files to make them its initial commit", err)
 			}
@@ -74,8 +100,30 @@ added as it is; one with files in it and no commits is only committed with
 	cmd.Flags().StringToStringVar(&openCodeAccounts, "opencode-account", nil, "OpenCode account its agents use for a provider, as provider=account; repeat it for several (default: each provider's default)")
 	cmd.Flags().BoolVar(&create, "new", false, "make <path> a new repository, on main with an initial commit, and add that")
 	cmd.Flags().BoolVar(&commitFiles, "commit-files", false, "with --new, commit the files already in <path> as the initial commit")
+	cmd.Flags().StringVar(&cloneURL, "clone", "", "clone the repository at this link into <path> (default: the clone folder, ~/src) and add that")
 	cmd.Flags().BoolVar(&copyToLinux, "copy", false, "in WSL, add a clone in ~/src/<name> of a repository on a Windows drive, rather than refusing it")
 	return cmd
+}
+
+// cloneProject runs the job that clones a repository and adds it, its
+// progress on stderr, and answers the project it added.
+func cloneProject(cmd *cobra.Command, c *api.Client, req api.CloneProjectRequest) (api.Project, error) {
+	j, err := c.CloneProject(cmd.Context(), req)
+	if api.HasReason(err, api.ErrorFolderExists) {
+		return api.Project{}, fmt.Errorf("%w (agentbox add <folder> adds it as it is)", err)
+	}
+	if err != nil {
+		return api.Project{}, err
+	}
+	if j, err = waitJob(cmd, c, j); err != nil {
+		return api.Project{}, err
+	}
+	var p api.Project
+	if err := json.Unmarshal(j.Result, &p); err != nil {
+		return api.Project{}, fmt.Errorf("reading the cloned project: %w", err)
+	}
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr())
+	return p, nil
 }
 
 // cmpOrDefault describes a project's Claude Code or GitHub account, which is
@@ -102,7 +150,7 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short: "Settings of one project",
 		Long:  `Settings that belong to one project, rather than to this installation.`,
 	}
-	cmd.AddCommand(newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a))
+	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a))
 	return cmd
 }
 

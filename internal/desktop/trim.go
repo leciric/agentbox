@@ -29,8 +29,8 @@ const (
 	BlockTolerance = 20 // of 255
 	ChangedBlocks  = 3
 
-	stillFrames = FrameRate         // StillFor, 1s
-	keepFrames  = FrameRate * 2 / 5 // KeepStill, 0.4s
+	stillFrames = FrameRate * 2     // StillFor, 2s
+	keepFrames  = FrameRate * 6 / 5 // KeepStill, 1.2s
 )
 
 // A Cut is a stretch of the recording, in seconds of the wall clock since it
@@ -44,7 +44,9 @@ type Cut struct {
 // review to place its chapters on the shorter timeline.
 type Cuts struct {
 	Recorded float64 `json:"recorded"` // seconds of wall clock the video covers
-	Cuts     []Cut   `json:"cuts"`
+	// Start is when the first frame was taken, in InputEvent.T's clock.
+	Start float64 `json:"start,omitempty"`
+	Cuts  []Cut   `json:"cuts"`
 }
 
 // trimmer decides, frame by frame, which frames of a recording go to the
@@ -185,4 +187,13 @@ func writeCuts(path string, c Cuts) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// removed is how many seconds of the recording the cuts took out.
+func (c Cuts) removed() float64 {
+	var s float64
+	for _, cut := range c.Cuts {
+		s += cut.To - cut.From
+	}
+	return s
 }

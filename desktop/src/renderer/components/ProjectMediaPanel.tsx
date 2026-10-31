@@ -69,7 +69,7 @@ export function ProjectMediaPanel({ project }: { project: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2 px-1">
-        <span className="text-[13px] text-muted">
+        <span className="text-ui text-muted">
           {t('project.media.items', { count: items })}
           {bytes > 0 && <span className="text-subtle"> · {humanBytes(bytes)}</span>}
         </span>
