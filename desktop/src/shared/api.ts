@@ -3474,6 +3474,7 @@ export interface VMSwap {
   size: number;
   total: number;
   used: number;
+  diskUsed?: number;
 }
 
 export interface VMLimits {
