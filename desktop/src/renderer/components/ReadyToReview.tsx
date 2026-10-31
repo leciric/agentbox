@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { PrNumberLink } from './PrNumberLink';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Images, Info, Keyboard, LoaderCircle, MessageSquare, MessageSquareText, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Images, Info, Keyboard, LoaderCircle, MessageSquare, MessageSquareText, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -21,8 +21,8 @@ import { NotesList, ReviewNotesContext, reviewNotesKey, useReviewNotes } from '.
 import { ReviewProof, type ProofHandle } from './ReviewProof';
 import { ShareButton } from './ShareButton';
 import { useProjectPages } from './pages/usePages';
-import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
-import { checksLabels, methodLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
+import { PullRequestView } from './PullRequestModal';
+import { methodLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
 import { AIIcon } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -486,6 +486,10 @@ function ReviewCarousel({
   };
 
   const summary = firstLine(item.summary);
+  // The case, what the agent said and reported, sits beside the proof where
+  // the window is wide; elsewhere it's the header's line and the report's
+  // strip, and the details hold the rest.
+  const withCase = pane === 'proof';
   const content = useRef<HTMLDivElement>(null);
 
   return (
@@ -531,11 +535,12 @@ function ReviewCarousel({
         }}
       >
         <ReviewNotesContext.Provider value={notes}>
-          {/* What changed, and where its pull request stands. */}
-          <header className="grid gap-1 border-b border-line px-5 py-3 pr-14" inert={help}>
+          {/* What it is, and whether it can merge: that line is the finding,
+              read before anything else, the reason Merge waits if it does. */}
+          <header className="grid min-w-0 gap-1.5 px-5 pb-3 pr-14 pt-4" inert={help}>
             <div className="flex min-w-0 items-center gap-3">
               <AIIcon ai={item.ai || 'claude'} className="size-5 shrink-0" />
-              <DialogTitle className={cn('min-w-0 truncate text-heading leading-snug', !item.title && 'font-mono')} title={item.title || item.agent}>
+              <DialogTitle className={cn('min-w-0 truncate text-display font-semibold leading-snug', !item.title && 'font-mono')} title={item.title || item.agent}>
                 {item.title || item.agent}
               </DialogTitle>
               {item.verdict && (
@@ -549,7 +554,7 @@ function ReviewCarousel({
                     <Button size="icon-sm" variant="ghost" disabled={!canBack} onClick={onBack} title={`${t('review.backTitle')} (P)`} aria-label={t('review.key.previousItem')} data-review-back>
                       <ChevronLeft />
                     </Button>
-                    <span className="text-caption tabular-nums text-subtle" data-review-agent-position={`${position.n}/${position.count}`}>
+                    <span className="font-mono text-caption tabular-nums text-subtle" data-review-agent-position={`${position.n}/${position.count}`}>
                       {t('review.position', { n: position.n, count: position.count })}
                     </span>
                     <Button size="icon-sm" variant="ghost" disabled={!next} onClick={onNext} title={next ? `${t('review.nextIs', { agent: next.title || next.agent })} (N)` : undefined} aria-label={t('review.key.nextItem')} data-review-next>
@@ -565,105 +570,67 @@ function ReviewCarousel({
                 )}
               </div>
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 pl-8 text-ui">
-              <p className={cn('min-w-0 flex-1 basis-[320px] truncate', summary ? 'text-secondary' : 'italic text-subtle')} title={item.summary || undefined} data-review-summary-line>
+            <Readiness item={item} pr={pr} blocked={footerReason} />
+            {/* Beside the proof, wide, the case says all of it, and the
+                details do. */}
+            {pane !== 'details' && (
+              <p className={cn('min-w-0 truncate pl-8 text-ui', summary ? 'text-secondary' : 'text-subtle', withCase && 'lg:hidden')} title={item.summary || undefined} data-review-summary-line>
                 {summary || t('review.noSummary')}
               </p>
-              {pr && <PrStatus pr={pr} />}
-              <div className="ml-auto flex shrink-0 items-center gap-1">
-                {/* Media, the diff or the details: one at a time, the one on
-                    screen marked, so the way back to the media is always in
-                    sight (D and I go to theirs and back, as does Esc). */}
-                <div role="tablist" aria-label={t('review.panes')} className="flex items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5" data-review-panes>
-                  <PaneTab on={pane === 'proof'} onClick={() => setChosenPane('proof')} pane="proof">
-                    <Images />
-                    {t('review.media')}
-                    {proofCount > 0 && <span className="tabular-nums text-subtle">{proofCount}</span>}
-                  </PaneTab>
-                  <PaneTab on={pane === 'diff'} onClick={() => setChosenPane('diff')} pane="diff">
-                    <FileDiff />
-                    {t('review.diff')}
-                    {item.changes && item.changes.files > 0 && (
-                      <span className="font-mono text-caption">
-                        <span className="text-emerald-400">+{item.changes.insertions}</span> <span className="text-rose-400">−{item.changes.deletions}</span>
-                      </span>
-                    )}
-                    {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
-                    <Hint k="D" />
-                  </PaneTab>
-                  <PaneTab on={pane === 'details'} onClick={() => setChosenPane('details')} pane="details">
-                    <Info />
-                    {t('review.details')}
-                    <Hint k="I" />
-                  </PaneTab>
-                </div>
-                <ShareButton agentRef={item.ref} />
-                {pr && (
-                  <Button size="sm" variant="ghost" className="h-7" onClick={() => void window.agentbox.openExternal(pr.url)} title={t('pulls.detail.openOnGitHub')} data-review-github>
-                    <ExternalLink />
-                    {t('review.github')}
-                    <Hint k="O" />
-                  </Button>
-                )}
-              </div>
-            </div>
+            )}
           </header>
-          {report && <ReportStrip report={report} inert={help} />}
-          <section ref={body} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden" inert={help} data-review-body>
-            {pane === 'proof' &&
-              (media.isPending ? <div className="p-6 text-ui text-subtle">{t('common.loading')}</div> : <ReviewProof ref={proofView} key={item.ref} project={item.project} proof={proof} />)}
-            {pane === 'diff' &&
-              (pr ? (
-                <div className="flex min-h-0 flex-1 flex-col bg-modal" data-review-slide="changes">
-                  <PullRequestView
-                    inline
-                    bare
-                    view="files"
-                    project={item.project}
-                    pr={pr}
-                    canMerge={canMerge}
-                    mergeRunning={merge.running.has(pr.number)}
-                    mergeError={merge.failed[pr.number]}
-                    onMerge={() => merge.request(pr)}
-                    edits={labels.edits}
-                    onToggleLabel={(label, on) => labels.toggleLabel(pr, label, on)}
-                  />
-                </div>
-              ) : (
-                <AgentDiff agent={item.ref} past={past} />
-              ))}
-            {pane === 'details' && (
-              <div className="mx-auto grid w-full max-w-4xl content-start gap-6 p-5" data-review-details>
-                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-ui text-muted">
-                  <span className="font-medium text-secondary">{projectLabel(item.project, projects.data)}</span>
-                  {item.branch && (
-                    <span className="flex min-w-0 items-center gap-1">
-                      <GitBranch className="size-3 shrink-0 text-faint" />
-                      <span className="truncate font-mono text-caption">{item.branch}</span>
-                    </span>
-                  )}
-                  <span className="text-faint">· {t('review.finished', { when: timeAgo(item.finishedAt) })}</span>
-                  {item.machineKept && (
-                    <Badge variant="warning" data-review-machine-kept>
-                      {t('review.machineKept')}
-                    </Badge>
-                  )}
-                </div>
-                <section data-review-summary>
-                  <h3 className="mb-2 text-caption font-semibold uppercase tracking-wide text-subtle">{t('review.summary')}</h3>
-                  {item.summary ? <Markdown text={item.summary} className="text-ui" /> : <p className="text-ui italic text-subtle">{t('review.noSummary')}</p>}
-                </section>
-                {pr && (
-                  <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-line" data-review-slide="pr">
-                    <h3 className="flex min-w-0 items-center gap-2 border-b border-line-faint px-4 py-2 text-ui font-medium text-primary">
-                      <GitPullRequest className="size-3.5 shrink-0 text-subtle" />
-                      <span className="min-w-0 truncate">{pr.title}</span>
-                      <span className="shrink-0 font-mono text-subtle">#{pr.number}</span>
-                    </h3>
+          {/* Media, the diff or the details: one at a time, the one on screen
+              underlined, so the way back to the media is always in sight (D
+              and I go to theirs and back, as does Esc). */}
+          <div className="flex min-w-0 items-center gap-x-4 border-b border-line px-5 sm:pl-[3.25rem]" inert={help}>
+            <div role="tablist" aria-label={t('review.panes')} className="flex min-w-0 items-center gap-x-5 overflow-x-auto [scrollbar-width:none]" data-review-panes>
+              <PaneTab on={pane === 'proof'} onClick={() => setChosenPane('proof')} pane="proof">
+                <Images />
+                {t('review.media')}
+                {proofCount > 0 && <span className="font-mono tabular-nums text-subtle">{proofCount}</span>}
+              </PaneTab>
+              <PaneTab on={pane === 'diff'} onClick={() => setChosenPane('diff')} pane="diff">
+                <FileDiff />
+                {t('review.diff')}
+                {item.changes && item.changes.files > 0 && (
+                  <span className="font-mono tabular-nums text-subtle">
+                    +{item.changes.insertions} −{item.changes.deletions}
+                  </span>
+                )}
+                {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
+                <Hint k="D" />
+              </PaneTab>
+              <PaneTab on={pane === 'details'} onClick={() => setChosenPane('details')} pane="details">
+                <Info />
+                {t('review.details')}
+                <Hint k="I" />
+              </PaneTab>
+            </div>
+            <div className="ml-auto flex shrink-0 items-center gap-1 py-1">
+              {/* Narrow, both are icons, so the tabs keep their words. */}
+              <ShareButton agentRef={item.ref} className="max-sm:hidden" />
+              <ShareButton agentRef={item.ref} compact className="sm:hidden" />
+              {pr && (
+                <Button size="sm" variant="ghost" className="h-7 max-sm:px-2" onClick={() => void window.agentbox.openExternal(pr.url)} title={t('pulls.detail.openOnGitHub')} aria-label={t('review.github')} data-review-github>
+                  <ExternalLink />
+                  <span className="max-sm:hidden">{t('review.github')}</span>
+                  <Hint k="O" />
+                </Button>
+              )}
+            </div>
+          </div>
+          {report && <ReportStrip report={report} inert={help} className={cn(withCase && 'lg:hidden')} />}
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <section ref={body} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden" inert={help} data-review-body>
+              {pane === 'proof' &&
+                (media.isPending ? <div className="p-6 text-ui text-subtle">{t('common.loading')}</div> : <ReviewProof ref={proofView} key={item.ref} project={item.project} proof={proof} />)}
+              {pane === 'diff' &&
+                (pr ? (
+                  <div className="flex min-h-0 flex-1 flex-col bg-modal" data-review-slide="changes">
                     <PullRequestView
                       inline
                       bare
-                      view="description"
+                      view="files"
                       project={item.project}
                       pr={pr}
                       canMerge={canMerge}
@@ -673,11 +640,45 @@ function ReviewCarousel({
                       edits={labels.edits}
                       onToggleLabel={(label, on) => labels.toggleLabel(pr, label, on)}
                     />
+                  </div>
+                ) : (
+                  <AgentDiff agent={item.ref} past={past} />
+                ))}
+              {pane === 'details' && (
+                <div className="mx-auto grid w-full max-w-4xl content-start gap-6 p-5" data-review-details>
+                  {/* Its branch, base and age are the header's line. */}
+                  <span className="text-ui font-medium text-secondary">{projectLabel(item.project, projects.data)}</span>
+                  <section data-review-summary>
+                    <h3 className="mb-2 text-caption font-medium text-muted">{t('review.summary')}</h3>
+                    {item.summary ? <Markdown text={item.summary} className="text-ui" /> : <p className="text-ui text-subtle">{t('review.noSummary')}</p>}
                   </section>
-                )}
-              </div>
-            )}
-          </section>
+                  {pr && (
+                    <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-line" data-review-slide="pr">
+                      <h3 className="flex min-w-0 items-center gap-2 border-b border-line-faint px-4 py-2 text-ui font-medium text-primary">
+                        <GitPullRequest className="size-3.5 shrink-0 text-subtle" />
+                        <span className="min-w-0 truncate">{pr.title}</span>
+                        <span className="shrink-0 font-mono text-subtle">#{pr.number}</span>
+                      </h3>
+                      <PullRequestView
+                        inline
+                        bare
+                        view="description"
+                        project={item.project}
+                        pr={pr}
+                        canMerge={canMerge}
+                        mergeRunning={merge.running.has(pr.number)}
+                        mergeError={merge.failed[pr.number]}
+                        onMerge={() => merge.request(pr)}
+                        edits={labels.edits}
+                        onToggleLabel={(label, on) => labels.toggleLabel(pr, label, on)}
+                      />
+                    </section>
+                  )}
+                </div>
+              )}
+            </section>
+            {withCase && <CaseRail item={item} report={report} inert={help} />}
+          </div>
           {changing && (
             <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" inert={help} data-review-changes-box>
               <div className="text-caption text-muted">{t('review.changesTo', { agent: item.agent })}</div>
@@ -740,8 +741,9 @@ function ReviewCarousel({
                   <span>{t('review.markReviewed')}</span>
                   <Hint k="R" />
                 </Button>
-                {/* Why Merge can't, beside it; narrow, on a line of its own under the actions. */}
-                <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-caption text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
+                {/* Why Merge can't, beside it, as the header's line says; narrow,
+                    on a line of its own under the actions. */}
+                <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-caption text-muted', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
                   {armed && pr && !mergeDisabled ? <span className="text-primary" data-review-merge-armed>{t('review.mergeArmed', { number: pr.number })}</span> : footerNote}
                 </span>
                 <div className="flex shrink-0 items-stretch" data-review-merge-split>
@@ -804,7 +806,10 @@ function NotesCount({ n }: { n: number }) {
     </span>
   );
 }
-// PaneTab is one of the review's panes in the header's switch.
+// PaneTab is one of the review's panes in the tabs under the header. The one
+// on screen is underlined by a 1px line in the brand's colour, as wide as its
+// label: the review's one way of marking what's picked (the proof's strip, its
+// chapters and a pair's modes say it the same way).
 function PaneTab({ on, onClick, pane, children }: { on: boolean; onClick: () => void; pane: Pane; children: ReactNode }) {
   return (
     <button
@@ -813,8 +818,9 @@ function PaneTab({ on, onClick, pane, children }: { on: boolean; onClick: () => 
       aria-selected={on}
       onClick={onClick}
       className={cn(
-        'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-caption font-medium transition [&_svg]:size-3.5',
-        on ? 'bg-surface-strong text-title' : 'text-subtle hover:text-primary',
+        'relative inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap text-ui font-medium transition-colors [&_svg]:size-3.5',
+        'after:absolute after:inset-x-0 after:-bottom-px after:h-px',
+        on ? 'text-title after:bg-brand-400' : 'text-subtle hover:text-primary',
       )}
       data-review-toggle={pane}
     >
@@ -848,14 +854,14 @@ export function OutcomeBadge({ outcome }: { outcome: string }) {
 // ReportStrip is the agent's final report, above whatever pane is open: its
 // outcome and the start of its summary, the whole of it and what it left
 // open a click away.
-function ReportStrip({ report, inert }: { report: T.AgentReport; inert: boolean }) {
+function ReportStrip({ report, inert, className }: { report: T.AgentReport; inert: boolean; className?: string }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const remaining = report.remainingIssues ?? [];
   return (
-    <section className="grid min-w-0 gap-1.5 border-b border-line bg-surface-faint px-5 py-2.5" inert={inert} data-review-report={report.status}>
+    <section className={cn('grid min-w-0 gap-1.5 border-b border-line bg-surface-faint px-5 py-2.5', className)} inert={inert} data-review-report={report.status}>
       <div className="flex min-w-0 items-start gap-2.5">
-        <span className="mt-0.5 shrink-0 text-caption font-semibold uppercase tracking-wide text-subtle">{t('review.report')}</span>
+        <span className="mt-0.5 shrink-0 text-caption font-medium text-muted">{t('review.report')}</span>
         <OutcomeBadge outcome={report.status} />
         <div className={cn('min-w-0 flex-1 text-ui text-secondary [overflow-wrap:anywhere]', !open && 'line-clamp-2')}>
           <Markdown text={report.summary} className="text-ui" />
@@ -866,7 +872,7 @@ function ReportStrip({ report, inert }: { report: T.AgentReport; inert: boolean 
       </div>
       {open && remaining.length > 0 && (
         <div className="grid min-w-0 gap-1 pl-[4.5rem] text-caption">
-          <span className="font-medium text-amber-200 [:root[data-appearance=light]_&]:text-amber-700">{t('review.remaining')}</span>
+          <span className="font-medium text-amber-400">{t('review.remaining')}</span>
           <ul className="grid list-disc gap-0.5 pl-4 text-secondary [overflow-wrap:anywhere]">
             {remaining.map((r) => (
               <li key={r}>{r}</li>
@@ -915,24 +921,100 @@ function AgentFileDiff({ path, patch }: { path: string; patch: string }) {
   );
 }
 
-// PrStatus is where the pull request stands, in the header: its number, its
-// state when it isn't simply open, its checks and a conflict.
-function PrStatus({ pr }: { pr: T.PullRequest }) {
+// Readiness is the header's second line: whether the work can merge, in one
+// sentence (why Merge waits, the same words as beside it, or that it's
+// ready), then what it is: its pull request, the branch into its base, how
+// much it changed and when it finished. Colour is on the sentence's icon
+// alone; the figures carry their signs.
+function Readiness({ item, pr, blocked }: { item: T.ReviewItem; pr?: T.PullRequest; blocked?: string }) {
   const t = useT();
+  const head = pr?.headBranch || item.branch;
+  const state = !pr ? 'none' : pr.state === 'merged' ? 'merged' : blocked ? 'blocked' : pr.checks === 'pending' ? 'pending' : 'ready';
+  const Icon = { none: CircleDashed, merged: GitMerge, blocked: CircleX, pending: CircleDot, ready: CircleCheck }[state];
+  const tone = { none: 'text-faint', merged: 'text-subtle', blocked: 'text-rose-400', pending: 'text-amber-400', ready: 'text-emerald-400' }[state];
+  const sentence = blocked ?? t(state === 'pending' ? 'review.readyPending' : 'review.ready', { base: pr?.baseBranch || '' });
+  const dot = (
+    <span aria-hidden className="text-faint">
+      ·
+    </span>
+  );
   return (
-    <span className="flex shrink-0 items-center gap-1.5" data-review-pr-state={pr.state}>
-      <GitPullRequest className="size-3.5 shrink-0 text-faint" />
-      <PrNumberLink pr={pr} className="font-mono text-caption" />
-      {pr.draft ? <Badge>{t('memory.pulls.draft')}</Badge> : pr.state !== 'open' && <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>}
-      {pr.state === 'open' && pr.checks && (
-        <Badge variant={checksVariants[pr.checks] ?? 'default'} data-review-checks={pr.checks}>
-          {t('memory.pulls.checks', {
-            state: checksLabels[pr.checks] ? t(checksLabels[pr.checks]) : pr.checks,
-          })}
+    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-caption text-subtle" data-review-readiness={state} data-review-pr-state={pr?.state} data-review-checks={pr?.checks || undefined}>
+      <span className="flex shrink-0 items-center gap-1.5 text-body text-primary">
+        <Icon className={cn('size-4 shrink-0', tone)} />
+        {sentence}
+      </span>
+      {pr && (
+        <>
+          {dot}
+          <PrNumberLink pr={pr} className="shrink-0 font-mono" />
+        </>
+      )}
+      {head && (
+        <>
+          {dot}
+          <span className="flex min-w-0 items-center gap-1 font-mono">
+            <GitBranch className="size-3 shrink-0 text-faint" />
+            <span className="min-w-0 truncate">{head}</span>
+            {pr?.baseBranch && <span className="shrink-0">→ {pr.baseBranch}</span>}
+          </span>
+        </>
+      )}
+      {item.changes && item.changes.files > 0 && (
+        <>
+          {dot}
+          <span className="shrink-0">
+            {t('pulls.detail.files', { count: item.changes.files })}{' '}
+            <span className="font-mono tabular-nums">
+              +{item.changes.insertions} −{item.changes.deletions}
+            </span>
+          </span>
+        </>
+      )}
+      {dot}
+      <span className="shrink-0">{t('review.finished', { when: timeAgo(item.finishedAt) })}</span>
+      {item.machineKept && (
+        <Badge variant="warning" data-review-machine-kept>
+          {t('review.machineKept')}
         </Badge>
       )}
-      {pr.state === 'open' && pr.conflict && <Badge variant="danger">{t('memory.pulls.conflicts')}</Badge>}
-    </span>
+    </div>
+  );
+}
+
+// CaseRail is the case beside the proof, where the window is wide: what the
+// agent said when it finished, and its report with what it left open. The
+// claim and the evidence side by side; narrower, the header's line, the
+// report's strip and Details carry it.
+function CaseRail({ item, report, inert }: { item: T.ReviewItem; report?: T.AgentReport; inert: boolean }) {
+  const t = useT();
+  const remaining = report?.remainingIssues ?? [];
+  return (
+    <aside aria-label={t('review.case')} className="grid w-[340px] shrink-0 content-start gap-6 overflow-y-auto border-l border-line px-5 py-4 max-lg:hidden" inert={inert} data-review-case>
+      <section className="min-w-0" data-review-summary>
+        <h3 className="mb-1.5 text-caption font-medium text-muted">{t('review.summary')}</h3>
+        {item.summary ? <Markdown text={item.summary} className="text-body [overflow-wrap:anywhere]" /> : <p className="text-body text-subtle">{t('review.noSummary')}</p>}
+      </section>
+      {report && (
+        <section className="grid min-w-0 gap-1.5" data-review-report={report.status}>
+          <h3 className="flex items-center gap-2 text-caption font-medium text-muted">
+            {t('review.report')}
+            <OutcomeBadge outcome={report.status} />
+          </h3>
+          <Markdown text={report.summary} className="text-body [overflow-wrap:anywhere]" />
+          {remaining.length > 0 && (
+            <div className="mt-1.5 grid min-w-0 gap-1 text-ui">
+              <span className="text-caption font-medium text-amber-400">{t('review.remaining')}</span>
+              <ul className="grid list-disc gap-0.5 pl-4 text-secondary [overflow-wrap:anywhere]">
+                {remaining.map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+    </aside>
   );
 }
 
@@ -954,7 +1036,7 @@ function KeysHelp({ onClose }: { onClose: () => void }) {
     </li>
   );
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-scrim p-6 backdrop-blur-sm" onClick={onClose} data-review-keys-help>
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-scrim p-6" onClick={onClose} data-review-keys-help>
       <div role="dialog" aria-modal aria-labelledby="review-keys-title" className="grid w-full max-w-md gap-4 rounded-2xl border border-line-strong bg-modal p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
           <Keyboard className="size-4 text-subtle" />
