@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"sync"
 	"testing"
@@ -369,5 +370,57 @@ func TestFleetThawsOneItForgot(t *testing.T) {
 	}
 	if f.mc.isFrozen(f.newer.Instance) {
 		t.Fatal("the machine the fleet froze was never thawed once calm")
+	}
+}
+
+// 2026-10-24: another writer held the database past its busy timeout and the
+// list of frozen agents was lost, so a restarted daemon wouldn't have thawed
+// them. It is kept, and written once the database is free.
+func TestFleetKeepsTheFrozenListWhileTheDatabaseIsBusy(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, true)
+	f.srv.frozen.saveBackoff = []time.Duration{time.Millisecond}
+	ctx := context.Background()
+
+	db, err := sql.Open("sqlite", "file:"+f.paths.StateDB()+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Every attempt fails while the lock is held, and nothing is marked saved.
+	if f.srv.saveFleetFrozen(ctx, []string{"hello-stack/agent-02"}) {
+		t.Fatal("saved while the database was locked")
+	}
+	if !strings.Contains(f.log.String(), "will try again") {
+		t.Fatalf("no word of it in the log:\n%s", f.log.String())
+	}
+	fl := f.srv.frozen
+	fl.mu.Lock()
+	fl.want = []string{"hello-stack/agent-02"}
+	fl.saving = true
+	fl.mu.Unlock()
+	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+
+	// The next step finds saved behind want, and writes it.
+	f.srv.saveFrozenSet(ctx)
+	got, err := f.srv.store.Setting(ctx, state.SettingAgentFreezeFrozen)
+	if err != nil || !strings.Contains(got, "hello-stack/agent-02") {
+		t.Fatalf("stored %q, %v", got, err)
+	}
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	if fl.saving || !equalStrings(fl.saved, fl.want) {
+		t.Fatalf("saving %v, saved %v, want %v", fl.saving, fl.saved, fl.want)
 	}
 }
