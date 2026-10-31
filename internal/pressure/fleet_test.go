@@ -456,3 +456,216 @@ func TestAMachineTheFleetForgotButIsToldOfAsFrozenThawsOnceCalm(t *testing.T) {
 		t.Fatalf("thawed %v, want p/d once calm", thawed)
 	}
 }
+
+// sim is a VM at its 16 GiB cap with swap 60% used, so that freezing a
+// machine pushes what it uses out: each machine running uses use, frozen
+// what is left once pushed out, and thawed it pages back in at 100 MiB/s,
+// reading as growing meanwhile. A gigabyte goes to the VM itself.
+type sim struct {
+	f      *Fleet
+	ms     []Machine
+	use    int64
+	frozen map[string]time.Time // when each was frozen, by ref
+	// thawedAt and frozenAt are each machine's thaws and freezes.
+	thawedAt, frozenAt map[string][]time.Time
+	longest            map[string]time.Duration
+}
+
+func newSim(refs []string, use int64) *sim {
+	s := &sim{f: NewFleet(DefaultPolicy), use: use, frozen: map[string]time.Time{},
+		thawedAt: map[string][]time.Time{}, frozenAt: map[string][]time.Time{}, longest: map[string]time.Duration{}}
+	for i, ref := range refs {
+		s.ms = append(s.ms, Machine{Agent: ref, Since: t0.Add(time.Duration(i) * time.Minute), Working: true, Memory: use})
+	}
+	return s
+}
+
+// run steps the fleet every 2 seconds for d from now.
+func (s *sim) run(now time.Time, d time.Duration) time.Time {
+	for end := now.Add(d); now.Before(end); {
+		now = now.Add(2 * time.Second)
+		used := int64(gb)
+		for i := range s.ms {
+			m := &s.ms[i]
+			switch {
+			case s.f.Frozen(m.Agent):
+				m.Memory = max(m.Memory-int64(500<<20), 200<<20)
+			case m.Memory < s.use:
+				m.Memory = min(m.Memory+int64(200<<20), s.use)
+			}
+			used += m.Memory
+		}
+		resync(s.f, now, s.ms)
+		got := s.f.Step(now, vmBusy(16*gb-used))
+		for _, ref := range got.Freeze {
+			s.frozen[ref] = now
+			s.frozenAt[ref] = append(s.frozenAt[ref], now)
+		}
+		for _, ref := range got.Thaw {
+			s.longest[ref] = max(s.longest[ref], now.Sub(s.frozen[ref]))
+			delete(s.frozen, ref)
+			s.thawedAt[ref] = append(s.thawedAt[ref], now)
+		}
+	}
+	for ref, at := range s.frozen {
+		s.longest[ref] = max(s.longest[ref], now.Sub(at))
+	}
+	return now
+}
+
+func TestHeldMachinesAreNotThawedAndRefrozenEveryMinute(t *testing.T) {
+	// 2026-10-31, 14:44–14:51: agents 671/676/677/678 frozen and thawed
+	// every minute or two. Five machines of 3 GiB on 16 fit four: one held
+	// leaves 2 GiB, calm, but not the 3 it takes back as it resumes.
+	s := newSim([]string{"p/671", "p/676", "p/677", "p/678", "p/680"}, 3*gb)
+	s.run(t0, 30*time.Minute)
+	var freezes int
+	for ref, frozen := range s.frozenAt {
+		freezes += len(frozen)
+		for _, f := range frozen {
+			for _, th := range s.thawedAt[ref] {
+				if th.Before(f) && f.Sub(th) < DefaultQueue.Grace {
+					t.Errorf("%s thawed at %s and frozen again at %s", ref, th.Sub(t0), f.Sub(t0))
+				}
+			}
+		}
+	}
+	// One held at a time, handing over every MaxHeld: four in 30 minutes.
+	if freezes > 4 {
+		t.Fatalf("%d freezes in 30 minutes: %v", freezes, s.frozenAt)
+	}
+}
+
+func TestNoMachineIsHeldLongerThanMaxHeld(t *testing.T) {
+	// The other half of 31 October: the newest, p/680, frozen 20 minutes.
+	s := newSim([]string{"p/671", "p/676", "p/677", "p/678", "p/680"}, 3*gb)
+	s.run(t0, 45*time.Minute)
+	for ref, d := range s.longest {
+		if d > DefaultQueue.MaxHeld+FreezeSettle+2*time.Second {
+			t.Errorf("%s held %s at a stretch", ref, d)
+		}
+	}
+	if len(s.thawedAt["p/680"]) == 0 {
+		t.Fatal("p/680 never resumed")
+	}
+	if len(s.longest) < 2 {
+		t.Fatalf("only %v took a turn held", s.longest)
+	}
+}
+
+func TestAHeldMachineResumesOnlyWithRoomForWhatItUsed(t *testing.T) {
+	f := NewFleet(DefaultPolicy)
+	ms := machines("p/a", "p/b")
+	for i := range ms {
+		ms[i].Memory = 4 * gb
+	}
+	_, now := holdAll(f, t0, ms, vmBusy(gb)) // d, c and b; a is kept
+	for i := range ms {
+		ms[i].Memory = gb / 4 // pushed out
+	}
+	// Calm with 5 GiB: over the floor, short of the 4 GiB a held one takes
+	// back plus the 1.6 GiB floor.
+	for range 90 {
+		now = now.Add(2 * time.Second)
+		resync(f, now, ms)
+		if got := f.Step(now, vmBusy(5*gb)); len(got.Thaw) > 0 {
+			t.Fatalf("thawed %v at %s with 5 GiB", got.Thaw, now.Sub(t0))
+		}
+	}
+	var thawed []time.Time
+	var order []string
+	for range 120 {
+		now = now.Add(2 * time.Second)
+		resync(f, now, ms)
+		got := f.Step(now, vmBusy(6*gb))
+		for range got.Thaw {
+			thawed = append(thawed, now)
+		}
+		order = append(order, got.Thaw...)
+	}
+	if !slices.Equal(order, []string{"p/b", "p/c", "p/d"}) {
+		t.Fatalf("with 6 GiB thawed %v, want oldest first", order)
+	}
+	for i := 1; i < len(thawed); i++ {
+		if d := thawed[i].Sub(thawed[i-1]); d < DefaultQueue.ResumeStep {
+			t.Fatalf("resumed %s apart", d)
+		}
+	}
+}
+
+func TestTheAgentKeptGoingStaysKeptWhileItWorks(t *testing.T) {
+	f := NewFleet(DefaultPolicy)
+	ms := machines("p/b", "p/c")
+	_, now := holdAll(f, t0, ms, vmBusy(gb)) // b kept
+	ms = machines("p/c")                     // b's turn ends: c is kept
+	now = now.Add(time.Second)
+	resync(f, now, ms)
+	f.Step(now, vmBusy(gb))
+	ms = machines("p/b", "p/c") // b works again
+	froze, _ := holdAll(f, now.Add(time.Second), ms, vmBusy(gb))
+	if f.Frozen("p/c") || !slices.Contains(froze, "p/b") {
+		t.Fatalf("froze %v, c frozen %v: want c kept, b held", froze, f.Frozen("p/c"))
+	}
+}
+
+func TestANewAgentWaitingPastMaxHeldBootsInThePlaceOfOneHeld(t *testing.T) {
+	f := NewFleet(DefaultPolicy)
+	ms := machines("p/a", "p/b", "p/c", "p/d")
+	for i := range ms {
+		ms[i].Memory = 4 * gb
+	}
+	f.Sync(t0, ms)
+	f.Ask("p/e", t0.Add(-time.Second))
+	if got := f.Step(t0, vmBusy(gb)); !slices.Equal(got.Freeze, []string{"p/d"}) {
+		t.Fatalf("froze %v", got.Freeze)
+	}
+	// 2.5 GiB from then on: d can't take back its 4, nor e boot over the
+	// floor, but freezing c would free what e needs.
+	var started []string
+	now := t0
+	for end := now.Add(DefaultQueue.MaxHeld - time.Minute); now.Before(end); {
+		now = now.Add(2 * time.Second)
+		resync(f, now, ms)
+		got := f.Step(now, vmBusy(5*gb/2))
+		started = append(started, got.Start...)
+		if len(got.Thaw) > 0 {
+			t.Fatalf("thawed %v at %s", got.Thaw, now.Sub(t0))
+		}
+	}
+	if len(started) > 0 {
+		t.Fatalf("started %v short of memory before MaxHeld", started)
+	}
+	var rotated []string
+	for end := now.Add(3 * time.Minute); now.Before(end); {
+		now = now.Add(2 * time.Second)
+		resync(f, now, ms)
+		got := f.Step(now, vmBusy(5*gb/2))
+		started, rotated = append(started, got.Start...), append(rotated, got.Rotated...)
+	}
+	if !slices.Equal(started, []string{"p/e"}) || !slices.Contains(rotated, "p/e") || !f.Frozen("p/c") {
+		t.Fatalf("started %v, rotated %v, c frozen %v: want p/e let boot in c's place once it waited MaxHeld", started, rotated, f.Frozen("p/c"))
+	}
+}
+
+func TestAWaiterPastMaxHeldThatCantBootDoesntStopTheFleetHolding(t *testing.T) {
+	// Swap full: freezing frees nothing, so the waiter can't take a place,
+	// and a type check growing still has to be paused.
+	f := NewFleet(DefaultPolicy)
+	ms := machines("p/a", "p/d")
+	ms[3].Heavy = true
+	f.Ask("p/e", t0)
+	now := t0.Add(DefaultQueue.MaxHeld)
+	var paused []string
+	for range 10 {
+		now = now.Add(2 * time.Second)
+		readings(f, now, ms, map[string]float64{"p/d": 50 << 20})
+		got := f.Step(now, vm(gb))
+		if len(got.Start) > 0 {
+			t.Fatalf("started %v with swap full under the floor", got.Start)
+		}
+		paused = append(paused, got.PauseRuns...)
+	}
+	if !slices.Equal(paused, []string{"p/d"}) {
+		t.Fatalf("paused the runs of %v, want p/d's", paused)
+	}
+}
