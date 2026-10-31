@@ -35,8 +35,9 @@ export function TopBar({
   view: View;
   onSelect: (view: View) => void;
   // onOpenNav opens the sidebar's drawer, and onOpenRail the agent rail's,
-  // in a window too narrow for them to sit beside the page (App).
-  onOpenNav: () => void;
+  // in a window too narrow for them to sit beside the page (App); a page
+  // with no sidebar has no onOpenNav.
+  onOpenNav?: () => void;
   onOpenRail?: () => void;
   // navDocksAtXl: the sidebar is a drawer up to xl, not lg, because the
   // agent rail takes its place beside the page (App).
@@ -80,6 +81,15 @@ export function TopBar({
     case 'group':
       crumbs.push({ label: t('group.crumb') });
       break;
+    case 'watch': {
+      const agent = view.ref ? agents.data?.find((a) => a.ref === view.ref) : undefined;
+      crumbs.push({ label: t('verbs.watch'), view: view.ref ? { kind: 'watch', project: view.ref.split('/')[0] } : undefined });
+      if (view.ref) crumbs.push({ label: agent?.title || view.ref.split('/')[1], mono: !agent?.title });
+      break;
+    }
+    case 'review':
+      crumbs.push({ label: t('verbs.review') });
+      break;
     case 'work':
       if (view.project) crumbs.push({ label: projectLabel(view.project, projects.data), view: { kind: 'project', project: view.project } });
       crumbs.push({ label: t('work.title') });
@@ -100,14 +110,16 @@ export function TopBar({
     // run off the edge: the breadcrumb takes what's left of the first, and
     // gives way to them only below 8rem.
     <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-3 py-2 md:gap-x-4 md:px-5" data-top-bar>
-      <button
-        aria-label={t('shell.top.openMenu')}
-        className={cn('-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary', navDocksAtXl ? 'xl:hidden' : 'lg:hidden')}
-        onClick={onOpenNav}
-        data-open-nav
-      >
-        <MenuIcon className="size-5" />
-      </button>
+      {onOpenNav && (
+        <button
+          aria-label={t('shell.top.openMenu')}
+          className={cn('-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary', navDocksAtXl ? 'xl:hidden' : 'lg:hidden')}
+          onClick={onOpenNav}
+          data-open-nav
+        >
+          <MenuIcon className="size-5" />
+        </button>
+      )}
       <nav className="flex min-w-32 grow basis-0 items-center gap-1.5 text-ui" aria-label={t('shell.top.breadcrumb')}>
         {/* In an agent's chat, the way back to its lead's: ←, Alt+← (App), or the project's name. */}
         {crumbProject && view.kind === 'agent' && (

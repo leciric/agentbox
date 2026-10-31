@@ -228,7 +228,21 @@ export const tours: Tour[] = [
   { id: 'diff-notes', version: v015, title: 'tour.diffNotes.name', steps: [S.diffNotes] },
 ];
 
-export const tourById = (id: string): Tour | undefined => (id === welcomeTour.id ? welcomeTour : tours.find((t) => t.id === id));
+// verbsTour is the prototype navigation's (uiVerbs.ts): played when it's
+// turned on, and never after an update, since it's off by default.
+export const verbsTour: Tour = {
+  id: 'verbs',
+  version: v015,
+  title: 'tour.verbs.name',
+  steps: (['ask', 'watch', 'review', 'settings'] as const).map((verb) => ({
+    id: `verbs-${verb}`,
+    title: `tour.verbs.${verb}.title`,
+    body: `tour.verbs.${verb}.body`,
+    anchor: [`[data-verb="${verb}"]`],
+  })),
+};
+
+export const tourById = (id: string): Tour | undefined => (id === welcomeTour.id ? welcomeTour : id === verbsTour.id ? verbsTour : tours.find((t) => t.id === id));
 
 // ——— What this computer remembers ———
 
