@@ -432,6 +432,13 @@
     "click": "[data-settings-advanced] > button"
   },
   {
+    "id": "project-settings-general-dark",
+    "description": "A project's Settings tab at General: its name, model and accounts, the rest folded under Advanced — dark",
+    "query": "page=general&theme=dark",
+    "width": 1280,
+    "height": 1100
+  },
+  {
     "id": "settings-project-light",
     "description": "Settings open at a project's own settings, every one of them, under an unfolded Advanced — light",
     "query": "settings=project:agentbox&theme=light",
