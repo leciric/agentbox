@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, pressable, proofKey, seeking, gallery, chapterAt, proofOf, readableName, reviewPane, step } from './review.ts';
+import { remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, pressable, proofKey, seeking, gallery, chapterAt, proofOf, readableName, reviewPane, step } from './review.ts';
 
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
 const pr = { number: 12, title: 'feat: dark mode', state: 'open', checks: 'passing', url: '' } as T.PullRequest;
@@ -104,11 +104,6 @@ test('step stops at either end', () => {
   assert.equal(step(1, 3, 1), 2);
   assert.equal(step(2, 3, 1), 2);
   assert.equal(step(0, 0, 1), 0);
-});
-
-test('the list helpers', () => {
-  assert.equal(countLabel(7), '7');
-  assert.equal(countLabel(120), '99+');
 });
 
 test('mergeBlock says why a pull request can’t be merged from the review', () => {

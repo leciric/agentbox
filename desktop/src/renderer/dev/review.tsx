@@ -1,25 +1,18 @@
-// ?review=1: "Ready to review" (components/ReadyToReview.tsx) with three
-// agents waiting, in the top bar's inbox (components/Inbox.tsx). agent-12's
+// With ?app=: "Ready to review" (components/ReadyToReview.tsx, opened from
+// v2/ReviewV2.tsx) with three agents waiting. agent-12's
 // carousel has two screenshots, a recording (drawn here, on a canvas) and its
 // Hatch pages (dev/pages.ts), then its pull request in full, which merges;
 // agent-41's pull request fails its checks, so it can't. Opening an agent
 // moves it to Reviewed, which the dev bridge remembers (reviewRequest), and
-// two agents are there already. ?review=many has forty more waiting, for the
-// list to load on scroll. ?review=pairs gives agent-15 before/after pairs to
+// two agents are there already. &review=many has forty more waiting, for the
+// list to load on scroll. &review=pairs gives agent-15 before/after pairs to
 // compare (pairs() below).
-import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { Suspense } from 'react';
+import type { QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
 import { HomeProject as T_HOME } from '../../shared/api';
-import type { View } from '../App';
-import { AgentRail } from '../components/AgentRail';
-import { ProjectView } from '../components/ProjectView';
-import { Sidebar } from '../components/Sidebar';
-import { TopBar } from '../components/TopBar';
 import { resetProjectSeenForTest } from '../lib/attention';
 import { buildFixtures, devRequests, pageOf, patchDevAgent, PROJECT, setMediaFile } from './fixtures';
 import { setDraft } from '../lib/drafts';
-import { useReadyAlerts } from '../lib/useReadyAlerts';
 import { screen } from './notifications';
 import { seedPages } from './pages';
 
@@ -556,12 +549,6 @@ export function seedLeadLines(queryClient: QueryClient): void {
   }
 }
 
-// land is what the button below stands for: an agent finishing while the app
-// is open, which the same hook as the app's (useReadyAlerts) announces.
-function land(queryClient: QueryClient) {
-  landReview(queryClient, { project: PROJECT, agent: 'agent-77', ref: `${PROJECT}/agent-77`, title: 'Fix the flaky reconnect test', branch: 'agentbox/flaky-reconnect', ai: 'claude', finishedAt: new Date().toISOString(), fingerprint: `{"f":"agent-77"}` });
-}
-
 // landReview puts an agent at the front of those waiting for review, for a
 // scenario where one finishes while it's on screen (dev/concepts/pip.tsx).
 export function landReview(queryClient: QueryClient, item: T.ReviewItem) {
@@ -569,30 +556,7 @@ export function landReview(queryClient: QueryClient, item: T.ReviewItem) {
   void queryClient.invalidateQueries({ queryKey: ['review'] });
 }
 
-export function ReviewPreview() {
-  const queryClient = useQueryClient();
-  useReadyAlerts(() => {});
-  const view: View = { kind: 'project', project: PROJECT };
-  return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
-      <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--color-ink)' }} data-preview-review>
-        <TopBar view={view} onSelect={() => {}} onOpenNav={() => {}} onOpenNotice={() => {}} />
-        <button type="button" data-preview-land onClick={() => land(queryClient)} style={{ position: 'fixed', bottom: 12, left: 260, zIndex: 50, padding: '6px 12px', borderRadius: 8, background: '#333', color: '#fff', fontSize: 12 }}>
-          Land agent-77
-        </button>
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <Suspense>
-            <ProjectView name={PROJECT} tab="chat" onSelect={() => {}} onNewAgent={() => {}} />
-          </Suspense>
-        </div>
-      </div>
-      <AgentRail view={view} onSelect={() => {}} onNewAgent={() => {}} />
-    </div>
-  );
-}
-
-// seedV2 is UI v2's sidebar with more to order (&v2=1): five more projects,
+// seedV2 is the sidebar with more to order (any ?app=): five more projects,
 // each with when the user last wrote to it (two of them long enough ago to
 // be on the Settled shelf), their icons (an image found in the repository,
 // emoji chosen, a letter), quill's lead mid-turn, and the answers for
@@ -622,7 +586,7 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     courier: { source: 'chosen', emoji: '📦', hasDetected: false },
     'old-blog': { source: 'chosen', emoji: '📝', hasDetected: false },
   };
-  // &sections=1: the user's sections (lib/sidebar.ts, Classic's), Work, Side
+  // &sections=1: the user's sections (lib/sidebar.ts), Work, Side
   // projects and an empty Later, kept as the daemon keeps them until the page
   // reloads: moves, renames, folds, new ones and deletes. Without it, none.
   const createdAt = ago(30 * day);

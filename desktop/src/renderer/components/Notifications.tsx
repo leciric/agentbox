@@ -1,9 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
 import { CircleAlert, MessageCircleQuestion } from 'lucide-react';
 import type * as T from '../../shared/api';
-import { api } from '../lib/api';
 import { noticeVerb } from '../lib/notifications';
-import { projectLabel } from '../lib/projectName';
 import { useT } from '../lib/i18n';
 import { cn } from '../lib/utils';
 
@@ -24,11 +21,6 @@ function Headline({ notice }: { notice: T.Notification }) {
       <span className="font-mono text-ui">{notice.agent}</span> {noticeVerb(notice)}
     </>
   );
-}
-
-export function useProjectNames(): (project: string) => string {
-  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  return (project) => projectLabel(project, projects.data);
 }
 
 // NoticeToast is a notification's in-app toast, the whole of which is the

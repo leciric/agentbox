@@ -1,5 +1,5 @@
 // The lead's picture-in-picture desktops (components/pip) in the dev preview,
-// with &pip=1 on ?app=project&v2=1: four agents at work, whose desktops are
+// with &pip=1 on ?app=project: four agents at work, whose desktops are
 // drawn (pipDesktops.tsx) where the app would stream them, three waiting for
 // review, today's screenshots and recordings, and a lead that reports on
 // them. "Finish agent-26" has one finish while you watch.

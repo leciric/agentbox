@@ -1,9 +1,45 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { goTo, onLaunch, onSwitchToV2, parseState, placeCard, skip, watchView, stepsOf, tourFirst, tours, welcomeTour, type TourState } from './tours.ts';
+import { arrive, goTo, onLaunch, parseState, placeCard, skip, watchView, stepsOf, tourFirst, tours, welcomeTour, type TourState } from './tours.ts';
 
 const none: TourState = { seen: [], dismissed: [], playing: null };
 const whatsNew = tours.map((t) => t.id);
+
+const storage = (init: Record<string, string> = {}) => {
+  const store = new Map(Object.entries(init));
+  return {
+    store,
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+  };
+};
+
+test('a first run arrives fresh, and the next launch returns', () => {
+  const s = storage();
+  assert.equal(arrive(s), 'fresh');
+  assert.equal(arrive(s), 'returning');
+});
+
+test('an install from before the new layout was the default moves, once', () => {
+  const s = storage({ 'agentbox.whatsnew.lastSeenVersion': '0.12.1' });
+  assert.equal(arrive(s), 'moved');
+  assert.equal(arrive(s), 'returning');
+});
+
+test('an install left on Classic moves to the new layout, once', () => {
+  const s = storage({ 'agentbox.whatsnew.lastSeenVersion': '0.16.0', 'agentbox.ui.v2': '0' });
+  assert.equal(arrive(s), 'moved');
+  assert.equal(s.store.get('agentbox.ui.v2'), '1');
+  assert.equal(arrive(s), 'returning');
+  // Its welcome tour plays once: seen or dismissed, it doesn't again.
+  const played = onLaunch(none, 'moved');
+  assert.deepEqual(played.playing?.tours, ['welcome']);
+  assert.equal(onLaunch(skip(played), 'moved').playing, null);
+});
+
+test('an install already on the new layout returns', () => {
+  assert.equal(arrive(storage({ 'agentbox.ui.v2': '1' })), 'returning');
+});
 
 test('a first run plays the welcome tour, and What\'s new counts as seen', () => {
   for (const arrival of ['fresh', 'moved'] as const) {
@@ -14,11 +50,11 @@ test('a first run plays the welcome tour, and What\'s new counts as seen', () =>
 });
 
 test('an update plays the tours not seen yet, once', () => {
-  const s = onLaunch({ ...none, seen: ['v2'], dismissed: ['review'] }, 'v2');
+  const s = onLaunch({ ...none, seen: ['v2'], dismissed: ['review'] }, 'returning');
   assert.deepEqual(s.playing?.tours, whatsNew.filter((id) => id !== 'v2' && id !== 'review'));
   const after = goTo(s, stepsOf(s.playing!).length);
   assert.equal(after.playing, null);
-  assert.equal(onLaunch(after, 'v2').playing, null);
+  assert.equal(onLaunch(after, 'returning').playing, null);
 });
 
 test('a move the tour made keeps it playing, and any other one leaves it', () => {
@@ -39,17 +75,10 @@ test('a move the tour made keeps it playing, and any other one leaves it', () =>
   assert.equal(skip({ seen: [], dismissed: [], playing: { tours: ['welcome'], step: 6 } }).playing, null);
 });
 
-test('Classic plays nothing until v2 is chosen, then the welcome once', () => {
-  assert.equal(onLaunch(none, 'classic').playing, null);
-  const s = onSwitchToV2(none);
-  assert.deepEqual(s.playing?.tours, ['welcome']);
-  assert.equal(onSwitchToV2(skip(s)).playing, null);
-});
-
 test('a run cut short resumes where it was', () => {
   const s = goTo(onLaunch(none, 'fresh'), 4);
   const back = parseState(JSON.stringify(s));
-  assert.deepEqual(onLaunch(back, 'v2').playing, { tours: ['welcome'], step: 4 });
+  assert.deepEqual(onLaunch(back, 'returning').playing, { tours: ['welcome'], step: 4 });
 });
 
 test('skipping dismisses, finishing marks seen', () => {
@@ -64,10 +93,10 @@ test('stored state is read defensively', () => {
   assert.deepEqual(parseState('{"seen":["v2",3],"playing":{"tours":["gone"],"step":2}}'), { seen: ['v2'], dismissed: [], playing: null });
 });
 
-test('every tour has steps, and the welcome ends on how to go back to Classic and find it again', () => {
+test('every tour has steps, and the welcome ends on how to find it again', () => {
   for (const t of [welcomeTour, ...tours]) assert.ok(t.steps.length > 0, t.id);
   const ids = welcomeTour.steps.map((s) => s.id);
-  assert.deepEqual(ids.slice(-2), ['classic', 'help']);
+  assert.equal(ids.at(-1), 'help');
   assert.equal(new Set(tours.map((t) => t.id)).size, tours.length);
 });
 
@@ -86,8 +115,7 @@ test('the card sits beside what it points at, or docks when it can\'t', () => {
 });
 
 test('an update with a tour to play holds the release notes back; one without leaves them to open', () => {
-  assert.equal(tourFirst({ ...none, seen: ['welcome'] }, 'v2'), true);
-  assert.equal(tourFirst({ ...none, seen: ['welcome', ...whatsNew] }, 'v2'), false);
-  assert.equal(tourFirst({ ...none, playing: { tours: ['review'], step: 1 } }, 'v2'), true);
-  assert.equal(tourFirst(none, 'classic'), false);
+  assert.equal(tourFirst({ ...none, seen: ['welcome'] }, 'returning'), true);
+  assert.equal(tourFirst({ ...none, seen: ['welcome', ...whatsNew] }, 'returning'), false);
+  assert.equal(tourFirst({ ...none, playing: { tours: ['review'], step: 1 } }, 'returning'), true);
 });

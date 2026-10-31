@@ -1,5 +1,5 @@
-// UI v2's right-hand panel opens on its project's agents, beside the lead's
-// chat, as v1's rail had them, in one narrow column of rows (AgentLine): its
+// The right-hand panel opens on its project's agents, beside the lead's
+// chat, as the old agent rail had them, in one narrow column of rows (AgentLine): its
 // name, then why it's where it is, in its state's colour, then what it runs
 // on and has made. Each row leads with a tiny monitor (AgentMonitor) acting
 // out its state, its AI tool's mark on the screen; an agent using its desktop
@@ -14,11 +14,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, ChevronRight, ChevronsLeft, HardDrive, ShieldAlert } from 'lucide-react';
+import { Archive, ChevronRight, ChevronsLeft, HardDrive, Plus, ShieldAlert } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
-import { chatLabel, statusTip } from '../../lib/agentStatus';
+import { avatarMood, chatLabel, isAsking, rank, settled, statusTip } from '../../lib/agentStatus';
 import { groupRows, tileLabels, type PanelGroup } from '../../lib/agentCounts';
 import { chatKey, peekThread } from '../../lib/chat';
 import { choiceName } from '../../lib/modelChoices';
@@ -32,7 +32,7 @@ import { useAgentCounts } from '../../lib/useAgentCounts';
 import { useAgentSession } from '../chat/sessionColor';
 import { cn, humanBytes, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
-import { RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
+import { Skeleton, skeletonWidths } from '../ui/skeleton';
 import { PrChip } from '../PrChip';
 import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
@@ -373,4 +373,120 @@ export function AgentStrip({ project, chat, onSelect, onUnfold }: { project: str
       })}
     </div>
   );
+}
+
+// ——— What was the agent rail's ———
+
+// useRailAgents is what the panel list reads of a project's agents: its
+// agents in order, those still at something and the finished ones, each one's
+// pull request, when it last reported and what, whether it asks you
+// something, each one's fleet entry (its changes, last activity) and its
+// question.
+function useRailAgents(project: string | null) {
+  const enabled = project !== null;
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled });
+  // Pull requests come from the fleet, which already carries one per agent,
+  // matched against the repository list the daemon keeps (D54). ['agents'] is
+  // every project's agents and would have to read GitHub per project to say
+  // the same thing. It polls slowly: what moves in between arrives as an
+  // event.
+  const fleet = useQuery({
+    queryKey: ['fleet', project],
+    queryFn: () => api.fleet(project as string),
+    enabled,
+    refetchInterval: 30_000,
+  });
+  // When each agent last reported, for the time on its row, and whether it
+  // has a question waiting on you, for its avatar.
+  const events = useQuery({ queryKey: ['agentEvents', project], queryFn: () => api.agentEvents(project as string), enabled });
+  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project as string), enabled });
+  // The lead's own state, for its avatar: whether it's mid-turn or asking.
+  const lead = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project as string), enabled });
+  const [showFinished, setShowFinished] = useShowFinished();
+
+  // The events arrive newest first, so the first one seen is each agent's last.
+  // Freeing its Docker space on stop is the daemon's doing, not a report.
+  const lastReport = new Map<string, string>();
+  for (const ev of events.data ?? []) if (ev.kind !== 'docker_pruned' && !lastReport.has(ev.ref)) lastReport.set(ev.ref, ev.at);
+  // And what the latest one with words said, for v2's list.
+  const lastSummary = new Map<string, string>();
+  for (const ev of events.data ?? []) if (ev.summary && !lastSummary.has(ev.ref)) lastSummary.set(ev.ref, ev.summary);
+  const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
+  const asking = (agent: T.Agent) => isAsking(questions.data, agent.ref);
+  // An agent with a question waiting on you stays on top, whatever its chat is doing.
+  const moving = mine.filter((a) => !settled(a) || asking(a));
+  const finished = mine.filter((a) => settled(a) && !asking(a));
+  // The finished ones whose machine is stopped but still on disk, 5–12 GB
+  // each, are never folded away with the rest (StoppedSection), and say how
+  // much they hold: measuring a stopped volume is one Incus query each, so
+  // it is read only when there are some, and slowly.
+  const stopped = finished.filter((a) => a.state === 'stopped');
+  const done = finished.filter((a) => a.state !== 'stopped');
+  const machines = useQuery({
+    queryKey: ['stoppedMachines', project],
+    queryFn: () => api.stoppedMachines(project as string, false),
+    enabled: enabled && stopped.length > 0,
+    refetchInterval: 60_000,
+  });
+  const disk = new Map((machines.data?.machines ?? []).map((m) => [m.ref, m.machine]));
+  const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
+  const fleetOf = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a]));
+  const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
+  // The question it waits on you for, in its words.
+  const question = (ref: string) => (questions.data ?? []).find((q) => q.ref === ref && isAsking([q], ref))?.question;
+  // The agents the lead runs on other machines of the hub account, as their
+  // notices last described them: the daemon keeps those, not the agents.
+  // They sit among the rest: still at something with the moving ones,
+  // finished, failed or retired with the finished.
+  const remote = fleet.data?.remote ?? [];
+  const remoteMoving = remote.filter((a) => ['creating', 'working', 'asking'].includes(a.status));
+  const remoteDone = remote.filter((a) => !remoteMoving.includes(a));
+  return { agents, loaded: !!agents.data, lead, mine, moving, finished, stopped, done, disk, prs, fleetOf, lastReport, lastSummary, asking, question, mood, showFinished, setShowFinished, remote, remoteMoving, remoteDone };
+}
+
+// RailSkeleton is rows where the agents will be until the first list
+// arrives: "No agents yet" would be a guess.
+function RailSkeleton() {
+  return (
+    <div aria-busy data-rail-loading>
+      {skeletonWidths.slice(0, 3).map((width) => (
+        <div key={width} className="flex items-center gap-2.5 px-2.5 py-2 xl:py-2.5">
+          <Skeleton className="size-10 shrink-0 rounded-xl" />
+          <span className="grid min-w-0 flex-1 gap-1.5">
+            <Skeleton className={cn('h-3.5', width)} />
+            <Skeleton className="h-2.5 w-1/3" />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// RailEmpty is a project with no agents, and the button to start one.
+function RailEmpty({ project, onNewAgent }: { project: string; onNewAgent: () => void }) {
+  const t = useT();
+  return (
+    <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
+      <p className="text-ui leading-relaxed text-subtle">{t('agent.rail.empty', { project })}</p>
+      <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-ui text-tertiary transition hover:bg-surface-raised" onClick={onNewAgent}>
+        <Plus className="size-3.5" />
+        {t('agent.rail.newAgent')}
+      </button>
+    </div>
+  );
+}
+
+// Whether the Finished section is open, kept in this browser like the fold.
+// Closed until somebody opens it.
+const finishedKey = 'agentbox.rail.finished';
+
+function useShowFinished(): [boolean, (open: boolean) => void] {
+  const [open, set] = useState(() => localStorage.getItem(finishedKey) === '1');
+  return [
+    open,
+    (next: boolean) => {
+      localStorage.setItem(finishedKey, next ? '1' : '0');
+      set(next);
+    },
+  ];
 }

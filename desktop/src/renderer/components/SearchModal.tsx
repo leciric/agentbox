@@ -27,7 +27,6 @@ import * as T from '../../shared/api';
 import { api, isLeadName } from '../lib/api';
 import { matchesIn } from '../lib/chatFind';
 import { plainText } from '../lib/plainText';
-import { useUiV2 } from '../lib/uiV2';
 import { useFocusReturn } from '../lib/focusReturn';
 import { useLanguage, useT, type MessageKey } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
@@ -132,8 +131,8 @@ const keyName = (k: string) => (k === 'Mod' ? (onMac ? '⌘' : 'Ctrl') : k);
 
 function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palette: PaletteContext; back: MutableRefObject<(() => boolean) | null>; onOpen: (target: SearchTarget) => void }) {
   const t = useT();
-  // v2 calls the Home chat Home, as its sidebar does.
-  const homeName = t(useUiV2() ? 'shell.nav.home' : 'shell.nav.mainChat');
+  // The Home chat is called Home, as the sidebar does.
+  const homeName = t('shell.nav.home');
   const [query, setQuery] = useState(scope.query ?? '');
   const [asked, setAsked] = useState(commandsOnly(scope.query ?? '').only ? '' : (scope.query ?? '').trim());
   const [kind, setKind] = useState(scope.kind ?? '');

@@ -1,11 +1,10 @@
 // The notifications scenarios, with fixtures: clickable notifications, the
-// top bar's inbox with its questions, the all-projects Media view, and the
-// viewer a notification opens. They render the app's own Sidebar, TopBar,
-// Inbox, NoticeToast, MediaView, MediaViewer and MediaPlace,
-// put together the way App does, over a dev bridge that answers
-// /v1/notifications and /v1/media from here (fixtures.ts setNotifications).
+// all-projects Media view, and the viewer a notification opens. They render
+// the app's own SidebarV2, TopBar, NoticeToast, MediaView, MediaViewer
+// and MediaPlace, put together the way App does, over a dev bridge that
+// answers /v1/notifications and /v1/media from here (fixtures.ts
+// setNotifications).
 //
-//   ?notify=bell     Home, with the inbox open on its questions
 //   ?notify=media    the all-projects Media view
 //   ?notify=viewer   an agent's Media with an item open in the viewer
 //   ?notify=toast    the in-app toast, the whole of which is the link
@@ -19,8 +18,8 @@ import { HomeView } from '../components/HomeView';
 import { MediaPlace } from '../components/MediaPlace';
 import { MediaViewer } from '../components/media/MediaParts';
 import { NoticeToast } from '../components/Notifications';
-import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
+import { SidebarV2 } from '../components/v2/SidebarV2';
 import { markSeen, noticeView } from '../lib/notifications';
 import { projectLabel } from '../lib/projectName';
 import { PROJECT, setMediaFile, setNotifications } from './fixtures';
@@ -163,7 +162,7 @@ export function seedNotifications(queryClient: QueryClient, media: T.MediaItem[]
         if (!agents.some((x) => x.ref === a.ref)) agents.push({ ref: a.ref, project, name: a.ref.split('/')[1], title: a.title, pr: mockPR(a.ref) } as T.FleetAgent);
       return { ...f, agents };
     });
-    // The top bar's usage meter and the rail read these: nothing to say.
+    // The top bar's usage meter and the agent list read these: nothing to say.
     for (const key of ['questions', 'agentEvents']) if (!queryClient.getQueryData([key, project])) queryClient.setQueryData([key, project], []);
   }
   queryClient.setQueryData(['claudeLimits'], []);
@@ -176,7 +175,7 @@ function mockPR(ref: string): T.PullRequest | undefined {
 }
 
 // NotificationsPreview puts the pieces together as App does: the sidebar, the
-// top bar with its bell, the page, and the viewer a notification opens.
+// top bar, the page, and the viewer a notification opens.
 export function NotificationsPreview({ scenario }: { scenario: string }) {
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>(scenario === 'media' ? { kind: 'media' } : { kind: 'home' });
@@ -196,7 +195,6 @@ export function NotificationsPreview({ scenario }: { scenario: string }) {
       setView({ kind: 'agent', ref: shot.ref, tab: 'media' });
       setViewing({ ref: shot.ref, id: shot.media!.id, from: '', at: '' });
     }
-    if (scenario === 'bell') requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[data-inbox]')?.click());
     if (scenario !== 'toast') return;
     const projectName = projectLabel(asking.project, queryClient.getQueryData<T.Project[]>(['projects']));
     const id = toast.custom((t) => <NoticeToast notice={asking} projectName={projectName} onOpen={() => (toast.dismiss(t), openNotice(asking))} />, { duration: Infinity });
@@ -213,14 +211,14 @@ export function NotificationsPreview({ scenario }: { scenario: string }) {
 
   return (
     <div className="flex h-screen w-screen" style={{ background: 'var(--color-ink)', font: '13px var(--font-sans)' }} data-preview-notify={scenario}>
-      <Sidebar view={view} onSelect={select} onAddProject={() => {}} onNewAgent={() => {}} />
+      <SidebarV2 view={view} onSelect={select} onAddProject={() => {}} onNewAgent={() => {}} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar view={view} onSelect={select} onOpenNav={() => {}} onOpenNotice={openNotice} />
+        <TopBar view={view} onSelect={select} onOpenNav={() => {}} />
         <main className="min-h-0 flex-1">
           <Suspense>
             {view.kind === 'home' && <HomeView onSelect={select} onAddProject={() => {}} onNewAgent={() => {}} />}
             {view.kind === 'media' && <MediaView heading onSelect={select} />}
-            {view.kind === 'project' && <ProjectView key={view.project} name={view.project} tab={view.tab} onSelect={select} onNewAgent={() => {}} />}
+            {view.kind === 'project' && <ProjectView key={view.project} name={view.project} tab={view.tab} onNewAgent={() => {}} />}
             {view.kind === 'agent' && <AgentView key={view.ref} agentRef={view.ref} tab={view.tab} onTab={(tab) => setView({ ...view, tab })} onSelect={select} />}
           </Suspense>
         </main>

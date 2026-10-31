@@ -2,8 +2,7 @@
 // default (Settings → General → "Ask, Watch, Review"): Ask is the leads'
 // chats (Home's and each project's), Watch the agents and their machines,
 // Review their pull requests, proof and what waits for a verdict. Everything
-// else is in Settings or a project's Settings. It builds on v2 (uiV2.ts), so
-// it only applies while v2 is on. Like v2, it's how this app looks on this
+// else is in Settings or a project's Settings. It's how this app looks on this
 // computer: localStorage, switched at once.
 import { useSyncExternalStore } from 'react';
 import type { View } from '../App';

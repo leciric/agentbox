@@ -13,7 +13,7 @@ import { useT, type MessageKey } from '../../lib/i18n';
 import { useAgentCounts } from '../../lib/useAgentCounts';
 import { verbOf, type Verb } from '../../lib/uiVerbs';
 import { cn } from '../../lib/utils';
-import { Logo } from '../Sidebar';
+import { Logo } from '../Logo';
 import { Tip } from '../ui/tooltip';
 
 const verbs: { verb: Verb; icon: LucideIcon; label: MessageKey; hint: MessageKey; view: View }[] = [

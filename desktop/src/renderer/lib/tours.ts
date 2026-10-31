@@ -5,8 +5,8 @@
 // example where the real thing may not be there to point at.
 //
 // Which tours were seen or dismissed, and the one being played and its step,
-// are how this app is used on this computer, so they live in localStorage
-// beside the layout (uiV2.ts): a tour cut short by quitting picks up where it
+// are how this app is used on this computer, so they live in localStorage: a
+// tour cut short by quitting picks up where it
 // was on the next launch.
 //
 // A feature declares its tour in `tours` with the version it shipped in.
@@ -15,10 +15,9 @@
 // count as seen. Help → What's new replays any of them.
 import { useSyncExternalStore } from 'react';
 import type { MessageKey } from './i18n';
-import type { Arrival } from './uiV2.ts';
 
 // Example is the made-up content a step shows beside its words.
-export type Example = 'sidebar' | 'prompt' | 'mention' | 'cards' | 'review' | 'panel' | 'layout' | 'notes' | 'pick';
+export type Example = 'sidebar' | 'prompt' | 'mention' | 'cards' | 'review' | 'panel' | 'notes' | 'pick';
 
 // Go is where a step needs the app to be: a lead's chat, or that chat with its
 // panel open. Without a project, the step stays where it is.
@@ -153,14 +152,6 @@ const S = {
     body: 'tour.places.body',
     anchor: ['[data-v2-foot]'],
   },
-  classic: {
-    id: 'classic',
-    title: 'tour.classic.title',
-    body: 'tour.classic.body',
-    anchor: ['[data-v2-foot-item="settings"]'],
-    example: 'layout',
-    exampleAlways: true,
-  },
   diffNotes: {
     id: 'diff-notes',
     title: 'tour.diffNotes.title',
@@ -207,15 +198,15 @@ export const welcomeTour: Tour = {
   id: 'welcome',
   version: v013,
   title: 'tour.welcome.name',
-  // The essentials only, seven of them: where the projects are, talking to a
+  // The essentials only, six of them: where the projects are, talking to a
   // lead, what comes back to you, a review, and the way back. Every other
   // step is in its feature's own tour, which Help replays.
-  steps: [S.welcome, S.sidebar, S.lead, S.cards, S.review, S.classic, S.help],
+  steps: [S.welcome, S.sidebar, S.lead, S.cards, S.review, S.help],
 };
 
 // tours is What's new: each big feature's own short tour, oldest first.
 export const tours: Tour[] = [
-  { id: 'v2', version: v013, title: 'tour.v2.name', steps: [S.welcome, S.sidebar, S.lead, S.classic] },
+  { id: 'v2', version: v013, title: 'tour.v2.name', steps: [S.welcome, S.sidebar, S.lead] },
   { id: 'review', version: v013, title: 'tour.reviewTour.name', steps: [S.reviewButton, S.review] },
   { id: 'panel', version: v013, title: 'tour.panelTour.name', steps: [S.panel, S.switch] },
   { id: 'groups', version: v013, title: 'tour.groupsTour.name', steps: [S.groups, S.hide] },
@@ -288,9 +279,48 @@ const finish = (state: TourState, list: 'seen' | 'dismissed'): TourState => ({
   playing: null,
 });
 
-// onLaunch is what a launch in v2 starts playing: the run cut short last time,
-// the welcome tour for a first run or a move to v2, or the What's new tours
-// not seen yet. A first run's What's new counts as seen: the welcome covers it.
+// ——— Arriving ———
+
+// Arrival is how this launch came to the app: its first run, an install that
+// comes from the old layout (Classic, now gone) or from before the
+// new one was the default, or one that has launched in it before.
+export type Arrival = 'fresh' | 'moved' | 'returning';
+
+// The layout setting's old key, '1' for the new layout and '0' for Classic:
+// now '1' only says this install has arrived, and anything else that it
+// hasn't yet.
+const arrivedKey = 'agentbox.ui.v2';
+// Written on every launch since What's new (whatsnew.ts): missing, this is
+// the app's first run.
+const launchedKey = 'agentbox.whatsnew.lastSeenVersion';
+
+type Store = Pick<Storage, 'getItem' | 'setItem'>;
+
+// arrive says how this launch arrived, remembering that it has.
+export function arrive(storage: Store): Arrival {
+  const flag = storage.getItem(arrivedKey);
+  if (flag === '1') return 'returning';
+  storage.setItem(arrivedKey, '1');
+  return flag === null && storage.getItem(launchedKey) === null ? 'fresh' : 'moved';
+}
+
+let arrival: Arrival | undefined;
+
+// launchArrival is how this launch arrived, decided at its first read.
+export function launchArrival(): Arrival {
+  if (!arrival) {
+    try {
+      arrival = arrive(localStorage);
+    } catch {
+      arrival = 'fresh';
+    }
+  }
+  return arrival;
+}
+
+// onLaunch is what a launch starts playing: the run cut short last time, the
+// welcome tour for a first run or a move from the old layout, or the What's
+// new tours not seen yet. A first run's What's new counts as seen: the welcome covers it.
 export function onLaunch(state: TourState, arrival: Arrival): TourState {
   if (state.playing) return state;
   const all = [welcomeTour.id, ...tours.map((t) => t.id)];
@@ -298,7 +328,6 @@ export function onLaunch(state: TourState, arrival: Arrival): TourState {
   if ((arrival === 'fresh' || arrival === 'moved') && !known.has(welcomeTour.id)) {
     return { ...state, seen: [...new Set([...state.seen, ...all.filter((id) => id !== welcomeTour.id)])], playing: { tours: [welcomeTour.id], step: 0 } };
   }
-  if (arrival === 'classic') return state;
   const fresh = tours.filter((t) => !known.has(t.id)).map((t) => t.id);
   return fresh.length > 0 ? { ...state, playing: { tours: fresh, step: 0 } } : state;
 }
@@ -307,12 +336,6 @@ export function onLaunch(state: TourState, arrival: Arrival): TourState {
 // this update): the release notes then wait for its last step's link instead
 // of opening over it.
 export const tourFirst = (state: TourState, arrival: Arrival): boolean => !!(state.playing || onLaunch(state, arrival).playing);
-
-// onSwitchToV2 is choosing New in Settings: the welcome tour, once.
-export function onSwitchToV2(state: TourState): TourState {
-  if (state.playing || state.seen.includes(welcomeTour.id) || state.dismissed.includes(welcomeTour.id)) return state;
-  return { ...state, seen: [...new Set([...state.seen, ...tours.map((t) => t.id)])], playing: { tours: [welcomeTour.id], step: 0 } };
-}
 
 export const play = (state: TourState, ids: string[]): TourState => ({ ...state, playing: { tours: ids, step: 0 } });
 

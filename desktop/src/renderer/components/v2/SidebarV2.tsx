@@ -10,7 +10,7 @@
 // bottom, above the foot, the Idle list of the rest, folded unless nothing is
 // going on, and under it the projects the user hid, folded. The
 // project on screen never folds into Idle: the chat you're in stays in view.
-// The user's sections, Classic's (lib/sidebar.ts, the same data), go between
+// The user's sections (lib/sidebar.ts, kept by the daemon) go between
 // the pins and the rest, each with its projects in the order the user put
 // them: a section is a place the user chose, so neither activity nor Idle
 // moves a project out of one. A pin is still with the pins and a hidden
@@ -55,7 +55,8 @@ import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
 import { openNewTask, requestComposerFocus, requestSessionFocus } from '../../lib/newTask';
 import { openPanelOn, setPanel } from '../../lib/rightPanel';
-import { describeDelete, dropLine, Logo, moveKeys, NameSection, RenameSection, SectionHeader } from '../Sidebar';
+import { Logo } from '../Logo';
+import { describeDelete, dropLine, moveKeys, NameSection, RenameSection, SectionHeader } from './SidebarSections';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { dotLabel, FeatureDot, useFeatureDot } from '../FeatureDot';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
@@ -248,7 +249,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   };
 
   // Moving a project with the keyboard (Alt+↑/↓): a pin among the pins, and
-  // any other among the sections, as Classic does (stepTarget). The row is
+  // any other among the sections (stepTarget). The row is
   // drawn again where it lands, often in another list, so it takes the focus
   // back.
   const refocus = (name: string) => requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-v2-lead="${CSS.escape(name)}"]`)?.focus());
@@ -793,7 +794,7 @@ export function StMark({ st, className }: { st: AgentSt; className?: string }) {
 // Lead is a chat's row. A click opens it; a right-click (or Ctrl+click on a
 // Mac) is for the row's menu only, where it has one, and opens nothing. The
 // rest of props is ContextMenuTrigger's, as its asChild child.
-// With onMove, Alt+↑/↓ moves it, Classic's keys (Sidebar.tsx).
+// With onMove, Alt+↑/↓ moves it.
 function Lead({ active, onClick, onMove, children, data, className, ...props }: { active: boolean; onClick: () => void; onMove?: (delta: -1 | 1) => void; children: ReactNode; data?: Record<string, string> } & Omit<ComponentProps<'div'>, 'onClick'>) {
   return (
     <div

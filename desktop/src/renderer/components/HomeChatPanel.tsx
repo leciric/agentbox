@@ -10,8 +10,6 @@ import { ChatMenu, ChatStatus, ChatTab } from './chat/ChatTab';
 import { SessionChatPanel, useCurrentSession } from './ProjectChatPanel';
 import { GlobalMemoryPanel } from './GlobalMemoryPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { cn } from '../lib/utils';
-import { useUiV2 } from '../lib/uiV2';
 
 // homeAgentFrom builds the Agent ChatTab expects out of one session of the
 // Home chat: a lead like a project's, kept under T.HomeProject, standing in
@@ -45,7 +43,7 @@ export function homeAgentFrom(info: T.ProjectChat, topic?: string): T.Agent {
 // project's own chat something, search any project's memory and add projects,
 // so it's there even before the first project is. It has sessions as a
 // project's chat does, with the same tabs above it (SessionChatPanel).
-// home is v2's, where this is Home, the one place across every project: the
+// home makes it Home, the one place across every project: the
 // chat, and beside it a Status tab (status) with every project's agents and
 // the machine's load, which was its own Overview page. Status is a view of
 // its own, { kind: 'home' }, which the app opens on; the chat is homeChat.
@@ -55,7 +53,6 @@ export type HomeTabs = { status: ReactNode; onStatus: boolean; onTab: (status: b
 // its Memory being in Settings.
 export function HomeChatPanel({ home, bare }: { home?: HomeTabs; bare?: boolean }) {
   const t = useT();
-  const v2 = useUiV2();
   // The session shown, for the status and menu beside the tabs: the same
   // query SessionChatPanel makes for it.
   const current = useCurrentSession(T.HomeProject);
@@ -82,7 +79,7 @@ export function HomeChatPanel({ home, bare }: { home?: HomeTabs; bare?: boolean 
     <Tabs {...tabs} className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 px-4 pb-3 pt-5 md:px-8">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-title">{t(home || bare ? 'shell.nav.home' : 'chat.home.title')}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-title">{t('shell.nav.home')}</h1>
           <p className="mt-0.5 text-ui text-muted">{t('chat.home.subtitle')}</p>
         </div>
         <div className="mt-3 flex items-center gap-3">
@@ -113,7 +110,7 @@ export function HomeChatPanel({ home, bare }: { home?: HomeTabs; bare?: boolean 
         </div>
       </div>
       <TabsContent value="chat" className="flex flex-col">
-        <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden', !v2 && 'mx-2 mb-2 rounded-2xl border border-line md:mx-6 md:mb-6')}>
+        <div className={'flex min-h-0 flex-1 flex-col overflow-hidden'}>
           <SessionChatPanel project={T.HomeProject}>
             {(info, session) => <ChatTab key={info.ref} agent={homeAgentFrom(info, session.topic)} starting={false} onStart={() => {}} openAt={openAt} />}
           </SessionChatPanel>

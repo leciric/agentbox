@@ -10,7 +10,6 @@ import { projectLabel } from '../lib/projectName';
 import { chatLabel, memoryHold, rank, type StatusTone } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, humanRate, shortRate } from '../lib/utils';
-import { useUiV2 } from '../lib/uiV2';
 import { AgentContextMenu } from './AgentContextMenu';
 import { ProjectIcon } from './ProjectIcon';
 import { Sparkline } from './Sparkline';
@@ -169,10 +168,9 @@ function AgentFleetRow({
   const t = useT();
   const status = chatLabel(agent);
   const projectName = useProjectName(agent.project);
-  // v2 draws the project's icon where v1 draws a folder.
-  const v2 = useUiV2();
-  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: v2 });
-  const project = v2 ? projects.data?.find((p) => p.name === agent.project) : undefined;
+  // The project's icon, or a folder until the projects load.
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const project = projects.data?.find((p) => p.name === agent.project);
   // A machine that's stopped or paused holds nothing live: draw it quieter so
   // it doesn't compete with the agents actually doing something.
   const quiet = agent.state === 'stopped' || agent.state === 'paused';
