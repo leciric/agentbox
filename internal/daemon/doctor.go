@@ -243,9 +243,9 @@ func (s *Server) homeToolChecks(ctx context.Context) []api.DoctorCheck {
 	}
 	installed := api.DoctorCheck{ID: "ai-tool", Title: name, Status: api.DoctorOK, Message: "installed for the Home chat and projects' chats"}
 	if !m.LeadToolInstalled(ctx, tool) {
-		installed.Status = api.DoctorWarn
-		installed.Message = "not installed yet: a chat's first message installs it, and waits for that"
-		installed.Fix, installed.AutoFix = "agentbox doctor --fix", true
+		// Nothing is wrong: the first message installs it by itself. It stays ok
+		// so it isn't counted among the things to look at, and offers no fix.
+		installed.Message = "installs itself with a chat's first message, which waits for that"
 	}
 	if j := s.runningDoctorFix("ai-tool"); j != "" {
 		installed.Job, installed.AutoFix = j, false
@@ -259,9 +259,8 @@ func (s *Server) githubChecks() []api.DoctorCheck {
 	m := s.manager(nil)
 	gh := api.DoctorCheck{ID: "gh", Title: "GitHub CLI", Status: api.DoctorOK, Message: "installed for chats"}
 	if !m.GHInstalled() {
-		gh.Status = api.DoctorWarn
-		gh.Message = "not installed yet: a chat's first message installs it"
-		gh.Fix, gh.AutoFix = "agentbox doctor --fix", true
+		// Like the AI tool above: installed by a chat's first message, not a problem.
+		gh.Message = "installs itself with a chat's first message"
 	}
 	if j := s.runningDoctorFix("gh"); j != "" {
 		gh.Job, gh.AutoFix = j, false
