@@ -2,6 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert } from 'lucide-react';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { useConnection } from '../lib/events';
+import type { MachineState } from '../lib/firstRun';
+import { useMachineRun } from '../lib/machineRun';
 import { useT } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import * as T from '../../shared/api';
@@ -15,6 +18,7 @@ import { Tip } from './ui/tooltip';
 import { DiskGuardPill } from './DiskGuardPill';
 import { openSettingsSection } from './SettingsPage';
 import { ImageBuildChip } from './ImageBuildChip';
+import { MachineChip } from './SetupProgress';
 import { MachineStatus } from './MachineStatus';
 import { useCurrentSession } from './ProjectChatPanel';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -27,6 +31,7 @@ export function TopBar({
   onOpenNav,
   navDocksAtXl,
   onSearch,
+  machine,
 }: {
   view: View;
   onSelect: (view: View) => void;
@@ -38,8 +43,17 @@ export function TopBar({
   navDocksAtXl?: boolean;
   // onSearch opens the search palette; without it there's no search button.
   onSearch?: () => void;
+  // machine is AgentBox's machine being made in the background, after the
+  // first run, whose own rail shows it until then.
+  machine?: MachineState;
 }) {
   const t = useT();
+  // While the machine is being made there's no daemon to reconnect to: the
+  // machine's own indicator (MachineChip, or the first run's rail) says how
+  // it's going instead of MachineStatus.
+  const run = useMachineRun();
+  const connection = useConnection();
+  const making = run.state !== 'idle' && connection.state !== 'connected';
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
@@ -153,10 +167,11 @@ export function TopBar({
             <span className="hidden sm:inline">{t('shell.home.finishSetup')}</span>
           </button>
         )}
+        {machine && <MachineChip machine={machine} />}
         <ImageBuildChip onSelect={onSelect} />
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
-        <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />
+        {!making && <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />}
         {/* No inbox: what needs you is where it's answered, the lead chat's
             cards and the sidebar's rows, and review is the sidebar's. In its
             place, the page's ⋯ and Panel, at the far right. */}

@@ -110,6 +110,16 @@
 //                           that step, its daemon up (fixtures.ts seedFirstRun);
 //                           =machine with ?linux=setup (or ?vm=create,
 //                           ?wsl=create) the VM to make, before there is one
+//   ?machine=running|failed with ?linux=setup or ?wsl=create: the machine
+//                           being made in the background (lib/machineRun),
+//                           started as the page loads, and printing as `vm
+//                           init` does, or failing after it; with
+//                           ?firstrun=login the first run waits for it, with
+//                           ?firstrun=done the first run is over and the top
+//                           bar's chip shows it
+//   ?image=downloading|failed with ?app=home&firstrun=…: the first base image
+//                           downloading, or its download failed, in the first
+//                           run's rail
 //   ?setup=updating         Settings while the daemon updates the base image's
 //                           agent tools in place: the image check updating,
 //                           with its job's log (fixtures.ts)
@@ -374,13 +384,16 @@ applyLanguage(params.get('lang'));
 // first run is behind this browser, as it is behind every installation set up
 // before it, though those screens show it anyway: they are a new machine's.
 const firstRunAt = params.get('firstrun');
-localStorage.removeItem('agentbox.firstRun');
+if (firstRunAt === 'done') localStorage.setItem('agentbox.firstRun', 'done');
+else localStorage.removeItem('agentbox.firstRun');
 if (firstRunAt && firstRunAt !== 'tool') localStorage.setItem('agentbox.firstRun.tool', 'claude');
 else localStorage.removeItem('agentbox.firstRun.tool');
 if (params.get('dots')) localStorage.setItem('agentbox.featureDots.since', params.get('dots')!);
 else localStorage.removeItem('agentbox.featureDots.since');
 const vm = params.get('vm');
 const wsl = params.get('wsl');
+const machineRun = params.get('machine'); // 'running' | 'failed' | null
+const imageRun = params.get('image'); // 'downloading' | 'failed' | null
 const accounts = params.get('accounts') === '1';
 const avatars = params.get('avatars');
 const moods: Mood[] = ['working', 'asking', 'idle', 'sleeping', 'error'];
@@ -452,7 +465,39 @@ function windowsBeforeSetupBridge(): void {
     const timer = setInterval(() => fn(state()), 1_000);
     return () => clearInterval(timer);
   };
-  bridge.hostSetup = { status: async () => windowsBeforeSetup, run: async () => ({ restarted: false }), onOutput: () => () => {} };
+  bridge.hostSetup = { status: async () => windowsBeforeSetup, ...machineRunBridge(windowsInit) };
+}
+
+// What `agentbox wsl init` and `agentbox vm init` print on their way, for
+// ?machine= (main/hostsetup.ts streams it to the app as it is printed).
+const windowsInit = [
+  '> agentbox wsl init\n',
+  '==> Downloading Ubuntu 24.04 for WSL (340 MB)\n',
+  '  12% of 340 MB\r  38% of 340 MB\r  61% of 340 MB\r',
+];
+const linuxInit = [
+  '> agentbox vm init --cpus 8 --memory-cap 24GiB\n',
+  '==> Downloading Cloud Hypervisor v48.0 (4 MB)\n',
+  '==> Downloading the Debian 13 cloud image (412 MB)\n',
+  '  22% of 412 MB\r  47% of 412 MB\r  64% of 412 MB\r',
+];
+
+// machineRunBridge is hostSetup's run and onOutput for ?machine=: what the
+// command prints, at once, then running on (never resolving) or failing.
+function machineRunBridge(output: string[]) {
+  const listeners = new Set<(text: string) => void>();
+  return {
+    run: () =>
+      new Promise<{ restarted: boolean }>((_, reject) => {
+        setTimeout(() => output.forEach((text) => listeners.forEach((fn) => fn(text))), 50);
+        if (machineRun === 'failed')
+          setTimeout(() => reject(new Error("agentbox vm init failed: downloading the Debian cloud image: read tcp 10.0.2.15:51022->151.101.2.132:443: connection reset by peer")), 150);
+      }),
+    onOutput: (fn: (text: string) => void) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+  };
 }
 
 // linuxBeforeSetup makes the dev bridge a Linux machine on first launch, the
@@ -483,7 +528,7 @@ function linuxBeforeSetupBridge(kvmProblem: 'denied' | 'module' | 'novirt' | nul
   const listeners = new Set<(text: string) => void>();
   bridge.hostSetup = {
     status: async () => status,
-    run: async () => ({ restarted: false }),
+    ...machineRunBridge(linuxInit),
     // What `pkexec agentbox host kvm` prints on Debian, after the password.
     grantKVM: async () => {
       const say = (text: string) => listeners.forEach((fn) => fn(text));
@@ -494,10 +539,17 @@ function linuxBeforeSetupBridge(kvmProblem: 'denied' | 'module' | 'novirt' | nul
       await new Promise((r) => setTimeout(r, 1_500));
       status.linux = { ...status.linux!, kvm: true, kvmProblem: undefined };
     },
-    onOutput: (fn: (text: string) => void) => {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
+  };
+  const run = bridge.hostSetup as { onOutput: (fn: (text: string) => void) => () => void };
+  const runOutput = run.onOutput;
+  // KVM's grant and the run print to the same place, as in the main process.
+  run.onOutput = (fn) => {
+    listeners.add(fn);
+    const stop = runOutput(fn);
+    return () => {
+      listeners.delete(fn);
+      stop();
+    };
   };
 }
 
@@ -591,6 +643,14 @@ if (chat === 'imagewait') {
   api.auth = async () => ({ ...(await auth()), claudeAccounts: [signedIn] });
 }
 seedQueryClient(queryClient, fixtures);
+if (imageRun === 'downloading' || imageRun === 'failed') {
+  const status: T.ImageStatus =
+    imageRun === 'failed'
+      ? { ready: false, snapshot: '', build: 'failed', job: 'job-image-build', error: 'downloading part 2 of 3: unexpected EOF', waiting: 0 }
+      : imageDownloading;
+  api.image = async () => status;
+  queryClient.setQueryData(['image'], status);
+}
 if (chat === 'imagewait') {
   queryClient.setQueryData(['image'], imageDownloading);
   queryClient.setQueryData<T.AuthStatus>(['auth'], (a) => a && { ...a, claudeAccounts: [signedIn] });
@@ -1572,12 +1632,17 @@ if (phoneMode === 'frame') {
   else linuxBeforeSetupBridge(({ setup: null, nokvm: 'novirt', 'kvm-denied': 'denied', 'kvm-module': 'module' } as const)[linuxHost as 'setup' | 'nokvm' | 'kvm-denied' | 'kvm-module']);
   // After the bridge: some of what App imports reaches for it as it loads.
   const { App } = await import('../App');
+  if (machineRun) {
+    const { startMachine } = await import('../lib/machineRun');
+    void startMachine(wsl ? undefined : { vm: true, cpus: 8, memoryCap: '24GiB' });
+  }
   const appClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 5_000 } } });
   connectEvents(appClient);
   createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={appClient}>
       <TooltipProvider delayDuration={250}>
         <App />
+        {params.has('click') && <ClickOnLoad selectors={params.getAll('click')} />}
       </TooltipProvider>
     </QueryClientProvider>,
   );

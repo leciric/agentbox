@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CircleCheck, CircleDashed, FolderGit2, GitFork, Lock, LoaderCircle, Plus, Search } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { ConnectionState } from "../../preload";
+import type { ConnectionState, HostSetupStatus } from "../../preload";
 import * as T from "../../shared/api";
 import { api } from "../lib/api";
 import {
@@ -10,19 +10,25 @@ import {
   firstRunSteps,
   firstRunTools,
   isFirstRunTool,
+  machineStarted,
+  machineState,
   stepDone,
+  waitsForMachine,
+  type MachineState,
   type FirstRunMark,
   type FirstRunProgress,
   type FirstRunStep,
   type FirstRunTool,
 } from "../lib/firstRun";
 import { useT, type MessageKey } from "../lib/i18n";
+import { useMachineRun } from "../lib/machineRun";
 import type { SetupCard } from "../lib/setup";
 import { cn, errorMessage, timeAgo } from "../lib/utils";
 import { DoctorPanel } from "./DoctorPanel";
 import { JobProgress } from "./JobProgress";
 import { LinuxVMSetup } from "./RunInVM";
 import { GitHubAccounts, StepIcon, usable, useSetupSteps, type Step } from "./SettingsView";
+import { BackgroundWork, MachineWait } from "./SetupProgress";
 import { StartingNotice } from "./StartingNotice";
 import { aiLabel, ToolMark } from "./state";
 import { Button } from "./ui/button";
@@ -81,17 +87,22 @@ const needs: Record<FirstRunTool, MessageKey> = {
   gemini: "firstRun.tool.needs.gemini",
 };
 
-// The steps of Setup the machine step waits for: everything agents can't
-// run without.
+// The steps of Setup the machine step shows, and those it waits for:
+// everything agents can't run without but the base image, which downloads in
+// the background (BackgroundWork) and which the first agent made waits for.
 const machineIds = new Set(["cli", "incus", "host", "image", "storage"]);
+const machineWaitsFor = (s: Step) => s.id !== "image";
 
 // FirstRun is the app's first screen on a new installation: one page that
 // goes from choosing an AI tool to a first project, each step skipped when
 // it's done already, and ends on the doctor. Before there is a daemon it can
-// only choose the tool and make the VM (or distro); the rest waits for it.
+// only choose the tool and start making the VM (or distro), which goes on in
+// the background: the next step, reached before the daemon answers, says it
+// waits for it and goes on by itself once it does.
 export function FirstRun({
   connection,
   setup,
+  host,
   windows,
   onFinish,
 }: {
@@ -99,10 +110,14 @@ export function FirstRun({
   // setup is the VM, the distro or the Linux VM still to make, as App
   // decides it (setupCard).
   setup: SetupCard;
+  // host is what the main process says about the machine (App's
+  // host-setup query), polled until the daemon answers.
+  host: HostSetupStatus | undefined;
   windows: boolean;
   // onFinish leaves it, at the project it cloned when it did.
   onFinish: (project?: string) => void;
 }) {
+  const t = useT();
   const [tool, setTool] = useState<FirstRunTool | undefined>(() => {
     const kept = read(toolKey) ?? undefined;
     return isFirstRunTool(kept) ? kept : undefined;
@@ -115,14 +130,34 @@ export function FirstRun({
     if (firstRunMark() === null) setFirstRunMark("started");
   }, []);
 
+  const run = useMachineRun();
+  const machine = machineState({ run, host, connection });
+  // A step opened from the rail, to look at or change, over the one the
+  // first run is on.
+  const [viewing, setViewing] = useState<FirstRunStep>();
+
   if (connection.state !== "connected") {
-    const progress: FirstRunProgress = { tool, machine: false, login: false, github: false, project: false };
+    const progress: FirstRunProgress = { tool, machine: machineStarted(machine), daemon: false, login: false, github: false, project: false };
+    const at = firstRunStep(progress);
+    const step = viewing && (stepDone(viewing, progress) || viewing === at) ? viewing : at;
     return (
-      <Frame progress={progress} onFinish={() => onFinish()}>
-        {!tool ? (
-          <ToolStep onChoose={choose} />
-        ) : (
-          <StepPanel step="machine">
+      <Frame
+        progress={progress}
+        current={step}
+        onOpen={setViewing}
+        onFinish={() => onFinish()}
+        background={tool && <BackgroundWork machine={machine} onMachineDetails={() => setViewing("machine")} />}
+      >
+        {step === "tool" ? (
+          <ToolStep
+            initial={tool}
+            onChoose={(next) => {
+              setViewing(undefined);
+              choose(next);
+            }}
+          />
+        ) : step === "machine" ? (
+          <StepPanel step="machine" footer={progress.machine && <NextButton onClick={() => setViewing(undefined)} />}>
             {setup?.kind === "vm" ? (
               <VMSetup vm={setup.vm} />
             ) : setup?.kind === "linux" ? (
@@ -135,11 +170,17 @@ export function FirstRun({
               <WaitingForDaemon error={connection.state === "disconnected" ? connection.error : undefined} />
             )}
           </StepPanel>
+        ) : (
+          waitsForMachine(step, progress) && (
+            <StepPanel step={step} title={step === "login" && tool ? t("firstRun.login.titleFor", { tool: aiLabel(tool) }) : undefined}>
+              <MachineWait machine={machine} onDetails={() => setViewing("machine")} />
+            </StepPanel>
+          )
         )}
       </Frame>
     );
   }
-  return <Connected tool={tool} onChoose={choose} onFinish={onFinish} />;
+  return <Connected tool={tool} machine={machine} onChoose={choose} onFinish={onFinish} />;
 }
 
 function WaitingForDaemon({ error }: { error?: string }) {
@@ -158,10 +199,12 @@ function WaitingForDaemon({ error }: { error?: string }) {
 // about comes from there.
 function Connected({
   tool: chosen,
+  machine,
   onChoose,
   onFinish,
 }: {
   tool?: FirstRunTool;
+  machine: MachineState;
   onChoose: (tool: FirstRunTool) => void;
   onFinish: (project?: string) => void;
 }) {
@@ -195,13 +238,11 @@ function Connected({
 
   const machineSteps = steps.filter((s) => machineIds.has(s.id) && !s.optional);
   const loginStep = tool ? steps.find((s) => s.id === tool) : undefined;
-  // A first base image still downloading holds the step, with its progress,
-  // unless you go on while it does: agents wait for it, signing in doesn't.
-  const building = machineSteps.some((s) => s.status === "building");
   const loaded = settings.data !== undefined && auth.data !== undefined && projects.data !== undefined && setup.data !== undefined;
   const progress: FirstRunProgress = {
     tool,
-    machine: loaded && machineSteps.every((s) => usable(s.status)) && (!building || skipped.has("machine")),
+    machine: loaded && machineSteps.filter(machineWaitsFor).every((s) => usable(s.status)),
+    daemon: true,
     login: loginStep !== undefined && loginStep.status !== "optional" && usable(loginStep.status),
     github: !!auth.data?.github || skipped.has("github"),
     project: (projects.data?.length ?? 0) > 0 || skipped.has("project"),
@@ -222,9 +263,10 @@ function Connected({
     },
   });
 
+  const background = <BackgroundWork machine={machine} onMachineDetails={() => setViewing("machine")} />;
   if (!loaded) {
     return (
-      <Frame progress={progress} onFinish={() => finish.mutate()}>
+      <Frame progress={progress} onFinish={() => finish.mutate()} background={background}>
         <div className="flex justify-center py-10">
           <LoaderCircle className="size-5 animate-spin text-subtle" />
         </div>
@@ -233,7 +275,7 @@ function Connected({
   }
 
   return (
-    <Frame progress={progress} current={step} onOpen={setViewing} onFinish={() => finish.mutate()}>
+    <Frame progress={progress} current={step} onOpen={setViewing} onFinish={() => finish.mutate()} background={background}>
       {step === "tool" && (
         <ToolStep
           initial={tool}
@@ -246,19 +288,7 @@ function Connected({
       {step === "machine" && (
         <StepPanel
           step="machine"
-          footer={
-            progress.machine ? (
-              <NextButton onClick={() => setViewing(undefined)} />
-            ) : (
-              building &&
-              machineSteps.every((s) => usable(s.status)) && (
-                <Button variant="secondary" onClick={() => skip("machine")}>
-                  {t("firstRun.machine.continue")}
-                  <ArrowRight />
-                </Button>
-              )
-            )
-          }
+          footer={progress.machine && <NextButton onClick={() => setViewing(undefined)} />}
         >
           <StepList steps={machineSteps} />
         </StepPanel>
@@ -329,19 +359,22 @@ function Connected({
   );
 }
 
-// Frame is the page around the step: a heading, the steps in a rail, and a
-// way out for someone who'd rather set things up from Settings.
+// Frame is the page around the step: a heading, the steps in a rail with
+// the work going on in the background under them, and a way out for someone
+// who'd rather set things up from Settings.
 function Frame({
   progress,
   current,
   onOpen,
   onFinish,
+  background,
   children,
 }: {
   progress: FirstRunProgress;
   current?: FirstRunStep;
   onOpen?: (step: FirstRunStep) => void;
   onFinish: () => void;
+  background?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
@@ -396,6 +429,7 @@ function Frame({
                 );
               })}
             </ol>
+            {background}
           </nav>
           <div className="min-w-0">{children}</div>
         </div>

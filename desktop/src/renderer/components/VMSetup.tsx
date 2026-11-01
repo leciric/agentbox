@@ -1,12 +1,13 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Download, FlaskConical, LoaderCircle, MonitorCog } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import type { VMStatus } from '../../preload';
 import { useT, type MessageKey } from '../lib/i18n';
 import { krunkitPlan, type KrunkitPlan } from '../lib/krunkit';
-import { cn, errorMessage } from '../lib/utils';
-import { appendOutput, CommandBox, SetupLog } from './SettingsView';
+import { startMachine, useMachineRun } from '../lib/machineRun';
+import { cn } from '../lib/utils';
+import { CommandBox, SetupLog } from './SettingsView';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Notice, Panel } from './ui/card';
@@ -26,31 +27,31 @@ const drivers: { driver: Driver; label: MessageKey | null; hint: MessageKey }[] 
 // exists there is no daemon for the app to reach, and no Setup page to show:
 // this makes the VM from the app, with `agentbox vm init`, and streams what it
 // prints. The daemon it starts is the app's to connect to when it finishes.
-// A VM that exists keeps the driver it was made with; a new one is Lima's
+// The run goes on in the background (lib/machineRun): the first run moves on
+// as soon as it starts, and its indicators show how it gets on. A VM that exists keeps the driver it was made with; a new one is Lima's
 // unless the experimental vz driver is chosen. When krunkit is missing and
 // Homebrew can install it, the main button installs it first, so the VM is
 // made with krunkit; setting up without it stays a button away.
 export function VMSetup({ vm }: { vm: VMStatus }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const [lines, setLines] = useState<string[]>([]);
+  const machine = useMachineRun();
   const [chosen, setChosen] = useState<Driver>('lima');
-  useEffect(() => window.agentbox.hostSetup.onOutput((text) => setLines((prev) => appendOutput(prev, text))), []);
   const driver: Driver = vm.driver === 'vz' ? 'vz' : vm.exists ? 'lima' : chosen;
   const vz = driver === 'vz';
 
   // What Lima's new VM can do about krunkit, which gives agents a GPU.
   const krunkit = !vm.exists && !vz ? krunkitPlan(vm.krunkit) : null;
   const brew = krunkit?.kind === 'brew' ? krunkit : null;
-  const run = useMutation({
-    mutationFn: (withKrunkit: boolean) =>
-      window.agentbox.hostSetup.run(vz ? { driver: 'vz' } : withKrunkit ? { krunkit: true } : undefined),
-    onMutate: () => setLines([]),
-    onSuccess: async () => {
+  const pending = machine.state === 'running';
+  const withKrunkit = !!machine.options?.krunkit;
+  const lines = machine.lines;
+  const error = machine.state === 'failed' ? machine.error : undefined;
+  const run = (krunkit: boolean) =>
+    void startMachine(vz ? { driver: 'vz' } : krunkit ? { krunkit: true } : undefined, () => {
       toast(t('vm.setup.toast'), { description: t('vm.setup.toastDescription') });
-      await queryClient.invalidateQueries();
-    },
-  });
+      void queryClient.invalidateQueries();
+    });
 
   // Without Lima, `agentbox vm init` downloads AgentBox's own first
   // (internal/hostvm/lima.go): nothing to install by hand.
@@ -87,7 +88,7 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
               role="radio"
               aria-checked={chosen === d.driver}
               data-driver={d.driver}
-              disabled={run.isPending}
+              disabled={pending}
               onClick={() => setChosen(d.driver)}
               className={cn(
                 'grid gap-1 rounded-xl border border-line bg-surface-faint px-3 py-2.5 text-left transition hover:border-line-vivid hover:bg-surface disabled:opacity-60',
@@ -113,26 +114,26 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
       <div className="flex flex-wrap items-center gap-2">
         {brew ? (
           <>
-            <Button variant="primary" data-install-krunkit disabled={run.isPending} onClick={() => run.mutate(true)}>
-              {run.isPending && run.variables ? <LoaderCircle className="animate-spin" /> : <Download />}
+            <Button variant="primary" data-install-krunkit disabled={pending} onClick={() => run(true)}>
+              {pending && withKrunkit ? <LoaderCircle className="animate-spin" /> : <Download />}
               {brew.missing === 'driver' ? t('vm.setup.upgradeLima') : t('vm.setup.installKrunkit')}
             </Button>
-            <Button variant="ghost" disabled={run.isPending} onClick={() => run.mutate(false)}>
-              {run.isPending && !run.variables && <LoaderCircle className="animate-spin" />}
+            <Button variant="ghost" disabled={pending} onClick={() => run(false)}>
+              {pending && !withKrunkit && <LoaderCircle className="animate-spin" />}
               {t('vm.setup.withoutKrunkit')}
             </Button>
           </>
         ) : (
-          <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate(false)}>
-            {run.isPending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
+          <Button variant="primary" disabled={pending} onClick={() => run(false)}>
+            {pending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
             {vm.exists ? t('vm.setup.finish') : t('vm.setup.setUp')}
           </Button>
         )}
-        <span className="text-xs text-subtle">{run.isPending ? t('vm.setup.takesAWhile') : t('vm.setup.noPassword')}</span>
+        <span className="text-xs text-subtle">{pending ? t('vm.setup.takesAWhile') : t('vm.setup.noPassword')}</span>
       </div>
-      {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label={t('vm.setup.log')} />}
-      {run.error && <Notice>{errorMessage(run.error)}</Notice>}
-      {!noLima && otherProblem && !run.isPending && !run.error && lines.length === 0 && <Notice tone="warning">{otherProblem}</Notice>}
+      {(lines.length > 0 || pending) && <SetupLog lines={lines} label={t('vm.setup.log')} />}
+      {error && <Notice>{error}</Notice>}
+      {!noLima && otherProblem && !pending && !error && lines.length === 0 && <Notice tone="warning">{otherProblem}</Notice>}
       <div className="grid gap-2">
         <p className="text-ui text-muted">{t('vm.setup.orTerminal')}</p>
         <CommandBox command={command} />

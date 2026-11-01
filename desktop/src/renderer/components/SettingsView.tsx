@@ -56,7 +56,7 @@ import { DoctorPanel } from "./DoctorPanel";
 import { KrunkitRemake } from "./KrunkitRemake";
 import { offersRemake } from "../lib/krunkit";
 import type { SettingSection } from "../lib/settingsSearch";
-import { cn, errorMessage, timeAgo } from "../lib/utils";
+import { appendOutput, cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
@@ -4123,14 +4123,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
   );
 }
 
-// appendOutput adds a chunk of a command's output to the lines so far. A chunk
-// can stop in the middle of a line, so the last one stays open.
-export function appendOutput(lines: string[], text: string): string[] {
-  const parts = text.split("\n");
-  const next = lines.length > 0 ? [...lines] : [""];
-  next[next.length - 1] += parts[0];
-  return next.concat(parts.slice(1));
-}
+export { appendOutput };
 
 // HostSetup runs `agentbox host setup` as root, from the app: pkexec asks for
 // the password in the desktop's own dialog, and the output arrives here as it
