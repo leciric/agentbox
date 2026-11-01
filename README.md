@@ -153,11 +153,6 @@ password prompt and no new login. [docs/install.md](docs/install.md) has the det
 between agents, moving an installation from before the VM, and the Mac's krunkit VM with a GPU
 for agents.
 
-### Upgrading from 0.16
-
-Upgrading to 0.17 removes the Tasks tab and deletes its tasks: they aren't exported anywhere, so
-copy any open tasks somewhere else before you upgrade.
-
 ## Requirements and limitations
 
 - **Linux on x86_64**, a Mac, or Windows with WSL2. macOS and Windows are newer and less complete

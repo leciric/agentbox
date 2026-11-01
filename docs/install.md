@@ -118,6 +118,11 @@ browser or desktop tool call, nothing watching its Desktop tab) and opens again 
 and its Docker starts on the first `docker` command instead of at boot, and stops after five
 minutes with no container running.
 
+## Upgrading from 0.16
+
+Upgrading to 0.17 removes the Tasks tab and deletes its tasks: they aren't exported anywhere, so
+copy any open tasks somewhere else before you upgrade.
+
 ## Moving an installation from before the VM
 
 Earlier versions could also run agents directly on your computer's own Incus. An installation set
