@@ -84,6 +84,11 @@ Or `sudo apt install ./AgentBox-<version>-amd64.deb` on Debian and Ubuntu, or
 The app's **Setup** walks you through the rest the first time it runs: making AgentBox's VM,
 building the agents' base image, and logging in to Claude Code, Codex or OpenCode.
 
+### Upgrading from 0.16
+
+Upgrading to 0.17 removes the Tasks tab and deletes its tasks: they aren't exported anywhere, so
+copy any open tasks somewhere else before you upgrade.
+
 ### AgentBox's VM, on Linux
 
 On Linux, AgentBox runs in a VM of its own: the daemon, Incus and every agent in one
