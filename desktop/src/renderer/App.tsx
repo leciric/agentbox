@@ -178,7 +178,8 @@ export function App({ initial }: { initial?: View } = {}) {
   // if it fails.
   const machineRun = useMachineRun();
   const machine = machineState({ run: machineRun, host: hostSetup.data, connection });
-  const setup = machine.kind === "running" ? null : setupCard(connection, hostSetup.data);
+  const card = setupCard(connection, hostSetup.data);
+  const setup = machine.kind === "running" ? null : card;
   // A new installation's first run is the page until it's finished
   // (components/FirstRun). One set up before it existed says so in its
   // settings, and this app remembers that, so a VM removed later never
@@ -647,7 +648,9 @@ export function App({ initial }: { initial?: View } = {}) {
             {firstRun ? (
               <FirstRun
                 connection={connection}
-                setup={setup}
+                // The card even while it runs: the machine step, opened
+                // again from the rail, shows its log.
+                setup={card}
                 host={hostSetup.data}
                 windows={info.data?.platform === "win32"}
                 onFinish={(project) => {
