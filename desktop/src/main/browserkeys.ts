@@ -22,6 +22,7 @@ const macKeychain: Record<string, { service: string; account: string }> = {
   brave: { service: 'Brave Safe Storage', account: 'Brave' },
   msedge: { service: 'Microsoft Edge Safe Storage', account: 'Microsoft Edge' },
   vivaldi: { service: 'Vivaldi Safe Storage', account: 'Vivaldi' },
+  arc: { service: 'Arc Safe Storage', account: 'Arc' },
 };
 
 // run executes a command, resolving to its trimmed stdout, or '' if it fails

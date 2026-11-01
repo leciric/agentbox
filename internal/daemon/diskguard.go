@@ -184,7 +184,7 @@ func (s *Server) diskTellLead(ctx context.Context, project, notice string) {
 	if s.prLead != nil {
 		// A notice in the chat, not a turn: the lead reads it with whatever it
 		// does next, and nothing is spent on it now.
-		s.prLead(ctx, project, notice, false)
+		s.prLead(ctx, project, "", notice, false)
 	}
 }
 
@@ -343,6 +343,7 @@ func (s *Server) measureDisks(ctx context.Context) []agent.DiskSpace {
 		dir{"media", s.cfg.Paths.Media(), adviceMedia},
 		data,
 		// Wherever they are: with the data, or on the agents' disk.
+		dir{"agents' node_modules", s.cfg.Paths.NodeModules(), adviceAgents},
 		dir{"the shared caches", s.cfg.Paths.PackageCache(), adviceCaches},
 		dir{"the shared caches", s.cfg.Paths.ImageCache(), adviceCaches},
 	)

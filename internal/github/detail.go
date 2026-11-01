@@ -41,6 +41,27 @@ type PullFile struct {
 // PullRequestDetail reads one pull request with its description and
 // check runs.
 func (c Client) PullRequestDetail(ctx context.Context, repo Repo, number int) (PullRequestDetail, error) {
+	return c.PullRequestDetailAt(ctx, repo, number, "")
+}
+
+// PullRequestDetailAt is PullRequestDetail for a caller that already knows
+// the commit the pull request's head was at, from a list read earlier: the
+// check runs on it are read alongside the pull request rather than after it,
+// two round trips in the time of one. When the head has moved since, they are
+// read again for where it is now.
+func (c Client) PullRequestDetailAt(ctx context.Context, repo Repo, number int, head string) (PullRequestDetail, error) {
+	type checks struct {
+		runs []CheckRun
+		err  error
+	}
+	var early chan checks
+	if head != "" {
+		early = make(chan checks, 1)
+		go func() {
+			runs, err := c.checkRuns(ctx, repo, head)
+			early <- checks{runs, err}
+		}()
+	}
 	var raw struct {
 		rawPR
 		ChangedFiles int     `json:"changed_files"`
@@ -54,13 +75,21 @@ func (c Client) PullRequestDetail(ctx context.Context, repo Repo, number int) (P
 	if raw.Body != nil {
 		out.Body = *raw.Body
 	}
-	if raw.Head.SHA != "" {
-		// Like checks, never a reason to fail: a pull request whose checks
-		// couldn't be read is still worth showing.
-		if runs, err := c.checkRuns(ctx, repo, raw.Head.SHA); err == nil {
-			out.CheckRuns = runs
-			out.Checks = foldChecks(runs)
-		}
+	if raw.Head.SHA == "" {
+		return out, nil
+	}
+	var got checks
+	if early != nil {
+		got = <-early
+	}
+	if early == nil || raw.Head.SHA != head {
+		got.runs, got.err = c.checkRuns(ctx, repo, raw.Head.SHA)
+	}
+	// Like checks, never a reason to fail: a pull request whose checks
+	// couldn't be read is still worth showing.
+	if got.err == nil {
+		out.CheckRuns = got.runs
+		out.Checks = foldChecks(got.runs)
 	}
 	return out, nil
 }

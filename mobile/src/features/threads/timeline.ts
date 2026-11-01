@@ -43,6 +43,15 @@ export function timelineRows(thread: T.ChatThread): Row[] {
       case 'error':
         rows.push({ kind: 'error', id: it.id, item: it });
         break;
+      case 'notice':
+        // What you wrote from a project's chat to one of its agents: your
+        // message, tagged with the agent.
+        if (it.to) {
+          rows.push({ kind: 'user', id: it.id, item: it });
+          break;
+        }
+        if (it.text?.trim()) rows.push({ kind: 'note', id: it.id, item: it });
+        break;
       default:
         // A handoff, a message from another project's chat, a compaction:
         // a line of its text, when it has one.

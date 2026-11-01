@@ -20,26 +20,49 @@ import (
 // agentFrom finds the agent a request is about.
 type agentFrom func(*http.Request) (state.Agent, error)
 
-// leadFromPath returns a project's lead without creating it. A project you have
-// never written to has no lead yet, and gets one that exists only for this
-// request, so reading its empty conversation makes nothing on disk.
+// leadFromPath returns a project's lead without creating it: the lead of the
+// session the request names, or of the one most recently active when it
+// names none. A session never written to has no lead yet, and gets one that
+// exists only for this request, so reading its empty conversation makes
+// nothing on disk; so does a project with no session at all.
+//
+// The Home chat's sessions are found the same way, under state.HomeProject.
 func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 	project := r.PathValue("project")
-	if project == state.HomeProject {
-		return s.manager(nil).Home(), nil
+	if err := s.chatProject(r.Context(), project); err != nil {
+		return state.Agent{}, err
 	}
-	a, err := s.manager(nil).Lead(r.Context(), project)
+	var ls state.LeadSession
+	var err error
+	if session := sessionFrom(r); session != "" {
+		ls, err = s.store.LeadSession(r.Context(), project, session)
+	} else {
+		ls, err = s.store.LastActiveLeadSession(r.Context(), project)
+		if errors.Is(err, state.ErrNotFound) {
+			return state.Agent{
+				Project: project, Name: state.LeadName, AI: agent.ChatTool,
+				Interface: state.InterfaceChat, Role: state.RoleLead,
+			}, nil
+		}
+	}
+	if err != nil {
+		return state.Agent{}, err
+	}
+	if project == state.HomeProject {
+		// No row to find: a Home session's lead is built whole.
+		a := s.manager(nil).HomeSession(ls.ID)
+		a.Title = ls.Topic
+		return a, nil
+	}
+	a, err := s.manager(nil).LeadSession(r.Context(), project, ls.ID)
 	if err == nil {
 		return a, nil
 	}
 	if !errors.Is(err, state.ErrNotFound) {
 		return state.Agent{}, err
 	}
-	if _, err := s.store.Project(r.Context(), project); err != nil {
-		return state.Agent{}, err
-	}
 	return state.Agent{
-		Project: project, Name: state.LeadName, AI: agent.ChatTool,
+		Project: project, Name: state.LeadSessionName(ls.ID), Title: ls.Topic, AI: agent.ChatTool,
 		Interface: state.InterfaceChat, Role: state.RoleLead,
 	}, nil
 }
@@ -49,14 +72,19 @@ func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 // reads what is on that branch now.
 func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 	m := s.manager(s.cfg.Log)
-	if r.PathValue("project") == state.HomeProject {
+	// A closed session would hand the message on to another (leadOf).
+	if session := sessionFrom(r); session != "" {
+		if ls, err := s.store.LeadSession(r.Context(), r.PathValue("project"), session); err == nil && ls.Closed() {
+			return state.Agent{}, errSessionClosed
+		}
+	}
+	// A message that names no session, from a client that knows none, goes
+	// to the one most recently active, or opens one.
+	a, err := s.leadOf(r.Context(), r.PathValue("project"), sessionFrom(r), "Chat", true)
+	if err != nil || a.IsHome() {
 		// The Home chat has no project to roll its session into, nor a
 		// worktree to move: it is readied, and nothing more.
-		return m.EnsureHome(r.Context())
-	}
-	a, err := m.EnsureLead(r.Context(), r.PathValue("project"))
-	if err != nil {
-		return state.Agent{}, err
+		return a, err
 	}
 	// A turn is about to start, which is a moment the session may be replaced
 	// (D73): past the project's threshold the conversation is consolidated
@@ -66,6 +94,17 @@ func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 	// doesn't wait for it.
 	s.rolloverIfNeeded(r.Context(), a)
 	return m.SyncLead(r.Context(), a)
+}
+
+// leadForMessage is ensureLeadFromPath for a message to the chat. One that
+// joins a running turn doesn't wait for the lead to be readied again: its
+// brief and tools are the running session's already, and its worktree stays
+// on the commit the turn is reading rather than moving under it.
+func (s *Server) leadForMessage(r *http.Request) (state.Agent, error) {
+	if a, err := s.leadFromPath(r); err == nil && a.Status != "" && s.chat.Busy(a) {
+		return a, nil
+	}
+	return s.ensureLeadFromPath(r)
 }
 
 // projectChat describes a project's chat for the app: whether it has been used,
@@ -81,9 +120,22 @@ func (s *Server) projectChat(w http.ResponseWriter, r *http.Request) error {
 	if session == "" {
 		session = api.ChatOff
 	}
+	// Asked about no session, it is the whole chat's: busy when any of its
+	// sessions is, for what shows a project at work (the sidebar, keeping the
+	// computer awake).
+	if sessionFrom(r) == "" {
+		if sessions, err := s.store.LeadSessions(r.Context(), a.Project); err == nil {
+			for _, ls := range sessions {
+				if st := s.chat.State(agent.SessionRef(a.Project, ls.ID)); chatRank[st] > chatRank[session] {
+					session = st
+				}
+			}
+		}
+	}
 	info := api.ProjectChat{
 		Project:  a.Project,
-		Ref:      agent.LeadRef(a.Project),
+		Session:  sessionIfAny(a),
+		Ref:      a.Ref(),
 		Started:  a.Status != "",
 		Worktree: a.Worktree,
 		BaseRef:  a.BaseRef,
@@ -125,9 +177,22 @@ func (s *Server) lastChatLine(ctx context.Context, a state.Agent) *api.ChatLine 
 // worktree and its private HOME. The project's agents are untouched.
 func (s *Server) resetProjectChat(w http.ResponseWriter, r *http.Request) error {
 	project := r.PathValue("project")
-	s.chat.Stop(agent.LeadRef(project), "the project chat was reset")
-	s.chat.Forget(agent.LeadRef(project))
-	s.settleLeadCache(project, true)
+	// The whole chat, every session of it.
+	refs := []string{agent.LeadRef(project)}
+	sessions, err := s.store.AllLeadSessions(r.Context(), project)
+	if err != nil {
+		return err
+	}
+	for _, ls := range sessions {
+		refs = append(refs, agent.SessionRef(project, ls.ID))
+		s.stopSessionAPI(project, ls.ID)
+	}
+	defer s.sessionsChanged(context.WithoutCancel(r.Context()), project)
+	for _, ref := range refs {
+		s.chat.Stop(ref, "the project chat was reset")
+		s.chat.Forget(ref)
+		s.settleLeadCache(ref, true)
+	}
 	if project == state.HomeProject {
 		if err := s.manager(s.cfg.Log).DestroyHome(r.Context()); err != nil {
 			return err
@@ -140,4 +205,19 @@ func (s *Server) resetProjectChat(w http.ResponseWriter, r *http.Request) error 
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// sessionIfAny is a lead's session, "" for one standing in for a project
+// that has none.
+func sessionIfAny(a state.Agent) string {
+	if a.Status == "" && a.Title == "" && a.Name == state.LeadName {
+		return ""
+	}
+	return a.Session()
+}
+
+// chatRank orders a chat's states by how much they say it is doing, for a
+// project's chat across its sessions.
+var chatRank = map[string]int{
+	api.ChatOff: 0, api.ChatError: 1, api.ChatReady: 2, api.ChatStarting: 3, api.ChatWaiting: 4, api.ChatRunning: 5,
 }
