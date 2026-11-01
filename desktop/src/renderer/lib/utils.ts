@@ -154,3 +154,12 @@ export function githubErrorSentence(err: T.GitHubError): string {
 // shortcut is how a Ctrl/⌘ shortcut reads on this computer, for a menu or a hint.
 export const onMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
 export const shortcut = (key: string) => (onMac ? `⌘${key}` : `Ctrl ${key}`);
+
+// appendOutput adds a chunk of a command's output to the lines so far. A chunk
+// can stop in the middle of a line, so the last one stays open.
+export function appendOutput(lines: string[], text: string): string[] {
+  const parts = text.split("\n");
+  const next = lines.length > 0 ? [...lines] : [""];
+  next[next.length - 1] += parts[0];
+  return next.concat(parts.slice(1));
+}

@@ -4,6 +4,7 @@ import type { LinuxSetup } from '../../preload';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { t, useT } from '../lib/i18n';
+import { startMachine, useMachineRun } from '../lib/machineRun';
 import { cn, errorMessage } from '../lib/utils';
 import { laterKey, movePrompt } from '../lib/vmMove';
 import { rememberSection } from './SettingsPage';
@@ -42,22 +43,22 @@ export function kvmFixable(linux: LinuxSetup | null | undefined): boolean {
 // made: there's no daemon until then, so the setup is the page, as a Mac's
 // VMSetup is. It makes the VM with `agentbox vm init`, at the size chosen
 // here, and streams what it prints; the daemon it starts is the app's to
-// connect to when it finishes.
+// connect to when it finishes. The run goes on in the background
+// (lib/machineRun), as a Mac's VMSetup's does.
 export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const [lines, setLines] = useState<string[]>([]);
+  const machine = useMachineRun();
   const [form, setForm] = useState<VMSizeForm>(() => vmSizeDefaults(linux));
-  useEffect(() => window.agentbox.hostSetup.onOutput((text) => setLines((prev) => appendOutput(prev, text))), []);
   const sized = vmSize(form, linux);
-  const run = useMutation({
-    mutationFn: () => window.agentbox.hostSetup.run({ vm: true, ...sized }),
-    onMutate: () => setLines([]),
-    onSuccess: async () => {
+  const pending = machine.state === 'running';
+  const lines = machine.lines;
+  const error = machine.state === 'failed' ? machine.error : undefined;
+  const run = () =>
+    void startMachine({ vm: true, ...sized }, () => {
       toast(t('vm.setup.toast'), { description: t('vm.setup.toastDescription') });
-      await queryClient.invalidateQueries();
-    },
-  });
+      void queryClient.invalidateQueries();
+    });
   return (
     <Panel className="grid gap-3 p-4" data-linux-vm-setup={linux.kvm ? 'create' : 'nokvm'}>
       <div className="flex items-start gap-3">
@@ -71,20 +72,20 @@ export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
       </div>
       {linux.kvm ? (
         <>
-          <VMSizeFields linux={linux} form={form} disabled={run.isPending} onChange={setForm} />
+          <VMSizeFields linux={linux} form={form} disabled={pending} onChange={setForm} />
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" disabled={run.isPending || !sized} onClick={() => run.mutate()} data-linux-vm-setup-run>
-              {run.isPending ? <LoaderCircle className="animate-spin" /> : <Monitor />}
+            <Button variant="primary" disabled={pending || !sized} onClick={() => run()} data-linux-vm-setup-run>
+              {pending ? <LoaderCircle className="animate-spin" /> : <Monitor />}
               {t('vm.run.setUp')}
             </Button>
-            <span className="text-xs text-subtle">{run.isPending ? t('vm.run.making') : t('vm.run.noPassword')}</span>
+            <span className="text-xs text-subtle">{pending ? t('vm.run.making') : t('vm.run.noPassword')}</span>
           </div>
         </>
       ) : (
         <KVMAccess linux={linux} />
       )}
-      {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label={t('vm.run.log')} />}
-      {run.error && <Notice>{errorMessage(run.error)}</Notice>}
+      {(lines.length > 0 || pending) && <SetupLog lines={lines} label={t('vm.run.log')} />}
+      {error && <Notice>{error}</Notice>}
       {/* KVMAccess has its own command first: vm init comes after it. */}
       {!kvmFixable(linux) && (
         <div className="grid gap-2">

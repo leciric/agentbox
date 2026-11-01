@@ -2488,15 +2488,71 @@
   },
   {
     "id": "first-run-machine-dark",
-    "description": "The first run before there is a VM: the Linux VM to make, the tool already chosen — dark",
+    "description": "The first run before there is a VM: the Linux VM to make, the tool already chosen; starting it moves straight on — dark",
     "query": "linux=setup&firstrun=machine&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "first-run-image-dark",
-    "description": "The first run with the daemon up and the first base image downloading, its progress open — dark",
-    "query": "app=home&firstrun=image&theme=dark",
+    "description": "The first run with the daemon up and the first base image downloading: the sign-in step, the download under the rail, nothing waiting on it — dark",
+    "query": "app=home&firstrun=image&image=downloading&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "first-run-waiting-linux-dark",
+    "description": "The first run on Linux with the VM being made in the background: on to the sign-in, which waits for the machine, its progress under the rail — dark",
+    "query": "linux=setup&firstrun=login&machine=running&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "first-run-waiting-windows-light",
+    "description": "The first run on Windows with the distro being made in the background: the sign-in waits for it — light",
+    "query": "wsl=create&firstrun=login&machine=running&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "first-run-machine-failed-dark",
+    "description": "The first run when making the VM failed in the background: the failure and a retry in the rail and in the waiting step, no blocking screen — dark",
+    "query": "linux=setup&firstrun=login&machine=failed&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "first-run-machine-failed-details-dark",
+    "description": "Details on a failed run: the machine step opened again, its card with the error, the button to try again and the command for a terminal — dark",
+    "query": "linux=setup&firstrun=login&machine=failed&click=%5Bdata-first-run-step%3Dmachine%5D&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "first-run-image-failed-dark",
+    "description": "The first run with the daemon up and the first base image's download failed: a retry in the rail, the GitHub step carrying on — dark",
+    "query": "app=home&firstrun=github&image=failed&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "first-run-waiting-pt-BR-dark",
+    "description": "Same as first-run-waiting-linux-dark, in Brazilian Portuguese",
+    "query": "linux=setup&firstrun=login&machine=running&lang=pt-BR&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "first-run-waiting-narrow-dark",
+    "description": "The first run waiting for the machine at a phone-narrow 480px window — dark",
+    "query": "linux=setup&firstrun=login&machine=running&theme=dark",
+    "width": 480,
+    "height": 900
+  },
+  {
+    "id": "machine-chip-after-first-run-dark",
+    "description": "The first run left for later while the VM is still being made: the top bar's machine chip and a notice instead of the daemon unreachable — dark",
+    "query": "linux=setup&firstrun=done&machine=running&theme=dark",
     "width": 1280,
     "height": 900
   },

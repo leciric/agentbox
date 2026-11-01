@@ -71,7 +71,8 @@ import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
 import { requestReveal } from "./lib/reveal";
 import type { SearchTarget } from "./lib/search";
 import { setupCard } from "./lib/setup";
-import { showFirstRun } from "./lib/firstRun";
+import { useMachineRun } from "./lib/machineRun";
+import { machineState, showFirstRun } from "./lib/firstRun";
 import { FirstRun, firstRunMark, setFirstRunMark } from "./components/FirstRun";
 import { useHostTheme } from "./lib/theme";
 import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
@@ -172,7 +173,12 @@ export function App({ initial }: { initial?: View } = {}) {
       connection.state !== "connected",
     refetchInterval: 3_000,
   });
-  const setup = setupCard(connection, hostSetup.data);
+  // The machine being made in the background (lib/machineRun) isn't a
+  // machine to set up: its indicator shows it, and the card comes back only
+  // if it fails.
+  const machineRun = useMachineRun();
+  const machine = machineState({ run: machineRun, host: hostSetup.data, connection });
+  const setup = machine.kind === "running" ? null : setupCard(connection, hostSetup.data);
   // A new installation's first run is the page until it's finished
   // (components/FirstRun). One set up before it existed says so in its
   // settings, and this app remembers that, so a VM removed later never
@@ -626,6 +632,7 @@ export function App({ initial }: { initial?: View } = {}) {
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
+          machine={firstRun || machineRun.state === "idle" ? undefined : machine}
           view={view}
           onSelect={select}
           onOpenNav={() => setNavOpen(true)}
@@ -641,6 +648,7 @@ export function App({ initial }: { initial?: View } = {}) {
               <FirstRun
                 connection={connection}
                 setup={setup}
+                host={hostSetup.data}
                 windows={info.data?.platform === "win32"}
                 onFinish={(project) => {
                   setFirstRunMark("done");
@@ -666,6 +674,10 @@ export function App({ initial }: { initial?: View } = {}) {
                   starting={connection.starting}
                   windows={info.data?.platform === "win32"}
                 />
+              </div>
+            ) : machine.kind === "running" ? (
+              <div className="px-4 pt-4 md:px-6">
+                <Notice tone="info">{t("shell.machineChip.runningBody")}</Notice>
               </div>
             ) : (
               connection.state === "disconnected" && (
