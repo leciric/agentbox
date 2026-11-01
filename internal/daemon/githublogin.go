@@ -6,37 +6,38 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 	"sync"
-	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
 	"agentbox/internal/github"
 )
 
-// githubLogin is one device-flow GitHub sign-in: the code to show while it
+// githubLogin is one GitHub sign-in through gh: the code to show while it
 // waits, then whose the token turned out to be.
 type githubLogin struct {
 	account string
 
 	mu      sync.Mutex
-	code    github.DeviceCode
+	code    github.LoginCode
 	user    string
 	outcome string
 }
 
-func (l *githubLogin) snapshot() (github.DeviceCode, string, string) {
+func (l *githubLogin) snapshot() (github.LoginCode, string, string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.code, l.user, l.outcome
 }
 
-// startGitHubLogin signs in to GitHub with OAuth's device flow, so adding an
-// account needs neither gh on this machine nor a pasted token: the app shows
-// a code, the user enters it at github.com/login/device, and the token is
-// stored as a pasted one is. It waits for the user, so it is a job, which
-// cancelling stops polling.
+// startGitHubLogin signs in to GitHub with `gh auth login --web`, run where
+// the daemon runs (github.GHLogin), so adding an account needs no pasted
+// token, nothing on the user's own machine and no OAuth App of AgentBox's:
+// the app shows gh's code, the user enters it at github.com/login/device, and
+// the token is stored as a pasted one is. It waits for the user, so it is a
+// job, which cancelling stops gh.
 func (s *Server) startGitHubLogin(w http.ResponseWriter, r *http.Request) error {
 	var req api.GitHubLoginRequest
 	if err := readJSON(r, &req); err != nil {
@@ -48,9 +49,6 @@ func (s *Server) startGitHubLogin(w http.ResponseWriter, r *http.Request) error 
 	}
 	if err := credentials.ValidateAccount(account); err != nil {
 		return err
-	}
-	if s.githubDevice.ClientID == "" {
-		return github.ErrNoClientID
 	}
 	job, err := s.claimGitHubLogin(&githubLogin{account: account})
 	if err != nil {
@@ -88,21 +86,21 @@ func (s *Server) claimGitHubLogin(login *githubLogin) (api.Job, error) {
 func (s *Server) runGitHubLogin(ctx context.Context, log io.Writer, login *githubLogin) (any, error) {
 	status := func(detail string) { _, _ = fmt.Fprintf(log, "==> %s\n", detail) }
 	status("Signing in to GitHub as the account " + login.account)
-	code, err := s.githubDevice.Start(ctx, github.DeviceScopes)
-	if err != nil {
+	if err := s.ensureGH(ctx, log); err != nil {
 		return nil, err
 	}
-	login.mu.Lock()
-	login.code = code
-	login.mu.Unlock()
-	status(fmt.Sprintf("Enter the code %s at %s (it expires at %s)", code.UserCode, code.VerificationURI, code.ExpiresAt.Local().Format(time.Kitchen)))
-	token, err := s.githubDevice.Poll(ctx, code)
+	token, err := s.githubGH.Run(ctx, log, func(code github.LoginCode) {
+		login.mu.Lock()
+		login.code = code
+		login.mu.Unlock()
+		status(fmt.Sprintf("Enter the code %s at %s", code.UserCode, code.VerificationURI))
+	})
 	if err != nil {
 		outcome := ""
 		switch {
-		case errors.Is(err, github.ErrDeviceExpired):
+		case errors.Is(err, github.ErrLoginExpired):
 			outcome = api.GitHubLoginExpired
-		case errors.Is(err, github.ErrDeviceDenied):
+		case errors.Is(err, github.ErrLoginDenied):
 			outcome = api.GitHubLoginDenied
 		}
 		login.mu.Lock()
@@ -120,6 +118,33 @@ func (s *Server) runGitHubLogin(ctx context.Context, log io.Writer, login *githu
 	login.mu.Unlock()
 	status("Signed in as " + user)
 	return map[string]string{"account": login.account, "user": user}, nil
+}
+
+// ensureGH installs gh when it is missing from AgentBox's own VM. A VM made
+// before gh was among its packages (chv's packages, Lima's provisioning, the
+// WSL distro's configure.sh) has none, and its user has passwordless sudo
+// there; elsewhere, on a machine of the user's own, nothing is installed and
+// the sign-in says gh is missing.
+func (s *Server) ensureGH(ctx context.Context, log io.Writer) error {
+	if _, err := s.githubGH.Path(); err == nil || !s.installGH {
+		return err
+	}
+	if _, err := exec.LookPath("apt-get"); err != nil {
+		return github.ErrNoGH
+	}
+	_, _ = fmt.Fprintln(log, "==> Installing GitHub CLI (gh) in AgentBox's VM")
+	for _, args := range [][]string{
+		{"-n", "apt-get", "update", "-q"},
+		{"-n", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "-q", "--no-install-recommends", "gh"},
+	} {
+		cmd := exec.CommandContext(ctx, "sudo", args...)
+		cmd.Stdout, cmd.Stderr = log, log
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("installing gh: %w (%w)", err, github.ErrNoGH)
+		}
+	}
+	_, err := s.githubGH.Path()
+	return err
 }
 
 // githubLoginStatus is what the app and the CLI poll while a sign-in runs.

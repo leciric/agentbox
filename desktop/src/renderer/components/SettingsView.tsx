@@ -3609,9 +3609,10 @@ function CursorAccount({ command }: { command: string }) {
   );
 }
 
-// GitHubLogin signs in with GitHub's device flow, through the daemon: it
-// shows a code, opens github.com/login/device, and the token arrives once the
-// code is entered there. Nothing is pasted, and the host needs no gh.
+// GitHubLogin signs in through the daemon, which runs `gh auth login --web`
+// where it runs: it shows gh's code, opens github.com/login/device, and the
+// token arrives once the code is entered there. Nothing is pasted, and the
+// user's own machine needs no gh.
 function GitHubLogin({
   accounts,
   onSaved,

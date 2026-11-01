@@ -553,7 +553,7 @@ export const api = {
     window.agentbox.chatImageUrl(`/v1/projects/${encodeURIComponent(project)}/pulls/image?src=${encodeURIComponent(src)}`),
 
   saveGitHubToken: (token: string, account?: string) => call<{ user: string }>('POST', '/v1/auth/github', { token, account } satisfies T.GitHubTokenRequest),
-  // Signing in from the app: the daemon runs GitHub's device flow as a job, and
+  // Signing in from the app: the daemon runs `gh auth login --web` as a job, and
   // says which code to enter while it waits for you to enter it.
   startGitHubLogin: (account?: string) => call<T.Job>('POST', '/v1/auth/github/login', { account } satisfies T.GitHubLoginRequest),
   githubLogin: (job: string) => call<T.GitHubLogin>('GET', `/v1/auth/github/login/${encodeURIComponent(job)}`),

@@ -1750,7 +1750,7 @@ func (s *Server) saveGitHubToken(w http.ResponseWriter, r *http.Request) error {
 
 // storeGitHubToken asks GitHub whose token it is and stores it under the
 // account, the first account becoming the default. It is how a pasted token
-// and a device-flow sign-in (githublogin.go) both end.
+// and a sign-in through gh (githublogin.go) both end.
 func (s *Server) storeGitHubToken(ctx context.Context, account, token string) (string, error) {
 	login, err := s.gitHub(token).Login(github.WithCaller(ctx, "accounts"))
 	if err != nil {

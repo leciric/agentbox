@@ -571,11 +571,12 @@ func newAuthGitHubCmd(a *app) *cobra.Command {
 the GitHub API work inside them without logging in. AgentBox also uses it to
 show which pull request each agent's branch has, and whether its checks pass.
 
-Without --token-stdin, it signs in with GitHub's device flow: it prints a
-code and opens github.com/login/device, where you enter it, in any browser.
-Neither gh nor a token is needed. With --token-stdin, it reads a token from
-stdin instead, for an organization that blocks OAuth apps. A token is checked
-against GitHub before it is stored.
+Without --token-stdin, it signs in with the code 'gh auth login' gives, gh
+run where the daemon runs: it prints the code and opens
+github.com/login/device, where you enter it, in any browser. No token is
+needed, and no app of your own on GitHub. With --token-stdin, it reads a
+token from stdin instead, for an organization that blocks OAuth apps. A token
+is checked against GitHub before it is stored.
 
 Tokens are stored under a name, so this machine can hold several GitHub
 accounts: run this once per account, with --account. A project picks which
@@ -703,7 +704,7 @@ func githubTokenFromStdin(cmd *cobra.Command) (string, error) {
 	return token, nil
 }
 
-// githubDeviceLogin signs in with the daemon's device flow and returns whose
+// githubDeviceLogin signs in with the daemon's gh and returns whose
 // account it was: it prints the code, opens the page to enter it on, and
 // waits. Interrupting it cancels the sign-in, so the daemon stops polling.
 func githubDeviceLogin(cmd *cobra.Command, c *api.Client, account string) (string, error) {
