@@ -61,6 +61,12 @@ func TestDoctorReusesSetupsChecksAndSaysWhatFixesThem(t *testing.T) {
 	if c := doctorCheck(t, report, "network-github"); c.Status != api.DoctorFail || !strings.Contains(c.Message, "no such host") {
 		t.Errorf("GitHub, offline = %+v; want a failure naming why", c)
 	}
+	// A tool a chat's first message installs is not a problem to fix.
+	for _, id := range []string{"ai-tool", "gh"} {
+		if c := doctorCheck(t, report, id); c.Status != api.DoctorOK || c.Fix != "" || c.AutoFix {
+			t.Errorf("%s, not installed yet = %+v; want ok, with no fix offered", id, c)
+		}
+	}
 	if c := doctorCheck(t, report, "image"); c.Status != api.DoctorFail || !c.AutoFix {
 		t.Errorf("no image = %+v; want a failure that fixes itself", c)
 	}
