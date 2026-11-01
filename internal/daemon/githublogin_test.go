@@ -2,70 +2,66 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
 	"agentbox/internal/github"
 )
 
-// fakeGitHubWeb is github.com's device flow and api.github.com's /user, in
-// one stub: each poll is answered with the next of polls, and the last one
-// again after that.
-type fakeGitHubWeb struct {
-	mu    sync.Mutex
-	polls []string
-	asked int
-}
-
-func (f *fakeGitHubWeb) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	switch r.URL.Path {
-	case "/login/device/code":
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"device_code": "dev-1", "user_code": "ABCD-1234", "verification_uri": "https://github.com/login/device",
-			"expires_in": 900, "interval": 5,
-		})
-	case "/login/oauth/access_token":
-		answer := f.polls[min(f.asked, len(f.polls)-1)]
-		f.asked++
-		if answer == "token" {
-			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "gho_device", "token_type": "bearer"})
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": answer})
-	case "/user":
-		if r.Header.Get("Authorization") != "Bearer gho_device" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		_, _ = w.Write([]byte(`{"login":"octocat"}`))
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-// startGitHubLoginDaemon is a daemon whose device flow goes to fake, polling
-// as soon as wait lets it.
-func startGitHubLoginDaemon(t *testing.T, fake *fakeGitHubWeb, wait func(context.Context, time.Duration) error) testDaemon {
+// fakeGH writes a gh whose `auth login --web` prints a code and ends as
+// ending says (token, denied, expired, wait or anything else for an error),
+// and whose `auth token` prints gho_device.
+func fakeGH(t *testing.T, ending string) string {
 	t.Helper()
-	stub := httptest.NewServer(fake)
+	bin := filepath.Join(t.TempDir(), "gh")
+	script := `#!/bin/sh
+case "$1 $2" in
+"auth login")
+	echo "! First copy your one-time code: ABCD-1234" >&2
+	echo "Open this URL to continue in your web browser: https://github.com/login/device" >&2
+	case ` + ending + ` in
+	token) echo gho_device >"$GH_CONFIG_DIR/token" ;;
+	denied) echo "failed to authenticate via web browser: access_denied" >&2; exit 1 ;;
+	expired) echo "failed to authenticate via web browser: authentication timed out" >&2; exit 1 ;;
+	wait) while :; do sleep 0.05; done ;;
+	*) echo "error connecting to github.com" >&2; exit 1 ;;
+	esac ;;
+"auth token") cat "$GH_CONFIG_DIR/token" ;;
+esac
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}
+
+// githubUser is api.github.com's /user for the token gho_device.
+var githubUser = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/user" || r.Header.Get("Authorization") != "Bearer gho_device" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	_, _ = w.Write([]byte(`{"login":"octocat"}`))
+})
+
+// startGitHubLoginDaemon is a daemon that signs in with the gh at bin.
+func startGitHubLoginDaemon(t *testing.T, bin string) testDaemon {
+	t.Helper()
+	stub := httptest.NewServer(githubUser)
 	t.Cleanup(stub.Close)
 	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{setup: func(s *Server) {
-		s.githubDevice = github.DeviceFlow{ClientID: "Iv1.test", BaseURL: stub.URL, Wait: wait}
+		s.githubGH = github.GHLogin{Bin: bin}
+		s.installGH = false
 	}})
 	d.setGitHub(t, stub.URL)
 	return d
 }
-
-func noWait(context.Context, time.Duration) error { return nil }
 
 func waitGitHubLogin(t *testing.T, d testDaemon, job string) api.GitHubLogin {
 	t.Helper()
@@ -80,8 +76,7 @@ func waitGitHubLogin(t *testing.T, d testDaemon, job string) api.GitHubLogin {
 
 func TestGitHubLoginStoresTheTokenAsTheDefault(t *testing.T) {
 	t.Parallel()
-	fake := &fakeGitHubWeb{polls: []string{"authorization_pending", "slow_down", "token"}}
-	d := startGitHubLoginDaemon(t, fake, noWait)
+	d := startGitHubLoginDaemon(t, fakeGH(t, "token"))
 	ctx := context.Background()
 
 	j, err := d.client.StartGitHubLogin(ctx, "")
@@ -123,15 +118,15 @@ func TestGitHubLoginStoresTheTokenAsTheDefault(t *testing.T) {
 func TestGitHubLoginEndings(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		answer, outcome string
+		ending, outcome string
 	}{
-		{"expired_token", api.GitHubLoginExpired},
-		{"access_denied", api.GitHubLoginDenied},
-		{"unsupported_grant_type", ""},
+		{"expired", api.GitHubLoginExpired},
+		{"denied", api.GitHubLoginDenied},
+		{"offline", ""},
 	} {
-		t.Run(tc.answer, func(t *testing.T) {
+		t.Run(tc.ending, func(t *testing.T) {
 			t.Parallel()
-			d := startGitHubLoginDaemon(t, &fakeGitHubWeb{polls: []string{"authorization_pending", tc.answer}}, noWait)
+			d := startGitHubLoginDaemon(t, fakeGH(t, tc.ending))
 			ctx := context.Background()
 			j, err := d.client.StartGitHubLogin(ctx, "")
 			if err != nil {
@@ -148,24 +143,19 @@ func TestGitHubLoginEndings(t *testing.T) {
 	}
 }
 
-// Cancelling stops the polling, and only one sign-in runs at a time.
+// Cancelling stops gh, and only one sign-in runs at a time.
 func TestGitHubLoginCancel(t *testing.T) {
 	t.Parallel()
-	polling := make(chan struct{}, 1)
-	d := startGitHubLoginDaemon(t, &fakeGitHubWeb{polls: []string{"authorization_pending"}}, func(ctx context.Context, _ time.Duration) error {
-		select {
-		case polling <- struct{}{}:
-		default:
-		}
-		<-ctx.Done()
-		return ctx.Err()
-	})
+	d := startGitHubLoginDaemon(t, fakeGH(t, "wait"))
 	ctx := context.Background()
 	j, err := d.client.StartGitHubLogin(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	<-polling
+	waitFor(t, "the code", func() bool {
+		got, err := d.client.GitHubLogin(ctx, j.ID)
+		return err == nil && got.UserCode == "ABCD-1234"
+	})
 	if _, err := d.client.StartGitHubLogin(ctx, "work"); err == nil || !strings.Contains(err.Error(), "already running") {
 		t.Errorf("a second sign-in while one runs = %v", err)
 	}
@@ -181,10 +171,14 @@ func TestGitHubLoginCancel(t *testing.T) {
 	}
 }
 
-func TestGitHubLoginNeedsAClientID(t *testing.T) {
+func TestGitHubLoginNeedsGH(t *testing.T) {
 	t.Parallel()
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{setup: func(s *Server) { s.githubDevice = github.DeviceFlow{} }})
-	if _, err := d.client.StartGitHubLogin(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "AGENTBOX_GITHUB_CLIENT_ID") {
-		t.Errorf("StartGitHubLogin() with no client ID = %v", err)
+	d := startGitHubLoginDaemon(t, filepath.Join(t.TempDir(), "gh"))
+	j, err := d.client.StartGitHubLogin(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := waitGitHubLogin(t, d, j.ID); got.Status != api.JobFailed || !strings.Contains(got.Error, "use a token instead") {
+		t.Errorf("GitHubLogin() with no gh = %+v", got)
 	}
 }

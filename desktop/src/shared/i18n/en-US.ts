@@ -975,7 +975,7 @@ export const enUS = {
   'settings.github.keepToken': 'Agents that hold its token keep it, so nothing needs a restart.',
   'settings.github.removed': 'Removed the GitHub account "{name}"',
   'settings.github.list': 'GitHub accounts',
-  'settings.github.intro': 'Sign in with GitHub in your browser: AgentBox shows a code, you enter it on GitHub, and agents get the token. No gh and no token needed. Add one account per GitHub account you want agents to use.',
+  'settings.github.intro': 'Sign in with GitHub in your browser: AgentBox shows a code, you enter it on GitHub, and agents get the token. No token, and no app to set up. Add one account per GitHub account you want agents to use.',
   'settings.github.useToken': 'Use a token instead',
   'settings.github.tokenIntro': 'For an organization that blocks OAuth apps: paste a token from <code>gh auth token</code>, or a personal access token.',
   'settings.githubLogin.signIn': 'Sign in with GitHub',

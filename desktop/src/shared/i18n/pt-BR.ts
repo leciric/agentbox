@@ -976,7 +976,7 @@ export const ptBR: Messages = {
   'settings.github.keepToken': 'Os agentes que têm o token dela o mantêm, então nada precisa ser reiniciado.',
   'settings.github.removed': 'Conta do GitHub "{name}" removida',
   'settings.github.list': 'Contas do GitHub',
-  'settings.github.intro': 'Entre com o GitHub no navegador: o AgentBox mostra um código, você o digita no GitHub e os agentes recebem o token. Não precisa de gh nem de token. Adicione uma conta para cada conta do GitHub que você quer que os agentes usem.',
+  'settings.github.intro': 'Entre com o GitHub no navegador: o AgentBox mostra um código, você o digita no GitHub e os agentes recebem o token. Não precisa de token nem de app para configurar. Adicione uma conta para cada conta do GitHub que você quer que os agentes usem.',
   'settings.github.useToken': 'Usar um token',
   'settings.github.tokenIntro': 'Para uma organização que bloqueia apps OAuth: cole um token de <code>gh auth token</code> ou um token de acesso pessoal.',
   'settings.githubLogin.signIn': 'Entrar com o GitHub',

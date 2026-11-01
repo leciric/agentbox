@@ -259,8 +259,9 @@ type Server struct {
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
 	previewIPs   map[string]previewTarget // agents' addresses, cached for the preview proxy
 	claudeLogins map[string]*claudeLogin  // in-app Claude Code logins, by job
-	githubLogins map[string]*githubLogin  // device-flow GitHub sign-ins, by job
-	githubDevice github.DeviceFlow        // where they sign in (githublogin.go)
+	githubLogins map[string]*githubLogin  // GitHub sign-ins through gh, by job
+	githubGH     github.GHLogin           // the gh they sign in with (githublogin.go)
+	installGH    bool                     // whether a sign-in installs a missing gh: in AgentBox's own VM
 	geminiLogins map[string]*claudeLogin  // Gemini CLI's Google sign-ins, by job
 	distilling   map[string]bool          // projects with a distillation running, by name
 	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
@@ -447,7 +448,7 @@ func New(cfg Config) (*Server, error) {
 		previewIPs:       map[string]previewTarget{},
 		claudeLogins:     map[string]*claudeLogin{},
 		githubLogins:     map[string]*githubLogin{},
-		githubDevice:     github.DeviceFlow{ClientID: github.ClientID()},
+		installGH:        hostos.InVM(),
 		geminiLogins:     map[string]*claudeLogin{},
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
