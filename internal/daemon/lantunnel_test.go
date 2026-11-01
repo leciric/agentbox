@@ -225,12 +225,24 @@ func TestPhoneThroughATunnel(t *testing.T) {
 // times as fail says; with none of them, it gives out no addresses.
 type fakeTunnelHub struct {
 	token, hostname, tunnelToken string
+	transport, tailnet           string // a Tailscale hub's, when set
 	fail                         atomic.Int32
 	asked                        atomic.Int32
+	reported                     atomic.Pointer[hubapi.HubEnvironmentAddress]
 }
 
 func (h *fakeTunnelHub) start(t *testing.T) string {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == hubapi.PathEnvironmentAddress && h.transport != "" && r.Header.Get("Authorization") == "Bearer "+h.token {
+			var addr hubapi.HubEnvironmentAddress
+			if json.NewDecoder(r.Body).Decode(&addr) != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			h.reported.Store(&addr)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != hubapi.PathEnvironmentTunnel || h.hostname == "" {
 			http.NotFound(w, r)
 			return
@@ -246,7 +258,7 @@ func (h *fakeTunnelHub) start(t *testing.T) string {
 			_ = json.NewEncoder(w).Encode(hubapi.Error{Error: "Cloudflare didn't answer"})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(hubapi.HubEnvironmentTunnel{Hostname: h.hostname, Token: h.tunnelToken})
+		_ = json.NewEncoder(w).Encode(hubapi.HubEnvironmentTunnel{Transport: h.transport, Hostname: h.hostname, Token: h.tunnelToken, Tailnet: h.tailnet})
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -350,5 +362,117 @@ func TestPhoneThroughTheHubsTunnel(t *testing.T) {
 	st, err = d.client.UpdateLAN(ctx, api.UpdateLANRequest{TunnelMode: new("hub")})
 	if err != nil || st.Tunnel.State != "failed" || !strings.Contains(st.Tunnel.Error, "doesn't give out addresses") {
 		t.Fatalf("choosing a hub with no addresses = %+v, %v", st.Tunnel, err)
+	}
+}
+
+// fakeTailscale writes a tailscaled that makes its socket and state and waits
+// to be stopped, and a tailscale that records its commands and the auth key
+// it read, and answers status as the running node agentbox-5f3a.
+func fakeTailscale(t *testing.T) (dir string, find func(context.Context, func(string)) (string, error)) {
+	dir = t.TempDir()
+	scripts := map[string]string{
+		"tailscaled": `#!/bin/sh
+for a in "$@"; do case "$a" in --socket=*) touch "${a#--socket=}";; --statedir=*) touch "${a#--statedir=}/tailscaled.state";; esac; done
+trap 'exit 0' TERM
+while :; do sleep 0.05; done
+`,
+		"tailscale": `#!/bin/sh
+d=$(dirname "$0")
+echo "$@" >>"$d/calls"
+for a in "$@"; do case "$a" in --auth-key=file:*) cat "${a#--auth-key=file:}" >"$d/authkey";; esac; done
+[ "$2" = status ] && echo '{"BackendState":"Running","Self":{"ID":"nAbC123CNTRL","DNSName":"agentbox-5f3a.tail1234.ts.net.","TailscaleIPs":["100.101.102.103"]},"CurrentTailnet":{"Name":"example.com"}}'
+exit 0
+`,
+	}
+	for name, script := range scripts {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir, func(_ context.Context, status func(string)) (string, error) {
+		status("Downloading Tailscale, once for this machine")
+		return dir, nil
+	}
+}
+
+func TestPhoneOverTheHubsTailnet(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	_, cloudflared := fakeCloudflared(t)
+	dir, find := fakeTailscale(t)
+	d.srv.lan.mu.Lock()
+	d.srv.lan.own = false
+	d.srv.lan.cloudflared = cloudflared
+	d.srv.lan.tailscale = find
+	d.srv.lan.tunnelPort = freePort(t)
+	d.srv.lan.hubRetry = 20 * time.Millisecond
+	d.srv.lan.mu.Unlock()
+
+	const authKey = "tskey-auth-kSecret123-CNTRL"
+	hub := &fakeTunnelHub{token: hubapi.EnvironmentTokenPrefix + "env", hostname: "agentbox-5f3a", tunnelToken: authKey,
+		transport: hubapi.TransportTailscale, tailnet: "example.com"}
+	hubURL := hub.start(t)
+	if _, err := d.client.ConnectRemote(ctx, api.RemoteConnectRequest{Hub: hubURL, Token: hub.token}); err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	if _, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &yes, Tunnel: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	const url = "https://agentbox-5f3a.tail1234.ts.net/"
+	var st api.LANStatus
+	var err error
+	waitFor(t, "the node to serve in the tailnet", func() bool {
+		st, err = d.client.LAN(ctx)
+		return err == nil && st.Tunnel.URL == url
+	})
+	if st.Tunnel.Mode != "hub" || st.Tunnel.Transport != "tailscale" || st.Tunnel.Tailnet != "example.com" || st.Tunnel.Hostname != "agentbox-5f3a" || st.URLs[0] != url {
+		t.Fatalf("LAN() = %+v", st)
+	}
+	if b, _ := json.Marshal(st); strings.Contains(string(b), authKey) {
+		t.Fatal("GET /v1/lan says the auth key")
+	}
+	if stored, _ := d.srv.store.Setting(ctx, state.SettingLANTunnelHubToken); stored == "" || strings.Contains(stored, authKey) {
+		t.Fatalf("the auth key is stored as %q", stored)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "authkey")); string(got) != authKey {
+		t.Errorf("tailscale up read the auth key %q", got)
+	}
+	if calls, _ := os.ReadFile(filepath.Join(dir, "calls")); !strings.Contains(string(calls), "serve --bg --yes http://127.0.0.1:") || strings.Contains(string(calls), authKey) {
+		t.Errorf("tailscale ran %q", calls)
+	}
+	waitFor(t, "the hub to hear the node's address", func() bool { return hub.reported.Load() != nil })
+	if got := *hub.reported.Load(); got.Transport != "tailscale" || got.URL != url || got.NodeID != "nAbC123CNTRL" || len(got.IPs) != 1 {
+		t.Fatalf("the hub heard %+v", got)
+	}
+	pairing, err := d.client.PairLAN(ctx)
+	if err != nil || !strings.HasPrefix(pairing.URLs[0], url+"#pair=") {
+		t.Fatalf("PairLAN() = %+v, %v", pairing, err)
+	}
+
+	// A quick tunnel instead is cloudflared again, not Tailscale.
+	if _, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{TunnelMode: new("quick")}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the quick tunnel to run", func() bool {
+		st, err = d.client.LAN(ctx)
+		return err == nil && st.Tunnel.Mode == "quick" && st.Tunnel.URL == "https://quiet-river-1234.trycloudflare.com/"
+	})
+	if st.Tunnel.Transport != "" {
+		t.Errorf("a quick tunnel's transport is %q", st.Tunnel.Transport)
+	}
+}
+
+func TestTailnetNodeName(t *testing.T) {
+	for in, want := range map[string]string{"agentbox-5f3a": "agentbox-5f3a", " AgentBox-1 ": "agentbox-1"} {
+		if got, err := tailnetNodeName(in); err != nil || got != want {
+			t.Errorf("tailnetNodeName(%q) = %q, %v", in, got, err)
+		}
+	}
+	for _, bad := range []string{"", "a.b", "-x", "x-", "has space", strings.Repeat("a", 64)} {
+		if _, err := tailnetNodeName(bad); err == nil {
+			t.Errorf("tailnetNodeName(%q) took it", bad)
+		}
 	}
 }

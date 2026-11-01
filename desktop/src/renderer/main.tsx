@@ -20,6 +20,14 @@ import { restoreMode } from './lib/theme';
 restoreMode();
 restoreLanguage();
 
+// Out of focus, the window's endless animations hold still (styles.css). The
+// event says which way it went: document.hasFocus() still answers the old way
+// while it runs.
+const markBlurred = (blurred: boolean) => document.documentElement.toggleAttribute('data-blurred', blurred);
+addEventListener('focus', () => markBlurred(false));
+addEventListener('blur', () => markBlurred(true));
+markBlurred(!document.hasFocus());
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 5_000 } },
 });

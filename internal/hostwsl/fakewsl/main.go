@@ -11,7 +11,11 @@
 //	FAKEWSL_DAEMON_EXIT the daemon the front end starts exits at once
 //	FAKEWSL_NO_MOUNT the distro can't see Windows' files (no automount)
 //	FAKEWSL_LANG     pt-BR: wsl.exe's messages in Portuguese
+//	FAKEWSL_STRICT_TAR an imported .tar without /etc/os-release is refused, as newer WSL does
+//	FAKEWSL_IMPORT_FAIL --import fails with an error that isn't about virtualization
 //	FAKEWSL_HANG     never answer a wsl.exe command line starting with this
+//	FAKEWSL_EXEC_TIMEOUT a command run in the distro fails as WSL's own
+//	                 timeout does under heavy CPU load (Wsl/Service/0x8007274c)
 //	                 argument, as a stuck WSL doesn't
 //
 // `agentbox wsl-bridge` and the daemon the front end starts run in-process, so
@@ -21,6 +25,7 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -130,6 +135,14 @@ func run(args []string) int {
 		if _, err := os.Stat(args[3]); err != nil {
 			return fail("fakewsl: %v", err)
 		}
+		if os.Getenv("FAKEWSL_IMPORT_FAIL") != "" {
+			say("Disk full.\r\nError code: Wsl/Service/RegisterDistro/ERROR_DISK_FULL\r\n")
+			return 1
+		}
+		if os.Getenv("FAKEWSL_STRICT_TAR") != "" && strings.HasSuffix(args[3], ".tar") && !validTar(args[3]) {
+			say("O arquivo importado não é uma distribuição válida do Linux.\r\nError code: Wsl/Service/RegisterDistro/WSL_E_IMPORT_FAILED\r\n")
+			return 1
+		}
 		_ = os.MkdirAll(filepath.Join(root(), "distros"), 0o755)
 		_ = os.WriteFile(marker(args[1]), []byte("2"), 0o644)
 		return 0
@@ -215,6 +228,9 @@ func execute(command []string) int {
 		}
 	}
 	switch {
+	case os.Getenv("FAKEWSL_EXEC_TIMEOUT") != "" && command[0] == "sh" && len(command) == 3 && command[2] == "cat /proc/meminfo; nproc":
+		say("A connection attempt failed because the connected party did not properly respond after a period of time.\r\nError code: Wsl/Service/0x8007274c\r\n")
+		return 1
 	case command[0] == "sh" && len(command) == 3 && command[2] == "cat /proc/meminfo; nproc":
 		// Distro.Power: 16 GiB, 9.5 of them available, and 8 CPUs.
 		fmt.Print("MemTotal:       16777216 kB\nMemFree:         8388608 kB\nMemAvailable:    9961472 kB\n8\n")
@@ -395,4 +411,24 @@ func serve(ctx context.Context, socket string) error {
 		return err
 	}
 	return nil
+}
+
+// validTar is whether the archive has an etc/os-release, which is all the
+// fake asks of a distro.
+func validTar(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	tr := tar.NewReader(f)
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			return false
+		}
+		if strings.TrimPrefix(h.Name, "./") == "etc/os-release" {
+			return true
+		}
+	}
 }

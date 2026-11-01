@@ -13,7 +13,8 @@ import (
 
 // Skills are delivered like secrets: written whole into the agent's HOME
 // whenever what it gets changes, and when it starts. Claude Code, Codex,
-// OpenCode and Cursor all watch or rescan their skill folders, so a running
+// OpenCode, Cursor and Gemini CLI (which reads ~/.agents/skills too) all
+// watch or rescan their skill folders, so a running
 // agent picks a change up without a restart, let alone a rebuild.
 
 // SkillsFor is every skill on in a project, with its files: its override there,
@@ -55,8 +56,11 @@ func (m *Manager) WriteSkills(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
+	if a.IsHome() {
+		list = skills.WithBuiltin(list)
+	}
 	if a.IsLead() {
-		return skills.InstallLocal(m.Paths.LeadHome(a.Project), list)
+		return skills.InstallLocal(m.leadHome(a), list)
 	}
 	archive, err := skills.Tar(list)
 	if err != nil {

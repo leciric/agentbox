@@ -41,12 +41,26 @@ func (c *Client) Secrets(ctx context.Context, target string) ([]Secret, error) {
 // SetSecret stores a value under a name, replacing whatever was there, and
 // writes it into the agents that get it. The answer carries no value.
 func (c *Client) SetSecret(ctx context.Context, target, name, value string) (Secret, error) {
+	return c.SetSecretWith(ctx, target, name, SetSecretRequest{Value: value})
+}
+
+// SetSecretWith is SetSecret with the rest of the request: whether a project
+// secret is the lead's to keep fresh.
+func (c *Client) SetSecretWith(ctx context.Context, target, name string, req SetSecretRequest) (Secret, error) {
 	path, err := SecretsPath(target)
 	if err != nil {
 		return Secret{}, err
 	}
 	var out Secret
-	return out, c.do(ctx, http.MethodPut, path+"/"+url.PathEscape(name), SetSecretRequest{Value: value}, &out)
+	return out, c.do(ctx, http.MethodPut, path+"/"+url.PathEscape(name), req, &out)
+}
+
+// SetSecretLeadManaged lets a project's lead fulfil agents' requests for one
+// of the project's secrets, or stops it, without giving the value again.
+func (c *Client) SetSecretLeadManaged(ctx context.Context, project, name string, managed bool) (Secret, error) {
+	var out Secret
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/secrets/"+url.PathEscape(name),
+		SecretSettingsRequest{LeadManaged: managed}, &out)
 }
 
 // RemoveSecret forgets a secret and takes it out of the agents that have it.

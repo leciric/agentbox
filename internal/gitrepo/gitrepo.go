@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -85,6 +86,16 @@ func (r Repo) ResolveCommit(rev string) (string, error) {
 		return "", fmt.Errorf("%q is not a commit in %s", rev, r.Root)
 	}
 	return commit, nil
+}
+
+// BranchTip is the commit a local branch is at, "" when there is no such
+// branch. An error is git failing to say, never the branch missing.
+func (r Repo) BranchTip(branch string) (string, error) {
+	tip, err := run(r.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}")
+	if NotFound(err) {
+		return "", nil
+	}
+	return tip, err
 }
 
 func (r Repo) BranchExists(branch string) bool {
@@ -266,20 +277,20 @@ func MoveWorktree(worktree, commit string) error {
 
 // RemoveWorktree removes the worktree at path, discarding uncommitted changes.
 // A worktree git no longer knows, because its entry under .git/worktrees was
-// pruned, is only a directory now, and is removed as one.
+// pruned, is only a directory now, and is removed as one. So is one whose
+// files are already gone, whose entry prune then drops: unlocked first, since
+// prune keeps a locked one.
 func (r Repo) RemoveWorktree(path string) error {
 	unlock := r.lockWorktrees()
 	defer unlock()
+	_ = r.UnlockWorktree(path)
 	if _, err := os.Stat(path); err == nil {
 		if !r.HasWorktree(path) {
 			if err := os.RemoveAll(path); err != nil {
 				return err
 			}
-		} else {
-			_ = r.UnlockWorktree(path)
-			if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
-				return err
-			}
+		} else if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
+			return err
 		}
 	}
 	_, err := run(r.Root, "worktree", "prune")
@@ -347,6 +358,18 @@ func (r Repo) Pushed(commit string) bool {
 	return err == nil && out != ""
 }
 
+// OnABranch reports whether commit is in some branch, here or on a remote:
+// what a removed worktree's detached HEAD would otherwise take with it.
+func (r Repo) OnABranch(commit string) bool {
+	out, err := run(r.Root, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes")
+	return err == nil && out != ""
+}
+
+// Head is the commit worktree's HEAD is at.
+func Head(worktree string) (string, error) {
+	return run(worktree, "rev-parse", "HEAD")
+}
+
 // EnvFiles lists gitignored env files in the main checkout, like .env or
 // apps/api/.env.local. New worktrees don't have them, so agents need copies.
 func (r Repo) EnvFiles() ([]string, error) {
@@ -404,6 +427,59 @@ func Dirty(worktree string) (bool, error) {
 	return out != "", err
 }
 
+// DiffBase is the commit an agent's changes are measured from, as GitHub
+// measures a pull request's: where its worktree's HEAD left the branch its
+// work goes into, as that branch is now, so that what it took in from there
+// by a merge or a rebase is not the agent's.
+//
+// With onto, the base branch of the agent's pull request, that is the only
+// branch. Without, it is baseRef, the branch the agent was made from, and the
+// project's base branch (origin's default, else main or master): an agent
+// made from "HEAD" was made from whatever the main checkout had out, often
+// far behind main, and measured from there it owned every pull request merged
+// since. Each branch counts as every copy of it, local and on every remote, so
+// a local main behind origin's doesn't hand the agent what origin already
+// has; the base is the newest commit of theirs HEAD has. Without onto,
+// fallback (the commit the agent started from) is the base instead when it is
+// newer than that and HEAD still has it: an agent made from a branch nobody
+// pushed hasn't changed what it started from. fallback is also the base when
+// no branch shares history with HEAD.
+func DiffBase(worktree, baseRef, fallback string, onto ...string) string {
+	branches := onto
+	if len(onto) == 0 {
+		if baseRef != "" && baseRef != "HEAD" {
+			branches = append(branches, baseRef)
+		}
+		if def, err := run(worktree, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil {
+			branches = append(branches, strings.TrimPrefix(def, "refs/remotes/origin/"))
+		} else {
+			branches = append(branches, "main", "master")
+		}
+	}
+	var patterns []string
+	for _, b := range branches {
+		if b != "" && !strings.HasPrefix(b, "-") {
+			patterns = append(patterns, "refs/heads/"+b, "refs/remotes/*/"+b)
+		}
+	}
+	var base string
+	if len(patterns) > 0 {
+		out, _ := run(worktree, append([]string{"for-each-ref", "--format=%(objectname)"}, patterns...)...)
+		if refs := strings.Fields(out); len(refs) > 0 {
+			// merge-base of HEAD and several commits is HEAD's best common
+			// ancestor with a merge of them all: the newest of theirs it has.
+			base, _ = run(worktree, append([]string{"merge-base", "HEAD"}, refs...)...)
+		}
+	}
+	if base == "" {
+		return fallback
+	}
+	if wt := (Repo{Root: worktree}); len(onto) == 0 && fallback != "" && fallback != base && wt.IsAncestor(base, fallback) && wt.IsAncestor(fallback, "HEAD") {
+		return fallback
+	}
+	return base
+}
+
 // DiffWorktree diffs base against the worktree's current files, including
 // uncommitted and untracked ones, without touching the worktree's index.
 func DiffWorktree(worktree, base string, stat bool, paths ...string) (string, error) {
@@ -422,6 +498,52 @@ func DiffWorktree(worktree, base string, stat bool, paths ...string) (string, er
 	return output(worktree, nil, args...)
 }
 
+// FileStat is one file's lines added and removed in a diff; Binary for a
+// file git can't count lines of.
+type FileStat struct {
+	Path           string
+	Added, Removed int
+	Binary         bool
+}
+
+// NumstatWorktree is DiffWorktree's files with their counts, in git's order.
+func NumstatWorktree(worktree, base string) ([]FileStat, error) {
+	tree, err := worktreeTree(worktree)
+	if err != nil {
+		return nil, err
+	}
+	out, err := output(worktree, nil, "diff", "--numstat", "-z", "--no-renames", base, tree)
+	if err != nil {
+		return nil, err
+	}
+	var files []FileStat
+	for _, rec := range strings.Split(out, "\x00") {
+		fields := strings.SplitN(rec, "\t", 3)
+		if len(fields) != 3 {
+			continue
+		}
+		f := FileStat{Path: fields[2]}
+		if fields[0] == "-" {
+			f.Binary = true
+		} else {
+			f.Added, _ = strconv.Atoi(fields[0])
+			f.Removed, _ = strconv.Atoi(fields[1])
+		}
+		files = append(files, f)
+	}
+	return files, nil
+}
+
+// DiffCommits diffs base against commit in the repository at dir, as a
+// patch or with stat as git's --shortstat line.
+func DiffCommits(dir, base, commit string, stat bool) (string, error) {
+	args := []string{"diff"}
+	if stat {
+		args = append(args, "--shortstat")
+	}
+	return output(dir, nil, append(args, base, commit)...)
+}
+
 func run(dir string, args ...string) (string, error) {
 	out, err := output(dir, nil, args...)
 	return strings.TrimSpace(out), err
@@ -430,6 +552,9 @@ func run(dir string, args ...string) (string, error) {
 func output(dir string, env []string, args ...string) (out string, err error) {
 	span := trace.Begin(gitSpan(args), "dir", dir)
 	defer func() { span.End(err) }()
+	if ferr := faultAt(dir); ferr != nil {
+		return "", &gitError{args: args, err: ferr}
+	}
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
@@ -438,7 +563,7 @@ func output(dir string, env []string, args ...string) (out string, err error) {
 	cmd.Stderr = &stderr
 	b, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", &gitError{args: args, err: err, stderr: strings.TrimSpace(stderr.String())}
 	}
 	return string(b), nil
 }
@@ -462,7 +587,8 @@ func gitSpan(args []string) string {
 // them. A name in not that doesn't resolve is left out rather than failing the
 // call, so a base branch that has since been deleted still works; not may also
 // hold rev-list's --glob=<pattern>, for every ref it matches. The tip is
-// returned even when none of the branch's commits are its own.
+// returned even when none of the branch's commits are its own. A branch that
+// doesn't exist has no tip and no commits; an error is git failing to say.
 func BranchCommits(root, branch string, limit int, not ...string) (tip string, own []string, err error) {
 	ref := "refs/heads/" + branch
 	args := append([]string{"rev-list", "--ignore-missing", fmt.Sprintf("--max-count=%d", limit), ref, "--not"}, not...)
@@ -474,5 +600,8 @@ func BranchCommits(root, branch string, limit int, not ...string) (tip string, o
 		return own[0], own, nil
 	}
 	tip, err = run(root, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if NotFound(err) {
+		return "", nil, nil
+	}
 	return tip, nil, err
 }

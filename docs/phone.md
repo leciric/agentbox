@@ -55,7 +55,9 @@ and the tunnel's token: the phone's traffic goes through Cloudflare straight to 
 through the hub, and phones still pair with a QR code from this computer, which the hub can't make.
 Choose it in **Settings → Phone → Stable address (via hub)**, or `agentbox phone tunnel on --hub`.
 A hub gives out addresses only once whoever runs it gives it a Cloudflare zone (see the hub's
-README); one that doesn't leaves you on a quick tunnel.
+README); one that doesn't leaves you on a quick tunnel. A hub on Tailscale gives an address in
+your tailnet instead, which only your devices reach, with Tailscale on: see
+[Tailscale instead of Cloudflare](hub.md#tailscale-instead-of-cloudflare).
 
 Otherwise it's a **quick tunnel**: no Cloudflare account, on a random `trycloudflare.com` address
 that changes every time AgentBox starts. A phone's pairing belongs to the address it paired on, so

@@ -120,8 +120,8 @@ function PagePreview({ project, page, onReveal }: { project: string; page: T.Art
       <div className="flex items-start gap-3 border-b border-line px-5 py-4 pr-14">
         <PageThumb project={project} page={a} eager className={cn('w-16 shrink-0 rounded-md ring-1 ring-line-strong', gone && 'opacity-50 grayscale')} />
         <div className="grid min-w-0 flex-1 gap-1">
-          <DialogTitle className="truncate text-[15px] leading-snug">{a.title}</DialogTitle>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
+          <DialogTitle className="truncate text-heading leading-snug">{a.title}</DialogTitle>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-caption text-muted">
             <span className="flex min-w-0 items-center gap-1.5">
               <AIIcon ai={agentAI(agents.data, a.agent)} className="size-3.5 shrink-0" />
               <span className="truncate text-secondary">
@@ -199,8 +199,8 @@ function Empty({ icon, title, text, onBrowser }: { icon: ReactNode; title: strin
     <div className="absolute inset-0 flex items-center justify-center p-8">
       <div className="grid max-w-sm justify-items-center gap-3 text-center">
         <span className="flex size-11 items-center justify-center rounded-2xl border border-line-strong bg-surface-raised text-muted">{icon}</span>
-        <p className="text-[15px] font-medium text-title">{title}</p>
-        {text && <p className="text-[13px] leading-relaxed text-muted">{text}</p>}
+        <p className="text-heading font-medium text-title">{title}</p>
+        {text && <p className="text-ui leading-relaxed text-muted">{text}</p>}
         {onBrowser && (
           <Button size="sm" variant="secondary" onClick={onBrowser} className="mt-1">
             <ExternalLink />

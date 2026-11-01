@@ -93,11 +93,11 @@ func (s *Store) StartQueued(ctx context.Context, a Agent) error {
 	}
 	res, err = tx.ExecContext(ctx, `UPDATE agents SET instance = ?, ai = ?, autonomous = ?, branch = ?, base_ref = ?, base_commit = ?,
 		worktree = ?, status = ?, source = ?, title = ?, claude_account = ?, interface = ?, github_account = ?, finish_notice = ?, connectors = ?,
-		codex_account = ?, opencode_accounts = ?, cursor_account = ?
+		codex_account = ?, opencode_accounts = ?, cursor_account = ?, gemini_account = ?
 		WHERE project = ? AND name = ? AND status = ?`,
 		a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, AgentCreating, a.Source, a.Title,
 		a.ClaudeAccount, a.Interface, a.GitHubAccount, a.FinishNotice, connectors,
-		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.Project, a.Name, AgentQueued)
+		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.GeminiAccount, a.Project, a.Name, AgentQueued)
 	if err != nil {
 		return err
 	}

@@ -96,13 +96,13 @@ export interface Variant {
   label: string;
 }
 
-const toolNames: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' };
+const toolNames: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor', gemini: 'Gemini CLI' };
 export const toolName = (ai: string) => toolNames[ai] ?? ai;
 
 const strip = (name: string) => name.replace(/\s*\(recommended\)$/i, '');
 
 // variants are what an agent of this machine can run: Claude Code on each of
-// its models, Codex, OpenCode and Cursor on theirs, only for the tools signed
+// its models, Codex, OpenCode, Cursor and Gemini CLI on theirs, only for the tools signed
 // in. A tool whose models aren't known yet offers its default.
 export function variants(settings: T.Settings | undefined, auth: T.AuthStatus | undefined, defaultLabel: string): Variant[] {
   const out: Variant[] = [];
@@ -118,6 +118,7 @@ export function variants(settings: T.Settings | undefined, auth: T.AuthStatus | 
   if (auth?.codex) out.push({ value: 'codex|', ai: 'codex', model: '', label: toolName('codex') });
   if (auth?.opencode) add('opencode', settings?.openCodeModelChoices);
   if (auth?.cursor) add('cursor', settings?.cursorModelChoices);
+  if (auth?.gemini) add('gemini', settings?.geminiModelChoices);
   return out;
 }
 

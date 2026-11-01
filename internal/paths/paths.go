@@ -77,6 +77,11 @@ func (p Paths) ImageCacheSocket() string { return filepath.Join(p.Data, "run", "
 // Go build cache.
 func (p Paths) PackageCache() string { return filepath.Join(p.Data, "package-cache") }
 
+// NodeModules is where agents' node_modules are, and the snapshots new
+// agents' are filled from (internal/nodemods): beside PackageCache, on a disk
+// of the VM's rather than in worktrees in a shared folder.
+func (p Paths) NodeModules() string { return filepath.Join(p.Data, "node-modules") }
+
 // AgentSockets is the directory of in-agent API sockets, one per agent.
 func (p Paths) AgentSockets() string { return filepath.Join(p.Data, "run", "agents") }
 
@@ -89,6 +94,17 @@ func (p Paths) Tools() string { return filepath.Join(p.Data, "tools") }
 // brief and its AI tool's session state.
 func (p Paths) LeadHome(project string) string {
 	return filepath.Join(p.Data, "projects", project, "lead-home")
+}
+
+// LeadSessionHome is the private HOME of one of a project's chat sessions,
+// so its AI tool's session state and the lead socket its MCP server is given
+// are its own. The session migrated from the chat before sessions ("main")
+// keeps LeadHome.
+func (p Paths) LeadSessionHome(project, session string) string {
+	if session == "" || session == "main" {
+		return p.LeadHome(project)
+	}
+	return filepath.Join(p.Data, "projects", project, "lead-sessions", session)
 }
 
 // HomeChat is the Home chat's working directory: ~/.agentbox, made the first
@@ -136,6 +152,12 @@ func (p Paths) Media() string {
 		return d
 	}
 	return filepath.Join(p.Data, "media")
+}
+
+// WorktreeTrash is where destroyed agents' worktrees wait to be deleted:
+// beside Worktrees, so moving one there is a rename on the same disk.
+func (p Paths) WorktreeTrash() string {
+	return filepath.Join(filepath.Dir(filepath.Clean(p.Worktrees())), "worktrees-trash")
 }
 
 func (p Paths) Worktree(project, agent string) string {

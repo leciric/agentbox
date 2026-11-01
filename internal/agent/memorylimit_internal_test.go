@@ -165,3 +165,19 @@ func TestFreezeReclaimAndPopulated(t *testing.T) {
 		t.Error("a run with processes isn't populated")
 	}
 }
+
+func TestAMachineBeingFrozenReadsAsFrozenBeforeTheKernelIsDone(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "lxc.payload.agentbox-p-1")
+	// Asked to freeze, a task still stuck in reclaim: not "frozen 1" yet.
+	writeCgroupFile(t, filepath.Join(dir, "cgroup.events"), "populated 1\nfrozen 0\n")
+	writeCgroupFile(t, filepath.Join(dir, "cgroup.freeze"), "1\n")
+	if running, frozen := machineRunning(root, "agentbox-p-1"); !running || !frozen {
+		t.Fatalf("running %v, frozen %v: want a machine being frozen to read as frozen", running, frozen)
+	}
+	writeCgroupFile(t, filepath.Join(dir, "cgroup.freeze"), "0\n")
+	if _, frozen := machineRunning(root, "agentbox-p-1"); frozen {
+		t.Fatal("a thawed machine reads as frozen")
+	}
+}

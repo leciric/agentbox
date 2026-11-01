@@ -71,7 +71,7 @@ export function JobProgress({
       {(lines.length > 0 || !job.data || job.data.status === 'running') && (
         <div
           ref={log}
-          className={cn('h-64 overflow-auto rounded-xl border border-line bg-well p-3.5 font-mono text-[11.5px] leading-relaxed text-subtle', logClassName)}
+          className={cn('h-64 overflow-auto rounded-xl border border-line bg-well p-3.5 font-mono text-caption leading-relaxed text-subtle', logClassName)}
           aria-label={t('shell.jobs.log')}
         >
           {lines.map((line = '', i) => (

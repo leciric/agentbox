@@ -60,6 +60,11 @@ type LANTunnel struct {
 	// NamedHostname is the user's own tunnel's, when they set one up, in any
 	// mode: "named" can be chosen again without its token.
 	NamedHostname string `json:"namedHostname,omitempty"`
+	// Transport is "tailscale" when the hub's address is in the hub's
+	// tailnet, Tailnet, rather than a Cloudflare Tunnel: only devices on
+	// that tailnet reach URL, and Hostname is the machine's node's name.
+	Transport string `json:"transport,omitempty"`
+	Tailnet   string `json:"tailnet,omitempty"`
 	// State is "off", "starting" (downloading cloudflared, or connecting),
 	// "running" or "failed" (it's tried again after a while).
 	State string `json:"state"`
@@ -169,6 +174,57 @@ type LANSession struct {
 	// Token is the phone's token, only in the answer to a pairing that asked
 	// for it (LANPairRequest.Bearer).
 	Token string `json:"token,omitempty"`
+}
+
+// What a phone may be sent a push notification about (PhonePush.Kinds).
+const (
+	// PushFinished is an agent that finished, or stopped on an error, with
+	// no pull request to review.
+	PushFinished = "finished"
+	// PushNeedsYou is an agent or the lead needing the user: a question
+	// passed on to them, a credential or connector asked for, or a
+	// permission request waiting.
+	PushNeedsYou = "needs_you"
+	// PushPRReady is an agent that finished with its pull request open.
+	PushPRReady = "pr_ready"
+	// PushCIFailed is a pull request whose checks just turned red.
+	PushCIFailed = "ci_failed"
+)
+
+// PushKinds is every kind, in the order the phone lists them: what a phone
+// that registers gets until it chooses.
+var PushKinds = []string{PushNeedsYou, PushPRReady, PushCIFailed, PushFinished}
+
+// PhonePush is a phone's push notifications: GET and PUT /lan/push on the
+// network port, which only the phone itself reaches, DELETE to stop them.
+type PhonePush struct {
+	// Token is the phone's Expo push token (ExponentPushToken[…]), sent on
+	// PUT, or left as it was when empty: a phone may choose before it has
+	// one. It is never read back: Registered says whether there is one.
+	Token      string `json:"token,omitempty"`
+	Registered bool   `json:"registered"`
+	// Kinds are what it gets pushed, of PushKinds.
+	Kinds []string `json:"kinds"`
+	// QuietFrom and QuietTo are minutes after midnight in TimeZone between
+	// which nothing is pushed: what happens then waits in the app, unpushed.
+	// Equal, they are no quiet hours. QuietFrom after QuietTo spans midnight.
+	QuietFrom int `json:"quietFrom"`
+	QuietTo   int `json:"quietTo"`
+	// TimeZone is the phone's, an IANA name such as "America/Sao_Paulo";
+	// empty is the computer's.
+	TimeZone string `json:"timeZone,omitempty"`
+}
+
+// PhonePushTest is POST /lan/push/test: the notification the phone was just
+// sent, or would have been, and whether Expo took it.
+type PhonePushTest struct {
+	Sent  bool   `json:"sent"`
+	Error string `json:"error,omitempty"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	// Data is what the notification carries for the app to open on a tap:
+	// kind, ref ("project" or "project/agent") and, for a pull request, pr.
+	Data map[string]string `json:"data"`
 }
 
 // LAN reports whether phones can chat from the local network, and which are

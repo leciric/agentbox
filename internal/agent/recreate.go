@@ -107,6 +107,7 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 	}
 	a.Status = state.AgentReady
 	m.EnsureImageCache(ctx, a)
+	m.EnsureDockerOnDemand(ctx, a)
 	m.EnsureBrowser(ctx, a)
 	m.EnsureNesting(ctx, a, p)
 	if opts.Stopped {

@@ -44,15 +44,15 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
       <div className="flex items-start gap-3">
         <MonitorCog className="mt-0.5 size-5 shrink-0 text-brand-400" />
         <div className="grid min-w-0 gap-1">
-          <h2 className="text-[15px] font-medium text-primary">{t('vm.wsl.title')}</h2>
-          <p className="text-[13px] text-muted">
+          <h2 className="text-heading font-medium text-primary">{t('vm.wsl.title')}</h2>
+          <p className="text-ui text-muted">
             {t('vm.wsl.description', { name: wsl.name, path: `\\\\wsl.localhost\\${wsl.name}` })}
           </p>
         </div>
       </div>
       {noWSL ? (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">
+          <p className="text-ui text-muted">
             {t('vm.wsl.noWSL')}
           </p>
           <CommandBox command="wsl --install --no-distribution" />
@@ -71,9 +71,9 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
         <div className="grid gap-2">
           <Notice>{t('vm.wsl.noVirtualization')}</Notice>
           <CommandBox command="wsl --install --no-distribution" />
-          <p className="text-[13px] text-muted">{t('vm.wsl.noVirtualizationDism')}</p>
+          <p className="text-ui text-muted">{t('vm.wsl.noVirtualizationDism')}</p>
           <CommandBox command="dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart" />
-          <p className="text-[13px] text-muted">{t('vm.wsl.noVirtualizationBios')}</p>
+          <p className="text-ui text-muted">{t('vm.wsl.noVirtualizationBios')}</p>
         </div>
       ) : (
         run.error && <Notice>{errorMessage(run.error)}</Notice>
@@ -81,7 +81,7 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
       {!noWSL && otherProblem && !run.isPending && !run.error && lines.length === 0 && <Notice tone="warning">{otherProblem}</Notice>}
       {!noWSL && (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">{t('vm.wsl.orTerminal')}</p>
+          <p className="text-ui text-muted">{t('vm.wsl.orTerminal')}</p>
           <CommandBox command="agentbox wsl init" />
         </div>
       )}
