@@ -25,6 +25,9 @@ type LANStatus struct {
 	Listening bool `json:"listening"`
 	// Error is why it isn't, when it should be.
 	Error string `json:"error,omitempty"`
+	// Warning is what may still turn phones away while it is: this
+	// computer's firewall, and what to allow in it.
+	Warning string `json:"warning,omitempty"`
 	// URLs are the addresses a phone can open, the likeliest first: the
 	// tunnel's, when it's running, then those on the local network.
 	URLs []string `json:"urls"`
@@ -139,14 +142,17 @@ type LANPairing struct {
 	Expires time.Time `json:"expires"`
 }
 
-// LANHostReport is PUT /v1/lan/host: what the supervisor of AgentBox's VM on
-// a Linux host says about the port it opens on the host's network for the
-// daemon in the VM. It sends one every few seconds, and a report older than
-// a few of those is taken as the supervisor gone.
+// LANHostReport is PUT /v1/lan/host: what the process that opens phones' port
+// on the computer AgentBox's VM runs on (lan.Forward) says about it. It sends
+// one every few seconds, and a report older than a few of those is taken as
+// that process gone.
 type LANHostReport struct {
-	Port      int      `json:"port"`
-	Listening bool     `json:"listening"`
-	Error     string   `json:"error,omitempty"`
+	Port      int    `json:"port"`
+	Listening bool   `json:"listening"`
+	Error     string `json:"error,omitempty"`
+	// Warning is what of the computer's firewall may turn phones away, and
+	// what to allow.
+	Warning   string   `json:"warning,omitempty"`
 	Addresses []string `json:"addresses"`
 }
 

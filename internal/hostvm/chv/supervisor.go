@@ -19,6 +19,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
+	"agentbox/internal/lan"
 	"agentbox/internal/paths"
 )
 
@@ -182,7 +183,9 @@ func (s *supervisor) run(ctx context.Context) error {
 	go func() {
 		defer close(lanDone)
 		dial := func(ctx context.Context) (net.Conn, error) { return dialVsock(ctx, s.l.VsockSocket(), PortDaemon) }
-		newLANForward(dial, func() bool { return s.getState() != api.VMPaused }, s.logf).run(loops)
+		f := lan.NewForward(dial, s.logf)
+		f.Open = func() bool { return s.getState() != api.VMPaused }
+		f.Run(loops)
 	}()
 	// Phones' port closes with the other forwards, before the VM stops.
 	defer func() { stopLoops(); <-lanDone }()

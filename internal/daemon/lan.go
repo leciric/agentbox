@@ -37,14 +37,16 @@ import (
 // phone deletes it and ends whatever it has open, its event stream first.
 //
 // Where the port is opened depends on where the daemon runs. On a machine of
-// its own, it listens itself, on every interface. In AgentBox's VM on a Linux
-// host (hostos.Linux), the network is the host's: the VM's supervisor opens
-// the port there and passes each request on over the daemon's socket, under
+// its own, it listens itself, on every interface. In AgentBox's VM, the
+// network is the computer's the VM runs on: a process there (lan.Forward)
+// opens the port and passes each request on over the daemon's socket, under
 // /v1/lan/net/, and reports how that went (PUT /v1/lan/host). The socket is
-// already forwarded to the host, so this needs nothing new of the VM. The
-// Mac's vz VM runs under the same supervisor, which does the same there, and
-// its report wins over the daemon's own port. In Lima's VM on a Mac and in
-// Windows' nothing brings the network to the daemon yet.
+// already forwarded to that computer, so this needs nothing new of the VM.
+// That process is the VM's supervisor on a Linux host and for the Mac's vz
+// driver, `agentbox vm lan` beside Lima's VM on a Mac, and the app's relay on
+// Windows. The daemon doesn't listen itself there: Lima and WSL would bring
+// its port to the computer's, where it would take the port from the
+// forwarder.
 //
 // It is plain HTTP: the phone and the daemon share no certificate. The
 // cookie is HttpOnly and SameSite=Strict, and a phone reaches only what its
@@ -61,7 +63,7 @@ import (
 const pairingTTL = 10 * time.Minute
 
 // hostReportTTL is how old the supervisor's last report may be before the
-// supervisor is taken as gone: it reports every lanReportEvery.
+// supervisor is taken as gone: it reports every lan.ReportEvery.
 const hostReportTTL = 10 * time.Second
 
 // lanCookie holds a paired phone's token.
@@ -99,8 +101,8 @@ type lanState struct {
 	cloudflared func(ctx context.Context, status func(string)) (string, error)
 	tunnelPort  int
 
-	// own says the daemon opens the port itself: everywhere but in the
-	// Linux host's VM, whose supervisor opens it on the host. addresses are
+	// own says the daemon opens the port itself: everywhere but in
+	// AgentBox's VM, where the computer it runs on opens it. addresses are
 	// this machine's, for when it does. Fields for tests.
 	own       bool
 	addresses func() []string
@@ -109,7 +111,7 @@ type lanState struct {
 func newLANState() *lanState {
 	return &lanState{
 		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]struct{}{}, seen: map[string]time.Time{},
-		own: hostos.OS() != hostos.Linux, addresses: lan.Addresses,
+		own: !hostos.InVM(), addresses: lan.Addresses,
 		limiter: lan.NewLimiter(), tunnelPort: state.DefaultLANTunnelPort, hubRetry: 30 * time.Second,
 	}
 }
@@ -222,18 +224,15 @@ func (s *Server) lanStatus(ctx context.Context) (api.LANStatus, error) {
 	case l.host != nil && time.Since(l.hostAt) < hostReportTTL:
 		out.Listening = l.host.Listening && l.host.Port == port
 		out.Error = l.host.Error
+		out.Warning = l.host.Warning
 		addrs = l.host.Addresses
 	case l.own:
 		out.Listening = l.srv != nil
 		out.Error = l.listenErr
 		addrs = l.addresses()
-		if on && hostos.InVM() {
-			// Lima's VM on a Mac and WSL have no supervisor to bring the
-			// VM's port to the network of the computer it runs on.
-			out.Listening = false
-			out.Error = fmt.Sprintf("phones can't reach AgentBox's VM on %s yet: this works on Linux for now", hostos.Name())
-			addrs = nil
-		}
+	case on && hostos.OS() == hostos.Windows:
+		// The app's relay opens it, and runs while the app does.
+		out.Error = "waiting for the AgentBox app to open the port on Windows: phones reach AgentBox while the app is open"
 	case on:
 		out.Error = "waiting for AgentBox's VM to open the port on this computer"
 	}
@@ -402,7 +401,7 @@ func (s *Server) lanHostReport(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.lan.mu.Lock()
 	changed := s.lan.host == nil || time.Since(s.lan.hostAt) >= hostReportTTL || s.lan.host.Listening != req.Listening ||
-		s.lan.host.Port != req.Port || s.lan.host.Error != req.Error || strings.Join(s.lan.host.Addresses, ",") != strings.Join(req.Addresses, ",")
+		s.lan.host.Port != req.Port || s.lan.host.Error != req.Error || s.lan.host.Warning != req.Warning || strings.Join(s.lan.host.Addresses, ",") != strings.Join(req.Addresses, ",")
 	s.lan.host, s.lan.hostAt = &req, time.Now()
 	s.lan.mu.Unlock()
 	if changed {

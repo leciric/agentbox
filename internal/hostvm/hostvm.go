@@ -578,6 +578,9 @@ func (v *VM) ready(ctx context.Context) error {
 	if err := v.up(ctx); err != nil {
 		return err
 	}
+	if err := startLAN(v); err != nil {
+		_, _ = fmt.Fprintf(v.Log, "warning: phones won't reach AgentBox on this computer: %v\n", err)
+	}
 	current, err := v.Current(ctx)
 	if err != nil {
 		return err

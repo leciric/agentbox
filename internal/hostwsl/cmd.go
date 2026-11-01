@@ -267,5 +267,6 @@ func RunRelay(ctx context.Context, d *Distro, in io.Reader, out io.Writer) error
 		return err
 	}
 	r := &Relay{Distro: d}
+	go r.runLAN(ctx)
 	return r.Serve(ctx, ln)
 }

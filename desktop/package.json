@@ -92,6 +92,9 @@
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "AgentBox opens a port on your local network so a phone you pair can chat with your agents."
+      },
       "extraResources": [
         {
           "from": "../bin/agentbox",

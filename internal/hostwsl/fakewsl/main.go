@@ -13,6 +13,9 @@
 //	FAKEWSL_LANG     pt-BR: wsl.exe's messages in Portuguese
 //	FAKEWSL_HANG     never answer a wsl.exe command line starting with this
 //	                 argument, as a stuck WSL doesn't
+//	FAKEWSL_LAN_PORT the daemon has phones on, on this port: it keeps the
+//	                 relay's reports in lan-host under FAKEWSL_ROOT, and
+//	                 answers phones' requests with their path
 //
 // `agentbox wsl-bridge` and the daemon the front end starts run in-process, so
 // the relay can be run end to end with no Linux: `fakewsl serve <socket>` is
@@ -383,6 +386,19 @@ func serve(ctx context.Context, socket string) error {
 		_, _ = w.Write(bytes.ToUpper(b))
 	})
 	mux.HandleFunc("GET /v1/echo", echo)
+	if port := os.Getenv("FAKEWSL_LAN_PORT"); port != "" {
+		mux.HandleFunc("GET /v1/lan", func(w http.ResponseWriter, r *http.Request) {
+			_, _ = fmt.Fprintf(w, `{"enabled":true,"port":%s}`, port)
+		})
+		mux.HandleFunc("PUT /v1/lan/host", func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			_ = os.WriteFile(filepath.Join(root(), "lan-host"), b, 0o644)
+			w.WriteHeader(http.StatusNoContent)
+		})
+		mux.HandleFunc("/v1/lan/net/", func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, "phone: "+r.URL.Path)
+		})
+	}
 	srv := &http.Server{Handler: mux}
 	mux.HandleFunc("POST /v1/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		go func() { _ = srv.Close() }()

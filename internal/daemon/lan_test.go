@@ -338,28 +338,41 @@ func TestPhoneThroughTheVMsHost(t *testing.T) {
 	}
 }
 
-// The Mac's vz VM runs under the same supervisor as the Linux host's: once it
-// reports, the port it opened on the Mac is what phones reach.
-func TestPhoneThroughMacVZ(t *testing.T) {
-	t.Setenv(hostos.Env, "darwin")
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	ctx := context.Background()
-	port := freePort(t)
-	on := true
-	st, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &on, Port: &port})
-	if err != nil || st.Listening || !strings.Contains(st.Error, "can't reach AgentBox's VM on a Mac") {
-		t.Fatalf("on with no report = %+v, %v", st, err)
-	}
-	if err := d.client.ReportLANHost(ctx, api.LANHostReport{Port: port, Listening: true, Addresses: []string{"192.168.1.5"}}); err != nil {
-		t.Fatal(err)
-	}
-	st, _ = d.client.LAN(ctx)
-	want := "http://192.168.1.5:" + strconv.Itoa(port) + "/"
-	if !st.Listening || st.Error != "" || len(st.URLs) != 1 || st.URLs[0] != want {
-		t.Fatalf("after the supervisor's report = %+v", st)
-	}
-	if _, err := d.client.PairLAN(ctx); err != nil {
-		t.Errorf("pairing after the supervisor's report: %v", err)
+// In a VM on a Mac or Windows, the daemon leaves the port to the process on
+// that computer that opens it there (lan.Forward), whose report is what
+// phones reach, firewall warning included.
+func TestPhoneInAVMOnAnotherComputer(t *testing.T) {
+	for _, c := range []struct{ os, waiting string }{
+		{"darwin", "waiting for AgentBox's VM"},
+		{"windows", "waiting for the AgentBox app to open the port on Windows"},
+	} {
+		t.Run(c.os, func(t *testing.T) {
+			t.Setenv(hostos.Env, c.os)
+			d := startTestDaemon(t, t.TempDir(), fakeIncus)
+			ctx := context.Background()
+			port := freePort(t)
+			on := true
+			st, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &on, Port: &port})
+			if err != nil || st.Listening || !strings.HasPrefix(st.Error, c.waiting) {
+				t.Fatalf("on with no report = %+v, %v", st, err)
+			}
+			if conn, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(port)); err == nil {
+				_ = conn.Close()
+				t.Error("the daemon listens on the port itself")
+			}
+			report := api.LANHostReport{Port: port, Listening: true, Warning: "allow it", Addresses: []string{"192.168.1.5"}}
+			if err := d.client.ReportLANHost(ctx, report); err != nil {
+				t.Fatal(err)
+			}
+			st, _ = d.client.LAN(ctx)
+			want := "http://192.168.1.5:" + strconv.Itoa(port) + "/"
+			if !st.Listening || st.Error != "" || st.Warning != "allow it" || len(st.URLs) != 1 || st.URLs[0] != want {
+				t.Fatalf("after the report = %+v", st)
+			}
+			if _, err := d.client.PairLAN(ctx); err != nil {
+				t.Errorf("pairing after the report: %v", err)
+			}
+		})
 	}
 }
 
