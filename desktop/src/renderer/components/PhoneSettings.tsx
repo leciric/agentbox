@@ -147,6 +147,7 @@ function PhoneChat() {
           ) : (
             <SettingNote tone={st.error?.startsWith('waiting') ? 'muted' : 'error'}>{st.error || t('defaults.phone.openingPort')}</SettingNote>
           )}
+          {st.listening && st.warning && <SettingNote tone="warning">{st.warning}</SettingNote>}
           {!st.webVersion && <SettingNote>{t('defaults.phone.gettingPage')}</SettingNote>}
           {pairing ? (
             <PairingCode pairing={pairing} onAgain={() => pair.mutate()} onDone={() => setPairing(null)} />

@@ -2495,6 +2495,7 @@ export interface LANStatus {
   port: number;
   listening: boolean;
   error?: string;
+  warning?: string;
   urls: string[];
   tunnel: LANTunnel;
   webVersion?: string;
@@ -2562,6 +2563,7 @@ export interface LANHostReport {
   port: number;
   listening: boolean;
   error?: string;
+  warning?: string;
   addresses: string[];
 }
 

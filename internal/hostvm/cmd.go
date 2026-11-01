@@ -81,8 +81,26 @@ Your home directory is shared with the VM at the same path.`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(), newShellCmd(), newResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newGPUCmd(), newKrunkitCmd())
+	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(), newShellCmd(), newResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newGPUCmd(), newKrunkitCmd(), newLANCmd())
 	return root
+}
+
+// newLANCmd is phones' port on this computer for Lima's VM, which Ready runs
+// in the background (lan.go).
+func newLANCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "lan",
+		Short:  "Open phones' port on this computer while the daemon has phones on (agentbox vm start runs this in the background)",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			vm, err := New()
+			if err != nil && vm == nil {
+				return err
+			}
+			return vm.RunLAN(cmd.Context())
+		},
+	}
 }
 
 // newCHVCmd is `agentbox vm` on Linux, where AgentBox runs in Cloud

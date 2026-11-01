@@ -124,6 +124,10 @@
 //                           from anywhere at the hub's stable address; the address
 //                           choice switches, as the daemon would (?tunnel=nohub: no hub;
 //                           ?tunnel=tailscale: a hub on Tailscale, the address in its tailnet)
+//   ?lan=windows            with ?settings=phone: chatting from a phone on, on
+//                           Windows, its port open with Windows Firewall's
+//                           warning; =unreached as it was before the relay
+//                           opened it (the daemon's error)
 //   ?topbar=detailed        the top bar's machine as the detailed strip
 //                           (Settings' "Detailed top bar") rather than the bubble
 //   ?conn=connecting|disconnected
@@ -1381,6 +1385,19 @@ function settingsBridge(): void {
   if (phone) {
     lan = { ...lan, enabled: true, listening: true, tunnel: { ...lan.tunnel, enabled: true, state: 'running', hub, namedHostname: 'chat.example.com' } };
     lan = withMode(hub ? 'hub' : 'quick');
+  }
+  const exe = 'C:\\Users\\ana\\AppData\\Local\\Programs\\AgentBox\\resources\\bin\\agentbox.exe';
+  if (params.get('lan') === 'windows') {
+    lan = {
+      ...lan,
+      enabled: true,
+      listening: true,
+      urls: ['http://192.168.1.20:7780/'],
+      warning: `Windows Firewall may turn phones away on this private network: allow agentbox.exe when Windows asks, or in Windows Security → Firewall & network protection → Allow an app through firewall, or run in a terminal as administrator: netsh advfirewall firewall add rule name="AgentBox phones" dir=in action=allow protocol=TCP localport=7780 program="${exe}"`,
+      webVersion: '0.17.0',
+    };
+  } else if (params.get('lan') === 'unreached') {
+    lan = { ...lan, enabled: true, error: "phones can't reach AgentBox's VM on Windows yet: this works on Linux for now", webVersion: '0.17.0' };
   }
   // The lists Skills, Connectors, Memory and a project's accounts and
   // credentials read, empty.

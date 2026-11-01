@@ -1,4 +1,4 @@
-package chv
+package lan
 
 import (
 	"context"
@@ -13,10 +13,10 @@ import (
 	"agentbox/internal/api"
 )
 
-// The supervisor opens phones' port on the host while the daemon has them on,
+// A Forward opens phones' port on the host while the daemon has them on,
 // passes every request to the daemon's /v1/lan/net/ and nowhere else, and
-// reports what it opened.
-func TestLANForward(t *testing.T) {
+// reports what it opened, and what the firewall says.
+func TestForward(t *testing.T) {
 	var mu sync.Mutex
 	status := api.LANStatus{Enabled: true, Port: 7780}
 	var reports []api.LANHostReport
@@ -39,9 +39,14 @@ func TestLANForward(t *testing.T) {
 		var d net.Dialer
 		return d.DialContext(ctx, "tcp", daemon.Listener.Addr().String())
 	}
-	f := newLANForward(dial, func() bool { return true }, t.Logf)
+	f := NewForward(dial, t.Logf)
+	var asked []int
+	f.Firewall = func(_ context.Context, port int) string {
+		asked = append(asked, port)
+		return "allow port 7780"
+	}
 	var ln net.Listener
-	f.listen = func(port int) (net.Listener, error) {
+	f.Listen = func(port int) (net.Listener, error) {
 		if port != 7780 {
 			t.Errorf("listening on %d", port)
 		}
@@ -49,7 +54,7 @@ func TestLANForward(t *testing.T) {
 		ln, err = net.Listen("tcp", "127.0.0.1:0")
 		return ln, err
 	}
-	f.addresses = func() []string { return []string{"192.168.1.5"} }
+	f.Addresses = func() []string { return []string{"192.168.1.5"} }
 	ctx := context.Background()
 	f.tick(ctx)
 	defer f.close()
@@ -57,10 +62,15 @@ func TestLANForward(t *testing.T) {
 		t.Fatal("no port opened")
 	}
 	mu.Lock()
-	if len(reports) != 1 || !reports[0].Listening || reports[0].Port != 7780 || reports[0].Addresses[0] != "192.168.1.5" {
+	if len(reports) != 1 || !reports[0].Listening || reports[0].Port != 7780 || reports[0].Addresses[0] != "192.168.1.5" ||
+		reports[0].Warning != "allow port 7780" {
 		t.Errorf("reports = %+v", reports)
 	}
 	mu.Unlock()
+	f.tick(ctx) // the firewall isn't asked again so soon
+	if len(asked) != 1 || asked[0] != 7780 {
+		t.Errorf("the firewall was asked about %v", asked)
+	}
 	resp, err := http.Get("http://" + ln.Addr().String() + "/v1/agents")
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +91,7 @@ func TestLANForward(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if last := reports[len(reports)-1]; len(reports) != 2 || last.Listening {
+	if last := reports[len(reports)-1]; len(reports) != 3 || last.Listening {
 		t.Errorf("reports = %+v", reports)
 	}
 }

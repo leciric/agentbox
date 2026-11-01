@@ -73,6 +73,9 @@ paired. It is plain HTTP on your local network: use it on a network you trust.`,
 				printPhoneStatus(out, st)
 				return errors.New("it's on, but phones can't reach it yet")
 			}
+			if st.Warning != "" {
+				_, _ = fmt.Fprintf(out, "Warning: %s\n\n", st.Warning)
+			}
 			return showPairing(cmd.Context(), out, c)
 		},
 	}
@@ -372,6 +375,9 @@ func printPhoneStatus(out io.Writer, st api.LANStatus) {
 		_, _ = fmt.Fprintln(out, "Chatting from a phone is off. Turn it on with: agentbox phone on")
 	case st.Listening:
 		_, _ = fmt.Fprintf(out, "On, at %s\n", strings.Join(st.URLs, " "))
+		if st.Warning != "" {
+			_, _ = fmt.Fprintf(out, "But: %s\n", st.Warning)
+		}
 	default:
 		_, _ = fmt.Fprintf(out, "On, but phones can't reach it: %s\n", st.Error)
 	}
