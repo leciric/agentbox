@@ -10,8 +10,9 @@ import { Tip } from '../ui/tooltip';
 
 // SessionTabs is the row above a project's chat: one tab per session, with a
 // spinner while its lead works and a dot when it has said something since you
-// last looked, after the dot in its colour (sessionColor) that tints the
-// agents it made; + opens a new one at once, untitled until its first turn
+// last looked; each is a folder tab on the box of the chat below it, in its
+// colour (sessionColor) once there are several, the box and the bracket of the
+// agents it made having the same; + opens a new one at once, untitled until its first turn
 // names it (ProjectChatPanel). A tab's ×, and its shortcut
 // (lib/shortcuts.ts), close the session into the chat's history, which the
 // History button at the end of the row opens (SessionHistory): nothing is
@@ -41,7 +42,7 @@ export function SessionTabs({
   const seen = useSeenAt();
   const [renaming, setRenaming] = useState<string>();
   return (
-    <div role="tablist" aria-label={t('sessions.label')} data-session-tabs className="flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
+    <div role="tablist" aria-label={t('sessions.label')} data-session-tabs className="relative z-10 flex min-w-0 shrink-0 items-end gap-1 overflow-x-auto px-5 pt-1">
       {sessions.map((s) => {
         const on = s.id === current;
         const unread = !on && isUnread(s, seen[s.ref]);
@@ -74,11 +75,11 @@ export function SessionTabs({
               if (e.key === 'F2') setRenaming(s.id);
             }}
             className={cn(
-              'group flex h-7 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-lg pl-2.5 pr-1 text-ui transition-colors',
-              on ? 'bg-surface-strong text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
+              'group flex h-8 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border pl-2.5 pr-1 text-ui transition-colors',
+              color ? (on ? 'session-line' : 'session-line-quiet') : on ? 'border-line' : 'border-line-faint',
+              on ? 'border-b-0 bg-ink text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
             )}
           >
-            {color && <span aria-hidden className="session-dot size-2 shrink-0 rounded-full" data-session-dot />}
             {isWorking(s) ? (
               <LoaderCircle aria-label={t('sessions.working')} className="size-3 shrink-0 animate-spin text-brand-300" />
             ) : unread ? (
@@ -104,14 +105,14 @@ export function SessionTabs({
         );
       })}
       <Tip label={`${t('sessions.new')} · ${keysHint(sessionKeys.new)}`}>
-        <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-ui" onClick={onAdd} disabled={adding} data-session-new>
+        <Button variant="ghost" size="sm" className="mb-0.5 h-7 shrink-0 gap-1 px-2 text-ui" onClick={onAdd} disabled={adding} data-session-new>
           <Plus className="size-3.5" />
           {sessions.length === 0 && t('sessions.new')}
         </Button>
       </Tip>
       <span className="min-w-2 flex-1" />
       <Tip label={closedCount > 0 ? t('sessions.historyCount', { count: closedCount }) : t('sessions.history')}>
-        <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-ui" onClick={onHistory} aria-label={t('sessions.history')} data-session-history-open>
+        <Button variant="ghost" size="sm" className="mb-0.5 h-7 shrink-0 gap-1 px-2 text-ui" onClick={onHistory} aria-label={t('sessions.history')} data-session-history-open>
           <History className="size-3.5" />
           {closedCount > 0 && <span className="tabular-nums text-caption text-faint">{closedCount}</span>}
         </Button>

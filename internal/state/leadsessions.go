@@ -69,10 +69,11 @@ func (ls LeadSession) Closed() bool { return !ls.ClosedAt.IsZero() }
 // SessionColors are the colours a session can have, by name: the app holds
 // what each looks like in its light and dark themes (SESSION_COLORS in
 // desktop/src/renderer/lib/sessions.ts, and styles.css). Appending is safe;
-// renaming or removing one leaves the sessions that have it uncoloured.
+// renaming or removing one leaves the sessions that have it uncoloured,
+// except lemon, teal and lime, the app's former colours, which it still draws.
 // The first few are the furthest apart, for the sessions from before colours,
 // which get them in order.
-var SessionColors = []string{"rose", "sky", "lemon", "mint", "lilac", "peach", "teal", "lime"}
+var SessionColors = []string{"rose", "sky", "mint", "lilac", "peach"}
 
 // pickSessionColor is a colour none of the open sessions has, at random, or
 // any at random once they all do.

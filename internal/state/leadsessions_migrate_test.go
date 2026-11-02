@@ -189,14 +189,18 @@ func TestSessionColoursMigrationColoursEachSession(t *testing.T) {
 		t.Fatalf("web's sessions = %+v, %v", web, err)
 	}
 	for i, ls := range web {
-		if want := SessionColors[i%len(SessionColors)]; ls.Color != want {
+		if want := migratedColors[i%len(migratedColors)]; ls.Color != want {
 			t.Errorf("web's session %d (%s) = %q, want %q", i, ls.ID, ls.Color, want)
 		}
 	}
-	if closed, err := st.LeadSession(ctx, "web", "closed-1"); err != nil || closed.Color != SessionColors[9%len(SessionColors)] {
+	if closed, err := st.LeadSession(ctx, "web", "closed-1"); err != nil || closed.Color != migratedColors[9%len(migratedColors)] {
 		t.Errorf("web's first closed session = %+v, %v; want the colour after the open ones'", closed, err)
 	}
-	if api, err := st.LeadSession(ctx, "api", "main"); err != nil || api.Color != SessionColors[0] {
+	if api, err := st.LeadSession(ctx, "api", "main"); err != nil || api.Color != migratedColors[0] {
 		t.Errorf("api's session = %+v, %v; want the first colour", api, err)
 	}
 }
+
+// migratedColors are the colours the migration gave sessions from before
+// colours, in order: SessionColors as it was then, which the migration holds.
+var migratedColors = []string{"rose", "sky", "lemon", "mint", "lilac", "peach", "teal", "lime"}

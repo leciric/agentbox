@@ -7,10 +7,10 @@ import { api, sessionOfRef } from '../lib/api';
 import { chatLoadRetry, forgetThread, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
-import { afterClose, chooseSession, markSessionSeen, neighbour, pickSession, useChosenSession, withSession } from '../lib/sessions';
+import { afterClose, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, useChosenSession, withSession } from '../lib/sessions';
 import { requestSessionFocus } from '../lib/newTask';
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
-import { errorMessage } from '../lib/utils';
+import { cn, errorMessage } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
 import { SessionHistory, useClosedSessions } from './chat/SessionHistory';
 import { SessionTabs } from './chat/SessionTabs';
@@ -86,7 +86,7 @@ function showSession(project: string, s: T.LeadSession) {
 export function ProjectChatPanel({ project }: { project: T.Project }) {
   const openAt = useChatOpenAt(project.name);
   return (
-    <SessionChatPanel project={project.name}>
+    <SessionChatPanel project={project.name} card>
       {(info, current) => (
         // Above the composer: how many of its agents wait for review.
         <ChatTab
@@ -106,14 +106,21 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
 // (project T.HomeProject): the tabs above it, their keys, the empty state of a
 // chat with none open, and its history of closed sessions (SessionHistory),
 // in the chat's place while it is open. children draws the session shown,
-// once its chat has answered.
-export function SessionChatPanel({ project, children }: { project: string; children: (info: T.ProjectChat, current: T.LeadSession) => ReactNode }) {
+// once its chat has answered. card draws the box the chat is in (a project's
+// has no other), which is in the session's colour once there are several.
+export function SessionChatPanel({ project, card, children }: { project: string; card?: boolean; children: (info: T.ProjectChat, current: T.LeadSession) => ReactNode }) {
   const t = useT();
   const queryClient = useQueryClient();
   const sessions = useLeadSessions(project);
   const chosen = useChosenSession(project);
   const list = sessions.data ?? [];
   const current = pickSession(list, chosen);
+  const color = sessionColor(list, current);
+  const box = (content: ReactNode) => (
+    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border', color ? 'session-line' : card ? 'border-line' : 'border-transparent')} data-session-color={color}>
+      {content}
+    </div>
+  );
   const closed = useClosedSessions(project);
   const [history, setHistory] = useState(false);
   const chat = useQuery({
@@ -215,11 +222,11 @@ export function SessionChatPanel({ project, children }: { project: string; child
   }, [project]);
 
   if (!sessions.data) {
-    return <div className="flex h-full items-center justify-center text-sm text-subtle">{sessions.error ? t('chat.unavailable') : t('common.loading')}</div>;
+    return box(<div className="flex h-full items-center justify-center text-sm text-subtle">{sessions.error ? t('chat.unavailable') : t('common.loading')}</div>);
   }
 
   if (history) {
-    return (
+    return box(
       <SessionHistory
         project={project}
         onBack={() => setHistory(false)}
@@ -228,7 +235,7 @@ export function SessionChatPanel({ project, children }: { project: string; child
           showSession(project, s);
         }}
         onContinued={opened}
-      />
+      />,
     );
   }
 
@@ -251,7 +258,7 @@ export function SessionChatPanel({ project, children }: { project: string; child
   );
 
   if (!current) {
-    return (
+    return box(
       <div className="flex h-full min-h-0 flex-col">
         <EmptyState
           icon={MessagesSquare}
@@ -273,7 +280,7 @@ export function SessionChatPanel({ project, children }: { project: string; child
         >
           {t('sessions.noneHint')}
         </EmptyState>
-      </div>
+      </div>,
     );
   }
 
@@ -281,13 +288,15 @@ export function SessionChatPanel({ project, children }: { project: string; child
   // moment ago: wait for this one's.
   const ready = info && sessionOfRef(info.ref) === current.id;
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" data-session-color={color}>
       {tabs}
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        {ready ? (
-          children(info, current)
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? loadErrorMessage(chat.error, t('chat.unavailable')) : t('common.loading')}</div>
+      <div className="-mt-px flex min-h-0 flex-1 flex-col">
+        {box(
+          ready ? (
+            children(info, current)
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? loadErrorMessage(chat.error, t('chat.unavailable')) : t('common.loading')}</div>
+          ),
         )}
       </div>
     </div>

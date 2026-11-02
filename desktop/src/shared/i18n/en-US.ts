@@ -4052,6 +4052,7 @@ export const enUS = {
   'panel.group.review': 'Ready to review',
   'panel.group.working': 'Working',
   'panel.group.idle': 'Idle',
+  'panel.session.other': 'Other agents',
   'panel.list.desktopLive': 'Using its desktop',
   'panel.openChat': 'Open the chat of {name}',
   'panel.find': 'Find an agent…',

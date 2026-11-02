@@ -156,7 +156,7 @@ export function ProjectView({ name, tab: opensAt, onNewAgent }: { name: string; 
         </InTopBar>
       </InTopBar>
 
-      <div className="relative mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
+      <div className="relative mx-2 mb-2 flex min-h-0 flex-1 flex-col md:mx-6 md:mb-6">
         {/* The lead links its agents' names in the chat (components/pip);
             the desktops they're using are in the right-hand panel's list. */}
         <AgentMentionsProvider project={name}>
