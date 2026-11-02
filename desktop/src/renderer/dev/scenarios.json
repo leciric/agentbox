@@ -2964,5 +2964,26 @@
       "[data-work-row$='agent-41'] button",
       "[data-review-media=\"7\"]"
     ]
+  },
+  {
+    "id": "settings-phone-long-addr-wide-dark",
+    "description": "Settings → Phone, a paired phone seen from a long IPv6 address, wide — dark",
+    "query": "settings=phone&phones=long&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "settings-phone-long-addr-800-dark",
+    "description": "Settings → Phone, a paired phone seen from a long IPv6 address, 800 wide — dark",
+    "query": "settings=phone&phones=long&theme=dark",
+    "width": 800,
+    "height": 1900
+  },
+  {
+    "id": "settings-phone-long-addr-narrow-dark",
+    "description": "Settings → Phone, a paired phone seen from a long IPv6 address, 420 wide — dark",
+    "query": "settings=phone&phones=long&theme=dark",
+    "width": 420,
+    "height": 2300
   }
 ]

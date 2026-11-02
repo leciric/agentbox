@@ -54,7 +54,7 @@ import { useStaleDaemon } from '../StaleDaemonNotice';
 import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
 import { openNewTask, requestComposerFocus, requestSessionFocus } from '../../lib/newTask';
-import { openPanelOn, setPanel } from '../../lib/rightPanel';
+import { setPanel, settingsOpen, toggleSettings, usePanel } from '../../lib/rightPanel';
 import { Logo } from '../Logo';
 import { describeDelete, dropLine, moveKeys, NameSection, RenameSection, SectionHeader } from './SidebarSections';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -1007,10 +1007,14 @@ function ProjectLead({
   const needs = attention.level === 'needs';
   const dot = attention.level === 'finished' || sessionUnread;
   const open_ = () => onSelect({ kind: 'project', project: project.name });
+  const panel = usePanel();
+  const onProject = view.kind === 'project' && view.project === project.name;
   const openSettings = () => {
+    // The gear closes Settings while they are open on this project.
+    if (onProject && settingsOpen(panel, leadRef)) return void toggleSettings(leadRef, true);
     open_();
     setPanel({ section: 'general' });
-    openPanelOn(leadRef, 'settings');
+    toggleSettings(leadRef, false);
   };
   const { main, more } = projectActions(t, {
     project,

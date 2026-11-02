@@ -481,18 +481,18 @@ function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
   const has = (scope: string) => current.includes(scope);
   const toggle = (scope: string, on: boolean) => scopes.mutateAsync(on ? [...current, scope] : current.filter((s) => s !== scope));
   return (
-    <li className="grid gap-3 rounded-xl border border-line px-3 py-2.5" data-phone={p.id}>
-      <div className="flex items-center gap-3">
+    <li className="grid min-w-0 gap-3 rounded-xl border border-line px-3 py-2.5" data-phone={p.id}>
+      <div className="flex min-w-0 items-center gap-3">
         <Smartphone className="size-4 shrink-0 text-subtle" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-ui font-medium text-primary">{p.name}</p>
-          <p className="truncate text-caption text-subtle">
+          <p className="break-words text-caption text-subtle [overflow-wrap:anywhere]">
             {t('defaults.phone.pairedOn', { date: formatDate(new Date(p.paired)) })}
             {p.lastSeen && ` · ${t('defaults.phone.lastSeen', { when: formatDateTime(new Date(p.lastSeen)) })}`}
             {p.lastAddr && ` · ${t('defaults.phone.fromAddr', { addr: p.lastAddr })}`}
           </p>
         </div>
-        <Button size="sm" variant="ghost" disabled={revoke.isPending} onClick={() => revoke.mutate()}>
+        <Button size="sm" variant="ghost" className="shrink-0" disabled={revoke.isPending} onClick={() => revoke.mutate()}>
           {t('defaults.phone.unpair')}
         </Button>
       </div>
@@ -521,6 +521,7 @@ function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
           <p className="text-caption leading-relaxed text-subtle">{t('defaults.phone.mergeDescription')}</p>
         </div>
         <Switch
+          className="shrink-0"
           data-phone-merge
           aria-label={t('defaults.phone.mergeLabel')}
           disabled={scopes.isPending}

@@ -347,6 +347,21 @@ test('the lead’s panel switches between Agents, Pull requests and Files, remem
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
 });
 
+test('the project’s settings button opens Settings, and closes them back to where the user was', () => {
+  P.setPanel({ chats: {}, views: {}, last: {} });
+  const lead = 'pawly/lead';
+  P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
+  assert.equal(P.toggleSettings(lead, true), true);
+  assert.equal(P.settingsOpen(P.panelState(), lead), true);
+  assert.equal(P.toggleSettings(lead, true), false);
+  assert.equal(P.settingsOpen(P.panelState(), lead), false);
+  assert.equal(P.panelTarget(P.panelState(), lead), 'pawly/agent-3');
+  // Settings left open on a project the user has since left open again, not close.
+  P.toggleSettings(lead, false);
+  assert.equal(P.toggleSettings(lead, false), true);
+  assert.equal(P.settingsOpen(P.panelState(), lead), true);
+});
+
 test('opening an agent’s chat shows its Desktop only when it is using it, else the view last picked or Timeline', () => {
   const ref = 'pawly/agent-2';
   P.setFitsBeside(true);
