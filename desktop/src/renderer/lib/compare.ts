@@ -60,31 +60,6 @@ export function useComparePrefs(): ComparePrefs {
 // nextMode is the mode after mode, V's cycle.
 export const nextMode = (mode: CompareMode): CompareMode => compareModes[(compareModes.indexOf(mode) + 1) % compareModes.length];
 
-// A zoom is how far a pair is zoomed in, and where to: both halves share
-// one, so side by side they move together.
-export interface Zoom {
-  scale: number;
-  x: number;
-  y: number;
-}
-
-export const noZoom: Zoom = { scale: 1, x: 0, y: 0 };
-
-// zoomAt is z zoomed by factor around the point (px, py) of a box w × h,
-// which stays where it is under the pointer, kept between 1× and 16× and
-// within the box.
-export function zoomAt(z: Zoom, factor: number, px: number, py: number, w: number, h: number): Zoom {
-  const scale = Math.min(16, Math.max(1, z.scale * factor));
-  const k = scale / z.scale;
-  return clampZoom({ scale, x: px - (px - z.x) * k, y: py - (py - z.y) * k }, w, h);
-}
-
-// clampZoom keeps a zoomed picture covering its box: no panning past its edges.
-export function clampZoom(z: Zoom, w: number, h: number): Zoom {
-  const clamp = (v: number, size: number) => Math.min(0, Math.max(size - size * z.scale, v));
-  return { scale: z.scale, x: clamp(z.x, w), y: clamp(z.y, h) };
-}
-
 // A difference is what highlighting found between two pictures of the same
 // size: an overlay of the same size (RGBA), the pixels that changed in solid
 // magenta and the 16px cells around them tinted, so a change of a pixel or

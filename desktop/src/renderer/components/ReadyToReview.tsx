@@ -208,6 +208,9 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
   expand: 'review.key.expand',
   compareMode: 'review.key.compareMode',
   highlight: 'review.key.highlight',
+  zoomIn: 'review.key.zoomIn',
+  zoomOut: 'review.key.zoomOut',
+  zoomReset: 'review.key.zoomReset',
   toggleDetails: 'review.key.toggleDetails',
   openPr: 'review.key.openPr',
   help: 'review.key.help',
@@ -466,6 +469,12 @@ function ReviewCarousel({
         return proofView.current?.compareMode();
       case 'highlight':
         return proofView.current?.highlight();
+      case 'zoomIn':
+        return proofView.current?.zoom(1);
+      case 'zoomOut':
+        return proofView.current?.zoom(-1);
+      case 'zoomReset':
+        return proofView.current?.zoom(0);
       case 'help':
         return setHelp((h) => !h);
     }
@@ -505,7 +514,8 @@ function ReviewCarousel({
           (event.currentTarget as HTMLElement | null)?.focus();
         }}
         // Esc closes what's over the review first: the keys, a note's box,
-        // the Request changes box, an expanded screenshot. Then the review.
+        // the Request changes box, the viewer a piece of proof is open large in.
+        // Then the review.
         onEscapeKeyDown={(event) => {
           if (!help && !changing && proofView.current?.collapse()) {
             event.preventDefault();

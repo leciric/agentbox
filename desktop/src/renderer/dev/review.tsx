@@ -197,12 +197,12 @@ function pairs(): T.MediaItem[] {
   ];
 }
 
-// big is ?review=big: agent-15's media at the sizes that break a fixed box,
+// big is ?review=big: agent-41's media (the one Work lists to review) at the sizes that break a fixed box,
 // a desktop pair at 1920×1080, a phone pair at 420×2000, a pair of
 // 3840×1080 dashboards across two monitors, the same sizes again alone, and
 // a recording pair, all checked at every window size.
-function big(): T.MediaItem[] {
-  const base = { agent: `${PROJECT}/agent-15`, agentName: 'agent-15', source: 'agent', size: 900_000, mime: 'image/png' };
+function big(agent: string): T.MediaItem[] {
+  const base = { agent: `${PROJECT}/${agent}`, agentName: agent, source: 'agent', size: 900_000, mime: 'image/png' };
   const shot = (id: string, name: string, at: number, w: number, h: number, hue: number, after: boolean, side?: 'before' | 'after'): T.MediaItem => {
     setMediaFile(id, appScreen(w, h, hue, name, after));
     return { ...base, id, kind: 'screenshot', name, file: `${name}.png`, meta: { width: w, height: h, ...(side && { pair: name.replace(/-(before|after)$/, ''), side }) }, createdAt: ago(at) };
@@ -417,12 +417,13 @@ export function seedReview(queryClient: QueryClient): void {
     { id: 'rv-ci', agent: `${PROJECT}/agent-41`, agentName: 'agent-41', kind: 'screenshot', name: 'release-workflow', file: 'release-workflow.png', mime: 'image/png', size: 180_000, source: 'agent', meta: { width: 1280, height: 800 }, createdAt: ago(42 * min) },
   ] satisfies T.MediaItem[]);
   for (const agent of ['agent-98', 'agent-07', 'agent-03']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
-  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'pairs' ? pairs() : new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() : new URLSearchParams(location.search).get('review') === 'big' ? big() : evidence('agent-15', 'settings', 4 * min, 17, [
+  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'pairs' ? pairs() : new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() :  evidence('agent-15', 'settings', 4 * min, 17, [
     [0.3, 'General at 1024×640', 'Nothing past the right edge; the search box keeps its width.'],
     [5.2, 'Models in pt-BR', 'The longest labels wrap to two lines instead of clipping.'],
     [9.5, 'Resources, light theme', ''],
     [13.5, 'Accounts at 800×600', 'The narrowest window the app allows: no horizontal scroll.'],
   ]));
+  if (new URLSearchParams(location.search).get('review') === 'big') queryClient.setQueryData(['media', `${PROJECT}/agent-41`], big('agent-41'));
   queryClient.setQueryData(['media', `${PROJECT}/agent-18`], []);
   queryClient.setQueryData(['media', `${PROJECT}/agent-17`], evidence('agent-17', 'markdown', 10 * min, 14, [
     [0.3, 'Rich blocks in the lead chat', ''],
