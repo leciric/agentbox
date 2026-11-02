@@ -30,6 +30,7 @@ import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
 import { useAgentCounts } from '../../lib/useAgentCounts';
 import { useAgentSession } from '../chat/sessionColor';
+import { pickSession, sessionColor, useChosenSession } from '../../lib/sessions';
 import { cn, humanBytes, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { Skeleton, skeletonWidths } from '../ui/skeleton';
@@ -136,10 +137,18 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
     />
   );
 
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 pb-3 pt-1" data-panel-list={project}>
-      {!rail.loaded && <RailSkeleton />}
-      {groups.map(({ group, rows }) => {
+  // With several sessions, the agents of the one shown are a bracket in its
+  // colour on the chat's side, as its tab and box are: the same line.
+  const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project) });
+  const sessionList = sessions.data ?? [];
+  const shown = pickSession(sessionList, useChosenSession(project));
+  const color = sessionColor(sessionList, shown);
+  const ofShown = (r: { agent: T.Agent }) => !!color && r.agent.leadSession === shown?.id;
+  const split = (own: boolean) => groups.map((g) => ({ group: g.group, rows: g.rows.filter((r) => ofShown(r) === own) })).filter((g) => g.rows.length > 0);
+  const bracket = split(true);
+
+  const renderGroups = (gs: typeof groups) =>
+    gs.map(({ group, rows }) => {
         // Idle folds, as Finished did, unless the chat beside it is one of its.
         const folds = group === 'idle';
         const open = !folds || rail.showFinished || rows.some((r) => r.agent.ref === chat);
@@ -169,7 +178,17 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
             {open && <div className="flex flex-col gap-px">{rows.map(row)}</div>}
           </section>
         );
-      })}
+    });
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 pb-3 pt-1" data-panel-list={project}>
+      {!rail.loaded && <RailSkeleton />}
+      {bracket.length > 0 && (
+        <div className="session-line -ml-1.5 mb-1 rounded-r-2xl border border-l-0 pb-1 pl-1.5 pr-1" data-session-color={color} data-session-bracket={shown?.id}>
+          {renderGroups(bracket)}
+        </div>
+      )}
+      {renderGroups(split(false))}
       {rail.loaded && rail.mine.length === 0 && <RailEmpty project={name} onNewAgent={() => onNewAgent(project)} />}
 
       {(past.data?.length ?? 0) > 0 && (
@@ -258,9 +277,9 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
   const modelChoice = modelOption?.choices.find((c) => c.value === modelOption.value);
   const model = modelOption && (modelChoice ? choiceName(modelChoice) : modelOption.value);
   const context = session?.contextSize ? t('panel.list.contextTip', { percent: Math.round(((session.contextUsed ?? 0) / session.contextSize) * 100), size: humanTokens(session.contextSize).replace(/\.0(?=[KMB])/, '') }) : undefined;
+  const owner = useAgentSession(agent);
   const changes = fleet?.changes && fleet.changes.files > 0 ? fleet.changes : undefined;
   const when = fleet?.lastActive ?? at;
-  const owner = useAgentSession(agent);
   const tip = [title, owner && t('sessions.owner', { topic: owner.session.topic }), statusTip(agent), pr && `#${pr.number} ${pr.title}`, live && t('panel.list.desktopLive'), loadTip, model, context, changes && `+${changes.insertions} −${changes.deletions} · ${t('panel.list.files', { count: changes.files })}`, disk !== undefined && `${t('agent.rail.machineDisk')}: ${humanBytes(disk)}`].filter(Boolean).join('\n');
   const screen = monitorScreen(st, { live, running: agent.state === 'running' });
   const pace = typingPace((thread.data?.items ?? []).filter((it) => it.tool).map((it) => it.createdAt));
@@ -279,8 +298,7 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
           onOpen({ kind: 'agent', ref: agent.ref });
         }}
         aria-current={active ? 'true' : undefined}
-        className={cn('group flex w-full min-w-0 items-start gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface', owner && 'session-frame')}
-        data-session-color={owner?.color}
+        className={cn('group flex w-full min-w-0 items-start gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
         data-list-agent={agent.ref}
         data-list-st={st}
         data-list-live={live || undefined}

@@ -1544,9 +1544,10 @@ html[data-blurred] .ab-monitor * {
    name in SESSION_COLORS (lib/sessions.ts), a little lighter on dark and
    deeper on light so a thin line reads on both.
    [data-session-color] sets --session from it; a name this app doesn't know
-   leaves it unset, and nothing framed. .session-frame draws it as a 1px line
-   around the element (its session's chat and tab, or an agent it made: one
-   line in one colour joins them; a tab not shown is half as strong) over the
+   leaves it unset, and nothing framed. .session-line colours an element's
+   border with it: the box of the session's chat, its tab on top of the box
+   (a tab not shown is half as strong, .session-line-quiet), and the bracket
+   of the agents it made in the right-hand panel, one line in one colour. over the
    content, taking no room, so showing it moves nothing. The three oldest
    names (lemon, teal, lime) are gone from the palette; sessions that still
    have one borrow a current hue. */
@@ -1575,20 +1576,11 @@ html[data-blurred] .ab-monitor * {
 [data-session-color="lemon"] { --session: var(--ab-session-peach); }
 [data-session-color="lime"] { --session: var(--ab-session-mint); }
 
-.session-frame {
-  position: relative;
+.session-line {
+  border-color: color-mix(in oklab, var(--session, transparent) var(--ab-session-line), transparent);
 }
-.session-frame[data-session-quiet]::after {
-  --session-weight: 0.5;
-}
-.session-frame::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border: 1px solid color-mix(in oklab, var(--session, transparent) calc(var(--ab-session-line) * var(--session-weight, 1)), transparent);
-  border-radius: inherit;
-  pointer-events: none;
+.session-line-quiet {
+  border-color: color-mix(in oklab, var(--session, transparent) calc(var(--ab-session-line) * 0.5), transparent);
 }
 
 /* revealFeature's pulse on a feature's dot (components/FeatureDot.tsx), as
