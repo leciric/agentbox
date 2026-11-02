@@ -246,3 +246,36 @@ func TestInitializeDoesNotWaitForLoadTools(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A call cancelled while the tools are still being made is still cancelled:
+// the cancellation is read once they are, right after the call starts.
+func TestACallCancelledWhileToolsLoadEnds(t *testing.T) {
+	release := make(chan struct{})
+	ended := make(chan struct{})
+	s := &mcp.Server{Name: "agentbox", Version: "test", LoadTools: func() []mcp.Tool {
+		<-release
+		return []mcp.Tool{{Name: "wait", Wait: func(ctx context.Context, _ json.RawMessage) (string, error) {
+			<-ctx.Done()
+			close(ended)
+			return "", errors.New("gone")
+		}}}
+	}}
+	in, feed := io.Pipe()
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(in, io.Discard) }()
+	go func() {
+		_, _ = io.WriteString(feed, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wait","arguments":{}}}`+"\n"+
+			`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}`+"\n")
+	}()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a call cancelled while the tools loaded went on waiting")
+	}
+	_ = feed.Close()
+	if err := <-served; err != nil {
+		t.Fatal(err)
+	}
+}
