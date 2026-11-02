@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agentbox/internal/gitrepo"
 )
 
 // ErrNoRepo means the project's git remote isn't a GitHub repository. The two
@@ -87,12 +89,17 @@ func ParseRemote(remote string) (Repo, error) {
 }
 
 // RepoOf finds the GitHub repository a checkout pushes to, from its origin.
+// Git failing to read the remote is an error of its own, not ErrNoRepo: a
+// project whose git can't run right now (ENFILE) still has its pull requests.
 func RepoOf(root string) (Repo, error) {
-	out, err := exec.Command("git", "-C", root, "remote", "get-url", "origin").Output()
-	if err != nil {
+	out, err := gitrepo.RemoteURL(root, "origin")
+	if errors.Is(err, gitrepo.ErrNoRemote) {
 		return Repo{}, fmt.Errorf("%w: %w", ErrNoRepo, ErrNoOrigin)
 	}
-	return ParseRemote(string(out))
+	if err != nil {
+		return Repo{}, fmt.Errorf("reading the origin of %s: %w", root, err)
+	}
+	return ParseRemote(out)
 }
 
 // credentialsPattern matches the password half of a URL's embedded

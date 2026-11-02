@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/github"
 	"agentbox/internal/memory"
 	"agentbox/internal/state"
 )
@@ -119,7 +120,7 @@ func (s *Server) pullRequestsClosed(ctx context.Context, p state.Project, number
 	if err != nil {
 		return
 	}
-	prs, byBranch, err := client.PullRequestStates(ctx, repo, numbers, branches)
+	prs, byBranch, err := client.PullRequestStates(github.InBackground(ctx, "anchors"), repo, numbers, branches)
 	if err != nil {
 		if !errors.Is(err, errNoGitHubToken) {
 			s.logf("closing %s's open items: %v", p.Name, err)

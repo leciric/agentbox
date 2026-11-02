@@ -37,6 +37,8 @@ const (
 	FullLimit = 16 << 20
 	// ImageLimit is the largest image sent for preview.
 	ImageLimit = 10 << 20
+	// PDFLimit is the largest PDF sent for preview.
+	PDFLimit = 32 << 20
 	// ChangesLimit caps a status's paths.
 	ChangesLimit = 20000
 	// sniff is how much of a file is looked at to tell binary from text, as git does.
@@ -229,11 +231,25 @@ func Read(root, p string, full bool) (api.FileContent, error) {
 }
 
 // content is a file of size bytes for the viewer, by Read's rules: an image
-// whole unless larger than ImageLimit, other files refused when binary and cut
+// whole unless larger than ImageLimit, a PDF unless larger than PDFLimit,
+// other files refused when binary (and marked when an SQLite database) and cut
 // at TextLimit (FullLimit when full) on a line's end. read reads up to limit
 // bytes of it.
 func content(rel string, size int64, full bool, read func(limit int64) ([]byte, error)) (api.FileContent, error) {
 	out := api.FileContent{Path: rel, Size: size}
+	if strings.EqualFold(path.Ext(rel), ".pdf") {
+		out.PDF = true
+		if size > PDFLimit {
+			out.TooLarge = true
+			return out, nil
+		}
+		data, err := read(PDFLimit)
+		if err != nil {
+			return out, err
+		}
+		out.Data = base64.StdEncoding.EncodeToString(data)
+		return out, nil
+	}
 	if mime := imageType(rel); mime != "" {
 		out.Image = mime
 		if size > ImageLimit {
@@ -260,6 +276,7 @@ func content(rel string, size int64, full bool, read func(limit int64) ([]byte, 
 	}
 	if IsBinary(data) {
 		out.Binary = true
+		out.SQLite = bytes.HasPrefix(data, sqliteHeader)
 		return out, nil
 	}
 	if int64(len(data)) < size {

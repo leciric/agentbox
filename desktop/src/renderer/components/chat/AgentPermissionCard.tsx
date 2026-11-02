@@ -42,7 +42,7 @@ export function AgentPermissionCard({ item }: { item: T.ChatItem }) {
   const who = ap.title || ap.agent;
   return (
     <div
-      className={cn('mb-4 min-w-0 rounded-xl border px-3.5 py-2.5 text-[13px]', waiting ? 'border-amber-300/30 bg-amber-400/[0.07]' : 'border-line bg-surface-faint')}
+      className={cn('mb-4 min-w-0 rounded-xl border px-3.5 py-2.5 text-ui', waiting ? 'border-amber-300/30 bg-amber-400/[0.07]' : 'border-line bg-surface-faint')}
       data-chat-item="agent-permission"
       data-chat-id={item.id}
       data-agent-permission={state}
@@ -54,7 +54,7 @@ export function AgentPermissionCard({ item }: { item: T.ChatItem }) {
         </span>
         <button
           type="button"
-          className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary"
+          className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-subtle transition hover:bg-surface-strong hover:text-primary"
           onClick={() => openAgent(ap.ref)}
           data-open-agent={ap.ref}
         >
@@ -66,7 +66,7 @@ export function AgentPermissionCard({ item }: { item: T.ChatItem }) {
         {permission.title}
       </p>
       {detail && !permission.title.includes(detail) && (
-        <code className="mt-1 block max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-[11.5px] text-muted" data-agent-permission-detail>
+        <code className="mt-1 block max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-caption text-muted" data-agent-permission-detail>
           {detail}
         </code>
       )}
@@ -87,10 +87,11 @@ export function AgentPermissionCard({ item }: { item: T.ChatItem }) {
           onAnswer={(id) => answer.mutate(id)}
           approveLabel={t('chat.permission.allow')}
           denyLabel={t('chat.permission.deny')}
+          planApprove={permission.planApprove}
           keys
         />
       ) : (
-        <p className={cn('mt-1 text-[12px]', state === 'denied' ? 'text-rose-200/80' : state === 'gone' ? 'text-subtle' : 'text-emerald-200/80')} data-agent-permission-outcome>
+        <p className={cn('mt-1 text-caption', state === 'denied' ? 'text-rose-200/80' : state === 'gone' ? 'text-subtle' : 'text-emerald-200/80')} data-agent-permission-outcome>
           {t(outcomeKey[state])}
         </p>
       )}

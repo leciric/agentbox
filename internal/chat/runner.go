@@ -54,7 +54,7 @@ func (m *Manager) SetRunner(a state.Agent, tool, account string) (api.ChatSessio
 	switch tool {
 	case "claude":
 		c.stored.Account = account
-	case "codex", "cursor":
+	case "codex", "cursor", "gemini":
 		chosen := c.stored.ToolAccounts.Clean()
 		chosen[tool] = account
 		c.stored.ToolAccounts = chosen.Clean()
@@ -74,7 +74,7 @@ func (m *Manager) SetRunner(a state.Agent, tool, account string) (api.ChatSessio
 	c.syncRunner()
 	c.markSession()
 	c.flush(true)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // Session is the state of a chat's session, as the conversation holds it.
@@ -84,7 +84,7 @@ func (m *Manager) Session(a state.Agent) (api.ChatSession, error) {
 		return api.ChatSession{}, err
 	}
 	defer c.mu.Unlock()
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // PendingTool is the tool a lead's chat switches to at its next message, or
@@ -227,7 +227,7 @@ func (c *conversation) applyTool(tool string) {
 	c.stored.Tool, c.stored.NextTool = tool, ""
 	c.agent.AI = tool
 	c.agent.ClaudeAccount = ""
-	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = "", nil, ""
+	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount = "", nil, "", ""
 	if tool == "claude" && c.m.LeadAccount != nil {
 		account, err := c.m.LeadAccount(c.agent)
 		if err != nil {
@@ -238,7 +238,7 @@ func (c *conversation) applyTool(tool string) {
 		if on, err := c.m.LeadLogins(c.agent); err != nil {
 			c.m.logf("chat %s: the %s account to switch to: %v", c.agent.Ref(), ToolNames[tool], err)
 		} else {
-			c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = on.CodexAccount, on.OpenCodeAccounts, on.CursorAccount
+			c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount = on.CodexAccount, on.OpenCodeAccounts, on.CursorAccount, on.GeminiAccount
 		}
 	}
 	c.session.Tool = tool

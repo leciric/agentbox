@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -165,4 +166,39 @@ func TestFileWatchesExpireAndCacheStatus(t *testing.T) {
 		t.Error("still watched after watchIdle")
 	}
 	f.closeAll()
+}
+
+// The viewer's SQLite route lists a database's tables and pages its rows,
+// and a missing table is a 404.
+func TestFileTreeSQLiteRoute(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(repo, "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE items (n INTEGER); INSERT INTO items VALUES (1), (2), (3)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	file, err := d.client.ReadFile(ctx, "hello-stack", "app.db", false, true)
+	if err != nil || !file.SQLite || !file.Binary {
+		t.Fatalf("ReadFile(app.db) = %+v, %v", file, err)
+	}
+	page, err := d.client.SQLite(ctx, "hello-stack", "app.db", "items", 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tables) != 1 || page.Total != 3 || len(page.Rows) != 1 || page.Rows[0][0] != float64(2) {
+		t.Fatalf("SQLite(items) = %+v", page)
+	}
+	if _, err := d.client.SQLite(ctx, "hello-stack", "app.db", "nope", 0, 10); !api.IsNotFound(err) {
+		t.Fatalf("SQLite(nope) = %v, want a 404", err)
+	}
 }

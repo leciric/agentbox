@@ -1,17 +1,20 @@
 // ErrorReports watches for uncaught errors, the window's and the main
 // process's, and does what lib/errorReports.ts decides: sends a report of
-// each while the user has them on (they are, until turned off).
+// each while the user has them on (they are, until turned off). Chromium's
+// processes that die are the main process's to report (main/processgone.ts).
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { api } from '../lib/api';
 import { ErrorReporter, errorReport, fromEvent, type UncaughtError } from '../lib/errorReports';
 
-// send sends err's report, with the app's own description beside it. A
-// failure is dropped: there's nobody to tell about an error report that
-// didn't go, and saying so in the console would only be another error.
+// send sends err's report, with the app's own description beside it,
+// through the main process, which keeps it while the daemon can't be reached
+// (main/reportqueue.ts). A refusal is dropped: there's nobody to tell about
+// an error report that didn't go, and saying so in the console would only be
+// another error.
 async function send(err: UncaughtError): Promise<void> {
   const app = (await window.agentbox.report.sections().catch(() => [])).find((s) => s.id === 'app');
-  await api.sendReport(errorReport(err, app));
+  await window.agentbox.report.send(errorReport(err, app));
 }
 
 export function ErrorReports() {

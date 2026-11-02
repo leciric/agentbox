@@ -56,6 +56,7 @@ func TestPackageCacheEnvNamesTheCachesOnlyWhenTheyreThere(t *testing.T) {
 		"PLAYWRIGHT_BROWSERS_PATH":   dir + "/cache/ms-playwright",
 		"PLAYWRIGHT_SKIP_BROWSER_GC": "1",
 		"COREPACK_HOME":              dir + "/cache/corepack",
+		"electron_config_cache":      dir + "/cache/electron",
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)

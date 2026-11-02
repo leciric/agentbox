@@ -14,6 +14,7 @@ import (
 	"agentbox/internal/cursor"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -44,7 +45,36 @@ var ChatAdapters = map[string]ChatAdapter{
 	// Cursor's adapter is AgentBox's own, over Cursor's TypeScript SDK
 	// (internal/cursor): Package is the SDK.
 	"cursor": {Tool: "Cursor", Command: "node", Package: cursor.SDKPackage, Script: cursor.Script, ScriptPath: cursorScriptFile, SDKEnv: cursor.SDKEnv},
+	// Gemini CLI speaks ACP itself, behind --acp (--experimental-acp until
+	// 0.6x, deprecated since).
+	"gemini": {Tool: "Gemini CLI", Command: "gemini", Args: []string{"--acp"}, Package: image.Pin("npm:@google/gemini-cli")},
 }
+
+// openCodeAdapter is the chat adapter for the OpenCode this installation runs.
+// OpenCode 2 is not the mise tool the base image installs as `opencode`: it is
+// linked beside it as `opencode2`, so it runs by name rather than through mise.
+func openCodeAdapter(adapter ChatAdapter, version opencode.Release) ChatAdapter {
+	adapter.Command = version.Command()
+	if version == opencode.V2 {
+		adapter.Package = ""
+	}
+	return adapter
+}
+
+// claudeEntrypoint is the client label Claude Code reports, which decides how
+// much of the 5-hour window a turn costs. The Agent SDK defaults to "sdk-ts",
+// which for the same work used 8 points of the account's 1% meter per session,
+// against 3 for the VS Code extension's label. Our chat drives the same
+// transport and uses our own label: measured at 2-3 points, the same as the
+// extension. Inferred from a small sample (one account, two sessions per
+// label). The terminal interface really is "cli" and sets nothing.
+const claudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT=agentbox"
+
+// geminiNoRelaunch keeps Gemini CLI in the process the chat started. Without
+// it, `gemini` starts itself again as a child with more heap and waits on it,
+// ignoring SIGTERM: stopping the chat kills the parent and leaves the child,
+// the one running the session, behind.
+const geminiNoRelaunch = "GEMINI_CLI_NO_RELAUNCH=1"
 
 // installTimeout bounds installing an adapter in an agent whose machine doesn't have it.
 const installTimeout = 5 * time.Minute
@@ -67,7 +97,7 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 	if !a.IsLead() {
 		return nil, fmt.Errorf("%s isn't a project's chat", a.Ref())
 	}
-	home := m.Paths.LeadHome(a.Project)
+	home := m.leadHome(a)
 	command, args, toolEnvVars, bin, err := m.leadAdapter(ctx, a, home, status)
 	if err != nil {
 		return nil, err
@@ -84,6 +114,12 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 		"LANG=C.UTF-8",
 	}
 	env = append(env, toolEnv()...)
+	if a.AI == "claude" {
+		env = append(env, claudeEntrypoint)
+	}
+	if a.AI == "gemini" {
+		env = append(env, geminiNoRelaunch)
+	}
 	if term := os.Getenv("TERM"); term != "" {
 		env = append(env, "TERM="+term)
 	}
@@ -124,6 +160,21 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	if err := m.requireRunning(ctx, a); err != nil {
 		return nil, err
 	}
+	if a.AI == "opencode" {
+		version, err := m.openCodeVersion(ctx)
+		if err != nil {
+			return nil, err
+		}
+		adapter = openCodeAdapter(adapter, version)
+		if version == opencode.V2 {
+			// OpenCode 2 is not in the image: the agent installs it here, at
+			// its first start on it (pinned by image.OpenCode2Version), so a
+			// switch doesn't break the agents already running.
+			if err := m.ensureOpenCode2InAgent(ctx, a); err != nil {
+				return nil, err
+			}
+		}
+	}
 	overrides, err := m.Store.ToolOverrides(ctx)
 	if err != nil {
 		return nil, err
@@ -131,22 +182,32 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	// The adapter at the version agents run now: the pin, or the newer one
 	// "Keep Claude Code up to date" moved the base image to, which an agent
 	// made before that gets here, before its next turn (chat.ToolUpdated).
-	spec := image.Overrides(overrides).Apply([]image.Tool{{Spec: adapter.Package}})[0].Spec
-	if err := m.ensureMise(ctx, a, spec, "mise install", "the "+adapter.Tool+" adapter", status); err != nil {
-		return nil, err
-	}
-	if _, moved := overrides[a.AI]; moved {
-		// And the tool's own command line, which the base image has globally.
-		if err := m.ensureMise(ctx, a, image.Overrides(overrides).Spec(a.AI), "mise use -g", adapter.Tool, status); err != nil {
+	// OpenCode 2 is not a mise tool: ensureOpenCode2InAgent installs it.
+	var spec, pkg string
+	if adapter.Package != "" {
+		spec = image.Overrides(overrides).Apply([]image.Tool{{Spec: adapter.Package}})[0].Spec
+		if err := m.ensureMise(ctx, a, spec, "mise install", "the "+adapter.Tool+" adapter", status); err != nil {
 			return nil, err
 		}
+		if _, moved := overrides[a.AI]; moved {
+			// And the tool's own command line, which the base image has globally.
+			if err := m.ensureMise(ctx, a, image.Overrides(overrides).Spec(a.AI), "mise use -g", adapter.Tool, status); err != nil {
+				return nil, err
+			}
+		}
+		pkg = shellQuote(spec)
 	}
-	pkg := shellQuote(spec)
 	status("Starting " + adapter.Tool)
 	// mise exec runs the version AgentBox pins, whatever the agent's own mise configuration says.
 	command := shellQuote(adapter.Command)
 	args := adapter.Args
 	var env string
+	if a.AI == "claude" {
+		env = claudeEntrypoint + " "
+	}
+	if a.AI == "gemini" {
+		env = geminiNoRelaunch + " "
+	}
 	if adapter.Script != nil {
 		// Written every time, so the adapter is always this daemon's own.
 		path := "/home/" + m.User.Name + "/" + adapter.ScriptPath
@@ -159,6 +220,10 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	for _, arg := range args {
 		command += " " + shellQuote(arg)
 	}
+	cmdline := command
+	if adapter.Package != "" {
+		cmdline = "mise exec " + pkg + " -- " + command
+	}
 	hide, err := m.toolHides(a)
 	if err != nil {
 		return nil, err
@@ -170,7 +235,8 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 			return nil, err
 		}
 	}
-	script := fmt.Sprintf("cd %s && %sexec %smise exec %s -- %s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), pkg, command)
+	// A Gemini CLI API key isn't in it: the chat sends it (ChatAuth).
+	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), cmdline)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
 }
 
@@ -201,7 +267,7 @@ func interfaceFor(ai, iface string) (string, error) {
 	case iface != "" && iface != state.InterfaceChat && iface != state.InterfaceCLI:
 		return "", fmt.Errorf("unknown interface %q: use chat or cli", iface)
 	case ai == "none" && iface == state.InterfaceChat:
-		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex, opencode or cursor")
+		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex, opencode, cursor or gemini")
 	case ai == "none", iface == state.InterfaceCLI:
 		return state.InterfaceCLI, nil
 	}
@@ -232,7 +298,8 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
 		return a, nil // the session starts with the agent
 	}
-	window, err := m.toolWindowScript(a)
+	m.prepareToolWindow(ctx, a)
+	window, err := m.toolWindowScript(ctx, a)
 	if err != nil {
 		return a, err
 	}
@@ -245,11 +312,45 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	return a, nil
 }
 
+// prepareToolWindow gives the terminal's Gemini CLI its sign-in, an API key
+// in the file only the command line reads (syncGeminiKeyFile), and the
+// terminal's OpenCode what a chat's gets from
+// PrepareChatModel before every chat: the config in the shape of the version
+// running now, and OpenCode 2's logins (installing it first with
+// ensureOpenCode2InAgent if the agent doesn't have it), so an agent switched in
+// either direction starts on what its version reads. It is for a tool window
+// about to be opened, and a failure is logged, not returned: the tool reports
+// what it is missing, and a machine without the network still gets its shell.
+func (m *Manager) prepareToolWindow(ctx context.Context, a state.Agent) {
+	if a.Interface == state.InterfaceChat {
+		return
+	}
+	if a.AI == "gemini" {
+		if err := m.prepareAgentGeminiSettings(ctx, a); err != nil {
+			m.logf("preparing %s's Gemini CLI: %v", a.Ref(), err)
+		}
+		return
+	}
+	if a.AI != "opencode" {
+		return
+	}
+	if err := m.prepareAgentOpenCodeSettings(ctx, a); err != nil {
+		m.logf("preparing %s's OpenCode: %v", a.Ref(), err)
+	}
+}
+
 // toolWindowScript opens tmux window 1 with the AI tool's command line, for an
 // agent you use from the terminal rather than the chat, started without the
 // credential variables in hide (toolHides).
-func (m *Manager) toolWindowScript(a state.Agent) (string, error) {
+func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, error) {
 	tool := Tools[a.AI]
+	if a.AI == "opencode" {
+		version, err := m.openCodeVersion(ctx)
+		if err != nil {
+			return "", err
+		}
+		tool = Tool{Command: version.Command(), Autonomous: version.Autonomous()}
+	}
 	command := tool.Command
 	if a.Autonomous {
 		command = tool.Autonomous
@@ -264,5 +365,5 @@ func (m *Manager) toolWindowScript(a state.Agent) (string, error) {
 	// Typed into a shell, so the window stays open when the tool exits. The
 	// shell keeps the secrets; env execs the tool without them.
 	return fmt.Sprintf("tmux new-window -t %[1]s -n %[2]s -c %[3]s\ntmux send-keys -t %[1]s:%[2]s %[4]s Enter\n",
-		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+command)), nil
+		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+m.geminiKeyEnv(a, hide)+command)), nil
 }

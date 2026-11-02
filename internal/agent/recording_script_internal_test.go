@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"agentbox/internal/desktop"
 )
 
 // The display and the browser are recorded by the agentbox binary in one pass,
@@ -152,5 +155,46 @@ func TestStopRecordingSaysWhyNothingWasRecorded(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Errorf("stop said %q, want %q in it", output, want)
 		}
+	}
+}
+
+// The edit is made in the agent, from what the recorder left beside the
+// recording and the notes the daemon hands it, quoted whatever they say.
+func TestEditRecordingScript(t *testing.T) {
+	home := t.TempDir()
+	bin := t.TempDir()
+	dir := filepath.Join(home, agentStateDir)
+	if err := os.MkdirAll(filepath.Join(dir, "out"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// agentbox stands in for the real one: it says what it was asked, and
+	// writes the edit.
+	stub := `#!/bin/sh
+echo "$@" >"$HOME/args"
+for last; do :; done
+echo edited >"$last"
+`
+	if err := os.WriteFile(filepath.Join(bin, "agentbox"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	notes := []desktop.Note{{T: 100.5, Text: `It's "quoted" $HOME`}, {T: 103, Text: "Two"}}
+	script := editRecordingScript(recordingState{Staged: true, StartedAt: time.Unix(99, 0)}, notes, [2]string{"Fix the 'login'", "flow"})
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	written, _ := os.ReadFile(filepath.Join(dir, "recording.notes"))
+	if want := `{"t":100.5,"text":"It's \"quoted\" $HOME"}` + "\n" + `{"t":103,"text":"Two"}` + "\n"; string(written) != want {
+		t.Errorf("notes = %q, want %q", written, want)
+	}
+	args, _ := os.ReadFile(filepath.Join(home, "args"))
+	for _, want := range []string{"desktop edit", "--start 99.000000", "--title Fix the 'login' --subtitle flow", "out/recording.mp4 " + dir + "/out/recording.edited.mp4"} {
+		if !strings.Contains(string(args), want) {
+			t.Errorf("agentbox was run with %q, want %q in it", args, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "out", "recording.edited.mp4")); err != nil {
+		t.Error(err)
 	}
 }

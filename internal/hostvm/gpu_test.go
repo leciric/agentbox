@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/hostvm/chv"
 )
@@ -73,13 +75,33 @@ func TestVenusTar(t *testing.T) {
 			}
 		}
 	}
-	if patches != 3 {
+	if patches != 5 {
 		t.Errorf("%d patches in %v", patches, files)
 	}
 }
 
-// venus.sh parses, leaves the kernel to kernel.sh, and checks the Mesa it
-// downloads.
+// An upgrade brings venus/ with the binary, so a krunkit VM rebuilds its GPU
+// driver with this version's patches; a VM of another type gets the binary
+// alone.
+func TestInstallBringsVenus(t *testing.T) {
+	for _, vmType := range []string{krunkitVMType, "vz"} {
+		t.Run(vmType, func(t *testing.T) {
+			vm, dir := newFake(t)
+			_ = os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Running","vmType":"`+vmType+`"}`+"\n"), 0o644)
+			if err := vm.Install(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			sent := slices.ContainsFunc(calls(t, dir), func(call string) bool { return strings.Contains(call, "rm -rf "+venusSrc) })
+			if sent != (vmType == krunkitVMType) {
+				t.Errorf("sent venus/: %v, calls %q", sent, calls(t, dir))
+			}
+		})
+	}
+}
+
+// venus.sh parses, leaves the kernel to kernel.sh, checks the Mesa it
+// downloads, and installs its build packages without upgrading those the VM
+// has.
 func TestVenusScript(t *testing.T) {
 	script, err := venusFiles.ReadFile("venus/venus.sh")
 	if err != nil {
@@ -88,7 +110,7 @@ func TestVenusScript(t *testing.T) {
 	if out, err := exec.Command("bash", "-n", "-c", string(script)).CombinedOutput(); err != nil {
 		t.Fatalf("venus.sh doesn't parse: %v\n%s", err, out)
 	}
-	for _, want := range []string{"kernel.sh\" try", "sha256sum -c", "-Dvulkan-drivers=virtio"} {
+	for _, want := range []string{"kernel.sh\" try", "sha256sum -c", "-Dvulkan-drivers=virtio", "--no-upgrade"} {
 		if !bytes.Contains(script, []byte(want)) {
 			t.Errorf("venus.sh has no %q", want)
 		}
@@ -211,6 +233,50 @@ func TestNoGPU(t *testing.T) {
 		got := noGPU(tc.driver, tc.vmType)
 		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
 			t.Errorf("noGPU(%q, %q) = %q, want %q", tc.driver, tc.vmType, got, tc.want)
+		}
+	}
+}
+
+func TestGPUReason(t *testing.T) {
+	for _, tc := range []struct{ driver, vmType, want string }{
+		{api.VMDriverLima, krunkitVMType, ""},
+		{api.VMDriverCloudHypervisor, "", ""},
+		{api.VMDriverLima, "vz", "Apple's Virtualization framework (vz), which gives it no 3D"},
+		{api.VMDriverLima, "", "Apple's Virtualization framework (vz)"},
+		{api.VMDriverVZ, "", "AgentBox's vz driver gives the VM no 3D"},
+		{api.VMDriverLima, "qemu", "Lima's qemu VM has no 3D for agents"},
+	} {
+		got := gpuReason(tc.driver, tc.vmType)
+		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
+			t.Errorf("gpuReason(%q, %q) = %q, want %q", tc.driver, tc.vmType, got, tc.want)
+		}
+		// One line, which Settings ends itself; the vz VMs say what to do.
+		if strings.Contains(got, "\n") || strings.HasSuffix(got, ".") {
+			t.Errorf("gpuReason(%q, %q) = %q: not one line without a period", tc.driver, tc.vmType, got)
+		}
+		if tc.want != "" && tc.vmType != "qemu" && !strings.Contains(got, krunkitInstall+"), then agentbox vm delete --yes") {
+			t.Errorf("gpuReason(%q, %q) = %q: no krunkit install", tc.driver, tc.vmType, got)
+		}
+	}
+}
+
+// Setup tells the daemon in a VM made without krunkit why it has no GPU, and
+// says nothing to one made with it.
+func TestWriteGPUReason(t *testing.T) {
+	for _, tc := range []struct{ vmType, want string }{
+		{"vz", `{"vmType":"vz","reason":"AgentBox's VM runs on Apple's Virtualization framework (vz)`},
+		{"qemu", `{"vmType":"qemu","reason":"Lima's qemu VM has no 3D for agents"}`},
+		{krunkitVMType, ""},
+	} {
+		vm, dir := newFake(t)
+		_ = os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Running","vmType":"`+tc.vmType+`"}`+"\n"), 0o644)
+		vm.writeGPUReason(context.Background())
+		got, _ := os.ReadFile(filepath.Join(dir, "gpu-reason"))
+		if !strings.HasPrefix(string(got), tc.want) || (tc.want == "") != (len(got) == 0) {
+			t.Errorf("%s: wrote %q, want %q", tc.vmType, got, tc.want)
+		}
+		if tc.want != "" && !strings.Contains(strings.Join(calls(t, dir), "\n"), agent.VMGPUReasonFile) {
+			t.Errorf("%s: not written to %s: %q", tc.vmType, agent.VMGPUReasonFile, calls(t, dir))
 		}
 	}
 }

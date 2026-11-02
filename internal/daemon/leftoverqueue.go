@@ -65,7 +65,7 @@ func (s *Server) startQueuedAgent(ctx context.Context, q state.QueuedAgent) erro
 	}); err != nil {
 		return err
 	}
-	s.tellLead(ctx, q.Project, fmt.Sprintf("Queued agent %s%s is starting: AgentBox no longer queues agents.", q.Name, withTitle(a.Title)), false)
+	s.tellOwner(ctx, a, fmt.Sprintf("Queued agent %s%s is starting: AgentBox no longer queues agents.", q.Name, withTitle(a.Title)), false)
 	return nil
 }
 
