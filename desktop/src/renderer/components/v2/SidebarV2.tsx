@@ -41,7 +41,7 @@ import { isNightly, isUpgrade } from '../../lib/nightly';
 import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
 import { openNewTask, requestComposerFocus } from '../../lib/newTask';
-import { openPanelOn, setPanel } from '../../lib/rightPanel';
+import { setPanel, settingsOpen, toggleSettings, usePanel } from '../../lib/rightPanel';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
 import { ReviewCount, useOpenReview } from './ReviewV2';
@@ -654,10 +654,14 @@ function ProjectLead({
   const name = projectLabel(project);
   const active = (view.kind === 'project' && view.project === project.name) || (view.kind === 'agent' && view.ref.startsWith(`${project.name}/`));
   const open_ = () => onSelect({ kind: 'project', project: project.name });
+  const panel = usePanel();
+  const onProject = view.kind === 'project' && view.project === project.name;
   const openSettings = () => {
+    // The gear closes Settings while they are open on this project.
+    if (onProject && settingsOpen(panel, leadRef)) return void toggleSettings(leadRef, true);
     open_();
     setPanel({ section: 'general' });
-    openPanelOn(leadRef, 'settings');
+    toggleSettings(leadRef, false);
   };
   const { main, more } = projectActions(t, {
     project,
