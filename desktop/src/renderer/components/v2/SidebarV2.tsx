@@ -1086,6 +1086,7 @@ function ProjectLead({
             // Needing you, a faint amber wash.
             className={cn(needs && !active && 'bg-amber-400/5 hover:bg-amber-400/10', working && "before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-sky-400 before:content-['']")}
             data-v2-working={working ? '' : undefined}
+            aria-busy={working || undefined}
           >
             {/* The icon's corner says it at any width: amber for what needs
                 you, the brand's for what finished or a session's unread line. */}
