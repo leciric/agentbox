@@ -43,7 +43,7 @@ import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
 import { useUiVerbs, verbOf } from '../../lib/uiVerbs';
 import { useGrace } from '../../lib/grace';
-import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, type Attention } from '../../lib/attention';
+import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, waitingProjects, type Attention } from '../../lib/attention';
 import { useReviewHead } from '../../lib/inboxPages';
 import { useReviewing } from '../../lib/reviewAlert';
 import { projectLabel } from '../../lib/projectName';
@@ -141,6 +141,11 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const onScreen = view.kind === 'project' ? view.project : currentAgentProject;
   const active = useMemo(() => (onScreen && !activeGrace.has(onScreen) ? new Set([...activeGrace, onScreen]) : activeGrace), [activeGrace, onScreen]);
 
+  // Each project's lead sessions, the rows' own queries: one waiting on a
+  // permission needs you, one mid-turn is working.
+  const sessionLists = useQueries({ queries: (projects.data ?? []).map((p) => ({ queryKey: ['leadSessions', p.name], queryFn: () => api.leadSessions(p.name) })) });
+  const sessionsWaiting = [...waitingProjects((projects.data ?? []).map((p) => p.name), sessionLists.map((q) => q.data))].join('\n');
+  const sessionsWorking = (projects.data ?? []).filter((_, i) => (sessionLists[i]?.data ?? []).some(isWorking)).map((p) => p.name).join('\n');
   // Each project's attention level (lib/attention.ts): what needs you, and
   // what finished since you last had it on screen, the window focused. The
   // project you're looking at has nothing unseen.
@@ -153,10 +158,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     const out = new Map<string, Attention>();
     for (const p of projects.data ?? []) {
       const finished = p.name === looking ? 0 : unseenFinished(rows, p.name, projectSeen.seen[p.name] ?? projectSeen.since, finishedAt).length;
-      out.set(p.name, attentionOf(counts.of(p.name), leads.get(p.name) === 'waiting', finished));
+      out.set(p.name, attentionOf(counts.of(p.name), leads.get(p.name) === 'waiting' || sessionsWaiting.split('\n').includes(p.name), finished));
     }
     return out;
-  }, [projects.data, rows, head, projectSeen, counts, leads, looking]);
+  }, [projects.data, rows, head, projectSeen, counts, leads, sessionsWaiting, looking]);
   // Marked again as what it shows changes, so what finishes while you look
   // is seen too.
   useEffect(() => {
@@ -168,10 +173,6 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const finishedNow = useMemo(() => new Set([...attention].filter(([, a]) => a.level === 'finished').map(([n]) => n)), [attention]);
   const needsSort = useKeepOnScreen(useGrace(needsNow), onScreen);
   const finishedSort = useKeepOnScreen(useGrace(finishedNow), onScreen);
-  // Working: any agent at work, or the lead's chat or one of its sessions
-  // mid-turn, the row's spinner. The sessions are the rows' own queries.
-  const sessionLists = useQueries({ queries: (projects.data ?? []).map((p) => ({ queryKey: ['leadSessions', p.name], queryFn: () => api.leadSessions(p.name) })) });
-  const sessionsWorking = (projects.data ?? []).filter((_, i) => (sessionLists[i]?.data ?? []).some(isWorking)).map((p) => p.name).join('\n');
   const workingNow = useMemo(
     () => new Set((projects.data ?? []).filter((p) => counts.of(p.name).working > 0 || busyNow.has(p.name) || sessionsWorking.split('\n').includes(p.name)).map((p) => p.name)),
     [projects.data, counts, busyNow, sessionsWorking],
