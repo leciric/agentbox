@@ -15,6 +15,11 @@ test('a walk starts on the first and steps to the next waiting', () => {
   assert.deepEqual(position(w, [b, c]), { n: 1, count: 3 });
 });
 
+test('a walk from a notification starts on its agent, if it still waits', () => {
+  assert.equal(startWalk([a, b, c], 'web/b')?.item.ref, 'web/b');
+  assert.equal(startWalk([a, b, c], 'web/gone')?.item.ref, 'web/a');
+});
+
 test('back returns to the agent shown before, reviewed or not', () => {
   const w = goForward(startWalk([a, b])!, b);
   assert.equal(goBack(w).item.ref, 'web/a');

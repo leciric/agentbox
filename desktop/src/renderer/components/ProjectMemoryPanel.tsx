@@ -29,7 +29,7 @@ import { formatNumber, useT, type MessageKey, type Translate } from '../lib/i18n
 import { pendingReveal, useReveal, type MemorySection, type Reveal } from '../lib/reveal';
 import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
-import { FilterChip } from './MediaTab';
+import { FilterChip } from './media/MediaParts';
 import { Sparkline } from './Sparkline';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
@@ -207,7 +207,7 @@ function WorkingMemoryCard({ project }: { project: string }) {
       <Field label={t('memory.working.blockers')} htmlFor="memory-blockers" hint={t('memory.working.blockersHint')}>
         <Textarea
           id="memory-blockers"
-          className="mt-1.5 min-h-16 font-mono text-[12.5px]"
+          className="mt-1.5 min-h-16 font-mono text-ui"
           placeholder={t('memory.working.blockersPlaceholder')}
           value={fields.blockers}
           onChange={(event) => setDraft({ ...fields, blockers: event.target.value })}
@@ -224,12 +224,12 @@ function WorkingMemoryCard({ project }: { project: string }) {
       </Field>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line-faint pt-3">
-        <span className="flex items-center gap-1.5 text-[11.5px] text-subtle">
+        <span className="flex items-center gap-1.5 text-caption text-subtle">
           <Users className="size-3.5" />
           {t('memory.working.activeAgents')}
         </span>
         {(saved?.activeAgents ?? []).length === 0 ? (
-          <span className="text-[11.5px] text-faint">{t('memory.working.none')}</span>
+          <span className="text-caption text-faint">{t('memory.working.none')}</span>
         ) : (
           (saved?.activeAgents ?? []).map((name) => (
             <Badge key={name} variant="brand">
@@ -237,7 +237,7 @@ function WorkingMemoryCard({ project }: { project: string }) {
             </Badge>
           ))
         )}
-        <span className="ml-auto text-[11px] text-faint">
+        <span className="ml-auto text-caption text-faint">
           {dirty
             ? t('memory.working.unsaved')
             : working.isPending
@@ -333,7 +333,7 @@ function MemoriesSection({ project }: { project: string }) {
           {resolved.length > 0 && (
             <button
               type="button"
-              className="text-[12px] text-subtle underline-offset-2 hover:text-tertiary hover:underline"
+              className="text-caption text-subtle underline-offset-2 hover:text-tertiary hover:underline"
               onClick={() => setShowResolved((v) => !v)}
             >
               {showResolved ? t('memory.memories.hideResolved') : t('memory.memories.showResolved', { count: resolved.length })}
@@ -342,7 +342,7 @@ function MemoriesSection({ project }: { project: string }) {
           {superseded.length > 0 && (
             <button
               type="button"
-              className="text-[12px] text-subtle underline-offset-2 hover:text-tertiary hover:underline"
+              className="text-caption text-subtle underline-offset-2 hover:text-tertiary hover:underline"
               onClick={() => setShowSuperseded((v) => !v)}
             >
               {showSuperseded ? t('memory.memories.hideSuperseded') : t('memory.memories.showSuperseded', { count: superseded.length })}
@@ -356,7 +356,7 @@ function MemoriesSection({ project }: { project: string }) {
       </div>
 
       {memories.error && <Notice>{errorMessage(memories.error)}</Notice>}
-      {memories.isPending && <p className="px-1 text-[13px] text-subtle">{t('common.loading')}</p>}
+      {memories.isPending && <p className="px-1 text-ui text-subtle">{t('common.loading')}</p>}
       {!memories.isPending && items.length === 0 && visibleSuperseded.length === 0 && visibleResolved.length === 0 && (
         <Panel className="rounded-2xl">
           <EmptyState icon={Sparkles} title={t('memory.memories.empty.title')}>
@@ -443,7 +443,7 @@ export function MemoryRow({
     >
       <div className="flex flex-wrap items-start gap-2">
         <Badge variant={kindVariant[memory.kind] ?? 'default'}>{kindLabel[memory.kind] ? t(kindLabel[memory.kind]) : memory.kind}</Badge>
-        <h4 className="min-w-0 flex-1 text-[13.5px] font-medium text-primary">{memory.title}</h4>
+        <h4 className="min-w-0 flex-1 text-body font-medium text-primary">{memory.title}</h4>
         {memory.global && !onDelete && (
           <Badge variant="info" title={t('memory.global.badgeTip')}>
             <Globe />
@@ -476,8 +476,8 @@ export function MemoryRow({
           </Button>
         )}
       </div>
-      {memory.content && <Markdown text={memory.content} className="mt-1.5 text-[12.5px] leading-relaxed text-muted" />}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-subtle">
+      {memory.content && <Markdown text={memory.content} className="mt-1.5 text-ui leading-relaxed text-muted" />}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-subtle">
         <span>{timeAgo(memory.createdAt)}</span>
         {memory.global && memory.origin && (
           <span>{memory.origin === A.HomeProject ? t('memory.global.fromHome') : t('memory.global.from', { project: memory.origin })}</span>
@@ -728,7 +728,7 @@ function SearchGroup({ title, count, children }: { title: string; count: number;
   if (count === 0) return null;
   return (
     <div className="grid gap-2">
-      <h3 className="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">
+      <h3 className="px-1 text-caption font-semibold uppercase tracking-[0.08em] text-subtle">
         {title} <span className="tabular-nums text-faint">{count}</span>
       </h3>
       <div className="grid gap-2">{children}</div>
@@ -788,11 +788,11 @@ function MemoryEventsSection({ project }: { project: string }) {
       )}
 
       <div className="flex items-center justify-between px-1">
-        <span className="text-[11.5px] text-subtle">
+        <span className="text-caption text-subtle">
           {t('memory.events.newest', { count: items.length })}
           {items.length === limit && ` ${t('memory.events.atMost', { limit })}`}
         </span>
-        <label className="flex items-center gap-2 text-[12px] text-subtle">
+        <label className="flex items-center gap-2 text-caption text-subtle">
           {t('memory.events.show')}
           <Select className="h-7 w-24" value={String(limit)} onChange={(v) => setLimit(Number(v))}>
             {limitOptions.map((n) => (
@@ -805,7 +805,7 @@ function MemoryEventsSection({ project }: { project: string }) {
       </div>
 
       {events.error && <Notice>{errorMessage(events.error)}</Notice>}
-      {events.isPending && <p className="px-1 text-[13px] text-subtle">{t('common.loading')}</p>}
+      {events.isPending && <p className="px-1 text-ui text-subtle">{t('common.loading')}</p>}
       {!events.isPending && items.length === 0 && (
         <Panel className="rounded-2xl">
           <EmptyState icon={History} title={t('memory.events.empty.title')}>
@@ -813,7 +813,7 @@ function MemoryEventsSection({ project }: { project: string }) {
           </EmptyState>
         </Panel>
       )}
-      {items.length > 0 && visible.length === 0 && <p className="px-1 text-[13px] text-subtle">{t('memory.noMatch')}</p>}
+      {items.length > 0 && visible.length === 0 && <p className="px-1 text-ui text-subtle">{t('memory.noMatch')}</p>}
 
       <div className="grid gap-2">
         {pinnedEvent && <EventRow key={`found-${pinnedEvent.id}`} event={pinnedEvent} />}
@@ -833,16 +833,16 @@ function EventRow({ event }: { event: T.MemoryEvent }) {
     <div className="panel rounded-2xl px-4 py-3" data-event={event.id} data-event-type={event.type}>
       <div className="flex flex-wrap items-center gap-2">
         <Badge>{event.type}</Badge>
-        {event.agent && <span className="text-[12px] text-muted">{event.agent}</span>}
-        <span className="ml-auto text-[11.5px] text-subtle">{timeAgo(event.at)}</span>
+        {event.agent && <span className="text-caption text-muted">{event.agent}</span>}
+        <span className="ml-auto text-caption text-subtle">{timeAgo(event.at)}</span>
       </div>
       {payload && (
-        <button type="button" className="mt-1.5 text-[11px] text-subtle hover:text-tertiary" onClick={() => setExpanded((v) => !v)}>
+        <button type="button" className="mt-1.5 text-caption text-subtle hover:text-tertiary" onClick={() => setExpanded((v) => !v)}>
           {expanded ? t('memory.events.hidePayload') : t('memory.events.showPayload')}
         </button>
       )}
       {expanded && payload && (
-        <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg border border-line-faint bg-sunken p-2.5 font-mono text-[11px] leading-relaxed text-muted">
+        <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg border border-line-faint bg-sunken p-2.5 font-mono text-caption leading-relaxed text-muted">
           {payload}
         </pre>
       )}
@@ -891,9 +891,9 @@ function MemoryReportsSection({ project, onOpenMedia }: { project: string; onOpe
   return (
     <div className="grid gap-6">
       <div className="grid gap-2">
-        <h3 className="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('memory.tab.reports')}</h3>
+        <h3 className="px-1 text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{t('memory.tab.reports')}</h3>
         {reports.error && <Notice>{errorMessage(reports.error)}</Notice>}
-        {reports.isPending && <p className="px-1 text-[13px] text-subtle">{t('common.loading')}</p>}
+        {reports.isPending && <p className="px-1 text-ui text-subtle">{t('common.loading')}</p>}
         {!reports.isPending && (reports.data?.length ?? 0) === 0 && (
           <Panel className="rounded-2xl">
             <EmptyState icon={FileText} title={t('memory.report.empty.title')}>
@@ -910,9 +910,9 @@ function MemoryReportsSection({ project, onOpenMedia }: { project: string; onOpe
       </div>
 
       <div className="grid gap-2">
-        <h3 className="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('memory.report.artifacts')}</h3>
+        <h3 className="px-1 text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{t('memory.report.artifacts')}</h3>
         {artifacts.error && <Notice>{errorMessage(artifacts.error)}</Notice>}
-        {!artifacts.isPending && (artifacts.data?.length ?? 0) === 0 && <p className="px-1 text-[13px] text-subtle">{t('memory.report.noArtifacts')}</p>}
+        {!artifacts.isPending && (artifacts.data?.length ?? 0) === 0 && <p className="px-1 text-ui text-subtle">{t('memory.report.noArtifacts')}</p>}
         <div className="grid gap-2">
           {(artifacts.data ?? []).map((artifact) => (
             <ArtifactRow key={artifact.id} artifact={artifact} onOpenMedia={onOpenMedia} />
@@ -929,11 +929,11 @@ function ReportRow({ report }: { report: T.AgentReport }) {
     <div className="panel rounded-2xl px-4 py-3" data-report={report.id}>
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={statusVariant[report.status] ?? 'default'}>{reportStatusLabel[report.status] ? t(reportStatusLabel[report.status]) : report.status}</Badge>
-        <span className="text-[13px] font-medium text-primary">{report.agent}</span>
-        {report.task && <span className="min-w-0 truncate text-[12px] text-subtle">— {report.task}</span>}
-        <span className="ml-auto shrink-0 text-[11.5px] text-subtle">{timeAgo(report.createdAt)}</span>
+        <span className="text-ui font-medium text-primary">{report.agent}</span>
+        {report.task && <span className="min-w-0 truncate text-caption text-subtle">— {report.task}</span>}
+        <span className="ml-auto shrink-0 text-caption text-subtle">{timeAgo(report.createdAt)}</span>
       </div>
-      <Markdown text={report.summary} className="mt-1.5 text-[12.5px] leading-relaxed text-tertiary" />
+      <Markdown text={report.summary} className="mt-1.5 text-ui leading-relaxed text-tertiary" />
       <ReportList label={t('memory.report.discoveries')} items={report.discoveries} />
       <ReportList label={t('memory.report.decisions')} items={report.decisions} />
       <ReportList label={t('memory.report.remaining')} items={report.remainingIssues} tone="amber" />
@@ -945,11 +945,11 @@ function ReportList({ label, items, tone }: { label: string; items?: string[]; t
   if (!items || items.length === 0) return null;
   return (
     <div className="mt-2">
-      <p className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint">
+      <p className="flex items-center gap-1.5 text-caption uppercase tracking-[0.07em] text-faint">
         {tone === 'amber' && <TriangleAlert className="size-3 text-amber-400/80" />}
         {label}
       </p>
-      <ul className={cn('mt-1 list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed', tone === 'amber' ? 'text-amber-200/80' : 'text-muted')}>
+      <ul className={cn('mt-1 list-disc space-y-0.5 pl-4 text-caption leading-relaxed', tone === 'amber' ? 'text-amber-200/80' : 'text-muted')}>
         {items.map((item, i) => (
           <li key={i}>{item}</li>
         ))}
@@ -966,11 +966,11 @@ function ArtifactRow({ artifact, onOpenMedia }: { artifact: T.MemoryArtifact; on
     <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-line-faint bg-surface-faint px-3 py-2.5" data-artifact={artifact.id}>
       <Paperclip className="size-3.5 shrink-0 text-subtle" />
       <Badge>{artifact.type}</Badge>
-      <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted" title={artifact.path}>
+      <span className="min-w-0 flex-1 truncate font-mono text-caption text-muted" title={artifact.path}>
         {artifact.path}
       </span>
-      {artifact.agent && <span className="shrink-0 text-[11.5px] text-subtle">{artifact.agent}</span>}
-      <span className="shrink-0 text-[11px] text-faint">{timeAgo(artifact.createdAt)}</span>
+      {artifact.agent && <span className="shrink-0 text-caption text-subtle">{artifact.agent}</span>}
+      <span className="shrink-0 text-caption text-faint">{timeAgo(artifact.createdAt)}</span>
       {isMedia && (
         <Button size="sm" variant="ghost" onClick={onOpenMedia}>
           {t('memory.report.openInMedia')}
@@ -1052,10 +1052,10 @@ function ContextCostCard({ project, current }: { project: string; current?: T.Pr
       description={t('memory.context.cost.description')}
     >
       {stats.error && <Notice>{errorMessage(stats.error)}</Notice>}
-      {stats.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
+      {stats.isPending && <p className="text-ui text-subtle">{t('common.loading')}</p>}
 
       {!stats.isPending && !latest && (
-        <p className="text-[13px] leading-relaxed text-subtle">
+        <p className="text-ui leading-relaxed text-subtle">
           {t('memory.context.cost.empty')}
         </p>
       )}
@@ -1064,8 +1064,8 @@ function ContextCostCard({ project, current }: { project: string; current?: T.Pr
         <div className="grid gap-3">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="text-2xl font-semibold tracking-tight text-title">{describeRatio(latest.ratio, t)}</div>
-              <p className="mt-0.5 text-[12px] text-subtle">
+              <div className="text-display font-semibold tracking-tight text-title">{describeRatio(latest.ratio, t)}</div>
+              <p className="mt-0.5 text-caption text-subtle">
                 {t('memory.context.cost.last', {
                   for: contextForLabel[latest.for] ? t(contextForLabel[latest.for]) : latest.for,
                   tokens: formatTokens(latest.tokens),
@@ -1080,7 +1080,7 @@ function ContextCostCard({ project, current }: { project: string; current?: T.Pr
           <TokenMeter tokens={latest.tokens} budget={latest.budget} />
 
           {account && (
-            <p className="text-[11.5px] text-faint">
+            <p className="text-caption text-faint">
               {t('memory.context.cost.totals', { builds: account.builds, tokens: formatTokens(account.tokens), dropped: account.droppedRows })}
             </p>
           )}
@@ -1131,7 +1131,7 @@ function TokenMeter({ tokens, budget }: { tokens: number; budget: number }) {
           style={{ width: `${Math.round(Math.min(1, fraction) * 100)}%` }}
         />
       </div>
-      <p className="text-[11px] text-subtle">
+      <p className="text-caption text-subtle">
         {t(over ? 'memory.context.meterOver' : 'memory.context.meter', { tokens: formatTokens(tokens), budget: formatTokens(budget) })}
       </p>
     </div>
@@ -1168,21 +1168,21 @@ function ConsolidationPassesCard({ project }: { project: string }) {
       description={t('memory.context.consolidation.description')}
     >
       {consolidation.error && <Notice>{errorMessage(consolidation.error)}</Notice>}
-      {consolidation.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
+      {consolidation.isPending && <p className="text-ui text-subtle">{t('common.loading')}</p>}
 
       {data && (
         <div className="grid gap-3">
-          <p className="text-[12.5px] leading-relaxed text-muted">
+          <p className="text-ui leading-relaxed text-muted">
             {t('memory.context.consolidation.summary', { events: data.events, memories: data.memories, pending: data.pending, setting: data.setting })}
           </p>
 
           {passes.length === 0 ? (
-            <p className="text-[13px] text-subtle">{t('memory.context.consolidation.none')}</p>
+            <p className="text-ui text-subtle">{t('memory.context.consolidation.none')}</p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-line-faint">
-              <table className="w-full text-[12px]">
+              <table className="w-full text-caption">
                 <thead>
-                  <tr className="border-b border-line text-left text-[10.5px] uppercase tracking-[0.06em] text-subtle">
+                  <tr className="border-b border-line text-left text-caption uppercase tracking-[0.06em] text-subtle">
                     <th className="py-1.5 pl-3 pr-2 font-medium">{t('memory.context.col.pass')}</th>
                     <th className="px-2 py-1.5 font-medium">{t('memory.context.col.when')}</th>
                     <th className="px-2 py-1.5 text-right font-medium">{t('memory.context.col.read')}</th>
@@ -1214,7 +1214,7 @@ function PassRow({ pass }: { pass: T.ConsolidationPass }) {
     <tr className="border-t border-line-faint first:border-t-0" data-pass={pass.id} data-pass-kind={pass.kind}>
       <td className="py-1.5 pl-3 pr-2 align-top">
         <Badge variant={passKindVariant[pass.kind] ?? 'default'}>{passKindLabel[pass.kind] ? t(passKindLabel[pass.kind]) : pass.kind}</Badge>
-        {pass.error && <div className="mt-1 max-w-[13rem] text-[10.5px] leading-snug text-rose-300">{pass.error}</div>}
+        {pass.error && <div className="mt-1 max-w-[13rem] text-caption leading-snug text-rose-300">{pass.error}</div>}
       </td>
       <td className="px-2 py-1.5 align-top whitespace-nowrap text-muted">{timeAgo(pass.at)}</td>
       <td className="px-2 py-1.5 text-right align-top tabular-nums text-tertiary">{pass.eventsRead}</td>
@@ -1231,7 +1231,7 @@ function PassRow({ pass }: { pass: T.ConsolidationPass }) {
         ) : (
           <>
             {humanBytes(pass.inputBytes)} → {humanBytes(pass.outputBytes)}
-            <div className="text-[10.5px] text-faint">
+            <div className="text-caption text-faint">
               {pass.durationMs >= 1000 ? `${formatNumber(pass.durationMs / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}s` : `${pass.durationMs}ms`}
               {/* Which model actually read the events (D78): a pass that isn't on the project's
                   consolidation model is one that fell back to the chat's own session. */}
@@ -1277,8 +1277,8 @@ function DuplicatePairsCard({ project }: { project: string }) {
       description={t('memory.context.dup.description')}
     >
       {duplicates.error && <Notice>{errorMessage(duplicates.error)}</Notice>}
-      {duplicates.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
-      {!duplicates.isPending && pairs.length === 0 && <p className="text-[13px] text-subtle">{t('memory.context.dup.none')}</p>}
+      {duplicates.isPending && <p className="text-ui text-subtle">{t('common.loading')}</p>}
+      {!duplicates.isPending && pairs.length === 0 && <p className="text-ui text-subtle">{t('memory.context.dup.none')}</p>}
 
       <div className="grid gap-3">
         {pairs.map((pair) => (
@@ -1307,7 +1307,7 @@ function DuplicatePairRow({ pair, onChoose }: { pair: T.MemoryDuplicate; onChoos
   const t = useT();
   return (
     <div className="panel rounded-2xl px-4 py-3" data-duplicate={`${pair.memory.id}-${pair.of.id}`}>
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-subtle">
+      <div className="flex flex-wrap items-center gap-2 text-caption text-subtle">
         <Badge variant={kindVariant[pair.memory.kind] ?? 'default'}>{kindLabel[pair.memory.kind] ? t(kindLabel[pair.memory.kind]) : pair.memory.kind}</Badge>
         <span>{t('memory.context.dup.alike', { percent: Math.round(pair.similarity * 100) })}</span>
         <span className="ml-auto">{t('memory.context.dup.found', { when: timeAgo(pair.foundAt) })}</span>
@@ -1324,9 +1324,9 @@ function DuplicateSide({ memory, onKeep }: { memory: T.Memory; onKeep: () => voi
   const t = useT();
   return (
     <div className="grid gap-2 rounded-xl border border-line-faint bg-surface-faint p-3">
-      <h4 className="text-[13px] font-medium text-primary">{memory.title}</h4>
-      {memory.content && <Markdown text={memory.content} className="text-[12px] leading-relaxed text-muted" />}
-      <div className="flex items-center justify-between gap-2 text-[11px] text-subtle">
+      <h4 className="text-ui font-medium text-primary">{memory.title}</h4>
+      {memory.content && <Markdown text={memory.content} className="text-caption leading-relaxed text-muted" />}
+      <div className="flex items-center justify-between gap-2 text-caption text-subtle">
         <span>{timeAgo(memory.createdAt)}</span>
         <Button size="sm" variant="ghost" onClick={onKeep}>
           {t('memory.context.dup.keep')}
@@ -1377,13 +1377,13 @@ function ContextPreviewCard({ project, budget }: { project: string; budget?: num
           <FlaskConical />
         </Button>
       </form>
-      {budget !== undefined && <p className="mt-2 text-[11.5px] text-subtle">{t('memory.context.preview.budget', { tokens: formatTokens(budget) })}</p>}
+      {budget !== undefined && <p className="mt-2 text-caption text-subtle">{t('memory.context.preview.budget', { tokens: formatTokens(budget) })}</p>}
 
       {preview.error && <Notice className="mt-3">{errorMessage(preview.error)}</Notice>}
 
       {preview.data && (
         <div className="mt-4 grid gap-3">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-muted">
             <span>
               {t.rich('memory.context.preview.tokens', {
                 used: <span className="text-primary">{formatTokens(preview.data.stats.tokens)}</span>,
@@ -1398,7 +1398,7 @@ function ContextPreviewCard({ project, budget }: { project: string; budget?: num
           {preview.data.stats.truncated && (
             <Notice tone="warning">{t('memory.context.preview.truncated')}</Notice>
           )}
-          {droppedSections.length > 0 && <p className="text-[11.5px] text-subtle">{t('memory.context.preview.dropped', { list: droppedSections.join(', ') })}</p>}
+          {droppedSections.length > 0 && <p className="text-caption text-subtle">{t('memory.context.preview.dropped', { list: droppedSections.join(', ') })}</p>}
           {sections.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {sections.map((section) => (
@@ -1410,7 +1410,7 @@ function ContextPreviewCard({ project, budget }: { project: string; budget?: num
           )}
           <Markdown
             text={preview.data.text}
-            className="max-h-96 overflow-auto rounded-xl border border-line-faint bg-rail p-3.5 text-[12.5px] leading-relaxed text-tertiary"
+            className="max-h-96 overflow-auto rounded-xl border border-line-faint bg-rail p-3.5 text-ui leading-relaxed text-tertiary"
           />
         </div>
       )}

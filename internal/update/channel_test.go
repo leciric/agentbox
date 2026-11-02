@@ -47,21 +47,24 @@ func TestOffer(t *testing.T) {
 		name, channel, current string
 		stable, nightly        Latest
 		want                   string // "" for nothing
+		leaving                bool
 	}{
-		{"stable, up to date", ChannelStable, "0.10.0", stable, Latest{}, ""},
-		{"stable, behind", ChannelStable, "0.9.0", stable, Latest{}, "stable"},
-		{"stable never offers a nightly", ChannelStable, "0.10.0", stable, nightly, ""},
-		{"back from nightly to a lower stable", ChannelStable, "0.11.0-nightly.20260929.12", stable, Latest{}, "stable"},
-		{"back from nightly, stable unknown", ChannelStable, "0.11.0-nightly.20260929.12", Latest{}, Latest{}, ""},
-		{"nightly from stable", ChannelNightly, "0.10.0", stable, nightly, "nightly"},
-		{"nightly, up to date", ChannelNightly, "0.11.0-nightly.20260929.12", stable, nightly, ""},
-		{"nightly, a newer nightly", ChannelNightly, "0.11.0-nightly.20260928.3", stable, nightly, "nightly"},
-		{"nightly, the release it led to", ChannelNightly, "0.11.0-nightly.20260929.12", Latest{Version: "0.11.0", URL: "stable"}, nightly, "stable"},
-		{"nightly, GitHub unreachable", ChannelNightly, "0.9.0", stable, Latest{}, "stable"},
-		{"nightly, landing unreachable", ChannelNightly, "0.10.0", Latest{}, nightly, "nightly"},
+		{"stable, up to date", ChannelStable, "0.10.0", stable, Latest{}, "", false},
+		{"stable, behind", ChannelStable, "0.9.0", stable, Latest{}, "stable", false},
+		{"stable never offers a nightly", ChannelStable, "0.10.0", stable, nightly, "", false},
+		{"back from nightly to a lower stable", ChannelStable, "0.11.0-nightly.20260929.12", stable, Latest{}, "stable", true},
+		{"back from nightly, stable unknown", ChannelStable, "0.11.0-nightly.20260929.12", Latest{}, Latest{}, "", true},
+		{"a nightly nobody switched to stable never goes back", ChannelStable, "0.11.0-nightly.20260929.12", stable, Latest{}, "", false},
+		{"a nightly nobody switched still takes a newer stable", ChannelStable, "0.11.0-nightly.20260929.12", Latest{Version: "0.11.0", URL: "stable"}, Latest{}, "stable", false},
+		{"nightly from stable", ChannelNightly, "0.10.0", stable, nightly, "nightly", false},
+		{"nightly, up to date", ChannelNightly, "0.11.0-nightly.20260929.12", stable, nightly, "", false},
+		{"nightly, a newer nightly", ChannelNightly, "0.11.0-nightly.20260928.3", stable, nightly, "nightly", false},
+		{"nightly, the release it led to", ChannelNightly, "0.11.0-nightly.20260929.12", Latest{Version: "0.11.0", URL: "stable"}, nightly, "stable", false},
+		{"nightly, GitHub unreachable", ChannelNightly, "0.9.0", stable, Latest{}, "stable", false},
+		{"nightly, landing unreachable", ChannelNightly, "0.10.0", Latest{}, nightly, "nightly", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := Offer(tc.channel, tc.current, tc.stable, tc.nightly)
+			got, ok := Offer(tc.channel, tc.current, tc.stable, tc.nightly, tc.leaving)
 			if !ok {
 				got.URL = ""
 			}

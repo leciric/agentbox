@@ -101,6 +101,10 @@ type RecordOptions struct {
 	// Cuts, when set, is a file to write what the trimming cut to (Cuts), once
 	// the recording is finished.
 	Cuts string
+	// Events, when set, is a file to write the clicks and keys drawn on to,
+	// one InputEvent a line, once the recording is finished: what an edit of
+	// it zooms to (zoom.go).
+	Events string
 }
 
 // Record records until ctx ends or opts.Limit passes, and leaves the file
@@ -310,7 +314,9 @@ func recordDisplay(ctx context.Context, opts RecordOptions) error {
 	}
 	inputCtx, stopInput := context.WithCancel(ctx)
 	defer stopInput()
-	go func() { _ = watchInput(inputCtx, x, ov.add, nil) }()
+	add := logEvents(opts.Events, ov)
+	defer add.write()
+	go func() { _ = watchInput(inputCtx, x, add.on, nil) }()
 	return runFFmpeg(ctx, opts, RecordDisplay, captureArgs(grab, size, opts), nil, composite(ov, size, opts))
 }
 
@@ -370,7 +376,9 @@ func recordBrowser(ctx context.Context, opts RecordOptions) error {
 	defer func() { _ = x.Close() }()
 	inputCtx, stopInput := context.WithCancel(ctx)
 	defer stopInput()
-	go func() { _ = watchInput(inputCtx, x, ov.add, ov.move) }()
+	add := logEvents(opts.Events, ov)
+	defer add.write()
+	go func() { _ = watchInput(inputCtx, x, add.on, ov.move) }()
 	return runFFmpeg(ctx, opts, RecordBrowser, captureArgs(pageInput, size, opts), pageFrames, composite(ov, size, opts))
 }
 
@@ -422,20 +430,31 @@ func composite(ov *overlay, size image.Point, opts RecordOptions) *compositor {
 		if !opts.NoTrim {
 			trim = newTrimmer(size.X, size.Y)
 		}
+		// start is when the first frame was taken, and frames how many were.
+		var start float64
+		frames := 0
 		for {
 			if _, err := io.ReadFull(r, frame); err != nil {
 				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-					if trim == nil {
-						return nil
+					cuts := Cuts{Recorded: seconds(frames)}
+					if trim != nil {
+						err = trim.finish(write)
+						cuts = trim.result()
+					} else {
+						err = nil
 					}
-					err := trim.finish(write)
 					if opts.Cuts != "" {
-						_ = writeCuts(opts.Cuts, trim.result())
+						cuts.Start = start
+						_ = writeCuts(opts.Cuts, cuts)
 					}
 					return err
 				}
 				return err
 			}
+			if frames == 0 {
+				start = float64(time.Now().UnixMicro()) / 1e6
+			}
+			frames++
 			if ov != nil {
 				for _, rect := range drawn {
 					clearRect(canvas, rect)

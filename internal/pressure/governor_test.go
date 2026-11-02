@@ -618,3 +618,27 @@ func TestNothingStartsOrResumesWhileTight(t *testing.T) {
 	}
 	t.Fatal("the paused run never resumed once there was room")
 }
+
+func TestTheFleetPausesAnAgentsRunsAndStartAllLeavesThem(t *testing.T) {
+	g := NewGovernor(DefaultPolicy)
+	for _, key := range []string{"1", "2"} {
+		g.Ask("p/a", key, "vue-tsc", time.Minute, t0)
+	}
+	g.Ask("p/b", "1", "vitest", time.Minute, t0)
+	g.StartAll(t0)
+	g.Place("p/a", "1")
+	g.Place("p/b", "1")
+	paused := g.PauseAgent("p/a", t0, Low)
+	if len(paused) != 1 || paused[0].ID() != "p/a/1" {
+		t.Fatalf("paused %v, want p/a's placed run only", paused)
+	}
+	if got := g.StartAll(t0.Add(time.Second)); len(got.Resume) != 0 {
+		t.Fatalf("StartAll resumed %v, which the fleet paused", got.Resume)
+	}
+	if got := g.ResumeAgent("p/a", t0.Add(2*time.Second)); len(got) != 1 || got[0].Paused {
+		t.Fatalf("resumed %v", got)
+	}
+	if got := g.ResumeAgent("", t0.Add(3*time.Second)); len(got) != 0 {
+		t.Fatalf("resumed %v again", got)
+	}
+}

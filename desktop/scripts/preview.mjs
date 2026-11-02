@@ -1,5 +1,5 @@
-// Serves src/renderer/dev/preview.tsx — the standing preview of the rail and
-// sidebar under wide content — and, with --shots, drives it headlessly
+// Serves src/renderer/dev/preview.tsx — the standing preview of the sidebar
+// and the right-hand panel under wide content — and, with --shots, drives it headlessly
 // through Playwright and saves one screenshot per scenario in
 // src/renderer/dev/scenarios.json.
 //
@@ -117,7 +117,7 @@ function removeWorktree(desktop) {
 }
 
 // overflowing lists what sticks out of the page's fixed-width columns — the
-// rail and the sidebar are <aside>s — so a shot that breaks one says so
+// sidebar and the right-hand panel are <aside>s — so a shot that breaks one says so
 // without anybody having to spot it in the picture.
 function overflowing() {
   const scrolls = (el, until) => {

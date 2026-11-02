@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from '../../shared/api.ts';
-import { ancestorsOf, changesFiles, panelLayout, diffRows, refreshFiles, treeRows, closeFile, fileLinkOf, formatSize, hasFiles, languageOfPath, openFile, openedFile, panelPrefs, relativeTo, resolveFile, splitPosition, statusOf, statusesOf } from './files.ts';
+import { ancestorsOf, changesFiles, diffRows, refreshFiles, treeRows, closeFile, fileLinkOf, formatSize, hasFiles, languageOfPath, openFile, openedFile, panelPrefs, relativeTo, resolveFile, splitPosition, statusOf, statusesOf } from './files.ts';
 
 test('splitPosition reads a line and column off a path, or a #L hash', () => {
   assert.deepEqual(splitPosition('src/a.go:12'), { path: 'src/a.go', line: 12 });
@@ -73,20 +73,10 @@ test('languageOfPath picks the highlighter language by file name', () => {
   assert.equal(languageOfPath('x.unknownext'), undefined);
 });
 
-test('formatSize and panelLayout', () => {
+test('formatSize', () => {
   assert.equal(formatSize(512), '512 B');
   assert.equal(formatSize(2048), '2.0 KB');
   assert.equal(formatSize(3 * 1024 * 1024), '3.0 MB');
-  assert.deepEqual(panelLayout(100, 2000), { width: 320, overlay: false });
-  assert.deepEqual(panelLayout(1580, 2000), { width: 1580, overlay: false });
-  assert.deepEqual(panelLayout(1900, 2000), { width: 1900, overlay: true });
-  assert.deepEqual(panelLayout(700, 2000), { width: 700, overlay: false });
-  // Wider than the room beside the chat: over it, leaving a strip of it.
-  assert.deepEqual(panelLayout(640, 575), { width: 527, overlay: true });
-  assert.deepEqual(panelLayout(400, 575), { width: 400, overlay: true });
-  assert.deepEqual(panelLayout(320, 745), { width: 320, overlay: false });
-  assert.deepEqual(panelLayout(640, 745), { width: 640, overlay: true });
-  assert.deepEqual(panelLayout(640, 300), { width: 300, overlay: true });
 });
 
 test('openFile opens the panel on the file, and each opening is new', () => {
