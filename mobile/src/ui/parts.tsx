@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
+import { ArrowLeft, type LucideIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ChatStatus } from '../features/threads/activity.ts';
 import { useT } from '../lib/i18n.tsx';
@@ -76,15 +77,17 @@ export function useTopInset(): number {
   return useBarShown() ? 0 : insets.top;
 }
 
-export function ScreenHeader({ title, subtitle, status, right }: { title: string; subtitle?: string; status?: ChatStatus; right?: ReactNode }) {
+// icon goes before the title: the chat's avatar, a project's icon.
+export function ScreenHeader({ title, subtitle, status, icon, right }: { title: string; subtitle?: string; status?: ChatStatus; icon?: ReactNode; right?: ReactNode }) {
   const t = useT();
   const router = useRouter();
   const top = useTopInset();
   return (
     <View style={[styles.header, { paddingTop: top + 6 }]}>
       <Pressable accessibilityRole="button" accessibilityLabel={t('web.phone.back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={styles.back} hitSlop={8}>
-        <Text style={styles.backArrow}>‹</Text>
+        <ArrowLeft size={22} color={colors.secondary} />
       </Pressable>
+      {icon}
       <View style={styles.headerText}>
         <Text numberOfLines={1} style={styles.headerTitle}>
           {title}
@@ -98,6 +101,7 @@ export function ScreenHeader({ title, subtitle, status, right }: { title: string
 
 export function Button({
   label,
+  icon: Icon,
   onPress,
   kind = 'primary',
   busy,
@@ -105,6 +109,8 @@ export function Button({
   style,
 }: {
   label: string;
+  // icon goes before the label, in its colour.
+  icon?: LucideIcon;
   onPress: () => void;
   kind?: 'primary' | 'secondary' | 'danger';
   busy?: boolean;
@@ -119,7 +125,14 @@ export function Button({
       onPress={onPress}
       style={({ pressed }) => [styles.button, kind === 'primary' ? styles.buttonPrimary : kind === 'danger' ? styles.buttonDanger : styles.buttonSecondary, (pressed || off) && { opacity: 0.6 }, style]}
     >
-      {busy ? <ActivityIndicator size="small" color={colors.title} /> : <Text style={[styles.buttonText, kind === 'danger' && { color: colors.rose }]}>{label}</Text>}
+      {busy ? (
+        <ActivityIndicator size="small" color={colors.title} />
+      ) : (
+        <>
+          {Icon && <Icon size={16} color={kind === 'danger' ? colors.rose : colors.title} strokeWidth={2.2} />}
+          <Text style={[styles.buttonText, kind === 'danger' && { color: colors.rose }]}>{label}</Text>
+        </>
+      )}
     </Pressable>
   );
 }
@@ -140,11 +153,10 @@ export const styles = StyleSheet.create({
   statusText: { flexShrink: 1 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.lineStrong, backgroundColor: colors.overlay },
   back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20 },
-  backArrow: { color: colors.secondary, fontSize: 30, lineHeight: 32, marginTop: -2 },
-  headerText: { flex: 1, minWidth: 0, gap: 2 },
+  headerText: { flex: 1, minWidth: 0, gap: 2, marginLeft: 4 },
   headerTitle: { color: colors.title, fontSize: 16, fontWeight: '600' },
   headerSub: { color: colors.subtle, fontSize: 11.5 },
-  button: { minHeight: 40, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  button: { minHeight: 40, paddingHorizontal: 16, borderRadius: 12, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' },
   buttonPrimary: { backgroundColor: colors.brand500 },
   buttonSecondary: { backgroundColor: colors.raised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong },
   buttonDanger: { backgroundColor: colors.roseSoft },

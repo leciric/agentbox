@@ -11,23 +11,70 @@ import (
 
 // chatPath is where a chat lives. A ref with no slash, like "pawly", is a
 // project's own chat, driven by its lead; "pawly/agent-01" is that agent's.
+// "pawly/lead.prod" is the prod session of pawly's chat (SessionRef), whose
+// routes are the project chat's with ?session=: chatDo adds it.
 func chatPath(ref string) (string, error) {
 	project, name, ok := strings.Cut(ref, "/")
 	if project == "" {
 		return "", errors.New("name a project, like pawly, or an agent, like pawly/agent-01")
 	}
 	// "pawly" and "pawly/lead" are both the project's chat.
-	if !ok || name == LeadName {
+	if !ok || isLeadName(name) {
 		return "/v1/projects/" + url.PathEscape(project) + "/chat", nil
 	}
 	path, err := AgentPath(ref)
 	return path + "/chat", err
 }
 
+// isLeadName is state.IsLeadName: a name a session of a project's chat runs.
+func isLeadName(name string) bool {
+	return name == LeadName || strings.HasPrefix(name, LeadName+".")
+}
+
+// SessionRef is the chat ref of one session of a project's chat: a ref the
+// project chat's routes, and its chat events, know it by.
+func SessionRef(project, session string) string {
+	if session == "" || session == "main" {
+		return project + "/" + LeadName
+	}
+	return project + "/" + LeadName + "." + session
+}
+
+// SessionOfRef is the session a project chat's ref names: "" for "pawly",
+// which the daemon reads as the session most recently active, and for an
+// agent's.
+func SessionOfRef(ref string) string {
+	_, name, ok := strings.Cut(ref, "/")
+	switch {
+	case !ok:
+		return ""
+	case name == LeadName:
+		return "main"
+	}
+	session, _ := strings.CutPrefix(name, LeadName+".")
+	if session == name {
+		return ""
+	}
+	return session
+}
+
+// withSession adds the session ref names to a project chat's route.
+func withSession(path, ref string) string {
+	session := SessionOfRef(ref)
+	if session == "" {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "session=" + url.QueryEscape(session)
+}
+
 // IsProjectChat reports whether a chat ref names a project rather than an agent.
 func IsProjectChat(ref string) bool {
 	_, name, ok := strings.Cut(ref, "/")
-	return !ok || name == LeadName
+	return !ok || isLeadName(name)
 }
 
 func (c *Client) chatDo(ctx context.Context, method, ref, suffix string, body, out any) error {
@@ -35,7 +82,67 @@ func (c *Client) chatDo(ctx context.Context, method, ref, suffix string, body, o
 	if err != nil {
 		return err
 	}
-	return c.do(ctx, method, path+suffix, body, out)
+	return c.do(ctx, method, withSession(path+suffix, ref), body, out)
+}
+
+// LeadSessions lists the sessions of a project's chat.
+func (c *Client) LeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
+	var out []LeadSession
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/sessions", nil, &out)
+}
+
+// NewLeadSession opens a session of a project's chat on a topic.
+func (c *Client) NewLeadSession(ctx context.Context, project, topic string) (LeadSession, error) {
+	return c.OpenLeadSession(ctx, project, NewLeadSessionRequest{Topic: topic})
+}
+
+// OpenLeadSession opens a session as req says: untitled with no topic, on
+// the settings of the session it names in From.
+func (c *Client) OpenLeadSession(ctx context.Context, project string, req NewLeadSessionRequest) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions", req, &out)
+}
+
+// RenameLeadSession changes a session's topic.
+func (c *Client) RenameLeadSession(ctx context.Context, project, session, topic string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), LeadSessionPatch{Topic: topic}, &out)
+}
+
+// ClosedLeadSessions lists the sessions in a project chat's history.
+func (c *Client) ClosedLeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
+	var out []LeadSession
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/sessions?closed=true", nil, &out)
+}
+
+// CloseLeadSession moves a session to the chat's history, its conversation
+// kept.
+func (c *Client) CloseLeadSession(ctx context.Context, project, session string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/close", nil, &out)
+}
+
+// ReopenLeadSession moves a session from the chat's history back among the
+// open ones.
+func (c *Client) ReopenLeadSession(ctx context.Context, project, session string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/reopen", nil, &out)
+}
+
+// DeleteLeadSession deletes a session with its conversation for good; its
+// agents are left to no session.
+func (c *Client) DeleteLeadSession(ctx context.Context, project, session string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), nil, nil)
+}
+
+// HandOverAgent moves an agent to a session of its project's chat, "" to
+// none: its notices go there from now on.
+func (c *Client) HandOverAgent(ctx context.Context, ref, session string) error {
+	path, err := AgentPath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPut, path+"/session", AgentSessionRequest{Session: session}, nil)
 }
 
 // ProjectChat describes a project's chat, and whether it has been used yet.
@@ -149,7 +256,7 @@ func filesPath(ref string) (string, error) {
 	if project == "" {
 		return "", errors.New("name a project, like pawly, or an agent, like pawly/agent-01")
 	}
-	if !ok || name == LeadName {
+	if !ok || isLeadName(name) {
 		return "/v1/projects/" + url.PathEscape(project) + "/files", nil
 	}
 	path, err := AgentPath(ref)
@@ -181,6 +288,28 @@ func (c *Client) SetChatRunner(ctx context.Context, project string, req LeadRunn
 	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/chat/runner", req, &out)
 }
 
+// AgentRunners lists the accounts of its own AI tool an agent's chat can move
+// to, in ChatRunners' shape.
+func (c *Client) AgentRunners(ctx context.Context, ref string) (LeadRunners, error) {
+	var out LeadRunners
+	path, err := AgentPath(ref)
+	if err != nil {
+		return out, err
+	}
+	return out, c.do(ctx, http.MethodGet, path+"/chat/runners", nil, &out)
+}
+
+// SetAgentRunner moves an agent to another account of its AI tool at once,
+// resuming its chat on it. Its tool can't change.
+func (c *Client) SetAgentRunner(ctx context.Context, ref string, req LeadRunnerRequest) (ChatSession, error) {
+	var out ChatSession
+	path, err := AgentPath(ref)
+	if err != nil {
+		return out, err
+	}
+	return out, c.do(ctx, http.MethodPut, path+"/chat/runner", req, &out)
+}
+
 // ListFolder lists one folder of an agent's or a project lead's worktree, for
 // the file tree; withIgnored includes what .gitignore leaves out.
 func (c *Client) ListFolder(ctx context.Context, ref, dir string, withIgnored bool) (FileList, error) {
@@ -207,6 +336,17 @@ func (c *Client) ReadFile(ctx context.Context, ref, file string, full, base bool
 	return out, c.filesDo(ctx, ref, "/read?"+q.Encode(), &out)
 }
 
+// SQLite reads a database in a chat's worktree, read-only: its tables, and
+// with table, up to limit of its rows from offset.
+func (c *Client) SQLite(ctx context.Context, ref, file, table string, offset, limit int) (SQLiteQuery, error) {
+	var out SQLiteQuery
+	q := url.Values{"path": {file}, "offset": {strconv.Itoa(offset)}, "limit": {strconv.Itoa(limit)}}
+	if table != "" {
+		q.Set("table", table)
+	}
+	return out, c.filesDo(ctx, ref, "/sqlite?"+q.Encode(), &out)
+}
+
 // FileStatus is what changed in a worktree since its base; fresh reads it
 // again rather than from the daemon's cache.
 func (c *Client) FileStatus(ctx context.Context, ref string, fresh bool) (FileStatus, error) {
@@ -223,5 +363,5 @@ func (c *Client) filesDo(ctx context.Context, ref, rest string, out any) error {
 	if err != nil {
 		return err
 	}
-	return c.do(ctx, http.MethodGet, path+rest, nil, out)
+	return c.do(ctx, http.MethodGet, withSession(path+rest, ref), nil, out)
 }

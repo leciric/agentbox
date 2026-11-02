@@ -342,10 +342,9 @@ func TestMemoryCapturesPRMerged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Merging its pull request gives the agent's machine back.
-	if agentHasMachine(d, a) || !isArchived(t, d, a) {
-		t.Error("the agent whose pull request was merged kept its machine")
-	}
+	// Merging its pull request gives the agent's machine back, once the
+	// merge has been answered.
+	waitFor(t, "the merged agent freed", func() bool { return !agentHasMachine(d, a) && isArchived(t, d, a) })
 
 	events := eventsOfType(t, d, "hello-stack", "pr_merged")
 	if len(events) != 1 {

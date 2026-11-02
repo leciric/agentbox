@@ -179,28 +179,6 @@ func (s *Store) ProjectMessages(ctx context.Context, thread string) ([]ProjectMe
 	return messages, rows.Err()
 }
 
-// ProjectMessagesSince counts the messages in a thread sent from since on.
-func (s *Store) ProjectMessagesSince(ctx context.Context, thread string, since time.Time) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM project_messages WHERE thread = ? AND created_at >= ?`,
-		thread, since.UnixMilli()).Scan(&n)
-	return n, err
-}
-
-// PairActivitySince counts what two projects' leads said to each other, either
-// way round, from since on: their messages, and the threads they started.
-func (s *Store) PairActivitySince(ctx context.Context, a, b string, since time.Time) (messages, threads int, err error) {
-	pair := `((project = ? AND peer = ?) OR (project = ? AND peer = ?)) AND created_at >= ?`
-	args := []any{a, b, b, a, since.UnixMilli()}
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM project_messages WHERE `+pair, args...).Scan(&messages); err != nil {
-		return 0, 0, err
-	}
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM project_threads WHERE `+pair, args...).Scan(&threads); err != nil {
-		return 0, 0, err
-	}
-	return messages, threads, nil
-}
-
 // LinkProjects records that the user let two projects' leads talk.
 func (s *Store) LinkProjects(ctx context.Context, a, b string, at time.Time) error {
 	_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO project_links (project, peer, approved_at) VALUES (?, ?, ?), (?, ?, ?)`,

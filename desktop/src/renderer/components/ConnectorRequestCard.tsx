@@ -6,7 +6,9 @@ import * as A from '../../shared/api';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { type ConnectorRequest, connectorRequest, RequestConnector } from '../lib/connectors';
+import { isOpenRequest } from '../lib/credentialRequests';
 import { errorMessage } from '../lib/utils';
+import { RequestReasons, useAnswerRequests, WaitingLabel } from './RequestParts';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
@@ -19,33 +21,38 @@ import { Input } from './ui/input';
 // tells the agent which connector it has. The agent chooses the name and the
 // URL, so the server's host is shown as plainly as the name, and a preset's
 // label only when the URL is that preset's own (connectorRequest).
-export function ConnectorRequestCard({ question }: { question: T.Question }) {
+//
+// group and bare are CredentialCard's: every request the answer goes to, and
+// leaving out the line a row above already says. The host stays either way.
+export function ConnectorRequestCard({ question, group = [question], bare = false }: { question: T.Question; group?: readonly T.Question[]; bare?: boolean }) {
   const t = useT();
   const req = connectorRequest(question);
-  const waiting = question.status === 'pending' || question.status === 'escalated';
+  const waiting = group.filter(isOpenRequest);
   return (
-    <div className="mt-1.5 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5" data-thread-connector={question.id}>
-      <p className="flex items-center gap-1.5 text-[12px] font-medium text-secondary">
-        <Plug className="size-3.5 shrink-0 text-amber-300/90" />
-        <span className="min-w-0 break-words">
-          {t.rich('chat.connector.needs', {
-            name: <code className="font-mono text-[11.5px]">{req?.preset?.label ?? req?.name ?? '?'}</code>,
-          })}
-        </span>
-      </p>
+    <div className="mt-1.5 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" data-thread-connector={question.id}>
+      {!bare && (
+        <p className="flex items-center gap-1.5 text-[13px] font-medium text-secondary">
+          <Plug className="size-3.5 shrink-0 text-subtle" />
+          <span className="min-w-0 break-words">
+            {t.rich('chat.connector.needs', {
+              name: <code className="font-mono text-[12px]">{req?.preset?.label ?? req?.name ?? '?'}</code>,
+            })}
+          </span>
+        </p>
+      )}
       {req?.host && (
-        <p className="min-w-0 text-[12px] text-secondary [overflow-wrap:anywhere]" title={req.url} data-connector-host>
+        <p className="min-w-0 text-[13px] text-secondary [overflow-wrap:anywhere]" title={req.url} data-connector-host>
           {t.rich('chat.connector.at', { host: <span className="font-mono font-semibold text-primary">{req.host}</span> })}
           {!req.preset && <span className="text-faint"> · {t('chat.connector.unknownServer')}</span>}
         </p>
       )}
-      <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-tertiary [overflow-wrap:anywhere]">{question.question}</p>
+      <RequestReasons group={group} />
       {question.status === 'cancelled' && (
-        <p className="break-words text-[11px] text-faint" data-connector-cancelled>
+        <p className="break-words text-[12px] text-faint" data-connector-cancelled>
           {t('chat.connector.cancelled')} {question.answer || t('chat.connector.nobodyAnswered')}
         </p>
       )}
-      {waiting && req && <ConnectorAnswer question={question} req={req} />}
+      {waiting.length > 0 && req && <ConnectorAnswer question={question} group={waiting} req={req} />}
     </div>
   );
 }
@@ -62,10 +69,10 @@ export function ConnectorRequestCards({ project, agent }: { project: string; age
   return (
     <div className="grid gap-3" data-connector-requests>
       {waiting.map((q) => (
-        <div key={q.id} className="rounded-2xl border border-amber-400/25 bg-amber-400/[0.04] px-4 py-3" data-connector-request={q.id}>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.07em] text-amber-300/90">
-            {t.rich('chat.connector.waitingOnYou', { agent: <span className="font-mono normal-case tracking-normal text-secondary">{q.agent}</span> })}
-          </p>
+        <div key={q.id} className="rounded-2xl border border-line bg-surface-faint px-4 py-3" data-connector-request={q.id}>
+          <WaitingLabel>
+            <span className="min-w-0 truncate">{t.rich('chat.credential.asks', { agent: <span className="font-mono text-secondary">{q.agent}</span> })}</span>
+          </WaitingLabel>
           <ConnectorRequestCard question={q} />
         </div>
       ))}
@@ -73,7 +80,7 @@ export function ConnectorRequestCards({ project, agent }: { project: string; age
   );
 }
 
-function ConnectorAnswer({ question, req }: { question: T.Question; req: ConnectorRequest }) {
+function ConnectorAnswer({ question, group, req }: { question: T.Question; group: readonly T.Question[]; req: ConnectorRequest }) {
   const t = useT();
   const project = question.project;
   const queryClient = useQueryClient();
@@ -84,11 +91,7 @@ function ConnectorAnswer({ question, req }: { question: T.Question; req: Connect
   const [token, setToken] = useState('');
   const [signingIn, setSigningIn] = useState<string | undefined>();
 
-  const answer = useMutation({
-    mutationFn: (body: Pick<T.AnswerCredentialRequest, 'connector' | 'refuse' | 'reason'>) => api.answerCredential(project, question.id, body),
-    onSuccess: (answered) =>
-      queryClient.setQueryData<T.Question[]>(['questions', project], (list) => list?.map((q) => (q.id === answered.id ? answered : q))),
-  });
+  const answer = useAnswerRequests(group);
 
   // Adding it, and signing in when it signs in with the browser. A token
   // server is answered as soon as it is added: there is nothing to wait for.
@@ -136,7 +139,7 @@ function ConnectorAnswer({ question, req }: { question: T.Question; req: Connect
           {t('chat.connector.give', { name: req.name })}
         </Button>
       ) : browserWait ? (
-        <div className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-subtle">
+        <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-subtle">
           <LoaderCircle className="size-3.5 animate-spin" />
           {t('chat.connector.waitingSignIn')}
           <Button size="sm" variant="ghost" className="ml-auto" onClick={() => void window.agentbox.openExternal(signingIn)}>
@@ -145,7 +148,7 @@ function ConnectorAnswer({ question, req }: { question: T.Question; req: Connect
           </Button>
         </div>
       ) : !req.url && !existing ? (
-        <p className="text-[11px] leading-relaxed text-faint">{t('chat.connector.noUrl')}</p>
+        <p className="text-[12px] leading-relaxed text-faint">{t('chat.connector.noUrl')}</p>
       ) : (
         <form
           className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5"
@@ -160,16 +163,16 @@ function ConnectorAnswer({ question, req }: { question: T.Question; req: Connect
                 type="password"
                 autoComplete="off"
                 aria-label={req.preset!.secret!.tokenLabel}
-                className="h-7 min-w-0 font-mono text-[11.5px]"
+                className="h-7 min-w-0 font-mono text-[12px]"
                 placeholder={req.preset!.secret!.tokenLabel}
                 value={token}
                 onChange={(event) => setToken(event.target.value)}
               />
-              <p className="text-[10.5px] leading-relaxed text-faint">{req.preset!.secret!.why}</p>
+              <p className="text-[12px] leading-relaxed text-faint">{req.preset!.secret!.why}</p>
             </>
           )}
           {!needsToken && (
-            <p className="text-[10.5px] leading-relaxed text-faint">
+            <p className="text-[12px] leading-relaxed text-faint">
               {t('chat.connector.addedHint')}
             </p>
           )}
@@ -191,7 +194,7 @@ function ConnectorAnswer({ question, req }: { question: T.Question; req: Connect
           <Input
             autoFocus
             aria-label={t('chat.connector.whyRefuse')}
-            className="h-7 min-w-0 flex-1 text-[12px]"
+            className="h-7 min-w-0 flex-1 text-[13px]"
             placeholder={t('chat.connector.whyPlaceholder')}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -209,8 +212,8 @@ function ConnectorAnswer({ question, req }: { question: T.Question; req: Connect
           {t('chat.connector.refuse')}
         </Button>
       )}
-      {(add.error || answer.error) && <p className="break-words text-[11px] text-rose-300">{errorMessage(add.error ?? answer.error)}</p>}
-      {existing?.status === A.ConnectorError && existing.error && <p className="break-words text-[11px] text-rose-300">{existing.error}</p>}
+      {(add.error || answer.error) && <p className="break-words text-[12px] text-rose-300">{errorMessage(add.error ?? answer.error)}</p>}
+      {existing?.status === A.ConnectorError && existing.error && <p className="break-words text-[12px] text-rose-300">{existing.error}</p>}
     </div>
   );
 }

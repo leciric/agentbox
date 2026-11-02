@@ -177,6 +177,29 @@ func TestTheAppCanBePinnedLight(t *testing.T) {
 	}
 }
 
+// Dracula is a theme AgentBox carries itself: chosen, it is reported in place
+// of the host's and worn like a followed one, on the agents' desktops too.
+func TestDraculaIsWornLikeAFollowedTheme(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	installTheme(t, d, t.TempDir(), "tokyo-night", tokyoNight)
+
+	dracula := patchTheme(t, d, `{"appearance":"dracula"}`)
+	if dracula != api.DraculaTheme || !dracula.Applied() || dracula.Describe() != "Dracula" {
+		t.Errorf("after choosing Dracula: %+v", dracula)
+	}
+	if got := getTheme(t, d); got != api.DraculaTheme {
+		t.Errorf("the setting didn't stick: %+v", got)
+	}
+	want := agent.DesktopTheme{
+		Name: "Dracula", Mode: "dark",
+		Background: "#282a36", Surface: "#44475a", Foreground: "#f8f8f2", Muted: "#6272a4", Accent: "#bd93f9",
+	}
+	if got := d.srv.desktopTheme(); got != want {
+		t.Errorf("agents would be painted %+v, want Dracula", got)
+	}
+}
+
 // An appearance nobody offers is refused, rather than stored and puzzled over
 // by every later reader.
 func TestAnUnknownAppearanceIsRefused(t *testing.T) {

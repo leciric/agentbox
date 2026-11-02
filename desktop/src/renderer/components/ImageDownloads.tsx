@@ -38,7 +38,7 @@ export function ImageDownloads({ image }: { image?: T.ImageBuild }) {
       </Button>
       {open && (
         <div className="overflow-hidden rounded-xl border border-line">
-          <table className="w-full text-[12.5px]">
+          <table className="w-full text-ui">
             <tbody>
               {image.downloads.map((d) => (
                 <tr key={d.name} className={cn('border-t border-line-faint first:border-t-0', !on(d.option) && 'text-faint')}>

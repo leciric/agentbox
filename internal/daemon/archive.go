@@ -282,7 +282,7 @@ func (s *Server) refreshArchivedPRs(ctx context.Context, found []state.ArchivedA
 		for k, i := range idx {
 			numbers[k] = found[i].PR.Number
 		}
-		states, _, err := s.gitHub(token).PullRequestStates(ctx, repo, numbers, nil)
+		states, _, err := s.gitHub(token).PullRequestStates(github.WithCaller(ctx, "past agents"), repo, numbers, nil)
 		if err != nil {
 			s.logf("reading past agents' pull requests in %s: %v", project, err)
 			continue

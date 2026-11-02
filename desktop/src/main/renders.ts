@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { renderPolicy } from '../shared/renderPolicy.ts';
+
+export { renderPolicy };
 
 // Renders are the HTML pages a chat draws from a ```html preview block
 // (renderer/components/chat/RichBlock.tsx), served at
@@ -17,24 +20,6 @@ const MAX_BYTES = 32 << 20;
 
 const renders = new Map<string, { html: string; network: boolean }>();
 let bytes = 0;
-
-// renderPolicy is a page's Content-Security-Policy, with or without network.
-export function renderPolicy(network: boolean): string {
-  const net = network ? ' https:' : '';
-  return [
-    "default-src 'none'",
-    `script-src 'unsafe-inline' 'unsafe-eval'${net}`,
-    `style-src 'unsafe-inline'${net}`,
-    `img-src data: blob:${net}`,
-    `font-src data:${net}`,
-    `media-src data: blob:${net}`,
-    `connect-src ${network ? 'https:' : "'none'"}`,
-    "form-action 'none'",
-    "base-uri 'none'",
-    "object-src 'none'",
-    'sandbox allow-scripts',
-  ].join('; ');
-}
 
 // registerRender keeps a page and answers with where to frame it from: the
 // same page, with the same network, has the same address.

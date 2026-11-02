@@ -34,8 +34,13 @@ function Toasts() {
 }
 
 function Themed({ phone }: { phone: T.LANPhone }) {
-  // The theme is the computer's: the same colours on both.
+  // The theme is the computer's: the same colours on both, the phone's
+  // status bar too (web.html's theme-color is the dark one).
   useHostTheme();
+  const mode = useMode();
+  useEffect(() => {
+    document.querySelector('meta[name=theme-color]')?.setAttribute('content', getComputedStyle(document.body).backgroundColor);
+  }, [mode]);
   // And so is the language: the daemon's Settings.language, applied the way
   // main.tsx's Root does, redrawing the chats the moment it changes.
   useLanguage();

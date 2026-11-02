@@ -79,7 +79,7 @@ export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && closeNewTask()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-scrim backdrop-blur-[3px]" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-scrim" />
         <DialogPrimitive.Content
           {...focusReturn}
           aria-describedby={undefined}
@@ -96,7 +96,7 @@ export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) 
               onKeyDown={onKeyDown}
               placeholder={t('v2.newTask.search')}
               aria-label={t('v2.newTask.search')}
-              className="w-full bg-transparent text-[15px] text-primary placeholder:text-faint focus:outline-none"
+              className="w-full bg-transparent text-heading text-primary placeholder:text-faint focus:outline-none"
               data-new-task-search
             />
           </div>
@@ -111,7 +111,7 @@ export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) 
                 data-new-task-option={target.name || A.HomeProject}
                 onMouseMove={() => setHighlighted(i)}
                 onClick={() => choose(target)}
-                className={cn('flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-left text-[13.5px]', i === highlighted ? 'bg-surface-raised text-title' : 'text-secondary', target.home && 'mt-1')}
+                className={cn('flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-left text-body', i === highlighted ? 'bg-surface-raised text-title' : 'text-secondary', target.home && 'mt-1')}
               >
                 {target.home || !byName.get(target.name) ? (
                   <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-strong text-secondary">
@@ -121,14 +121,14 @@ export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) 
                   <ProjectIcon project={byName.get(target.name)!} />
                 )}
                 <span className="min-w-0 flex-1 truncate font-medium">{target.label}</span>
-                {target.lastAt && <span className="shrink-0 text-[11.5px] text-faint">{timeAgo(target.lastAt, now)}</span>}
+                {target.lastAt && <span className="shrink-0 text-caption text-faint">{timeAgo(target.lastAt, now)}</span>}
                 {i === highlighted && <CornerDownLeft className="size-3.5 shrink-0 text-faint" />}
-                {i < 9 && <kbd className="w-5 shrink-0 rounded bg-surface-strong text-center font-mono text-[11px] text-subtle">{i + 1}</kbd>}
+                {i < 9 && <kbd className="w-5 shrink-0 rounded bg-surface-strong text-center font-mono text-caption text-subtle">{i + 1}</kbd>}
               </button>
             ))}
-            {targets.length === 0 && <div className="px-3 py-4 text-[13px] text-subtle">{t('v2.newTask.none')}</div>}
+            {targets.length === 0 && <div className="px-3 py-4 text-ui text-subtle">{t('v2.newTask.none')}</div>}
           </div>
-          <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-[11.5px] text-faint">
+          <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-caption text-faint">
             <span>{t('v2.newTask.hintMove')}</span>
             <span>{t('v2.newTask.hintOpen')}</span>
             <span>{query ? t('v2.newTask.hintAltDigit') : t('v2.newTask.hintDigit')}</span>
