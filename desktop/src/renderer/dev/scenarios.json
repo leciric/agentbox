@@ -2762,14 +2762,14 @@
   {
     "id": "window-small-v2-home-chat-dark",
     "description": "UI v2 at 800×600 on Home's chat: the title and subtitle with the Chat, Status and Memory tabs beside them, wrapping below when narrow — dark",
-    "query": "app=homeChat&v2=1&theme=dark",
+    "query": "app=homeChat&verbs=1&theme=dark",
     "width": 800,
     "height": 600
   },
   {
     "id": "window-narrow-v2-home-chat-dark",
     "description": "UI v2 at 480×800 on Home's chat: the title and subtitle with the Chat, Status and Memory tabs beside them, wrapping below when narrow — dark",
-    "query": "app=homeChat&v2=1&theme=dark",
+    "query": "app=homeChat&verbs=1&theme=dark",
     "width": 480,
     "height": 800
   }
