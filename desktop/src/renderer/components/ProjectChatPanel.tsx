@@ -7,10 +7,10 @@ import { api, sessionOfRef } from '../lib/api';
 import { chatLoadRetry, forgetThread, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
-import { afterClose, chooseSession, markSessionSeen, neighbour, pickSession, useChosenSession, withSession } from '../lib/sessions';
+import { afterClose, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, useChosenSession, withSession } from '../lib/sessions';
 import { requestSessionFocus } from '../lib/newTask';
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
-import { errorMessage } from '../lib/utils';
+import { cn, errorMessage } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
 import { SessionHistory, useClosedSessions } from './chat/SessionHistory';
 import { SessionTabs } from './chat/SessionTabs';
@@ -280,8 +280,9 @@ export function SessionChatPanel({ project, children }: { project: string; child
   // A ref the chat answered with that isn't this session's is the one shown a
   // moment ago: wait for this one's.
   const ready = info && sessionOfRef(info.ref) === current.id;
+  const color = sessionColor(list, current);
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className={cn('flex h-full min-h-0 flex-col', color && 'session-frame rounded-lg')} data-session-color={color}>
       {tabs}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {ready ? (

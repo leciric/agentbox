@@ -2,7 +2,7 @@ import { History, LoaderCircle, Plus, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { useT } from '../../lib/i18n';
-import { isUnread, isWorking, sessionColor, useSeenAt } from '../../lib/sessions';
+import { isUnread, isWorking, useSeenAt } from '../../lib/sessions';
 import { keysHint, sessionKeys } from '../../lib/shortcuts';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
@@ -45,7 +45,6 @@ export function SessionTabs({
       {sessions.map((s) => {
         const on = s.id === current;
         const unread = !on && isUnread(s, seen[s.ref]);
-        const color = sessionColor(sessions, s);
         if (renaming === s.id) {
           return (
             <TopicInput
@@ -66,7 +65,6 @@ export function SessionTabs({
             aria-selected={on}
             tabIndex={on ? 0 : -1}
             data-session={s.id}
-            data-session-color={color}
             onClick={() => onChoose(s.id)}
             onDoubleClick={() => setRenaming(s.id)}
             onKeyDown={(e) => {
@@ -78,7 +76,6 @@ export function SessionTabs({
               on ? 'bg-surface-strong text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
             )}
           >
-            {color && <span aria-hidden className="session-dot size-2 shrink-0 rounded-full" data-session-dot />}
             {isWorking(s) ? (
               <LoaderCircle aria-label={t('sessions.working')} className="size-3 shrink-0 animate-spin text-brand-300" />
             ) : unread ? (

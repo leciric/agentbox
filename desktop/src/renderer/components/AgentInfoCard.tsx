@@ -88,7 +88,7 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
             label={t('agent.info.session')}
             value={
               <span className="inline-flex min-w-0 max-w-full items-center gap-1.5" data-session-color={owner.color} data-agent-info-session={owner.session.id}>
-                <span className="session-dot size-2 shrink-0 rounded-full" />
+                <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: 'var(--session)' }} />
                 <span className="min-w-0 truncate">{owner.session.topic}</span>
               </span>
             }

@@ -2683,6 +2683,8 @@ function devSessions(project: string): T.LeadSession[] {
             { project, id: 'onboarding-copy', ref: `${project}/lead.onboarding-copy`, topic: 'Onboarding copy', color: 'mint', chat: 'ready', agents: 2, createdAt: at(1_800_000), activeAt: at(900_000) },
           ]
         : [{ project, id: 'main', ref: `${project}/lead`, topic: 'Chat', color: 'sky', chat: 'ready', agents: 0, createdAt: at(3_600_000), activeAt: at(3_600_000) }];
+    // ?sessions=1: the project has only the one open, which shows no colour.
+    if (new URLSearchParams(location.search).get('sessions') === '1') list = list.slice(0, 1);
     sessionsByProject.set(project, list);
   }
   return list;

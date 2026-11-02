@@ -2358,7 +2358,7 @@
   },
   {
     "id": "sessions-v2-dark",
-    "description": "on a project's chat with two sessions: the tabs above it, an unread dot on the project row for the one not shown, and its agents tinted with its colour — dark",
+    "description": "on a project's chat with two sessions: the tabs above it, an unread dot on the project row for the one not shown, and its agents bordered in its colour — dark",
     "query": "app=project&theme=dark",
     "width": 1440,
     "height": 900
@@ -2372,7 +2372,7 @@
   },
   {
     "id": "session-colours-v2-dark",
-    "description": "A project's chat with three sessions, each in its colour: a dot on its tab, and its agents' cards in the rail tinted with it, status still the loudest thing on them — dark",
+    "description": "A project's chat with three sessions, each in its colour: a thin border around the shown session's chat and around the cards of the agents it made in the rail, none on the tabs — dark",
     "query": "app=project&theme=dark",
     "width": 1440,
     "height": 900
@@ -2381,6 +2381,20 @@
     "id": "session-colours-v2-light",
     "description": "The same — light",
     "query": "app=project&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "session-colours-one-v2-dark",
+    "description": "The same project with only one open session: no border, no colour anywhere — dark",
+    "query": "app=project&theme=dark&sessions=1",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "session-colours-one-v2-light",
+    "description": "The same — light",
+    "query": "app=project&theme=light&sessions=1",
     "width": 1440,
     "height": 900
   },

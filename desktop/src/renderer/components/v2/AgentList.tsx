@@ -279,7 +279,7 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
           onOpen({ kind: 'agent', ref: agent.ref });
         }}
         aria-current={active ? 'true' : undefined}
-        className={cn('group flex w-full min-w-0 items-start gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface', owner && 'session-tint')}
+        className={cn('group flex w-full min-w-0 items-start gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface', owner && 'session-frame')}
         data-session-color={owner?.color}
         data-list-agent={agent.ref}
         data-list-st={st}
