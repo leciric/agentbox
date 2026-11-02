@@ -2772,5 +2772,95 @@
     "query": "app=homeChat&verbs=1&theme=dark",
     "width": 480,
     "height": 800
+  },
+  {
+    "id": "window-1920-review-big-dark",
+    "description": "1920×1080, \"Ready to review\" on agent-15 with pairs and screenshots at 1920×1080, 420×2000 and 3840×1080: each fills its stage without letterboxing, the strip's cards are one height — dark",
+    "query": "app=project&review=big&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": "[data-v2-review-banner-open]"
+  },
+  {
+    "id": "window-1920-review-big-tall-dark",
+    "description": "1920×1080, the same with the 420×2000 phone pair on stage — dark",
+    "query": "app=project&review=big&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": [
+      "[data-v2-review-banner-open]",
+      "[data-review-media=\"2\"]"
+    ]
+  },
+  {
+    "id": "window-1920-review-big-wide-dark",
+    "description": "1920×1080, the same with the 3840×1080 pair on stage — dark",
+    "query": "app=project&review=big&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": [
+      "[data-v2-review-banner-open]",
+      "[data-review-media=\"3\"]"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-dark",
+    "description": "1280×800, \"Ready to review\" on agent-15 with pairs and screenshots at 1920×1080, 420×2000 and 3840×1080: each fills its stage without letterboxing, the strip's cards are one height — dark",
+    "query": "app=project&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": "[data-v2-review-banner-open]"
+  },
+  {
+    "id": "window-1280-review-big-tall-dark",
+    "description": "1280×800, the same with the 420×2000 phone pair on stage — dark",
+    "query": "app=project&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-v2-review-banner-open]",
+      "[data-review-media=\"2\"]"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-wide-dark",
+    "description": "1280×800, the same with the 3840×1080 pair on stage — dark",
+    "query": "app=project&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-v2-review-banner-open]",
+      "[data-review-media=\"3\"]"
+    ]
+  },
+  {
+    "id": "window-800-review-big-dark",
+    "description": "800×600, \"Ready to review\" on agent-15 with pairs and screenshots at 1920×1080, 420×2000 and 3840×1080: each fills its stage without letterboxing, the strip's cards are one height — dark",
+    "query": "app=project&review=big&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": "[data-v2-review-banner-open]"
+  },
+  {
+    "id": "window-800-review-big-tall-dark",
+    "description": "800×600, the same with the 420×2000 phone pair on stage — dark",
+    "query": "app=project&review=big&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-v2-review-banner-open]",
+      "[data-review-media=\"2\"]"
+    ]
+  },
+  {
+    "id": "window-800-review-big-wide-dark",
+    "description": "800×600, the same with the 3840×1080 pair on stage — dark",
+    "query": "app=project&review=big&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-v2-review-banner-open]",
+      "[data-review-media=\"3\"]"
+    ]
   }
 ]

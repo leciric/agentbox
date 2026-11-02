@@ -197,6 +197,68 @@ function pairs(): T.MediaItem[] {
   ];
 }
 
+// big is ?review=big: agent-15's media at the sizes that break a fixed box,
+// a desktop pair at 1920×1080, a phone pair at 420×2000, a pair of
+// 3840×1080 dashboards across two monitors, the same sizes again alone, and
+// a recording pair, all checked at every window size.
+function big(): T.MediaItem[] {
+  const base = { agent: `${PROJECT}/agent-15`, agentName: 'agent-15', source: 'agent', size: 900_000, mime: 'image/png' };
+  const shot = (id: string, name: string, at: number, w: number, h: number, hue: number, after: boolean, side?: 'before' | 'after'): T.MediaItem => {
+    setMediaFile(id, appScreen(w, h, hue, name, after));
+    return { ...base, id, kind: 'screenshot', name, file: `${name}.png`, meta: { width: w, height: h, ...(side && { pair: name.replace(/-(before|after)$/, ''), side }) }, createdAt: ago(at) };
+  };
+  const video = new URL('./concepts/media/settings.webm', import.meta.url).href;
+  const rec = (id: string, side: 'before' | 'after', at: number): T.MediaItem => {
+    setMediaFile(id, video);
+    return { ...base, id, kind: 'recording', name: `settings walkthrough (${side})`, mime: 'video/webm', meta: { duration: 17, width: 1280, height: 800, pair: 'settings-walkthrough', side }, createdAt: ago(at) };
+  };
+  return [
+    shot('big-desk-before', 'project-page-1920-before', 40 * min, 1920, 1080, 262, false, 'before'),
+    shot('big-phone-before', 'phone-home-420x2000-before', 38 * min, 420, 2000, 200, false, 'before'),
+    shot('big-wide-before', 'two-monitors-3840-before', 36 * min, 3840, 1080, 30, false, 'before'),
+    rec('big-walk-before', 'before', 34 * min),
+    shot('big-desk-after', 'project-page-1920-after', 20 * min, 1920, 1080, 262, true, 'after'),
+    shot('big-phone-after', 'phone-home-420x2000-after', 18 * min, 420, 2000, 200, true, 'after'),
+    shot('big-wide-after', 'two-monitors-3840-after', 16 * min, 3840, 1080, 30, true, 'after'),
+    rec('big-walk-after', 'after', 14 * min),
+    shot('big-phone', 'phone-settings-scrolled-420x2000', 10 * min, 420, 2000, 150, true),
+    shot('big-wide', 'dashboard-3840x1080', 8 * min, 3840, 1080, 330, true),
+    shot('big-small', 'tooltip-crop-320x120', 6 * min, 320, 120, 90, true),
+  ];
+}
+
+// appScreen draws a w × h app as a PNG: a sidebar, a title and rows of cards
+// filling the height, the after's second card a different colour and its
+// badge moved, so a pair has something to compare.
+function appScreen(w: number, h: number, hue: number, name: string, after: boolean): string {
+  const canvas = Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const c = canvas.getContext('2d') as CanvasRenderingContext2D;
+  c.fillStyle = '#121216';
+  c.fillRect(0, 0, w, h);
+  const side = w > 900 ? Math.min(360, w * 0.18) : 0;
+  c.fillStyle = '#1b1b21';
+  c.fillRect(0, 0, side, h);
+  c.fillStyle = `hsl(${hue} 70% 60%)`;
+  c.fillRect(0, 0, w, 8);
+  c.fillStyle = '#e7e7ee';
+  c.font = '600 36px Inter, sans-serif';
+  c.fillText(name, side + 32, 72);
+  const cols = Math.max(1, Math.floor((w - side - 32) / 420));
+  const cw = (w - side - 32) / cols - 32;
+  for (let y = 120, i = 0; y < h - 40; y += 150) {
+    for (let x = 0; x < cols; x++, i++) {
+      c.fillStyle = after && i === 1 ? `hsl(${hue} 50% 30%)` : '#24242c';
+      c.fillRect(side + 32 + x * (cw + 32), y, cw, 120);
+      c.fillStyle = '#c9c9d4';
+      c.font = '22px Inter, sans-serif';
+      c.fillText(`Card ${i + 1}`, side + 56 + x * (cw + 32), y + 44);
+      c.fillStyle = `hsl(${(hue + i * 37) % 360} 60% 55%)`;
+      c.fillRect(side + 56 + x * (cw + 32) + (after && i === 1 ? 24 : 0), y + 68, 80, 28);
+    }
+  }
+  return canvas.toDataURL('image/png');
+}
+
 // countsScreen draws the sidebar's project rows with their "N to review"
 // counts as a PNG, which the highlight can read (an SVG it can't): after,
 // the second count reads 4 instead of 3, and sits 4px further right.
@@ -355,7 +417,7 @@ export function seedReview(queryClient: QueryClient): void {
     { id: 'rv-ci', agent: `${PROJECT}/agent-41`, agentName: 'agent-41', kind: 'screenshot', name: 'release-workflow', file: 'release-workflow.png', mime: 'image/png', size: 180_000, source: 'agent', meta: { width: 1280, height: 800 }, createdAt: ago(42 * min) },
   ] satisfies T.MediaItem[]);
   for (const agent of ['agent-98', 'agent-07', 'agent-03']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
-  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'pairs' ? pairs() : new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() : evidence('agent-15', 'settings', 4 * min, 17, [
+  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'pairs' ? pairs() : new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() : new URLSearchParams(location.search).get('review') === 'big' ? big() : evidence('agent-15', 'settings', 4 * min, 17, [
     [0.3, 'General at 1024×640', 'Nothing past the right edge; the search box keeps its width.'],
     [5.2, 'Models in pt-BR', 'The longest labels wrap to two lines instead of clipping.'],
     [9.5, 'Resources, light theme', ''],
