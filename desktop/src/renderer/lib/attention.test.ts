@@ -18,6 +18,12 @@ test('byAttention puts needs first, then finished, keeping the order within each
   assert.deepEqual(byAttention(ps, new Set(['d', 'b']), new Set(['e', 'b'])).map((p) => p.name), ['b', 'd', 'e', 'a', 'c']);
 });
 
+test('byAttention puts working third, behind needs and finished, ahead of the rest', () => {
+  const ps = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => ({ name }));
+  assert.deepEqual(byAttention(ps, new Set(['e']), new Set(['d', 'c']), new Set(['f', 'b', 'c', 'e'])).map((p) => p.name), ['e', 'c', 'd', 'b', 'f', 'a']);
+  assert.deepEqual(byAttention(ps, new Set(), new Set(), new Set()).map((p) => p.name), ['a', 'b', 'c', 'd', 'e', 'f']);
+});
+
 test('keepOnScreen holds the project on screen only if it already had a place', () => {
   const none = new Set<string>();
   assert.deepEqual([...keepOnScreen(new Set(['a']), none, 'a')], ['a']);

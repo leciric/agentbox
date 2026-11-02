@@ -20,7 +20,7 @@
 // A project's options are on a right-click of its row, its Settings on a
 // gear its row shows on hover. The reading is
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Briefcase, Check, ClipboardCheck, MonitorPlay, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
@@ -29,7 +29,7 @@ import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
-import { activeProjects, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import { activeProjects, filterCount, foldLeads, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
 import type { Tally } from '../../lib/agentCounts';
 import { useAgentCounts } from '../../lib/useAgentCounts';
 import { useDraftProjects } from '../../lib/drafts';
@@ -128,7 +128,15 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // Each lead's chat: a lead mid-turn counts as working, for the filter, the
   // counts and the sort, and with one waiting on the user's permission keeps
   // its project out of the Idle list.
-  const leads = counts.leads;
+  // Each project's lead sessions are the rows' own queries; one waiting or
+  // mid-turn counts as the lead's state, whichever session the chat shows.
+  const names = (projects.data ?? []).map((p) => p.name);
+  const sessionLists = useQueries({ queries: names.map((name) => ({ queryKey: ['leadSessions', name], queryFn: () => api.leadSessions(name) })) });
+  const folded = foldLeads(counts.leads, names, sessionLists.map((q) => q.data));
+  const leadsKey = [...folded].map(([name, chat]) => `${name}:${chat ?? ''}`).join('\n');
+  // The same map again while no lead's state changed, for the memos below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const leads = useMemo(() => folded, [leadsKey]);
   const busyNow = useMemo(() => new Set([...leads].filter(([, chat]) => leadBusy(chat)).map(([name]) => name)), [leads]);
   const activeNow = useMemo(() => activeProjects(rows, leads, counts.asking), [rows, leads, counts.asking]);
   // Both with a grace (lib/grace.ts): a busy project goes through moments
@@ -168,6 +176,11 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const finishedNow = useMemo(() => new Set([...attention].filter(([, a]) => a.level === 'finished').map(([n]) => n)), [attention]);
   const needsSort = useKeepOnScreen(useGrace(needsNow), onScreen);
   const finishedSort = useKeepOnScreen(useGrace(finishedNow), onScreen);
+  const workingNow = useMemo(
+    () => new Set((projects.data ?? []).filter((p) => counts.of(p.name).working > 0 || busyNow.has(p.name)).map((p) => p.name)),
+    [projects.data, counts, busyNow],
+  );
+  const workingSort = useKeepOnScreen(useGrace(workingNow), onScreen);
 
   const grouping = useGroupIdle();
   const drafts = useDraftProjects();
@@ -193,7 +206,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // What needs you, then what finished, come first among the projects in
   // no list of the user's own order: the pins and the sections keep theirs.
   const placed = arrange(order, layout, activeGrace);
-  const arranged = { ...placed, rest: byAttention(placed.rest, needsSort, finishedSort) };
+  const arranged = { ...placed, rest: byAttention(placed.rest, needsSort, finishedSort, workingSort) };
   // The user's sections, each with the projects in it that aren't with the
   // pins or the hidden; the rest of the lists are the projects in none.
   const sec = useSections();
@@ -1006,6 +1019,9 @@ function ProjectLead({
   const sessionUnread = !active && sessions.some((s) => isUnread(s, seen[s.ref]));
   const needs = attention.level === 'needs';
   const dot = attention.level === 'finished' || sessionUnread;
+  // Working marks the row only when nothing louder does.
+  const leadRunning = chat.data?.chat === 'running' || sessionWorking;
+  const working = !attention.level && (leadRunning || counts.working > 0);
   const open_ = () => onSelect({ kind: 'project', project: project.name });
   const panel = usePanel();
   const onProject = view.kind === 'project' && view.project === project.name;
@@ -1076,7 +1092,9 @@ function ProjectLead({
             }}
             data={{ 'data-v2-lead': project.name }}
             // Needing you, a faint amber wash.
-            className={needs && !active ? 'bg-amber-400/5 hover:bg-amber-400/10' : undefined}
+            className={cn(needs && !active && 'bg-amber-400/5 hover:bg-amber-400/10', working && "before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-sky-400 before:content-['']")}
+            data-v2-working={working ? '' : undefined}
+            aria-busy={working || undefined}
           >
             {/* The icon's corner says it at any width: amber for what needs
                 you, the brand's for what finished or a session's unread line. */}
@@ -1093,7 +1111,7 @@ function ProjectLead({
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate text-[13px] font-medium text-title">{name}</span>
-                {(chat.data?.chat === 'running' || sessionWorking) && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
+                {leadRunning && <LoaderCircle className={cn('size-3 shrink-0 animate-spin', working ? 'text-sky-400' : 'text-subtle')} />}
                 {drafted && (
                   <Tip label={t('v2.sidebar.draft')}>
                     <Pencil className="size-3 shrink-0 text-subtle" data-v2-draft aria-label={t('v2.sidebar.draft')} />

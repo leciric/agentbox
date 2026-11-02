@@ -1245,6 +1245,13 @@
     "height": 1080
   },
   {
+    "id": "window-wide-v2-project-light",
+    "description": "At 1920×1080 on the project's lead: Home and the leads with their last lines and counts, and the panel open on agentbox's agents beside the chat — light",
+    "query": "app=project&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
     "id": "window-wide-v2-filters-dark",
     "description": "At 1920×1080, the filter popover open: state with counts, and the projects — dark",
     "query": "app=project&theme=dark",

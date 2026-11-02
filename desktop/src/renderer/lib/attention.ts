@@ -30,13 +30,15 @@ export function attentionOf(c: Tally, leadWaiting: boolean, finished: number): A
   return { count: 0 };
 }
 
-// The rank a level sorts by: what needs you first, then what finished.
-const rank = (l: Level | undefined) => (l === 'needs' ? 0 : l === 'finished' ? 1 : 2);
+// The rank a project sorts by: what needs you first, then what finished,
+// then what is working, then the rest.
+const rank = (l: Level | 'working' | undefined) => (l === 'needs' ? 0 : l === 'finished' ? 1 : l === 'working' ? 2 : 3);
 
 // byAttention puts the projects that need you first, then those with
-// something finished, keeping the order they came in within each.
-export function byAttention<P extends { name: string }>(projects: readonly P[], needs: ReadonlySet<string>, finished: ReadonlySet<string>): P[] {
-  const of = (p: P) => rank(needs.has(p.name) ? 'needs' : finished.has(p.name) ? 'finished' : undefined);
+// something finished, then those working, keeping the order they came in
+// within each.
+export function byAttention<P extends { name: string }>(projects: readonly P[], needs: ReadonlySet<string>, finished: ReadonlySet<string>, working: ReadonlySet<string> = new Set()): P[] {
+  const of = (p: P) => rank(needs.has(p.name) ? 'needs' : finished.has(p.name) ? 'finished' : working.has(p.name) ? 'working' : undefined);
   return projects.map((p, i) => ({ p, i, r: of(p) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.p);
 }
 
