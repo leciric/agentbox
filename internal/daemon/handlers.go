@@ -43,7 +43,21 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 // Projects
 
 func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
-	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root), IOS: iossim.IsProject(p.Root),
+	info := s.projectSettings(ctx, p)
+	info.Android, info.IOS = android.IsProject(p.Root), iossim.IsProject(p.Root)
+	if repo, err := gitrepo.Open(p.Root); err == nil {
+		info.Branch = repo.CurrentBranch()
+		if files, err := repo.EnvFiles(); err == nil && files != nil {
+			info.EnvFiles = files
+		}
+	}
+	return info
+}
+
+// projectSettings is projectInfo without what it reads from the repository,
+// which can take seconds on a large one shared from a Mac.
+func (s *Server) projectSettings(ctx context.Context, p state.Project) api.Project {
+	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{},
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
 		CodexAccount: p.CodexAccount, OpenCodeAccounts: accountMap(p.OpenCodeAccounts), CursorAccount: p.CursorAccount, GeminiAccount: p.GeminiAccount,
 		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
@@ -53,12 +67,6 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
-	}
-	if repo, err := gitrepo.Open(p.Root); err == nil {
-		info.Branch = repo.CurrentBranch()
-		if files, err := repo.EnvFiles(); err == nil && files != nil {
-			info.EnvFiles = files
-		}
 	}
 	return info
 }

@@ -42,11 +42,15 @@ func newMCPCmd(a *app) *cobra.Command {
 			if os.Getenv("AGENTBOX_CHAT") == "home" {
 				tools = homeTools
 			}
-			srv := &mcp.Server{Name: "agentbox", Version: version, Tools: tools(cmd.Context(), c)}
+			srv := &mcp.Server{Name: "agentbox", Version: version, LoadTools: func() []mcp.Tool { return tools(cmd.Context(), c) }}
 			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 }
+
+// startupRead bounds each read the tools make of the daemon as they start: a
+// daemon slower than that leaves them AgentBox's defaults rather than no tools.
+const startupRead = 10 * time.Second
 
 // merge adds one set of schema properties to another, for parameters built at
 // startup from what the daemon knows.
@@ -102,7 +106,10 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// never reach its agents.
 	defaultModel, defaultWindow := state.DefaultClaudeModel, strings.ToLower(state.FormatContextWindow(state.DefaultClaudeCompactWindow))
 	var enforced bool
-	if settings, err := c.ProjectSettings(ctx); err == nil {
+	read, cancel := context.WithTimeout(ctx, startupRead)
+	settings, err := c.ProjectSettings(read)
+	cancel()
+	if err == nil {
 		enforced = settings.EnforceAgentDefaults
 		if settings.DefaultClaudeModel != "" {
 			defaultModel = settings.DefaultClaudeModel
@@ -133,7 +140,10 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	var auto bool
 	var projectTool string
 	defaultFrom := "Settings → Models' default"
-	if p, err := c.ProjectSelf(ctx); err == nil {
+	read, cancel = context.WithTimeout(ctx, startupRead)
+	p, err := c.ProjectSelf(read)
+	cancel()
+	if err == nil {
 		auto = p.AgentModel == api.AgentModelAuto
 		projectTool = p.AgentTool
 		// The project's model is its tool's: a Claude Code name only while

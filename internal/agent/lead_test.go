@@ -676,6 +676,23 @@ func TestLeadKnowsItRunsInTheVM(t *testing.T) {
 	}
 }
 
+// The lead's HOME is its own, so the `agentbox` it runs in its shell looked
+// for the daemon under it, tried to start one there and failed ("the AgentBox
+// daemon didn't start"), and the lead told the user AgentBox was down. It now
+// gets the daemon's socket, and never starts a daemon of its own.
+func TestLeadsShellReachesTheDaemon(t *testing.T) {
+	f := leadFixture(t)
+	a, err := f.m.EnsureLead(context.Background(), "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := leadEnv(t, f, a)
+	if env["AGENTBOX_SOCKET"] != f.m.Paths.Socket() || env["AGENTBOX_NO_AUTOSTART"] != "1" {
+		t.Errorf("the lead's chat has AGENTBOX_SOCKET=%q, AGENTBOX_NO_AUTOSTART=%q; want %q and 1",
+			env["AGENTBOX_SOCKET"], env["AGENTBOX_NO_AUTOSTART"], f.m.Paths.Socket())
+	}
+}
+
 // In the VM the lead's remote, git@github.com, needs an ssh key the VM's home
 // doesn't have ("Host key verification failed"), and the lead had no token
 // either. It now gets the GitHub account its project's agents default to: the

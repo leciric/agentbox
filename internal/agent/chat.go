@@ -132,6 +132,10 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 			env = append(env, name+"="+v)
 		}
 	}
+	// The `agentbox` the lead runs in its shell (media save, secrets set) finds
+	// the daemon from HOME, which here is the lead's own: without these it
+	// would try to start a second daemon there, and fail.
+	env = append(env, "AGENTBOX_SOCKET="+m.Paths.Socket(), "AGENTBOX_NO_AUTOSTART=1")
 	env = append(env, toolEnvVars...)
 	// The project's GitHub account, as its agents have it (agentEnv), for gh
 	// and for git through the helper configureLead wrote.
