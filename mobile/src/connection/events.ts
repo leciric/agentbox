@@ -3,31 +3,27 @@
 // with react-native-sse since React Native has no EventSource, and with the
 // token in a header, which a browser's EventSource can't send.
 //
-// It is followed again from scratch when it can't be trusted, as the web
-// app's reconnect.ts does: after an error, a little later each time (up to
-// 15 s); when it went silent though it pings every 15 s (?ping=1), as a
-// tunnel that dropped without a word leaves it; and when the app comes back
-// to the foreground after a while, since the phone may have cut it while
-// asleep. Each time it opens again everything is read again, so nothing sent
-// meanwhile is lost. t3code's equivalents are packages/client-runtime's
-// session state and apps/mobile/src/connection/app-state-wakeups.ts.
+// It is followed again from scratch when it can't be trusted: when it fails,
+// never opens, goes silent, the app comes back to the foreground or the
+// network comes back (reconnect.ts says when). Each time it opens again
+// everything is read again, so nothing sent meanwhile is lost. t3code's
+// equivalents are packages/client-runtime's session state and
+// apps/mobile/src/connection/app-state-wakeups.ts.
 import type { QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
+import * as Network from 'expo-network';
 import { AppState } from 'react-native';
 import EventSource from 'react-native-sse';
 import * as T from '../shared/api.ts';
 import { applyChatEvent } from '../features/threads/thread.ts';
 import * as P from './parse.ts';
+import { reconnector, type Reconnector } from './reconnect.ts';
 import { forget, session } from './session.ts';
 
 export type Connection = 'connecting' | 'connected' | 'disconnected';
 
 const types = [T.EventAgent, T.EventProject, T.EventChat, T.EventLeadSessions, T.EventQuestion, T.EventPulls, T.EventReview, T.EventAgentEvent, T.EventMedia, T.EventLAN, 'ping'] as const;
 type Type = (typeof types)[number];
-
-const silentAfter = 45_000;
-const awayFor = 15_000;
-const maxBackoff = 15_000;
 
 let state: Connection = 'connecting';
 const listeners = new Set<() => void>();
@@ -49,10 +45,8 @@ export function useConnection(): Connection {
 }
 
 let source: EventSource<Type> | undefined;
-let timer: ReturnType<typeof setTimeout> | undefined;
-let failures = 0;
-let lastHeard = Date.now();
 let client: QueryClient | undefined;
+let again: Reconnector | undefined;
 
 // scoped is a query's key for the project an event is about, or for every
 // project when it doesn't say which.
@@ -102,17 +96,18 @@ export function apply(queryClient: QueryClient, type: string, data: unknown): vo
   }
 }
 
-function follow() {
+function close() {
   source?.removeAllEventListeners();
   source?.close();
   source = undefined;
-  if (timer) clearTimeout(timer);
-  timer = undefined;
+}
+
+function follow() {
+  close();
   const s = session();
   if (!s || !client) return;
   const queryClient = client;
   if (state !== 'disconnected') setState('connecting');
-  lastHeard = Date.now();
   const es = new EventSource<Type>(`${s.origin}/api/v1/events?ping=1`, {
     headers: { Authorization: `Bearer ${s.token}` },
     // Never ends a long-lived stream on its own; followed again by us.
@@ -120,29 +115,27 @@ function follow() {
   });
   source = es;
   es.addEventListener('open', () => {
-    failures = 0;
-    lastHeard = Date.now();
+    again?.opened();
     setState('connected');
     // What was sent while it was away: read everything again.
     void queryClient.invalidateQueries();
   });
   es.addEventListener('error', (ev) => {
     if (source !== es) return;
+    close();
     setState('disconnected');
-    es.close();
     // Unpaired on the computer: the pairing is gone for good, so back to
     // pairing rather than reconnecting to no end, as a refused request does.
     if ('xhrStatus' in ev && ev.xhrStatus === 401) {
+      again?.stopped();
       void forget();
       return;
     }
-    const delay = Math.min(1000 * 2 ** failures, maxBackoff);
-    failures++;
-    timer = setTimeout(follow, delay);
+    again?.failed();
   });
   for (const type of types) {
     es.addEventListener(type, (ev) => {
-      lastHeard = Date.now();
+      again?.heard();
       if (type === 'ping' || !('data' in ev) || !ev.data) return;
       try {
         // The stream's data is a T.Event: its type, time and data.
@@ -157,43 +150,37 @@ function follow() {
 // ended says the stream finished without an error, as when the daemon
 // restarts: react-native-sse then only stops (pollingInterval 0), with no
 // event, and the stream would look connected until it went silent.
-const ended = (es: EventSource<Type>) => (es as unknown as { _xhr?: XMLHttpRequest })._xhr?.readyState === XMLHttpRequest.DONE;
-
-let started = false;
+const ended = () => (source as unknown as { _xhr?: XMLHttpRequest } | undefined)?._xhr?.readyState === XMLHttpRequest.DONE;
 
 // connect follows the paired daemon's events into queryClient, from now on.
 export function connect(queryClient: QueryClient): () => void {
   client = queryClient;
-  follow();
-  if (started) return stop;
-  started = true;
-  let hiddenAt: number | undefined;
-  AppState.addEventListener('change', (next) => {
-    if (next !== 'active') {
-      hiddenAt ??= Date.now();
-      return;
-    }
-    const away = hiddenAt !== undefined && Date.now() - hiddenAt > awayFor;
-    hiddenAt = undefined;
-    if (away || state !== 'connected' || Date.now() - lastHeard > silentAfter) reconnectNow();
+  again ??= reconnector({
+    follow,
+    // An attempt that never opened: the bar offers "Retry now" meanwhile.
+    drop: () => {
+      close();
+      setState('disconnected');
+    },
+    connected: () => state === 'connected',
+    ended,
+    appState: AppState,
+    network: (fn) => {
+      Network.addNetworkStateListener(({ isConnected, type }) => fn({ online: isConnected !== false, kind: type }));
+    },
   });
-  setInterval(() => {
-    if (source && state === 'connected' && AppState.currentState === 'active' && (Date.now() - lastHeard > silentAfter || ended(source))) follow();
-  }, 5_000);
+  again.started();
+  again.now();
   return stop;
 }
 
 function stop() {
-  source?.removeAllEventListeners();
-  source?.close();
-  source = undefined;
-  if (timer) clearTimeout(timer);
-  timer = undefined;
+  again?.stopped();
+  close();
   client = undefined;
 }
 
 // reconnectNow follows the stream again at once (the bar's "Retry now").
 export function reconnectNow(): void {
-  failures = 0;
-  follow();
+  again?.now();
 }
