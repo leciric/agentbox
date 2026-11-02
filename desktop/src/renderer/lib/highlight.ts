@@ -2,15 +2,16 @@
 // highlighter and each language load the first time a code block needs them.
 //
 // A Shiki theme is a set of inline colours, not classes, so it can't follow the
-// window through CSS the way everything else does: there is a theme per mode,
-// and the mode picks between them at the moment a block is highlighted. Both
-// load with the highlighter — they are small next to a language grammar, and
-// loading the second one only when the window turns over would leave every
+// window through CSS the way everything else does: there is a theme per look
+// (lib/theme.ts Look: dark, light, or Dracula's own), and the look picks
+// between them at the moment a block is highlighted. They all load with the
+// highlighter — they are small next to a language grammar, and
+// loading another one only when the window turns over would leave every
 // visible code block un-highlighted until it arrived.
 import type { HighlighterCore, ThemedToken } from 'shiki/core';
-import { currentMode } from './theme.ts';
+import { currentLook } from './theme.ts';
 
-const themes = { dark: 'github-dark-default', light: 'github-light-default' } as const;
+const themes = { dark: 'github-dark-default', light: 'github-light-default', dracula: 'dracula' } as const;
 
 const languages: Record<string, () => Promise<unknown>> = {
   bash: () => import('@shikijs/langs/bash'),
@@ -83,7 +84,7 @@ let core: Promise<HighlighterCore> | undefined;
 function highlighter(): Promise<HighlighterCore> {
   core ??= Promise.all([import('shiki/core'), import('shiki/engine/javascript')]).then(([{ createHighlighterCore }, { createJavaScriptRegexEngine }]) =>
     createHighlighterCore({
-      themes: [import('@shikijs/themes/github-dark-default'), import('@shikijs/themes/github-light-default')],
+      themes: [import('@shikijs/themes/github-dark-default'), import('@shikijs/themes/github-light-default'), import('@shikijs/themes/dracula')],
       langs: [],
       engine: createJavaScriptRegexEngine(),
     }),
@@ -94,7 +95,7 @@ function highlighter(): Promise<HighlighterCore> {
 const cache = new Map<string, ThemedToken[][]>();
 
 export async function highlight(code: string, lang: string): Promise<ThemedToken[][]> {
-  const theme = themes[currentMode()];
+  const theme = themes[currentLook()];
   const key = `${theme}\0${lang}\0${code}`;
   const hit = cache.get(key);
   if (hit) return hit;

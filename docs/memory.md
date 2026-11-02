@@ -16,7 +16,7 @@ flowchart LR
     Reports --> Context
     Context -- "brief.md\nbudgeted slice" --> Agent["An agent's AI tool"]
     Context -- "full budget" --> Lead["The lead"]
-    Lead -- "remember / resolve_memory / update_working_memory" --> Memories
+    Lead -- "remember / memory_feedback / project_state" --> Memories
     Agent -- "report / record_artifact" --> Reports
 ```
 
@@ -202,10 +202,10 @@ notes" in its brief (`promote.go`).
 
 Nothing is promoted on its own: a note costs every agent context. The lead answers each offer once:
 
-- `promote_memory` appends it to the notes (worded by the lead, or the memory's title and the start
+- `notes` with `promote` appends it to the notes (worded by the lead, or the memory's title and the start
   of its content) and marks the memory `promoted`, so no brief serves it beside the note.
   `search_memory` still finds it.
-- `dismiss_promotion` marks it `dismissed`: it stays an ordinary memory and is never offered again.
+- `notes` with `dismiss` marks it `dismissed`: it stays an ordinary memory and is never offered again.
 
 An offer nobody answers lapses after two weeks and isn't made again.
 
@@ -214,7 +214,7 @@ An offer nobody answers lapses after two weeks and isn't made again.
 - **Agent-facing** (`agentbox-memory` MCP server, `internal/cli/memory.go`): `search_memory`,
   `report`, `record_artifact` — an agent's view is scoped to its own task.
 - **Lead-facing** (`agentbox` MCP server, `internal/cli/mcp.go`): `search_memory`, `remember`,
-  `resolve_memory`, `promote_memory`, `dismiss_promotion`, `update_working_memory`,
-  `project_state` — the lead can write memory directly, for its project or (scope `all`) for every
+  `memory_feedback` (with `resolved`), `project_state` (which also updates the working memory) and
+  `notes` (`promote`, `dismiss`) — the lead can write memory directly, for its project or (scope `all`) for every
   project; see
   [The lead and its MCP tools](lead.md).

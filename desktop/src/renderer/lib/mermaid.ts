@@ -10,6 +10,10 @@ import type { Mermaid } from 'mermaid';
 // the last ones drawn are kept: a chat redraws its history as it scrolls.
 
 const KEEP = 64;
+
+// MermaidLoadError is mermaid itself not loading, rather than a diagram it
+// couldn't draw: worth a retry, which loads it again.
+export class MermaidLoadError extends Error {}
 const drawn = new Map<string, Promise<string>>();
 let mermaid: Promise<Mermaid> | undefined;
 let queue: Promise<unknown> = Promise.resolve();
@@ -51,7 +55,13 @@ export function drawMermaid(source: string, mode: 'dark' | 'light'): Promise<str
   }
   const svg = queue.then(async () => {
     mermaid ??= import('mermaid').then((m) => m.default);
-    const m = await mermaid;
+    let m: Mermaid;
+    try {
+      m = await mermaid;
+    } catch (err) {
+      mermaid = undefined;
+      throw new MermaidLoadError(err instanceof Error ? err.message : String(err));
+    }
     m.initialize({
       startOnLoad: false,
       securityLevel: 'strict',

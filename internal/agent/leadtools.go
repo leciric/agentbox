@@ -2,7 +2,6 @@ package agent
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 
 	"agentbox/internal/cursor"
 	"agentbox/internal/image"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -34,42 +34,93 @@ import (
 
 // LeadTools are the AI tools a lead can run, in the order the composer offers
 // them.
-var LeadTools = []string{"claude", "codex", "opencode", "cursor"}
+var LeadTools = []string{"claude", "codex", "opencode", "cursor", "gemini"}
 
-// leadNPMTools are the npm packages a Codex or OpenCode lead runs, installed in
+// leadNPMTools are the npm packages a Codex, OpenCode or Gemini CLI lead runs, installed in
 // AgentBox's tools directory, and the command each puts in node_modules/.bin.
 // The versions are the base image's (tools.txt), so a lead and an agent on the
 // same tool run the same one. OpenCode is mise's native package in an agent;
 // on the host it is npm's opencode-ai, whose postinstall fetches the binary,
 // which plain npm runs.
-var leadNPMTools = map[string]struct{ pkg, bin string }{
+var leadNPMTools = map[string]npmTool{
 	"codex":    {strings.TrimPrefix(image.Pin("npm:@agentclientprotocol/codex-acp"), "npm:"), "codex-acp"},
 	"opencode": {"opencode-ai@" + pinnedVersion(image.Pin("opencode")), "opencode"},
+	"gemini":   {strings.TrimPrefix(image.Pin("npm:@google/gemini-cli"), "npm:"), "gemini"},
+}
+
+// npmTool is an npm package at its pinned version (name@version), and the
+// command it installs (npmBin).
+type npmTool struct{ pkg, bin string }
+
+// openCodeNPMTool is the npm package OpenCode installs from at version: 1's is
+// leadNPMTools', 2's its platform package at image.OpenCode2Version.
+func openCodeNPMTool(version opencode.Release) (npmTool, error) {
+	if version != opencode.V2 {
+		return leadNPMTools["opencode"], nil
+	}
+	pkg, err := opencode.Package2()
+	if err != nil {
+		return npmTool{}, err
+	}
+	return npmTool{pkg + "@" + image.OpenCode2Version, pkg + "/bin/opencode"}, nil
+}
+
+// leadNPMTool is the npm package a lead on tool installs: OpenCode's the
+// installation's version of it (openCodeNPMTool), the others' leadNPMTools'.
+func (m *Manager) leadNPMTool(ctx context.Context, tool string) (npmTool, error) {
+	if tool == "opencode" {
+		version, err := m.openCodeVersion(ctx)
+		if err != nil {
+			return npmTool{}, err
+		}
+		return openCodeNPMTool(version)
+	}
+	t, ok := leadNPMTools[tool]
+	if !ok {
+		return npmTool{}, fmt.Errorf("no npm package installs %s", tool)
+	}
+	return t, nil
 }
 
 // LeadChoice is what a lead's composer chose: the tool in effect, the one
 // chosen for the next message ("" for none), the Claude Code account (""
-// for the project's), and the Codex and Cursor accounts (tool → account).
+// for the project's), and the Codex, Cursor and Gemini CLI accounts (tool →
+// account).
 type LeadChoice struct {
 	Tool, NextTool, Account string
 	ToolAccounts            state.AccountMap
 }
 
 // LeadChoice reads a lead's choice from its chat. A chat never switched runs
-// Claude Code.
+// the installation's default tool until it first runs, and keeps it then
+// (chatTool).
 func (m *Manager) LeadChoice(ctx context.Context, project string) (LeadChoice, error) {
 	c, err := m.Store.Chat(ctx, project, state.LeadName)
 	if err != nil {
 		return LeadChoice{Tool: "claude"}, err
 	}
-	return LeadChoice{Tool: cmp.Or(c.Tool, "claude"), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
+	return LeadChoice{Tool: m.chatTool(ctx, c), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
+}
+
+// LeadChoiceOf reads the choice of one chat session's composer. A session
+// whose composer never chose runs what the project's first session's chose,
+// so a new session starts on the tool and account the project's chat was on.
+func (m *Manager) LeadChoiceOf(ctx context.Context, a state.Agent) (LeadChoice, error) {
+	c, err := m.Store.Chat(ctx, a.Project, a.Name)
+	if err != nil {
+		return LeadChoice{Tool: "claude"}, err
+	}
+	if c.Tool == "" && a.Name != state.LeadName {
+		return m.LeadChoice(ctx, a.Project)
+	}
+	return LeadChoice{Tool: m.chatTool(ctx, c), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
 }
 
 // LeadToolLogin says why a lead can't run tool: nil when AgentBox has a login
 // for it, and the same refusal an agent asking for it gets otherwise.
 func (m *Manager) LeadToolLogin(p state.Project, tool string) error {
 	if !slices.Contains(LeadTools, tool) {
-		return fmt.Errorf("a project's chat can't run %q: use claude, codex, opencode or cursor", tool)
+		return fmt.Errorf("a project's chat can't run %q: use claude, codex, opencode, cursor or gemini", tool)
 	}
 	_, err := m.CheckLogin(tool, p, Logins{})
 	return err
@@ -77,7 +128,7 @@ func (m *Manager) LeadToolLogin(p state.Project, tool string) error {
 
 // LeadToolInstalled reports whether the host already has what a lead on tool
 // runs, so the composer can say that the first message installs it.
-func (m *Manager) LeadToolInstalled(tool string) bool {
+func (m *Manager) LeadToolInstalled(ctx context.Context, tool string) bool {
 	switch tool {
 	case "claude":
 		// Where hostTools looks: AgentBox's own copies, else the PATH's.
@@ -85,8 +136,8 @@ func (m *Manager) LeadToolInstalled(tool string) bool {
 	case "cursor":
 		return m.cursorSDKVersion() == cursor.SDKVersion()
 	}
-	t, ok := leadNPMTools[tool]
-	return ok && usable(m.npmBin(t.bin)) && m.npmVersion(t.pkg) == pinnedVersion(t.pkg)
+	t, err := m.leadNPMTool(ctx, tool)
+	return err == nil && usable(m.npmBin(t.bin)) && m.npmVersion(t.pkg) == pinnedVersion(t.pkg)
 }
 
 // leadAccount is the Claude Code account a lead on tool runs on: the one its
@@ -118,7 +169,7 @@ func (m *Manager) LeadAccountFor(ctx context.Context, a state.Agent) (string, er
 			return "", err
 		}
 	}
-	choice, err := m.LeadChoice(ctx, a.Project)
+	choice, err := m.LeadChoiceOf(ctx, a)
 	if err != nil {
 		return "", err
 	}
@@ -126,8 +177,13 @@ func (m *Manager) LeadAccountFor(ctx context.Context, a state.Agent) (string, er
 	return m.leadAccount(p, choice)
 }
 
-// npmBin is a command an npm package installed in AgentBox's tools directory.
+// npmBin is a command an npm package installed in AgentBox's tools directory:
+// a name under node_modules/.bin, or a path under node_modules when the
+// package declares no bin entry (OpenCode 2's platform package).
 func (m *Manager) npmBin(bin string) string {
+	if strings.Contains(bin, "/") {
+		return filepath.Join(m.toolsHome(), "node_modules", filepath.FromSlash(bin))
+	}
 	return filepath.Join(m.toolsHome(), "node_modules", ".bin", bin)
 }
 
@@ -148,40 +204,87 @@ func (m *Manager) npmVersion(pkg string) string {
 	return manifest.Version
 }
 
-// ensureNPMTool installs a lead's Codex or OpenCode in AgentBox's tools
-// directory the first time, and again when the pin moves, and returns its
-// command and the directory node is in.
-func (m *Manager) ensureNPMTool(ctx context.Context, tool string, status func(string)) (path, nodeBin string, err error) {
-	t := leadNPMTools[tool]
+// ensureNPMTool installs t, the npm package of a lead's Codex, OpenCode or
+// Gemini CLI (tool), in AgentBox's tools directory the first time, and again
+// when the pin moves, and returns its command and the directory node is in.
+func (m *Manager) ensureNPMTool(ctx context.Context, tool string, t npmTool, status func(string)) (path, nodeBin string, err error) {
+	pkg, bin := t.pkg, t.bin
 	nodeBin, err = m.ensureNode(ctx, status)
 	if err != nil {
 		return "", "", err
 	}
-	own := m.npmBin(t.bin)
-	installed := m.npmVersion(t.pkg)
-	if usable(own) && installed == pinnedVersion(t.pkg) {
+	own := m.npmBin(bin)
+	installed := m.npmVersion(pkg)
+	if usable(own) && installed == pinnedVersion(pkg) {
 		return own, nodeBin, nil
 	}
 	name := ChatAdapters[tool].Tool
 	if installed == "" {
-		status("Installing " + name + " for the project chat, once for this machine")
+		status("Installing " + name + ", once for this machine")
 	} else {
-		status(fmt.Sprintf("Updating %s from %s to %s", name, installed, pinnedVersion(t.pkg)))
+		status(fmt.Sprintf("Updating %s from %s to %s", name, installed, pinnedVersion(pkg)))
 	}
 	if err := os.MkdirAll(m.toolsHome(), 0o700); err != nil {
 		return "", "", err
 	}
-	cmd := exec.CommandContext(ctx, filepath.Join(nodeBin, "npm"), "install", "--silent", "--no-fund", "--no-audit", "--prefix", m.toolsHome(), t.pkg)
+	cmd := exec.CommandContext(ctx, filepath.Join(nodeBin, "npm"), "install", "--silent", "--no-fund", "--no-audit", "--prefix", m.toolsHome(), pkg)
 	cmd.Env = append(m.installEnv(), "PATH="+nodeBin+string(os.PathListSeparator)+os.Getenv("PATH")+string(os.PathListSeparator)+systemPath)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {
-		return "", "", installError(t.pkg, err, out.String(), ctx)
+		return "", "", installError(pkg, err, out.String(), ctx)
 	}
 	if !usable(own) {
-		return "", "", fmt.Errorf("installing %s: it reported success but %s isn't there: %s", t.pkg, own, tail(out.String()))
+		return "", "", fmt.Errorf("installing %s: it reported success but %s isn't there: %s", pkg, own, tail(out.String()))
 	}
 	return own, nodeBin, nil
+}
+
+// InstallLeadTool installs what a lead on tool runs, as its first message
+// would: for `agentbox doctor --fix`, which does it ahead of that message.
+// Installed already, it returns at once.
+func (m *Manager) InstallLeadTool(ctx context.Context, tool string, status func(string)) error {
+	ctx, cancel := context.WithTimeout(ctx, hostInstallTimeout)
+	defer cancel()
+	switch tool {
+	case "claude":
+		_, err := m.hostTools(ctx, status)
+		return err
+	case "cursor":
+		_, err := m.CursorHelper(ctx, status)
+		return err
+	case "codex", "opencode", "gemini":
+		t, err := m.leadNPMTool(ctx, tool)
+		if err != nil {
+			return err
+		}
+		_, _, err = m.ensureNPMTool(ctx, tool, t, status)
+		return err
+	}
+	return fmt.Errorf("a project's chat can't run %q", tool)
+}
+
+// GHInstalled reports whether the lead has a GitHub CLI to run without
+// downloading one: AgentBox's own, or the host's.
+func (m *Manager) GHInstalled() bool { return usable(m.ghPath()) || onPath("gh") != "" }
+
+// EnsureGH is ensureGH, for `agentbox doctor --fix`.
+func (m *Manager) EnsureGH(ctx context.Context, status func(string)) error {
+	_, err := m.ensureGH(ctx, status)
+	return err
+}
+
+// EnsureOpenCode2 installs OpenCode 2 in AgentBox's tools directory and returns
+// its command. Its binary is the npm platform package, which declares no bin
+// entry, so it sits beside OpenCode 1 rather than replacing it; the daemon asks
+// it for the model menu and the CLI signs in with it.
+func (m *Manager) EnsureOpenCode2(ctx context.Context, status func(string)) (string, error) {
+	t, err := openCodeNPMTool(opencode.V2)
+	if err != nil {
+		return "", err
+	}
+	path, _, err := m.ensureNPMTool(ctx, "opencode", t, status)
+	return path, err
 }
 
 // leadAdapter is the command, arguments and environment that start a lead's
@@ -207,30 +310,43 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 		if err != nil {
 			return "", nil, nil, nil, err
 		}
-		if err := m.writeLeadLogin(ctx, a, home); err != nil {
+		if err := m.writeLeadLogin(ctx, a, home, opencode.V1, "", ""); err != nil {
 			return "", nil, nil, nil, err
 		}
 		// The script reads the sign-in and the brief from HOME, which
 		// writeLeadTool filled.
 		return helper.Node, []string{helper.Script}, []string{cursor.SDKEnv + "=" + helper.SDK}, []string{filepath.Dir(helper.Node)}, nil
-	case "codex", "opencode":
+	case "codex", "opencode", "gemini":
 		ictx, cancel := context.WithTimeout(ctx, hostInstallTimeout)
 		defer cancel()
-		path, nodeBin, err := m.ensureNPMTool(ictx, a.AI, status)
+		version, t := opencode.V1, leadNPMTools[a.AI]
+		if a.AI == "opencode" {
+			if version, err = m.openCodeVersion(ctx); err != nil {
+				return "", nil, nil, nil, err
+			}
+			if t, err = openCodeNPMTool(version); err != nil {
+				return "", nil, nil, nil, err
+			}
+		}
+		path, nodeBin, err := m.ensureNPMTool(ictx, a.AI, t, status)
 		if err != nil {
 			return "", nil, nil, nil, err
 		}
 		bin = []string{filepath.Dir(path), nodeBin}
 		// The account in effect now: the project's, or the one the composer
 		// chose, may have changed since the lead's HOME was written.
-		if err := m.writeLeadLogin(ctx, a, home); err != nil {
+		if err := m.writeLeadLogin(ctx, a, home, version, path, nodeBin); err != nil {
 			return "", nil, nil, nil, err
 		}
 		if gh, err := m.ensureGH(ictx, status); err == nil {
 			bin = append(bin, filepath.Dir(gh))
 		}
-		if a.AI == "codex" {
+		switch a.AI {
+		case "codex":
 			return path, nil, []string{"CODEX_HOME=" + filepath.Join(home, ".codex")}, bin, nil
+		case "gemini":
+			// Its API key, if it has one, goes over ACP (ChatAuth).
+			return path, ChatAdapters["gemini"].Args, nil, bin, nil
 		}
 		return path, ChatAdapters["opencode"].Args, nil, bin, nil
 	}
@@ -243,13 +359,15 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 // (configure). They are written whichever tool runs, so a switch finds them in
 // place. Its login is written as the tool starts (writeLeadLogin), for the
 // account in effect then.
-func (m *Manager) leadToolFiles(home, worktree, text string, servers map[string]any) (files map[string][]byte, remove []string, err error) {
+func (m *Manager) leadToolFiles(home, worktree, text string, servers map[string]any, version opencode.Release) (files map[string][]byte, remove []string, err error) {
 	files = map[string][]byte{
 		".codex/AGENTS.md":               []byte(text),
 		".config/opencode/AGENTS.md":     []byte(text),
 		".codex/config.toml":             []byte(leadCodexConfig(worktree, servers)),
-		".config/opencode/opencode.json": leadOpenCodeConfig(servers),
+		".config/opencode/opencode.json": leadOpenCodeConfig(version, servers),
 		".cursor/mcp.json":               leadCursorMCP(servers),
+		geminiBriefFile:                  []byte(text),
+		geminiSettingsFile:               leadGeminiSettings(servers),
 	}
 	return files, remove, nil
 }
@@ -309,16 +427,36 @@ func leadCodexConfig(worktree string, servers map[string]any) string {
 
 // leadOpenCodeConfig is an OpenCode lead's opencode.json: its MCP servers as
 // "local" ones. It asks before it acts, like a Claude Code lead (leadSettings).
-func leadOpenCodeConfig(servers map[string]any) []byte {
-	mcp := map[string]any{}
+func leadOpenCodeConfig(version opencode.Release, servers map[string]any) []byte {
+	byName := map[string]any{}
 	for _, s := range stdioServers(servers) {
-		server := map[string]any{"type": "local", "command": append([]string{s.command}, s.args...), "enabled": true}
-		if len(s.env) > 0 {
-			server["environment"] = s.env
-		}
-		mcp[s.name] = server
+		byName[s.name] = openCodeServer(s.command, s.args, s.env)
 	}
-	b, _ := json.Marshal(map[string]any{"$schema": "https://opencode.ai/config.json", "mcp": mcp, "subagent_depth": opencodeSubagentDepth})
+	config := map[string]any{"$schema": "https://opencode.ai/config.json"}
+	if version == opencode.V2 {
+		// OpenCode 2's own shape: its compatibility layer reads OpenCode 1's
+		// flat map but drops each server's environment, and the lead's
+		// AgentBox server is reached through AGENTBOX_SOCKET in exactly that.
+		config["mcp"] = map[string]any{"servers": byName}
+	} else {
+		config["mcp"] = byName
+		config["subagent_depth"] = opencodeSubagentDepth
+	}
+	b, _ := json.Marshal(config)
+	return b
+}
+
+// leadGeminiSettings is a Gemini CLI lead's ~/.gemini/settings.json, as an
+// agent's (geminiSettings) but with each server's environment. The sign-in it
+// uses goes in as the tool starts (writeLeadLogin, withGeminiAuth).
+func leadGeminiSettings(servers map[string]any) []byte {
+	var list []mcpServer
+	env := map[string]map[string]string{}
+	for _, s := range stdioServers(servers) {
+		list = append(list, mcpServer{name: s.name, command: s.command, args: s.args, waits: true})
+		env[s.name] = s.env
+	}
+	b, _ := withGeminiServerEnv(geminiSettings(list, ""), env)
 	return b
 }
 

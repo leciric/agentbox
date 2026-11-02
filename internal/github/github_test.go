@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,9 +14,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"agentbox/internal/github"
+	"agentbox/internal/gitrepo"
 	"agentbox/internal/testutil"
 )
 
@@ -172,6 +175,19 @@ func TestRepoOf(t *testing.T) {
 	if err != nil || repo.String() != "acme/pawly" {
 		t.Errorf("RepoOf() = %q, %v; want acme/pawly", repo, err)
 	}
+	if _, err := github.RepoOf(filepath.Join(root, "gone")); !errors.Is(err, github.ErrNoRepo) {
+		t.Errorf("RepoOf() of a missing directory = %v, want ErrNoRepo", err)
+	}
+	// Git failing to read the remote (ENFILE, EMFILE, anything) says nothing
+	// about whether there is one.
+	for _, fault := range []error{syscall.ENFILE, syscall.EMFILE, errors.New("fatal: bad config line 1")} {
+		undo := gitrepo.FailUnder(root, fault)
+		_, err := github.RepoOf(root)
+		undo()
+		if err == nil || errors.Is(err, github.ErrNoRepo) {
+			t.Errorf("RepoOf() with %v = %v, want an error that isn't ErrNoRepo", fault, err)
+		}
+	}
 }
 
 // stub answers the three calls a pull request lookup makes.
@@ -289,9 +305,10 @@ func TestRefusedTokenSaysWhatToDo(t *testing.T) {
 }
 
 // PullRequests lists a repository's pull requests in one call, and enriches
-// only the open ones with what the list endpoint doesn't carry: checks, diff
-// size and comment count. A closed one is left as the list has it, since
-// nobody is about to act on its history.
+// only the open ones with what the list endpoint doesn't carry — checks, diff
+// size and comment count — in one GraphQL query rather than two REST calls
+// each. A closed one is left as the list has it, since nobody is about to act
+// on its history.
 func TestPullRequestsListsAndEnrichesOnlyOpenOnes(t *testing.T) {
 	ctx := context.Background()
 	repo := github.Repo{Owner: "acme", Name: "pawly"}
@@ -310,16 +327,11 @@ func TestPullRequestsListsAndEnrichesOnlyOpenOnes(t *testing.T) {
 			} else {
 				_, _ = w.Write([]byte(closedList))
 			}
-		case "/repos/acme/pawly/pulls/9":
-			sawDetail = true
-			_, _ = w.Write([]byte(`{"additions":12,"deletions":3,"comments":4}`))
-		case "/repos/acme/pawly/pulls/7":
-			t.Errorf("fetched detail for a closed pull request")
-		case "/repos/acme/pawly/commits/def/check-runs":
-			_, _ = w.Write([]byte(`{"total_count":1,"check_runs":[{"status":"completed","conclusion":"success"}]}`))
-		case "/repos/acme/pawly/commits/abc/check-runs":
-			sawChecksForClosed = true
-			_, _ = w.Write([]byte(`{"total_count":0}`))
+		case "/graphql":
+			body, _ := io.ReadAll(r.Body)
+			sawDetail = strings.Contains(string(body), "pr9: pullRequest(number: 9)")
+			sawChecksForClosed = strings.Contains(string(body), "number: 7")
+			_, _ = w.Write([]byte(`{"data":{"repository":{"pr9":{"additions":12,"deletions":3,"comments":{"totalCount":4},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}}}}}`))
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
@@ -590,10 +602,8 @@ func TestPullRequestsPagesThroughEveryOpenOne(t *testing.T) {
 			}
 			n, _ := strconv.Atoi(q.Get("per_page"))
 			_, _ = w.Write([]byte("[" + strings.Join(items[:min(n, closed)], ",") + "]"))
-		case strings.Contains(r.URL.Path, "/check-runs"):
-			_, _ = w.Write([]byte(`{"total_count":0}`))
-		case strings.HasPrefix(r.URL.Path, "/repos/acme/pawly/pulls/"):
-			_, _ = w.Write([]byte(`{"additions":1}`))
+		case r.URL.Path == "/graphql":
+			_, _ = w.Write([]byte(`{"data":{"repository":{}}}`))
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
@@ -628,5 +638,44 @@ func TestPullRequestsPagesThroughEveryOpenOne(t *testing.T) {
 	}
 	if !slices.IsSortedFunc(prs, func(a, b github.PullRequest) int { return b.UpdatedAt.Compare(*a.UpdatedAt) }) {
 		t.Error("not most recently updated first")
+	}
+}
+
+func TestStackedPullRequests(t *testing.T) {
+	ctx := context.Background()
+	repo := github.Repo{Owner: "acme", Name: "pawly"}
+	var patched struct {
+		path, base string
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if got := r.URL.Query().Get("base"); got != "agentbox/parent" || r.URL.Query().Get("state") != "open" {
+				t.Errorf("query = %s, want the open ones onto agentbox/parent", r.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`[{"number":15,"state":"open","base":{"ref":"agentbox/parent"},"head":{"ref":"agentbox/child","sha":"c1"}}]`))
+		case http.MethodPatch:
+			var body struct {
+				Base string `json:"base"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			patched.path, patched.base = r.URL.Path, body.Base
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+	c := github.Client{Token: "test-token", BaseURL: srv.URL}
+	prs, err := c.PullRequestsOnto(ctx, repo, "agentbox/parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prs) != 1 || prs[0].Number != 15 || prs[0].HeadBranch != "agentbox/child" || prs[0].BaseBranch != "agentbox/parent" {
+		t.Fatalf("PullRequestsOnto = %+v", prs)
+	}
+	if err := c.Retarget(ctx, repo, 15, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if patched.path != "/repos/acme/pawly/pulls/15" || patched.base != "main" {
+		t.Errorf("Retarget sent %+v", patched)
 	}
 }

@@ -25,6 +25,9 @@ export type OrderInput = {
   label: (p: T.Project) => string;
   // Group the idle ones apart and sort by activity; off, one stable list.
   groupIdle: boolean;
+  // Projects with an unsent draft in a lead's composer (lib/drafts.ts): they
+  // count as active, so they stay out of the Idle list.
+  drafts?: ReadonlySet<string>;
 };
 
 export type Ordered = { pinned: T.Project[]; rest: T.Project[]; idle: T.Project[] };
@@ -38,7 +41,7 @@ export const recentOf = (p: T.Project, activity: ReadonlyMap<string, T.ProjectAc
 // same. A pin overrides the order and keeps its place idle or not; a pin of a project
 // that's gone is skipped.
 export function orderProjects(input: OrderInput): Ordered {
-  const { projects, pins, activity, active, label, groupIdle } = input;
+  const { projects, pins, activity, active, label, groupIdle, drafts } = input;
   const byName = new Map(projects.map((p) => [p.name, p]));
   const pinned = pins.flatMap((name) => byName.get(name) ?? []);
   const pinnedSet = new Set(pinned.map((p) => p.name));
@@ -48,7 +51,7 @@ export function orderProjects(input: OrderInput): Ordered {
   const idle: T.Project[] = [];
   for (const p of projects) {
     if (pinnedSet.has(p.name)) continue;
-    (active.has(p.name) ? rest : idle).push(p);
+    (active.has(p.name) || drafts?.has(p.name) ? rest : idle).push(p);
   }
   const byRecent = (a: T.Project, b: T.Project) => recentOf(b, activity) - recentOf(a, activity) || byName2(a, b);
   return { pinned, rest: rest.sort(byRecent), idle: idle.sort(byRecent) };

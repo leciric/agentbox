@@ -157,7 +157,7 @@ func (c *conversation) wake(ad *adapter) {
 // endWoken ends a woken turn on the usage_update that closes it. The
 // conversation is locked.
 func (c *conversation) endWoken(ad *adapter, t *turn) {
-	c.book(ad, state.TokensBackground, t.id, nil, generationMS(t))
+	c.book(ad, state.TokensBackground, t.id, nil, generationMS(t), 0)
 	reason := "end_turn"
 	if t.cancelled {
 		reason = "cancelled"

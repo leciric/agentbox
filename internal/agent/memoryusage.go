@@ -32,6 +32,15 @@ type MemoryUsage struct {
 	SwapTotal  int64
 	SwapUsed   int64 // swap in use across the whole host
 	AgentsSwap int64 // of that, what agents' own cgroups hold
+	// Used is the VM's used memory (MemTotal less MemAvailable), which
+	// AgentsUsed, Leads, AgentBox, the compressed swap (Zram.RealBytes) and
+	// Kernel add up to: Kernel is what is left after the others. FileCache is
+	// outside that sum, the agents' cache the kernel gives back when it must.
+	Used      int64
+	FileCache int64
+	Leads     int64 // the project chats' AI tools and adapters, outside any machine
+	AgentBox  int64 // the daemon and its browsers
+	Kernel    int64 // the kernel, system services and anything else
 	// Zram is set when the host's swap is zram: what its devices hold looks
 	// like SwapUsed, but is compressed, so it costs less RAM than it appears
 	// to. nil when there is no zram device, or none of them are sized.
@@ -46,7 +55,12 @@ type MemoryUsage struct {
 type ZramUsage struct {
 	SwapBytes int64
 	RealBytes int64
+	// DiskSize is the devices' size: the most swap they take.
+	DiskSize int64
 }
+
+// Zram is what this machine's zram devices report; false when none is sized.
+func Zram() (ZramUsage, bool) { return zramTotal(zramRoot) }
 
 // MemoryUsage measures the host's memory and every agent's share of it. It
 // is meant to be called when asked, not kept warm on a poll, the same as
@@ -75,7 +89,7 @@ func (m *Manager) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 	}
 
 	rows := make([]MemoryUsageAgent, 0, len(agents))
-	var agentsUsed, agentsSwap int64
+	var agentsUsed, agentsSwap, fileCache int64
 	for _, a := range agents {
 		row := MemoryUsageAgent{Ref: a.Ref(), Title: a.Title, State: "stopped"}
 		if i, ok := byName[a.Instance]; ok {
@@ -87,6 +101,7 @@ func (m *Manager) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 			}
 			row.Memory = agentMemory(cgroupRoot, a.Instance, fallback)
 			row.Swap = agentSwap(cgroupRoot, a.Instance)
+			fileCache += agentCache(cgroupRoot, a.Instance)
 		}
 		agentsUsed += row.Memory
 		agentsSwap += row.Swap
@@ -102,11 +117,23 @@ func (m *Manager) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 		SwapUsed:   swapUsed,
 		AgentsSwap: agentsSwap,
 		Agents:     rows,
+		Used:       hostUsed,
+		FileCache:  fileCache,
 	}
+	out.Leads, out.AgentBox = outsideMemory("/proc")
 	if z, ok := zramTotal(zramRoot); ok {
 		out.Zram = &z
 	}
+	out.Kernel = max(out.Used-out.AgentsUsed-out.Leads-out.AgentBox-out.zramRAM(), 0)
 	return out, nil
+}
+
+// zramRAM is the RAM the compressed swap takes.
+func (u MemoryUsage) zramRAM() int64 {
+	if u.Zram == nil {
+		return 0
+	}
+	return u.Zram.RealBytes
 }
 
 // agentSwap reads how much swap an agent's cgroup holds, the way agentMemory
@@ -189,6 +216,7 @@ func zramTotal(root string) (ZramUsage, bool) {
 		found = true
 		out.SwapBytes += orig
 		out.RealBytes += memUsed
+		out.DiskSize += disksize
 	}
 	return out, found
 }
