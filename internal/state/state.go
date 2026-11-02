@@ -1503,6 +1503,26 @@ var migrations = []string{
 	// choice and the one an agent holds.
 	`ALTER TABLE projects ADD COLUMN gemini_account TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE agents ADD COLUMN gemini_account TEXT NOT NULL DEFAULT ''`,
+
+	// The pull requests the user marked "Resolved — merge when CI is green"
+	// in the review: the daemon merges each once its checks pass, from the
+	// pull request watch, so it outlives the app being closed and the daemon
+	// restarting. head_sha is the commit the user saw, fingerprint the verdict
+	// it recorded; error is why it was given up, kept until the user dismisses
+	// it or tries again, and a row goes when its pull request is merged or
+	// closed.
+	`CREATE TABLE pr_merge_when_green (
+		project     TEXT NOT NULL,
+		number      INTEGER NOT NULL,
+		agent       TEXT NOT NULL DEFAULT '',
+		method      TEXT NOT NULL,
+		head_sha    TEXT NOT NULL DEFAULT '',
+		fingerprint TEXT NOT NULL DEFAULT '',
+		error       TEXT NOT NULL DEFAULT '',
+		at          INTEGER NOT NULL,
+		failed_at   INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (project, number)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2245,6 +2265,7 @@ var projectOwned = []string{
 	"agent_group_members",
 	"agent_groups",
 	"pr_watches",
+	"pr_merge_when_green",
 	"peer_agents",
 	"remote_agents",
 	"lead_sessions",

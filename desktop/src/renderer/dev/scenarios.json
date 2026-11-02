@@ -1312,6 +1312,16 @@
     ]
   },
   {
+    "id": "window-1440-v2-review-green-dark",
+    "description": "At 1440×900, agent-41's review, its checks still running: Resolved — merge when CI is green beside Merge — dark",
+    "query": "app=agent-41&checks=pending&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-review-open]"
+    ]
+  },
+  {
     "id": "window-1440-v2-request-dark",
     "description": "At 1440×900, Request changes from the review: a box over the footer that says it goes to agent-41's chat, which restarts it, with Send and next — dark",
     "query": "app=agent-41&theme=dark",

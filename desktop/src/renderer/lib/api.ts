@@ -543,6 +543,12 @@ export const api = {
   // the daemon asks of a phone (internal/daemon/lan.go).
   mergePullRequest: (project: string, number: number, method: string, confirmed?: boolean) =>
     call<T.PullRequest>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge`, { method, confirmed } satisfies T.MergePullRequestRequest),
+  // mergeWhenGreen resolves an agent's work and has the daemon merge its
+  // pull request once its checks pass; cancelMergeWhenGreen takes that back,
+  // or dismisses one the daemon gave up on.
+  mergeWhenGreen: (project: string, number: number, req: T.MergeWhenGreenRequest) =>
+    call<T.MergeWhenGreen>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge-when-green`, req satisfies T.MergeWhenGreenRequest),
+  cancelMergeWhenGreen: (project: string, number: number) => call<void>('DELETE', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge-when-green`),
   pullRequestDetail: (project: string, number: number) => call<T.PullRequestDetail>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}`),
   pullRequestFiles: (project: string, number: number) => call<T.PullRequestFiles>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/files`),
   pullFileDiff: (project: string, number: number, path: string) =>

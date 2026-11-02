@@ -1709,6 +1709,8 @@ let defaultsSettings = {
   errorReports: true,
   agentFreeze: false,
   prWatch: true,
+  // &green=off starts with "Resolved — merge when CI is green" off, as it ships.
+  mergeWhenGreen: typeof location === 'undefined' || new URLSearchParams(location.search).get('green') !== 'off',
   defaultClaudeCompactWindow: 500_000,
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,
@@ -1767,6 +1769,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   const window = (v: string) => (/^1m$|^1000000$/i.test(v) ? '1000000' : '');
   if (req.openCodeVersion !== undefined) next.openCodeVersion = req.openCodeVersion;
   if (req.lastAgentPick !== undefined) next.lastAgentPick = req.lastAgentPick;
+  if (req.mergeWhenGreen !== undefined) next.mergeWhenGreen = req.mergeWhenGreen;
   if (req.firstRunDone) next.firstRun = false;
   if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;

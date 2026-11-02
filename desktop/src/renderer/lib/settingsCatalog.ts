@@ -86,6 +86,7 @@ export const catalog: CatalogSetting[] = [
   { section: 'models', group: 'settings.group.chats.title', id: 'lead-sleep', label: 'settings.entry.leadSleep.label', keywords: 'settings.entry.leadSleep.keywords' },
   { section: 'models', group: 'settings.group.chats.title', id: 'continue-after-restart', label: 'settings.entry.continueAfterRestart.label', keywords: 'settings.entry.continueAfterRestart.keywords' },
   { section: 'agents', group: 'settings.group.pulls.title', id: 'pr-watch', label: 'settings.entry.pr-watch.label', keywords: 'settings.entry.pr-watch.keywords' },
+  { section: 'agents', group: 'settings.group.pulls.title', id: 'merge-when-green', label: 'settings.entry.merge-when-green.label', keywords: 'settings.entry.merge-when-green.keywords' },
   { section: 'agents', group: 'settings.group.recheck.title', id: 'lead-recheck', label: 'settings.entry.lead-recheck.label', keywords: 'settings.entry.lead-recheck.keywords' },
   { section: 'agents', group: 'settings.group.lifecycle.title', id: 'auto-stop', label: 'settings.entry.auto-stop.label', keywords: 'settings.entry.auto-stop.keywords' },
   { section: 'agents', group: 'settings.group.lifecycle.title', id: 'remove-stopped', label: 'settings.entry.remove-stopped.label', keywords: 'settings.entry.remove-stopped.keywords' },

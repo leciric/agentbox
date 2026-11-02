@@ -1000,6 +1000,8 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/media/delete", s.deleteProjectMedia)
 	h("GET /v1/projects/{project}/pulls", s.projectPullRequests)
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
+	h("POST /v1/projects/{project}/pulls/{number}/merge-when-green", s.mergeWhenGreen)
+	h("DELETE /v1/projects/{project}/pulls/{number}/merge-when-green", s.cancelMergeWhenGreen)
 	h("POST /v1/projects/{project}/pulls/{number}/labels", s.editPullRequestLabels)
 	h("GET /v1/projects/{project}/labels", s.projectLabels)
 	h("GET /v1/projects/{project}/issues", s.projectIssues)

@@ -37,6 +37,50 @@ type fakeGraphQL struct {
 	viewer string
 	head   map[string]any
 	issues []map[string]any
+	// rest, when on, answers the REST calls a merge makes (mergewhengreen_test.go):
+	// reading one pull request and merging it, each merge kept as "9:squash",
+	// or refused with refuse when it is set.
+	rest   bool
+	merges []string
+	refuse string
+}
+
+var restPull = regexp.MustCompile(`^/repos/acme/hello-stack/pulls/(\d+)(/merge)?$`)
+
+// serveREST is fakeGraphQL's REST half, for what restPull matches.
+func (f *fakeGraphQL) serveREST(w http.ResponseWriter, r *http.Request) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	m := restPull.FindStringSubmatch(r.URL.Path)
+	if !f.rest || m == nil {
+		return false
+	}
+	n, _ := strconv.Atoi(m[1])
+	pr, ok := f.prs[n]
+	if !ok {
+		http.NotFound(w, r)
+		return true
+	}
+	if m[2] == "" {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"number": n, "title": pr["title"], "state": strings.ToLower(pr["state"].(string)), "draft": pr["isDraft"], "html_url": pr["url"],
+			"base": map[string]any{"ref": pr["baseRefName"]}, "head": map[string]any{"ref": pr["headRefName"], "sha": pr["headRefOid"]},
+		})
+		return true
+	}
+	if f.refuse != "" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": f.refuse})
+		return true
+	}
+	var body struct {
+		MergeMethod string `json:"merge_method"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	f.merges = append(f.merges, fmt.Sprintf("%d:%s", n, body.MergeMethod))
+	pr["state"] = "MERGED"
+	_, _ = w.Write([]byte(`{"merged":true}`))
+	return true
 }
 
 var askedLabels = regexp.MustCompile(`issues\(states: OPEN, labels: (\[[^\]]*\])`)
@@ -46,6 +90,9 @@ var askedNumber = regexp.MustCompile(`pr(\d+): pullRequest\(number: (\d+)\)`)
 func newFakeGraphQL(t *testing.T, d testDaemon) *fakeGraphQL {
 	f := &fakeGraphQL{t: t, prs: map[int]map[string]any{}, remaining: 5000}
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if f.serveREST(w, r) {
+			return
+		}
 		if r.URL.Path != "/graphql" || r.Method != http.MethodPost {
 			// The REST calls are the pull request cache's, which a finish or
 			// a fleet read can start: not the watch's business.

@@ -629,6 +629,10 @@ type Settings struct {
 	// its base, its checks fail or a reviewer asks for changes. On unless it
 	// was turned off; a project can override it (Project.PRWatch).
 	PRWatch bool `json:"prWatch"`
+	// MergeWhenGreen offers "Resolved — merge when CI is green" in the
+	// review: the daemon merges a pull request the user resolved once its
+	// checks pass. Off unless turned on.
+	MergeWhenGreen bool `json:"mergeWhenGreen"`
 	// AgentFreeze is the experimental memory governor: under memory
 	// pressure whole agents' machines are frozen, newest first, never the
 	// oldest working one, and thaw oldest first; a new machine starts once
@@ -835,6 +839,8 @@ type UpdateSettingsRequest struct {
 	ErrorReports *bool `json:"errorReports,omitempty"`
 	// PRWatch turns the pull request watch on or off.
 	PRWatch *bool `json:"prWatch,omitempty"`
+	// MergeWhenGreen turns "Resolved — merge when CI is green" on or off.
+	MergeWhenGreen *bool `json:"mergeWhenGreen,omitempty"`
 	// AgentFreeze turns the experimental memory governor on or off.
 	AgentFreeze *bool `json:"agentFreeze,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
@@ -2086,6 +2092,29 @@ type MergePullRequestRequest struct {
 	Confirmed bool `json:"confirmed,omitempty"`
 }
 
+// MergeWhenGreenRequest is POST /v1/projects/{project}/pulls/{number}/merge-when-green:
+// the user resolved an agent's work in the review (Agent, the work they saw
+// by its Fingerprint), and the daemon is to merge its pull request with
+// Method once its checks pass, at once when they already do. DELETE on the
+// same path cancels it, or dismisses one that was given up.
+type MergeWhenGreenRequest struct {
+	Method      string `json:"method"`
+	Agent       string `json:"agent"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// MergeWhenGreen is a pull request waiting to be merged when its checks pass,
+// or, with Error, one the daemon gave up on: its checks failed, it conflicts
+// with its base, new commits came after it was resolved, or GitHub refused
+// the merge.
+type MergeWhenGreen struct {
+	Number   int        `json:"number"`
+	Method   string     `json:"method"`
+	At       time.Time  `json:"at"`
+	Error    string     `json:"error,omitempty"`
+	FailedAt *time.Time `json:"failedAt,omitempty"`
+}
+
 // PullRequestDetail is one pull request as the app's pull request view shows
 // it: the list's fields, read fresh, and its description and check
 // runs. Body is GitHub markdown; its pictures are read through the
@@ -2470,6 +2499,9 @@ type ReviewItem struct {
 	// MachineKept is set on a reviewed agent whose machine the daemon did
 	// not free, because it holds uncommitted or unpushed work.
 	MachineKept bool `json:"machineKept,omitempty"`
+	// MergeWhenGreen is set while its pull request waits to be merged when
+	// its checks pass, or when that was given up, with why.
+	MergeWhenGreen *MergeWhenGreen `json:"mergeWhenGreen,omitempty"`
 }
 
 // ReviewPage is GET /v1/review with ?limit= (and the same under a project),

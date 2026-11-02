@@ -78,7 +78,8 @@ function items(): T.ReviewItem[] {
     }),
     item('agent-41', 'Release CI: find what failed', 'agentbox/release-ci-failures', 40 * min, {
       ai: 'codex',
-      pr: { ...pr, number: 312, title: 'fix: the release build waits for the signed Mac zip', checks: 'failing', additions: 12, deletions: 3, headBranch: 'agentbox/release-ci-failures' },
+      // &checks=pending has its checks still running, for "Resolved — merge when CI is green".
+      pr: { ...pr, number: 312, title: 'fix: the release build waits for the signed Mac zip', checks: new URLSearchParams(location.search).get('checks') === 'pending' ? 'pending' : 'failing', additions: 12, deletions: 3, headBranch: 'agentbox/release-ci-failures' },
       summary: 'The release build started before the signed Mac zip was uploaded. It now waits for it. The Windows job still fails on a flaky test, so checks are red.',
       changes: { files: 2, insertions: 12, deletions: 3, dirty: false },
     }),
@@ -506,6 +507,24 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
     for (const i of [...waiting, ...decided]) if (i.pr?.number === number) merged = i.pr = { ...i.pr, state: 'merged' };
     if (number === pr.number) pr.state = 'merged';
     return { status: 200, body: JSON.stringify(merged ?? {}), contentType: 'application/json' };
+  }
+  // Resolved — merge when CI is green: reviewed, with the mark on it, which
+  // DELETE takes back to the review. The checks never finish here.
+  const green = /^\/v1\/projects\/[^/]+\/pulls\/(\d+)\/merge-when-green$/.exec(route);
+  if (green && method === 'POST') {
+    const number = Number(green[1]);
+    const req = body as T.MergeWhenGreenRequest;
+    const mark: T.MergeWhenGreen = { number, method: req.method, at: new Date().toISOString() };
+    const item = waiting.find((i) => i.agent === req.agent);
+    waiting = waiting.filter((i) => i.agent !== req.agent);
+    if (item) decided = [{ ...item, verdict: 'reviewed', reviewedAt: mark.at, mergeWhenGreen: mark }, ...decided];
+    return { status: 200, body: JSON.stringify(mark), contentType: 'application/json' };
+  }
+  if (green && method === 'DELETE') {
+    const item = decided.find((i) => i.mergeWhenGreen?.number === Number(green[1]));
+    decided = decided.filter((i) => i !== item);
+    if (item) waiting = [{ ...item, verdict: undefined, reviewedAt: undefined, mergeWhenGreen: undefined }, ...waiting];
+    return { status: 204, body: '', contentType: 'application/json' };
   }
   // The pull request modal's detail of #318, and its files.
   const detailOf = method === 'GET' && /^\/v1\/projects\/[^/]+\/pulls\/(\d+)$/.exec(route);

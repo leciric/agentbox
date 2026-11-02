@@ -40,7 +40,7 @@ var tsTypes = []any{
 	InstanceImportInspectRequest{}, InstanceImportContents{}, InstanceImportProjectContents{}, InstanceImportRequest{}, InstanceImportProjectChoice{}, InstanceImportReport{}, InstanceImportEntryReport{},
 	Connector{}, SetConnectorRequest{}, ConnectorOverrideRequest{}, ConnectResult{}, SelfConnector{}, ConnectorRequest{},
 	ScanConnectorsRequest{}, ConnectorScan{}, ConnectorUnreadable{}, ConnectorCandidate{}, ConnectorSource{}, ImportConnectorsRequest{}, ImportConnector{}, ImportConnectorsResult{}, ImportConnectorFailure{},
-	PullRequest{}, Label{}, ProjectLabels{}, EditLabelsRequest{}, GitHubError{}, ProjectPullRequests{}, Issue{}, IssueHandoff{}, IssuePullRequest{}, ProjectIssues{}, MergePullRequestRequest{}, PullRequestDetail{}, PullCheck{}, PullRequestFiles{}, PullFile{}, PullFileDiff{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{}, RemoteAgent{}, Machine{}, RemoteAgentsChange{},
+	PullRequest{}, Label{}, ProjectLabels{}, EditLabelsRequest{}, GitHubError{}, ProjectPullRequests{}, Issue{}, IssueHandoff{}, IssuePullRequest{}, ProjectIssues{}, MergePullRequestRequest{}, MergeWhenGreenRequest{}, MergeWhenGreen{}, PullRequestDetail{}, PullCheck{}, PullRequestFiles{}, PullFile{}, PullFileDiff{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{}, RemoteAgent{}, Machine{}, RemoteAgentsChange{},
 	RetireRequest{}, RetiredAgent{}, RetireResult{},
 	Question{}, AskRequest{}, AnswerQuestionRequest{}, EscalateQuestionRequest{}, CredentialRequest{}, AnswerCredentialRequest{}, AgentEvent{}, ReviewItem{}, ReviewRequest{}, RequestChangesRequest{}, ReviewNote{}, AddReviewNoteRequest{}, EditReviewNoteRequest{},
 	AndroidStatus{}, AndroidStartRequest{}, AndroidInstallRequest{}, AndroidInstallResult{},
