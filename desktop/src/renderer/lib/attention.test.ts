@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
 import { emptyTally } from './agentCounts.ts';
-import { askOf, attentionOf, byAttention, leadWaiting, waitingProjects, keepOnScreen, markProjectSeen, resetProjectSeenForTest, unseenFinished } from './attention.ts';
+import { askOf, attentionOf, byAttention, keepOnScreen, markProjectSeen, resetProjectSeenForTest, unseenFinished } from './attention.ts';
 import type { AgentSt, Row } from './leadFirst.ts';
 
 const row = (project: string, name: string, st: AgentSt, extra: Partial<T.Agent> = {}): Row => ({ agent: { ref: `${project}/${name}`, project, name, title: '', state: 'running', ...extra } as T.Agent, st });
@@ -11,15 +11,6 @@ test('needs you outranks finished, and counts the waiting lead and the errors', 
   assert.deepEqual(attentionOf({ ...emptyTally(), needs: 1, error: 1 }, true, 3), { level: 'needs', count: 3 });
   assert.deepEqual(attentionOf({ ...emptyTally(), review: 2, working: 1 }, false, 2), { level: 'finished', count: 2 });
   assert.deepEqual(attentionOf({ ...emptyTally(), working: 4 }, false, 0), { count: 0 });
-});
-
-test('a session waiting on a permission makes the lead wait, though the chat does not', () => {
-  assert.equal(leadWaiting('ready', [{ chat: 'running' }, { chat: 'waiting' }]), true);
-  assert.equal(leadWaiting('waiting', []), true);
-  assert.equal(leadWaiting('running', [{ chat: 'running' }, { chat: 'ready' }]), false);
-  assert.equal(leadWaiting(undefined, []), false);
-  assert.deepEqual([...waitingProjects(['a', 'b', 'c'], [[{ chat: 'waiting' }], [{ chat: 'running' }], undefined])], ['a']);
-  assert.deepEqual(attentionOf(emptyTally(), leadWaiting('running', [{ chat: 'waiting' }]), 0), { level: 'needs', count: 1 });
 });
 
 test('byAttention puts needs first, then finished, keeping the order within each', () => {

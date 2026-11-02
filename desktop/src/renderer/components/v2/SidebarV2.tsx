@@ -29,7 +29,7 @@ import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
-import { activeProjects, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import { activeProjects, filterCount, foldLeads, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
 import type { Tally } from '../../lib/agentCounts';
 import { useAgentCounts } from '../../lib/useAgentCounts';
 import { useDraftProjects } from '../../lib/drafts';
@@ -43,7 +43,7 @@ import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
 import { useUiVerbs, verbOf } from '../../lib/uiVerbs';
 import { useGrace } from '../../lib/grace';
-import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, waitingProjects, type Attention } from '../../lib/attention';
+import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, type Attention } from '../../lib/attention';
 import { useReviewHead } from '../../lib/inboxPages';
 import { useReviewing } from '../../lib/reviewAlert';
 import { projectLabel } from '../../lib/projectName';
@@ -128,7 +128,15 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // Each lead's chat: a lead mid-turn counts as working, for the filter, the
   // counts and the sort, and with one waiting on the user's permission keeps
   // its project out of the Idle list.
-  const leads = counts.leads;
+  // Each project's lead sessions are the rows' own queries; one waiting or
+  // mid-turn counts as the lead's state, whichever session the chat shows.
+  const names = (projects.data ?? []).map((p) => p.name);
+  const sessionLists = useQueries({ queries: names.map((name) => ({ queryKey: ['leadSessions', name], queryFn: () => api.leadSessions(name) })) });
+  const folded = foldLeads(counts.leads, names, sessionLists.map((q) => q.data));
+  const leadsKey = [...folded].map(([name, chat]) => `${name}:${chat ?? ''}`).join('\n');
+  // The same map again while no lead's state changed, for the memos below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const leads = useMemo(() => folded, [leadsKey]);
   const busyNow = useMemo(() => new Set([...leads].filter(([, chat]) => leadBusy(chat)).map(([name]) => name)), [leads]);
   const activeNow = useMemo(() => activeProjects(rows, leads, counts.asking), [rows, leads, counts.asking]);
   // Both with a grace (lib/grace.ts): a busy project goes through moments
@@ -141,11 +149,6 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const onScreen = view.kind === 'project' ? view.project : currentAgentProject;
   const active = useMemo(() => (onScreen && !activeGrace.has(onScreen) ? new Set([...activeGrace, onScreen]) : activeGrace), [activeGrace, onScreen]);
 
-  // Each project's lead sessions, the rows' own queries: one waiting on a
-  // permission needs you, one mid-turn is working.
-  const sessionLists = useQueries({ queries: (projects.data ?? []).map((p) => ({ queryKey: ['leadSessions', p.name], queryFn: () => api.leadSessions(p.name) })) });
-  const sessionsWaiting = [...waitingProjects((projects.data ?? []).map((p) => p.name), sessionLists.map((q) => q.data))].join('\n');
-  const sessionsWorking = (projects.data ?? []).filter((_, i) => (sessionLists[i]?.data ?? []).some(isWorking)).map((p) => p.name).join('\n');
   // Each project's attention level (lib/attention.ts): what needs you, and
   // what finished since you last had it on screen, the window focused. The
   // project you're looking at has nothing unseen.
@@ -158,10 +161,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     const out = new Map<string, Attention>();
     for (const p of projects.data ?? []) {
       const finished = p.name === looking ? 0 : unseenFinished(rows, p.name, projectSeen.seen[p.name] ?? projectSeen.since, finishedAt).length;
-      out.set(p.name, attentionOf(counts.of(p.name), leads.get(p.name) === 'waiting' || sessionsWaiting.split('\n').includes(p.name), finished));
+      out.set(p.name, attentionOf(counts.of(p.name), leads.get(p.name) === 'waiting', finished));
     }
     return out;
-  }, [projects.data, rows, head, projectSeen, counts, leads, sessionsWaiting, looking]);
+  }, [projects.data, rows, head, projectSeen, counts, leads, looking]);
   // Marked again as what it shows changes, so what finishes while you look
   // is seen too.
   useEffect(() => {
@@ -174,8 +177,8 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const needsSort = useKeepOnScreen(useGrace(needsNow), onScreen);
   const finishedSort = useKeepOnScreen(useGrace(finishedNow), onScreen);
   const workingNow = useMemo(
-    () => new Set((projects.data ?? []).filter((p) => counts.of(p.name).working > 0 || busyNow.has(p.name) || sessionsWorking.split('\n').includes(p.name)).map((p) => p.name)),
-    [projects.data, counts, busyNow, sessionsWorking],
+    () => new Set((projects.data ?? []).filter((p) => counts.of(p.name).working > 0 || busyNow.has(p.name)).map((p) => p.name)),
+    [projects.data, counts, busyNow],
   );
   const workingSort = useKeepOnScreen(useGrace(workingNow), onScreen);
 

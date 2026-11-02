@@ -30,13 +30,6 @@ export function attentionOf(c: Tally, leadWaiting: boolean, finished: number): A
   return { count: 0 };
 }
 
-// leadWaiting is whether the project's lead waits on the user: its chat, or
-// any of its sessions, not only the one the chat shows, on a permission.
-export const leadWaiting = (chat: string | undefined, sessions: readonly { chat?: string }[]): boolean => chat === 'waiting' || sessions.some((s) => s.chat === 'waiting');
-
-// waitingProjects is the names of the projects any of whose sessions waits.
-export const waitingProjects = (names: readonly string[], sessions: readonly (readonly { chat?: string }[] | undefined)[]): Set<string> => new Set(names.filter((_, i) => leadWaiting(undefined, sessions[i] ?? [])));
-
 // The rank a project sorts by: what needs you first, then what finished,
 // then what is working, then the rest.
 const rank = (l: Level | 'working' | undefined) => (l === 'needs' ? 0 : l === 'finished' ? 1 : l === 'working' ? 2 : 3);
