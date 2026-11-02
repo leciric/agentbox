@@ -2,11 +2,13 @@
 // live state, then its agents in the rail's order (what needs you first), and
 // the project's review. Each row's line says what that chat is doing now
 // (#303's states), from its latest turn only (peekThread). After t3code's
-// features/home/HomeScreen.tsx, a list of threads under a header.
+// features/home/HomeScreen.tsx, a list of threads under a header. A search
+// field narrows the projects by name, and the order button beside it puts the
+// ones needing you, then the latest to answer, first (projectList.ts).
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as T from '../../shared/api.ts';
 import { api } from '../../connection/api.ts';
@@ -17,6 +19,8 @@ import { colors } from '../../ui/theme.ts';
 import { agentStatus, isWaiting, leadStatus, rank, type ChatStatus } from '../threads/activity.ts';
 import { chatKey } from '../threads/thread.ts';
 import { peekThread } from '../threads/useThread.ts';
+import { lastReply, matchesQuery, orderProjects } from './projectList.ts';
+import { rememberProjectOrder, useProjectOrder } from './projectOrder.ts';
 
 // The chats whose conversation can be read: a machine that is, or was, up.
 const readable = (a: T.Agent) => a.state === 'running' || a.state === 'stopped' || a.state === 'paused';
@@ -41,6 +45,24 @@ export function HomeScreen() {
   const refs = [...leads.flatMap((c) => (c.data?.started ? [c.data.ref] : [])), ...(agents.data ?? []).filter(readable).map((a) => a.ref)];
   const threads = useQueries({ queries: refs.map((ref) => ({ queryKey: chatKey(ref), queryFn: () => peekThread(queryClient, ref), staleTime: Infinity })) });
   const threadOf = (ref: string | undefined) => (ref ? threads[refs.indexOf(ref)]?.data : undefined);
+  const [query, setQuery] = useState('');
+  const order = useProjectOrder();
+  const entries = list.map((p, i) => {
+    const lead = leads[i]?.data;
+    const leadRef = lead?.started ? lead.ref : undefined;
+    const own = (agents.data ?? [])
+      .filter((a) => a.project === p.name)
+      .map((a) => ({ a, status: agentStatus(a, threadOf(a.ref)) }))
+      .sort((x, y) => rank(x.a) - rank(y.a) || x.a.name.localeCompare(y.a.name));
+    const waiting = (questions[i]?.data ?? []).filter(isWaiting).length;
+    const needYou = own.filter((o) => o.status.tone === 'urgent').length + waiting;
+    const lastActivity = Math.max(lastReply(threadOf(leadRef)), ...own.map((o) => lastReply(threadOf(o.a.ref))));
+    return { p, i, lead, leadRef, own, waiting, needYou, lastActivity };
+  });
+  const shown = orderProjects(
+    entries.filter((e) => matchesQuery(e.p, query)),
+    order,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const refresh = async () => {
     setRefreshing(true);
@@ -57,23 +79,45 @@ export function HomeScreen() {
           </Text>
         </Pressable>
       </View>
+      {list.length > 0 && (
+        <View style={styles.tools}>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder={t('mobile.home.search')}
+            placeholderTextColor={colors.faint}
+            style={styles.search}
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+            returnKeyType="search"
+            accessibilityLabel={t('mobile.home.search')}
+          />
+          <Pressable
+            onPress={() => void rememberProjectOrder(order === 'recent' ? 'default' : 'recent')}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={t('mobile.home.order')}
+            accessibilityValue={{ text: order === 'recent' ? t('mobile.home.orderRecent') : t('mobile.home.orderDefault') }}
+            style={({ pressed }) => [styles.orderChip, order === 'recent' && { backgroundColor: colors.brandSoft }, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={[styles.orderText, order === 'recent' && { color: colors.brand300 }]} numberOfLines={1}>
+              ⇅ {order === 'recent' ? t('mobile.home.orderRecent') : t('mobile.home.orderDefault')}
+            </Text>
+          </Pressable>
+        </View>
+      )}
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.muted} />}
       >
         {projects.isPending && <ActivityIndicator color={colors.muted} style={{ marginTop: 24 }} />}
         {projects.error && <Text style={styles.error}>{projects.error.message}</Text>}
         {projects.data && list.length === 0 && <Text style={styles.empty}>{t('web.phone.noProjects')}</Text>}
-        {list.map((p, i) => {
-          const lead = leads[i]?.data;
-          const leadRef = lead?.started ? lead.ref : undefined;
-          const own = (agents.data ?? [])
-            .filter((a) => a.project === p.name)
-            .map((a) => ({ a, status: agentStatus(a, threadOf(a.ref)) }))
-            .sort((x, y) => rank(x.a) - rank(y.a) || x.a.name.localeCompare(y.a.name));
-          const waiting = (questions[i]?.data ?? []).filter(isWaiting).length;
+        {list.length > 0 && shown.length === 0 && <Text style={styles.empty}>{t('mobile.home.noMatch', { query: query.trim() })}</Text>}
+        {shown.map(({ p, i, lead, leadRef, own, waiting, needYou }) => {
           const working = own.filter((o) => o.status.tone === 'live').length;
-          const needYou = own.filter((o) => o.status.tone === 'urgent').length + waiting;
           const toReview = reviews[i]?.data?.total ?? 0;
           return (
             <View key={p.name} style={styles.section}>
@@ -156,6 +200,10 @@ const styles = StyleSheet.create({
   heading: { flex: 1, color: colors.title, fontSize: 24, fontWeight: '700', letterSpacing: -0.3 },
   phoneChip: { maxWidth: 160, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.raised },
   phoneChipText: { color: colors.muted, fontSize: 12 },
+  tools: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10 },
+  search: { flex: 1, minWidth: 0, height: 38, borderRadius: 12, paddingHorizontal: 12, backgroundColor: colors.raised, color: colors.primary, fontSize: 15 },
+  orderChip: { maxWidth: 170, height: 38, justifyContent: 'center', borderRadius: 12, paddingHorizontal: 12, backgroundColor: colors.raised },
+  orderText: { color: colors.muted, fontSize: 13, fontWeight: '500' },
   content: { paddingHorizontal: 10, paddingTop: 14, gap: 22 },
   section: { gap: 2 },
   sectionHead: { flexDirection: 'row', alignItems: 'baseline', gap: 8, paddingHorizontal: 8, paddingBottom: 6 },
