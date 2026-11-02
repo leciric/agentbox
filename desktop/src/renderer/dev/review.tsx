@@ -53,8 +53,7 @@ function items(): T.ReviewItem[] {
     // agent-15 and agent-17 recorded what they checked, notes marking each
     // check (evidence() below): the lead chat's evidence cards in v2.
     item('agent-15', 'Settings tabs no longer clip at 1024px', 'agentbox/settings-tabs-clip', 2 * min, {
-      // Its checks still run: what "Resolved — merge when CI is green" is for.
-      pr: { ...pr, number: 371, title: 'fix: Settings’ section list fits at 1024px and in pt-BR', checks: 'pending', additions: 20, deletions: 4, headBranch: 'agentbox/settings-tabs-clip' },
+      pr: { ...pr, number: 371, title: 'fix: Settings’ section list fits at 1024px and in pt-BR', additions: 20, deletions: 4, headBranch: 'agentbox/settings-tabs-clip' },
       summary:
         'The section list was a fixed 248px column with nowrap labels, so pt-BR’s longer names pushed the page past the window. It is now `minmax(180px, 248px)` and labels wrap.\n\nChecked dark and light, en-US and pt-BR, at 1024×640 and 800×600.',
       changes: { files: 2, insertions: 20, deletions: 4, dirty: false },
@@ -79,7 +78,8 @@ function items(): T.ReviewItem[] {
     }),
     item('agent-41', 'Release CI: find what failed', 'agentbox/release-ci-failures', 40 * min, {
       ai: 'codex',
-      pr: { ...pr, number: 312, title: 'fix: the release build waits for the signed Mac zip', checks: 'failing', additions: 12, deletions: 3, headBranch: 'agentbox/release-ci-failures' },
+      // &checks=pending has its checks still running, for "Resolved — merge when CI is green".
+      pr: { ...pr, number: 312, title: 'fix: the release build waits for the signed Mac zip', checks: new URLSearchParams(location.search).get('checks') === 'pending' ? 'pending' : 'failing', additions: 12, deletions: 3, headBranch: 'agentbox/release-ci-failures' },
       summary: 'The release build started before the signed Mac zip was uploaded. It now waits for it. The Windows job still fails on a flaky test, so checks are red.',
       changes: { files: 2, insertions: 12, deletions: 3, dirty: false },
     }),

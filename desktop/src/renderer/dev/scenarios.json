@@ -1312,14 +1312,13 @@
     ]
   },
   {
-    "id": "review-merge-when-green-dark",
-    "description": "agent-15's review, its checks still running: Resolved — merge when CI is green beside Merge — dark",
-    "query": "review=1&theme=dark",
+    "id": "window-1440-v2-review-green-dark",
+    "description": "At 1440×900, agent-41's review, its checks still running: Resolved — merge when CI is green beside Merge — dark",
+    "query": "app=agent-41&checks=pending&theme=dark",
     "width": 1440,
     "height": 900,
     "click": [
-      "[data-inbox]",
-      "[data-review-row$=\"/agent-15\"]"
+      "[data-review-open]"
     ]
   },
   {
