@@ -77,13 +77,13 @@ export function HomeChatPanel({ home, bare }: { home?: HomeTabs; bare?: boolean 
     : { defaultValue: 'chat' };
   return (
     <Tabs {...tabs} className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 px-4 pb-3 pt-5 md:px-8">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 pb-3 pt-5 md:px-8">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-title">{t('shell.nav.home')}</h1>
           <p className="mt-0.5 text-ui text-muted">{t('chat.home.subtitle')}</p>
         </div>
-        <div className="mt-3 flex items-center gap-3">
-          <TabsList className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
+        <div className="flex min-w-0 max-w-full items-center gap-3">
+          <TabsList className="min-w-0 overflow-x-auto [scrollbar-width:none]">
             <TabsTrigger value="chat" data-home-tab="chat">
               <MessagesSquare />
               {t('project.view.tab.chat')}
