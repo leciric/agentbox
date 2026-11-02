@@ -382,6 +382,21 @@ export function panelToggle(chat: string): void {
   setPanel({ listFolded: !state.listFolded });
 }
 
+// settingsOpen is whether chat's panel shows the project's Settings.
+export const settingsOpen = (state: PanelState, chat: string) => chatPanel(state, chat).wide === 'settings';
+
+// toggleSettings is a project's gear: it opens chat's Settings, and while they
+// are open (and chat is where the user is, `here`) closes them, back to whoever
+// the panel showed under them.
+export function toggleSettings(chat: string, here: boolean): boolean {
+  if (here && settingsOpen(panelState(), chat)) {
+    panelBack(chat);
+    return false;
+  }
+  openPanelOn(chat, 'settings');
+  return true;
+}
+
 // openPanelOn opens chat's panel on view, of target when given (then picked
 // there), else of whoever it shows: the project's own views need none.
 export function openPanelOn(chat: string, view: PanelView, target?: string): void {
