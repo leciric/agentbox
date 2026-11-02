@@ -2,7 +2,7 @@ import { History, LoaderCircle, Plus, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { useT } from '../../lib/i18n';
-import { isUnread, isWorking, useSeenAt } from '../../lib/sessions';
+import { isUnread, isWorking, sessionColor, useSeenAt } from '../../lib/sessions';
 import { keysHint, sessionKeys } from '../../lib/shortcuts';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
@@ -45,6 +45,7 @@ export function SessionTabs({
       {sessions.map((s) => {
         const on = s.id === current;
         const unread = !on && isUnread(s, seen[s.ref]);
+        const color = sessionColor(sessions, s);
         if (renaming === s.id) {
           return (
             <TopicInput
@@ -65,6 +66,8 @@ export function SessionTabs({
             aria-selected={on}
             tabIndex={on ? 0 : -1}
             data-session={s.id}
+            data-session-color={color}
+            data-session-quiet={color && !on ? '' : undefined}
             onClick={() => onChoose(s.id)}
             onDoubleClick={() => setRenaming(s.id)}
             onKeyDown={(e) => {
@@ -73,6 +76,7 @@ export function SessionTabs({
             }}
             className={cn(
               'group flex h-7 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-lg pl-2.5 pr-1 text-ui transition-colors',
+              color && 'session-frame',
               on ? 'bg-surface-strong text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
             )}
           >

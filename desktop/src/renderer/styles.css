@@ -1545,7 +1545,8 @@ html[data-blurred] .ab-monitor * {
    deeper on light so a thin line reads on both.
    [data-session-color] sets --session from it; a name this app doesn't know
    leaves it unset, and nothing framed. .session-frame draws it as a 1px line
-   around the element (its session's chat, or an agent it made) over the
+   around the element (its session's chat and tab, or an agent it made: one
+   line in one colour joins them; a tab not shown is half as strong) over the
    content, taking no room, so showing it moves nothing. The three oldest
    names (lemon, teal, lime) are gone from the palette; sessions that still
    have one borrow a current hue. */
@@ -1555,7 +1556,7 @@ html[data-blurred] .ab-monitor * {
   --ab-session-mint: #84c4a0;
   --ab-session-lilac: #b7a0dc;
   --ab-session-peach: #dcaa86;
-  --ab-session-line: 65%;
+  --ab-session-line: 80%;
 }
 :root[data-appearance="light"] {
   --ab-session-rose: #cc7189;
@@ -1563,7 +1564,7 @@ html[data-blurred] .ab-monitor * {
   --ab-session-mint: #50a47b;
   --ab-session-lilac: #9a7ccb;
   --ab-session-peach: #cf8c58;
-  --ab-session-line: 70%;
+  --ab-session-line: 85%;
 }
 [data-session-color="rose"] { --session: var(--ab-session-rose); }
 [data-session-color="sky"] { --session: var(--ab-session-sky); }
@@ -1577,12 +1578,15 @@ html[data-blurred] .ab-monitor * {
 .session-frame {
   position: relative;
 }
+.session-frame[data-session-quiet]::after {
+  --session-weight: 0.5;
+}
 .session-frame::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 1;
-  border: 1px solid color-mix(in oklab, var(--session, transparent) var(--ab-session-line), transparent);
+  border: 1px solid color-mix(in oklab, var(--session, transparent) calc(var(--ab-session-line) * var(--session-weight, 1)), transparent);
   border-radius: inherit;
   pointer-events: none;
 }

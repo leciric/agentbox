@@ -5,7 +5,7 @@ import { sessionColor } from '../../lib/sessions';
 
 // A chat's sessions are told apart by colour (LeadSession.Color) once it has
 // more than one: a thin border around the shown session's chat
-// (ProjectChatPanel), and the same on the cards of the agents it made
+// (ProjectChatPanel), on its tab (SessionTabs), and the same on the cards of the agents it made
 // (AgentList), whose topic is in the card's tooltip. What each colour looks like is styles.css' [data-session-color].
 
 // useAgentSession is the session of agent's project chat that owns it, the
