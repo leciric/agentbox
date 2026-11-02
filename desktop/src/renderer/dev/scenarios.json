@@ -2781,6 +2781,198 @@
     "height": 800
   },
   {
+    "id": "window-1920-review-big-dark",
+    "description": "1920×1080, \"Ready to review\" on agent-41 with pairs and screenshots at 1920×1080, 420×2000 and 3840×1080: each fills its stage without letterboxing, the strip's cards are one height — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": [
+      "[data-work-row$='agent-41'] button"
+    ]
+  },
+  {
+    "id": "window-1920-review-big-tall-dark",
+    "description": "1920×1080, the same with the 420×2000 phone pair on stage — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"2\"]"
+    ]
+  },
+  {
+    "id": "window-1920-review-big-wide-dark",
+    "description": "1920×1080, the same with the 3840×1080 pair on stage — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"3\"]"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-dark",
+    "description": "1280×800, \"Ready to review\" on agent-41 with pairs and screenshots at 1920×1080, 420×2000 and 3840×1080: each fills its stage without letterboxing, the strip's cards are one height — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-work-row$='agent-41'] button"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-tall-dark",
+    "description": "1280×800, the same with the 420×2000 phone pair on stage — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"2\"]"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-wide-dark",
+    "description": "1280×800, the same with the 3840×1080 pair on stage — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"3\"]"
+    ]
+  },
+  {
+    "id": "window-800-review-big-dark",
+    "description": "800×600, \"Ready to review\" on agent-41 with pairs and screenshots at 1920×1080, 420×2000 and 3840×1080: each fills its stage without letterboxing, the strip's cards are one height — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-work-row$='agent-41'] button"
+    ]
+  },
+  {
+    "id": "window-800-review-big-tall-dark",
+    "description": "800×600, the same with the 420×2000 phone pair on stage — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"2\"]"
+    ]
+  },
+  {
+    "id": "window-800-review-big-wide-dark",
+    "description": "800×600, the same with the 3840×1080 pair on stage — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"3\"]"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-viewer-dark",
+    "description": "1280×800, agent-41's 1920×1080 pair opened large (F) over the whole review, fitted, with its zoom controls — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-expand]"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-viewer-zoomed-dark",
+    "description": "1280×800, the 3840×1080 pair opened large and zoomed in twice: both halves at the same scale and place — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"3\"]",
+      "[data-review-expand]",
+      "[data-review-zoom-in]",
+      "[data-review-zoom-in]"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-viewer-tall-dark",
+    "description": "1280×800, the lone 420×2000 screenshot opened large: across from its top, the bottom edge shaded where it goes on — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"5\"]",
+      "[data-review-expand]"
+    ]
+  },
+  {
+    "id": "window-800-review-big-viewer-dark",
+    "description": "800×600, agent-41's 1920×1080 pair opened large (F) over the whole review, fitted, with its zoom controls — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-expand]"
+    ]
+  },
+  {
+    "id": "window-800-review-big-viewer-zoomed-dark",
+    "description": "800×600, the 3840×1080 pair opened large and zoomed in twice: both halves at the same scale and place — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"3\"]",
+      "[data-review-expand]",
+      "[data-review-zoom-in]",
+      "[data-review-zoom-in]"
+    ]
+  },
+  {
+    "id": "window-800-review-big-viewer-tall-dark",
+    "description": "800×600, the lone 420×2000 screenshot opened large: across from its top, the bottom edge shaded where it goes on — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"5\"]",
+      "[data-review-expand]"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-videos-dark",
+    "description": "1280×800, agent-41's pair of recordings: each its own player under its label, the two the same size — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"4\"]"
+    ]
+  },
+  {
+    "id": "window-1280-review-big-small-dark",
+    "description": "1280×800, a 320×120 crop: at its own size in a box that hugs it, not stretched — dark",
+    "query": "app=work&review=big&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"7\"]"
+    ]
+  },
+  {
     "id": "settings-phone-long-addr-wide-dark",
     "description": "Settings → Phone, a paired phone seen from a long IPv6 address, wide — dark",
     "query": "settings=phone&phones=long&theme=dark",

@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { clampZoom, nextMode, noZoom, parseComparePrefs, pixelDiff, zoomAt } from './compare.ts';
+import { nextMode, parseComparePrefs, pixelDiff } from './compare.ts';
 
 test('the remembered compare mode reads back, and anything else is side by side', () => {
   assert.deepEqual(parseComparePrefs('{"mode":"flip","highlight":true}'), { mode: 'flip', highlight: true });
@@ -14,14 +14,6 @@ test('V goes round the modes', () => {
   assert.equal(nextMode('side'), 'slider');
   assert.equal(nextMode('slider'), 'flip');
   assert.equal(nextMode('flip'), 'side');
-});
-
-test('zooming keeps the point under the pointer still, between 1× and 16×, and never pans past the edges', () => {
-  const z = zoomAt(noZoom, 2, 50, 40, 100, 80);
-  assert.deepEqual(z, { scale: 2, x: -50, y: -40 });
-  assert.deepEqual(zoomAt(z, 0.1, 0, 0, 100, 80), noZoom);
-  assert.equal(zoomAt(noZoom, 100, 0, 0, 100, 80).scale, 16);
-  assert.deepEqual(clampZoom({ scale: 2, x: 30, y: -500 }, 100, 80), { scale: 2, x: 0, y: -80 });
 });
 
 test('pixelDiff marks the pixels that changed, tints their cell, and leaves noise alone', () => {

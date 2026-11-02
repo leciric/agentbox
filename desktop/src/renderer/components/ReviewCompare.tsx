@@ -1,22 +1,24 @@
 import { Columns2, FlipHorizontal2, Highlighter, SplitSquareHorizontal } from 'lucide-react';
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
 import type * as T from '../../shared/api';
 import type { Pair, Side } from '../../shared/pairs';
-import { clampZoom, compareModes, nextMode, noZoom, pixelDiff, setComparePrefs, useComparePrefs, zoomAt, type CompareMode, type Zoom } from '../lib/compare';
+import { compareModes, nextMode, pixelDiff, setComparePrefs, useComparePrefs, type CompareMode } from '../lib/compare';
 import { useT } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
 import { cn, errorMessage } from '../lib/utils';
+import { arrange, box, sizeOf, type Size, type View } from '../lib/zoom';
+import { barHeight, Clip, Label, useSize, Viewport, type ClipHandle } from './ReviewZoom';
 import { Kbd } from './ui/card';
 
 // The review's stage for a before/after pair of screenshots
-// (shared/pairs.ts): the two side by side, zoomed and panned together; one
-// over the other with a divider to drag; or one at a time, a click or Space
-// flipping between them. Highlight marks the pixels that changed, for two
+// (shared/pairs.ts): the two side by side (or one over the other, for wide
+// ones), zoomed and panned together; one over the other with a divider to
+// drag; or one at a time, a click or Space flipping between them. Highlight marks the pixels that changed, for two
 // of the same size. Q cycles the modes and H highlights (ReviewProof's
 // handle, the keys being the review's), and the mode is remembered
 // (lib/compare.ts). A pair of recordings isn't compared: two walkthroughs
 // rarely show the same screen at the same moment, so ReviewVideos plays
-// them one after the other, each with its own controls.
+// each with its own controls.
 
 export interface CompareHandle {
   cycle: () => void;
@@ -26,33 +28,77 @@ export interface CompareHandle {
   space: () => void;
 }
 
+// A pair's own state, kept by the proof so it survives opening the pair large
+// and back: which half Flip shows, and where the slider's divider is.
+export interface PairState {
+  side: Side;
+  split: number;
+}
+
+export const pairStart: PairState = { side: 'after', split: 0.5 };
+
+// The zoom a pair is shown at, shared by its halves (lib/zoom.ts), and kept
+// by the proof (ReviewProof) for the keys and the viewer's buttons.
+export interface Zooming {
+  view: View;
+  onView: (v: View) => void;
+  onPort: (port: Size, pic: Size) => void;
+}
+
 const modeIcon: Record<CompareMode, typeof Columns2> = { side: Columns2, slider: SplitSquareHorizontal, flip: FlipHorizontal2 };
 const modeLabel = { side: 'review.compare.side', slider: 'review.compare.slider', flip: 'review.compare.flip' } as const;
+const gap = 8;
 
-export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle>; pair: Pair; expanded: boolean }) {
+// ReviewCompare is a pair of screenshots. Inline (room's height given), each
+// half is a box hugging its picture (lib/zoom.ts box), side by side or one
+// over the other, whichever shows them larger; filling the viewer (fill),
+// the halves take all of its room.
+export function ReviewCompare({
+  ref,
+  pair,
+  dark,
+  height,
+  zooming,
+  state,
+  onState,
+}: {
+  ref?: Ref<CompareHandle>;
+  pair: Pair;
+  dark: boolean;
+  // height is the most the pair takes down, inline; without it, it fills its parent.
+  height?: number;
+  zooming: Zooming;
+  state: PairState;
+  onState: (s: PairState) => void;
+}) {
   const t = useT();
   const { mode, highlight } = useComparePrefs();
-  const [side, setSide] = useState<Side>('after');
-  const [split, setSplit] = useState(0.5);
-  const [zoom, setZoom] = useState<Zoom>(noZoom);
   const difference = useDifference(pair, highlight);
-  const flip = () => setSide((s) => (s === 'after' ? 'before' : 'after'));
+  const flip = () => onState({ ...state, side: state.side === 'after' ? 'before' : 'after' });
   useImperativeHandle(ref, () => ({
     cycle: () => setComparePrefs({ mode: nextMode(mode) }),
     highlight: () => setComparePrefs({ highlight: !highlight }),
     space: () => mode === 'flip' && flip(),
   }));
 
-  const aspect = aspectOf(pair.after.meta) ?? aspectOf(pair.before.meta) ?? 16 / 10;
+  const space = useRef<HTMLDivElement>(null);
+  const measured = useSize(space);
+  const room: Size = { w: measured.w, h: height ?? measured.h };
+  const afterSize = usePicSize(pair.after);
+  const beforeSize = usePicSize(pair.before);
+  const pic = afterSize ?? beforeSize ?? { w: 1280, h: 800 };
   const overlay = highlight && difference.status === 'ready' ? difference.url : undefined;
-  const picture = (s: Side) => (
-    <Picture item={pair[s]} label={t(s === 'before' ? 'review.compare.before' : 'review.compare.after')} overlay={overlay} />
-  );
-  const hint = t(mode === 'side' ? 'review.compare.sideHint' : mode === 'slider' ? 'review.compare.sliderHint' : 'review.compare.flipHint');
+  const label = (s: Side) => t(s === 'before' ? 'review.compare.before' : 'review.compare.after');
+  const hint = t(mode === 'side' ? 'review.compare.sideHint' : mode === 'slider' ? 'review.compare.sliderHint' : 'review.compare.flipHint', { mod: modKey() });
+  const { arrangement, half } = arrange(room, pic, gap);
+  const single = height === undefined ? room : box(room, pic);
+  const halfBox = height === undefined ? (arrangement === 'columns' ? { w: (room.w - gap) / 2, h: room.h } : { w: room.w, h: (room.h - gap) / 2 }) : half;
+  const onPort = (port: Size) => zooming.onPort(port, pic);
+  const frame = cn('rounded-lg border bg-black', dark ? 'border-white/10' : 'border-line-strong');
 
   return (
-    <div className={cn('grid min-w-0 gap-2', expanded && 'h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]')} data-review-compare={mode} data-review-compare-side={mode === 'flip' ? side : undefined}>
-      <div className={cn('flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption', expanded ? 'text-white/80' : 'text-secondary')}>
+    <div className={cn('grid w-full min-w-0 gap-2', height === undefined && 'h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]')} data-review-compare={mode} data-review-compare-side={mode === 'flip' ? state.side : undefined} data-review-compare-arrangement={mode === 'side' ? arrangement : undefined}>
+      <div className={cn('flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption', dark ? 'text-white/80' : 'text-secondary')}>
         {/* The mode in use is underlined, as the review marks what's picked. */}
         <div role="radiogroup" aria-label={t('review.compare.modes')} className="flex items-center gap-4">
           {compareModes.map((m) => {
@@ -67,7 +113,7 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
                 title={t('review.compare.modeTitle', { mode: t(modeLabel[m]) })}
                 className={cn(
                   'relative inline-flex h-7 items-center gap-1.5 font-medium transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-px',
-                  mode === m ? (expanded ? 'text-white after:bg-brand-400' : 'text-title after:bg-brand-400') : 'text-subtle hover:text-primary',
+                  mode === m ? (dark ? 'text-white after:bg-brand-400' : 'text-title after:bg-brand-400') : dark ? 'text-white/50 hover:text-white' : 'text-subtle hover:text-primary',
                 )}
                 data-review-compare-mode={m}
               >
@@ -77,7 +123,7 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
             );
           })}
         </div>
-        <span className="flex items-center gap-1 text-subtle max-md:hidden" aria-hidden title={t('review.key.compareMode')}>
+        <span className={cn('flex items-center gap-1 max-md:hidden', dark ? 'text-white/50' : 'text-subtle')} aria-hidden title={t('review.key.compareMode')}>
           <Kbd>Q</Kbd>
           {t('review.compare.cycle')}
         </span>
@@ -88,7 +134,7 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
           title={t('review.compare.highlightTitle')}
           className={cn(
             'relative inline-flex h-7 items-center gap-1.5 font-medium transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-px',
-            highlight ? (expanded ? 'text-white after:bg-brand-400' : 'text-title after:bg-brand-400') : 'text-subtle hover:text-primary',
+            highlight ? (dark ? 'text-white after:bg-brand-400' : 'text-title after:bg-brand-400') : dark ? 'text-white/50 hover:text-white' : 'text-subtle hover:text-primary',
           )}
           data-review-highlight
         >
@@ -101,145 +147,108 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
           </span>
         </button>
         {highlight && (
-          <span className="min-w-0 truncate text-subtle" data-review-highlight-note={difference.status}>
+          <span className={cn('min-w-0 truncate', dark ? 'text-white/50' : 'text-subtle')} data-review-highlight-note={difference.status}>
             {differenceNote(t, difference)}
           </span>
         )}
-        <span className="ml-auto flex min-w-0 items-center gap-2 text-subtle">
-          {zoom.scale > 1 && (
-            <button type="button" onClick={() => setZoom(noZoom)} className="shrink-0 rounded-md px-1.5 font-mono tabular-nums hover:text-primary" data-review-zoom={zoom.scale.toFixed(1)}>
-              {Math.round(zoom.scale * 10) / 10}× · {t('review.compare.fit')}
-            </button>
-          )}
-          <span className="min-w-0 truncate max-lg:hidden">{hint}</span>
-        </span>
+        {/* The viewer (dark) says how to zoom under the pair. */}
+        {!dark && <span className="ml-auto min-w-0 truncate text-subtle @max-5xl:hidden">{hint}</span>}
       </div>
 
-      <div className={cn('min-w-0', expanded ? 'min-h-0' : 'h-[min(46vh,600px)]', mode === 'side' && 'grid grid-cols-2 gap-2')}>
-        {mode === 'side' ? (
-          (['before', 'after'] as const).map((s) => (
-            <Frame key={s} aspect={aspect} zoom={zoom} onZoom={setZoom}>
-              {picture(s)}
-            </Frame>
-          ))
-        ) : mode === 'slider' ? (
-          <Frame aspect={aspect} zoom={zoom} onZoom={setZoom} onDrag={(x) => setSplit(x)}>
-            {picture('before')}
-            <div className="absolute inset-0" style={{ clipPath: `inset(0 0 0 ${split * 100}%)` }}>
-              {picture('after')}
-            </div>
-            <Divider at={split} />
-          </Frame>
-        ) : (
-          <Frame aspect={aspect} zoom={zoom} onZoom={setZoom} onClick={flip}>
-            {(['before', 'after'] as const).map((s) => (
-              <div key={s} className={cn('absolute inset-0', s !== side && 'invisible')}>
-                {picture(s)}
+      <div ref={space} className={cn('flex min-w-0 items-center justify-center', height === undefined && 'min-h-0', mode === 'side' && arrangement === 'rows' && 'flex-col')} style={{ gap, height: height === undefined ? undefined : mode === 'side' ? (arrangement === 'columns' ? halfBox.h : halfBox.h * 2 + gap) : single.h }}>
+        {room.w > 0 &&
+          (mode === 'side' ? (
+            (['before', 'after'] as const).map((s) => (
+              <Viewport key={s} pic={pic} view={zooming.view} onView={zooming.onView} onPort={onPort} className={cn(frame, 'shrink-0')} style={{ width: halfBox.w, height: halfBox.h }} over={(r) => <Label rect={r}>{label(s)}</Label>} data-review-frame={s}>
+                <Picture item={pair[s]} overlay={overlay} />
+              </Viewport>
+            ))
+          ) : mode === 'slider' ? (
+            <Viewport
+              pic={pic}
+              view={zooming.view}
+              onView={zooming.onView}
+              onPort={onPort}
+              onDrag={(x) => onState({ ...state, split: x })}
+              className={cn(frame, 'shrink-0')}
+              style={{ width: single.w, height: single.h }}
+              over={(r) => (
+                <>
+                  <Divider x={r.x + r.w * state.split} />
+                  <Label rect={r}>{label('before')}</Label>
+                  <span className="pointer-events-none absolute" style={{ right: 8, top: Math.max(8, r.y + 8) }}>
+                    <span className="rounded-md bg-black/75 px-1.5 py-0.5 text-caption font-medium text-white">{label('after')}</span>
+                  </span>
+                </>
+              )}
+              data-review-frame="slider"
+            >
+              <Picture item={pair.before} overlay={overlay} />
+              <div className="absolute inset-0" style={{ clipPath: `inset(0 0 0 ${state.split * 100}%)` }}>
+                <Picture item={pair.after} overlay={overlay} />
               </div>
-            ))}
-          </Frame>
-        )}
+            </Viewport>
+          ) : (
+            <Viewport pic={pic} view={zooming.view} onView={zooming.onView} onPort={onPort} onTap={flip} className={cn(frame, 'shrink-0 cursor-pointer')} style={{ width: single.w, height: single.h }} over={(r) => <Label rect={r}>{label(state.side)}</Label>} data-review-frame="flip">
+              {(['before', 'after'] as const).map((s) => (
+                <div key={s} className={cn('absolute inset-0', s !== state.side && 'invisible')}>
+                  <Picture item={pair[s]} overlay={overlay} />
+                </div>
+              ))}
+            </Viewport>
+          ))}
       </div>
     </div>
   );
 }
 
-const aspectOf = (meta: T.MediaMeta) => (meta.width && meta.height ? meta.width / meta.height : undefined);
+// modKey is the key held to zoom with the wheel, as this computer names it.
+export const modKey = () => (navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl');
 
-// Frame is the largest box of the pair's aspect its space holds, so a
-// picture fills it exactly and the highlight lies on it pixel for pixel;
-// the wheel zooms it around the pointer, a drag pans it (or, given onDrag,
-// moves the slider's divider), a click without a drag is onClick, and a
-// double-click fits it again.
-function Frame({ aspect, zoom, onZoom, onDrag, onClick, children }: { aspect: number; zoom: Zoom; onZoom: (z: Zoom) => void; onDrag?: (x: number) => void; onClick?: () => void; children: ReactNode }) {
-  const space = useRef<HTMLDivElement>(null);
-  const box = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 0, h: 0 });
-  const drag = useRef<{ x: number; y: number; zoom: Zoom; moved: boolean } | null>(null);
-  const latest = useRef(zoom);
-  latest.current = zoom;
-  useLayoutEffect(() => {
-    const el = space.current;
-    if (!el) return;
-    const fit = () => {
-      const { width, height } = el.getBoundingClientRect();
-      const w = Math.min(width, height * aspect);
-      setSize({ w: Math.floor(w), h: Math.floor(w / aspect) });
-    };
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [aspect]);
-  // The wheel has to be taken from the page, which React's passive
-  // listener can't do.
+// usePicSize is a screenshot's or a recording's size: as recorded, or as its
+// file says once it has loaded, for one recorded without.
+export function usePicSize(item: T.MediaItem): Size | undefined {
+  const known = sizeOf(item.meta);
+  const [loaded, setLoaded] = useState<Size>();
+  const url = mediaUrl(item);
+  const recorded = known !== undefined;
+  const { kind } = item;
   useEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const r = el.getBoundingClientRect();
-      onZoom(zoomAt(latest.current, Math.exp(-e.deltaY * 0.002), e.clientX - r.left, e.clientY - r.top, r.width, r.height));
+    if (recorded) return;
+    let live = true;
+    if (kind === 'recording') {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.onloadedmetadata = () => live && v.videoWidth && setLoaded({ w: v.videoWidth, h: v.videoHeight });
+      v.src = url;
+    } else {
+      const img = new Image();
+      img.onload = () => live && img.naturalWidth && setLoaded({ w: img.naturalWidth, h: img.naturalHeight });
+      img.src = url;
+    }
+    return () => {
+      live = false;
     };
-    el.addEventListener('wheel', wheel, { passive: false });
-    return () => el.removeEventListener('wheel', wheel);
-  }, [onZoom]);
-  const divider = (e: { clientX: number }) => {
-    const r = box.current?.getBoundingClientRect();
-    if (r && onDrag) onDrag(Math.min(1, Math.max(0, (e.clientX - r.left - zoom.x) / zoom.scale / r.width)));
-  };
-  return (
-    <div ref={space} className="flex size-full min-h-0 min-w-0 items-center justify-center">
-      <div
-        ref={box}
-        className={cn('relative shrink-0 touch-none select-none overflow-hidden rounded-lg border border-line-strong bg-black', onDrag ? 'cursor-ew-resize' : zoom.scale > 1 ? 'cursor-grab' : onClick ? 'cursor-pointer' : 'cursor-zoom-in')}
-        style={{ width: size.w, height: size.h }}
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          drag.current = { x: e.clientX, y: e.clientY, zoom, moved: false };
-          if (onDrag) divider(e);
-        }}
-        onPointerMove={(e) => {
-          const d = drag.current;
-          if (!d) return;
-          if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > 3) d.moved = true;
-          if (onDrag) return divider(e);
-          onZoom(clampZoom({ ...d.zoom, x: d.zoom.x + e.clientX - d.x, y: d.zoom.y + e.clientY - d.y }, size.w, size.h));
-        }}
-        onPointerUp={() => {
-          if (drag.current && !drag.current.moved) onClick?.();
-          drag.current = null;
-        }}
-        onPointerCancel={() => {
-          drag.current = null;
-        }}
-        onDoubleClick={() => onZoom(noZoom)}
-        data-review-frame
-      >
-        <div className="absolute inset-0 origin-top-left" style={{ transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` }}>
-          {children}
-        </div>
-      </div>
-    </div>
-  );
+  }, [url, recorded, kind]);
+  return known ?? loaded;
 }
 
-// Picture is one half of a pair, filling its frame, labelled with its side,
-// the highlight over it.
-function Picture({ item, label, overlay }: { item: T.MediaItem; label: string; overlay?: string }) {
+// Picture is one half of a pair at its own size, the scale being its
+// viewport's, stretched to the other's if they differ; the highlight over it.
+function Picture({ item, overlay }: { item: T.MediaItem; overlay?: string }) {
   return (
     <div className="absolute inset-0" data-review-picture={item.id}>
       <img src={mediaUrl(item)} alt={item.name} draggable={false} className="size-full object-fill" />
       {overlay && <img src={overlay} alt="" draggable={false} className="pointer-events-none absolute inset-0 size-full object-fill [image-rendering:pixelated]" data-review-overlay />}
-      <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/70 px-1.5 py-0.5 text-caption font-medium text-white">{label}</span>
     </div>
   );
 }
 
-// Divider is the slider's line, the before left of it and the after right.
-function Divider({ at }: { at: number }) {
+// Divider is the slider's line, the before left of it and the after right,
+// drawn unscaled over the viewport at x.
+function Divider({ x }: { x: number }) {
   return (
-    <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)]" style={{ left: `${at * 100}%` }} data-review-divider>
+    <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)]" style={{ left: x }} data-review-divider>
       <span className="absolute left-1/2 top-1/2 flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/30 bg-white text-[11px] text-black shadow">⇔</span>
     </div>
   );
@@ -304,47 +313,58 @@ async function diffPair(pair: Pair): Promise<Difference> {
   return { status: 'ready', url, changed: diff.changed, total: diff.total };
 }
 
-// ReviewVideos is a pair of recordings: the before, then the after, each a
-// player of its own with the browser's controls (seek, speed, full screen),
-// neither following the other. Space plays or pauses the one last used, the
-// before until then.
-export function ReviewVideos({ ref, pair, expanded }: { ref?: Ref<CompareHandle>; pair: Pair; expanded: boolean }) {
+// ReviewVideos is a pair of recordings: the before and the after, each a
+// player of its own (Clip), neither following the other in time but zoomed
+// and panned together, side by side or one over the other as a pair of
+// screenshots is. Space plays or pauses the one last used, the before until
+// then.
+export function ReviewVideos({ ref, pair, dark, height, zooming }: { ref?: Ref<CompareHandle>; pair: Pair; dark: boolean; height?: number; zooming: Zooming }) {
   const t = useT();
-  const videos = useRef<Record<Side, HTMLVideoElement | null>>({ before: null, after: null });
+  const clips = useRef<Record<Side, ClipHandle | null>>({ before: null, after: null });
   const used = useRef<Side>('before');
   useImperativeHandle(ref, () => ({
     cycle: () => {},
     highlight: () => {},
-    space: () => {
-      const v = videos.current[used.current];
-      if (v) void (v.paused ? v.play().catch(() => {}) : v.pause());
-    },
+    space: () => clips.current[used.current]?.toggle(),
   }));
+  const space = useRef<HTMLDivElement>(null);
+  const measured = useSize(space);
+  const afterSize = usePicSize(pair.after);
+  const beforeSize = usePicSize(pair.before);
+  const pic = afterSize ?? beforeSize ?? { w: 1280, h: 800 };
+  // Each half's bar is under its picture, so the pictures share what's left.
+  const bars = (n: number) => n * barHeight;
+  const roomFor = (rows: number): Size => ({ w: measured.w, h: (height ?? measured.h) - bars(rows) });
+  const { arrangement } = arrange({ w: measured.w, h: (height ?? measured.h) - barHeight }, pic, gap);
+  const room = roomFor(arrangement === 'rows' ? 2 : 1);
+  const half = height === undefined ? (arrangement === 'columns' ? { w: (room.w - gap) / 2, h: room.h } : { w: room.w, h: (room.h - gap) / 2 }) : arrange(room, pic, gap).half;
   return (
-    <div className={cn('grid min-w-0 gap-3', expanded && 'h-full min-h-0 grid-rows-2')} data-review-videos>
-      {(['before', 'after'] as const).map((s) => (
-        <figure key={s} className={cn('mx-auto grid w-full min-w-0 gap-1.5', expanded && 'h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]')} style={expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' }}>
-          <figcaption className={cn('text-caption font-medium', expanded ? 'text-white/80' : 'text-secondary')}>{t(s === 'before' ? 'review.compare.before' : 'review.compare.after')}</figcaption>
-          <video
-            ref={(v) => {
-              videos.current[s] = v;
+    <div
+      ref={space}
+      className={cn('flex w-full min-w-0 items-center justify-center', height === undefined && 'h-full min-h-0', arrangement === 'rows' && 'flex-col')}
+      style={{ gap, height: height === undefined ? undefined : arrangement === 'columns' ? half.h + barHeight : (half.h + barHeight) * 2 + gap }}
+      data-review-videos={arrangement}
+    >
+      {measured.w > 0 &&
+        (['before', 'after'] as const).map((s) => (
+          <Clip
+            key={s}
+            ref={(c) => {
+              clips.current[s] = c;
             }}
-            src={mediaUrl(pair[s])}
-            controls
-            muted
-            playsInline
-            preload="metadata"
-            onPlay={() => {
+            item={pair[s]}
+            pic={pic}
+            size={{ w: Math.floor(half.w), h: Math.floor(half.h) }}
+            view={zooming.view}
+            onView={zooming.onView}
+            onPort={(port) => zooming.onPort(port, pic)}
+            dark={dark}
+            onUse={() => {
               used.current = s;
             }}
-            onPointerDown={() => {
-              used.current = s;
-            }}
-            className={cn('block w-full min-w-0 rounded-xl border border-line-strong bg-black object-contain', expanded ? 'h-full min-h-0' : 'aspect-[16/10]')}
-            data-review-video={s}
+            over={(r) => <Label rect={r}>{t(s === 'before' ? 'review.compare.before' : 'review.compare.after')}</Label>}
           />
-        </figure>
-      ))}
+        ))}
     </div>
   );
 }

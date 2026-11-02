@@ -199,6 +199,7 @@
 //   &review=media           with ?app=, agent-15 (first waiting for review) holding 6 recordings and 4 screenshots and long check titles;
 //                           &review=lots, 36 pieces of media
 //   &review=pairs           with ?app=, agent-15 holding before/after pairs to compare
+//   &review=big             with ?app=work, agent-41's pairs and screenshots at 1920×1080, 420×2000 and 3840×1080
 //   ?concept=evidence       a mock: agents' recordings and screenshots first, in
 //                           the lead chat's cards and the review modal
 //                           (dev/concepts/evidence.tsx lists its own params)

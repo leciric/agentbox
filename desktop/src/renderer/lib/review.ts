@@ -220,6 +220,9 @@ export type ReviewAction =
   | 'expand'
   | 'compareMode'
   | 'highlight'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'zoomReset'
   | 'help';
 
 // The keys, as the review's ? overlay lists them: the verdicts, then the
@@ -241,6 +244,9 @@ export const reviewKeys: readonly { keys: readonly string[]; match?: readonly st
   { keys: ['F'], action: 'expand' },
   { keys: ['Q'], action: 'compareMode' },
   { keys: ['H'], action: 'highlight' },
+  { keys: ['+'], match: ['+', '='], action: 'zoomIn' },
+  { keys: ['−'], match: ['-', '_'], action: 'zoomOut' },
+  { keys: ['0'], action: 'zoomReset' },
   { keys: ['D'], action: 'toggleDiff' },
   { keys: ['J'], action: 'nextFile' },
   { keys: ['K'], action: 'previousFile' },
@@ -271,12 +277,15 @@ export const proofKey = (action: ReviewAction) =>
   action === 'nextChapter' ||
   action === 'expand' ||
   action === 'compareMode' ||
-  action === 'highlight';
+  action === 'highlight' ||
+  action === 'zoomIn' ||
+  action === 'zoomOut' ||
+  action === 'zoomReset';
 
 // repeatable is whether holding a key down may act again: moving through
 // files and agents may, a verdict or a toggle may not.
 export const repeatable = (action: ReviewAction) =>
-  action === 'nextFile' || action === 'previousFile' || action === 'nextItem' || action === 'previousItem' || action === 'previousMedia' || action === 'nextMedia' || action === 'previousChapter' || action === 'nextChapter';
+  action === 'nextFile' || action === 'previousFile' || action === 'nextItem' || action === 'previousItem' || action === 'previousMedia' || action === 'nextMedia' || action === 'previousChapter' || action === 'nextChapter' || action === 'zoomIn' || action === 'zoomOut';
 
 // isTyping is whether a key press belongs to what has focus rather than to
 // the review: a field, an editable element, or a menu's typeahead.
