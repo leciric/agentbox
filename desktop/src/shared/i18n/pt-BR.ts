@@ -4046,6 +4046,7 @@ export const ptBR: Messages = {
   'panel.group.review': 'Prontos para revisar',
   'panel.group.working': 'Trabalhando',
   'panel.group.idle': 'Parados',
+  'panel.session.other': 'Outros agentes',
   'panel.list.desktopLive': 'Usando o desktop',
   'panel.openChat': 'Abrir o chat de {name}',
   'panel.find': 'Encontrar um agente…',

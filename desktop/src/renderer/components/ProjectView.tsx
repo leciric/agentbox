@@ -13,7 +13,6 @@ import { errorMessage, timeAgo } from '../lib/utils';
 import { ChatStatus, useChatMenu } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
-import { SessionLink } from './chat/SessionLink';
 import { leadAgentFrom, ProjectChatPanel, useCurrentSession } from './ProjectChatPanel';
 import { ProjectBasePanel } from './ProjectBasePanel';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
@@ -162,7 +161,6 @@ export function ProjectView({ name, tab: opensAt, onNewAgent }: { name: string; 
             the desktops they're using are in the right-hand panel's list. */}
         <AgentMentionsProvider project={name}>
           <ProjectChatPanel project={project} />
-          <SessionLink />
         </AgentMentionsProvider>
       </div>
 

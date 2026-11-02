@@ -137,15 +137,14 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
     />
   );
 
-  // With several sessions, the agents of the one shown are a bracket in its
-  // colour on the chat's side, as its tab and box are: the same line.
+  // With several sessions the list is a block per session, the shown one's
+  // first, each headed by its colour and topic and grouped by state inside;
+  // the agents no open session owns come last, unheaded.
   const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project) });
   const sessionList = sessions.data ?? [];
   const shown = pickSession(sessionList, useChosenSession(project));
-  const color = sessionColor(sessionList, shown);
-  const ofShown = (r: { agent: T.Agent }) => !!color && r.agent.leadSession === shown?.id;
-  const split = (own: boolean) => groups.map((g) => ({ group: g.group, rows: g.rows.filter((r) => ofShown(r) === own) })).filter((g) => g.rows.length > 0);
-  const bracket = split(true);
+  const blocks = sessionList.length >= 2 && shown ? [shown, ...sessionList.filter((x) => x.id !== shown.id)] : [];
+  const only = (own: (a: T.Agent) => boolean) => groups.map((g) => ({ group: g.group, rows: g.rows.filter((r) => own(r.agent)) })).filter((g) => g.rows.length > 0);
 
   const renderGroups = (gs: typeof groups) =>
     gs.map(({ group, rows }) => {
@@ -183,12 +182,37 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 pb-3 pt-1" data-panel-list={project}>
       {!rail.loaded && <RailSkeleton />}
-      {bracket.length > 0 && (
-        <div className="session-line -ml-1.5 mb-1 rounded-r-2xl border border-l-0 pb-1 pl-1.5 pr-1" data-session-color={color} data-session-bracket={shown?.id}>
-          {renderGroups(bracket)}
-        </div>
-      )}
-      {renderGroups(split(false))}
+      {blocks.length === 0 && renderGroups(groups)}
+      {blocks.map((sn) => {
+        const rows = only((a) => a.leadSession === sn.id);
+        const color = sessionColor(sessionList, sn);
+        return (
+          rows.length > 0 && (
+            <div key={sn.id} className="pt-2" data-session-color={color} data-list-session={sn.id}>
+              <div className="flex h-6 min-w-0 items-center gap-1.5 px-2 text-[12px] font-medium text-secondary">
+                <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: 'var(--session)' }} />
+                <span className="min-w-0 truncate">{sn.topic}</span>
+                <span className="tabular-nums font-normal text-faint">{rows.reduce((n, g) => n + g.rows.length, 0)}</span>
+              </div>
+              {renderGroups(rows)}
+            </div>
+          )
+        );
+      })}
+      {blocks.length > 0 && (() => {
+        const rows = only((a) => !sessionList.some((x) => x.id === a.leadSession));
+        return (
+          rows.length > 0 && (
+            <div className="pt-2" data-list-session="">
+              <div className="flex h-6 min-w-0 items-center gap-1.5 px-2 text-[12px] font-medium text-secondary">
+                <span className="min-w-0 truncate">{t('panel.session.other')}</span>
+                <span className="tabular-nums font-normal text-faint">{rows.reduce((n, g) => n + g.rows.length, 0)}</span>
+              </div>
+              {renderGroups(rows)}
+            </div>
+          )
+        );
+      })()}
       {rail.loaded && rail.mine.length === 0 && <RailEmpty project={name} onNewAgent={() => onNewAgent(project)} />}
 
       {(past.data?.length ?? 0) > 0 && (
