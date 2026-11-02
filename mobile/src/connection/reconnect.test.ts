@@ -248,3 +248,16 @@ test('the network coming back while not connected follows at once', () => {
   h.network({ online: true, kind: 'WIFI' });
   assert.equal(h.follows(), 2);
 });
+
+test('a stream that ended without an error is followed again', () => {
+  let ended = false;
+  const h = harness({ ended: () => ended });
+  h.r.started();
+  h.r.now();
+  h.open();
+  h.advance(10_000);
+  assert.equal(h.follows(), 1);
+  ended = true;
+  h.advance(5_000);
+  assert.equal(h.follows(), 2);
+});
