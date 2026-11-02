@@ -210,7 +210,7 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
         <aside
           style={{ width: narrow ? listStrip : box.width }}
           aria-label={t('panel.label')}
-          className="relative flex h-full shrink-0 border-l border-line bg-sunken"
+          className="relative flex h-full shrink-0 border-l border-line bg-sunken" data-panel-column
           data-right-panel={narrow ? 'strip' : 'beside'}
         >
           {!narrow && !(list && state.listFolded) && <WidthHandle width={box.width} which={list ? 'list' : lead ? 'lead' : 'agent'} />}

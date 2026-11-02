@@ -75,9 +75,9 @@ export function SessionTabs({
               if (e.key === 'F2') setRenaming(s.id);
             }}
             className={cn(
-              'group flex h-7 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-lg pl-2.5 pr-1 text-ui transition-colors',
-              color && 'session-frame',
-              on ? 'bg-surface-strong text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
+              'group flex h-8 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border pl-2.5 pr-1 text-ui transition-colors',
+              color ? (on ? 'session-line' : 'session-line-quiet') : on ? 'border-line' : 'border-line-faint',
+              on ? 'border-b-0 bg-ink text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
             )}
           >
             {isWorking(s) ? (
