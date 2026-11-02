@@ -21,6 +21,7 @@ import { workStatus } from '../lib/agentCounts';
 import { useAgentCounts } from '../lib/useAgentCounts';
 import { cn, errorMessage } from '../lib/utils';
 import { MoreMedia } from './media/MediaParts';
+import { MergeWhenGreenBadge } from './MergeWhenGreen';
 import { PrChip } from './PrChip';
 import { OutcomeBadge, ReviewDialog } from './ReadyToReview';
 import { AIIcon } from './state';
@@ -242,6 +243,7 @@ function WorkRow({ work: w, status, depth = 0, stackedOn, projectName, onOpen }:
               </Badge>
             )}
             {w.status === 'reviewed' && <span className="shrink-0 text-caption text-subtle">{t(i.verdict === 'changes' ? 'work.verdict.changes' : i.verdict === 'dismissed' ? 'work.verdict.dismissed' : 'work.verdict.reviewed')}</span>}
+            <MergeWhenGreenBadge mark={i.mergeWhenGreen} />
             <OutcomeBadge outcome={outcome} />
           </span>
           <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-subtle">

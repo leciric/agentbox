@@ -1709,6 +1709,7 @@ let defaultsSettings = {
   errorReports: true,
   agentFreeze: false,
   prWatch: true,
+  mergeWhenGreen: true,
   defaultClaudeCompactWindow: 500_000,
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,

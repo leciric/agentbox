@@ -1478,6 +1478,14 @@ function InstalledSettings({
               modified: changed((s) => !s.prWatch),
               render: () => <PRWatch />,
             },
+            {
+              id: "merge-when-green",
+              description: t("settings.mergeWhenGreen.description"),
+              label: t("settings.entry.merge-when-green.label"),
+              keywords: t("settings.entry.merge-when-green.keywords"),
+              modified: changed((s) => s.mergeWhenGreen),
+              render: () => <MergeWhenGreen />,
+            },
           ],
         },
         {
@@ -2296,6 +2304,38 @@ export function PRWatch() {
           aria-label={t("settings.entry.pr-watch.label")}
           disabled={settings.data === undefined}
           checked={save.isPending ? save.variables : (settings.data?.prWatch ?? true)}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// MergeWhenGreen offers "Resolved — merge when CI is green" in the review,
+// whose marks the daemon merges once their checks pass
+// (internal/daemon/mergewhengreen.go). Off by default.
+export function MergeWhenGreen() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (mergeWhenGreen: boolean) => api.updateSettings({ mergeWhenGreen }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.merge-when-green.label")}
+      htmlFor="merge-when-green"
+      description={t("settings.mergeWhenGreen.description")}
+      details={t("settings.mergeWhenGreen.details")}
+      control={
+        <Switch
+          id="merge-when-green"
+          data-merge-when-green-setting
+          aria-label={t("settings.entry.merge-when-green.label")}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.mergeWhenGreen ?? false)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { PrNumberLink } from './PrNumberLink';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Images, Info, Keyboard, LoaderCircle, MessageSquare, MessageSquareText, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, Clock, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Images, Info, Keyboard, LoaderCircle, MessageSquare, MessageSquareText, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -22,6 +22,7 @@ import { ReviewProof, type ProofHandle } from './ReviewProof';
 import { ShareButton } from './ShareButton';
 import { useProjectPages } from './pages/usePages';
 import { PullRequestView } from './PullRequestModal';
+import { cancelMergeWhenGreen, MergeWhenGreenNote } from './MergeWhenGreen';
 import { methodLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
 import { AIIcon } from './state';
 import { Badge } from './ui/badge';
@@ -336,6 +337,26 @@ function ReviewCarousel({
     onNext();
   };
   const reviewAndGo = () => !marking && settled() && markReviewed();
+  // Resolved — merge when CI is green (Settings, off by default): reviewed
+  // now, and merged by the daemon with the method picked here once the
+  // checks pass, at once when they already do. The review goes on; the
+  // toast can take it back.
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const resolve = useMutation({
+    mutationFn: ({ number, method }: { number: number; method: string }) => api.mergeWhenGreen(item.project, number, { method, agent: item.agent, fingerprint: item.fingerprint }),
+    onMutate: () => {
+      dropFromList(queryClient, item.ref);
+      onNext();
+    },
+    onSuccess: (mark) =>
+      toast(t('review.mergeWhenGreen.queued', { number: mark.number }), {
+        description: item.title || item.agent,
+        action: { label: t('review.mergeWhenGreen.cancel'), onClick: () => void cancelMergeWhenGreen(queryClient, item.project, mark.number, t) },
+      }),
+    onError: (err) => toast.error(t('review.mergeWhenGreen.failed', { error: errorMessage(err) })),
+    onSettled: () => refreshInbox(queryClient),
+  });
+  const resolveAndGo = () => pr && !mergeDisabled && !resolve.isPending && settled() && resolve.mutate({ number: pr.number, method });
   // Merged, it's reviewed too (quietly: the "Merged" toast is the news) and
   // the review goes on to the next agent.
   const mergeAndGo = () => pr && !mergeDisabled && settled() && merge.mergeWith(pr, method, markReviewed);
@@ -730,6 +751,7 @@ function ReviewCarousel({
               </div>
             </div>
           )}
+          <MergeWhenGreenNote item={item} />
           {/* The verdicts, Merge last and loudest. Narrow, they wrap rather
               than drop their labels: icons alone left Request changes and
               Merge to guess (UX test, finding 8). */}
@@ -751,6 +773,13 @@ function ReviewCarousel({
                   <span>{t('review.markReviewed')}</span>
                   <Hint k="R" />
                 </Button>
+                {settings.data?.mergeWhenGreen && prOpen && (
+                  <Button size="sm" variant="secondary" disabled={mergeDisabled || resolve.isPending} onClick={resolveAndGo} title={footerReason ?? t('review.mergeWhenGreen')} data-review-merge-when-green>
+                    <Clock />
+                    <span className="max-lg:hidden">{t('review.mergeWhenGreen')}</span>
+                    <span className="lg:hidden">{t('review.mergeWhenGreen.short')}</span>
+                  </Button>
+                )}
                 {/* Why Merge can't, beside it, as the header's line says; narrow,
                     on a line of its own under the actions. */}
                 <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-caption text-muted', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>

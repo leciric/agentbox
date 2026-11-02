@@ -53,7 +53,8 @@ function items(): T.ReviewItem[] {
     // agent-15 and agent-17 recorded what they checked, notes marking each
     // check (evidence() below): the lead chat's evidence cards in v2.
     item('agent-15', 'Settings tabs no longer clip at 1024px', 'agentbox/settings-tabs-clip', 2 * min, {
-      pr: { ...pr, number: 371, title: 'fix: Settings’ section list fits at 1024px and in pt-BR', additions: 20, deletions: 4, headBranch: 'agentbox/settings-tabs-clip' },
+      // Its checks still run: what "Resolved — merge when CI is green" is for.
+      pr: { ...pr, number: 371, title: 'fix: Settings’ section list fits at 1024px and in pt-BR', checks: 'pending', additions: 20, deletions: 4, headBranch: 'agentbox/settings-tabs-clip' },
       summary:
         'The section list was a fixed 248px column with nowrap labels, so pt-BR’s longer names pushed the page past the window. It is now `minmax(180px, 248px)` and labels wrap.\n\nChecked dark and light, en-US and pt-BR, at 1024×640 and 800×600.',
       changes: { files: 2, insertions: 20, deletions: 4, dirty: false },
@@ -506,6 +507,24 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
     for (const i of [...waiting, ...decided]) if (i.pr?.number === number) merged = i.pr = { ...i.pr, state: 'merged' };
     if (number === pr.number) pr.state = 'merged';
     return { status: 200, body: JSON.stringify(merged ?? {}), contentType: 'application/json' };
+  }
+  // Resolved — merge when CI is green: reviewed, with the mark on it, which
+  // DELETE takes back to the review. The checks never finish here.
+  const green = /^\/v1\/projects\/[^/]+\/pulls\/(\d+)\/merge-when-green$/.exec(route);
+  if (green && method === 'POST') {
+    const number = Number(green[1]);
+    const req = body as T.MergeWhenGreenRequest;
+    const mark: T.MergeWhenGreen = { number, method: req.method, at: new Date().toISOString() };
+    const item = waiting.find((i) => i.agent === req.agent);
+    waiting = waiting.filter((i) => i.agent !== req.agent);
+    if (item) decided = [{ ...item, verdict: 'reviewed', reviewedAt: mark.at, mergeWhenGreen: mark }, ...decided];
+    return { status: 200, body: JSON.stringify(mark), contentType: 'application/json' };
+  }
+  if (green && method === 'DELETE') {
+    const item = decided.find((i) => i.mergeWhenGreen?.number === Number(green[1]));
+    decided = decided.filter((i) => i !== item);
+    if (item) waiting = [{ ...item, verdict: undefined, reviewedAt: undefined, mergeWhenGreen: undefined }, ...waiting];
+    return { status: 204, body: '', contentType: 'application/json' };
   }
   // The pull request modal's detail of #318, and its files.
   const detailOf = method === 'GET' && /^\/v1\/projects\/[^/]+\/pulls\/(\d+)$/.exec(route);
