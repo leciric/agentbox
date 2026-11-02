@@ -64,7 +64,9 @@ export function HomeScreen() {
     const own = (agents.data ?? []).filter((a) => a.project === p.name);
     const waiting = (questions[i]?.data ?? []).filter(isWaiting).length;
     const needYou = own.filter((a) => safeStatus(a, threadOf(a.ref))?.tone === 'urgent').length + waiting;
-    const lastActivity = Math.max(lastReply(threadOf(leadRef)), ...own.map((a) => lastReply(threadOf(a.ref))));
+    // The lead's last line counts too: its peeked thread may end on your message.
+    const leadLine = lead?.last?.kind === 'assistant' ? Date.parse(lead.last.at) || 0 : 0;
+    const lastActivity = Math.max(leadLine, lastReply(threadOf(leadRef)), ...own.map((a) => lastReply(threadOf(a.ref))));
     return { p, i, needYou, lastActivity };
   });
   const shown = orderProjects(
