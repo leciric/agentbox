@@ -217,6 +217,10 @@ const (
 	// failing checks, changes requested. On until somebody turns it off
 	// (FlagOn); a project can override it (Project.PRWatch).
 	SettingPRWatch = "pr_watch"
+	// SettingMergeWhenGreen says whether the review offers "Resolved — merge
+	// when CI is green" (state.MergeWhenGreen), and whether the daemon acts
+	// on those marks. Off until somebody turns it on (Flag).
+	SettingMergeWhenGreen = "merge_when_green"
 	// SettingAgentGPU says whether every agent gets the GPU of AgentBox's VM
 	// (agent.FindVMGPU), when it has one. Off until somebody turns it on
 	// (Flag). Not #66's gpu_for_agents, which a migration deletes.

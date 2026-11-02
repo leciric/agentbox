@@ -209,6 +209,7 @@ export interface Settings {
   vmGPU: VMGPU;
   errorReports: boolean;
   prWatch: boolean;
+  mergeWhenGreen: boolean;
   agentFreeze: boolean;
   mediaRetention: string;
   language: string;
@@ -287,6 +288,7 @@ export interface UpdateSettingsRequest {
   blockFullSuite?: boolean;
   errorReports?: boolean;
   prWatch?: boolean;
+  mergeWhenGreen?: boolean;
   agentFreeze?: boolean;
   mediaRetention?: string;
   language?: string;
@@ -1979,6 +1981,20 @@ export interface MergePullRequestRequest {
   confirmed?: boolean;
 }
 
+export interface MergeWhenGreenRequest {
+  method: string;
+  agent: string;
+  fingerprint: string;
+}
+
+export interface MergeWhenGreen {
+  number: number;
+  method: string;
+  at: string;
+  error?: string;
+  failedAt?: string;
+}
+
 export interface PullRequestDetail {
   number: number;
   title: string;
@@ -2229,6 +2245,7 @@ export interface ReviewItem {
   verdict?: string;
   reviewedAt?: string;
   machineKept?: boolean;
+  mergeWhenGreen?: MergeWhenGreen;
 }
 
 export interface ReviewRequest {

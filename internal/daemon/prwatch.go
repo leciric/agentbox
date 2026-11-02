@@ -212,13 +212,16 @@ func (s *Server) pollPRWatch(ctx context.Context) {
 		}
 		on := s.prWatchOn(ctx, p)
 		triggers, opts := s.eventTriggers(ctx, p.Name)
+		// A pull request waiting to be merged when green is looked at
+		// whether or not the watch is on (mergewhengreen.go).
+		marks := s.pendingMerges(ctx, p.Name)
 		if !on {
 			// Turned off: what it saw is forgotten with it, so turning it on
 			// again starts from what is true then.
 			if err := s.store.ForgetPRWatches(ctx, p.Name); err != nil {
 				s.logf("pull request watch in %s: %v", p.Name, err)
 			}
-			if len(triggers) == 0 {
+			if len(triggers) == 0 && len(marks) == 0 {
 				s.prWatch.forget(p.Name)
 				continue
 			}
@@ -228,15 +231,15 @@ func (s *Server) pollPRWatch(ctx context.Context) {
 		due := !s.prWatch.now().Before(r.next)
 		s.prWatch.mu.Unlock()
 		if due {
-			s.watchProject(ctx, p, r, on, triggers, opts)
+			s.watchProject(ctx, p, r, on, triggers, opts, marks)
 		}
 	}
 }
 
 // watchProject is one look at a project's repository, and what follows from
 // it: for its agents' pull requests when watchPRs, and for its event
-// triggers.
-func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, watchPRs bool, triggers []state.Schedule, opts github.WatchOptions) {
+// triggers, and for the pull requests marked to merge when green (marks).
+func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, watchPRs bool, triggers []state.Schedule, opts github.WatchOptions, marks []state.MergeWhenGreen) {
 	now := s.prWatch.now()
 	schedule := func(next time.Time, interval time.Duration, live map[int]github.WatchedPR) {
 		s.prWatch.mu.Lock()
@@ -266,16 +269,21 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, w
 		return
 	}
 	heads := agentHeads(p.Root, agents)
-	if len(triggers) == 0 && len(rows) == 0 && !slices.ContainsFunc(heads, func(h agentHead) bool { return h.tip != "" }) {
+	if len(triggers) == 0 && len(rows) == 0 && len(marks) == 0 && !slices.ContainsFunc(heads, func(h agentHead) bool { return h.tip != "" }) {
 		// No agent has anything of its own that could be in a pull request,
 		// and no trigger waits for anything: nothing to ask GitHub.
 		schedule(now.Add(prWatchIdle), 0, map[int]github.WatchedPR{})
 		return
 	}
 
-	numbers := make([]int, len(rows))
-	for i, row := range rows {
-		numbers[i] = row.Number
+	numbers := make([]int, 0, len(rows)+len(marks))
+	for _, row := range rows {
+		numbers = append(numbers, row.Number)
+	}
+	for _, m := range marks {
+		if !slices.Contains(numbers, m.Number) {
+			numbers = append(numbers, m.Number)
+		}
 	}
 	watch, err := client.WatchRepository(github.InBackground(ctx, "watch"), repo, numbers, opts)
 	if err != nil {
@@ -374,7 +382,10 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, w
 		changed = changed || next.Conflict != prev.Conflict || next.Checks != prev.Checks || next.Review != prev.Review || next.HeadSHA != prev.HeadSHA
 	}
 
+	waiting := s.mergeGreen(ctx, p, client, repo, marks, read)
 	switch {
+	case waiting:
+		interval = prWatchFast
 	case len(live) == 0:
 		interval = prWatchIdle
 	case fast:

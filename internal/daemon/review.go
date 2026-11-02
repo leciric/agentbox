@@ -212,6 +212,7 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 	for i, c := range agentChanges(done, prs, polledChanges) {
 		changes[done[i].Name] = c
 	}
+	marks := s.mergeMarks(ctx, p.Name)
 	out := make([]liveEntry, 0, len(kept))
 	for _, a := range kept {
 		ev, finished := finishes[a.Name]
@@ -251,6 +252,7 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 				s.rememberReview(a.Ref(), ev.ID, e.item, e.ended)
 			}
 		}
+		markItem(&e.item, marks)
 		r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name)
 		if err != nil {
 			continue // its verdict unread, it may well be one the user gave

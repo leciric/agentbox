@@ -220,6 +220,7 @@ func (s *Server) projectWorkEntries(ctx context.Context, p state.Project) ([]wor
 		return nil, err
 	}
 	go s.refreshPastPRs(p.Name, slices.Clone(past))
+	marks := s.mergeMarks(ctx, p.Name)
 	for i := range past {
 		a := &past[i]
 		item := api.WorkItem{
@@ -228,6 +229,7 @@ func (s *Server) projectWorkEntries(ctx context.Context, p state.Project) ([]wor
 		}
 		if a.PR.Number > 0 {
 			item.Item.PR = &api.PullRequest{Number: a.PR.Number, Title: a.PR.Title, URL: a.PR.URL, State: a.PR.State}
+			markItem(&item.Item, marks)
 		}
 		if r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name); err == nil && ok {
 			at := r.At

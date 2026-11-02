@@ -560,6 +560,21 @@ func (c *Client) MergePullRequest(ctx context.Context, project string, number in
 	return out, c.do(ctx, http.MethodPost, path, MergePullRequestRequest{Method: method}, &out)
 }
 
+// MergeWhenGreen resolves an agent's work and has the daemon merge its pull
+// request once the checks pass.
+func (c *Client) MergeWhenGreen(ctx context.Context, project string, number int, req MergeWhenGreenRequest) (MergeWhenGreen, error) {
+	var out MergeWhenGreen
+	path := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/merge-when-green"
+	return out, c.do(ctx, http.MethodPost, path, req, &out)
+}
+
+// CancelMergeWhenGreen cancels a pull request's merge when green, or
+// dismisses one that was given up.
+func (c *Client) CancelMergeWhenGreen(ctx context.Context, project string, number int) error {
+	path := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/merge-when-green"
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // ProjectLabels lists the labels of a project's repository.
 func (c *Client) ProjectLabels(ctx context.Context, project string) (ProjectLabels, error) {
 	var out ProjectLabels

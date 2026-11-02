@@ -982,34 +982,49 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return noGitHubToken(err)
 	}
-
-	pr, err := client.PullRequestByNumber(ctx, repo, number)
+	out, err := s.mergePR(ctx, p, client, repo, number, method)
 	if err != nil {
 		return err
 	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// mergePR merges a pull request, for the app's Merge and for a merge when
+// green (mergewhengreen.go) alike. It re-reads the pull request first, so a
+// stale view can't merge a draft, or one that has since been closed or
+// already merged.
+func (s *Server) mergePR(ctx context.Context, p state.Project, client github.Client, repo github.Repo, number int, method github.MergeMethod) (api.PullRequest, error) {
+	pr, err := client.PullRequestByNumber(ctx, repo, number)
+	if err != nil {
+		return api.PullRequest{}, err
+	}
 	switch {
 	case pr.Draft:
-		return fmt.Errorf("pull request #%d is a draft: mark it ready for review before merging", number)
+		return api.PullRequest{}, fmt.Errorf("pull request #%d is a draft: mark it ready for review before merging", number)
 	case pr.State != "open":
-		return fmt.Errorf("pull request #%d is %s: nothing to merge", number, pr.State)
+		return api.PullRequest{}, fmt.Errorf("pull request #%d is %s: nothing to merge", number, pr.State)
 	}
 
 	if err := client.Merge(ctx, repo, number, method); err != nil {
 		s.recordErr(errPRMergeFailed, "", err, repo.Owner, repo.Name)
-		return err
+		return api.PullRequest{}, err
 	}
 	pr.State = "merged"
 	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	s.pulls.merged(repo.String(), number)
 	s.pullDetails.drop(pullFilesKey(repo, number))
 	s.countFeature(api.FeaturePullMerge)
+	// Merged by hand, it no longer waits to be merged when green.
+	if err := s.store.ForgetMergeWhenGreen(ctx, p.Name, number); err != nil {
+		s.logf("%s: forgetting #%d's merge when green: %v", p.Name, number, err)
+	}
 	// The merge is GitHub's and done: the user is told at once. What follows
 	// — the event, and freeing the agent behind it, which reads git, stops
 	// its chat and deletes its machine and worktree, seconds on a shared home
 	// with a big node_modules — runs after the answer, under the daemon's
 	// context rather than the request's, which ends with it.
 	s.mergeFrees.Go(func() { s.afterMerge(s.background(), p, repo, *pr, string(method), out) })
-	return writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
 // afterMerge records a merge made through the app and frees the agent whose
