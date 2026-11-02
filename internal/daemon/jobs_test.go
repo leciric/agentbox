@@ -110,3 +110,31 @@ func TestJobFinishIsDurableBeforeVisible(t *testing.T) {
 		t.Fatalf("stored job = %+v, %v", record, err)
 	}
 }
+
+// A finished job lets its log go from memory, and its log is read from the
+// store from then on.
+func TestFinishedJobLogComesFromTheStoreOnceDropped(t *testing.T) {
+	t.Parallel()
+	store := newFakeJobStore()
+	close(store.releaseFinish)
+	js := newJobs(context.Background(), store, newBroker())
+	j, err := js.start("create", "x", func(ctx context.Context, log io.Writer) (any, error) {
+		_, _ = io.WriteString(log, "one\ntwo\n")
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the job to finish", func() bool { return j.snapshot().Done() })
+	j.dropLog()
+	if lines, kept := j.keptLog(); kept || lines != nil {
+		t.Fatalf("keptLog() after dropLog = %q, %v; want nothing", lines, kept)
+	}
+	info, lines, err := js.lookup(context.Background(), j.snapshot().ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Status != api.JobSucceeded || len(lines) != 2 || lines[0] != "one" || lines[1] != "two" {
+		t.Fatalf("lookup() = %+v, %q; want the stored log", info, lines)
+	}
+}

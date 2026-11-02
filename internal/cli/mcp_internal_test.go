@@ -14,8 +14,8 @@ import (
 	"agentbox/internal/mcp"
 )
 
-// create_agent's "ai" decides which AI tool an agent runs. Claude Code is the
-// default and what it has always made; OpenCode is offered only where an agent
+// create_agent's "ai" decides which AI tool an agent runs. Left out, it stays
+// empty for the daemon to give the agent the lead's own tool; OpenCode is offered only where an agent
 // could really run it, so asking for it otherwise is refused here, with the
 // two things that have to be set up rather than a login error from the daemon.
 func TestLeadAI(t *testing.T) {
@@ -25,7 +25,8 @@ func TestLeadAI(t *testing.T) {
 		want      string
 		wantErrIs string
 	}{
-		{ai: "", want: "claude"},
+		{ai: "", want: ""},
+		{ai: "  ", want: ""},
 		{ai: "claude", want: "claude"},
 		{ai: "Claude ", want: "claude"},
 		{ai: "opencode", ready: true, want: "opencode"},
@@ -86,7 +87,7 @@ func TestProjectMemoryTools(t *testing.T) {
 	for _, tool := range tools {
 		byName[tool.Name] = tool
 	}
-	for _, want := range []string{"search_memory", "remember", "memory_feedback", "update_working_memory", "project_state"} {
+	for _, want := range []string{"search_memory", "remember", "memory_feedback", "project_state"} {
 		tool, ok := byName[want]
 		if !ok {
 			t.Fatalf("the project chat has no %s tool", want)
@@ -104,10 +105,10 @@ func TestProjectMemoryTools(t *testing.T) {
 	if strings.Contains(byName["project_state"].Description, "task list") {
 		t.Error("project_state still offers the user's task list")
 	}
-	// remember is not append_note, and says so: the two are easy to confuse,
+	// remember is not a note, and says so: the two are easy to confuse,
 	// and the wrong one puts a paragraph in every agent's brief.
-	if !strings.Contains(byName["remember"].Description, "append_note") {
-		t.Error("remember doesn't tell the model how it differs from append_note")
+	if !strings.Contains(byName["remember"].Description, "a note, which is in every brief") {
+		t.Error("remember doesn't tell the model how it differs from a note")
 	}
 
 	if _, err := byName["remember"].Run(json.RawMessage(`{"title":"The API listens on port 7777"}`)); err != nil {
@@ -121,15 +122,16 @@ func TestProjectMemoryTools(t *testing.T) {
 		t.Error("a memory with no title was accepted")
 	}
 
-	out, err := byName["update_working_memory"].Run(json.RawMessage(`{"current_task":"Move the API off 7777"}`))
+	// project_state with a field keeps the working memory.
+	out, err := byName["project_state"].Run(json.RawMessage(`{"current_task":"Move the API off 7777"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "Move the API off 7777") {
-		t.Errorf("update_working_memory answered %q, want the note it wrote back", out)
+		t.Errorf("project_state answered %q, want the note it wrote back", out)
 	}
 	if got := <-calls; got != "PATCH /v1/project/memory/working" {
-		t.Errorf("update_working_memory called %s", got)
+		t.Errorf("project_state called %s", got)
 	}
 }
 
@@ -167,60 +169,62 @@ func TestProjectNotesTools(t *testing.T) {
 	for _, tool := range projectTools(context.Background(), api.NewClient(socket)) {
 		byName[tool.Name] = tool
 	}
-	for _, want := range []string{"read_notes", "append_note", "edit_note", "remove_note"} {
-		if _, ok := byName[want]; !ok {
-			t.Fatalf("the project chat has no %s tool", want)
+	notes, ok := byName["notes"]
+	if !ok {
+		t.Fatal("the project chat has no notes tool")
+	}
+	// The schema is all a model reads: edit and remove are for carrying out
+	// an instruction, and it says what a quote that can't name one entry does;
+	// and it names the other store, and the cost that decides between them: a
+	// note is in every brief, a memory is only searched.
+	schema, _ := json.Marshal(notes.Schema)
+	for _, want := range []string{"when the user asks you to", "matches no entry or several changes nothing", "remember", "search_memory", "every agent's brief"} {
+		if !strings.Contains(notes.Description+string(schema), want) {
+			t.Errorf("notes doesn't say %q:\n%s\n%s", want, notes.Description, schema)
 		}
 	}
-	// The description is all a model reads: both say they are for carrying out
-	// an instruction, and both say what a quote that can't name one entry does.
-	for _, name := range []string{"edit_note", "remove_note"} {
-		for _, want := range []string{"when the user asks you to", "quot"} {
-			if !strings.Contains(byName[name].Description, want) {
-				t.Errorf("%s doesn't say %q:\n%s", name, want, byName[name].Description)
-			}
+	for _, action := range []string{"read", "append", "edit", "remove", "promote", "dismiss"} {
+		if !strings.Contains(string(schema), `"`+action+`"`) {
+			t.Errorf("notes has no %s action: %s", action, schema)
 		}
 	}
-	// append_note names the other store, and the cost that decides between
-	// them: a note is in every brief, a memory is only searched.
-	for _, want := range []string{"remember", "search_memory", "every agent's"} {
-		if !strings.Contains(byName["append_note"].Description, want) {
-			t.Errorf("append_note doesn't tell the model %q belongs elsewhere:\n%s", want, byName["append_note"].Description)
-		}
+	// An action is required: a call without one does nothing.
+	if _, err := notes.Run(json.RawMessage(`{"text":"x"}`)); err == nil || !strings.Contains(err.Error(), "read, append, edit") {
+		t.Errorf("notes without an action answered %v", err)
 	}
 
-	out, err := byName["edit_note"].Run(json.RawMessage(`{"match":"Java 21","text":"the build needs Java 25"}`))
+	out, err := notes.Run(json.RawMessage(`{"action":"edit","match":"Java 21","text":"the build needs Java 25"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := <-calls; got != "POST /v1/project/notes/edit" {
-		t.Errorf("edit_note called %s", got)
+		t.Errorf("notes edit called %s", got)
 	}
 	for _, want := range []string{"was: - 2026-09-18: Java 21", "now: the build needs Java 25", "the user's own text"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("edit_note answered %q, want it to say %q", out, want)
+			t.Errorf("notes edit answered %q, want it to say %q", out, want)
 		}
 	}
 
-	if out, err = byName["remove_note"].Run(json.RawMessage(`{"match":"Java 21"}`)); err != nil {
+	if out, err = notes.Run(json.RawMessage(`{"action":"remove","match":"Java 21"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if got := <-calls; got != "POST /v1/project/notes/remove" {
-		t.Errorf("remove_note called %s", got)
+		t.Errorf("notes remove called %s", got)
 	}
 	if !strings.Contains(out, "was: - 2026-09-18: Java 21") || strings.Contains(out, "now:") {
-		t.Errorf("remove_note answered %q, want what went and nothing in its place", out)
+		t.Errorf("notes remove answered %q, want what went and nothing in its place", out)
 	}
 
 	// A change nothing names is refused before the round trip: there is no
 	// quote to match, so there is nothing to act on.
-	for _, args := range []string{`{"match":"  ","text":"x"}`, `{"match":"x","text":"  "}`} {
-		if _, err := byName["edit_note"].Run(json.RawMessage(args)); err == nil {
-			t.Errorf("edit_note took %s", args)
+	for _, args := range []string{`{"action":"edit","match":"  ","text":"x"}`, `{"action":"edit","match":"x","text":"  "}`} {
+		if _, err := notes.Run(json.RawMessage(args)); err == nil {
+			t.Errorf("notes took %s", args)
 		}
 	}
-	if _, err := byName["remove_note"].Run(json.RawMessage(`{"match":"  "}`)); err == nil {
-		t.Error("remove_note took a quote of nothing")
+	if _, err := notes.Run(json.RawMessage(`{"action":"remove","match":"  "}`)); err == nil {
+		t.Error("notes remove took a quote of nothing")
 	}
 }
 
@@ -280,7 +284,7 @@ func TestAgentDiffIsClippedForTheChat(t *testing.T) {
 	if len(out) > maxChatDiff {
 		t.Errorf("the clipped diff is %d bytes, over %d", len(out), maxChatDiff)
 	}
-	for _, want := range []string{"agent-21's change is 146 KiB", "server.mjs | 5000", `agent_diff("agent-21", path)`} {
+	for _, want := range []string{"agent-21's change is 146 KiB", "server.mjs | 5000", `read_agent("agent-21", show diff, path)`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the clipped diff is missing %q", want)
 		}
@@ -312,7 +316,7 @@ func TestReadAgentLeavesSubagentsOut(t *testing.T) {
 	}
 }
 
-// TestDescribeAccounts (D88): list_accounts never says a token, is silent
+// TestDescribeAccounts (D88): list_resources accounts never says a token, is silent
 // about spreading agents when there is only one to spread across, and is
 // honest about a window that reset since its reading.
 func TestDescribeAccounts(t *testing.T) {
@@ -382,15 +386,15 @@ func TestCreateAgentNamesTheAgentDefaults(t *testing.T) {
 		want     []string
 	}{
 		{"nothing chosen", api.Settings{DefaultLeadModel: "claude-lead-only"}, api.Project{},
-			[]string{"Leave this out for opus", "Leave this out for 500k"}},
+			[]string{"Leave this out for opus", "Leave this out for 500k", "any window from 100k up to 500k", "a longer one is refused"}},
 		{"chosen in Settings", api.Settings{DefaultClaudeModel: "sonnet", DefaultAgentContextWindow: "1000000", DefaultLeadModel: "claude-lead-only"}, api.Project{},
-			[]string{"Leave this out for sonnet", "Leave this out for 1m"}},
+			[]string{"Leave this out for sonnet", "Leave this out for 1m", "Any window from 100k up to the model's whole window"}},
 		{"chosen for the project", api.Settings{DefaultClaudeModel: "sonnet"}, api.Project{AgentModel: "claude-fable-5-1"},
-			[]string{"Leave this out for claude-fable-5-1, the model this project's settings name"}},
+			[]string{"Leave this out for claude-fable-5-1, this project's choice"}},
 		{"enforced", api.Settings{DefaultClaudeModel: "opus", DefaultAgentContextWindow: "1000000", EnforceAgentDefaults: true}, api.Project{},
 			[]string{"enforces opus for every agent you create, so leave this out", "enforces 1m for every agent you create"}},
 		{"a ceiling", api.Settings{DefaultClaudeModel: "opus"}, api.Project{},
-			[]string{"also the most you may use", "haiku for a mechanical job", "A model above it is refused", "a longer one is refused"}},
+			[]string{"also the most you may use", "haiku for a mechanical job", "a model above it is refused", "a longer one is refused"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			socket := filepath.Join(t.TempDir(), "lead.sock")
@@ -424,7 +428,7 @@ func TestCreateAgentNamesTheAgentDefaults(t *testing.T) {
 	}
 }
 
-// list_connectors describes the project's connectors to its chat, and
+// list_resources connectors describes the project's connectors to its chat, and
 // create_agent passes the ones an agent is limited to — none being a limit
 // too, and leaving it out none at all.
 func TestLeadConnectorTools(t *testing.T) {
@@ -458,7 +462,7 @@ func TestLeadConnectorTools(t *testing.T) {
 	for _, tool := range projectTools(context.Background(), api.NewClient(socket)) {
 		byName[tool.Name] = tool
 	}
-	out, err := byName["list_connectors"].Run(json.RawMessage(`{}`))
+	out, err := byName["list_resources"].Run(json.RawMessage(`{"kind":"connectors"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +472,7 @@ func TestLeadConnectorTools(t *testing.T) {
 		"- sentry — https://mcp.sentry.dev/mcp, turned off",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("list_connectors doesn't say %q:\n%s", want, out)
+			t.Errorf("list_resources connectors doesn't say %q:\n%s", want, out)
 		}
 	}
 	if schema, _ := json.Marshal(byName["create_agent"].Schema); !strings.Contains(string(schema), `"connectors"`) {
@@ -501,5 +505,64 @@ func TestLeadConnectorTools(t *testing.T) {
 func TestDescribeConnectorsWithNone(t *testing.T) {
 	if out := describeConnectors(nil); !strings.Contains(out, "no connectors") || !strings.Contains(out, "request_connector") {
 		t.Errorf("describeConnectors(nil) = %q", out)
+	}
+}
+
+// create_agent with no ai leaves the tool to the daemon, which gives the
+// agent the lead's own; the reply names the tool it got, and says why when
+// that is Claude Code instead of the lead's. The description says so too.
+func TestCreateAgentFollowsTheLeadsTool(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "lead.sock")
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := make(chan api.CreateAgentRequest, 4)
+	reply := make(chan api.Job, 4)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
+			var req api.CreateAgentRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			sent <- req
+			_ = json.NewEncoder(w).Encode(<-reply)
+			return
+		}
+		_, _ = w.Write([]byte("{}"))
+	})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	var create mcp.Tool
+	for _, tool := range projectTools(context.Background(), api.NewClient(socket)) {
+		if tool.Name == "create_agent" {
+			create = tool
+		}
+	}
+	if !strings.Contains(create.Description, "Without ai it runs the tool you run") {
+		t.Errorf("create_agent doesn't say an agent runs the lead's tool:\n%s", create.Description)
+	}
+
+	reply <- api.Job{ID: "job_1", AI: "cursor"}
+	out, err := create.Run(json.RawMessage(`{"title":"Reminders page","task":"add it"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req := <-sent; req.AI != "" {
+		t.Errorf("create_agent sent ai %q, want it left to the daemon", req.AI)
+	}
+	if !strings.Contains(out, "on cursor") {
+		t.Errorf("reply = %q, want it to name Cursor", out)
+	}
+
+	reply <- api.Job{ID: "job_2", AI: "claude", Notice: "This agent runs Claude Code, not Cursor like you: agents aren't signed in to Cursor."}
+	if out, err = create.Run(json.RawMessage(`{"title":"Reminders page","task":"add it"}`)); err != nil {
+		t.Fatal(err)
+	}
+	<-sent
+	if !strings.Contains(out, "Job job_2.\nThis agent runs Claude Code, not Cursor like you") {
+		t.Errorf("reply = %q, want the fallback said", out)
 	}
 }

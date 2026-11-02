@@ -14,10 +14,11 @@ export function useProjectPages(project: string | null | undefined) {
   return query;
 }
 
-// useAllPages is every project's live pages, each with its project.
-export function useAllPages(): PageAt[] {
-  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const names = (projects.data ?? []).map((p) => p.name);
+// usePagesOf is a project's live pages, or every project's (project ''),
+// each with its project.
+export function usePagesOf(project: string): PageAt[] {
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: !project });
+  const names = project ? (isHomeChat(project) ? [] : [project]) : (projects.data ?? []).map((p) => p.name);
   const lists = useQueries({ queries: names.map(pagesQuery) });
   useSeenPages();
   return allLivePages(lists.map((q, i) => [names[i], q.data]));

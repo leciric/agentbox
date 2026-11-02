@@ -88,12 +88,12 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
             on the desktop itself, with Take control, like any other window. */}
         <span
           className={cn(
-            'flex h-8 min-w-0 max-w-[45%] shrink items-center gap-2 rounded-full border border-line-strong bg-well px-3 text-[12.5px]',
+            'flex h-8 min-w-0 max-w-[45%] shrink items-center gap-2 rounded-full border border-line-strong bg-well px-3 text-ui',
             browserUp ? 'text-secondary' : 'text-subtle',
           )}
           aria-label={t('agent.browser.browser')}
         >
-          <span className={cn('size-1.5 shrink-0 rounded-full', browserUp ? 'animate-glow bg-emerald-400' : 'bg-faint')} />
+          <span className={cn('size-1.5 shrink-0 rounded-full', browserUp ? 'bg-emerald-400' : 'bg-faint')} />
           <Globe className="size-3.5 shrink-0 text-subtle" />
           <span className="truncate">
             {browserUp ? page?.title || page?.url || t('agent.browser.noPage') : desktopUp ? t('agent.browser.noBrowser') : t('agent.browser.desktopOff')}
@@ -109,7 +109,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
         </Tip>
         {isRecording ? (
           <Button size="sm" className="border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25" disabled={record.isPending} onClick={() => record.mutate()}>
-            {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 animate-pulse rounded-[3px] bg-rose-400" />}
+            {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 rounded-[3px] bg-rose-400" />}
             <span className="font-mono tabular-nums">{clock(elapsed)}</span>
             {t('agent.browser.stopRecording')}
           </Button>
@@ -140,7 +140,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
             {screen.full ? <Minimize /> : <Maximize />}
           </Button>
         </Tip>
-        <label className={cn('flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-1.5 py-1 text-[13px] text-tertiary', control && 'text-brand-200')}>
+        <label className={cn('flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-1.5 py-1 text-ui text-tertiary', control && 'text-brand-200')}>
           <Switch id="browser-control" checked={control} disabled={!connected} onCheckedChange={setControl} />
           <MousePointer2 className="size-3.5" />
           {t('agent.browser.takeControl')}

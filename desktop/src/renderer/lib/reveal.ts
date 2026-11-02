@@ -23,6 +23,13 @@ export type Reveal = {
   pull?: { project: string; number: number };
   // line selects a line of a textarea (a project's notes), counted from 1.
   line?: number;
+  // setting is the Settings row it is (data-setting-id), for a section to
+  // unfold its Advanced settings when the row is folded among them.
+  setting?: string;
+  // click presses the element once it's there: the command palette's way to
+  // open a dialog a page keeps to itself (a connector's import, the phone's
+  // pairing).
+  click?: boolean;
 };
 
 // How long a request waits for its page, and how long a page that mounts
@@ -82,6 +89,7 @@ async function bringForward(selector: string, reveal: Reveal) {
     return;
   }
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (reveal.click && el instanceof HTMLElement) el.click();
   el.setAttribute('data-revealed', '');
   setTimeout(() => el.removeAttribute('data-revealed'), 2_400);
 }

@@ -36,7 +36,7 @@ export function DeskGlyph({ desk, className }: { desk: Desk; className?: string 
   return (
     <span className={cn('relative inline-flex shrink-0', className)} role="img" aria-label={t(deskLabel[desk])} data-desk={desk}>
       <Icon className={cn('size-3.5', desk === 'live' ? 'text-emerald-400' : 'text-faint')} />
-      {desk === 'live' && <span className="absolute -right-0.5 -top-0.5 size-1.5 animate-pulse rounded-full bg-emerald-400" />}
+      {desk === 'live' && <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-emerald-400" />}
     </span>
   );
 }
@@ -83,18 +83,18 @@ export function DesktopPeek({ agent, desk, className, caption = true }: { agent:
         ) : frame ? (
           <>
             <img src={mediaUrl(frame)} alt="" className="aspect-[16/10] w-full object-cover object-top" />
-            <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1.5 py-px text-[10px] text-white">{t('desk.lastFrame', { ago: timeAgo(frame.createdAt) })}</span>
+            <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1.5 py-px text-caption text-white">{t('desk.lastFrame', { ago: timeAgo(frame.createdAt) })}</span>
           </>
         ) : (
-          <div className="flex aspect-[16/10] w-full flex-col items-center justify-center gap-1 text-[11px] text-subtle">
+          <div className="flex aspect-[16/10] w-full flex-col items-center justify-center gap-1 text-caption text-subtle">
             <Monitor className="size-4 text-faint" />
             {last.isPending ? t('common.loading') : t('desk.nothing')}
           </div>
         )}
-        {up && <span className="absolute left-1 top-1 rounded bg-rose-500/90 px-1 text-[9px] font-bold tracking-wider text-white">{t('panel.live')}</span>}
+        {up && <span className="absolute left-1 top-1 rounded bg-rose-500/90 px-1 text-caption font-bold tracking-wider text-white">{t('panel.live')}</span>}
       </div>
       {caption && (
-        <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-secondary">
+        <span className="flex min-w-0 items-center gap-1.5 text-caption text-secondary">
           <DeskGlyph desk={desk} />
           <span className="truncate">{t(deskLine(desk, up))}</span>
         </span>

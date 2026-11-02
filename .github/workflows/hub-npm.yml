@@ -1,0 +1,49 @@
+# Publishes the hub to npm (npx agentbox-hub): the per-platform packages with
+# the binary, then the launcher. hub/npm/PUBLISHING.md says how, and what it
+# needs once (the npm account, the NPM_TOKEN secret).
+#
+# On a pushed tag hub-v<version>, or by hand with a version. The app's own
+# v* tags are release-please's, and never publish the hub.
+name: Hub npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish (for example 1.2.3)
+        required: true
+  push:
+    tags: ["hub-v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go node
+      - name: Work out the version
+        env:
+          INPUT: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo "VERSION=$INPUT" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${GITHUB_REF_NAME#hub-v}" >> "$GITHUB_ENV"
+          fi
+      - run: hub/scripts/npm-build.sh "$VERSION"
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm config set //registry.npmjs.org/:_authToken "$NODE_AUTH_TOKEN"
+          for d in hub/npm/dist/*-*; do
+            (cd "$d" && npm publish --access public --provenance)
+          done
+          (cd hub/npm/dist/agentbox-hub && npm publish --access public --provenance)

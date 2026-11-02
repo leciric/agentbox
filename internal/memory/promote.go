@@ -166,7 +166,7 @@ func Promotable(m Memory) error {
 	case m.Promotion == PromotionPromoted:
 		return fmt.Errorf("%s is a note already", m.ID)
 	case m.Promotion == PromotionDismissed:
-		return fmt.Errorf("%s was dismissed as a note: write the note with append_note if that has changed", m.ID)
+		return fmt.Errorf("%s was dismissed as a note: write the note with notes append if that has changed", m.ID)
 	}
 	for _, k := range promotableKinds {
 		if m.Kind == k {

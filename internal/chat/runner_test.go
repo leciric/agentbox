@@ -313,7 +313,7 @@ func TestRunnerIsOnlyALeads(t *testing.T) {
 	if _, err := m.SetRunner(testAgent, "codex", ""); err == nil {
 		t.Error("SetRunner() on an agent succeeded, want it refused")
 	}
-	if _, err := m.SetRunner(testLead, "gemini", ""); err == nil {
+	if _, err := m.SetRunner(testLead, "aider", ""); err == nil {
 		t.Error("SetRunner() with an unknown tool succeeded, want it refused")
 	}
 }

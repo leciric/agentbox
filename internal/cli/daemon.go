@@ -13,6 +13,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/daemon"
+	"agentbox/internal/hostos"
 	"agentbox/internal/incus"
 )
 
@@ -42,6 +43,8 @@ func newDaemonCmd(a *app) *cobra.Command {
 				ReleasesURL: os.Getenv("AGENTBOX_RELEASES_URL"),
 				PreviewAddr: os.Getenv("AGENTBOX_PREVIEW_ADDR"),
 				TraceDir:    filepath.Dir(a.paths.StateDB()),
+				FetchImage:  hostos.InVM(),
+				CrashOutput: true,
 			})
 			if err != nil {
 				return err

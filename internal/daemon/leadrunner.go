@@ -45,7 +45,7 @@ func (s *Server) chatRunners(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	m := s.manager(nil)
-	choice, err := m.LeadChoice(ctx, a.Project)
+	choice, err := m.LeadChoiceOf(ctx, a)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (s *Server) chatRunners(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	for _, tool := range agent.LeadTools {
-		row := api.LeadRunner{Tool: tool, Name: agent.ChatAdapters[tool].Tool, Installed: m.LeadToolInstalled(tool)}
+		row := api.LeadRunner{Tool: tool, Name: agent.ChatAdapters[tool].Tool, Installed: m.LeadToolInstalled(ctx, tool)}
 		if err := m.LeadToolLogin(p, tool); err != nil {
 			row.Reason = err.Error()
 		} else {
@@ -68,7 +68,7 @@ func (s *Server) chatRunners(w http.ResponseWriter, r *http.Request) error {
 		switch tool {
 		case "claude":
 			row.Accounts = accounts
-		case "codex", "cursor":
+		case "codex", "cursor", "gemini":
 			if row.Accounts, err = s.leadToolRows(p, tool); err != nil {
 				return err
 			}
@@ -78,7 +78,7 @@ func (s *Server) chatRunners(w http.ResponseWriter, r *http.Request) error {
 			on := a
 			on.AI = tool
 			if logins, err := m.LeadLogins(ctx, on); err == nil {
-				out.ToolAccounts[tool] = map[string]string{"codex": logins.Codex, "cursor": logins.Cursor, "opencode": formatOpenCode(logins.OpenCode)}[tool]
+				out.ToolAccounts[tool] = map[string]string{"codex": logins.Codex, "cursor": logins.Cursor, "gemini": logins.Gemini, "opencode": formatOpenCode(logins.OpenCode)}[tool]
 			}
 		}
 		out.Runners = append(out.Runners, row)
@@ -118,7 +118,7 @@ func (s *Server) setChatRunner(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	default:
-		if _, err := m.CheckLogin(req.Tool, p, map[string]agent.Logins{"codex": {Codex: req.Account}, "cursor": {Cursor: req.Account}}[req.Tool]); err != nil {
+		if _, err := m.CheckLogin(req.Tool, p, agent.LoginsFor(req.Tool, req.Account)); err != nil {
 			return err
 		}
 	}
@@ -163,7 +163,7 @@ func accountNote(session api.ChatSession) string {
 func (s *Server) leadOnAccount(ctx context.Context, a state.Agent, p state.Project) (state.Agent, error) {
 	m := s.manager(s.cfg.Log)
 	if a.IsHome() {
-		home := m.Home()
+		home := m.HomeSession(a.Session())
 		if home.AI != "claude" {
 			return s.leadToolLogins(home)
 		}
@@ -174,12 +174,12 @@ func (s *Server) leadOnAccount(ctx context.Context, a state.Agent, p state.Proje
 		if err != nil {
 			return a, err
 		}
-		changed := logins.Codex != a.CodexAccount || logins.Cursor != a.CursorAccount || logins.OpenCode.String() != a.OpenCodeAccounts.String()
-		a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount = logins.Codex, logins.OpenCode, logins.Cursor
+		changed := logins.Codex != a.CodexAccount || logins.Cursor != a.CursorAccount || logins.Gemini != a.GeminiAccount || logins.OpenCode.String() != a.OpenCodeAccounts.String()
+		a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount = logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini
 		// A lead never chatted with has no row to store them on: its first
 		// message resolves them again.
 		if changed && a.Status != "" {
-			if err := s.store.SetAgentToolAccounts(ctx, a.Project, a.Name, logins.Codex, logins.OpenCode, logins.Cursor); err != nil {
+			if err := s.store.SetAgentToolAccounts(ctx, a.Project, a.Name, logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini); err != nil {
 				return a, err
 			}
 		}
