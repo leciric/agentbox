@@ -130,6 +130,7 @@
 //                           saves (fixtures.ts)
 //   ?enforce=1              with ?settings=project:<name>: "Enforce this model" on, so the
 //                           project's model picker warns that Settings' model wins
+//   ?phones=long            with ?settings=phone: a paired phone last seen from a long IPv6 address
 //   ?tunnel=hub             with ?settings=phone: chatting from a phone on, reached
 //                           from anywhere at the hub's stable address; the address
 //                           choice switches, as the daemon would (?tunnel=nohub: no hub;
@@ -1442,6 +1443,10 @@ function settingsBridge(): void {
       ...(phone === 'tailscale' && mode === 'hub' ? { transport: 'tailscale', tailnet: 'example.com' } : { transport: undefined, tailnet: undefined }),
     },
   });
+  if (params.get('phones') === 'long') {
+    // A phone seen from a full-length IPv6 address, which has no spaces to wrap at.
+    lan = { ...lan, enabled: true, listening: true, urls: ['http://192.168.1.20:7780/'], phones: [{ id: 'p1', name: 'Pixel 9 Pro', paired: '2026-10-20T12:00:00Z', lastSeen: '2026-11-01T18:30:00Z', lastAddr: '2804:14d:5c81:4a2f:9d3e:b7ff:fe21:6c4a%wlp3s0', scopes: ['read', 'chat', 'answer', 'merge'] }] };
+  }
   if (phone) {
     lan = { ...lan, enabled: true, listening: true, tunnel: { ...lan.tunnel, enabled: true, state: 'running', hub, namedHostname: 'chat.example.com' } };
     lan = withMode(hub ? 'hub' : 'quick');
