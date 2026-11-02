@@ -14,7 +14,7 @@ export const pagesKey = (project: string) => ['pages', project] as const;
 // isLeadRef is a chat ref that is a project's chat, its lead's.
 export const isLeadRef = (ref: string) => {
   const [, name] = ref.split('/');
-  return !name || name === T.LeadName;
+  return !name || name === T.LeadName || name.startsWith(`${T.LeadName}.`);
 };
 
 // isExpired is a page Hatch no longer has, by what the daemon read of it.
@@ -52,23 +52,6 @@ export function matchesPage(a: T.Artifact, query: string, agentLabel = '', proje
   if (words.length === 0) return true;
   const hay = `${a.title} ${a.agent.split('/')[1] ?? ''} ${agentLabel} ${project}`.toLowerCase();
   return words.every((w) => hay.includes(w));
-}
-
-// byAgent groups pages under the agent that published each, the group with
-// the newest page first, each group newest first.
-export function byAgent(list: T.Artifact[]): [string, T.Artifact[]][] {
-  const groups = new Map<string, T.Artifact[]>();
-  const newest = (a: T.Artifact) => new Date(a.updatedAt).getTime();
-  for (const a of [...list].sort((x, y) => newest(y) - newest(x))) groups.set(a.agent, [...(groups.get(a.agent) ?? []), a]);
-  return [...groups];
-}
-
-// countByAgent is how many live pages each agent published, for its row in
-// the Agents list.
-export function countByAgent(list: T.Artifact[]): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const a of list) out.set(a.agent, (out.get(a.agent) ?? 0) + 1);
-  return out;
 }
 
 // countByProject is how many pages each project has, in the order projects

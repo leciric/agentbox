@@ -12,6 +12,7 @@ import (
 const (
 	MemInfo = "/proc/meminfo"
 	VMStat  = "/proc/vmstat"
+	Swaps   = "/proc/swaps"
 )
 
 // Mem is the VM's memory as /proc/meminfo has it, in bytes, and the most it
@@ -19,6 +20,9 @@ const (
 type Mem struct {
 	Total, Available    int64
 	SwapTotal, SwapFree int64
+	// DiskSwapTotal and DiskSwapFree are the part of that on a swapfile or
+	// partition rather than zram, from /proc/swaps; 0 unread.
+	DiskSwapTotal, DiskSwapFree int64
 	// Cap is the most memory the VM may be given (a Cloud Hypervisor VM is
 	// granted it with virtio-mem as it needs it); 0 when it can't grow, so
 	// Total is all it gets.
@@ -50,13 +54,35 @@ func (m Mem) AvailableShare() float64 {
 	return float64(m.Available) / float64(m.Total)
 }
 
-// SwapUsed is the share of swap (zram) in use, 0 to 1; 1 with no swap, which
-// is as good as full.
+// DiskSwapTolerance is how much of the disk swap may be in use before it
+// counts as memory being out: a few cold pages the kernel put there stay
+// there until touched, and paging is slow only once there is a lot of it.
+const DiskSwapTolerance = int64(256) << 20
+
+// DiskSwapUsed is how much of the disk swap (not zram) is in use.
+func (m Mem) DiskSwapUsed() int64 { return max(0, m.DiskSwapTotal-m.DiskSwapFree) }
+
+// DiskSwapOut reports whether the VM has paged more than DiskSwapTolerance
+// to disk, which is what a full zram spills into (the swapfile
+// `agentbox vm swap on` makes is used after it): the agents are already slow
+// by then, so it counts as memory being out.
+func (m Mem) DiskSwapOut() bool { return m.DiskSwapUsed() >= DiskSwapTolerance }
+
+// SwapUsed is the share of swap in use, 0 to 1; 1 with no swap, which is as
+// good as full. A disk swap beside zram doesn't make more room: zram is the
+// limit, so its share is what counts, and 1 once DiskSwapOut.
 func (m Mem) SwapUsed() float64 {
 	if m.SwapTotal <= 0 {
 		return 1
 	}
-	return float64(m.SwapTotal-m.SwapFree) / float64(m.SwapTotal)
+	total, free := m.SwapTotal, m.SwapFree
+	if zram := m.SwapTotal - m.DiskSwapTotal; m.DiskSwapTotal > 0 && zram > 0 {
+		if m.DiskSwapOut() {
+			return 1
+		}
+		total, free = zram, max(0, m.SwapFree-m.DiskSwapFree)
+	}
+	return float64(total-free) / float64(total)
 }
 
 // Sample is one reading of the VM's memory: its pressure and its headroom.
@@ -76,6 +102,9 @@ func (s Sample) String() string {
 		if s.Mem.SwapTotal > 0 {
 			out += fmt.Sprintf(", swap %.0f%% used", 100*s.Mem.SwapUsed())
 		}
+		if s.Mem.DiskSwapOut() {
+			out += fmt.Sprintf(", %s paged to the disk swap, so memory is out", gib(s.Mem.DiskSwapUsed()))
+		}
 	}
 	return out
 }
@@ -90,6 +119,7 @@ type Sampler struct {
 	mu           sync.Mutex
 	psi, meminfo *os.File
 	vmstat       *os.File // nil without one
+	swaps        *os.File // nil without one
 	cap, page    int64
 	buf          [16 << 10]byte // /proc/vmstat is about 6 KiB
 }
@@ -115,11 +145,24 @@ func OpenSampler(psiPath, meminfoPath, vmstatPath string, cap int64) (*Sampler, 
 	return out, nil
 }
 
+// ReadSwaps makes the sampler read the swap devices from path (/proc/swaps)
+// too, to tell disk swap from zram; without it Mem has no disk swap figures.
+func (s *Sampler) ReadSwaps(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if f, err := os.Open(path); err == nil {
+		s.swaps = f
+	}
+}
+
 // Close closes its files.
 func (s *Sampler) Close() error {
 	err := errors.Join(s.psi.Close(), s.meminfo.Close())
 	if s.vmstat != nil {
 		err = errors.Join(err, s.vmstat.Close())
+	}
+	if s.swaps != nil {
+		err = errors.Join(err, s.swaps.Close())
 	}
 	return err
 }
@@ -144,6 +187,11 @@ func (s *Sampler) Read() (Sample, error) {
 	if b, err := s.read(s.meminfo); err == nil {
 		out.Mem = parseMemInfo(b)
 		out.Mem.Cap = s.cap
+	}
+	if s.swaps != nil {
+		if b, err := s.read(s.swaps); err == nil {
+			out.Mem.DiskSwapTotal, out.Mem.DiskSwapFree = parseSwaps(b)
+		}
 	}
 	if s.vmstat != nil {
 		if b, err := s.read(s.vmstat); err == nil {
@@ -224,6 +272,38 @@ func parseMemInfo(b []byte) Mem {
 		*to = int64(decimal(trimSpace(rest))) << 10 // kB
 	}
 	return out
+}
+
+// parseSwaps is the size and the free part, in bytes, of the swap devices in
+// /proc/swaps that aren't zram.
+func parseSwaps(b []byte) (total, free int64) {
+	_, b = cutByte(b, '\n') // the header
+	for len(b) > 0 {
+		var line []byte
+		line, b = cutByte(b, '\n')
+		var f [4][]byte
+		n := 0
+		for len(line) > 0 && n < len(f) {
+			for len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+				line = line[1:]
+			}
+			i := 0
+			for i < len(line) && line[i] != ' ' && line[i] != '\t' {
+				i++
+			}
+			if i > 0 {
+				f[n], n = line[:i], n+1
+			}
+			line = line[i:]
+		}
+		if n < 4 || len(f[0]) >= 9 && string(f[0][:9]) == "/dev/zram" {
+			continue
+		}
+		size, used := int64(decimal(f[2]))<<10, int64(decimal(f[3]))<<10
+		total += size
+		free += max(0, size-used)
+	}
+	return total, free
 }
 
 // parseVMStat is the pages /proc/vmstat counts as read back in: swapped in

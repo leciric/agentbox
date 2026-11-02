@@ -93,7 +93,7 @@ export function ConnectorImportDialog({ project, onClose }: { project?: string; 
           <DialogTitle>{t('project.connectors.importTitle')}</DialogTitle>
           <DialogDescription className="mt-1">{t('project.connectors.importDescription')}</DialogDescription>
           <div className="mt-4 flex items-center gap-3">
-            <label htmlFor="connector-import-scope" className="shrink-0 text-[12.5px] text-subtle">
+            <label htmlFor="connector-import-scope" className="shrink-0 text-ui text-subtle">
               {t('project.connectors.importScope')}
             </label>
             {project ? (
@@ -102,7 +102,7 @@ export function ConnectorImportDialog({ project, onClose }: { project?: string; 
                 <SelectOption value="">{t('project.connectors.importScopeWide')}</SelectOption>
               </Select>
             ) : (
-              <span id="connector-import-scope" className="text-[13px] text-primary">
+              <span id="connector-import-scope" className="text-ui text-primary">
                 {t('project.connectors.importScopeWide')}
               </span>
             )}
@@ -111,7 +111,7 @@ export function ConnectorImportDialog({ project, onClose }: { project?: string; 
 
         <div className="min-h-0 flex-1 overflow-y-auto border-t border-line-faint px-6 py-4">
           {scan.isFetching && (
-            <p className="flex items-center justify-center gap-2 py-10 text-[13px] text-subtle">
+            <p className="flex items-center justify-center gap-2 py-10 text-ui text-subtle">
               <LoaderCircle className="size-4 animate-spin" /> {t('project.connectors.importLooking')}
             </p>
           )}
@@ -122,7 +122,7 @@ export function ConnectorImportDialog({ project, onClose }: { project?: string; 
                 {t('project.connectors.importUnreadable', { tool: toolNames[u.tool] ?? u.tool, path: u.path, error: u.error })}
               </Notice>
             ))}
-          {!scan.isFetching && !scan.error && found.length === 0 && <p className="py-10 text-center text-[13px] text-subtle">{t('project.connectors.importNone')}</p>}
+          {!scan.isFetching && !scan.error && found.length === 0 && <p className="py-10 text-center text-ui text-subtle">{t('project.connectors.importNone')}</p>}
           {!scan.isFetching && (
             <ul className="grid gap-1.5" aria-label={t('project.connectors.importTitle')}>
               {found.map((c) => (
@@ -144,11 +144,11 @@ export function ConnectorImportDialog({ project, onClose }: { project?: string; 
 
         <div className="flex shrink-0 items-center gap-3 border-t border-line px-6 py-3">
           {run.error ? (
-            <p className="flex min-w-0 items-center gap-2 text-[12.5px] text-rose-300">
+            <p className="flex min-w-0 items-center gap-2 text-ui text-rose-300">
               <AlertTriangle className="size-4 shrink-0" /> <span className="truncate">{errorMessage(run.error)}</span>
             </p>
           ) : importable.length > 0 ? (
-            <div className="flex items-center gap-3 text-[12.5px]">
+            <div className="flex items-center gap-3 text-ui">
               <button className="text-brand-300 hover:underline" onClick={() => setPicked(new Set(importable.map((c) => c.url!)))}>
                 {t('project.connectors.importSelectAll')}
               </button>
@@ -223,34 +223,34 @@ function CandidateRow({
         </button>
         <div className="grid min-w-0 flex-1 gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-mono text-[13px] font-medium text-title">{c.name}</span>
+            <span className="font-mono text-ui font-medium text-title">{c.name}</span>
             {tools.map((tool) => (
               <Badge key={tool}>{tool}</Badge>
             ))}
             {c.existing && <Badge variant="brand">{t('project.connectors.importExisting', { name: c.existing })}</Badge>}
           </div>
           {(c.url || c.command) && (
-            <span className="min-w-0 truncate font-mono text-[11.5px] text-subtle" title={c.url}>
+            <span className="min-w-0 truncate font-mono text-caption text-subtle" title={c.url}>
               {c.url || c.command}
             </span>
           )}
           {inProject && tools.length === 1 && (
-            <span className="min-w-0 truncate text-[11.5px] text-faint" title={inProject.project}>
+            <span className="min-w-0 truncate text-caption text-faint" title={inProject.project}>
               {t('project.connectors.importInProject', { tool: toolNames[inProject.tool] ?? inProject.tool, project: inProject.project ?? '' })}
             </span>
           )}
           {problem ? (
-            <p className="flex items-center gap-1.5 text-[12px] text-subtle">
+            <p className="flex items-center gap-1.5 text-caption text-subtle">
               <AlertTriangle className="size-3.5 shrink-0" /> {problem}
             </p>
           ) : c.existing ? null : c.needsValue ? (
             <div className="grid gap-1.5">
-              <p className="flex items-center gap-1.5 text-[12px] text-muted">
+              <p className="flex items-center gap-1.5 text-caption text-muted">
                 <KeyRound className="size-3.5 shrink-0" /> {t('project.connectors.importNeedsValue', { header: c.header ?? '', variable: c.variable ?? '' })}
               </p>
               <Input
                 type="password"
-                className="h-8 max-w-sm font-mono text-[12.5px]"
+                className="h-8 max-w-sm font-mono text-ui"
                 placeholder={t('project.connectors.importValuePlaceholder', { variable: c.variable ?? '' })}
                 aria-label={t('project.connectors.importValuePlaceholder', { variable: c.variable ?? '' })}
                 autoComplete="off"
@@ -260,7 +260,7 @@ function CandidateRow({
               />
             </div>
           ) : (
-            <p className="flex items-center gap-1.5 text-[12px] text-muted">
+            <p className="flex items-center gap-1.5 text-caption text-muted">
               {c.header ? <KeyRound className="size-3.5 shrink-0" /> : null}
               {c.header ? t('project.connectors.importHeader', { header: c.header, secret: c.secret ?? '' }) : t('project.connectors.importOAuth')}
             </p>

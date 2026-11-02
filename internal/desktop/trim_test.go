@@ -74,7 +74,7 @@ func TestTrimCutsLongStillnessToAMoment(t *testing.T) {
 	// 1 frame, then 5s of the same (75 frames), then a change and 1s of it.
 	frames := append(still(a, 1+5*FrameRate), still(b, FrameRate)...)
 	out, cuts := trimRun(t, frames)
-	// The first, the 0.4s of stillness kept, then all of b's second (its own
+	// The first, the 1.2s of stillness kept, then all of b's second (its own
 	// stillness is no longer than StillFor).
 	// The emitted frames are named by the first input they equal.
 	var shows []int
@@ -142,15 +142,15 @@ func TestTrimSeesThePointerMove(t *testing.T) {
 }
 
 func TestTrimAddsUpASlowChange(t *testing.T) {
-	// Text typed a character a second: each one is too small to count, but
-	// against the last frame kept, the third makes a change.
+	// Text typed a character every two seconds: each one is too small to
+	// count, but against the last frame kept, the third makes a change.
 	var frames [][]byte
 	for c := range 6 {
 		var rects [][4]int
 		for i := range c {
 			rects = append(rects, [4]int{40 + i*10, 40, 8, 12})
 		}
-		frames = append(frames, still(frameOf(rects...), FrameRate)...)
+		frames = append(frames, still(frameOf(rects...), 2*FrameRate)...)
 	}
 	_, a := trimRun(t, frames)
 	_, b := trimRun(t, frames)
@@ -172,5 +172,14 @@ func TestTrimShrinksPartialBlocks(t *testing.T) {
 		if v != 100-1 && v != 100 {
 			t.Fatalf("block %d = %d; want 100", i, v)
 		}
+	}
+}
+
+func TestTrimPacingIsReadable(t *testing.T) {
+	if got := float64(stillFrames) / FrameRate; got != 2 {
+		t.Errorf("StillFor = %gs; want 2s, long enough to tell stillness from a pause", got)
+	}
+	if got := float64(keepFrames) / FrameRate; got != 1.2 {
+		t.Errorf("KeepStill = %gs; want 1.2s, so the trim keeps the pauses a reviewer needs", got)
 	}
 }

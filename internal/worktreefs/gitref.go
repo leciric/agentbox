@@ -36,6 +36,26 @@ func BranchCommit(root, branch string) (string, error) {
 	return "", fmt.Errorf("%w: %s", ErrNoBranch, branch)
 }
 
+// BranchTips is every branch's commit in the repository at root, read at
+// once, as BranchCommit reads one: the local branch's, or origin's when there
+// is no local one.
+func BranchTips(root string) (map[string]string, error) {
+	out, err := git(root, nil, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/", "refs/remotes/origin/")
+	if err != nil {
+		return nil, err
+	}
+	tips := map[string]string{}
+	for line := range strings.Lines(out) {
+		commit, ref, _ := strings.Cut(strings.TrimSpace(line), " ")
+		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+			tips[branch] = commit
+		} else if branch, ok := strings.CutPrefix(ref, "refs/remotes/origin/"); ok && tips[branch] == "" {
+			tips[branch] = commit
+		}
+	}
+	return tips, nil
+}
+
 func commitOf(root, rev string) (string, error) {
 	out, err := git(root, nil, "rev-parse", "--verify", "--quiet", "--end-of-options", rev+"^{commit}")
 	if err != nil {

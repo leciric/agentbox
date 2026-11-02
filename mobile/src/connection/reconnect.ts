@@ -35,6 +35,8 @@ export interface ReconnectorOptions {
   // drop abandons an attempt that never opened, before the next one.
   drop: () => void;
   connected: () => boolean;
+  // ended says the stream finished without an error (the daemon restarted).
+  ended?: () => boolean;
   // React Native's AppState, and expo-network's listener.
   appState: { currentState: string; addEventListener: (type: 'change', fn: (next: AppStateStatus) => void) => unknown };
   network?: (fn: (state: Network) => void) => void;
@@ -121,7 +123,7 @@ export function reconnector(opts: ReconnectorOptions): Reconnector {
   const silent = () => now() - lastHeard > silentAfter || (wokeAt !== undefined && lastHeard < wokeAt && now() - wokeAt > wakeGrace);
 
   every(() => {
-    if (following && active() && opts.connected() && silent()) follow();
+    if (following && active() && opts.connected() && (silent() || opts.ended?.() === true)) follow();
   }, 5_000);
   opts.appState.addEventListener('change', (next) => {
     if (next !== 'active') {

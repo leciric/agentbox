@@ -105,7 +105,7 @@ export function Select({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.stopPropagation()}
               placeholder={t('common.search')}
-              className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+              className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none"
             />
           </div>
         )}
@@ -119,7 +119,7 @@ export function Select({
             {option.label}
           </MenuItem>
         ))}
-        {filtered.length === 0 && <div className="px-2.5 py-3 text-center text-[12px] text-subtle">{t('shell.ui.noMatch', { query: query.trim() })}</div>}
+        {filtered.length === 0 && <div className="px-2.5 py-3 text-center text-caption text-subtle">{t('shell.ui.noMatch', { query: query.trim() })}</div>}
       </MenuContent>
     </Menu>
   );

@@ -4,10 +4,11 @@ import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { ConnectionState } from '../../preload';
 import * as T from '../../shared/api.ts';
-import { api } from './api.ts';
+import { api, sessionOfRef, sessionRef } from './api.ts';
 import { questionsKey, withQuestion } from './inboxPages.ts';
 import { applyMediaEvent, setMediaUnseen } from './mediaPages.ts';
 import { pastAgentsKey } from './pastAgents.ts';
+import { workKey } from './work.ts';
 import { applySeen } from './notifications.ts';
 import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
@@ -97,6 +98,11 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventChat: {
         const chat = event.data as T.ChatEvent;
         applyChatEvent(queryClient, chat);
+        // A session's state, or a new message in it, is what its tab and the
+        // sidebar show.
+        if (sessionOfRef(chat.agent) && (chat.session || (chat.item && (chat.item.kind === 'user' || chat.item.kind === 'assistant')))) {
+          void queryClient.invalidateQueries({ queryKey: ['leadSessions', chat.agent.split('/')[0]] });
+        }
         // A tool call that finished may have changed files the tree shows.
         if (chat.item && changesFiles(chat.item)) refreshFiles(queryClient, chat.agent, api.fileStatus);
         // A page published on Hatch joins the project's pages.
@@ -104,9 +110,18 @@ export function connectEvents(queryClient: QueryClient): void {
         break;
       }
       case T.EventChatCache: {
-        // A project chat's cache card went up or down (see CacheCard).
+        // A project chat's cache card went up or down (see CacheCard): one
+        // session's, or the Home chat's.
         const cache = event.data as T.ChatCache;
-        queryClient.setQueryData(['chatCache', cache.project], cache);
+        queryClient.setQueryData(['chatCache', cache.session ? sessionRef(cache.project, cache.session) : `${cache.project}/${T.LeadName}`], cache);
+        break;
+      }
+      case T.EventLeadSessions: {
+        // A project's chat sessions were opened, renamed or deleted, or an
+        // agent moved between them.
+        const change = event.data as T.LeadSessionsChange;
+        void queryClient.invalidateQueries({ queryKey: ['leadSessions', change.project] });
+        void queryClient.invalidateQueries({ queryKey: ['fleet', change.project] });
         break;
       }
       case T.EventAgentEvent: {
@@ -120,6 +135,7 @@ export function connectEvents(queryClient: QueryClient): void {
         if (agentEvent.kind === T.AgentFinished) {
           void queryClient.invalidateQueries({ queryKey: ['review'] });
           void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
+          void queryClient.invalidateQueries({ queryKey: workKey });
         }
         break;
       }
@@ -196,7 +212,16 @@ export function connectEvents(queryClient: QueryClient): void {
           // A pull request fixed brings its agent back to "Ready to review".
           void queryClient.invalidateQueries({ queryKey: ['review'] });
           void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
+          void queryClient.invalidateQueries({ queryKey: workKey });
+          void queryClient.invalidateQueries({ queryKey: workKey });
         }
+        break;
+      }
+      case T.EventRemoteAgents: {
+        // One of the lead's agents on another machine moved: the fleet
+        // carries them (AgentRail's RemoteSection).
+        const { project } = event.data as T.RemoteAgentsChange;
+        void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
         break;
       }
       case T.EventGroup: {
@@ -211,6 +236,7 @@ export function connectEvents(queryClient: QueryClient): void {
         void queryClient.invalidateQueries({ queryKey: ['review'] });
         void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
         void queryClient.invalidateQueries({ queryKey: ['reviewed'] });
+        void queryClient.invalidateQueries({ queryKey: workKey });
         break;
       case T.EventAgent: {
         const change = event.data as T.AgentChange;
@@ -218,13 +244,16 @@ export function connectEvents(queryClient: QueryClient): void {
         if (!change.removed && agents?.some((a) => a.ref === change.ref)) {
           queryClient.setQueryData<T.Agent[]>(
             ['agents'],
-            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', memory: change.memory } : a)),
+            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', memory: change.memory, reclaimed: change.reclaimed, waitingForImage: change.waitingForImage } : a)),
           );
         } else {
           void queryClient.invalidateQueries({ queryKey: ['agents'] });
         }
         // An agent whose machine was removed is a past agent now.
-        if (change.removed) void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
+        if (change.removed) {
+          void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
+          void queryClient.invalidateQueries({ queryKey: workKey });
+        }
         if (change.state !== 'running') {
           void queryClient.invalidateQueries({ queryKey: ['browser', change.ref] });
           void queryClient.invalidateQueries({ queryKey: ['android', change.ref] });

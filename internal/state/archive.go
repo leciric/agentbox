@@ -123,10 +123,22 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 	return tx.Commit()
 }
 
+// FirstMessage is the text of the first message somebody sent in an agent's
+// chat, its task, as ArchiveAgent keeps it: "" for none.
+func (s *Store) FirstMessage(ctx context.Context, project, agent string) (string, error) {
+	task, err := firstMessage(ctx, s.db, project, agent)
+	if r := []rune(task); len(r) > maxTask {
+		task = string(r[:maxTask]) + "…"
+	}
+	return task, err
+}
+
 // firstMessage is the text of the first message somebody sent in a chat.
-func firstMessage(ctx context.Context, tx *trace.Tx, project, agent string) (string, error) {
+func firstMessage(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, project, agent string) (string, error) {
 	var text sql.NullString
-	err := tx.QueryRowContext(ctx, `SELECT json_extract(data, '$.text') FROM chat_items
+	err := q.QueryRowContext(ctx, `SELECT json_extract(data, '$.text') FROM chat_items
 		WHERE project = ? AND agent = ? AND json_extract(data, '$.kind') = 'user' AND coalesce(json_extract(data, '$.woken'), 0) = 0
 		ORDER BY position LIMIT 1`, project, agent).Scan(&text)
 	if errors.Is(err, sql.ErrNoRows) {

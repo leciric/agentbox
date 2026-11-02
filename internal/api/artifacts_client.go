@@ -37,5 +37,5 @@ func (c *Client) PublishRender(ctx context.Context, ref string, req PublishRende
 	if err != nil {
 		return out, err
 	}
-	return out, c.do(ctx, http.MethodPost, path+"/publish", req, &out)
+	return out, c.do(ctx, http.MethodPost, withSession(path+"/publish", ref), req, &out)
 }

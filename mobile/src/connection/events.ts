@@ -16,12 +16,13 @@ import { AppState } from 'react-native';
 import EventSource from 'react-native-sse';
 import * as T from '../shared/api.ts';
 import { applyChatEvent } from '../features/threads/thread.ts';
+import * as P from './parse.ts';
 import { reconnector, type Reconnector } from './reconnect.ts';
-import { session } from './session.ts';
+import { forget, session } from './session.ts';
 
 export type Connection = 'connecting' | 'connected' | 'disconnected';
 
-const types = [T.EventAgent, T.EventProject, T.EventChat, T.EventQuestion, T.EventPulls, T.EventReview, T.EventAgentEvent, T.EventMedia, T.EventLAN, 'ping'] as const;
+const types = [T.EventAgent, T.EventProject, T.EventChat, T.EventLeadSessions, T.EventQuestion, T.EventPulls, T.EventReview, T.EventAgentEvent, T.EventMedia, T.EventLAN, 'ping'] as const;
 type Type = (typeof types)[number];
 
 let state: Connection = 'connecting';
@@ -47,14 +48,25 @@ let source: EventSource<Type> | undefined;
 let client: QueryClient | undefined;
 let again: Reconnector | undefined;
 
-// apply is what an event does to the queries the screens read.
+// scoped is a query's key for the project an event is about, or for every
+// project when it doesn't say which.
+function scoped(query: string, data: unknown): string[] {
+  const project = (data as { project?: unknown } | null)?.project;
+  return typeof project === 'string' && project ? [query, project] : [query];
+}
+
+// apply is what an event does to the queries the screens read. What it puts
+// in them is made safe first (parse.ts), as the API's answers are.
 export function apply(queryClient: QueryClient, type: string, data: unknown): void {
   switch (type) {
-    case T.EventChat:
-      applyChatEvent(queryClient, data as T.ChatEvent);
+    case T.EventChat: {
+      const ev = P.chatEvent(data);
+      if (ev) applyChatEvent(queryClient, ev);
       break;
+    }
     case T.EventAgent: {
-      const change = data as T.AgentChange;
+      const change = P.agentChange(data);
+      if (!change) break;
       const agents = queryClient.getQueryData<T.Agent[]>(['agents']);
       if (!change.removed && agents?.some((a) => a.ref === change.ref)) {
         queryClient.setQueryData<T.Agent[]>(['agents'], agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state } : a)));
@@ -64,11 +76,14 @@ export function apply(queryClient: QueryClient, type: string, data: unknown): vo
     case T.EventProject:
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
       break;
+    case T.EventLeadSessions:
+      void queryClient.invalidateQueries({ queryKey: scoped('leadSessions', data) });
+      break;
     case T.EventQuestion:
-      void queryClient.invalidateQueries({ queryKey: ['questions', (data as T.Question).project] });
+      void queryClient.invalidateQueries({ queryKey: scoped('questions', data) });
       break;
     case T.EventPulls:
-      void queryClient.invalidateQueries({ queryKey: ['pulls', (data as T.PullsChange).project] });
+      void queryClient.invalidateQueries({ queryKey: scoped('pulls', data) });
       void queryClient.invalidateQueries({ queryKey: ['review'] });
       break;
     case T.EventReview:
@@ -105,10 +120,17 @@ function follow() {
     // What was sent while it was away: read everything again.
     void queryClient.invalidateQueries();
   });
-  es.addEventListener('error', () => {
+  es.addEventListener('error', (ev) => {
     if (source !== es) return;
     close();
     setState('disconnected');
+    // Unpaired on the computer: the pairing is gone for good, so back to
+    // pairing rather than reconnecting to no end, as a refused request does.
+    if ('xhrStatus' in ev && ev.xhrStatus === 401) {
+      again?.stopped();
+      void forget();
+      return;
+    }
     again?.failed();
   });
   for (const type of types) {
@@ -125,6 +147,11 @@ function follow() {
   }
 }
 
+// ended says the stream finished without an error, as when the daemon
+// restarts: react-native-sse then only stops (pollingInterval 0), with no
+// event, and the stream would look connected until it went silent.
+const ended = () => (source as unknown as { _xhr?: XMLHttpRequest } | undefined)?._xhr?.readyState === XMLHttpRequest.DONE;
+
 // connect follows the paired daemon's events into queryClient, from now on.
 export function connect(queryClient: QueryClient): () => void {
   client = queryClient;
@@ -136,6 +163,7 @@ export function connect(queryClient: QueryClient): () => void {
       setState('disconnected');
     },
     connected: () => state === 'connected',
+    ended,
     appState: AppState,
     network: (fn) => {
       Network.addNetworkStateListener(({ isConnected, type }) => fn({ online: isConnected !== false, kind: type }));

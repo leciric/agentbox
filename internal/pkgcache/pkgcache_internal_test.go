@@ -1,8 +1,11 @@
 package pkgcache
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -174,5 +177,113 @@ func TestClearEmptiesAndPreparesAgain(t *testing.T) {
 	}
 	if !exists(filepath.Join(c.Dir, GoMod)) {
 		t.Error("go/mod wasn't made again")
+	}
+}
+
+func TestTrimWaitsForAgentsAtWorkUnlessFarOverTheCap(t *testing.T) {
+	c := newCache(t, 10*kib64)
+	busy := true
+	c.Busy = func() bool { return busy }
+	for i := range 12 {
+		put(t, c.Dir, "go/build/aa/"+string(rune('a'+i))+"-d", time.Duration(i)*time.Minute)
+	}
+	if freed := c.Trim(); freed != 0 {
+		t.Errorf("freed %d while a heavy run was active, at 120%% of the cap", freed)
+	}
+	for i := range 4 {
+		put(t, c.Dir, "go/build/bb/"+string(rune('a'+i))+"-d", time.Duration(i)*time.Minute)
+	}
+	// 16 files of a cap of 10: past BusyCeiling.
+	if freed := c.Trim(); freed == 0 {
+		t.Error("nothing freed far over the cap, though agents were at work")
+	}
+	busy = false
+	c.Max = func() int64 { return 4 * kib64 }
+	if freed := c.Trim(); freed == 0 {
+		t.Error("nothing freed once the agents were idle")
+	}
+}
+
+func TestTrimDropsBrowsersANewerVersionReplacedAfterAWeek(t *testing.T) {
+	// Far under the cap: only the replaced browser goes, and only when old.
+	c := newCache(t, 100*kib64)
+	c.now = func() time.Time { return epoch.Add(30 * 24 * time.Hour) }
+	oldRev := put(t, c.Dir, "ms-playwright/chromium-1187/chrome", 0)
+	otherOld := put(t, c.Dir, "ms-playwright/firefox-1490/firefox", 0)
+	newRev := put(t, c.Dir, "ms-playwright/chromium-1194/chrome", 0)
+	recent := put(t, c.Dir, "ms-playwright/chromium_headless_shell-1100/x", 29*24*time.Hour)
+	put(t, c.Dir, "ms-playwright/chromium_headless_shell-1200/x", 0)
+	if freed := c.Trim(); freed != kib64 {
+		t.Errorf("freed %d, want the old chromium and nothing else", freed)
+	}
+	if exists(oldRev) || !exists(newRev) || !exists(otherOld) || !exists(recent) {
+		t.Error("the wrong browsers went")
+	}
+}
+
+func TestBreakdownSaysWhatEachToolHolds(t *testing.T) {
+	c := newCache(t, 0)
+	put(t, c.Dir, "go/build/aa/a-d", 0)
+	put(t, c.Dir, "go/build/bb/b-d", 0)
+	put(t, c.Dir, "npm/_cacache/x", 0)
+	put(t, c.Dir, "npm/_npx/abc/y", 0)
+	put(t, c.Dir, "stray", 0)
+	want := []PartSize{{GoBuild, 2 * kib64}, {"", kib64}, {Npm, kib64}, {NpmNpx, kib64}}
+	got := c.Breakdown()
+	slices.SortFunc(got, func(a, b PartSize) int { return strings.Compare(a.Dir, b.Dir) })
+	slices.SortFunc(want, func(a, b PartSize) int { return strings.Compare(a.Dir, b.Dir) })
+	if !slices.Equal(got, want) {
+		t.Errorf("breakdown %v, want %v", got, want)
+	}
+}
+
+func TestTrimWorksThroughASymlinkedDirectory(t *testing.T) {
+	// In the VM the cache's directory is a symlink to the agents' disk.
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "package-cache")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	c := &Cache{Dir: link, Max: func() int64 { return 2 * kib64 }, now: func() time.Time { return epoch.Add(24 * time.Hour) }}
+	if err := c.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	put(t, link, "go/build/aa/a-d", 0)
+	put(t, link, "go/build/bb/b-d", time.Minute)
+	put(t, link, "go/build/cc/c-d", 2*time.Minute)
+	if freed := c.Trim(); freed != 2*kib64 || c.Size() != kib64 {
+		t.Errorf("freed %d, holds %d", freed, c.Size())
+	}
+}
+
+func TestEveryTrimPassLogsWhatItDid(t *testing.T) {
+	c := newCache(t, 2*kib64)
+	var lines []string
+	c.Logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	put(t, c.Dir, "go/build/aa/a-d", 0)
+	put(t, c.Dir, "go/build/bb/b-d", time.Minute)
+	put(t, c.Dir, "go/build/cc/c-d", 2*time.Minute)
+	c.Trim()
+	c.Trim()
+	c.Busy = func() bool { return true }
+	c.Max = func() int64 { return 10 * kib64 }
+	c.Trim()
+	c.Max = func() int64 { return 0 }
+	c.Trim()
+	for i, want := range []string{"evicted 128.0 KiB", "nothing to evict", "skipped, an agent has a heavy run", "off, holds"} {
+		if i >= len(lines) || !strings.Contains(lines[i], want) {
+			t.Errorf("line %d is %q, want %q", i, lines, want)
+		}
+	}
+	// Everything too recent to evict says why it stopped.
+	c = newCache(t, kib64)
+	c.now = func() time.Time { return epoch.Add(time.Minute) }
+	lines = nil
+	c.Logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	put(t, c.Dir, "pip/http/a", 0)
+	put(t, c.Dir, "pip/http/b", 0)
+	c.Trim()
+	if len(lines) != 1 || !strings.Contains(lines[0], "short of") {
+		t.Errorf("lines %q", lines)
 	}
 }

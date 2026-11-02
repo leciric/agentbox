@@ -35,10 +35,13 @@ var kernelParams = []struct{ Name, Value string }{
 // fuseInodeLimit is how many of the shared home's inodes the VM's kernel may
 // keep cached before it drops them (trim-share-inodes in the user-data), each
 // being a file descriptor virtiofsd holds: well under the 524288 a systemd
-// session's RLIMIT_NOFILE allows it, with room for a minute's work between
-// checks. minVirtiofsdFiles is the least the supervisor is content with.
+// session's RLIMIT_NOFILE allows it, with room for the few seconds a walk
+// takes to be seen. fuseInodeStep is how much it may grow in a second before
+// they're dropped anyway. minVirtiofsdFiles is the least the supervisor is content
+// with.
 const (
 	fuseInodeLimit    = 200_000
+	fuseInodeStep     = 15_000
 	minVirtiofsdFiles = 2 * fuseInodeLimit
 )
 
@@ -58,7 +61,7 @@ type userDataParams struct {
 	MovableRatio                                   int
 	KernelParams                                   []struct{ Name, Value string }
 	Packages                                       string
-	FuseInodeLimit                                 int
+	FuseInodeLimit, FuseInodeStep                  int
 	// VZ is a VM the Virtualization framework runs, on a Mac (vz.go): its
 	// network is the framework's NAT, with DHCP, and the Mac is its gateway.
 	VZ bool
@@ -97,8 +100,9 @@ var (
 // packages are what the VM installs on its first boot. incus-base is Incus
 // without its virtual machines: the incus package would bring QEMU. dnsmasq
 // and apparmor are incus-base's recommends, which Incus's bridge and its
-// containers' profiles need.
-const packages = "git ca-certificates nftables btrfs-progs acl incus-base dnsmasq-base apparmor"
+// containers' profiles need. gh is what the daemon signs in to GitHub with
+// (github.GHLogin).
+const packages = "git ca-certificates nftables btrfs-progs acl incus-base dnsmasq-base apparmor gh"
 
 func newUserDataParams(c Config, authorizedKey string) (userDataParams, error) {
 	if !userNameRE.MatchString(c.User) {
@@ -137,6 +141,7 @@ func newUserDataParams(c Config, authorizedKey string) (userDataParams, error) {
 		KernelParams:   kernelParams,
 		Packages:       packages,
 		FuseInodeLimit: fuseInodeLimit,
+		FuseInodeStep:  fuseInodeStep,
 		VZ:             c.VZ(),
 	}, nil
 }

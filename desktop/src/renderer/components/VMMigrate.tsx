@@ -55,17 +55,17 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
     <Box embedded={embedded} data-vm-migrate={migration.state}>
       {moved ? (
         <div className="grid gap-2">
-          <div className="flex items-center gap-2 text-[13px] font-medium text-primary">
+          <div className="flex items-center gap-2 text-ui font-medium text-primary">
             <CheckCircle2 className="size-4 text-emerald-400" />
             {t('vm.migrate.moved')}
           </div>
           {migration.state === 'removed' && (
-            <p className="text-[12px] leading-relaxed text-subtle" data-vm-migrate-removed>
+            <p className="text-caption leading-relaxed text-subtle" data-vm-migrate-removed>
               {t('vm.migrate.removedNote', { hasBackup: migration.backup ? 'yes' : 'no', backup: migration.backup ?? '' })}
             </p>
           )}
           {migration.found && migration.found.length > 0 && (
-            <ul className="grid gap-0.5 text-[12px] text-subtle" data-vm-migrate-found>
+            <ul className="grid gap-0.5 text-caption text-subtle" data-vm-migrate-found>
               {migration.found.map((line) => (
                 <li key={line} className="min-w-0 break-words">
                   {line}
@@ -75,7 +75,7 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
           )}
           {migration.state === 'verified' && old.length > 0 && (
             <>
-              <p className="text-[12px] leading-relaxed text-subtle">
+              <p className="text-caption leading-relaxed text-subtle">
                 {t('vm.migrate.checkNote')}
               </p>
               <div className="flex flex-wrap items-center gap-2">
@@ -89,15 +89,15 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
         </div>
       ) : (
         <div className="grid gap-2">
-          <div className={embedded && !started && !move.isPending ? 'hidden' : 'text-[13px] font-medium text-primary'}>
+          <div className={embedded && !started && !move.isPending ? 'hidden' : 'text-ui font-medium text-primary'}>
             {move.isPending ? t('vm.migrate.moving') : started ? t('vm.migrate.halfway') : t('vm.migrate.title')}
           </div>
-          <p className="text-[12px] leading-relaxed text-subtle">
+          <p className="text-caption leading-relaxed text-subtle">
             {started
               ? t('vm.migrate.carryOnNote')
               : `${embedded ? '' : t('vm.migrate.intro')}${t('vm.migrate.comesAlong', { projects, agents })}`}
           </p>
-          <p className="text-[12px] leading-relaxed text-subtle">
+          <p className="text-caption leading-relaxed text-subtle">
             {t('vm.migrate.notAlong')}
           </p>
           <div className="flex flex-wrap items-center gap-2">
@@ -120,7 +120,7 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
       {move.error && (
         <>
           <Notice>{errorMessage(move.error)}</Notice>
-          <p className="text-[12px] text-subtle">{t('vm.migrate.failedNote')}</p>
+          <p className="text-caption text-subtle">{t('vm.migrate.failedNote')}</p>
           <CommandBox command="agentbox vm migrate" />
         </>
       )}
