@@ -176,6 +176,7 @@ func drain(conn *websocket.Conn) {
 // Wait waits for the command to exit and its output to have been copied, and
 // returns an ExitError for a status other than 0, or what went wrong in Incus.
 func (p *Proc) Wait() error {
+	defer p.cancel()
 	defer p.closeConns()
 	err := wait(p.ctx, p.op, nil)
 	if p.ctx.Err() != nil {
