@@ -80,6 +80,10 @@ type Config struct {
 
 type Server struct {
 	cfg Config
+	// lostResumed is when each agent's lost turn was last resumed by itself
+	// (stallwatch.go, resumeLost).
+	lostMu      sync.Mutex
+	lostResumed map[string]time.Time
 	// codexReads is when each Codex account's /status was last read, so a
 	// busy day of short turns asks it once a minute (limits.go).
 	codexReads struct {

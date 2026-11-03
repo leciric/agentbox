@@ -1512,6 +1512,11 @@ type adapter struct {
 	window    int64  // the compact window it was started with, 0 for the whole (window.go)
 	sizeOf    string // the model and window last remembered from its usage_update
 	lostTurn  bool   // a turn's prompt failed because its output closed: it exited mid-turn
+	// cutAt is when a turn ended the way one cut off does: "cancelled" when
+	// nobody cancelled it, or with tool calls still running. An adapter whose
+	// stdin is gone (its exec stream broke) can answer the prompt like that
+	// and then exit 0; the turn reads as over, but it stopped mid-work.
+	cutAt time.Time
 	// models is what the store knew of Claude model windows when it started,
 	// and what its own results have said since: the model's whole window the
 	// context ring measures against (contextSize).
@@ -1760,7 +1765,8 @@ func (c *conversation) run(ad *adapter) {
 	}
 	// Mid-turn whichever got here first: the prompt, failing on the closed
 	// output, or this, before the prompt could.
-	midTurn := ad.lostTurn || (c.turn != nil && !c.turn.cancelled)
+	midTurn := ad.lostTurn || (c.turn != nil && !c.turn.cancelled) ||
+		(!ad.cutAt.IsZero() && time.Since(ad.cutAt) < lostTurnGrace)
 	c.adapter = nil
 	c.cancelPending()
 	msg := ToolNames[c.agent.AI] + " exited"
@@ -2254,6 +2260,9 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		if note := stopNotes[res.StopReason]; note != "" {
 			c.add("notice", t.id).Text = note
 		}
+	}
+	if c.adapter != nil && err == nil && !t.cancelled && (res.StopReason == "cancelled" || len(open) > 0) {
+		c.adapter.cutAt = time.Now()
 	}
 	if !limited {
 		// Any other ending clears the limit and the count of waits with it, so
