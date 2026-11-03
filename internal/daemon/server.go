@@ -95,6 +95,10 @@ type Config struct {
 
 type Server struct {
 	cfg Config
+	// lostResumed is when each agent's lost turn was last resumed by itself
+	// (stallwatch.go, resumeLost).
+	lostMu      sync.Mutex
+	lostResumed map[string]time.Time
 	// probe is how the doctor asks whether a URL answers (doctor.go); nil is
 	// probeURL, a test's stub otherwise.
 	probe func(ctx context.Context, url string) error
@@ -423,6 +427,10 @@ type Server struct {
 	// credentialTell tells a lead of an agent's credential request, waking
 	// it for a lead-managed secret: tellLead, or a test's recorder.
 	credentialTell func(ctx context.Context, a state.Agent, notice string, act bool)
+	// lostResumeDelay is how long a lost turn waits before it is resumed
+	// (resumeLost): what cut it off, a host out of memory most often, has a
+	// moment to pass.
+	lostResumeDelay time.Duration
 }
 
 func New(cfg Config) (*Server, error) {
@@ -498,6 +506,7 @@ func New(cfg Config) (*Server, error) {
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
 	s.stallTell = func(ctx context.Context, a state.Agent, note string) { s.tellOwner(ctx, a, note, true) }
 	s.credentialTell = s.tellOwner
+	s.lostResumeDelay = 10 * time.Second
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellSession

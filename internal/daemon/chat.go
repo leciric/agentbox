@@ -30,15 +30,28 @@ func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(stri
 			return proc, nil
 		}
 	}
+	auth, err := m.ChatAuth(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	if !a.IsLead() {
+		stderr := chat.NewTail()
+		p, err := m.ChatStart(ctx, a, status, stderr)
+		if err != nil {
+			return nil, err
+		}
+		if p != nil {
+			proc := chat.StartRemote(p.Stdin, p.Stdout, p, stderr)
+			proc.Notice, proc.Moved, proc.Auth = where.notice, where.moved, auth
+			return proc, nil
+		}
+		// The incus command stands in for Incus (tests): ChatCommand below.
+	}
 	launch := m.ChatCommand
 	if a.IsLead() {
 		launch = m.LeadChatCommand
 	}
 	cmd, err := launch(ctx, a, status)
-	if err != nil {
-		return nil, err
-	}
-	auth, err := m.ChatAuth(ctx, a)
 	if err != nil {
 		return nil, err
 	}

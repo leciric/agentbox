@@ -223,15 +223,47 @@ func (s *Server) agentLost(a state.Agent, why string) {
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
 		Kind: api.AgentChatLost, Outcome: api.AgentOutcomeFailed, Summary: headWords(why, 200), At: time.Now(),
 	})
-	s.stallTell(ctx, a, lostNotice(a, why))
+	resumed := s.resumeLost(a)
+	s.stallTell(ctx, a, lostNotice(a, why, resumed))
+}
+
+// lostResumeEvery is how often an agent's lost turn is resumed by itself: once
+// gets it past a stall that broke its connection; a tool that dies again
+// soon after is left for the project's chat to see to.
+const lostResumeEvery = 30 * time.Minute
+
+// resumeLost carries on a's lost turn, unless one of its turns was already
+// resumed so in the last lostResumeEvery, and reports whether it will.
+func (s *Server) resumeLost(a state.Agent) bool {
+	s.lostMu.Lock()
+	if s.lostResumed == nil {
+		s.lostResumed = map[string]time.Time{}
+	}
+	if last, ok := s.lostResumed[a.Ref()]; ok && time.Since(last) < lostResumeEvery {
+		s.lostMu.Unlock()
+		return false
+	}
+	s.lostResumed[a.Ref()] = time.Now()
+	s.lostMu.Unlock()
+	time.Sleep(s.lostResumeDelay)
+	ok, err := s.chat.ResumeLost(a)
+	if err != nil {
+		s.logf("chat %s: resuming its lost turn: %v", a.Ref(), err)
+	}
+	return ok
 }
 
 // lostNotice is what the project's chat is told about an agent whose AI tool
 // exited mid-turn.
-func lostNotice(a state.Agent, why string) string {
+func lostNotice(a state.Agent, why string, resumed bool) string {
 	name := a.Name
 	if a.Title != "" {
 		name = fmt.Sprintf("%s (%q)", a.Name, a.Title)
+	}
+	if resumed {
+		return fmt.Sprintf("[chat lost] %s stopped in the middle of its turn: %s. AgentBox started its AI tool again and resumed the turn once; "+
+			"look with read_agent that it carries on. If it stops again it is left stopped, for you to see to.",
+			name, headWords(why, 300))
 	}
 	return fmt.Sprintf("[chat lost] %s stopped in the middle of its turn: %s. Nothing is running on it now. "+
 		"Look with read_agent; tell_agent starts its AI tool again with your message, to carry on from where it stopped.",

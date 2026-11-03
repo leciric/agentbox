@@ -210,6 +210,7 @@ func TestATurnThatDiesMidWayIsStoppedWithAnError(t *testing.T) {
 	// Its AI tool exits mid-turn: the turn fails on the closed output, and
 	// agentLost says so with the exit status. One notice, not two.
 	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Lost: true, Error: "connection closed"})
+	d.srv.lostResumeDelay = 0
 	d.srv.agentLost(a, "Claude Code exited (exit status 137)")
 	mu.Lock()
 	defer mu.Unlock()

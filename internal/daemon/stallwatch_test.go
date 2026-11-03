@@ -281,11 +281,22 @@ func TestAgentLostTellsTheLead(t *testing.T) {
 	d.srv.stallTell = func(_ context.Context, a state.Agent, note string) {
 		told = append(told, a.Project+": "+note)
 	}
+	d.srv.lostResumeDelay = 0
 	a := state.Agent{Project: "p", Name: "agent-12", Title: "Import the catalogue"}
 	d.srv.agentLost(a, "Claude Code exited (exit status 143): ...killed.")
 	if len(told) != 1 || !strings.HasPrefix(told[0], `p: [chat lost] agent-12 ("Import the catalogue") stopped in the middle of its turn: Claude Code exited (exit status 143)`) ||
 		!strings.Contains(told[0], "tell_agent") {
 		t.Errorf("told %q", told)
+	}
+}
+
+// The notice says when the turn was resumed by itself, and that it won't be
+// again.
+func TestLostNoticeSaysItResumed(t *testing.T) {
+	a := state.Agent{Project: "p", Name: "agent-12"}
+	n := lostNotice(a, "Claude Code exited (exit status 1): Error: write unix @->/var/lib/incus/unix.socket: i/o timeout", true)
+	if !strings.Contains(n, "resumed the turn once") || !strings.Contains(n, "i/o timeout") {
+		t.Errorf("notice %q", n)
 	}
 }
 
