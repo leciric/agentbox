@@ -247,13 +247,14 @@ func (s *Server) leadAgent(r *http.Request) (state.Agent, error) {
 	return a, nil
 }
 
-// leadProject describes the project to its chat.
+// leadProject describes the project to its chat, which starts its tools from
+// it and has no use for what projectInfo reads from the repository.
 func (s *Server) leadProject(w http.ResponseWriter, r *http.Request) error {
 	p, err := s.store.Project(r.Context(), r.PathValue("project"))
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
+	return writeJSON(w, http.StatusOK, s.projectSettings(r.Context(), p))
 }
 
 // leadSettings tells a project's chat what new agents start on, and which
