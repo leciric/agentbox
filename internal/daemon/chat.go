@@ -21,6 +21,17 @@ import (
 func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(string)) (*chat.Process, error) {
 	// The daemon's log, so what a failing chat did is recoverable afterwards.
 	m := s.manager(s.cfg.Log)
+	if !a.IsLead() {
+		stderr := chat.NewTail()
+		p, err := m.ChatStart(ctx, a, status, stderr)
+		if err != nil {
+			return nil, err
+		}
+		if p != nil {
+			return chat.StartRemote(p.Stdin, p.Stdout, p, stderr), nil
+		}
+		// The incus command stands in for Incus (tests): ChatCommand below.
+	}
 	launch := m.ChatCommand
 	if a.IsLead() {
 		launch = m.LeadChatCommand

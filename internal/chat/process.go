@@ -105,3 +105,46 @@ func lastLine(s string) string {
 	}
 	return line
 }
+
+// Remote is an adapter running somewhere StartCommand can't reach as a local
+// process: in an agent's machine, through Incus' API (incus.Proc).
+type Remote interface {
+	Wait() error
+	Kill()
+}
+
+// NewTail is a writer for a Remote's stderr that keeps what StartRemote's
+// Process.Stderr gives back: the end of it.
+func NewTail() io.Writer { return &tail{max: 16 << 10} }
+
+// StartRemote is StartCommand for a Remote that is already running, with its
+// stdin and stdout, and its stderr going to stderr, from NewTail.
+func StartRemote(stdin io.WriteCloser, stdout io.ReadCloser, r Remote, stderr io.Writer) *Process {
+	done := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = r.Wait()
+		close(done)
+	}()
+	var once sync.Once
+	return &Process{
+		Stdin:  stdin,
+		Stdout: stdout,
+		Stop: func() {
+			once.Do(func() {
+				_ = stdin.Close()
+				select {
+				case <-done:
+				case <-time.After(3 * time.Second):
+					r.Kill()
+					<-done
+				}
+			})
+		},
+		Wait: func() error {
+			<-done
+			return waitErr
+		},
+		Stderr: stderr.(*tail).String,
+	}
+}
