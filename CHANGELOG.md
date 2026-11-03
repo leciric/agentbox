@@ -3,6 +3,27 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.18.0](https://github.com/leciric/agentbox/compare/v0.17.0...v0.18.0) (2026-11-03)
+
+
+### Added
+
+* projects with work in progress stand out and come first in the sidebar ([#649](https://github.com/leciric/agentbox/issues/649)) ([6993c14](https://github.com/leciric/agentbox/commit/6993c14cb122834ae5262719b277c53e3f9eb634))
+* Resolved — merge when CI is green, in the review (off by default) ([#651](https://github.com/leciric/agentbox/issues/651)) ([23009fe](https://github.com/leciric/agentbox/commit/23009feb82f5a6de9614082f2e28322b26ba14d8))
+* review media fills its space, and every piece zooms, before/after in sync ([#650](https://github.com/leciric/agentbox/issues/650)) ([7f41f7d](https://github.com/leciric/agentbox/commit/7f41f7d964e459e975fd6dd90555da82d26bde80))
+* search the phone app's projects and sort them by recent activity ([#642](https://github.com/leciric/agentbox/issues/642)) ([fd345a5](https://github.com/leciric/agentbox/commit/fd345a56a48cb73e0148ebe5b8a74ef08d10541e))
+
+
+### Fixed
+
+* a chat session's colour is a thin border around its chat and its agents, in a calmer palette ([#646](https://github.com/leciric/agentbox/issues/646)) ([5fab3a2](https://github.com/leciric/agentbox/commit/5fab3a27da4c8272cd353e95435d01011b8dc10f))
+* a paired phone's card stays inside Settings' column when its address is long ([#648](https://github.com/leciric/agentbox/issues/648)) ([6db788a](https://github.com/leciric/agentbox/commit/6db788a0073d962e2aa12341d6900dca48f2a48a))
+* a project's chat keeps its AgentBox tools when the machine is busy, and its agentbox commands reach the daemon ([#652](https://github.com/leciric/agentbox/issues/652)) ([b4e57b9](https://github.com/leciric/agentbox/commit/b4e57b99ee224c3f1db6748a739839394b447cb7))
+* agents' AI tools no longer die when a loaded machine holds up Incus, and one that does is resumed and reported ([#653](https://github.com/leciric/agentbox/issues/653)) ([7ade851](https://github.com/leciric/agentbox/commit/7ade85112c1a181d787d736740479d19bd39677b))
+* Home's tabs sit beside its title instead of on a second row ([#643](https://github.com/leciric/agentbox/issues/643)) ([bb11c56](https://github.com/leciric/agentbox/commit/bb11c56fa507c613702ddca65ecf177f214cef57))
+* the phone app reconnects by itself after the phone is unlocked or its network comes back ([#644](https://github.com/leciric/agentbox/issues/644)) ([82d8349](https://github.com/leciric/agentbox/commit/82d8349014ced6d81dff8844ba9ec49c2cc074a0))
+* the project's settings button in the sidebar closes Settings when they are already open ([#647](https://github.com/leciric/agentbox/issues/647)) ([35ad628](https://github.com/leciric/agentbox/commit/35ad628cbac89dbb6d01c134a5ebba69a4e4d3a7))
+
 ## [0.17.0](https://github.com/leciric/agentbox/compare/v0.16.0...v0.17.0) (2026-11-01)
 
 
