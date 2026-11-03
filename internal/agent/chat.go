@@ -14,6 +14,7 @@ import (
 	"agentbox/internal/cursor"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
+	"agentbox/internal/incus"
 	"agentbox/internal/state"
 )
 
@@ -117,28 +118,55 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 // An agent whose machine lacks the adapter's version gets it installed first,
 // which status reports.
 func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(detail string)) (*exec.Cmd, error) {
+	script, err := m.chatScript(ctx, a, status)
+	if err != nil {
+		return nil, err
+	}
+	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
+}
+
+// ChatStart starts what ChatCommand would run, through Incus' API rather than
+// the incus command (incus.Proc says why: the command's exec stream dies the
+// first time a loaded host holds up one of its pongs for a second). Its
+// stderr goes to stderr. It returns a nil Proc and no error when operations
+// run the incus command (Incus.Bin, the tests' fake), for the caller to use
+// ChatCommand.
+func (m *Manager) ChatStart(ctx context.Context, a state.Agent, status func(detail string), stderr io.Writer) (*incus.Proc, error) {
+	if m.Incus.Bin != "" {
+		return nil, nil
+	}
+	script, err := m.chatScript(ctx, a, status)
+	if err != nil {
+		return nil, err
+	}
+	return m.Incus.UserStart(a.Instance, m.User.Name, script, stderr)
+}
+
+// chatScript is the shell command, run in a login shell of the agent's user,
+// that starts the agent's ACP adapter, with everything it needs in place.
+func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(detail string)) (string, error) {
 	adapter, ok := ChatAdapters[a.AI]
 	if !ok {
-		return nil, fmt.Errorf("%s runs no AI tool to chat with", a.Ref())
+		return "", fmt.Errorf("%s runs no AI tool to chat with", a.Ref())
 	}
 	if err := m.requireRunning(ctx, a); err != nil {
-		return nil, err
+		return "", err
 	}
 	overrides, err := m.Store.ToolOverrides(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	// The adapter at the version agents run now: the pin, or the newer one
 	// "Keep Claude Code up to date" moved the base image to, which an agent
 	// made before that gets here, before its next turn (chat.ToolUpdated).
 	spec := image.Overrides(overrides).Apply([]image.Tool{{Spec: adapter.Package}})[0].Spec
 	if err := m.ensureMise(ctx, a, spec, "mise install", "the "+adapter.Tool+" adapter", status); err != nil {
-		return nil, err
+		return "", err
 	}
 	if _, moved := overrides[a.AI]; moved {
 		// And the tool's own command line, which the base image has globally.
 		if err := m.ensureMise(ctx, a, image.Overrides(overrides).Spec(a.AI), "mise use -g", adapter.Tool, status); err != nil {
-			return nil, err
+			return "", err
 		}
 	}
 	pkg := shellQuote(spec)
@@ -151,7 +179,7 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 		// Written every time, so the adapter is always this daemon's own.
 		path := "/home/" + m.User.Name + "/" + adapter.ScriptPath
 		if err := m.Incus.WriteFile(ctx, a.Instance, path, adapter.Script, m.User.UID, m.User.GID, 0o644); err != nil {
-			return nil, fmt.Errorf("writing the %s adapter into %s: %w", adapter.Tool, a.Ref(), err)
+			return "", fmt.Errorf("writing the %s adapter into %s: %w", adapter.Tool, a.Ref(), err)
 		}
 		args = append([]string{path}, args...)
 		env = fmt.Sprintf("%s=\"$(mise where %s)\" ", adapter.SDKEnv, pkg)
@@ -161,17 +189,17 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	}
 	hide, err := m.toolHides(a)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	// bash_env as this daemon writes it, giving the tool's shells the
 	// secrets back: an agent started by an older one has a copy without.
 	if len(hide) > 0 {
 		if err := m.writeBashEnv(ctx, a); err != nil {
-			return nil, err
+			return "", err
 		}
 	}
 	script := fmt.Sprintf("cd %s && %sexec %smise exec %s -- %s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), pkg, command)
-	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
+	return script, nil
 }
 
 // ensureMise installs spec in the agent with install ("mise install", or
