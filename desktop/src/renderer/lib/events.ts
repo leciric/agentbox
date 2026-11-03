@@ -189,8 +189,12 @@ export function connectEvents(queryClient: QueryClient): void {
         // Phones: turned on or off, one paired or revoked (Settings, Phone).
         void queryClient.invalidateQueries({ queryKey: ['lan'] });
         break;
-      case T.EventProject:
+      case T.EventProject: {
         void queryClient.invalidateQueries({ queryKey: ['projects'] });
+        // A project just added has its first chat session once this is
+        // sent: a list read before that, empty or not found, is read again.
+        const change = event.data as T.ProjectChange | undefined;
+        if (change?.name && !change.removed) void queryClient.invalidateQueries({ queryKey: ['leadSessions', change.name] });
         // The project's notes change with it: the lead writes them too.
         void queryClient.invalidateQueries({ queryKey: ['notes'] });
         // A change with no project named is the list itself: a section made,
@@ -199,6 +203,7 @@ export function connectEvents(queryClient: QueryClient): void {
         // And v2's sidebar's hidden projects.
         void queryClient.invalidateQueries({ queryKey: ['sidebarLayout'] });
         break;
+      }
       case T.EventPulls: {
         // The daemon re-read GitHub behind an answer it had already given,
         // and something moved. Refetching here is what lets both views poll
