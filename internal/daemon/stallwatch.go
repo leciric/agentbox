@@ -223,10 +223,6 @@ func (s *Server) agentLost(a state.Agent, why string) {
 // soon after is left for the project's chat to see to.
 const lostResumeEvery = 30 * time.Minute
 
-// lostResumeDelay is how long a lost turn waits before it is resumed: what
-// cut it off, a host out of memory most often, has a moment to pass.
-var lostResumeDelay = 10 * time.Second
-
 // resumeLost carries on a's lost turn, unless one of its turns was already
 // resumed so in the last lostResumeEvery, and reports whether it will.
 func (s *Server) resumeLost(a state.Agent) bool {
@@ -240,7 +236,7 @@ func (s *Server) resumeLost(a state.Agent) bool {
 	}
 	s.lostResumed[a.Ref()] = time.Now()
 	s.lostMu.Unlock()
-	time.Sleep(lostResumeDelay)
+	time.Sleep(s.lostResumeDelay)
 	ok, err := s.chat.ResumeLost(a)
 	if err != nil {
 		s.logf("chat %s: resuming its lost turn: %v", a.Ref(), err)

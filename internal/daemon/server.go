@@ -301,6 +301,10 @@ type Server struct {
 	stalls    map[string]*stallTrack
 	cpuTime   func(instance string) (time.Duration, bool)
 	stallTell func(ctx context.Context, project, note string)
+	// lostResumeDelay is how long a lost turn waits before it is resumed
+	// (resumeLost): what cut it off, a host out of memory most often, has a
+	// moment to pass.
+	lostResumeDelay time.Duration
 }
 
 func New(cfg Config) (*Server, error) {
@@ -365,6 +369,7 @@ func New(cfg Config) (*Server, error) {
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
 	s.stallTell = s.recheckTell
+	s.lostResumeDelay = 10 * time.Second
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellLead
