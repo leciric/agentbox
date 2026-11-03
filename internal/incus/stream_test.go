@@ -63,29 +63,29 @@ func (f *fakeExec) op(status api.StatusCode) api.Operation {
 
 func (f *fakeExec) serve(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/1.0")
-	switch {
-	case path == "":
+	switch path {
+	case "":
 		reply(w, api.Server{Environment: api.ServerEnvironment{Server: "incus"}})
-	case path == "/instances/agent-01/exec":
+	case "/instances/agent-01/exec":
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"type": "async", "status": "Operation created", "status_code": 100,
 			"operation": "/1.0/operations/exec", "metadata": f.op(api.Running),
 		})
-	case path == "/operations/exec":
+	case "/operations/exec":
 		select {
 		case <-f.done:
 			reply(w, f.op(api.Success))
 		default:
 			reply(w, f.op(api.Running))
 		}
-	case path == "/operations/exec/wait":
+	case "/operations/exec/wait":
 		select {
 		case <-f.done:
 		case <-r.Context().Done():
 		}
 		reply(w, f.op(api.Success))
-	case path == "/operations/exec/websocket":
+	case "/operations/exec/websocket":
 		f.upgrade(w, r)
 	default:
 		replyError(w, http.StatusNotFound, "not found")
