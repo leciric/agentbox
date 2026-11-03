@@ -31,7 +31,7 @@ export function LiveDesktop({ agent, small }: { agent: T.Agent; small?: boolean 
         <>
           <div ref={view} className="pointer-events-none absolute inset-0" />
           {!connected && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-[11px] text-subtle">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-caption text-subtle">
               {up || status.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <MonitorOff className="size-4" />}
               {!small && <span>{up || status.isPending ? t('pip.connecting') : t('pip.noDesktop')}</span>}
             </div>

@@ -52,7 +52,7 @@ export function ModelByName({ onPick, disabled }: { onPick: (value: string) => v
               }
             }}
             placeholder="claude-fable-5-1"
-            className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none disabled:opacity-50"
+            className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none disabled:opacity-50"
           />
           <button
             type="button"
@@ -64,7 +64,7 @@ export function ModelByName({ onPick, disabled }: { onPick: (value: string) => v
             <CornerDownLeft className="size-3.5" />
           </button>
         </div>
-        <p className="px-1 pt-1.5 text-[11px] leading-relaxed text-subtle">
+        <p className="px-1 pt-1.5 text-caption leading-relaxed text-subtle">
           {t('chat.modelByName.hint')}
         </p>
       </div>

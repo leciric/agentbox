@@ -9,8 +9,12 @@
 //
 // It is a test double and nothing else. Accounts, passwords, ownership and
 // persistence are the hub's business, and none of them are here: it takes any
-// password, keeps everything in memory, and lets any session see any
-// environment. Don't grow it into a hub — if a test needs a hub's judgement
+// password or setup link, approves a pairing when the test says so (Approve)
+// or any session does, keeps everything in memory, and lets any session see
+// any environment. Peers (hubapi.PathPeers) are listed by owner, the one
+// thing a test can't do without, but any environment reaches any other
+// through hubapi.PeerAPI, so a test can see an environment refuse a peer
+// that isn't its owner's. Don't grow it into a hub — if a test needs a hub's judgement
 // about who may see what, that test belongs with the hub.
 package hubtest
 
@@ -41,14 +45,22 @@ type Hub struct {
 	t    *testing.T
 	http *httptest.Server
 
-	mu      sync.Mutex
-	envs    map[string]*environment // by ID
-	byToken map[string]*environment
-	nextID  int
+	mu       sync.Mutex
+	envs     map[string]*environment // by ID
+	byToken  map[string]*environment
+	nextID   int
+	pairings map[string]*pairing // by code
+}
+
+type pairing struct {
+	req    hubapi.HubPairRequest
+	secret string
+	status string
 }
 
 type environment struct {
 	info    hubapi.HubEnvironment
+	owner   string
 	token   string
 	session *yamux.Session
 	proxy   *httputil.ReverseProxy
@@ -57,7 +69,7 @@ type environment struct {
 // New starts a stand-in hub, and stops it when the test ends.
 func New(t *testing.T) *Hub {
 	t.Helper()
-	h := &Hub{t: t, envs: map[string]*environment{}, byToken: map[string]*environment{}}
+	h := &Hub{t: t, envs: map[string]*environment{}, byToken: map[string]*environment{}, pairings: map[string]*pairing{}}
 	h.http = httptest.NewServer(h.handler())
 	h.URL = h.http.URL
 	t.Cleanup(func() {
@@ -85,11 +97,27 @@ func (h *Hub) handler() http.Handler {
 	mux.HandleFunc(http.MethodGet+" "+hubapi.PathMe, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, hubapi.HubUser{ID: "usr_test", Email: "owner@example.com", Name: "Owner"})
 	})
+	mux.HandleFunc(http.MethodGet+" "+hubapi.PathInfo, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, hubapi.HubInfo{Version: "test", Claimed: true})
+	})
+	mux.HandleFunc(http.MethodPost+" "+hubapi.PathSetup, h.setup)
+	mux.HandleFunc(http.MethodPost+" "+hubapi.PathPair, h.pair)
+	mux.HandleFunc(http.MethodPost+" "+hubapi.PathPairToken, h.pairToken)
+	mux.HandleFunc(http.MethodGet+" "+hubapi.PathPairings+"/{code}", h.pairingInfo)
+	mux.HandleFunc(http.MethodPost+" "+hubapi.PathPairings+"/{code}/approve", h.decide(hubapi.PairApproved))
+	mux.HandleFunc(http.MethodPost+" "+hubapi.PathPairings+"/{code}/deny", h.decide(hubapi.PairDenied))
+	mux.HandleFunc(http.MethodGet+" "+hubapi.PathDevices, func(w http.ResponseWriter, r *http.Request) {
+		if h.signedIn(w, r) {
+			writeJSON(w, http.StatusOK, []hubapi.HubDevice{{ID: "dev_test", Label: "test", CreatedAt: time.Now(), Current: true}})
+		}
+	})
 	mux.HandleFunc(http.MethodGet+" "+hubapi.PathEnvironments, h.listEnvironments)
 	mux.HandleFunc(http.MethodPost+" "+hubapi.PathEnvironments, h.createEnvironment)
 	mux.HandleFunc(http.MethodDelete+" "+hubapi.PathEnvironments+"/{id}", h.deleteEnvironment)
 	mux.HandleFunc(http.MethodGet+" "+hubapi.PathConnect, h.connect)
 	mux.HandleFunc(hubapi.EnvironmentAPI("{id}")+"/{path...}", h.proxy)
+	mux.HandleFunc(http.MethodGet+" "+hubapi.PathPeers, h.listPeers)
+	mux.HandleFunc(hubapi.PeerAPI("{id}")+"/{path...}", h.peerProxy)
 	return mux
 }
 
@@ -115,6 +143,132 @@ func (h *Hub) login(w http.ResponseWriter, r *http.Request) {
 		User:      hubapi.HubUser{ID: "usr_test", Email: req.Email, Name: "Owner"},
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	})
+}
+
+func (h *Hub) session() hubapi.HubSession {
+	return hubapi.HubSession{Token: h.Token(), User: hubapi.HubUser{ID: "usr_test", Name: "Owner"}, ExpiresAt: time.Now().Add(24 * time.Hour)}
+}
+
+// setup takes any setup link's secret.
+func (h *Hub) setup(w http.ResponseWriter, r *http.Request) {
+	var req hubapi.HubSetupRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil || req.Secret == "" {
+		fail(w, http.StatusBadRequest, "no secret")
+		return
+	}
+	writeJSON(w, http.StatusOK, h.session())
+}
+
+// pair takes any request; its codes count up from BCDF-0001.
+func (h *Hub) pair(w http.ResponseWriter, r *http.Request) {
+	var req hubapi.HubPairRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		fail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.mu.Lock()
+	h.nextID++
+	code := "BCDF-" + strconv.Itoa(1000+h.nextID)
+	p := &pairing{req: req, secret: hubapi.PairingSecretPrefix + code, status: hubapi.PairPending}
+	h.pairings[code] = p
+	h.mu.Unlock()
+	writeJSON(w, http.StatusOK, hubapi.HubPairing{
+		Secret: p.secret, Code: code, ApproveURL: h.URL + hubapi.PathApprovePage + "?code=" + code,
+		ExpiresAt: time.Now().Add(10 * time.Minute), Interval: 1, QR: []string{"10", "01"},
+	})
+}
+
+// Approve approves a pairing, as a device signed in to the hub would.
+func (h *Hub) Approve(code string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p := h.pairings[code]
+	if p == nil || p.status != hubapi.PairPending {
+		return false
+	}
+	p.status = hubapi.PairApproved
+	return true
+}
+
+// Pairings are the codes of the pairings waiting for approval.
+func (h *Hub) Pairings() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var codes []string
+	for code, p := range h.pairings {
+		if p.status == hubapi.PairPending {
+			codes = append(codes, code)
+		}
+	}
+	return codes
+}
+
+func (h *Hub) pairToken(w http.ResponseWriter, r *http.Request) {
+	var req hubapi.HubPairTokenRequest
+	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req)
+	h.mu.Lock()
+	var code string
+	var p *pairing
+	for c, other := range h.pairings {
+		if other.secret == req.Secret {
+			code, p = c, other
+		}
+	}
+	if p == nil {
+		h.mu.Unlock()
+		fail(w, http.StatusNotFound, "no such pairing")
+		return
+	}
+	status, req2 := p.status, p.req
+	if status != hubapi.PairPending {
+		delete(h.pairings, code)
+	}
+	h.mu.Unlock()
+	out := hubapi.HubPairResult{Status: status}
+	if status == hubapi.PairApproved {
+		if req2.Kind == hubapi.PairEnvironment {
+			e := h.AddEnvironment(req2.Name)
+			out.Environment = &e
+		} else {
+			s := h.session()
+			out.Session = &s
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Hub) pairingInfo(w http.ResponseWriter, r *http.Request) {
+	if !h.signedIn(w, r) {
+		return
+	}
+	h.mu.Lock()
+	p := h.pairings[r.PathValue("code")]
+	h.mu.Unlock()
+	if p == nil {
+		fail(w, http.StatusNotFound, "no pairing has that code")
+		return
+	}
+	writeJSON(w, http.StatusOK, hubapi.HubPairingInfo{Code: r.PathValue("code"), Kind: p.req.Kind, Label: p.req.Label, Name: p.req.Name, Hostname: p.req.Hostname})
+}
+
+func (h *Hub) decide(status string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !h.signedIn(w, r) {
+			return
+		}
+		h.mu.Lock()
+		p := h.pairings[r.PathValue("code")]
+		ok := p != nil && p.status == hubapi.PairPending
+		if ok {
+			p.status = status
+		}
+		h.mu.Unlock()
+		if !ok {
+			fail(w, http.StatusNotFound, "no pairing has that code")
+			return
+		}
+		writeJSON(w, http.StatusOK, hubapi.HubPairingInfo{Code: r.PathValue("code"), Kind: p.req.Kind, Label: p.req.Label, Name: p.req.Name})
+	}
 }
 
 // signedIn checks only that a session token was sent, in the shape the
@@ -151,11 +305,18 @@ func (h *Hub) createEnvironment(w http.ResponseWriter, r *http.Request) {
 // AddEnvironment adds an environment and returns it with its token, as the
 // hub's own answer would. Tests that don't need the HTTP call use this.
 func (h *Hub) AddEnvironment(name string) hubapi.HubEnvironmentToken {
+	return h.AddEnvironmentOf("usr_test", name)
+}
+
+// AddEnvironmentOf is AddEnvironment for another owner's environment, which
+// isn't among the others' peers.
+func (h *Hub) AddEnvironmentOf(owner, name string) hubapi.HubEnvironmentToken {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.nextID++
 	e := &environment{
 		info:  hubapi.HubEnvironment{ID: "env_" + strconv.Itoa(h.nextID), Name: name, CreatedAt: time.Now()},
+		owner: owner,
 		token: hubapi.EnvironmentTokenPrefix + "test" + strconv.Itoa(h.nextID),
 	}
 	h.envs[e.info.ID] = e
@@ -226,6 +387,12 @@ func (h *Hub) connect(w http.ResponseWriter, r *http.Request) {
 			pr.Out.Header.Del("Authorization")
 			pr.Out.Header.Del("Cookie")
 			pr.Out.Header.Del("Origin")
+			pr.Out.Header.Del(hubapi.HeaderPeer)
+			pr.Out.Header.Del(hubapi.HeaderPeerName)
+			if p, ok := pr.In.Context().Value(peerKey{}).(hubapi.HubEnvironment); ok {
+				pr.Out.Header.Set(hubapi.HeaderPeer, p.ID)
+				pr.Out.Header.Set(hubapi.HeaderPeerName, p.Name)
+			}
 		},
 		Transport: &http.Transport{
 			DialContext: func(context.Context, string, string) (net.Conn, error) { return session.Open() },
@@ -271,4 +438,50 @@ func (h *Hub) proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+type peerKey struct{}
+
+// listPeers lists the asking environment's owner's other environments.
+func (h *Hub) listPeers(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	self := h.byToken[bearer(r)]
+	if self == nil {
+		fail(w, http.StatusUnauthorized, "unknown environment token")
+		return
+	}
+	out := []hubapi.HubEnvironment{}
+	for _, e := range h.envs {
+		if e != self && e.owner == self.owner {
+			out = append(out, e.info)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// peerProxy passes an environment's request to any other, whoever owns it,
+// saying which one asked.
+func (h *Hub) peerProxy(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	self, e := h.byToken[bearer(r)], h.envs[r.PathValue("id")]
+	var proxy *httputil.ReverseProxy
+	var info hubapi.HubEnvironment
+	if e != nil {
+		proxy = e.proxy
+	}
+	if self != nil {
+		info = self.info
+	}
+	h.mu.Unlock()
+	switch {
+	case self == nil:
+		fail(w, http.StatusUnauthorized, "unknown environment token")
+	case e == nil:
+		fail(w, http.StatusNotFound, "no such environment")
+	case proxy == nil:
+		fail(w, http.StatusServiceUnavailable, e.info.Name+" is offline")
+	default:
+		proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), peerKey{}, info)))
+	}
 }

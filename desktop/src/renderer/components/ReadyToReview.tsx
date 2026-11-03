@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { PrNumberLink } from './PrNumberLink';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Info, Keyboard, LoaderCircle, MessageSquareText, Play, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, Clock, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Images, Info, Keyboard, LoaderCircle, MessageSquare, MessageSquareText, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -8,22 +8,22 @@ import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
-import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type MergeBlock, type ReviewAction } from '../lib/review';
+import { pageItems, refreshInbox, type useReviewPages, withoutAgent } from '../lib/inboxPages';
+import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, mergeBlockReason, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, reviewPane, seeking, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type Pane, type ReviewAction } from '../lib/review';
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
-import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
-import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { languageOfPath, parsePatch } from '../lib/pulls';
 import { drafts, splitGitDiff } from '../lib/reviewNotes';
+import { awaitingReview } from '../lib/work';
 import { Markdown } from './chat/Markdown';
 import { DiffTable, useHighlighted } from './DiffTable';
 import { NotesList, ReviewNotesContext, reviewNotesKey, useReviewNotes } from './ReviewNotes';
-import { MoreMedia } from './MediaTab';
 import { ReviewProof, type ProofHandle } from './ReviewProof';
+import { ShareButton } from './ShareButton';
 import { useProjectPages } from './pages/usePages';
-import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
-import { checksLabels, methodLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
+import { PullRequestView } from './PullRequestModal';
+import { cancelMergeWhenGreen, MergeWhenGreenNote } from './MergeWhenGreen';
+import { methodLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
 import { AIIcon } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -31,15 +31,11 @@ import { Kbd, Notice } from './ui/card';
 import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 
-// "Ready to review" is a section of the top bar's inbox (components/Inbox.tsx):
-// the agents that finished and wait for the user to look at their work,
-// newest first, and below them the ones already reviewed, folded. Both lists
-// load a page at a time as they're scrolled (lib/inboxPages.ts). Picking one
-// opens the review carousel (ReviewDialog), which Review all walks through
-// what's waiting. Opening an agent there is seeing it (it leaves the
-// inbox's count), not reviewing it: Mark reviewed moves it to Reviewed, until
-// its work changes. Reviewing turned off in Settings leaves
-// the section out.
+// "Ready to review" is the agents that finished and wait for the user to look
+// at their work, newest first, and the ones already reviewed (v2/ReviewV2.tsx
+// lists both, a page at a time, lib/inboxPages.ts). Picking one opens the
+// review carousel (ReviewDialog), which Review all walks through what's
+// waiting. Mark reviewed moves it to Reviewed, until its work changes.
 
 // A review session is the agent on screen and, when it walks through what's
 // waiting, the order it walks them in (lib/review.ts queueOf). An agent
@@ -49,92 +45,30 @@ export type ReviewSession = Walk;
 
 type ReviewPages = ReturnType<typeof useReviewPages>;
 
-// ReviewSection is the inbox's list of what's waiting. shown is what was
-// new when the inbox opened, which stays marked while it's open.
-export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPages; shown: ReadonlySet<string>; open: boolean; onBegin: (session: ReviewSession) => void }) {
-  const t = useT();
-  const [showReviewed, setShowReviewed] = useState(false);
-  const reviewed = useReviewPages(true, open && showReviewed);
-  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const now = useNow(60_000);
-  const unseen = useUnseen();
-  const isNew = (i: T.ReviewItem) => isUnseen(unseen, i) || isUnseen(shown, i);
-  const items = pageItems(pages.data);
-  const done = pageItems(reviewed.data);
-  const order = items.map((i) => i.ref);
-  return (
-    <section className="border-b border-line-faint pb-1" data-review-list>
-      <div className="flex items-center gap-2 px-2.5 pb-1 pt-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-subtle">{t('review.button')}</span>
-        {items.length > 0 && <span className="text-[11px] text-subtle">{t('review.waiting', { count: pageTotal(pages.data) })}</span>}
-        {items.length > 0 && (
-          <Button size="sm" variant="primary" className="ml-auto h-7" data-review-all onClick={() => onBegin({ item: items[0], order })}>
-            <Play />
-            {t('review.reviewAll')}
-          </Button>
-        )}
-      </div>
-      {items.length === 0 ? (
-        <div className="px-3 py-3 text-[12.5px] text-muted">{pages.isPending ? t('common.loading') : t('review.empty')}</div>
-      ) : (
-        <>
-          {items.map((item) => (
-            <ReviewRow key={item.ref} item={item} isNew={isNew(item)} now={now} projects={projects.data} onOpen={() => onBegin({ item, order })} />
-          ))}
-          <MoreMedia pages={pages} />
-        </>
-      )}
-      <div data-reviewed-section>
-        <button
-          type="button"
-          aria-expanded={showReviewed}
-          data-reviewed-toggle
-          onClick={() => setShowReviewed((s) => !s)}
-          className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-[12px] font-medium text-muted transition hover:bg-surface-raised hover:text-primary"
-        >
-          <ChevronDown className={cn('size-3.5 transition-transform', !showReviewed && '-rotate-90')} />
-          {t('review.reviewedSection')}
-          {done.length > 0 && <span className="text-subtle">{pageTotal(reviewed.data)}</span>}
-        </button>
-        {showReviewed &&
-          (done.length ? (
-            <>
-              {done.map((item) => (
-                <ReviewRow key={item.ref} item={item} isNew={false} now={now} projects={projects.data} onOpen={() => onBegin({ item, order: null })} />
-              ))}
-              <MoreMedia pages={reviewed} />
-            </>
-          ) : (
-            <div className="px-4 py-3 text-[12px] text-subtle">{reviewed.isPending ? t('common.loading') : t('review.reviewedEmpty')}</div>
-          ))}
-      </div>
-    </section>
-  );
-}
-
 // ReviewDialog is the carousel on the session's agent, as the list has it now
-// (its pull request merged, say), with the one after it in the walk.
-// UI v2's has a Reviewed tab (ReviewV2): tabs sit in the carousel's header,
-// and list, while there is one, is shown in the dialog in its place.
+// (its pull request merged, say), with the one after it in the walk. The
+// Work page (WorkView) opens it on any agent's work, live or past: work is
+// what it lists of the agent, and onOpenChat opens its whole chat.
 export function ReviewDialog({
   session,
   pages,
   onSession,
-  tabs,
-  list,
-  onCloseList,
+  work,
+  onOpenChat,
 }: {
   session: ReviewSession | null;
   pages: ReviewPages;
   onSession: (session: ReviewSession | null) => void;
-  tabs?: ReactNode;
-  list?: ReactNode;
-  onCloseList?: () => void;
+  work?: (ref: string) => T.WorkItem | undefined;
+  onOpenChat?: (item: T.ReviewItem, past: boolean) => void;
 }) {
   const t = useT();
   const items = walkItems(pageItems(pages.data), session?.project);
   const current = session && (items.find((i) => i.ref === session.item.ref) ?? session.item);
-  const order = session && walkOrder(session);
+  // Work that waits for no verdict (Work's past, reviewed or running agents)
+  // is looked at on its own: there's nothing to walk on to.
+  const alone = !!session && !!work && work(session.item.ref)?.status !== 'review';
+  const order = session && !alone ? walkOrder(session) : null;
   const next = session && order ? nextPending(order, session.item.ref, items) : undefined;
   const queue = order ? queueOf(order, items) : null;
   const position = queue && session ? { n: queue.indexOf(session.item.ref) + 1, count: queue.length } : undefined;
@@ -158,15 +92,24 @@ export function ReviewDialog({
   };
   return (
     <Dialog
-      open={current !== null || !!list}
+      open={current !== null}
       onOpenChange={(open) => {
-        if (open) return;
-        onSession(null);
-        onCloseList?.();
+        if (!open) onSession(null);
       }}
     >
-      {list}
-      {!list && current && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} tabs={tabs} />}
+      {current && (
+        <ReviewCarousel
+          key={current.ref}
+          item={current}
+          work={work?.(current.ref)}
+          position={position}
+          next={next}
+          canBack={!!session?.trail?.length}
+          onNext={advance}
+          onBack={() => session && onSession(goBack(session))}
+          onOpenChat={onOpenChat}
+        />
+      )}
     </Dialog>
   );
 }
@@ -188,11 +131,11 @@ export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.Revi
         <AIIcon ai={item.ai || 'claude'} className={cn('mt-0.5 size-4 shrink-0', done && 'opacity-60')} />
         <span className="grid min-w-0 flex-1 gap-0.5">
           <span className="flex min-w-0 items-baseline gap-2">
-            <span className={cn('truncate text-[13px] font-medium', done ? 'text-secondary' : 'text-primary', !item.title && 'font-mono')}>{item.title || item.agent}</span>
-            {isNew && <span className="shrink-0 rounded-full bg-brand-500 px-1.5 text-[9.5px] font-semibold uppercase leading-4 text-white">{t('review.new')}</span>}
-            <span className="ml-auto shrink-0 text-[11px] text-subtle">{done && item.reviewedAt ? <VerdictText item={item} now={now} /> : timeAgo(item.finishedAt, now)}</span>
+            <span className={cn('truncate text-ui font-medium', done ? 'text-secondary' : 'text-primary', !item.title && 'font-mono')}>{item.title || item.agent}</span>
+            {isNew && <span className="shrink-0 rounded-full bg-brand-500 px-1.5 text-caption font-semibold uppercase leading-4 text-white">{t('review.new')}</span>}
+            <span className="ml-auto shrink-0 text-caption text-subtle">{done && item.reviewedAt ? <VerdictText item={item} now={now} /> : timeAgo(item.finishedAt, now)}</span>
           </span>
-          <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted">
+          <span className="flex min-w-0 items-center gap-1.5 text-caption text-muted">
             <span className="shrink-0 truncate">{projectLabel(item.project, projects)}</span>
             {item.branch && (
               <>
@@ -200,10 +143,10 @@ export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.Revi
                   ·
                 </span>
                 <GitBranch className="size-3 shrink-0 text-faint" />
-                <span className="min-w-0 truncate font-mono text-[11px]">{item.branch}</span>
+                <span className="min-w-0 truncate font-mono text-caption">{item.branch}</span>
               </>
             )}
-            {item.pr && <span className="ml-auto shrink-0 font-mono text-[11px] text-secondary">#{item.pr.number}</span>}
+            {item.pr && <span className="ml-auto shrink-0 font-mono text-caption text-secondary">#{item.pr.number}</span>}
           </span>
         </span>
       </button>
@@ -242,13 +185,6 @@ function VerdictText({ item, now }: { item: T.ReviewItem; now?: number }) {
   return <>{t(item.verdict === 'dismissed' ? 'review.verdict.dismissed' : item.verdict === 'changes' ? 'review.verdict.changes' : 'review.verdict.reviewed', { when })}</>;
 }
 
-const blockLabels: Record<Exclude<MergeBlock, 'merged' | 'closed'>, MessageKey> = {
-  draft: 'review.mergeBlocked.draft',
-  failing: 'review.mergeBlocked.failing',
-  conflict: 'review.mergeBlocked.conflict',
-  noPermission: 'review.mergeBlocked.noPermission',
-};
-
 // settleMs is how long after an agent comes up its Merge and Reviewed wait
 // before taking a click.
 const settleMs = 400;
@@ -271,6 +207,11 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
   previousChapter: 'review.key.previousChapter',
   nextChapter: 'review.key.nextChapter',
   expand: 'review.key.expand',
+  compareMode: 'review.key.compareMode',
+  highlight: 'review.key.highlight',
+  zoomIn: 'review.key.zoomIn',
+  zoomOut: 'review.key.zoomOut',
+  zoomReset: 'review.key.zoomReset',
   toggleDetails: 'review.key.toggleDetails',
   openPr: 'review.key.openPr',
   help: 'review.key.help',
@@ -280,9 +221,9 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
 const isMac = typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac');
 
 // A pane is what the body shows: the proof, which the review opens on, or
-// the diff or the details in its place. D and I (and their buttons in the
-// header) show one and, pressed again, go back to the proof.
-type Pane = 'proof' | 'diff' | 'details';
+// the diff or the details in its place (an agent with no media opens on the
+// details). D and I (and their buttons in the header) show one and, pressed
+// again, go back to the proof.
 
 // ReviewCarousel is one agent's review, built around the decision. The
 // header says what changed (the title and the first line of what the agent
@@ -296,28 +237,45 @@ type Pane = 'proof' | 'diff' | 'details';
 // record a verdict and go on to the next agent.
 function ReviewCarousel({
   item,
+  work,
   position,
   next,
   canBack,
   onNext,
   onBack,
-  tabs,
+  onOpenChat,
 }: {
   item: T.ReviewItem;
+  // work is the agent as the Work page lists it: whether it's a past agent,
+  // and its report.
+  work?: T.WorkItem;
   position?: { n: number; count: number };
   next?: T.ReviewItem;
   // canBack is whether an agent was shown before this one in the walk.
   canBack: boolean;
   onNext: () => void;
   onBack: () => void;
-  tabs?: ReactNode;
+  onOpenChat?: (item: T.ReviewItem, past: boolean) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
+  const past = !!work?.past;
+  // A past agent's media is the project's under its name: its own routes
+  // went with its machine.
   const media = useQuery({
-    queryKey: ['media', item.ref],
-    queryFn: () => api.media(item.ref),
+    queryKey: past ? ['media', item.ref, 'past'] : ['media', item.ref],
+    queryFn: () => (past ? api.projectMedia(item.project, item.agent) : api.media(item.ref)),
   });
+  // Its final report, on top: the Work page has it; opened elsewhere it's read.
+  const reports = useQuery({
+    queryKey: ['memory', item.project, 'reports', item.agent],
+    queryFn: () => api.memoryReports(item.project, item.agent),
+    enabled: !work,
+  });
+  const report = work ? work.report : reports.data?.[0];
+  // Merge, Mark reviewed and Request changes are verdicts on work that
+  // waits for one; anything else is only looked at.
+  const awaiting = work ? work.status === 'review' : awaitingReview(item);
   const pages = useProjectPages(item.project);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   // The pull request as the project's list has it now, merged under us say,
@@ -328,9 +286,16 @@ function ReviewCarousel({
     enabled: !!item.pr,
   });
   const pr = (item.pr && pulls.data?.pullRequests.find((p) => p.number === item.pr?.number)) || item.pr;
-  const proof = proofOf(media.data ?? [], pagesFor(pages.data, item.ref));
-  const [pane, setPane] = useState<Pane>('proof');
-  const toggle = (p: Pane) => setPane((now) => (now === p ? 'proof' : p));
+  const proof = proofOf(Array.isArray(media.data) ? media.data : [], pagesFor(pages.data, item.ref));
+  const proofCount = proof.recordings.length + proof.screenshots.length + proof.pages.length;
+  // A pane picked by hand for this item stays; otherwise the review follows
+  // what's there: the proof, or the details when the agent showed no media.
+  const [chosenPane, setChosenPane] = useState<Pane>();
+  const pane = reviewPane(proof, chosenPane, !media.isPending && !pages.isPending);
+  const toggle = (p: Pane) => setChosenPane((now) => {
+    if ((now ?? pane) !== p) return p;
+    return reviewPane(proof, undefined, true);
+  });
   const [help, setHelp] = useState(false);
   const labels = usePullLabels(item.project);
   // The review's own "Merged" toast says whose it was and where it went.
@@ -345,10 +310,7 @@ function ReviewCarousel({
   );
   const blocked = pr ? mergeBlock(pr, pulls.data) : null;
   const canMerge = !!pr && blocked !== 'merged' && blocked !== 'closed';
-  const mergeReason = blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr?.baseBranch ?? '' }) : undefined;
-
-  // Opening an agent's work is seeing it, which only leaves the inbox's count.
-  useEffect(() => markReadySeen({ ref: item.ref, fingerprint: item.fingerprint }), [item.ref, item.fingerprint]);
+  const mergeReason = pr ? mergeBlockReason(pr, pulls.data) : undefined;
 
   const [marking, setMarking] = useState(false);
   // A click that lands within settleMs of an agent coming up is the second
@@ -375,6 +337,26 @@ function ReviewCarousel({
     onNext();
   };
   const reviewAndGo = () => !marking && settled() && markReviewed();
+  // Resolved — merge when CI is green (Settings, off by default): reviewed
+  // now, and merged by the daemon with the method picked here once the
+  // checks pass, at once when they already do. The review goes on; the
+  // toast can take it back.
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const resolve = useMutation({
+    mutationFn: ({ number, method }: { number: number; method: string }) => api.mergeWhenGreen(item.project, number, { method, agent: item.agent, fingerprint: item.fingerprint }),
+    onMutate: () => {
+      dropFromList(queryClient, item.ref);
+      onNext();
+    },
+    onSuccess: (mark) =>
+      toast(t('review.mergeWhenGreen.queued', { number: mark.number }), {
+        description: item.title || item.agent,
+        action: { label: t('review.mergeWhenGreen.cancel'), onClick: () => void cancelMergeWhenGreen(queryClient, item.project, mark.number, t) },
+      }),
+    onError: (err) => toast.error(t('review.mergeWhenGreen.failed', { error: errorMessage(err) })),
+    onSettled: () => refreshInbox(queryClient),
+  });
+  const resolveAndGo = () => pr && !mergeDisabled && !resolve.isPending && settled() && resolve.mutate({ number: pr.number, method });
   // Merged, it's reviewed too (quietly: the "Merged" toast is the news) and
   // the review goes on to the next agent.
   const mergeAndGo = () => pr && !mergeDisabled && settled() && merge.mergeWith(pr, method, markReviewed);
@@ -402,16 +384,27 @@ function ReviewCarousel({
   const changesBox = useRef<HTMLTextAreaElement>(null);
   const notes = useReviewNotes(item.ref);
   const pendingNotes = drafts(notes.notes);
+  // The review moves on as soon as they're sent: the daemon may have to start
+  // the agent's machine before it answers. If they don't go, the agent is
+  // back in the list, and what was written is in the toast, to copy.
   const send = useMutation({
     mutationFn: (text: string) => api.requestChanges(item.ref, { text, fingerprint: item.fingerprint, notes: pendingNotes.map((n) => n.id) }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: reviewNotesKey(item.ref) });
+    onMutate: () => {
       dropFromList(queryClient, item.ref);
       toast(t('review.changesSent', { agent: item.agent }));
-      refreshInbox(queryClient);
       onNext();
     },
-    onError: (err) => toast.error(t('review.changesFailed', { error: errorMessage(err) })),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: reviewNotesKey(item.ref) });
+      refreshInbox(queryClient);
+    },
+    onError: (err, text) => {
+      refreshInbox(queryClient);
+      toast.error(t('review.changesFailed', { error: errorMessage(err) }), {
+        description: text || undefined,
+        action: text ? { label: t('common.copy'), onClick: () => window.agentbox.copyText(text) } : undefined,
+      });
+    },
   });
   const sendChanges = () => {
     const text = note.trim();
@@ -433,7 +426,7 @@ function ReviewCarousel({
   const proofView = useRef<ProofHandle>(null);
   const fileAt = useRef(-1);
   const stepFile = (by: number) => {
-    if (pane !== 'diff') return setPane('diff');
+    if (pane !== 'diff') return setChosenPane('diff');
     const root = body.current;
     if (!root) return;
     const tree = [...root.querySelectorAll<HTMLElement>('[data-tree-file]')];
@@ -459,11 +452,11 @@ function ReviewCarousel({
   const act = (action: ReviewAction) => {
     switch (action) {
       case 'merge':
-        return mergeKey();
+        return awaiting && mergeKey();
       case 'requestChanges':
-        return requestChanges();
+        return awaiting && requestChanges();
       case 'reviewed':
-        return reviewAndGo();
+        return awaiting && reviewAndGo();
       case 'nextItem':
         if (next) onNext();
         return;
@@ -493,6 +486,16 @@ function ReviewCarousel({
         return proofView.current?.chapter(1);
       case 'expand':
         return proofView.current?.toggleExpand();
+      case 'compareMode':
+        return proofView.current?.compareMode();
+      case 'highlight':
+        return proofView.current?.highlight();
+      case 'zoomIn':
+        return proofView.current?.zoom(1);
+      case 'zoomOut':
+        return proofView.current?.zoom(-1);
+      case 'zoomReset':
+        return proofView.current?.zoom(0);
       case 'help':
         return setHelp((h) => !h);
     }
@@ -502,9 +505,10 @@ function ReviewCarousel({
     if (e.defaultPrevented || isTyping(e.target as HTMLElement)) return;
     const action = reviewShortcut(e);
     if (!action || (e.repeat && !repeatable(action))) return;
-    // The gallery's keys are the proof's: in the diff the arrows scroll, and
-    // Space presses the button that has focus.
-    if (proofKey(action) && (pane !== 'proof' || (action === 'play' && pressable(e.target as HTMLElement)))) return;
+    // The gallery's keys are the proof's: in the diff the arrows scroll,
+    // Space presses the button that has focus, and a player with focus plays
+    // and seeks itself.
+    if (proofKey(action) && (pane !== 'proof' || (action === 'play' && pressable(e.target as HTMLElement)) || seeking(action, e.target as HTMLElement))) return;
     // With the keys listed, only ? (or Esc) does anything: it closes them.
     if (help && action !== 'help') return;
     e.preventDefault();
@@ -512,6 +516,10 @@ function ReviewCarousel({
   };
 
   const summary = firstLine(item.summary);
+  // The case, what the agent said and reported, sits beside the proof where
+  // the window is wide; elsewhere it's the header's line and the report's
+  // strip, and the details hold the rest.
+  const withCase = pane === 'proof';
   const content = useRef<HTMLDivElement>(null);
 
   return (
@@ -527,7 +535,8 @@ function ReviewCarousel({
           (event.currentTarget as HTMLElement | null)?.focus();
         }}
         // Esc closes what's over the review first: the keys, a note's box,
-        // the Request changes box, an expanded screenshot. Then the review.
+        // the Request changes box, the viewer a piece of proof is open large in.
+        // Then the review.
         onEscapeKeyDown={(event) => {
           if (!help && !changing && proofView.current?.collapse()) {
             event.preventDefault();
@@ -537,6 +546,11 @@ function ReviewCarousel({
             event.preventDefault();
             setHelp(false);
             content.current?.focus();
+            return;
+          }
+          if (!changing && pane !== 'proof' && !notes.composing && notes.editing === null) {
+            event.preventDefault();
+            toggle('proof');
             return;
           }
           if (notes.composing || notes.editing !== null) {
@@ -552,11 +566,12 @@ function ReviewCarousel({
         }}
       >
         <ReviewNotesContext.Provider value={notes}>
-          {/* What changed, and where its pull request stands. */}
-          <header className="grid gap-1 border-b border-line px-5 py-3 pr-14" inert={help}>
+          {/* What it is, and whether it can merge: that line is the finding,
+              read before anything else, the reason Merge waits if it does. */}
+          <header className="grid min-w-0 gap-1.5 px-5 pb-3 pr-14 pt-4" inert={help}>
             <div className="flex min-w-0 items-center gap-3">
               <AIIcon ai={item.ai || 'claude'} className="size-5 shrink-0" />
-              <DialogTitle className={cn('min-w-0 truncate text-[16px] leading-snug', !item.title && 'font-mono')} title={item.title || item.agent}>
+              <DialogTitle className={cn('min-w-0 truncate text-display font-semibold leading-snug', !item.title && 'font-mono')} title={item.title || item.agent}>
                 {item.title || item.agent}
               </DialogTitle>
               {item.verdict && (
@@ -570,7 +585,7 @@ function ReviewCarousel({
                     <Button size="icon-sm" variant="ghost" disabled={!canBack} onClick={onBack} title={`${t('review.backTitle')} (P)`} aria-label={t('review.key.previousItem')} data-review-back>
                       <ChevronLeft />
                     </Button>
-                    <span className="text-[12px] tabular-nums text-subtle" data-review-agent-position={`${position.n}/${position.count}`}>
+                    <span className="font-mono text-caption tabular-nums text-subtle" data-review-agent-position={`${position.n}/${position.count}`}>
                       {t('review.position', { n: position.n, count: position.count })}
                     </span>
                     <Button size="icon-sm" variant="ghost" disabled={!next} onClick={onNext} title={next ? `${t('review.nextIs', { agent: next.title || next.agent })} (N)` : undefined} aria-label={t('review.key.nextItem')} data-review-next>
@@ -578,96 +593,75 @@ function ReviewCarousel({
                     </Button>
                   </>
                 )}
-                {tabs}
-              </div>
-            </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 pl-8 text-[12.5px]">
-              <p className={cn('min-w-0 flex-1 basis-[320px] truncate', summary ? 'text-secondary' : 'italic text-subtle')} title={item.summary || undefined} data-review-summary-line>
-                {summary || t('review.noSummary')}
-              </p>
-              {pr && <PrStatus pr={pr} />}
-              <div className="ml-auto flex shrink-0 items-center gap-1">
-                <Button size="sm" variant={pane === 'diff' ? 'secondary' : 'ghost'} className="h-7" aria-pressed={pane === 'diff'} onClick={() => toggle('diff')} data-review-toggle="diff">
-                  <FileDiff />
-                  {t('review.diff')}
-                  {item.changes && item.changes.files > 0 && (
-                    <span className="font-mono text-[11.5px]">
-                      <span className="text-emerald-400">+{item.changes.insertions}</span> <span className="text-rose-400">−{item.changes.deletions}</span>
-                    </span>
-                  )}
-                  {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
-                  <Hint k="D" />
-                </Button>
-                <Button size="sm" variant={pane === 'details' ? 'secondary' : 'ghost'} className="h-7" aria-pressed={pane === 'details'} onClick={() => toggle('details')} data-review-toggle="details">
-                  <Info />
-                  {t('review.details')}
-                  <Hint k="I" />
-                </Button>
-                {pr && (
-                  <Button size="sm" variant="ghost" className="h-7" onClick={() => void window.agentbox.openExternal(pr.url)} title={t('pulls.detail.openOnGitHub')} data-review-github>
-                    <ExternalLink />
-                    {t('review.github')}
-                    <Hint k="O" />
+                {onOpenChat && (
+                  <Button size="sm" variant="ghost" className="h-7" onClick={() => onOpenChat(item, past)} data-review-chat>
+                    <MessageSquare />
+                    {t('review.chat')}
                   </Button>
                 )}
               </div>
             </div>
+            <Readiness item={item} pr={pr} blocked={footerReason} />
+            {/* Beside the proof, wide, the case says all of it, and the
+                details do. */}
+            {pane !== 'details' && (
+              <p className={cn('min-w-0 truncate pl-8 text-ui', summary ? 'text-secondary' : 'text-subtle', withCase && 'lg:hidden')} title={item.summary || undefined} data-review-summary-line>
+                {summary || t('review.noSummary')}
+              </p>
+            )}
           </header>
-          <section ref={body} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden" inert={help} data-review-body>
-            {pane === 'proof' &&
-              (media.isPending ? <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div> : <ReviewProof ref={proofView} key={item.ref} project={item.project} proof={proof} />)}
-            {pane === 'diff' &&
-              (pr ? (
-                <div className="flex min-h-0 flex-1 flex-col bg-modal" data-review-slide="changes">
-                  <PullRequestView
-                    inline
-                    bare
-                    view="files"
-                    project={item.project}
-                    pr={pr}
-                    canMerge={canMerge}
-                    mergeRunning={merge.running.has(pr.number)}
-                    mergeError={merge.failed[pr.number]}
-                    onMerge={() => merge.request(pr)}
-                    edits={labels.edits}
-                    onToggleLabel={(label, on) => labels.toggleLabel(pr, label, on)}
-                  />
-                </div>
-              ) : (
-                <AgentDiff agent={item.ref} />
-              ))}
-            {pane === 'details' && (
-              <div className="mx-auto grid w-full max-w-4xl content-start gap-6 p-5" data-review-details>
-                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted">
-                  <span className="font-medium text-secondary">{projectLabel(item.project, projects.data)}</span>
-                  {item.branch && (
-                    <span className="flex min-w-0 items-center gap-1">
-                      <GitBranch className="size-3 shrink-0 text-faint" />
-                      <span className="truncate font-mono text-[11.5px]">{item.branch}</span>
-                    </span>
-                  )}
-                  <span className="text-faint">· {t('review.finished', { when: timeAgo(item.finishedAt) })}</span>
-                  {item.machineKept && (
-                    <Badge variant="warning" data-review-machine-kept>
-                      {t('review.machineKept')}
-                    </Badge>
-                  )}
-                </div>
-                <section data-review-summary>
-                  <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.summary')}</h3>
-                  {item.summary ? <Markdown text={item.summary} className="text-[13px]" /> : <p className="text-[12.5px] italic text-subtle">{t('review.noSummary')}</p>}
-                </section>
-                {pr && (
-                  <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-line" data-review-slide="pr">
-                    <h3 className="flex min-w-0 items-center gap-2 border-b border-line-faint px-4 py-2 text-[12.5px] font-medium text-primary">
-                      <GitPullRequest className="size-3.5 shrink-0 text-subtle" />
-                      <span className="min-w-0 truncate">{pr.title}</span>
-                      <span className="shrink-0 font-mono text-subtle">#{pr.number}</span>
-                    </h3>
+          {/* Media, the diff or the details: one at a time, the one on screen
+              underlined, so the way back to the media is always in sight (D
+              and I go to theirs and back, as does Esc). */}
+          <div className="flex min-w-0 items-center gap-x-4 border-b border-line px-5 sm:pl-[3.25rem]" inert={help}>
+            <div role="tablist" aria-label={t('review.panes')} className="flex min-w-0 items-center gap-x-5 overflow-x-auto [scrollbar-width:none]" data-review-panes>
+              <PaneTab on={pane === 'proof'} onClick={() => setChosenPane('proof')} pane="proof">
+                <Images />
+                {t('review.media')}
+                {proofCount > 0 && <span className="font-mono tabular-nums text-subtle">{proofCount}</span>}
+              </PaneTab>
+              <PaneTab on={pane === 'diff'} onClick={() => setChosenPane('diff')} pane="diff">
+                <FileDiff />
+                {t('review.diff')}
+                {item.changes && item.changes.files > 0 && (
+                  <span className="font-mono tabular-nums text-subtle">
+                    +{item.changes.insertions} −{item.changes.deletions}
+                  </span>
+                )}
+                {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
+                <Hint k="D" />
+              </PaneTab>
+              <PaneTab on={pane === 'details'} onClick={() => setChosenPane('details')} pane="details">
+                <Info />
+                {t('review.details')}
+                <Hint k="I" />
+              </PaneTab>
+            </div>
+            <div className="ml-auto flex shrink-0 items-center gap-1 py-1">
+              {/* Narrow, both are icons, so the tabs keep their words. */}
+              <ShareButton agentRef={item.ref} className="max-sm:hidden" />
+              <ShareButton agentRef={item.ref} compact className="sm:hidden" />
+              {pr && (
+                <Button size="sm" variant="ghost" className="h-7 max-sm:px-2" onClick={() => void window.agentbox.openExternal(pr.url)} title={t('pulls.detail.openOnGitHub')} aria-label={t('review.github')} data-review-github>
+                  <ExternalLink />
+                  <span className="max-sm:hidden">{t('review.github')}</span>
+                  <Hint k="O" />
+                </Button>
+              )}
+            </div>
+          </div>
+          {report && <ReportStrip report={report} inert={help} className={cn(withCase && 'lg:hidden')} />}
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <section ref={body} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden" inert={help} data-review-body>
+              {pane === 'proof' &&
+                (media.isPending ? <div className="p-6 text-ui text-subtle">{t('common.loading')}</div> : <ReviewProof ref={proofView} key={item.ref} project={item.project} proof={proof} />)}
+              {pane === 'diff' &&
+                (pr ? (
+                  <div className="flex min-h-0 flex-1 flex-col bg-modal" data-review-slide="changes">
                     <PullRequestView
                       inline
                       bare
-                      view="description"
+                      view="files"
                       project={item.project}
                       pr={pr}
                       canMerge={canMerge}
@@ -677,14 +671,48 @@ function ReviewCarousel({
                       edits={labels.edits}
                       onToggleLabel={(label, on) => labels.toggleLabel(pr, label, on)}
                     />
+                  </div>
+                ) : (
+                  <AgentDiff agent={item.ref} past={past} />
+                ))}
+              {pane === 'details' && (
+                <div className="mx-auto grid w-full max-w-4xl content-start gap-6 p-5" data-review-details>
+                  {/* Its branch, base and age are the header's line. */}
+                  <span className="text-ui font-medium text-secondary">{projectLabel(item.project, projects.data)}</span>
+                  <section data-review-summary>
+                    <h3 className="mb-2 text-caption font-medium text-muted">{t('review.summary')}</h3>
+                    {item.summary ? <Markdown text={item.summary} className="text-ui" /> : <p className="text-ui text-subtle">{t('review.noSummary')}</p>}
                   </section>
-                )}
-              </div>
-            )}
-          </section>
+                  {pr && (
+                    <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-line" data-review-slide="pr">
+                      <h3 className="flex min-w-0 items-center gap-2 border-b border-line-faint px-4 py-2 text-ui font-medium text-primary">
+                        <GitPullRequest className="size-3.5 shrink-0 text-subtle" />
+                        <span className="min-w-0 truncate">{pr.title}</span>
+                        <span className="shrink-0 font-mono text-subtle">#{pr.number}</span>
+                      </h3>
+                      <PullRequestView
+                        inline
+                        bare
+                        view="description"
+                        project={item.project}
+                        pr={pr}
+                        canMerge={canMerge}
+                        mergeRunning={merge.running.has(pr.number)}
+                        mergeError={merge.failed[pr.number]}
+                        onMerge={() => merge.request(pr)}
+                        edits={labels.edits}
+                        onToggleLabel={(label, on) => labels.toggleLabel(pr, label, on)}
+                      />
+                    </section>
+                  )}
+                </div>
+              )}
+            </section>
+            {withCase && <CaseRail item={item} report={report} inert={help} />}
+          </div>
           {changing && (
             <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" inert={help} data-review-changes-box>
-              <div className="text-[12px] text-muted">{t('review.changesTo', { agent: item.agent })}</div>
+              <div className="text-caption text-muted">{t('review.changesTo', { agent: item.agent })}</div>
               <NotesList notes={notes.notes} />
               <textarea
                 ref={changesBox}
@@ -700,7 +728,7 @@ function ReviewCarousel({
                 }}
                 placeholder={pendingNotes.length > 0 ? t('review.notes.extra') : t('review.changesPlaceholder')}
                 aria-label={t('review.requestChanges')}
-                className="w-full resize-none rounded-lg bg-surface-faint px-2.5 py-2 text-[13px] text-primary outline-none ring-1 ring-line focus:ring-brand-400"
+                className="w-full resize-none rounded-lg bg-surface-faint px-2.5 py-2 text-ui text-primary outline-none ring-1 ring-line focus:ring-brand-400"
                 data-review-changes-input
               />
               <div className="flex justify-end gap-2">
@@ -723,6 +751,7 @@ function ReviewCarousel({
               </div>
             </div>
           )}
+          <MergeWhenGreenNote item={item} />
           {/* The verdicts, Merge last and loudest. Narrow, they wrap rather
               than drop their labels: icons alone left Request changes and
               Merge to guess (UX test, finding 8). */}
@@ -731,42 +760,58 @@ function ReviewCarousel({
               <Keyboard />
               <Hint k="?" />
             </Button>
-            <Button size="sm" variant="secondary" aria-expanded={changing} onClick={requestChanges} data-review-changes>
-              <MessageSquareText />
-              <span>{t('review.requestChanges')}</span>
-              {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
-              <Hint k="C" />
-            </Button>
-            <Button size="sm" variant="secondary" disabled={marking} onClick={reviewAndGo} data-review-done title={next ? t('review.nextIs', { agent: next.title || next.agent }) : undefined}>
-              <Check />
-              <span>{t('review.markReviewed')}</span>
-              <Hint k="R" />
-            </Button>
-            {/* Why Merge can't, beside it; narrow, on a line of its own under the actions. */}
-            <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
-              {armed && pr && !mergeDisabled ? <span className="text-primary" data-review-merge-armed>{t('review.mergeArmed', { number: pr.number })}</span> : footerNote}
-            </span>
-            <div className="flex shrink-0 items-stretch" data-review-merge-split>
-              <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
-                {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-                <span>{pr ? t('review.mergeNumber', { number: pr.number }) : t('review.noPullRequest')}</span>
-                {!mergeDisabled && <Hint k="M" onPrimary />}
-              </Button>
-              <Menu open={methodOpen} onOpenChange={setMethodOpen}>
-                <MenuTrigger asChild>
-                  <Button size="sm" variant="primary" className="rounded-l-none border-l border-white/25 px-1.5" disabled={mergeDisabled} aria-label={t('memory.pulls.method')} data-review-merge-method>
-                    <ChevronDown />
+            {awaiting ? (
+              <>
+                <Button size="sm" variant="secondary" aria-expanded={changing} onClick={requestChanges} data-review-changes>
+                  <MessageSquareText />
+                  <span>{t('review.requestChanges')}</span>
+                  {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
+                  <Hint k="C" />
+                </Button>
+                <Button size="sm" variant="secondary" disabled={marking} onClick={reviewAndGo} data-review-done title={next ? t('review.nextIs', { agent: next.title || next.agent }) : undefined}>
+                  <Check />
+                  <span>{t('review.markReviewed')}</span>
+                  <Hint k="R" />
+                </Button>
+                {settings.data?.mergeWhenGreen && prOpen && (
+                  <Button size="sm" variant="secondary" disabled={mergeDisabled || resolve.isPending} onClick={resolveAndGo} title={footerReason ?? t('review.mergeWhenGreen')} data-review-merge-when-green>
+                    <Clock />
+                    <span className="max-lg:hidden">{t('review.mergeWhenGreen')}</span>
+                    <span className="lg:hidden">{t('review.mergeWhenGreen.short')}</span>
                   </Button>
-                </MenuTrigger>
-                <MenuContent className="min-w-40">
-                  {merge.methods.map((m) => (
-                    <MenuItem key={m} icon={m === method ? Check : undefined} onSelect={() => pickMethod(m)} data-merge-option={m}>
-                      {methodLabels[m] ? t(methodLabels[m]) : m}
-                    </MenuItem>
-                  ))}
-                </MenuContent>
-              </Menu>
-            </div>
+                )}
+                {/* Why Merge can't, beside it, as the header's line says; narrow,
+                    on a line of its own under the actions. */}
+                <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-caption text-muted', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
+                  {armed && pr && !mergeDisabled ? <span className="text-primary" data-review-merge-armed>{t('review.mergeArmed', { number: pr.number })}</span> : footerNote}
+                </span>
+                <div className="flex shrink-0 items-stretch" data-review-merge-split>
+                  <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
+                    {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
+                    <span>{pr ? t('review.mergeNumber', { number: pr.number }) : t('review.noPullRequest')}</span>
+                    {!mergeDisabled && <Hint k="M" onPrimary />}
+                  </Button>
+                  <Menu open={methodOpen} onOpenChange={setMethodOpen}>
+                    <MenuTrigger asChild>
+                      <Button size="sm" variant="primary" className="rounded-l-none border-l border-white/25 px-1.5" disabled={mergeDisabled} aria-label={t('memory.pulls.method')} data-review-merge-method>
+                        <ChevronDown />
+                      </Button>
+                    </MenuTrigger>
+                    <MenuContent className="min-w-40">
+                      {merge.methods.map((m) => (
+                        <MenuItem key={m} icon={m === method ? Check : undefined} onSelect={() => pickMethod(m)} data-merge-option={m}>
+                          {methodLabels[m] ? t(methodLabels[m]) : m}
+                        </MenuItem>
+                      ))}
+                    </MenuContent>
+                  </Menu>
+                </div>
+              </>
+            ) : (
+              <span className="ml-auto min-w-0 truncate text-caption text-subtle" data-review-looked>
+                {t(past ? 'review.lookOnly.past' : item.verdict ? 'review.lookOnly.reviewed' : item.fingerprint ? 'review.lookOnly.done' : 'review.lookOnly.working')}
+              </span>
+            )}
           </div>
           {help && (
             <KeysHelp
@@ -795,18 +840,97 @@ function Hint({ k, onPrimary }: { k: string; onPrimary?: boolean }) {
 // NotesCount is how many line notes wait to go with Request changes.
 function NotesCount({ n }: { n: number }) {
   return (
-    <span className="rounded-full bg-amber-400/20 px-1.5 text-[11px] font-semibold tabular-nums text-amber-200 [:root[data-appearance=light]_&]:text-amber-700" data-review-notes-count>
+    <span className="rounded-full bg-amber-400/20 px-1.5 text-caption font-semibold tabular-nums text-amber-200 [:root[data-appearance=light]_&]:text-amber-700" data-review-notes-count>
       {n}
     </span>
   );
 }
-// AgentDiff is the agent's whole diff, for an agent that opened no pull
-// request: file by file, as the pull request's are, notes and all.
-function AgentDiff({ agent }: { agent: string }) {
+// PaneTab is one of the review's panes in the tabs under the header. The one
+// on screen is underlined by a 1px line in the brand's colour, as wide as its
+// label: the review's one way of marking what's picked (the proof's strip, its
+// chapters and a pair's modes say it the same way).
+function PaneTab({ on, onClick, pane, children }: { on: boolean; onClick: () => void; pane: Pane; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={on}
+      onClick={onClick}
+      className={cn(
+        'relative inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap text-ui font-medium transition-colors [&_svg]:size-3.5',
+        'after:absolute after:inset-x-0 after:-bottom-px after:h-px',
+        on ? 'text-title after:bg-brand-400' : 'text-subtle hover:text-primary',
+      )}
+      data-review-toggle={pane}
+    >
+      {children}
+    </button>
+  );
+}
+
+const outcomeVariants: Record<string, 'success' | 'warning' | 'danger' | 'default'> = { done: 'success', partial: 'warning', blocked: 'warning', failed: 'danger' };
+
+// outcomeLabels names a report's status.
+export const outcomeLabels: Record<string, MessageKey> = {
+  done: 'work.outcome.done',
+  partial: 'work.outcome.partial',
+  blocked: 'work.outcome.blocked',
+  failed: 'work.outcome.failed',
+  working: 'work.outcome.working',
+};
+
+// OutcomeBadge is what came of an agent's work, as its report says.
+export function OutcomeBadge({ outcome }: { outcome: string }) {
   const t = useT();
-  const diff = useQuery({ queryKey: ['diff', agent], queryFn: () => api.diff(agent) });
+  if (!outcome) return null;
+  return (
+    <Badge variant={outcomeVariants[outcome] ?? 'default'} className="shrink-0" data-work-outcome={outcome}>
+      {outcomeLabels[outcome] ? t(outcomeLabels[outcome]) : outcome}
+    </Badge>
+  );
+}
+
+// ReportStrip is the agent's final report, above whatever pane is open: its
+// outcome and the start of its summary, the whole of it and what it left
+// open a click away.
+function ReportStrip({ report, inert, className }: { report: T.AgentReport; inert: boolean; className?: string }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const remaining = report.remainingIssues ?? [];
+  return (
+    <section className={cn('grid min-w-0 gap-1.5 border-b border-line bg-surface-faint px-5 py-2.5', className)} inert={inert} data-review-report={report.status}>
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="mt-0.5 shrink-0 text-caption font-medium text-muted">{t('review.report')}</span>
+        <OutcomeBadge outcome={report.status} />
+        <div className={cn('min-w-0 flex-1 text-ui text-secondary [overflow-wrap:anywhere]', !open && 'line-clamp-2')}>
+          <Markdown text={report.summary} className="text-ui" />
+        </div>
+        <button type="button" className="shrink-0 rounded-md px-1.5 py-0.5 text-caption font-medium text-subtle hover:bg-surface-strong hover:text-primary" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-review-report-toggle>
+          {open ? t('review.reportLess') : remaining.length ? t('review.reportMoreOpen', { count: remaining.length }) : t('review.reportMore')}
+        </button>
+      </div>
+      {open && remaining.length > 0 && (
+        <div className="grid min-w-0 gap-1 pl-[4.5rem] text-caption">
+          <span className="font-medium text-amber-400">{t('review.remaining')}</span>
+          <ul className="grid list-disc gap-0.5 pl-4 text-secondary [overflow-wrap:anywhere]">
+            {remaining.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// AgentDiff is the agent's whole diff, for an agent that opened no pull
+// request: file by file, as the pull request's are, notes and all. A past
+// agent's is its kept branch's.
+function AgentDiff({ agent, past }: { agent: string; past?: boolean }) {
+  const t = useT();
+  const diff = useQuery({ queryKey: ['diff', agent, !!past], queryFn: () => (past ? api.archivedDiff(agent) : api.diff(agent)) });
   if (diff.error) return <Notice className="m-5">{t('review.diffUnavailable', { error: errorMessage(diff.error) })}</Notice>;
-  if (!diff.data) return <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div>;
+  if (!diff.data) return <div className="p-6 text-ui text-subtle">{t('common.loading')}</div>;
   return (
     <div className="grid min-w-0 flex-1 content-start gap-3 bg-sunken p-4" data-review-diff>
       {splitGitDiff(diff.data).map((f) => (
@@ -822,7 +946,7 @@ function AgentFileDiff({ path, patch }: { path: string; patch: string }) {
   const tokens = useHighlighted(lines, languageOfPath(path));
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border border-line-faint" data-pull-file={path}>
-      <div className="truncate bg-surface-raised/40 px-3 py-2 font-mono text-[12.5px] text-secondary" title={path}>
+      <div className="truncate bg-surface-raised/40 px-3 py-2 font-mono text-ui text-secondary" title={path}>
         {path}
       </div>
       {lines.length > 0 ? (
@@ -830,30 +954,106 @@ function AgentFileDiff({ path, patch }: { path: string; patch: string }) {
           <DiffTable path={path} lines={lines} tokens={tokens} />
         </div>
       ) : (
-        <p className="px-3 py-2 text-[12px] text-subtle">{t('pulls.detail.noDiff')}</p>
+        <p className="px-3 py-2 text-caption text-subtle">{t('pulls.detail.noDiff')}</p>
       )}
     </div>
   );
 }
 
-// PrStatus is where the pull request stands, in the header: its number, its
-// state when it isn't simply open, its checks and a conflict.
-function PrStatus({ pr }: { pr: T.PullRequest }) {
+// Readiness is the header's second line: whether the work can merge, in one
+// sentence (why Merge waits, the same words as beside it, or that it's
+// ready), then what it is: its pull request, the branch into its base, how
+// much it changed and when it finished. Colour is on the sentence's icon
+// alone; the figures carry their signs.
+function Readiness({ item, pr, blocked }: { item: T.ReviewItem; pr?: T.PullRequest; blocked?: string }) {
   const t = useT();
+  const head = pr?.headBranch || item.branch;
+  const state = !pr ? 'none' : pr.state === 'merged' ? 'merged' : blocked ? 'blocked' : pr.checks === 'pending' ? 'pending' : 'ready';
+  const Icon = { none: CircleDashed, merged: GitMerge, blocked: CircleX, pending: CircleDot, ready: CircleCheck }[state];
+  const tone = { none: 'text-faint', merged: 'text-subtle', blocked: 'text-rose-400', pending: 'text-amber-400', ready: 'text-emerald-400' }[state];
+  const sentence = blocked ?? t(state === 'pending' ? 'review.readyPending' : 'review.ready', { base: pr?.baseBranch || '' });
+  const dot = (
+    <span aria-hidden className="text-faint">
+      ·
+    </span>
+  );
   return (
-    <span className="flex shrink-0 items-center gap-1.5" data-review-pr-state={pr.state}>
-      <GitPullRequest className="size-3.5 shrink-0 text-faint" />
-      <PrNumberLink pr={pr} className="font-mono text-[12px]" />
-      {pr.draft ? <Badge>{t('memory.pulls.draft')}</Badge> : pr.state !== 'open' && <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>}
-      {pr.state === 'open' && pr.checks && (
-        <Badge variant={checksVariants[pr.checks] ?? 'default'} data-review-checks={pr.checks}>
-          {t('memory.pulls.checks', {
-            state: checksLabels[pr.checks] ? t(checksLabels[pr.checks]) : pr.checks,
-          })}
+    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-caption text-subtle" data-review-readiness={state} data-review-pr-state={pr?.state} data-review-checks={pr?.checks || undefined}>
+      <span className="flex shrink-0 items-center gap-1.5 text-body text-primary">
+        <Icon className={cn('size-4 shrink-0', tone)} />
+        {sentence}
+      </span>
+      {pr && (
+        <>
+          {dot}
+          <PrNumberLink pr={pr} className="shrink-0 font-mono" />
+        </>
+      )}
+      {head && (
+        <>
+          {dot}
+          <span className="flex min-w-0 items-center gap-1 font-mono">
+            <GitBranch className="size-3 shrink-0 text-faint" />
+            <span className="min-w-0 truncate">{head}</span>
+            {pr?.baseBranch && <span className="shrink-0">→ {pr.baseBranch}</span>}
+          </span>
+        </>
+      )}
+      {item.changes && item.changes.files > 0 && (
+        <>
+          {dot}
+          <span className="shrink-0">
+            {t('pulls.detail.files', { count: item.changes.files })}{' '}
+            <span className="font-mono tabular-nums">
+              +{item.changes.insertions} −{item.changes.deletions}
+            </span>
+          </span>
+        </>
+      )}
+      {dot}
+      <span className="shrink-0">{t('review.finished', { when: timeAgo(item.finishedAt) })}</span>
+      {item.machineKept && (
+        <Badge variant="warning" data-review-machine-kept>
+          {t('review.machineKept')}
         </Badge>
       )}
-      {pr.state === 'open' && pr.conflict && <Badge variant="danger">{t('memory.pulls.conflicts')}</Badge>}
-    </span>
+    </div>
+  );
+}
+
+// CaseRail is the case beside the proof, where the window is wide: what the
+// agent said when it finished, and its report with what it left open. The
+// claim and the evidence side by side; narrower, the header's line, the
+// report's strip and Details carry it.
+function CaseRail({ item, report, inert }: { item: T.ReviewItem; report?: T.AgentReport; inert: boolean }) {
+  const t = useT();
+  const remaining = report?.remainingIssues ?? [];
+  return (
+    <aside aria-label={t('review.case')} className="grid w-[340px] shrink-0 content-start gap-6 overflow-y-auto border-l border-line px-5 py-4 max-lg:hidden" inert={inert} data-review-case>
+      <section className="min-w-0" data-review-summary>
+        <h3 className="mb-1.5 text-caption font-medium text-muted">{t('review.summary')}</h3>
+        {item.summary ? <Markdown text={item.summary} className="text-body [overflow-wrap:anywhere]" /> : <p className="text-body text-subtle">{t('review.noSummary')}</p>}
+      </section>
+      {report && (
+        <section className="grid min-w-0 gap-1.5" data-review-report={report.status}>
+          <h3 className="flex items-center gap-2 text-caption font-medium text-muted">
+            {t('review.report')}
+            <OutcomeBadge outcome={report.status} />
+          </h3>
+          <Markdown text={report.summary} className="text-body [overflow-wrap:anywhere]" />
+          {remaining.length > 0 && (
+            <div className="mt-1.5 grid min-w-0 gap-1 text-ui">
+              <span className="text-caption font-medium text-amber-400">{t('review.remaining')}</span>
+              <ul className="grid list-disc gap-0.5 pl-4 text-secondary [overflow-wrap:anywhere]">
+                {remaining.map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+    </aside>
   );
 }
 
@@ -875,23 +1075,23 @@ function KeysHelp({ onClose }: { onClose: () => void }) {
     </li>
   );
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-scrim p-6 backdrop-blur-sm" onClick={onClose} data-review-keys-help>
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-scrim p-6" onClick={onClose} data-review-keys-help>
       <div role="dialog" aria-modal aria-labelledby="review-keys-title" className="grid w-full max-w-md gap-4 rounded-2xl border border-line-strong bg-modal p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
           <Keyboard className="size-4 text-subtle" />
-          <h2 id="review-keys-title" className="flex-1 text-[14px] font-semibold text-title">
+          <h2 id="review-keys-title" className="flex-1 text-body font-semibold text-title">
             {t('review.keys.title')}
           </h2>
           <button ref={close} type="button" onClick={onClose} aria-label={t('common.close')} className="rounded-md p-1 text-subtle transition-colors hover:bg-surface-raised hover:text-primary">
             <X className="size-4" />
           </button>
         </div>
-        <ul className="grid gap-2 text-[12.5px]">
+        <ul className="grid gap-2 text-ui">
           {reviewKeys.map((k) => row(k.keys, t(keyLabels[k.action])))}
           {row([isMac ? '⌘ Enter' : 'Ctrl Enter'], t('review.key.send'))}
           {row(['Esc'], t('review.key.close'))}
         </ul>
-        <p className="text-[12px] text-subtle">{t('review.keys.typing')}</p>
+        <p className="text-caption text-subtle">{t('review.keys.typing')}</p>
       </div>
     </div>
   );

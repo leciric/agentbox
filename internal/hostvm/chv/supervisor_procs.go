@@ -216,6 +216,9 @@ type Room struct {
 // hostCPUs is the host's cores.
 var hostCPUs = runtime.NumCPU
 
+// hostTotal is the host's memory, for what it keeps for itself (MaxCap).
+var hostTotal = hostMemory
+
 // roomFor is the Room for c on a host with cpus cores and memory bytes.
 func roomFor(c Config, cpus int, memory int64) Room {
 	return Room{CPUs: max(cpus, c.CPUs, 1), Memory: max(memory, c.MemoryCap)}
@@ -226,6 +229,9 @@ func roomFor(c Config, cpus int, memory int64) Room {
 func regionSize(c Config, room Room) int64 {
 	return max((room.Memory-c.MemoryMin)/memHotplugAlign*memHotplugAlign, 0)
 }
+
+// diskDirectIO is directIO, which tests replace.
+var diskDirectIO = directIO
 
 // chArgs is Cloud Hypervisor's command line for the VM; gpu adds the GPU
 // device crosvm serves on Layout.GPUSocket.
@@ -256,9 +262,19 @@ func chArgs(c Config, l Layout, room Room, gpu bool) []string {
 		args = append(args, "--rate-limit-group", fmt.Sprintf("id=disks,bw_size=%d,bw_refill_time=1000", c.IOLimit))
 		limit = ",rate_limit_group=disks"
 	}
+	// direct=on opens a disk with O_DIRECT, so the host doesn't cache what
+	// the guest already caches of it: without it every block the VM reads or
+	// writes stays in the host's page cache too, the same data twice. Only
+	// where the guest's sectors stay 512 bytes (directIO).
+	direct := func(path string) string {
+		if diskDirectIO(path) {
+			return ",direct=on"
+		}
+		return ""
+	}
 	disks := []string{
-		"path=" + l.RootDisk() + ",image_type=raw" + limit,
-		"path=" + l.PoolDisk() + ",image_type=raw,serial=agentbox-pool" + limit,
+		"path=" + l.RootDisk() + ",image_type=raw" + direct(l.RootDisk()) + limit,
+		"path=" + l.PoolDisk() + ",image_type=raw,serial=agentbox-pool" + direct(l.PoolDisk()) + limit,
 	}
 	if _, err := os.Stat(l.Seed()); err == nil {
 		// sparse=off: Cloud Hypervisor probes discard with fallocate, which a

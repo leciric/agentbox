@@ -1,15 +1,20 @@
 package daemon
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"agentbox/internal/api"
@@ -25,20 +30,53 @@ import (
 // configuration file the lead cannot write.
 
 // leadSocketPath is short (a hash of the project name) because unix socket
-// paths are limited to 108 bytes.
-func (s *Server) leadSocketPath(project string) string {
-	sum := sha256.Sum256([]byte("lead:" + project))
+// paths are limited to 108 bytes. Each of the chat's sessions has its own
+// socket, which is how the daemon knows which session asked; the one migrated
+// from the chat before sessions keeps the socket that chat had.
+func (s *Server) sessionSocketPath(project, session string) string {
+	key := "lead:" + project
+	if session != "" && session != state.MigratedSession {
+		key += "/" + session
+	}
+	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(s.cfg.Paths.Data, "run", "leads", hex.EncodeToString(sum[:6])+".sock")
 }
 
-// serveLeadAPI starts the socket a project's lead reaches AgentBox through.
+// leadSocketPath is the migrated session's socket.
+func (s *Server) leadSocketPath(project string) string {
+	return s.sessionSocketPath(project, state.MigratedSession)
+}
+
+// leadAPIKey is how leadAPIs keeps a session's socket.
+func leadAPIKey(project, session string) string {
+	return project + "\x00" + session
+}
+
+// serveLeadAPI starts the sockets a project's chat, or the Home chat, reaches
+// AgentBox through: each session's.
 func (s *Server) serveLeadAPI(project string) error {
+	sessions, err := s.store.LeadSessions(context.Background(), project)
+	if err != nil {
+		return err
+	}
+	for _, ls := range sessions {
+		if err := s.serveSessionAPI(project, ls.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// serveSessionAPI starts the socket one of a project's chat sessions reaches
+// AgentBox through.
+func (s *Server) serveSessionAPI(project, session string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.leadAPIs[project]; ok {
+	key := leadAPIKey(project, session)
+	if _, ok := s.leadAPIs[key]; ok {
 		return nil
 	}
-	path := s.leadSocketPath(project)
+	path := s.sessionSocketPath(project, session)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -51,36 +89,53 @@ func (s *Server) serveLeadAPI(project string) error {
 		_ = ln.Close()
 		return err
 	}
-	handler := s.leadRoutes(project)
+	handler := s.leadRoutes(project, session)
 	if project == state.HomeProject {
 		handler = s.homeRoutes()
 	}
 	srv := &http.Server{Handler: handler}
-	s.leadAPIs[project] = srv
+	s.leadAPIs[key] = srv
 	go func() { _ = srv.Serve(ln) }()
 	return nil
 }
 
+// stopLeadAPI closes every socket of a project's chat, each session's.
 func (s *Server) stopLeadAPI(project string) {
 	s.mu.Lock()
-	srv := s.leadAPIs[project]
-	delete(s.leadAPIs, project)
+	var sessions []string
+	for key := range s.leadAPIs {
+		if p, session, _ := strings.Cut(key, "\x00"); p == project {
+			sessions = append(sessions, session)
+		}
+	}
+	s.mu.Unlock()
+	for _, session := range sessions {
+		s.stopSessionAPI(project, session)
+	}
+}
+
+func (s *Server) stopSessionAPI(project, session string) {
+	s.mu.Lock()
+	key := leadAPIKey(project, session)
+	srv := s.leadAPIs[key]
+	delete(s.leadAPIs, key)
 	s.mu.Unlock()
 	if srv != nil {
 		_ = srv.Close()
 	}
-	_ = os.Remove(s.leadSocketPath(project))
+	_ = os.Remove(s.sessionSocketPath(project, session))
 }
 
 func (s *Server) closeLeadAPIs() {
 	s.mu.Lock()
-	projects := make([]string, 0, len(s.leadAPIs))
-	for project := range s.leadAPIs {
-		projects = append(projects, project)
+	keys := make([]string, 0, len(s.leadAPIs))
+	for key := range s.leadAPIs {
+		keys = append(keys, key)
 	}
 	s.mu.Unlock()
-	for _, project := range projects {
-		s.stopLeadAPI(project)
+	for _, key := range keys {
+		project, session, _ := strings.Cut(key, "\x00")
+		s.stopSessionAPI(project, session)
 	}
 }
 
@@ -88,12 +143,15 @@ func (s *Server) closeLeadAPIs() {
 // agents, its notes, and the questions they asked it. It cannot reach another
 // project, the daemon itself, or the host, except to message another
 // project's lead.
-func (s *Server) leadRoutes(project string) http.Handler {
+func (s *Server) leadRoutes(project, session string) http.Handler {
 	mux := http.NewServeMux()
-	// The lead's requests carry no project; the socket says which one it is.
+	// The lead's requests carry no project, nor session; the socket says which
+	// they are.
 	withProject := func(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			r.SetPathValue("project", project)
+			r.SetPathValue("session", session)
+			r = r.WithContext(withLeadSession(r.Context(), session))
 			if err := fn(w, r); err != nil {
 				writeError(w, err)
 			}
@@ -103,13 +161,14 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("GET /v1/project/settings", withProject(s.leadSettings))
 	mux.HandleFunc("GET /v1/project/agents", withProject(s.fleet))
 	mux.HandleFunc("POST /v1/project/agents", withProject(s.leadCreateAgent))
+	mux.HandleFunc("GET /v1/project/issues", withProject(s.leadIssues))
 	mux.HandleFunc("POST /v1/project/groups", withProject(s.leadFanOut))
 	mux.HandleFunc("GET /v1/project/groups", withProject(s.leadListGroups))
 	mux.HandleFunc("GET /v1/project/groups/{id}", withProject(s.getGroup))
 	mux.HandleFunc("POST /v1/project/groups/{id}/recommend", withProject(s.leadRecommend))
 	mux.HandleFunc("GET /v1/project/accounts", withProject(s.leadAccounts))
 	mux.HandleFunc("GET /v1/project/tool-accounts", withProject(s.leadToolAccounts))
-	mux.HandleFunc("POST /v1/project/retire", withProject(s.retire))
+	mux.HandleFunc("POST /v1/project/retire", withProject(s.leadRetire))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/chat", withProject(s.leadAgentChat))
 	mux.HandleFunc("GET /v1/project/archived-agents", withProject(s.listArchived))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/chat/messages", withProject(s.leadTellAgent))
@@ -118,8 +177,13 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("GET /v1/project/agents/{agent}/checkpoints", withProject(s.listCheckpoints))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/rollback", withProject(s.rollback))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/fork", withProject(s.fork))
+	mux.HandleFunc("POST /v1/project/agents/{agent}/account", withProject(s.leadSwitchAccount))
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
 	mux.HandleFunc("POST /v1/project/copy-from-host", withProject(s.leadCopyFromHost))
+	// The account's other machines (peers.go): the lead routes its tools
+	// send there, through this machine's hub.
+	mux.HandleFunc("GET /v1/project/machines", withProject(s.leadMachines))
+	mux.HandleFunc("/v1/project/machines/{machine}/api/{path...}", withProject(s.leadOnMachine))
 	mux.HandleFunc("GET /v1/project/secrets", withProject(s.leadSecrets))
 	// Other projects' leads (projectmessages.go): the one boundary a lead
 	// crosses, and only to talk, lead to lead.
@@ -127,7 +191,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/threads", withProject(s.leadSendToProject))
 	mux.HandleFunc("POST /v1/project/threads/{thread}/replies", withProject(s.leadReplyToProject))
 	mux.HandleFunc("POST /v1/project/threads/{thread}/settle", withProject(s.leadSettleAlignment))
-	// The project's connectors: listed for list_connectors, and relayed to
+	// The project's connectors: listed for list_resources, and relayed to
 	// for the chat's own Claude Code, which is given them as MCP servers.
 	mux.HandleFunc("GET /v1/project/connectors", withProject(func(w http.ResponseWriter, r *http.Request) error {
 		return s.listConnectors(w, r, s.projectConnectorScope)
@@ -157,13 +221,14 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("PUT /v1/project/skills/{name}", withProject(s.leadEditSkill))
 	mux.HandleFunc("DELETE /v1/project/skills/{name}", withProject(s.leadRemoveSkill))
 	mux.HandleFunc("PUT /v1/project/skills/{name}/switch", withProject(s.leadSwitchSkill))
-	// Scheduled tasks (schedules.go): the lead's schedule_task and the rest.
+	// Scheduled tasks (schedules.go): the lead's schedules tool.
 	s.scheduleRoutes("/v1/project", "lead", func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
 		mux.HandleFunc(pattern, withProject(fn))
 	})
 	mux.HandleFunc("GET /v1/project/questions", withProject(s.leadQuestions))
 	mux.HandleFunc("POST /v1/project/questions/{id}/answer", withProject(s.leadAnswerQuestion))
 	mux.HandleFunc("POST /v1/project/questions/{id}/escalate", withProject(s.leadEscalateQuestion))
+	mux.HandleFunc("POST /v1/project/questions/{id}/fulfil", withProject(s.leadFulfilCredential))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "a project's chat can only reach its own project"})
 	})
@@ -215,6 +280,7 @@ func (s *Server) leadCreateAgent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	req.Project = r.PathValue("project")
+	req.LeadSession = sessionFrom(r)
 	return s.createAgentFrom(w, r, req, true)
 }
 
@@ -345,6 +411,9 @@ func (s *Server) leadTellAgent(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
+	if err := s.crossSession(r.Context(), sessionFrom(r), a, "Tell"); err != nil {
+		return err
+	}
 	s.leadAsked(a)
 	t, err := s.tellAgent(r.Context(), a, req.Text)
 	if err != nil {
@@ -360,7 +429,7 @@ func (s *Server) leadAgentDiff(w http.ResponseWriter, r *http.Request) error {
 	}
 	// ?path= narrows it to files or directories, so a chat looking at one
 	// part of a large change needn't read all of it (D87).
-	diff, err := s.manager(nil).Diff(a, r.URL.Query().Get("stat") == "true", r.URL.Query()["path"]...)
+	diff, err := s.manager(nil).Diff(a, prBase(s.cachedPR(r.Context(), a)), r.URL.Query().Get("stat") == "true", r.URL.Query()["path"]...)
 	if err != nil {
 		return err
 	}
@@ -445,4 +514,58 @@ func (s *Server) leadCopyFromHost(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	return writeJSON(w, http.StatusOK, api.LeadCopyResult{Bytes: n})
+}
+
+// leadRetire is retire for a session's lead: the agents it names that another
+// session made wait for the user's yes (crossSession), and one that names
+// none retires only its own and nobody's.
+func (s *Server) leadRetire(w http.ResponseWriter, r *http.Request) error {
+	var req api.RetireRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	session := sessionFrom(r)
+	if session != "" {
+		agents, err := s.store.Agents(r.Context(), r.PathValue("project"))
+		if err != nil {
+			return err
+		}
+		named := req.Agents
+		req.Agents = nil
+		for _, a := range agents {
+			if a.IsLead() || (len(named) > 0 && !slices.Contains(named, a.Name)) {
+				continue
+			}
+			if len(named) == 0 {
+				if owner := a.Session(); owner == "" || owner == session {
+					req.Agents = append(req.Agents, a.Name)
+				}
+				continue
+			}
+			if !req.DryRun {
+				if err := s.crossSession(r.Context(), session, a, "Retire"); err != nil {
+					return err
+				}
+			}
+			req.Agents = append(req.Agents, a.Name)
+		}
+		switch {
+		case len(req.Agents) > 0:
+		case len(named) > 0:
+			req.Agents = named // names nobody has: retire says so
+		default:
+			// Nothing idle of its own to retire.
+			return writeJSON(w, http.StatusOK, api.RetireResult{
+				How: cmp.Or(req.How, api.RetireStop), DryRun: req.DryRun,
+				Retired: []api.RetiredAgent{}, Skipped: []api.RetiredAgent{},
+			})
+		}
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	return s.retire(w, r)
 }

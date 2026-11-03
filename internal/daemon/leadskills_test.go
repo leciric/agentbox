@@ -93,7 +93,7 @@ func TestTheLeadsSkillChangesWaitForTheUser(t *testing.T) {
 	if err != nil || !sk.Enabled || len(sk.Overrides) != 0 {
 		t.Errorf("an AgentBox-wide new skill is %+v, %v", sk, err)
 	}
-	if _, err := lead.CreateProjectSkill(ctx, api.LeadNewSkillRequest{Name: "release", Content: skillText("Other.", "Other.")}); err == nil || !strings.Contains(err.Error(), "edit_skill") {
+	if _, err := lead.CreateProjectSkill(ctx, api.LeadNewSkillRequest{Name: "release", Content: skillText("Other.", "Other.")}); err == nil || !strings.Contains(err.Error(), "skills edit") {
 		t.Errorf("creating over an existing skill: %v", err)
 	}
 	if list, err := lead.ProjectSkills(ctx); err != nil || len(list) != 2 {

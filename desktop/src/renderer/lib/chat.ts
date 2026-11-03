@@ -8,6 +8,26 @@ import { api, isProjectChat } from './api.ts';
 
 export const chatKey = (ref: string) => ['chat', ref];
 
+// A load that failed because the daemon couldn't be reached (the app's own
+// answer, status 503 or 0) is tried again a few times, slowing down, rather
+// than kept as the chat's error: it's usually a connection that was dropped
+// and is back a moment later. The connection coming back reloads everything
+// anyway (connectEvents).
+const loadAttempts = 4;
+export function retryLoad(failures: number, err: unknown): boolean {
+  const status = (err as { status?: number } | undefined)?.status;
+  return failures < loadAttempts && (status === 503 || status === 0);
+}
+export const retryLoadDelay = (failures: number) => Math.min(500 * 2 ** failures, 4000);
+export const chatLoadRetry = { retry: retryLoad, retryDelay: retryLoadDelay };
+
+// loadErrorMessage is what a chat that couldn't load says: a readable line for
+// a daemon that couldn't be reached, instead of the errno it came with.
+export function loadErrorMessage(err: unknown, fallback: string): string {
+  const status = (err as { status?: number } | undefined)?.status;
+  return status === 503 || status === 0 ? t('chat.connectionLost') : fallback;
+}
+
 // The latest chat events of each agent. A thread that was being fetched while
 // they arrived applies the ones it doesn't include yet.
 const recent = new Map<string, T.ChatEvent[]>();
@@ -41,6 +61,14 @@ export async function fetchThread(queryClient: QueryClient, ref: string, from?: 
   const next = advance(thread, recent.get(ref) ?? []);
   const now = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
   return keepHeld(next === 'gap' ? thread : next, now);
+}
+
+// forgetThread lets go of what the app holds of ref's chat, for a session
+// just made or deleted: a deleted session's id goes to the next new one, and
+// its old thread, held under the same ref, would open in its place.
+export function forgetThread(queryClient: QueryClient, ref: string): void {
+  queryClient.removeQueries({ queryKey: chatKey(ref), exact: true });
+  queryClient.removeQueries({ queryKey: chatWindowKey(ref), exact: true });
 }
 
 // peekThread reads only a chat's latest message, with its turn — what it is
@@ -446,6 +474,13 @@ export function sessionShown(session: Pick<T.ChatSession, 'state' | 'background'
 
 export const asleep = (agent: Pick<T.Agent, 'ref' | 'state'>): 'stopped' | 'paused' | undefined =>
   isProjectChat(agent.ref) ? undefined : agent.state === 'stopped' || agent.state === 'paused' ? agent.state : undefined;
+
+// takesMessages says whether a chat's composer sends: never blocked because
+// something is still starting. A machine being made or queued has no AI tool
+// yet, and the daemon holds what you send until it has (tellAgentMessage); a
+// session still starting queues it the same way; a sleeping one wakes to it.
+export const takesMessages = (agent: Pick<T.Agent, 'ref' | 'state'>): boolean =>
+  agent.state === 'running' || agent.state === 'initializing' || agent.state === 'queued' || asleep(agent) !== undefined;
 
 export function isActive(it: T.ChatItem | undefined): boolean {
   return (

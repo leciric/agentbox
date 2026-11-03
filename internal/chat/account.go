@@ -22,7 +22,7 @@ import (
 // the new account has no reason to wait.
 
 // runsOn is the account an agent's tool signs in with: its Claude Code,
-// Codex or Cursor account, or its OpenCode accounts, one per provider.
+// Codex, Cursor or Gemini CLI account, or its OpenCode accounts, one per provider.
 func runsOn(a state.Agent) string {
 	switch a.AI {
 	case "claude":
@@ -31,6 +31,8 @@ func runsOn(a state.Agent) string {
 		return a.CodexAccount
 	case "cursor":
 		return a.CursorAccount
+	case "gemini":
+		return a.GeminiAccount
 	case "opencode":
 		return a.OpenCodeAccounts.String()
 	}
@@ -43,27 +45,29 @@ func runsOn(a state.Agent) string {
 // (agent.SetClaudeAccount); a lead's other tools read their login from its
 // HOME as they start (agent.writeLeadLogin). A chat already on that account,
 // or with no adapter running, has nothing to do: the next adapter reads it as
-// it starts.
-func (m *Manager) AccountChanged(a state.Agent) {
+// it starts. It returns the notice it put in the chat, "" when there was
+// nothing to do.
+func (m *Manager) AccountChanged(a state.Agent) string {
 	c := m.existing(a.Ref())
 	if c == nil {
-		return
+		return ""
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.gone {
-		return
+		return ""
 	}
 	if c.agent.AI != a.AI {
 		// Switching tools restarts it anyway (runner.go).
-		return
+		return ""
 	}
 	c.agent.ClaudeAccount = a.ClaudeAccount
-	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount
+	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount
 	ad := c.adapter
-	if ad == nil || ad.login == runsOn(a) {
+	asleepElsewhere := ad == nil && c.asleep && c.sleptOn != runsOn(a)
+	if (ad == nil && !asleepElsewhere) || (ad != nil && ad.login == runsOn(a)) {
 		c.accountRestart = false
-		return
+		return ""
 	}
 	account := runsOn(a)
 	if a.AI == "opencode" {
@@ -73,16 +77,29 @@ func (m *Manager) AccountChanged(a state.Agent) {
 	if a.AI == "opencode" {
 		what = fmt.Sprintf("the OpenCode accounts %s", strings.ReplaceAll(account, ",", ", "))
 	}
+	if asleepElsewhere {
+		// Its tool sleeps (idle.go): the turn that wakes it starts on the
+		// new account, so it says what an idle chat that restarted would.
+		c.sleptOn = runsOn(a)
+		c.accountRestart = false
+		it := c.add("notice", c.lastTurn())
+		it.Text = fmt.Sprintf(
+			"This chat moved to %s: %s restarts on it and resumes this conversation.",
+			what, ToolNames[c.agent.AI])
+		c.flush(true)
+		return it.Text
+	}
 	if !ad.resumable && ad.ready {
 		// Restarting would lose the session: the next one starts on it.
+		text := fmt.Sprintf(
+			"This chat moved to %s. %s keeps the one it started with until the chat starts again, as its adapter can't resume a session.",
+			what, ToolNames[c.agent.AI])
 		if !c.accountRestart {
 			c.accountRestart = true
-			c.add("notice", c.lastTurn()).Text = fmt.Sprintf(
-				"This chat moved to %s. %s keeps the one it started with until the chat starts again, as its adapter can't resume a session.",
-				what, ToolNames[c.agent.AI])
+			c.add("notice", c.lastTurn()).Text = text
 			c.flush(true)
 		}
-		return
+		return text
 	}
 	c.accountRestart = true
 	tool := ToolNames[c.agent.AI]
@@ -111,6 +128,7 @@ func (m *Manager) AccountChanged(a state.Agent) {
 	}
 	c.markSession()
 	c.flush(true)
+	return it.Text
 }
 
 // AccountRenamed follows the account a lead or agent runs its tool on to its
@@ -126,7 +144,7 @@ func (m *Manager) AccountRenamed(a state.Agent) {
 	if c.gone || c.agent.AI != a.AI {
 		return
 	}
-	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount
+	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount
 	if c.adapter != nil {
 		c.adapter.login = runsOn(c.agent)
 	}

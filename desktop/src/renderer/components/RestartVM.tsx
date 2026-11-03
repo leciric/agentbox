@@ -39,7 +39,7 @@ export function RestartVM() {
   if (!vm) return null;
   return (
     <div className="mt-2 grid gap-2">
-      <p className="text-[13px] text-muted">{t('settings.restartVM.needed')}</p>
+      <p className="text-ui text-muted">{t('settings.restartVM.needed')}</p>
       <div>
         <Button size="sm" disabled={restart.isPending} onClick={() => setConfirming(true)}>
           {restart.isPending && <LoaderCircle className="size-3.5 animate-spin" />}

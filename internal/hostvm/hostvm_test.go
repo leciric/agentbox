@@ -12,15 +12,18 @@ import (
 	"testing"
 
 	"agentbox/internal/hostos"
+	"agentbox/internal/iossim"
 	"agentbox/internal/paths"
 )
 
 // fakeLima is a limactl that records its arguments, one call per line, keeps
 // what it's sent on stdin and the last definition it was asked to create, and
 // answers `list`, `info`, the digest check, the balloon's features, the
-// swap probe and the GPU's restart marker the way Lima does, failing to copy
+// swap probe and the GPU's restart marker the way Lima does, keeps the GPU
+// reason it's sent in gpu-reason, failing to copy
 // venus/ into the VM with venus-fails. With refuse-krunkit, it refuses to create a krunkit VM, as Lima
-// does with a krunkit too old.
+// does with a krunkit too old. With create-waits, create lists the VM and
+// finishes only once create-waits is gone, as Lima downloading its image.
 const fakeLima = `#!/bin/sh
 log=$FAKE_DIR/calls
 printf '%s\n' "$*" >>"$log"
@@ -33,7 +36,13 @@ case "$1" in
     if [ -e "$FAKE_DIR/refuse-krunkit" ] && grep -q '^vmType: krunkit' "$f"; then
       echo 'krunkit version "1.1.0" is older than required minimum 1.2.1' >&2
       exit 1
-    fi ;;
+    fi
+    if [ -e "$FAKE_DIR/track-list" ]; then
+      vt=$(sed -n 's/^vmType: //p' "$f")
+      printf '{"name":"agentbox","status":"Stopped","vmType":"%s"}\n' "${vt:-vz}" >"$FAKE_DIR/list"
+    fi
+    while [ -e "$FAKE_DIR/create-waits" ]; do sleep 0.05; done ;;
+  delete) [ ! -e "$FAKE_DIR/track-list" ] || rm -f "$FAKE_DIR/list" ;;
   shell)
     case "$*" in
       *sha256sum*) cat "$FAKE_DIR/digest" 2>/dev/null ;;
@@ -41,6 +50,7 @@ case "$1" in
       *"id -un"*) echo alice ;;
       *"df -B1"*) cat "$FAKE_DIR/swapprobe" 2>/dev/null ;;
       *agentbox-gpu-restart*) cat "$FAKE_DIR/gpu-restart" 2>/dev/null ;;
+      *vm-gpu.json*) cat >"$FAKE_DIR/gpu-reason" ;;
       *"sudo sh -c rm -rf "*venus*) [ ! -e "$FAKE_DIR/venus-fails" ] || exit 1; cat >"$FAKE_DIR/installed" ;;
       *"sudo sh -c"*) cat >"$FAKE_DIR/installed" ;;
     esac ;;
@@ -171,6 +181,10 @@ func TestReady(t *testing.T) {
 	if err != nil || string(got) != "the linux agentbox" {
 		t.Fatalf("the binary wasn't installed: %q, %v", got, err)
 	}
+	// A vz VM made before learns why it has no GPU.
+	if reason, _ := os.ReadFile(filepath.Join(dir, "gpu-reason")); !strings.Contains(string(reason), "install krunkit") {
+		t.Errorf("GPU reason: %q", reason)
+	}
 
 	_ = os.Remove(filepath.Join(dir, "installed"))
 	want, _ := vm.Digest()
@@ -185,6 +199,7 @@ func TestReady(t *testing.T) {
 
 func TestForwardArgs(t *testing.T) {
 	vm, _ := newFake(t)
+	noIOSHost(t)
 	// Host-side settings stay behind; the rest go to the VM.
 	t.Setenv("AGENTBOX_SOCKET", "/Users/alice/sock")
 	t.Setenv("AGENTBOX_PREVIEW_ADDR", "127.0.0.1:17777")
@@ -197,6 +212,50 @@ func TestForwardArgs(t *testing.T) {
 		"/usr/local/bin/agentbox", "create", "app", "--name", "it's mine"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}
+
+// noIOSHost makes the test's VM one with no iOS Simulator beside it, which
+// a Mac running the tests would otherwise have.
+func noIOSHost(t *testing.T) {
+	old := iosHost
+	iosHost = func(*VM) bool { return false }
+	t.Cleanup(func() { iosHost = old })
+}
+
+// On a Mac, the VM's agentbox is told where the simulator helper's state file
+// is, which it sees at the same path; where the VM can't see it, or with no
+// simulator, it isn't.
+func TestForwardTellsTheVMWhereTheSimulatorHelperIs(t *testing.T) {
+	vm, _ := newFake(t)
+	old := iosHost
+	t.Cleanup(func() { iosHost = old })
+	iosHost = func(*VM) bool { return true }
+	want := iossim.StateFileEnv + "=" + filepath.Join(vm.Paths.Config, "ios-helper.json")
+	if got := vm.ForwardArgs(vm.Home, []string{"version"}); !slices.Contains(got, want) {
+		t.Errorf("%s isn't forwarded: %q", want, got)
+	}
+	vm.Paths.Config = "/etc/agentbox"
+	if got := vm.iosStateFile(); got != "" {
+		t.Errorf("a state file outside the shared home: %q", got)
+	}
+	iosHost = func(*VM) bool { return false }
+	vm, _ = newFake(t)
+	for _, kv := range vm.ForwardArgs(vm.Home, []string{"version"}) {
+		if strings.HasPrefix(kv, iossim.StateFileEnv+"=") {
+			t.Errorf("forwarded %s with no simulator", kv)
+		}
+	}
+}
+
+func TestWhichCommandsStartTheSimulatorHelper(t *testing.T) {
+	for args, want := range map[string]bool{
+		"": false, "vm": false,
+		"vm start": true, "vm power --json": true, "vm stop": false, "vm delete": false, "vm status --json": false,
+	} {
+		if got := ensuresIOS(strings.Fields(args)); got != want {
+			t.Errorf("%q: %v, want %v", args, got, want)
+		}
 	}
 }
 

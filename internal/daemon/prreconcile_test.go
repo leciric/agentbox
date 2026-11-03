@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,7 +103,8 @@ func TestMergedPullRequestIsNeverToReview(t *testing.T) {
 	head := commitOn(t, a, "merged.txt")
 	commitOn(t, a, "after.txt") // committed after the merge, never pushed
 	d.srv.record(ctx, finishedEvent(a, api.AgentChanges{}, nil, "Done.", time.Now()))
-	gh.setList("[" + endedPR(7, head, true) + "]")
+	// Pushed from the agent's own branch, which has moved on since.
+	gh.setList("[" + strings.Replace(endedPR(7, head, true), "feat/work-7", a.Branch, 1) + "]")
 
 	d.srv.reconcilePullRequests(ctx)
 	if !agentHasMachine(d, a) {
@@ -243,4 +245,79 @@ func TestPRWatchKeepsTheAgentWhileAFollowUpIsOpen(t *testing.T) {
 	if past, _ := d.srv.store.ArchivedAgentByName(context.Background(), a.Project, a.Name); past.PR.Number != 10 {
 		t.Errorf("archived with %+v, want #10", past.PR)
 	}
+}
+
+// The report: now and then, with nothing happening, project after project
+// went to "review", listing agents long done with, and the items opened
+// nothing; opening the project put it right. Each was a stopped agent whose
+// pull request was merged so long ago that only a lookup by its commit finds
+// it. The cleanup pass, every few minutes, reads the cache for the running
+// agents only, and that read's lookups replaced the rest; a GitHub that didn't
+// answer (asleep, offline) emptied the list; and an empty cache answered as
+// one that knew of no pull request at all. Each time the review list took
+// the merged work for work never sent.
+func TestMergedLongAgoStaysOffReview(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	offset := testClock(d)
+	gh := newSlowGitHub(t, d, "[]", 100*time.Millisecond)
+	_, agents := pullsProject(t, d, "agent-01", "agent-02", "agent-03")
+	old := commitOn(t, agents["agent-01"], "old.txt")
+	recent := commitOn(t, agents["agent-02"], "recent.txt")
+	commitOn(t, agents["agent-03"], "work.txt")
+	for _, a := range agents {
+		d.srv.record(ctx, finishedEvent(a, api.AgentChanges{}, nil, "Done.", time.Now()))
+	}
+	// agent-01's pull request is older than the list page; agent-02's is on
+	// it; agent-03 has none, and is the one to review.
+	gh.setCommit(old, "["+endedPR(7, old, true)+"]")
+	gh.setList("[" + endedPR(8, recent, true) + "]")
+	p, err := d.srv.store.Project(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cleanupRead reads the cache as the cleanup pass does, for the running agents only.
+	cleanupRead := func() {
+		t.Helper()
+		if _, _, _, _, err := d.srv.projectPulls(p, []state.Agent{agents["agent-03"]}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	settled := func() bool { _, busy := d.srv.pulls.state("acme/hello-stack"); return !busy }
+	want := func(when string) {
+		t.Helper()
+		if names := readyNames(t, d); len(names) != 1 || names[0] != "agent-03" {
+			t.Errorf("%s: ready to review = %v, want only agent-03", when, names)
+		}
+		waitFor(t, "the refresh behind it", settled)
+	}
+
+	// Before GitHub has answered, nothing it hasn't vouched for is offered.
+	if names := readyNames(t, d); len(names) != 0 {
+		t.Errorf("before GitHub answered, ready to review = %v, want nothing yet", names)
+	}
+	waitFor(t, "the first read", settled)
+	want("once GitHub answered")
+
+	// The cleanup pass reads the cache for the running agents only.
+	offset.Store(int64(time.Minute))
+	cleanupRead()
+	waitFor(t, "the cleanup pass's read", settled)
+	want("after a read for some agents only")
+
+	// GitHub stops answering.
+	offset.Store(int64(2 * time.Minute))
+	gh.setDown(true)
+	cleanupRead()
+	waitFor(t, "the failed read", settled)
+	want("while GitHub doesn't answer")
+
+	// Nor does a lookup, once its answer is old enough to be asked again.
+	gh.setDown(false)
+	offset.Store(int64(time.Hour))
+	gh.setCommit(old, "not json")
+	readyNames(t, d)
+	waitFor(t, "the read with a failed lookup", settled)
+	want("after a lookup failed")
 }

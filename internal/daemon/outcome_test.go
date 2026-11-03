@@ -180,7 +180,7 @@ func TestATurnThatDiesMidWayIsStoppedWithAnError(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var told []string
-	d.srv.stallTell = func(_ context.Context, _ string, note string) {
+	d.srv.stallTell = func(_ context.Context, _ state.Agent, note string) {
 		mu.Lock()
 		defer mu.Unlock()
 		told = append(told, note)
@@ -451,7 +451,7 @@ func TestAUsageLimitPausesTheAgentRatherThanFinishingIt(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var told []string
-	d.srv.stallTell = func(_ context.Context, _ string, note string) {
+	d.srv.stallTell = func(_ context.Context, _ state.Agent, note string) {
 		mu.Lock()
 		defer mu.Unlock()
 		told = append(told, note)

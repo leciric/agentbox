@@ -141,6 +141,20 @@ export type ProjectCtx = {
 // answering.
 export const leadBusy = (chat: string | undefined) => chat === 'running';
 
+// foldLeads is each project's lead state with its sessions folded in, so a
+// session that isn't the one the chat shows still counts: any waiting on a
+// permission makes it 'waiting', else any running or starting makes it
+// 'running', else the chat's own. sessions go by names, one list each.
+export function foldLeads(leads: ReadonlyMap<string, string | undefined>, names: readonly string[], sessions: readonly (readonly { chat?: string }[] | undefined)[]): Map<string, string | undefined> {
+  const out = new Map(leads);
+  names.forEach((name, i) => {
+    const mine = sessions[i] ?? [];
+    if (mine.some((s) => s.chat === 'waiting')) out.set(name, 'waiting');
+    else if (mine.some((s) => s.chat === 'running' || s.chat === 'starting')) out.set(name, 'running');
+  });
+  return out;
+}
+
 // activeProjects is the projects with something going on, which the sidebar
 // lists above the Idle list: a lead mid-turn or waiting on the user's
 // permission, a live agent (at work, asking, failed or to review), or a
