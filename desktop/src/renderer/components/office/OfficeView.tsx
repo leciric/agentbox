@@ -273,7 +273,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
 
       {/* The top: what's going on, and the overview. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start gap-2 p-3">
-        <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-[12.5px] text-slate-200 shadow-lg backdrop-blur-md" data-office-summary>
+        <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-[12.5px] text-slate-200 shadow-lg backdrop-blur-md" data-office-summary data-office-review={review.map((i) => i.ref).join(",")}>
           <span className="text-[13px] font-semibold text-white">{t('office.title')}</span>
           <Count dot="bg-amber-400" n={needs.length} label={t('office.count.needs', { count: needs.length })} />
           <Count dot="bg-sky-400" n={working} label={t('office.count.working', { count: working })} />

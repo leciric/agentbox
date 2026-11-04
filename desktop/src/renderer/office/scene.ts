@@ -1176,13 +1176,16 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   // then closer; a trackpad's small deltas make small steps.
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    const n = Math.max(-3, Math.min(3, e.deltaY / 100));
+    // A mouse wheel's notch is a whole step, whatever its delta; a
+    // trackpad's little deltas are parts of one.
+    const d = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+    const n = Math.max(-3, Math.min(3, Math.abs(d) >= 50 ? Math.sign(d) * Math.max(1, Math.abs(d) / 120) : d / 100));
     if (n < 0) {
-      if (followTarget < 1) followTarget = Math.min(1, followTarget - 0.2 * n);
-      else cam.dist = Math.max(5, cam.dist * Math.pow(0.9, -n));
-    } else if (followTarget >= 1 && cam.dist < 11) cam.dist = Math.min(11, cam.dist / Math.pow(0.9, n));
+      if (followTarget < 1) followTarget = Math.min(1, followTarget - 0.34 * n);
+      else cam.dist = Math.max(5, cam.dist * Math.pow(0.82, -n));
+    } else if (followTarget >= 1 && cam.dist < 11) cam.dist = Math.min(11, cam.dist / Math.pow(0.82, n));
     else {
-      followTarget = Math.max(0, followTarget - 0.2 * n);
+      followTarget = Math.max(0, followTarget - 0.34 * n);
       cam.dist = 11;
     }
     poke();

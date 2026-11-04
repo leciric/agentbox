@@ -5,7 +5,7 @@
 // checks fail, merged, idle and stopped.
 import type { QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
-import { addDevAgent, buildFixtures, devRequests } from './fixtures';
+import { addDevAgent, buildFixtures, PROJECT } from './fixtures';
 
 const min = 60_000;
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
@@ -38,7 +38,10 @@ export function seedOffice(queryClient: QueryClient): void {
   queryClient.setQueryData<T.Agent[]>(['agents'], (all) => [...(all ?? []), ...agents]);
   const pr = (number: number, title: string, over: Partial<T.PullRequest> = {}): T.PullRequest => ({ number, title, state: 'OPEN', checks: 'passing', url: `https://github.com/example/storefront/pull/${number}`, ...over });
   const fleetAgent = (a: T.Agent, extra: Partial<T.FleetAgent>): T.FleetAgent => ({ ...a, changes: { files: 0, insertions: 0, deletions: 0, dirty: false }, media: 0, retire: { safe: false }, ...extra });
+  // The fixture project's fleet too: the dev bridge has no answer for it, so
+  // its pull requests would go missing at the first refetch.
   const fleets: Record<string, T.Fleet> = {
+    [PROJECT]: buildFixtures().fleet,
     storefront: {
       project: 'storefront',
       creating: [],
@@ -57,14 +60,19 @@ export function seedOffice(queryClient: QueryClient): void {
       agents: [fleetAgent(agents[4], { pr: pr(41, 'feat: export notes as Markdown', { state: 'MERGED' }) }), fleetAgent(agents[5], {})],
     },
   };
-  for (const [name, fleet] of Object.entries(fleets)) queryClient.setQueryData(['fleet', name], fleet);
+  for (const [name, fleet] of Object.entries(fleets)) if (name !== PROJECT) queryClient.setQueryData(['fleet', name], fleet);
   queryClient.setQueryData(['questions', 'storefront'], []);
   queryClient.setQueryData(['questions', 'quill'], []);
   const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
-  devRequests.push((method, path) => {
+  // In front of the dev bridge, as other scenarios wrap it: a later answer for
+  // any project's fleet would otherwise be an empty one.
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  bridge.request = async (method, path, body) => {
     const m = method === 'GET' && /^\/v1\/projects\/([^/]+)\/fleet$/.exec(path);
     if (m && fleets[decodeURIComponent(m[1])]) return json(fleets[decodeURIComponent(m[1])]);
     if (method === 'GET' && /^\/v1\/projects\/(storefront|quill)\/questions$/.test(path)) return json([]);
-    return undefined;
-  });
+    return inner(method, path, body);
+  };
 }
