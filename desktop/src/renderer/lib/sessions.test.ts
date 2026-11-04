@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { afterClose, awake, byActivity, isSnoozed, snoozeChoices, snoozedOf, isUnread, isWorking, needsYouCount, neighbour, openSession, pickSession, SESSION_COLORS, sessionAlerts, sessionColor, sessionStatus, topicFrom, withSession } from './sessions.ts';
+import { afterClose, awake, byActivity, isSnoozed, snoozeChoices, snoozedOf, isUnread, isWorking, moveTab, needsYouCount, neighbour, openSession, pickSession, SESSION_COLORS, sessionAlerts, sessionColor, sessionStatus, sortTabs, topicFrom, withSession } from './sessions.ts';
 
 const session = (id: string, activeAt: string, over: Partial<T.LeadSession> = {}): T.LeadSession => ({
   project: 'web',
@@ -193,4 +193,18 @@ test('a session tells you when a permission waits in it, it stops, or its turn e
   assert.deepEqual(kinds([at({ status: 'working' })], [at({ status: 'idle', agentsWorking: 1 })]), [], 'its agents still work');
   assert.deepEqual(kinds([at({ status: 'idle' })], [at({ status: 'idle', unread: true })]), []);
   assert.deepEqual(kinds([main], [main, at({ status: 'needsYou', needsYou: 1 })]), [], 'a session just opened');
+});
+
+test('a dragged tab drops in the gap it is over, on its side of the pinned ones', () => {
+  const ids = (list: T.LeadSession[]) => list.map((s) => s.id);
+  const a = session('a', ''), b = session('b', ''), c = session('c', ''), d = session('d', '');
+  assert.deepEqual(ids(moveTab([a, b, c, d], 'a', 3)), ['b', 'c', 'a', 'd'], 'before the fourth');
+  assert.deepEqual(ids(moveTab([a, b, c, d], 'd', 0)), ['d', 'a', 'b', 'c']);
+  assert.deepEqual(ids(moveTab([a, b, c, d], 'b', 4)), ['a', 'c', 'd', 'b'], 'after the last');
+  assert.deepEqual(ids(moveTab([a, b, c, d], 'b', 1)), ['a', 'b', 'c', 'd'], 'where it was');
+  assert.deepEqual(ids(moveTab([a, b], 'gone', 0)), ['a', 'b']);
+  const pa = { ...a, pinned: true };
+  assert.deepEqual(ids(moveTab([pa, b, c], 'a', 3)), ['a', 'b', 'c'], 'a pinned tab stays before the others');
+  assert.deepEqual(ids(moveTab([pa, b, c], 'c', 0)), ['a', 'c', 'b'], 'nor does another go before it');
+  assert.deepEqual(ids(sortTabs([a, { ...b, pinned: true }, c, { ...d, pinned: true }])), ['b', 'd', 'a', 'c']);
 });

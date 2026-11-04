@@ -46,6 +46,15 @@ export function sessionShortcut(event: Keyish): 'new' | 'close' | 'next' | 'prev
   return undefined;
 }
 
+// sessionJump is Mod+1…9 (⌘1…9 on a Mac), the Nth of a chat's tabs, from
+// anywhere on its page but a terminal; undefined for any other key. The key's
+// place counts too, so a layout whose digits need Shift still has it.
+export function sessionJump(event: Keyish & { code?: string }): number | undefined {
+  if (!mod(event) || event.shiftKey || inTerminal(event)) return undefined;
+  const digit = /^[1-9]$/.test(event.key) ? event.key : /^Digit[1-9]$/.test(event.code ?? '') ? event.code!.slice(5) : '';
+  return digit ? Number(digit) : undefined;
+}
+
 // sessionKeys is how each reads, for the sheet and the buttons' hints.
 export const sessionKeys = {
   new: ['Mod', 'T'],
@@ -53,6 +62,7 @@ export const sessionKeys = {
   closeToo: ['Mod', 'Shift', '⌫'],
   next: ['Ctrl', 'Tab'],
   previous: ['Ctrl', 'Shift', 'Tab'],
+  jump: ['Mod', '1…9'],
 } as const;
 
 // The target of a project chat's composer (lib/messageTarget.ts): Mod+. moves
@@ -151,6 +161,8 @@ export const sheet: { title: MessageKey; rows: { keys: string[]; label: MessageK
       { keys: [...sessionKeys.closeToo], label: 'keys.sessionClose' },
       { keys: [...sessionKeys.next], label: 'keys.sessionNext' },
       { keys: [...sessionKeys.previous], label: 'keys.sessionPrevious' },
+      { keys: [...sessionKeys.jump], label: 'keys.sessionJump' },
+      { keys: ['Mod', 'K'], label: 'keys.sessionSearch' },
     ],
   },
   {

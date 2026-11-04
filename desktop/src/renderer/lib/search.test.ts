@@ -47,6 +47,24 @@ test('each kind opens where it lives', () => {
     view: { kind: 'project', project: 'pawly', tab: 'chat' },
     reveal: { chat: { project: 'pawly', agent: undefined, item: 'c1', query: 'hatch' } },
   });
+  // A lead's message says the session it was said in, which the chat shows.
+  const inSession = searchTarget({ kind: T.SearchChats, hit: hit({ id: 'c5', project: 'pawly', session: 'login' }) });
+  assert.deepEqual(inSession.open === 'view' && inSession.reveal, {
+    chat: { project: 'pawly', agent: undefined, item: 'c5', query: undefined, session: 'login' },
+    session: { project: 'pawly', id: 'login' },
+  });
+  // A session opens its chat on it, at the message it was found by when one
+  // was; the Home chat's in Home.
+  assert.deepEqual(searchTarget({ kind: T.SearchSessions, hit: hit({ id: 'login', project: 'pawly', session: 'login', item: 'm1' }) }), {
+    open: 'view',
+    view: { kind: 'project', project: 'pawly', tab: 'chat' },
+    reveal: { session: { project: 'pawly', id: 'login' }, chat: { project: 'pawly', item: 'm1', query: undefined, session: 'login' } },
+  });
+  assert.deepEqual(searchTarget({ kind: T.SearchSessions, hit: hit({ id: 'notes', project: T.HomeProject, session: 'notes', archived: true }) }), {
+    open: 'view',
+    view: { kind: 'homeChat' },
+    reveal: { session: { project: T.HomeProject, id: 'notes' } },
+  });
   const agent = searchTarget({ kind: T.SearchChats, hit: hit({ id: 'c2', project: 'pawly', agent: 'agent-01' }) });
   assert.equal(agent.open === 'view' && agent.view.kind === 'agent' && agent.view.ref, 'pawly/agent-01');
   const home = searchTarget({ kind: T.SearchChats, hit: hit({ id: 'c3', project: T.HomeProject }) });

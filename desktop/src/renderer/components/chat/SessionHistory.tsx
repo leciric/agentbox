@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
+import { inSession, useChatOpenAt } from '../../lib/reveal';
 import { pastState } from '../../lib/pastAgents';
 import { errorMessage, timeAgo } from '../../lib/utils';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -56,6 +57,7 @@ function closedSessionAgent(s: T.LeadSession): T.Agent {
 // started on where it left off (daemon seedSession).
 export function SessionHistory({
   project,
+  initialReading,
   onBack,
   onReopened,
   onContinued,
@@ -72,6 +74,7 @@ export function SessionHistory({
   const queryClient = useQueryClient();
   const closed = useClosedSessions(project);
   const [reading, setReading] = useState<string | undefined>(initial);
+  const openAt = useChatOpenAt(project);
   const [deleting, setDeleting] = useState<T.LeadSession>();
   const shown = closed.data?.find((s) => s.id === reading);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
@@ -131,6 +134,7 @@ export function SessionHistory({
             starting={false}
             onStart={() => {}}
             autoStart={false}
+            openAt={inSession(openAt, shown.id)}
             readOnly={{
               note: t('sessions.readOnly'),
               continueLabel: t('sessions.continue'),

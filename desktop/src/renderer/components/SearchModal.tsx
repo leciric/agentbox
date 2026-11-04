@@ -16,6 +16,7 @@ import {
   Image,
   LoaderCircle,
   MessageSquare,
+  MessagesSquare,
   NotebookPen,
   Plug,
   Search as SearchIcon,
@@ -24,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import * as T from '../../shared/api';
-import { api, isLeadName } from '../lib/api';
+import { api, isLeadName, sessionRef } from '../lib/api';
 import { matchesIn } from '../lib/chatFind';
 import { plainText } from '../lib/plainText';
 import { useFocusReturn } from '../lib/focusReturn';
@@ -41,6 +42,7 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 
 const kinds: Record<string, { label: MessageKey; icon: LucideIcon }> = {
   [T.SearchProjects]: { label: 'search.group.projects', icon: FolderGit2 },
+  [T.SearchSessions]: { label: 'search.group.sessions', icon: MessagesSquare },
   [T.SearchAgents]: { label: 'search.group.agents', icon: Bot },
   [T.SearchChats]: { label: 'search.group.chats', icon: MessageSquare },
   [T.SearchMemories]: { label: 'search.group.memories', icon: Brain },
@@ -266,11 +268,11 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
     [
       hit.project === T.HomeProject ? homeName : hit.project ? projectLabel(hit.project, projects.data) : kind === T.SearchSkills || kind === T.SearchConnectors ? t('search.agentboxWide') : '',
       hit.agent && kind !== T.SearchAgents ? agentTitle(hit.project ?? '', hit.agent) : '',
-      hit.archived ? t('search.pastAgent') : '',
+      hit.archived ? t(kind === T.SearchSessions ? 'search.closedSession' : 'search.pastAgent') : '',
     ].filter(Boolean);
   // A chat message opens at itself, or, asked to find there, with the chat's
   // find bar on what was searched for.
-  const open = (item: SearchItem | undefined, find = false) => item && onOpen(searchTarget(item, find && item.kind === T.SearchChats ? asked : undefined));
+  const open = (item: SearchItem | undefined, find = false) => item && onOpen(searchTarget(item, find && aMessage(item) ? asked : undefined));
   const go = (row: Row | undefined, shift = false) => (row?.kind === 'command' ? run(row.command, shift) : open(row?.item, shift));
   const current = rows[active];
   const currentItem = current?.kind === 'found' ? current.item : undefined;
@@ -513,7 +515,7 @@ function Searching({ scope, palette, back, onOpen }: { scope: SearchScope; palet
           <kbd className="rounded border border-line px-1 font-mono">↵</kbd>
           {picking || currentCommand?.group === 'actions' ? t('palette.keys.run') : t('search.keys.open')}
         </span>
-        {currentItem?.kind === T.SearchChats && !picking && (
+        {currentItem && aMessage(currentItem) && !picking && (
           <span className="flex items-center gap-1.5">
             <kbd className="rounded border border-line px-1 font-mono">⇧↵</kbd>
             {t('search.keys.find')}
@@ -685,7 +687,7 @@ function Preview({
         {hit.at && <span className="shrink-0 text-faint">{new Date(hit.at).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })}</span>}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 text-ui leading-relaxed">
-        {kind === T.SearchChats ? (
+        {aMessage(item) ? (
           <ChatAround hit={hit} query={query} agentTitle={agentTitle} />
         ) : kind === T.SearchReports && hit.report ? (
           <ReportPreview report={hit.report} query={query} />
@@ -728,10 +730,10 @@ function Preview({
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-4 py-2.5">
         <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-caption font-medium text-white hover:bg-brand-400" onClick={() => onOpen(false)} data-search-open>
-          {kind === T.SearchChats ? t('search.openInChat') : t('search.open.item')}
+          {kind === T.SearchChats || kind === T.SearchSessions ? t('search.openInChat') : t('search.open.item')}
           <kbd className="font-mono text-caption opacity-80">↵</kbd>
         </button>
-        {kind === T.SearchChats && (
+        {aMessage(item) && (
           <button type="button" className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-caption text-muted hover:text-title" onClick={() => onOpen(true)} data-search-find>
             {t('search.findInChat')}
             <kbd className="font-mono text-caption text-subtle">⇧↵</kbd>
@@ -742,6 +744,10 @@ function Preview({
   );
 }
 
+// aMessage is whether a result is a chat message: one found in a chat, or the
+// one a session was found by.
+const aMessage = ({ kind, hit }: SearchItem) => kind === T.SearchChats || (kind === T.SearchSessions && !!hit.item);
+
 // How many of a chat's messages the preview reads around the one found.
 const aroundLimit = 7;
 
@@ -751,8 +757,11 @@ const aroundLimit = 7;
 function ChatAround({ hit, query, agentTitle }: { hit: T.SearchHit; query: string; agentTitle: (project: string, name: string) => string }) {
   const t = useT();
   const project = hit.project ?? '';
-  const ref = `${project}/${hit.agent || T.LeadName}`;
-  const page = useQuery({ queryKey: ['searchAround', ref, hit.id], queryFn: () => api.chat(ref, { around: hit.id, limit: aroundLimit }), staleTime: 30_000 });
+  // A lead's message is in one session of its chat; a session's, at the
+  // message it was found by.
+  const ref = hit.session ? sessionRef(project, hit.session) : `${project}/${hit.agent || T.LeadName}`;
+  const item = hit.item || hit.id;
+  const page = useQuery({ queryKey: ['searchAround', ref, item], queryFn: () => api.chat(ref, { around: item, limit: aroundLimit }), staleTime: 30_000 });
   const found = useRef<HTMLDivElement>(null);
   useEffect(() => {
     found.current?.scrollIntoView({ block: 'center' });
@@ -765,7 +774,7 @@ function ChatAround({ hit, query, agentTitle }: { hit: T.SearchHit; query: strin
     <div className="grid content-start gap-3">
       {said.map((it) => {
         const mine = it.kind === 'user' || it.kind === 'aside';
-        const here = it.id === hit.id;
+        const here = it.id === item;
         return (
           <div key={it.id} ref={here ? found : undefined} className={cn('grid gap-1', mine && 'justify-items-end')} data-search-around={here || undefined}>
             <span className="px-1 text-caption text-subtle">{mine ? t('chat.find.from.you') : it.kind === 'assistant' ? ai : t('chat.find.notice')}</span>

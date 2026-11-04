@@ -7,7 +7,7 @@ import { closeSettingsEvent, openSettingsEvent, openSettingsSection, rememberSec
 import { openProjectEvent } from "./components/chat/ProjectMessageCard";
 import { openAgentEvent } from "./components/chat/AgentPermissionCard";
 import { isSearchShortcut, SearchModal } from "./components/SearchModal";
-import { openSearch, toggleSearch } from "./lib/searchOpen";
+import { openSearch, searchState, toggleSearch } from "./lib/searchOpen";
 import { ErrorReports } from "./components/ErrorReports";
 import { SnapComposer } from "./components/SnapComposer";
 import { HomeChatPanel } from "./components/HomeChatPanel";
@@ -352,12 +352,16 @@ export function App({ initial }: { initial?: View } = {}) {
 
   // The search modal: Ctrl+K or Ctrl+Shift+F (⌘ on a Mac) anywhere but a
   // terminal, the top bar's button, or openSearch from any component. What it
-  // opens is brought forward on the page it opens.
+  // opens is brought forward on the page it opens. On a project's page it
+  // opens on that project, its chat's sessions first, open and closed: the
+  // project's menu in it widens it to every project.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!isSearchShortcut(event)) return;
       event.preventDefault();
-      toggleSearch();
+      const here = viewRef.current;
+      if (here.kind === "project" && here.project && !searchState().open) openSearch({ project: here.project });
+      else toggleSearch();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);

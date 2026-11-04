@@ -1,4 +1,3 @@
-import { AlarmClock, History, Plus, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { useT } from '../../lib/i18n';
@@ -7,8 +6,10 @@ import { SessionStatusMark } from './SessionStatusMark';
 import { keysHint, sessionKeys } from '../../lib/shortcuts';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { wakeTime } from './SessionHeader';
+import { AlarmClock, History, Pencil, Pin, PinOff, Plus, X } from 'lucide-react';
 import { Tip } from '../ui/tooltip';
 
 // SessionTabs is the row above a project's chat: one tab per session, with
@@ -20,7 +21,9 @@ import { Tip } from '../ui/tooltip';
 // names it (ProjectChatPanel). A tab's ×, and its shortcut
 // (lib/shortcuts.ts), close the session into the chat's history, which the
 // History button at the end of the row opens (SessionHistory): nothing is
-// lost, so nothing asks first. Double-clicking a tab renames it.
+// lost, so nothing asks first. Double-clicking a tab renames it; its
+// right-click menu pins it before the others, and dragging it moves it. Both
+// are kept by the daemon (ProjectChatPanel), and Mod+1…9 goes to the Nth.
 export function SessionTabs({
   sessions,
   current,
@@ -33,6 +36,8 @@ export function SessionTabs({
   onClose,
   onHistory,
   onRename,
+  onPin,
+  onMove,
 }: {
   sessions: T.LeadSession[];
   current?: string;
@@ -47,13 +52,24 @@ export function SessionTabs({
   onClose: (id: string) => void;
   onHistory: () => void;
   onRename: (id: string, topic: string) => void;
+  onPin: (id: string, pinned: boolean) => void;
+  // onMove drops id at index to of sessions as they are (lib/sessions moveTab).
+  onMove: (id: string, to: number) => void;
 }) {
   const t = useT();
   const seen = useSeenAt();
   const [renaming, setRenaming] = useState<string>();
+  // The tab being dragged, and the gap it would drop in: before the tab at
+  // that index, or after the last.
+  const [dragging, setDragging] = useState<string>();
+  const [dropAt, setDropAt] = useState<number>();
+  const endDrag = () => {
+    setDragging(undefined);
+    setDropAt(undefined);
+  };
   return (
     <div role="tablist" aria-label={t('sessions.label')} data-session-tabs className="relative z-10 flex min-w-0 shrink-0 items-end gap-1 overflow-x-auto px-5 pt-1">
-      {sessions.map((s) => {
+      {sessions.map((s, i) => {
         const on = s.id === current;
         const unread = !on && isUnread(s, seen[s.ref]);
         const color = sessionColor(sessions, s);
@@ -70,45 +86,87 @@ export function SessionTabs({
             />
           );
         }
+        const gapBefore = dragging !== undefined && dropAt === i && dragging !== s.id && sessions[i - 1]?.id !== dragging;
+        const gapAfter = dragging !== undefined && dropAt === i + 1 && i === sessions.length - 1 && dragging !== s.id;
         return (
-          <div
-            key={s.id}
-            role="tab"
-            aria-selected={on}
-            tabIndex={on ? 0 : -1}
-            data-session={s.id}
-            data-session-state={sessionStatus(s)}
-            data-session-color={color}
-            onClick={() => onChoose(s.id)}
-            onDoubleClick={() => setRenaming(s.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') onChoose(s.id);
-              if (e.key === 'F2') setRenaming(s.id);
-            }}
-            className={cn(
-              'group flex h-8 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border pl-2.5 pr-1 text-ui transition-colors',
-              color ? (on ? 'session-line' : 'session-line-quiet') : on ? 'border-line' : 'border-line-faint',
-              on ? 'border-b-0 bg-ink text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
-            )}
-          >
-            <SessionStatusMark session={s} unread={unread} />
-            <span className="min-w-0 truncate">{s.topic}</span>
-            {s.agents > 0 && <span className="shrink-0 text-caption tabular-nums text-faint">{s.agents}</span>}
-            <Tip label={on ? `${t('sessions.close')} · ${keysHint(sessionKeys.close)}` : t('sessions.close')}>
-              <button
-                type="button"
-                aria-label={t('sessions.closeNamed', { topic: s.topic })}
-                data-session-close={s.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose(s.id);
+          <ContextMenu key={s.id}>
+            <ContextMenuTrigger asChild>
+              <div
+                role="tab"
+                aria-selected={on}
+                tabIndex={on ? 0 : -1}
+                data-session={s.id}
+                data-session-pinned={s.pinned || undefined}
+                data-session-state={sessionStatus(s)}
+                data-session-color={color}
+                draggable={renaming === undefined}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', s.topic);
+                  setDragging(s.id);
                 }}
-                className={cn('flex size-5 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-strong hover:text-primary', !on && 'opacity-0 group-hover:opacity-100')}
+                onDragOver={(e) => {
+                  if (!dragging) return;
+                  e.preventDefault();
+                  const box = e.currentTarget.getBoundingClientRect();
+                  setDropAt(e.clientX < box.left + box.width / 2 ? i : i + 1);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragging && dropAt !== undefined) onMove(dragging, dropAt);
+                  endDrag();
+                }}
+                onDragEnd={endDrag}
+                onClick={() => onChoose(s.id)}
+                onDoubleClick={() => setRenaming(s.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') onChoose(s.id);
+                  if (e.key === 'F2') setRenaming(s.id);
+                }}
+                className={cn(
+                  'group flex h-8 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border pl-2.5 pr-1 text-ui transition-colors',
+                  color ? (on ? 'session-line' : 'session-line-quiet') : on ? 'border-line' : 'border-line-faint',
+                  on ? 'border-b-0 bg-ink text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
+                  dragging === s.id && 'opacity-50',
+                  gapBefore && 'shadow-[inset_2px_0_0_var(--color-brand-400)]',
+                  gapAfter && 'shadow-[inset_-2px_0_0_var(--color-brand-400)]',
+                )}
               >
-                <X className="size-3" />
-              </button>
-            </Tip>
-          </div>
+                <SessionStatusMark session={s} unread={unread} />
+                {!unread && sessionStatus(s) === 'idle' && s.pinned && (
+                  <Pin aria-label={t('sessions.pinned')} className="size-3 shrink-0 -rotate-45 text-subtle" />
+                )}
+                <span className="min-w-0 truncate">{s.topic}</span>
+                {s.agents > 0 && <span className="shrink-0 text-caption tabular-nums text-faint">{s.agents}</span>}
+                <Tip label={on ? `${t('sessions.close')} · ${keysHint(sessionKeys.close)}` : t('sessions.close')}>
+                  <button
+                    type="button"
+                    aria-label={t('sessions.closeNamed', { topic: s.topic })}
+                    data-session-close={s.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onClose(s.id);
+                    }}
+                    className={cn('flex size-5 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-strong hover:text-primary', !on && 'opacity-0 group-hover:opacity-100')}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Tip>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem icon={s.pinned ? PinOff : Pin} onSelect={() => onPin(s.id, !s.pinned)} data-session-pin={s.id}>
+                {s.pinned ? t('sessions.unpin') : t('sessions.pin')}
+              </ContextMenuItem>
+              <ContextMenuItem icon={Pencil} onSelect={() => setRenaming(s.id)} hint="F2">
+                {t('sessions.rename')}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem icon={X} onSelect={() => onClose(s.id)}>
+                {t('sessions.close')}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         );
       })}
       <Tip label={`${t('sessions.new')} · ${keysHint(sessionKeys.new)}`}>
