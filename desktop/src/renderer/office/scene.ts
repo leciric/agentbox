@@ -406,6 +406,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   let bounds: Box = lay.room;
   const desks = new Map<string, DeskObj>();
   const hits: THREE.Object3D[] = [];
+  let plantObjs: THREE.Group[] = [];
   const signs: THREE.Group[] = [];
   let board: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; face?: THREE.Mesh; rows: BoardRow[] } | undefined;
   let sideWalls: { mat: THREE.MeshStandardMaterial; side: 'left' | 'right' }[] = [];
@@ -484,7 +485,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // Input.
   const keys = new Set<string>();
   let hover: string | undefined;
-  let pointer: { x: number; y: number; id: number; dragged: boolean; button: number; aim: { ref?: string; row?: string; floor?: P } } | undefined;
+  let pointer: { x: number; y: number; id: number; dragged: boolean; button: number; aim: { ref?: string; row?: string; floor?: P }; still: boolean; cam: string } | undefined;
+  // Where the camera is, to tell whether it moved between a press and its release.
+  const camAt = () => `${eased.tx.toFixed(2)}:${eased.tz.toFixed(2)}:${eased.dist.toFixed(2)}:${eased.pitch.toFixed(3)}:${eased.yaw.toFixed(3)}`;
   const ndc = new THREE.Vector2();
   let hoverDirty = false;
   const ray = new THREE.Raycaster();
@@ -570,8 +573,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const shade = [0, 38, -38, 76, -76, 19, -19][pi % 7];
         const hh = ((area.hue + shade + 360) % 360) / 360;
         // Saturated, as a toy's rugs: the pods read as coloured islands.
-        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.68, pi % 2 ? 0.6 : 0.65), { roughness: 0.95 }));
-        const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.55, 0.5), { roughness: 0.95 }));
+        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.72, pi % 2 ? 0.55 : 0.6), { roughness: 0.95 }));
+        const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.6, 0.45), { roughness: 0.95 }));
         const pw = pod.x1 - pod.x0;
         const pd = pod.z1 - pod.z0;
         room.add(mesh(own(rug(pw, pd, 0.5, 0.02)), rugEdge, (pod.x0 + pod.x1) / 2, 0, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
@@ -608,7 +611,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       addDesk(input, `${area.project}/lead`, lx, lz, area.hue, true);
       for (const d of place.desks) addDesk(input, d.id, d.x, d.z, area.hue, false, d.side);
     }
-    for (const [i, p] of l.plants.entries()) room.add(plant(mats, p.x, p.z, i));
+    plantObjs = l.plants.map((p, i) => {
+      const o = plant(mats, p.x, p.z, i);
+      room.add(o);
+      return o;
+    });
 
     // The sun's shadow covers the room.
     const half = Math.max(W, D) / 2 + 2;
@@ -1488,6 +1495,19 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       d.root.position.y = d.ref === hover ? 0.02 : 0;
     }
     if (!markHere) atMark.sprite.visible = false;
+    // The potted plants step aside as the desks do.
+    for (const o of plantObjs) {
+      let hide = false;
+      if (lookAt) {
+        figPos.set(o.position.x, 0.9, o.position.z);
+        const nearer = figPos.distanceTo(camera.position) < lookAt.dist - 0.8;
+        figPos.project(camera);
+        const sx = ((figPos.x + 1) / 2) * canvas.clientWidth;
+        const sy = ((1 - figPos.y) / 2) * canvas.clientHeight;
+        hide = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 170 && Math.abs(sy - p.y) < 220);
+      }
+      o.visible = !hide;
+    }
     // Signs give way to the camera, and to the board's close-up over them.
     for (const sg of signs) sg.visible = !(focusRef === 'board' && cam.closeK > 0.2) && sg.position.distanceTo(camera.position) > (cam.closeK > 0.3 ? 7 : 3.5);
     // From far off, each area's label floats over its sign. What the labels
@@ -1558,7 +1578,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (sg && on) sg.visible = false;
     }
     // You stand beside what you look at, never in front of it: always seen.
-    me.fade(1);
+    // At the board you step out of its picture: it's the board you look at.
+    me.fade(focusRef === 'board' ? 1 - cam.closeK : 1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1580,9 +1601,6 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       tp.project(camera);
       face = { x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight };
     }
-    // A small team's tags show from anywhere, as name tags in a room do; a
-    // big one's as you come near.
-    const few = !crowded;
     // Small from afar, as name tags are; wider as you come in to read them.
     const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '104px' : '170px';
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
@@ -1606,9 +1624,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // Quiet ones only near enough to read, so a mid view isn't a wall of tags.
         // From the overview a small team's loud ones only, a crowd's none (its
         // bubbles say it); coming in, the loud ones, then everyone's near you.
-        // From the overview a small team's all and a crowd's loud ones, as
-        // name tags in a room; coming in, everyone's near you.
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || few || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (few || dist < 17)));
+        // From the overview the loud ones (who needs you, what failed); coming
+        // in, everyone's near you.
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && dist < 17));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 110, ((1 - tp.y) / 2) * canvas.clientHeight);
@@ -1647,7 +1665,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     shown.sort((a, b) => Number(b.loud) - Number(a.loud) || b.y - a.y);
     const h = 24;
     const folded = new Map<HTMLElement, number>();
-    const placed: { x0: number; x1: number; y: number }[] = taken.flatMap((r) => {
+    // Heads are taken too: a tag never covers a face.
+    const headRects = heads.slice(1).map((hd) => ({ x0: hd.x - 20, x1: hd.x + 20, y0: hd.y - 26, y1: hd.y + 12 }));
+    const placed: { x0: number; x1: number; y: number }[] = [...taken, ...headRects].flatMap((r) => {
       // As the anchors of chips that would cover it (a chip's box runs from
       // 7px below its anchor to 31 below), a row every 20px.
       const rows: { x0: number; x1: number; y: number }[] = [];
@@ -1791,7 +1811,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     canvas.focus({ preventScroll: true });
     // What's under the pointer as it's pressed is what the click is for, even
     // if the camera moves on before it's released.
-    pointer = { x: e.clientX, y: e.clientY, id: e.pointerId, dragged: false, button: e.button, aim: pick(e.clientX, e.clientY) };
+    pointer = { x: e.clientX, y: e.clientY, id: e.pointerId, dragged: false, button: e.button, aim: pick(e.clientX, e.clientY), still: settledFor >= 0.3 && !(cam.closeK > 0.05 && cam.closeK < 0.95), cam: camAt() };
     canvas.setPointerCapture(e.pointerId);
     poke();
   };
@@ -1861,6 +1881,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // While the camera is still gliding, a click on the room waits (what was
     // under it a moment ago isn't what will be), but a board row is a row.
     if (settledFor < (ref || row ? 0.3 : 0.15) && !route.length) return;
+    // A desk or a row is what was under the pointer at the press: only if the
+    // camera was at rest then and hasn't moved since is it still there.
+    if ((ref || row) && (!p.still || p.cam !== camAt())) return;
     // Walking somewhere by name, or gliding into a close-up, a desk or a
     // board note under the pointer now isn't where it will be: wait.
     if ((ref || row) && ((route.length && routeGoal) || (cam.closeK > 0.05 && cam.closeK < 0.95))) return;

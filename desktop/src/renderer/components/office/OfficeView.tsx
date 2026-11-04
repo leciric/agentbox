@@ -526,14 +526,15 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
         </DeskCard>
       )}
       {near === 'board' && (
-        <div className="pointer-events-auto absolute bottom-16 right-3 top-16 flex w-[min(18rem,calc(100%-1.5rem))] flex-col gap-2 overflow-y-auto" data-office-board>
-          <ListCard title={t('office.board.needs')} accent="text-amber-600" list="needs">
+        <div className="pointer-events-auto absolute bottom-16 right-3 top-16 flex w-[min(18rem,calc(100%-1.5rem))] flex-col gap-2" data-office-board>
+          {/* Both lists in view, each scrolling on its own. */}
+          <ListCard title={t('office.board.needs')} accent="text-amber-600" list="needs" fill="shrink">
             {needs.length === 0 && <Empty>{t('office.board.needsEmpty')}</Empty>}
             {needs.map((i) => (
               <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => walkTo(i.ref)} />
             ))}
           </ListCard>
-          <ListCard title={t('office.board.review')} accent="text-emerald-600" list="review">
+          <ListCard title={t('office.board.review')} accent="text-emerald-600" list="review" fill="max-h-[45%] shrink-0">
             {review.length === 0 && <Empty>{t('office.board.reviewEmpty')}</Empty>}
             {review.map((i) => {
               return (
@@ -636,9 +637,10 @@ function Count({ dot, n, label, onClick, open }: { dot: string; n: number; label
   return <span className={cn('flex items-center gap-1.5 whitespace-nowrap', n === 0 && 'opacity-50')}>{inner}</span>;
 }
 
-function ListCard({ title, accent, children, onFold, foldLabel, list }: { title: string; accent: string; children: ReactNode; onFold?: () => void; foldLabel?: string; list?: string }) {
+// fill makes it a column whose rows scroll inside it, in a panel of several.
+function ListCard({ title, accent, children, onFold, foldLabel, list, fill }: { title: string; accent: string; children: ReactNode; onFold?: () => void; foldLabel?: string; list?: string; fill?: string }) {
   return (
-    <div className="w-full rounded-xl border border-black/5 bg-white/90 p-1.5 shadow-xl backdrop-blur-md" data-office-board-list={list}>
+    <div className={cn('w-full rounded-xl border border-black/5 bg-white/90 p-1.5 shadow-xl backdrop-blur-md', fill && `flex min-h-0 flex-col ${fill}`)} data-office-board-list={list}>
       <div className="flex items-center px-2 pb-1 pt-1">
         <span className={cn('flex-1 text-[10.5px] font-semibold uppercase tracking-[0.08em]', accent)}>{title}</span>
         {onFold && (
@@ -647,7 +649,7 @@ function ListCard({ title, accent, children, onFold, foldLabel, list }: { title:
           </button>
         )}
       </div>
-      {children}
+      {fill ? <div className="min-h-0 overflow-y-auto">{children}</div> : children}
     </div>
   );
 }

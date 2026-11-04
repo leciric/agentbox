@@ -84,7 +84,7 @@ const FRONT = 1.0; // floor before the front areas
 const WALL_PAD = 1.6;
 const PLANTER = 0.5;
 // The wood-floored side, the commons: about a third of the work's width.
-const woodOf = (workW: number) => Math.min(9.2, Math.max(7.4, workW * 0.36));
+const woodOf = (workW: number) => Math.min(9.2, Math.max(7.4, workW * 0.32));
 const MIN_ROOM_D = 13;
 const MIN_WORK_W = 11;
 // The room is about twice as wide as it's deep, as a diorama seen from its
