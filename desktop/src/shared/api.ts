@@ -3044,10 +3044,6 @@ export interface LeadSessionPatch {
   pinned?: boolean;
 }
 
-export interface LeadSessionOrder {
-  ids: string[];
-}
-
 export interface AgentSessionRequest {
   session: string;
 }
@@ -3145,6 +3141,10 @@ export interface LeadAccount {
   project: boolean;
   agents: number;
   limit?: ClaudeLimit;
+}
+
+export interface LeadSessionOrder {
+  ids: string[];
 }
 
 export interface MemoryEvent {
