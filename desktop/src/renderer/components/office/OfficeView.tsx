@@ -203,6 +203,17 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     else onSelect({ kind: 'agent', ref, tab: 'chat' });
   };
 
+  // Next walks to the next one that needs you, after the one you're at: a
+  // round of everything waiting, one key each.
+  const next = useRef<() => void>(() => {});
+  next.current = () => {
+    const list = office.model.board.needs;
+    if (list.length === 0) return;
+    const at = list.findIndex((i) => i.ref === near);
+    const to = list[(at + 1) % list.length];
+    if (to.ref !== near) walkTo(to.ref);
+  };
+
   // The scene, loaded with three.js only when the Office opens.
   useEffect(() => {
     let gone = false;
@@ -217,6 +228,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             onNear: setNear,
             onHover: setHover,
             onActivate: (ref) => activate.current(ref),
+            onNext: () => next.current(),
             onMoved: () => {
               setHint(false);
               try {
@@ -263,6 +275,14 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const nearDesk = nearAgent ? deskOf(office.model, nearAgent.ref) : undefined;
   const nearArea = near?.endsWith('/lead') ? office.model.areas.find((a) => leadRef(a.project) === near) : undefined;
   const listOpen = listChoice ?? (wide && !nearDesk && !nearArea);
+  const hasNext = needs.some((i) => i.ref !== near);
+  const nextButton = hasNext && (
+    <Button size="sm" variant="secondary" onClick={() => next.current()} data-office-next>
+      <ArrowRight className="size-3.5" />
+      {t('office.next')}
+      <kbd className="ml-1 rounded bg-black/20 px-1 font-mono text-[10.5px]">N</kbd>
+    </Button>
+  );
   // The overview frames the room beside the list while it's open.
   const listShown = listOpen && needs.length > 0 && near !== 'board';
   useEffect(() => scene.current?.setInset(listShown ? 280 : 0), [listShown, status]);
@@ -365,6 +385,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             {t('office.openChat')}
             <kbd className="ml-1 rounded bg-black/20 px-1 font-mono text-[10.5px]">E</kbd>
           </Button>
+          {nextButton}
           {nearDesk.pr && (
             <Button size="sm" variant="secondary" onClick={() => openPr(nearDesk)} data-office-pr>
               <GitPullRequest className="size-3.5" />
@@ -387,6 +408,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             {t('office.openProjectChat')}
             <kbd className="ml-1 rounded bg-black/20 px-1 font-mono text-[10.5px]">E</kbd>
           </Button>
+          {nextButton}
         </DeskCard>
       )}
       {near === 'board' && (

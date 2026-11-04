@@ -39,6 +39,8 @@ export type OfficeSceneOptions = {
   onActivate(ref: string): void;
   // You moved for the first time (the controls hint can go).
   onMoved(): void;
+  // N: on to the next desk that needs you.
+  onNext(): void;
   // A marker's name for screen readers: "Walk to {title}".
   markerLabel(title: string): string;
 };
@@ -1336,6 +1338,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       keys.add(k);
       e.preventDefault();
       poke();
+    } else if (k === 'n' && !e.repeat) {
+      e.preventDefault();
+      opts.onNext();
     } else if ((k === 'e' || k === 'enter') && near && !e.repeat) {
       if (k === 'enter' && document.activeElement !== canvas) return;
       e.preventDefault();
