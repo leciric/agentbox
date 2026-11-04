@@ -214,12 +214,19 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
 
   // Next walks to the next one that needs you, after the one you're at: a
   // round of everything waiting, one key each.
+  // Off the round (at another desk), it carries on from the last one on it.
+  const lastNeed = useRef<string | undefined>(undefined);
+  if (near && office.model.board.needs.some((i) => i.ref === near)) lastNeed.current = near;
+  const roundAt = () => {
+    const list = office.model.board.needs;
+    const here = list.findIndex((i) => i.ref === near);
+    return here >= 0 ? here : list.findIndex((i) => i.ref === lastNeed.current);
+  };
   const next = useRef<() => void>(() => {});
   next.current = () => {
     const list = office.model.board.needs;
     if (list.length === 0) return;
-    const at = list.findIndex((i) => i.ref === near);
-    const to = list[(at + 1) % list.length];
+    const to = list[(roundAt() + 1) % list.length];
     if (to.ref !== near) walkTo(to.ref);
   };
 
@@ -290,7 +297,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     <Button size="sm" variant="secondary" onClick={() => next.current()} data-office-next>
       <ArrowRight className="size-3.5" />
       {t('office.next')}
-      {needs.length > 1 && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: Math.max(1, needs.findIndex((i) => i.ref === near) + 1), count: needs.length })}</span>}
+      {needs.length > 1 && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: ((roundAt() + 1) % needs.length) + 1, count: needs.length })}</span>}
       <kbd className="ml-1 rounded bg-black/20 px-1 font-mono text-[10.5px]">N</kbd>
     </Button>
   );

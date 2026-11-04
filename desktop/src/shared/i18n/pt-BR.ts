@@ -4916,7 +4916,7 @@ export const ptBR: Messages = {
   'office.back': 'Voltar ao Escritório',
   'office.clickToWalk': 'Clique para ir até {title}',
   'office.hint.click': 'Clique numa mesa ou no chão para ir até lá',
-  'office.hint.keys': 'WASD ou setas para andar · E para abrir · N para o próximo que precisa de você',
+  'office.hint.keys': 'WASD para andar · E abre · N próximo que precisa de você',
   'office.hint.look': 'Arraste para girar · role para aproximar',
   'office.hint.short': 'Clique para andar · WASD · arraste para girar · role para aproximar · E abre · N próximo',
   'office.hint.nav': 'Ande entre seus agentes',

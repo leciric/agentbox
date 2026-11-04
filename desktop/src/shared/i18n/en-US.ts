@@ -4915,7 +4915,7 @@ export const enUS = {
   'office.back': 'Back to the Office',
   'office.clickToWalk': 'Click to walk to {title}',
   'office.hint.click': 'Click a desk or the floor to walk there',
-  'office.hint.keys': 'WASD or arrows to walk · E to open · N for the next who needs you',
+  'office.hint.keys': 'WASD to walk · E opens · N next who needs you',
   'office.hint.look': 'Drag to turn · scroll to zoom',
   'office.hint.short': 'Click to walk · WASD · drag to turn · scroll to zoom · E opens · N next',
   'office.hint.nav': 'Walk among your agents',
