@@ -616,10 +616,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     put(g, mesh(geo.plane, mats.keys, lx, top + 0.024, -0.13, 0.34, 0.13, 1, false)).rotation.x = -Math.PI / 2;
     const lid = new THREE.Group();
     lid.position.set(lx, top + 0.022, -0.035);
-    lid.rotation.x = -0.32;
+    // Open wide and low, so the agent's face shows over it.
+    lid.rotation.x = -0.75;
     g.add(lid);
-    put(lid, mesh(geo.roundThin, mats.alu, 0, 0.135, 0, 0.4, 0.27, 0.012));
-    lid.add(mesh(geo.circle, glowMat, 0, 0.14, 0.0075, 0.035, 0.035, 1, false));
+    put(lid, mesh(geo.roundThin, mats.alu, 0, 0.1, 0, 0.4, 0.2, 0.012));
+    lid.add(mesh(geo.circle, glowMat, 0, 0.1, 0.0075, 0.03, 0.03, 1, false));
 
     // The monitor on the desk's front corner, turned to you.
     const { tex, ctx } = canvasTexture(512, 320);

@@ -189,10 +189,10 @@ function clawd(k: Kit): Build {
   // Ink round the block, as one simple hull.
   const hullBox = at(new THREE.Mesh(new RoundedBoxGeometry(W * V, H * V, D * V, 2, 0.01)), 0, 0.13 + ((H - 1) / 2) * V, 0);
   body.add(hullBox);
-  ink(hullBox, 0.014);
+  ink(hullBox, 0.018);
   body.remove(hullBox);
   hullBox.geometry.dispose();
-  const face = at(new THREE.Group(), 0, 0.13 + 3.2 * V, (D / 2) * V + 0.002);
+  const face = at(new THREE.Group(), 0, 0.13 + 4 * V, (D / 2) * V + 0.002);
   body.add(face);
   const arms = [-1, 1].map((sx) => {
     const p = at(new THREE.Group(), sx * (W / 2) * V, 0.13 + 2 * V, 0);
@@ -212,7 +212,7 @@ function cube(k: Kit): Build {
   const c = at(new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.4, 0.4, 3, 0.05), faces), 0, 0.36, 0);
   c.rotation.set(-0.5, Math.PI / 4, 0, 'YXZ');
   body.add(c);
-  ink(c, 0.014);
+  ink(c, 0.018);
   // The face floats on the front corner, where you see it.
   const face = at(new THREE.Group(), 0, 0.37, 0.3);
   body.add(face);
@@ -257,7 +257,7 @@ function sparkle(k: Kit): Build {
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const star = at(new THREE.Mesh(g, k.m(toon('#ffffff', { vertexColors: true }))), 0, 0.42, 0);
   body.add(star);
-  ink(star, 0.012);
+  ink(star, 0.016);
   const face = at(new THREE.Group(), 0, 0.42, 0.095);
   body.add(face);
   const hand = k.m(toon('#7f86e8'));
@@ -279,7 +279,7 @@ function block(k: Kit): Build {
   const dark = k.m(toon('#17181c'));
   const frame = at(new THREE.Mesh(new RoundedBoxGeometry(0.46, 0.44, 0.3, 3, 0.04), light), 0, 0.36, 0);
   body.add(frame);
-  ink(frame, 0.014);
+  ink(frame, 0.018);
   body.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.28, 0.05, 2, 0.02), dark), 0, 0.36, 0.14));
   for (const sx of [-1, 1]) {
     const f = at(new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.08, 0.14, 2, 0.02), dark), sx * 0.12, 0.12, 0.06);
@@ -316,7 +316,7 @@ function cloud(k: Kit): Build {
   for (const g of geos) g.dispose();
   const puff = new THREE.Mesh(merged, white);
   body.add(puff);
-  ink(puff, 0.012);
+  ink(puff, 0.016);
   const face = at(new THREE.Group(), 0, 0.4, 0.2);
   body.add(face);
   // The prompt, below the eyes.
