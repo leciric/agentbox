@@ -29,7 +29,7 @@ func (s *Store) LeadSessionsSeen(ctx context.Context, project string) (map[strin
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string]time.Time{}
 	for rows.Next() {
 		var id string
