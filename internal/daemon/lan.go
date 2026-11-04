@@ -888,6 +888,8 @@ var lanWrites = []struct {
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(review|request-changes)$`), ""},
 	{state.PhoneScopeMerge, regexp.MustCompile(`^POST /v1/projects/[^/]+/pulls/[0-9]+/merge$`), ""},
 	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/usage-stats/[^/]+$`), ""},
+	// A session shown on the phone is read there, which is reading.
+	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/projects/[^/]+/sessions/[^/]+/seen$`), ""},
 }
 
 // lanScopeVerb is what each scope lets a phone do, for saying it may not.
