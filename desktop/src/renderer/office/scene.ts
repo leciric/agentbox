@@ -283,6 +283,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let focusAt: { x: number; z: number } | undefined;
   let settledFor = 0;
   let chipsShown = true;
+  const chipDy = new WeakMap<HTMLElement, number>();
   let stillFor = 0;
 
   // Input.
@@ -1076,9 +1077,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const show = settledFor > 0.12;
     if (show !== chipsShown) {
       chipsShown = show;
-      // Still there while it moves, dimmed and not to be clicked.
-      markerLayer.style.opacity = show ? '1' : '0.5';
-      for (const el of markerLayer.children) if (el !== meMarker) (el as HTMLElement).style.pointerEvents = show ? 'auto' : 'none';
+      // Still there, and still to be clicked, while it moves: a little dimmed.
+      markerLayer.style.opacity = show ? '1' : '0.7';
     }
     return Math.abs(after - before) > 1e-4 || cam.followK !== followTarget || cam.closeK !== closeTarget;
   }
@@ -1175,7 +1175,37 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const w = Math.min(2.1, Math.max(0.8, dist * 0.085));
       tag.scale.set(w, (w * 96) / 640, 1);
     }
-    // You, from far off: a chip like theirs, in your colour.
+    // The desks' chips stack clear of the labels and of each other, the
+    // nearest (lowest on screen) where it belongs. Their stacking is worked
+    // out only while the camera is still, and kept while it moves, so a chip
+    // never jumps or goes as you reach for it; one with no room stays where
+    // it is rather than vanish.
+    shown.sort((a, b) => b.y - a.y);
+    const h = 24;
+    const placed: { x0: number; x1: number; y: number }[] = taken.flatMap((r) => {
+      // As the anchors of chips that would cover it (a chip's box runs from
+      // 31px above its anchor to 7 above), a row every 20px.
+      const rows: { x0: number; x1: number; y: number }[] = [];
+      for (let y = r.y1 + 31; y > r.y0 + 7; y -= 20) rows.push({ x0: r.x0, x1: r.x1, y });
+      return rows;
+    });
+    const restack = chipsShown;
+    for (const m of shown) {
+      const w = m.el.offsetWidth || 120;
+      const x0 = m.x - w / 2;
+      const x1 = m.x + w / 2;
+      let dy = chipDy.get(m.el) ?? 0;
+      if (restack) {
+        const clash = (y: number) => placed.some((p) => x0 < p.x1 + 4 && x1 > p.x0 - 4 && Math.abs(p.y - y) < h);
+        dy = [0, -h, h, -2 * h, 2 * h].find((d) => !clash(m.y + d)) ?? 0;
+        chipDy.set(m.el, dy);
+      }
+      placed.push({ x0, x1, y: m.y + dy });
+      m.el.style.transform = `translate(${m.x}px, ${m.y + dy}px) translate(-50%, -130%)`;
+    }
+    // You, from far off: a chip like theirs, in your colour, over your head,
+    // or under your feet when a chip or a label is there. It gives way to
+    // them, never they to it.
     meTag.sprite.getWorldPosition(tp);
     const meFar = tp.distanceTo(camera.position) > 15;
     tp.project(camera);
@@ -1184,37 +1214,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
       const my = ((1 - tp.y) / 2) * canvas.clientHeight;
       const mw = meMarker.offsetWidth || 44;
-      // Over your head, or under your feet when a label is there.
       const over = { x0: mx - mw / 2, x1: mx + mw / 2, y0: my - 40, y1: my - 18 };
-      const under = taken.some((r) => over.x0 < r.x1 && over.x1 > r.x0 && over.y0 < r.y1 && over.y1 > r.y0);
+      const hits = (r: { x0: number; x1: number; y0: number; y1: number }) => over.x0 < r.x1 && over.x1 > r.x0 && over.y0 < r.y1 && over.y1 > r.y0;
+      const under = taken.some(hits) || placed.some((p) => hits({ x0: p.x0, x1: p.x1, y0: p.y - 31, y1: p.y - 7 }));
       meMarker.style.transform = `translate(${mx}px, ${my}px) translate(-50%, ${under ? '140%' : '-110%'})`;
-      taken.push(under ? { x0: over.x0, x1: over.x1, y0: my + 30, y1: my + 52 } : over);
       meTag.sprite.visible = false;
-    }
-    // Markers that would overlap stack upwards instead, the nearest (lowest
-    // on screen) where it belongs.
-    shown.sort((a, b) => b.y - a.y);
-    const placed: { x0: number; x1: number; y: number }[] = taken.flatMap((r) => {
-      // As the anchors of chips that would cover it (a chip's box runs from
-      // 31px above its anchor to 7 above), a row every 20px.
-      const rows: { x0: number; x1: number; y: number }[] = [];
-      for (let y = r.y1 + 31; y > r.y0 + 7; y -= 20) rows.push({ x0: r.x0, x1: r.x1, y });
-      return rows;
-    });
-    for (const m of shown) {
-      const w = m.el.offsetWidth || 120;
-      const h = 24;
-      const x0 = m.x - w / 2;
-      const x1 = m.x + w / 2;
-      const clash = (y: number) => placed.some((p) => x0 < p.x1 + 4 && x1 > p.x0 - 4 && Math.abs(p.y - y) < h);
-      // Up to two steps up or down; past that it's a tower, and the list has it.
-      const y = [m.y, m.y - h, m.y + h, m.y - 2 * h, m.y + 2 * h].find((y) => !clash(y));
-      if (y === undefined) {
-        m.el.style.display = 'none';
-        continue;
-      }
-      placed.push({ x0, x1, y });
-      m.el.style.transform = `translate(${m.x}px, ${y}px) translate(-50%, -130%)`;
     }
     const ringO = 0.55 + (motion ? Math.sin(t * 2.5) * 0.25 : 0.2);
     (meRing.material as THREE.MeshBasicMaterial).opacity = ringO;
