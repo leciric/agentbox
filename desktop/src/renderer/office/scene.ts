@@ -472,9 +472,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const area = input.model.areas[i];
       const r = place.rug;
       // Each pod's soft pastel rug, in the project's colour, corners rounded.
-      const rugMat = own(std(new THREE.Color().setHSL(area.hue / 360, 0.5, 0.8), { roughness: 0.95 }));
-      const rugEdge = own(std(new THREE.Color().setHSL(area.hue / 360, 0.45, 0.7), { roughness: 0.95 }));
-      for (const pod of place.pods) {
+      for (const [pi, pod] of place.pods.entries()) {
+        // Each pod a shade of its project's colour, so pods read apart.
+        const shade = ((pi * 37) % 50) - 25;
+        const rugMat = own(std(new THREE.Color().setHSL(((area.hue + shade + 360) % 360) / 360, 0.5, 0.8), { roughness: 0.95 }));
+        const rugEdge = own(std(new THREE.Color().setHSL(((area.hue + shade + 360) % 360) / 360, 0.45, 0.7), { roughness: 0.95 }));
         const pw = pod.x1 - pod.x0;
         const pd = pod.z1 - pod.z0;
         room.add(mesh(own(new RoundedBoxGeometry(pw, 0.02, pd, 2, 0.009)), rugEdge, (pod.x0 + pod.x1) / 2, 0.01, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
@@ -1100,7 +1102,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const tx = W / 2;
     const tz = D / 2 + 0.6;
     // The slab's underside and the walls' tops, all of the diorama.
-    const corners = [-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].flatMap((z) => [-0.45, 4.4].map((y) => new THREE.Vector3(x, y, z))));
+    const corners = [-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].flatMap((z) => [-0.45, 2.6].map((y) => new THREE.Vector3(x, y, z))));
     const v = new THREE.Vector3();
     const shiftAt = (d: number) => d * tan * aspect * cover;
     const fits = (d: number) => {
@@ -1247,6 +1249,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       b.position.y = 1.95 + lift + (motion ? Math.sin(t * 2 + b.position.x) * 0.05 : 0);
       const s = d.bubble.sprite;
       s.position.y = 1.95 + lift * 0.5 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 : 0);
+      // The desk you're at wears a soft white ring; a loud one keeps its own.
+      const chosen = d.ref === near && !(d.tone === 'needs' || d.tone === 'error');
+      d.ring.visible = chosen || d.tone === 'needs' || d.tone === 'error';
+      (d.ring.material as THREE.MeshBasicMaterial).color.set(chosen ? '#ffffff' : toneColor[d.tone]);
       if (d.ring.visible) {
         const p = motion ? (t * 0.8) % 1 : 0.5;
         d.ring.scale.setScalar(0.9 + p * 0.5);
@@ -1279,9 +1285,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const chip = areaChips.get(place.project);
       if (!chip) continue;
       const sg = signs[i];
-      // At the rug's front edge, on the floor, as a pod's name plate.
+      // In front of its pods, on the floor, as a name plate.
       void sg;
-      ap.set(place.lead.x, 0.05, place.rug.z1 + 0.15);
+      const podFront = place.pods.reduce((m, p) => Math.max(m, p.z1), place.rug.z0);
+      const podMid = place.pods.length ? (Math.min(...place.pods.map((p) => p.x0)) + Math.max(...place.pods.map((p) => p.x1))) / 2 : place.lead.x;
+      ap.set(podMid, 0.05, podFront + 0.35);
       const far = cam.closeK < 0.3;
       ap.project(camera);
       // Not under the top bar, whose 4.5rem it would hide beneath.
@@ -1554,10 +1562,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     pointer = undefined;
     canvas.style.cursor = hover ? 'pointer' : 'default';
     if (p.dragged || p.button !== 0) return;
-    // While the camera is still gliding, a click on the room waits: what was
-    // under it a moment ago isn't what will be.
-    if (settledFor < 0.15 && !route.length) return;
     const { ref, row, floor } = p.aim;
+    // While the camera is still gliding, a click on the room waits (what was
+    // under it a moment ago isn't what will be), but a board row is a row.
+    if (settledFor < 0.15 && !route.length && !row) return;
     // A row on the board opens what it's about, from wherever you see it.
     if (row && (near === 'board' || !row.startsWith('more:'))) opts.onBoardRow(row);
     else if (ref) {
