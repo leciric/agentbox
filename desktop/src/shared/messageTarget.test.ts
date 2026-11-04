@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from './api.ts';
-import { atTarget, cycleTarget, Lead, liveTarget, otherSession, targetOrder, targetsOf } from './messageTarget.ts';
+import { atTarget, cycleTarget, Lead, liveTarget, targetOrder, targetsOf } from './messageTarget.ts';
 
 const agent = (name: string, leadSession?: string, project = 'web'): T.Agent => ({ name, project, leadSession, ref: `${project}/${name}` }) as T.Agent;
 
@@ -43,12 +43,4 @@ test('"@agent-31 " at the start targets that agent for the message', () => {
   assert.equal(atTarget('ask @agent-31 about it', names), undefined, 'a mention mid-message is the lead’s');
   assert.equal(atTarget('@agent-31', names), undefined, 'still being typed');
   assert.equal(atTarget('@src/main.ts is broken', names), undefined, 'a file');
-});
-
-test('another session’s agent asks first; its own and nobody’s don’t', () => {
-  const sessions = [{ id: 'main', topic: 'Chat' }, { id: 'prod', topic: 'Prod incident' }];
-  assert.equal(otherSession(agent('agent-2', 'prod'), 'main', sessions)?.topic, 'Prod incident');
-  assert.equal(otherSession(agent('agent-1', 'main'), 'main', sessions), undefined);
-  assert.equal(otherSession(agent('agent-10'), 'main', sessions), undefined);
-  assert.equal(otherSession(agent('agent-5', 'gone'), 'main', sessions), undefined);
 });

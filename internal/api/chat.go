@@ -421,9 +421,6 @@ type ChatMessageRequest struct {
 	// ChatItem.To that the lead reads at its next turn, starting none. The
 	// answer is that notice.
 	To string `json:"to,omitempty"`
-	// AnySession sends a message To another session's agent: without it, that
-	// is refused with ErrorOtherSession, for the client to ask first.
-	AnySession bool `json:"anySession,omitempty"`
 }
 
 // ChatImage is a picture sent with a message. Its bytes are kept in a file

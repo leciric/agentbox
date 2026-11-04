@@ -1246,7 +1246,7 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, state.ErrNotFound), errors.Is(err, incus.ErrNotFound), errors.Is(err, memory.ErrNotFound):
 		status = http.StatusNotFound
-	case errors.Is(err, state.ErrExists), errors.Is(err, agent.ErrCloneDestExists), errors.As(err, new(errOtherSession)), errors.Is(err, errSessionClosed):
+	case errors.Is(err, state.ErrExists), errors.Is(err, agent.ErrCloneDestExists), errors.Is(err, errSessionClosed):
 		status = http.StatusConflict
 	case errors.Is(err, incus.ErrNotAnswering):
 		status = http.StatusServiceUnavailable
@@ -1261,8 +1261,6 @@ func writeError(w http.ResponseWriter, err error) {
 		body.Code = api.ErrorFolderExists
 	case errors.As(err, new(badRepoURL)):
 		body.Code = api.ErrorBadRepoURL
-	case errors.As(err, new(errOtherSession)):
-		body.Code = api.ErrorOtherSession
 	}
 	body.Code = cmp.Or(transferCode(err), body.Code)
 	_ = writeJSON(w, status, body)

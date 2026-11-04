@@ -56,11 +56,3 @@ export function atTarget(text: string, names: readonly string[]): { to: string; 
   if (!match || !names.includes(match[1])) return undefined;
   return { to: match[1], text: match[2].trim() };
 }
-
-// otherSession is the other session of the chat that an agent
-// belongs to, which a message to it asks about first; undefined for one of
-// its own, nobody's, or one whose session is gone.
-export function otherSession<S extends { id: string }>(agent: Agent | undefined, session: string | undefined, sessions: readonly S[]): S | undefined {
-  if (!agent?.leadSession || agent.leadSession === session) return undefined;
-  return sessions.find((s) => s.id === agent.leadSession);
-}

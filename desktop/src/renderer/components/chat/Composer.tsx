@@ -52,7 +52,7 @@ import { previewUrl } from '../../lib/chatImages';
 import { droppedFiles, isElement, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
 import { splitPicked, takePicks, useWaitingPicks, withPicks } from '../../lib/picks';
 import { sendMessage, unsentEvent, useSending } from '../../lib/sending';
-import { atTarget, cycleTarget, liveTarget, otherSession, targetOrder, targetsOf } from '../../../shared/messageTarget';
+import { atTarget, cycleTarget, liveTarget, targetOrder, targetsOf } from '../../../shared/messageTarget';
 import { chooseTarget, useChosenTarget } from '../../lib/messageTarget';
 import { targetShortcut } from '../../lib/shortcuts';
 import { TargetChip } from './TargetChip';
@@ -115,7 +115,6 @@ export function Composer({
   const leadChat = isProjectChat(agent.ref) && !isHomeChat(agent.ref);
   const chatSession = sessionOfRef(agent.ref);
   const allAgents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: leadChat });
-  const leadSessions = useQuery({ queryKey: ['leadSessions', agent.project], queryFn: () => api.leadSessions(agent.project), enabled: leadChat });
   const targets = useMemo(() => targetsOf(leadChat ? (allAgents.data ?? []) : [], agent.project, chatSession), [leadChat, allAgents.data, agent.project, chatSession]);
   const chosenTarget = useChosenTarget(agent.ref);
   const target = liveTarget(chosenTarget, targets);
@@ -126,8 +125,6 @@ export function Composer({
   const targetNames = useMemo(() => [...targets.own, ...targets.others].map((a) => a.name), [targets]);
   const at = leadChat ? atTarget(text, targetNames) : undefined;
   const sendTo = at?.to ?? target;
-  // A message to another session's agent asks first, in place of the send.
-  const [confirmTo, setConfirmTo] = useState<{ to: string; topic: string; text: string; images: Pending[]; raw: string } | null>(null);
   // Mod+. and Mod+Shift+. move the target on, from anywhere in the window
   // while this chat is on screen.
   const order = useMemo(() => targetOrder(targets), [targets]);
@@ -169,7 +166,7 @@ export function Composer({
   const queryClient = useQueryClient();
   const sending = useSending(agent.ref);
   const inFlight = sending.some((s) => !s.error);
-  const send = (message: { text: string; images: Pending[] }, to?: { to: string; anySession?: boolean }) => {
+  const send = (message: { text: string; images: Pending[] }, to?: { to: string }) => {
     const { images, files } = uploads(message.images, !session?.noImages);
     const text = withPicks(message.text, message.images.filter(isElement));
     setText('');
@@ -419,7 +416,7 @@ export function Composer({
 
   // Sending while the tool works is the point of the placeholder below: the
   // message joins the running turn and the model decides what it's worth.
-  const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !held && !confirmTo;
+  const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !held;
   // Enter or Send while signed out can't send: the banner pulses instead, so
   // the click isn't silent. The draft stays.
   const [nudged, setNudged] = useState(false);
@@ -437,13 +434,6 @@ export function Composer({
     if (sendTo) {
       const body = at ? at.text : text.trim();
       if (body === '' && images.length === 0) return;
-      const other = otherSession(targets.others.find((a) => a.name === sendTo), chatSession, leadSessions.data ?? []);
-      if (other) {
-        setConfirmTo({ to: sendTo, topic: other.topic, text: body, images, raw: text });
-        setText('');
-        setImages([]);
-        return;
-      }
       send({ text: body, images }, { to: sendTo });
       return;
     }
@@ -474,18 +464,6 @@ export function Composer({
     area.current?.focus();
   };
   const syncCursor = (event: SyntheticEvent<HTMLTextAreaElement>) => setCursor(event.currentTarget.selectionStart);
-  const confirmSend = () => {
-    if (!confirmTo) return;
-    setConfirmTo(null);
-    send({ text: confirmTo.text, images: confirmTo.images }, { to: confirmTo.to, anySession: true });
-  };
-  const cancelSend = () => {
-    if (!confirmTo) return;
-    setConfirmTo(null);
-    setText((current) => current || confirmTo.raw);
-    setImages((current) => (current.length ? current : confirmTo.images));
-    area.current?.focus();
-  };
 
   // What was typed of it: the elements it was sent with are picked again.
   const lastMine = splitPicked(thread?.items.findLast((it) => it.kind === 'user' && !it.parent && !it.hidden)?.text ?? '').text;
@@ -493,12 +471,6 @@ export function Composer({
   const empty = !!thread && !thread.older && !thread.items.some(isMessage);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
-    if (confirmTo && (event.key === 'Enter' || event.key === 'Escape')) {
-      event.preventDefault();
-      if (event.key === 'Enter') confirmSend();
-      else cancelSend();
-      return;
-    }
     if (commands.length > 0) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -593,20 +565,7 @@ export function Composer({
   return (
     <div className="relative" data-chat-composer>
       {plan && <TasksBadge plan={plan} />}
-      {confirmTo ? (
-        <Attached tone="amber">
-          <div className="flex flex-wrap items-center gap-2 text-[12.5px]" data-target-confirm={confirmTo.to}>
-            <CircleAlert className="size-3.5 shrink-0 text-amber-300" />
-            <p className="min-w-0 flex-1 break-words leading-relaxed text-amber-100/90">{t('chat.target.otherSession', { name: confirmTo.to, topic: confirmTo.topic })}</p>
-            <button className="flex h-6 shrink-0 items-center rounded-md px-2.5 text-[12px] text-amber-100/80 transition hover:bg-amber-400/15" onClick={cancelSend}>
-              {t('common.cancel')}
-            </button>
-            <button className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-[12px] font-medium text-white transition hover:bg-brand-500" onClick={confirmSend} data-target-send-anyway>
-              {t('chat.target.sendAnyway')}
-            </button>
-          </div>
-        </Attached>
-      ) : signedOut ? (
+      {signedOut ? (
         <Attached tone="amber" className={nudged ? 'bg-amber-400/25 ring-2 ring-amber-300/80' : undefined}>
           <div className="flex items-center gap-2 text-ui" data-chat-signed-out data-nudged={nudged || undefined}>
             <LogIn className="size-3.5 shrink-0 text-amber-300" />

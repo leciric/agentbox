@@ -4238,8 +4238,6 @@ export const ptBR: Messages = {
   'chat.target.others': 'Outros agentes',
   'chat.target.tip': 'Para quem vai esta mensagem. {next} próximo, {previous} anterior, {lead} com o campo vazio volta ao líder, e "@agent-31 " no início envia uma mensagem a esse agente.',
   'chat.target.toldTip': 'Enviada ao chat de {name}. O líder a lê no próximo turno. Clique para escrever a {name} de novo.',
-  'chat.target.otherSession': '{name} pertence a “{topic}”. Enviar mesmo assim?',
-  'chat.target.sendAnyway': 'Enviar mesmo assim',
   'chat.target.sendTo': 'Enviar para {name}',
   'chat.composer.placeholderTo': 'Mensagem para {name}…',
   'chat.composer.nothingAttached': 'Nada foi anexado',
