@@ -1007,7 +1007,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const D = lay.room.z1;
     const aspect = camera.aspect || 1;
     // From the overview down to following you is a long way: taken gently.
-    const k = motion ? 1 - Math.exp(-dt * 2.6) : 1;
+    // Standing back is quicker than coming down to you.
+    const k = motion ? 1 - Math.exp(-dt * (followTarget < cam.followK ? 4.5 : 2.6)) : 1;
     cam.followK += (followTarget - cam.followK) * k;
     if (Math.abs(followTarget - cam.followK) < 1e-3) cam.followK = followTarget;
     // Close up at what you're at, and gliding into it over a walk's last
@@ -1079,8 +1080,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const show = settledFor > 0.12;
     if (show !== chipsShown) {
       chipsShown = show;
-      markerLayer.style.opacity = show ? '1' : '0';
-      markerLayer.style.visibility = show ? 'visible' : 'hidden';
+      // Still there while it moves, dimmed and not to be clicked.
+      markerLayer.style.opacity = show ? '1' : '0.5';
+      for (const el of markerLayer.children) if (el !== meMarker) (el as HTMLElement).style.pointerEvents = show ? 'auto' : 'none';
     }
     return Math.abs(after - before) > 1e-4 || cam.followK !== followTarget || cam.closeK !== closeTarget;
   }
@@ -1152,9 +1154,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       if (sg && on) sg.visible = false;
     }
     // You fade while you look at a monitor, so you never stand in front of it.
-    // At a counter you'd stand in front of its monitor: you fade there. At a
-    // desk you stand aside, in view.
-    me.fade(focusRef?.endsWith('/lead') ? 1 - cam.closeK * 0.85 : 1);
+    // At a counter you'd stand in front of its monitor: you all but fade. At
+    // a desk you stand aside, half seen through, so you hide nothing.
+    me.fade(1 - cam.closeK * (focusRef?.endsWith('/lead') ? 0.85 : 0.5));
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
