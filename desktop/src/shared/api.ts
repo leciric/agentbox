@@ -3006,6 +3006,12 @@ export interface LeadSession {
   createdAt: string;
   activeAt: string;
   closedAt?: string;
+  status?: string;
+  needsYou?: number;
+  questions?: number;
+  agentsWorking?: number;
+  seenAt?: string;
+  unread?: boolean;
   parent?: LeadSessionParent;
 }
 
@@ -3038,6 +3044,15 @@ export interface AgentSessionRequest {
 
 export interface LeadSessionsChange {
   project: string;
+}
+
+export interface LeadSessionStatusChange {
+  project: string;
+  sessions: LeadSession[];
+}
+
+export interface SeeLeadSessionRequest {
+  at?: string;
 }
 
 export interface ChatLine {
@@ -3964,6 +3979,11 @@ export const EventGroup = "group";
 export const EventChat = "chat";
 export const EventChatCache = "chat.cache";
 export const EventLeadSessions = "lead.sessions";
+export const EventLeadSessionStatus = "lead.session.status";
+export const SessionNeedsYou = "needsYou";
+export const SessionFailed = "failed";
+export const SessionWorking = "working";
+export const SessionIdle = "idle";
 export const EventQuestion = "question";
 export const EventSchedule = "schedule";
 export const EventAgentEvent = "agent.event";

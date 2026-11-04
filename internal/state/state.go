@@ -1550,6 +1550,16 @@ var migrations = []string{
 	// the parent can be deleted, and the child says so.
 	`ALTER TABLE lead_sessions ADD COLUMN parent TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE lead_sessions ADD COLUMN parent_item TEXT NOT NULL DEFAULT ''`,
+
+	// When each chat session was last on screen, in any window or on the
+	// phone, for its unread mark (sessionseen.go). Kept apart from
+	// lead_sessions: a Home session has no row there.
+	`CREATE TABLE lead_session_seen (
+		project TEXT NOT NULL,
+		session TEXT NOT NULL,
+		seen_at INTEGER NOT NULL,
+		PRIMARY KEY (project, session)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2298,6 +2308,7 @@ var projectOwned = []string{
 	"remote_agents",
 	"lead_sessions",
 	"lead_session_ids",
+	"lead_session_seen",
 	"agent_queue",
 	"agent_events",
 	"agent_reviews",

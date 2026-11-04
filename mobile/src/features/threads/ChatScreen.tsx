@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { ArrowRightLeft, Brain, ChevronRight, CircleAlert, Eye, Globe, Play, Search, ShieldCheck, ShieldX, SquarePen, SquareTerminal, Trash2, Wrench, type LucideIcon } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as T from '../../shared/api.ts';
 import { api, chatImagePath, isLead, mediaSource, sessionOf, sessionRef } from '../../connection/api.ts';
@@ -46,6 +46,11 @@ export function ChatScreen() {
   const [chosen, setChosen] = useState(() => (parts[1] && parts[1] !== T.LeadName ? sessionOf(parts.join('/')) : undefined));
   const list = sessions.data ?? [];
   const shown = list.find((s) => s.id === chosen) ?? [...list].sort((a, b) => b.activeAt.localeCompare(a.activeAt))[0];
+  // The session on screen is read, on the desktop too.
+  const shownLast = shown?.last?.at;
+  useEffect(() => {
+    if (lead && shown?.id) void api.seeLeadSession(project, shown.id).catch(() => undefined);
+  }, [lead, project, shown?.id, shownLast]);
   const openSession = useMutation({
     // Untitled, on the settings of the session shown (NewLeadSessionRequest.from).
     mutationFn: () => api.newLeadSession(project, { from: shown?.id }),

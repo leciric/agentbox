@@ -129,6 +129,13 @@ func (c *Client) ReopenLeadSession(ctx context.Context, project, session string)
 	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/reopen", nil, &out)
 }
 
+// SeeLeadSession says a session of a project's chat is on screen now, which
+// every window and the phone then show read.
+func (c *Client) SeeLeadSession(ctx context.Context, project, session string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/seen", SeeLeadSessionRequest{}, &out)
+}
+
 // DeleteLeadSession deletes a session with its conversation for good; its
 // agents are left to no session.
 func (c *Client) DeleteLeadSession(ctx context.Context, project, session string) error {

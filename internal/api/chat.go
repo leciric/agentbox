@@ -540,9 +540,57 @@ type LeadSession struct {
 	// ClosedAt is when a session in the chat's history was closed: it is read,
 	// reopened or continued from there, and starts no turn until reopened.
 	ClosedAt *time.Time `json:"closedAt,omitempty"`
+	// Status is where an open session stands, one of the Session* below:
+	// what its tab, its sidebar row and the phone's bar show, and what a
+	// notice is made from. "" for a closed one.
+	Status string `json:"status,omitempty"`
+	// NeedsYou is how many things wait on the user in it while Status is
+	// SessionNeedsYou: its own permission requests, the agents' it shows,
+	// and its agents' questions passed on to the user.
+	NeedsYou int `json:"needsYou,omitempty"`
+	// Questions is how many of NeedsYou are its agents' questions, which
+	// notify on their own (EventNotification); the rest are permission
+	// requests, which a notice about the session is for.
+	Questions int `json:"questions,omitempty"`
+	// AgentsWorking is how many of its agents are in a turn.
+	AgentsWorking int `json:"agentsWorking,omitempty"`
+	// SeenAt is when it was last on screen, in any window or on the phone
+	// (POST …/sessions/{session}/seen); nil when it never was.
+	SeenAt *time.Time `json:"seenAt,omitempty"`
+	// Unread says Last is newer than SeenAt, or, for one never seen, than
+	// CreatedAt: a new session isn't unread for being new.
+	Unread bool `json:"unread,omitempty"`
 	// Parent is the session it was forked or continued from, which the app
 	// links to; absent for a session opened afresh.
 	Parent *LeadSessionParent `json:"parent,omitempty"`
+}
+
+// Where a chat session stands (LeadSession.Status), the first that applies.
+const (
+	// SessionNeedsYou: a permission request or a question waits on the user.
+	SessionNeedsYou = "needsYou"
+	// SessionFailed: its chat stopped on an error, or its turn stalled.
+	SessionFailed = "failed"
+	// SessionWorking: its lead is in a turn, or starting one.
+	SessionWorking = "working"
+	// SessionIdle: none of these.
+	SessionIdle = "idle"
+)
+
+// EventLeadSessionStatus carries a LeadSessionStatusChange when any open
+// session's Status, NeedsYou, AgentsWorking, Unread or SeenAt changes.
+const EventLeadSessionStatus = "lead.session.status"
+
+// LeadSessionStatusChange is a project's open sessions as they are now,
+// which a client puts in place of the list it holds.
+type LeadSessionStatusChange struct {
+	Project  string        `json:"project"`
+	Sessions []LeadSession `json:"sessions"`
+}
+
+// SeeLeadSessionRequest says when the session was on screen; zero is now.
+type SeeLeadSessionRequest struct {
+	At *time.Time `json:"at,omitempty"`
 }
 
 // LeadSessionParent is where a session came from: the session, and for a

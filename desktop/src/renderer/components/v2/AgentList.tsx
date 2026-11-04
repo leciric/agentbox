@@ -30,7 +30,8 @@ import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
 import { useAgentCounts } from '../../lib/useAgentCounts';
 import { useAgentSession } from '../chat/sessionColor';
-import { pickSession, sessionColor, useChosenSession } from '../../lib/sessions';
+import { isUnread, pickSession, sessionColor, useChosenSession, useSeenAt } from '../../lib/sessions';
+import { SessionStatusMark } from '../chat/SessionStatusMark';
 import { cn, humanBytes, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { Skeleton, skeletonWidths } from '../ui/skeleton';
@@ -144,6 +145,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
   const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project) });
   const sessionList = sessions.data ?? [];
   const shown = pickSession(sessionList, useChosenSession(project));
+  const seenSessions = useSeenAt();
   const blocks = sessionList.length >= 2 && shown ? [shown, ...sessionList.filter((x) => x.id !== shown.id)] : [];
   const only = (own: (a: T.Agent) => boolean) => groups.map((g) => ({ group: g.group, rows: g.rows.filter((r) => own(r.agent)) })).filter((g) => g.rows.length > 0);
 
@@ -193,6 +195,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
               <div className="flex h-6 min-w-0 items-center gap-1.5 px-2 text-[12px] font-medium text-secondary">
                 <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: 'var(--session)' }} />
                 <span className="min-w-0 truncate">{sn.topic}</span>
+                <SessionStatusMark session={sn} unread={sn.id !== shown?.id && isUnread(sn, seenSessions[sn.ref])} />
                 <span className="tabular-nums font-normal text-faint">{rows.reduce((n, g) => n + g.rows.length, 0)}</span>
               </div>
               {renderGroups(rows)}
