@@ -298,7 +298,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     <Button size="sm" variant="secondary" onClick={() => next.current()} data-office-next>
       <ArrowRight className="size-3.5" />
       {t('office.next')}
-      {needs.length > 1 && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: ((roundAt() + 1) % needs.length) + 1, count: needs.length })}</span>}
+      {needs.length > 1 && needs.some((i) => i.ref === near) && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: needs.findIndex((i) => i.ref === near) + 1, count: needs.length })}</span>}
       <kbd className="ml-1 rounded bg-black/20 px-1 font-mono text-[10.5px]">N</kbd>
     </Button>
   );
@@ -599,9 +599,9 @@ function DeskCard({
           ))}
         </div>
       )}
-      {question && <div className="mt-2.5 rounded-lg bg-amber-400/10 px-2.5 py-2 text-[12.5px] text-amber-100 ring-1 ring-amber-400/30">{question}</div>}
-      {activity && <div className="mt-2.5 flex items-center gap-1.5 text-[12px] text-emerald-300"><span className="size-1.5 rounded-full bg-emerald-400" />{activity}</div>}
-      {last && <div className="mt-1.5 line-clamp-3 text-[12.5px] text-slate-300">{last}</div>}
+      {question && <div className="mt-2.5 line-clamp-4 rounded-lg bg-amber-400/10 px-2.5 py-2 text-[12.5px] text-amber-100 ring-1 ring-amber-400/30 [overflow-wrap:anywhere]">{question}</div>}
+      {activity && <div className="mt-2.5 flex min-w-0 items-center gap-1.5 text-[12px] text-emerald-300"><span className="size-1.5 shrink-0 rounded-full bg-emerald-400" /><span className="min-w-0 truncate">{activity}</span></div>}
+      {last && <div className="mt-1.5 line-clamp-3 text-[12.5px] text-slate-300 [overflow-wrap:anywhere]">{last}</div>}
       {pr && <div className={cn('mt-2 flex items-center gap-1.5 text-[12px]', prTone === 'bad' ? 'text-red-300' : 'text-slate-300')}><GitPullRequest className="size-3.5" />{pr}</div>}
       <div className="mt-3 flex flex-wrap gap-2">{children}</div>
     </div>

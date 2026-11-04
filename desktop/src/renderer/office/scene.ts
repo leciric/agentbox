@@ -1154,7 +1154,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       ap.set(sg ? sg.position.x : place.lead.x, 3.4, sg ? sg.position.z : place.rug.z0);
       const far = ap.distanceTo(camera.position) > 15;
       ap.project(camera);
-      const on = far && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
+      // Not under the top bar, whose 4.5rem it would hide beneath.
+      const on = far && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1 && ((1 - ap.y) / 2) * canvas.clientHeight > 100;
       chip.style.display = on ? 'flex' : 'none';
       if (on) {
         const cx = ((ap.x + 1) / 2) * canvas.clientWidth;
