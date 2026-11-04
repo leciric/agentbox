@@ -394,6 +394,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   };
 
   function build(input: SceneInput) {
+    variants = new Map();
+    variantTool.clear();
     for (const d of roomDispose) d();
     roomDispose = [];
     scene.remove(room);
@@ -559,6 +561,20 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   // and the monitor facing you, the robot, its beacon, bubble, name tag and
   // pull request flag. A lead's is the counter, built above: here it gets
   // the robot and the rest.
+  // variantOf is an agent's place among the agents of its tool, in the
+  // room's order: what picks its accent, so neighbours don't match.
+  let variants = new Map<string, number>();
+  function variantOf(ref: string, ai: string | undefined): number {
+    if (!variants.has(ref)) {
+      const tool = ai || 'claude';
+      const n = [...variants.keys()].filter((k) => variantTool.get(k) === tool).length;
+      variants.set(ref, n);
+      variantTool.set(ref, tool);
+    }
+    return variants.get(ref)!;
+  }
+  const variantTool = new Map<string, string>();
+
   function addDesk(input: SceneInput, ref: string, x: number, z: number, hue: number, lead: boolean) {
     const disp: (() => void)[] = [];
     const g = new THREE.Group();
@@ -651,7 +667,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
 
     // The agent, its tool's mascot, on its chair.
     const ai = lead ? 'claude' : input.model.areas.find((a) => a.project === ref.split('/')[0])?.desks.find((d) => d.id === ref)?.ai;
-    const fig = mascot(ref, ai, { lead });
+    const fig = mascot(ref, ai, { lead, variant: lead ? undefined : variantOf(ref, ai) });
     void hue;
     disp.push(() => fig.dispose());
     // Scaled up, so seated on the seat from below.
@@ -664,9 +680,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     disp.push(() => beaconMat.dispose());
     const beacon = mesh(geo.octa, beaconMat, fig.group.position.x, 1.95, cz, 1, 1, 1, false);
     g.add(beacon);
-    const bubble = sprite(128, 150, 0.5);
+    const bubble = sprite(128, 150, 0.4);
     disp.push(() => bubble.tex.dispose(), () => bubble.sprite.material.dispose());
-    bubble.sprite.position.set(fig.group.position.x + 0.3, 2.05, cz);
+    bubble.sprite.position.set(fig.group.position.x + 0.25, 2.05, cz + 0.1);
     g.add(bubble.sprite);
     const tag = sprite(640, 96, 1.9);
     disp.push(() => tag.tex.dispose(), () => tag.sprite.material.dispose());
@@ -1119,7 +1135,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x - 0.15, y: 1.05, z: d.z - 0.15, dist: 4.4, pitch: 0.52, yaw: -0.18 };
+      if (d) return { x: d.x - 0.1, y: 1.25, z: d.z - 0.2, dist: 4.5, pitch: 0.5, yaw: 0.28 };
     }
     return undefined;
   }
@@ -1278,7 +1294,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const lift = d.ref.endsWith('/lead') ? 0.3 : 0.12;
       b.position.y = 1.95 + lift + (motion ? Math.sin(t * 2 + b.position.x) * 0.05 : 0);
       const s = d.bubble.sprite;
-      s.position.y = 2.05 + lift + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.18 : 0);
+      s.position.y = 1.95 + lift * 0.5 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 : 0);
       if (d.ring.visible) {
         const p = motion ? (t * 0.8) % 1 : 0.5;
         d.ring.scale.setScalar(0.9 + p * 0.5);

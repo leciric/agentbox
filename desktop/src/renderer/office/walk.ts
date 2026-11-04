@@ -79,7 +79,9 @@ export function path(boxes: readonly Box[], room: Box, a: P, b: P): P[] {
   const start = nearestFree(cellOf(a));
   const goalCell = nearestFree(cellOf(b));
   if (start < 0 || goalCell < 0) return [];
-  const goal = free[cellOf(b)] && !blocked(boxes, room, b) ? b : centre(goalCell);
+  // A goal on free floor is reached exactly, even in a gap narrower than a
+  // cell; one inside something, at the free floor nearest it.
+  const goal = !blocked(boxes, room, b) ? b : centre(goalCell);
 
   const g = new Float32Array(cols * rows).fill(Infinity);
   const from = new Int32Array(cols * rows).fill(-1);

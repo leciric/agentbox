@@ -47,13 +47,19 @@ function rng(seed: number) {
 
 // The accents, bright against every mascot's own colours.
 export const ACCENTS = ['#ff5d8f', '#3dd6c4', '#ffd23f', '#7b6cff', '#5ec2ff', '#ff8a3d', '#9be564', '#f15bb5'];
-const ACCESSORIES = ['beanie', 'headphones', 'bow', 'cap', 'scarf', 'crown', 'sprout', 'beanie'] as const;
+const ACCESSORIES = ['beanie', 'headphones', 'bow', 'cap', 'scarf', 'crown', 'sprout', 'none'] as const;
 export type Accessory = (typeof ACCESSORIES)[number] | 'headset';
 
 // accentOf is an agent's accent, from its ref: a colour and a thing to wear.
-export function accentOf(ref: string): { color: string; accessory: Accessory } {
+// variant, when given, is the agent's place among those of its tool: then no
+// two of them in a row of eight wear the same thing in the same colour.
+export function accentOf(ref: string, variant?: number): { color: string; accessory: Accessory; tint: number } {
   const r = rng(hash(ref));
-  return { color: ACCENTS[Math.floor(r() * ACCENTS.length)], accessory: ACCESSORIES[Math.floor(r() * ACCESSORIES.length)] };
+  const a = r();
+  const c = r();
+  const tint = r() * 2 - 1;
+  if (variant === undefined) return { color: ACCENTS[Math.floor(c * ACCENTS.length)], accessory: ACCESSORIES[Math.floor(a * ACCESSORIES.length)], tint };
+  return { color: ACCENTS[(variant * 3) % ACCENTS.length], accessory: ACCESSORIES[variant % ACCESSORIES.length], tint };
 }
 
 // The toon ramp: four flat steps of light.
@@ -153,18 +159,20 @@ type Build = {
   hover: number;
 };
 
-type Kit = { m: <T extends THREE.Material>(x: T) => T };
+type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number };
 
 // clawd: Claude Code's critter, in voxels: a wide orange block, two tall
 // black eyes, nubs for arms, four little legs.
 function clawd(k: Kit): Build {
   const V = 0.07;
-  const orange = k.m(toon('#d97757'));
-  const shade = k.m(toon('#c4673f'));
+  // Clawd's orange, nudged per agent: warmer, paler, deeper.
+  const base = new THREE.Color('#d97757').offsetHSL(k.tint * 0.025, k.tint * 0.06, k.tint * 0.05);
+  const orange = k.m(toon(base));
+  const shade = k.m(toon(base.clone().offsetHSL(0, 0, -0.08)));
   const body = new THREE.Group();
   const cube = new THREE.BoxGeometry(V, V, V);
-  const W = 9;
-  const H = 6;
+  const W = 10;
+  const H = 5;
   const D = 5;
   const parts: THREE.Mesh[] = [];
   // Only the shell's voxels; a few a shade darker, the way pixel art is shaded.
@@ -178,7 +186,7 @@ function clawd(k: Kit): Build {
         parts.push(v);
       }
   // Legs: four columns under it, two voxels tall.
-  for (const lx of [-3, -1, 1, 3])
+  for (const lx of [-3.5, -1.5, 1.5, 3.5])
     for (const ly of [0, 1]) {
       const v = at(new THREE.Mesh(cube, shade), lx * V, 0.13 - (ly + 1) * V, (D / 2 - 0.5) * V);
       body.add(v);
@@ -192,7 +200,7 @@ function clawd(k: Kit): Build {
   ink(hullBox, 0.018);
   body.remove(hullBox);
   hullBox.geometry.dispose();
-  const face = at(new THREE.Group(), 0, 0.13 + 4 * V, (D / 2) * V + 0.002);
+  const face = at(new THREE.Group(), 0, 0.13 + 3 * V, (D / 2) * V + 0.002);
   body.add(face);
   const arms = [-1, 1].map((sx) => {
     const p = at(new THREE.Group(), sx * (W / 2) * V, 0.13 + 2 * V, 0);
@@ -202,7 +210,7 @@ function clawd(k: Kit): Build {
     body.add(p);
     return p;
   }) as [THREE.Group, THREE.Group];
-  return { body, face, arms, eyes: 'pixel', eyeGap: 0.11, eyeSize: V, height: 0.13 + H * V, hover: 0 };
+  return { body, face, arms, eyes: 'pixel', eyeGap: 0.12, eyeSize: V, height: 0.13 + H * V, hover: 0 };
 }
 
 // cube: Cursor's mark, a cube turned to show three faces, light, mid and dark.
@@ -464,12 +472,12 @@ const toneColors: Record<DeskTone, string> = { needs: '#fbbf24', error: '#f87171
 
 // mascot is an agent as its tool's character, seated, facing +z, its origin
 // on the floor under its seat.
-export function mascot(ref: string, ai: string | undefined, opts: { lead?: boolean } = {}): Figure {
+export function mascot(ref: string, ai: string | undefined, opts: { lead?: boolean; variant?: number } = {}): Figure {
   const tool = toolOf(ai);
-  const acc = accentOf(ref);
+  const acc = accentOf(ref, opts.variant);
   const r = rng(hash(`${ref}:life`));
   const mats: THREE.Material[] = [];
-  const kit: Kit = { m: (x) => (mats.push(x), x) };
+  const kit: Kit = { m: (x) => (mats.push(x), x), tint: acc.tint };
   const b = builders[tool](kit);
   wear(kit, b, opts.lead ? 'headset' : acc.accessory, acc.color);
   const eyes = makeEyes(kit, b);
@@ -524,9 +532,9 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
           T.rax = -1.25 + tap(0.5) * 0.35;
           T.laz = -0.15;
           T.raz = 0.15;
-          T.lean = 0.12;
+          T.lean = 0.03;
           T.squash = 1 - (tap(0) + tap(0.5)) * 0.025;
-          T.lookY = -0.6;
+          T.lookY = -0.4;
           T.yaw = Math.sin(t * 0.37) * 0.1;
           break;
         }
