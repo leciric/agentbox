@@ -739,8 +739,13 @@ if (home) {
 }
 if (params.get('homeAsk') === '1') {
   const { lead, home: homeItems } = homeAskChats();
-  for (const [ref, items] of [[`${PROJECT}/lead`, lead], ['_home/lead', homeItems]] as const) {
-    queryClient.setQueryData<T.ChatThread>(['chat', ref], (thread) => thread && { ...thread, items: [...thread.items, ...items] });
+  // The lead's session most recently active is the one asked: either the
+  // project opens on.
+  for (const [ref, items] of [[`${PROJECT}/lead`, lead], [`${PROJECT}/lead.prod-login-500s`, lead], ['_home/lead', homeItems]] as const) {
+    queryClient.setQueryData<T.ChatThread>(['chat', ref], (thread) => {
+      const base = thread ?? { ...leadChat(), agent: ref, session: { ...leadChat().session, state: 'ready' } };
+      return { ...base, items: [...base.items, ...items] };
+    });
   }
 }
 if (media === 'all') seedAllMedia();
