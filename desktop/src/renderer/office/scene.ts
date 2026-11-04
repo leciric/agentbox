@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { bake, hash, robot, walker as makeWalker, type Figure } from './figures.ts';
+import { bake, hash, mascot, walker as makeWalker, type Figure } from './figures.ts';
 import { COUNTER, DESK, SEAT, layout as layOut, nearest, spotOf, walkable, type Box, type Layout } from './layout.ts';
 import type { DeskTone, LeadTone, OfficeModel } from './model.ts';
 import { canvasTexture, drawBoard, type BoardRow, drawBubble, drawScreen, drawSign, drawTag, paintSky, planks, toneColor, type BoardScreen, type Screen } from './textures.ts';
@@ -339,7 +339,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   meRing.rotation.x = -Math.PI / 2;
   scene.add(meRing);
   const meTag = sprite(256, 80, 0.62);
-  meTag.sprite.position.y = 2.0;
+  meTag.sprite.position.y = 1.55;
   me.group.add(meTag.sprite);
   let youLabel = '';
   const pos: P = { x: 0, z: 0 };
@@ -648,13 +648,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     g.add(blot);
     for (const merged of bake(g, fixed)) merged.castShadow = merged.material !== mats.keys;
 
-    // The robot, on its chair.
-    const fig = robot(ref, new THREE.Color().setHSL(hue / 360, 0.55, 0.55), { lead });
+    // The agent, its tool's mascot, on its chair.
+    const ai = lead ? 'claude' : input.model.areas.find((a) => a.project === ref.split('/')[0])?.desks.find((d) => d.id === ref)?.ai;
+    const fig = mascot(ref, ai, { lead });
+    void hue;
     disp.push(() => fig.dispose());
-    fig.group.position.set(rx, 0, cz + 0.08);
-    // Bigger than life, sat down on the seat.
-    if (!lead) fig.group.scale.setScalar(1.12);
-    fig.group.position.y = lead ? -0.1 : -0.055;
+    fig.group.position.set(rx, lead ? -0.06 : 0, cz + 0.1);
     g.add(fig.group);
 
     // Its beacon and bubble above it, its name tag, and a ring and a beam of
@@ -740,7 +739,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const loud = tone === 'needs';
     d.ring.visible = loud || tone === 'error';
     (d.ring.material as THREE.MeshBasicMaterial).color.set(color);
-    d.beam.visible = loud;
+    d.beam.visible = false;
 
     const screen = input.screens.get(d.ref);
     const sKey = JSON.stringify(screen ?? null);
@@ -1284,7 +1283,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         (d.ring.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - p);
       }
       // The beams stand down while you read the board over them.
-      d.beam.visible = d.tone === 'needs' && !(focusRef === 'board' && cam.closeK > 0.2);
+      // No columns of light: the ring, the chip and the bubble say it.
+      d.beam.visible = false;
       if (d.beam.visible) (d.beam.material as THREE.MeshBasicMaterial).opacity = 0.045 + (motion ? Math.sin(t * 3) * 0.015 : 0);
       if (d.flag.visible && motion) d.flag.children[1].rotation.y = Math.sin(t * 3 + b.position.x) * 0.25;
       // The monitor you're at blinks its cursor.
@@ -1384,7 +1384,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const clash = (x: number, y: number) => placed.some((p) => inside(x) - w / 2 < p.x1 + 4 && inside(x) + w / 2 > p.x0 - 4 && Math.abs(p.y - y) < h);
       // Where to try, nearest first: above and below, then a little aside.
       const tries: [number, number][] = [];
-      for (const dy of [0, -h, h, -2 * h, 2 * h, -3 * h, 3 * h]) for (const dx of [0, w * 0.55, -w * 0.55]) tries.push([dx, dy]);
+      for (const dy of [0, -h, h, -2 * h, 2 * h]) for (const dx of [0, w * 0.4, -w * 0.4]) tries.push([dx, dy]);
       tries.sort((a, b) => Math.abs(a[1]) + Math.abs(a[0]) / 2 - (Math.abs(b[1]) + Math.abs(b[0]) / 2));
       let off = chipDy.get(m.el);
       // Kept while the camera moves, unless where it was is taken now.
@@ -1404,7 +1404,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         // else it stays where it belongs.
         // The nearest loud chip takes it.
         const near1 = chips.filter((c) => c.loud).sort((a, b) => Math.hypot((a.x0 + a.x1) / 2 - m.x, a.y - m.y) - Math.hypot((b.x0 + b.x1) / 2 - m.x, b.y - m.y))[0];
-        const into = (restack ? undefined : chipInto.get(m.el)) ?? (near1 && Math.hypot((near1.x0 + near1.x1) / 2 - m.x, near1.y - m.y) < 260 ? near1.el : undefined);
+        const into = (restack ? undefined : chipInto.get(m.el)) ?? (near1 && Math.hypot((near1.x0 + near1.x1) / 2 - m.x, near1.y - m.y) < 170 ? near1.el : undefined);
         if (into) {
           chipInto.set(m.el, into);
           m.el.style.display = 'none';

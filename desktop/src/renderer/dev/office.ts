@@ -29,7 +29,7 @@ export function seedOffice(queryClient: QueryClient): void {
   const agents: T.Agent[] = [
     make('storefront', 'agent-3', 'Checkout fails on Safari when the cart is empty', { chat: 'running' }, 90),
     make('storefront', 'agent-4', 'Add Apple Pay to checkout', { chat: 'ready', outcome: 'asking', outcomeNote: 'Should Apple Pay show for guests too, or only signed-in shoppers?' }, 80),
-    make('storefront', 'agent-5', 'Product page images load slowly', { chat: 'ready' }, 70),
+    make('storefront', 'agent-5', 'Product page images load slowly', { chat: 'ready', ai: 'gemini' }, 70),
     make('storefront', 'agent-6', 'Translate the emails into Portuguese', { chat: 'running', ai: 'codex' }, 60),
     make('quill', 'agent-8', 'Export notes as Markdown', { chat: 'ready' }, 50),
     make('quill', 'agent-9', 'Sync drafts across devices', { state: 'stopped', chat: undefined }, 40),
