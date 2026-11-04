@@ -349,7 +349,7 @@ export function Clip({
           }}
           onPause={() => setPlaying(false)}
           onError={() => setBroken(true)}
-          className="block size-full object-fill"
+          className="block size-full object-contain"
         />
       </Viewport>
       <div className="flex shrink-0 items-center gap-3 px-3 py-2 text-white">

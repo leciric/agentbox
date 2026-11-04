@@ -6,7 +6,8 @@
 // moves it to Reviewed, which the dev bridge remembers (reviewRequest), and
 // two agents are there already. &review=many has forty more waiting, for the
 // list to load on scroll. &review=pairs gives agent-15 before/after pairs to
-// compare (pairs() below).
+// compare (pairs() below). &review=shapes gives it media that isn't 16:9
+// (shapes() below), and agent-41, which ?app=agent-41 opens, the same.
 import type { QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
 import { HomeProject as T_HOME } from '../../shared/api';
@@ -195,6 +196,27 @@ function pairs(): T.MediaItem[] {
     shot('pr-counts-after', 'counts-project-dark-1920-after', 10 * min, countsScreen(true, 1920, 1080), 1920, 1080),
     rec('pr-walk-after', 'after', 8 * min),
     shot('pr-menu-after', 'menu at 1440', 6 * min, countsScreen(true, 1440, 900), 1440, 900, { pair: 'menu', side: 'after' }),
+  ];
+}
+
+// shapes is ?review=shapes: agent-15's media that isn't 16:9, a portrait phone
+// screenshot, a square, a 4:3, an ultra-wide, a pair whose halves differ in
+// shape (portrait before, 4:3 after) and one recorded with no size, which
+// the file's own gives once loaded.
+function shapes(agent = 'agent-15'): T.MediaItem[] {
+  const base = { agent: `${PROJECT}/${agent}`, agentName: agent, source: 'agent', size: 200_000, mime: 'image/png' };
+  const shot = (id: string, name: string, at: number, w: number, h: number, more: T.MediaMeta = {}, sized = true): T.MediaItem => {
+    setMediaFile(id, appScreen(w, h, (w + h) % 360, name, id.endsWith('after')));
+    return { ...base, id, kind: 'screenshot', name, file: `${name}.png`, meta: sized ? { width: w, height: h, ...more } : { ...more }, createdAt: ago(at) };
+  };
+  return [
+    shot('sh-portrait', 'portrait-390x844', 40 * min, 390, 844),
+    shot('sh-square', 'square-900x900', 36 * min, 900, 900),
+    shot('sh-43', 'four-three-1024x768', 32 * min, 1024, 768),
+    shot('sh-wide', 'ultra-wide-3440x1000', 28 * min, 3440, 1000),
+    shot('sh-nosize', 'no-size-800x1000', 24 * min, 800, 1000, {}, false),
+    shot('sh-mixed-before', 'mixed before (portrait)', 20 * min, 600, 1000, { pair: 'mixed', side: 'before' }),
+    shot('sh-mixed-after', 'mixed after (4:3)', 10 * min, 1024, 768, { pair: 'mixed', side: 'after' }),
   ];
 }
 
@@ -414,11 +436,11 @@ export function seedReview(queryClient: QueryClient): void {
   queryClient.setQueryData(['media', `${PROJECT}/agent-12`], media());
   const dark = document.documentElement.dataset.appearance !== 'light';
   setMediaFile('rv-ci', screen('release-workflow-green-mac-step', 20, dark));
-  queryClient.setQueryData(['media', `${PROJECT}/agent-41`], [
+  queryClient.setQueryData(['media', `${PROJECT}/agent-41`], new URLSearchParams(location.search).get('review') === 'shapes' ? shapes('agent-41') : [
     { id: 'rv-ci', agent: `${PROJECT}/agent-41`, agentName: 'agent-41', kind: 'screenshot', name: 'release-workflow', file: 'release-workflow.png', mime: 'image/png', size: 180_000, source: 'agent', meta: { width: 1280, height: 800 }, createdAt: ago(42 * min) },
   ] satisfies T.MediaItem[]);
   for (const agent of ['agent-98', 'agent-07', 'agent-03']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
-  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'pairs' ? pairs() : new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() :  evidence('agent-15', 'settings', 4 * min, 17, [
+  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'pairs' ? pairs() : new URLSearchParams(location.search).get('review') === 'shapes' ? shapes() : new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() :  evidence('agent-15', 'settings', 4 * min, 17, [
     [0.3, 'General at 1024×640', 'Nothing past the right edge; the search box keeps its width.'],
     [5.2, 'Models in pt-BR', 'The longest labels wrap to two lines instead of clipping.'],
     [9.5, 'Resources, light theme', ''],

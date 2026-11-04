@@ -2904,5 +2904,71 @@
     "query": "settings=phone&phones=long&theme=dark",
     "width": 420,
     "height": 2300
+  },
+  {
+    "id": "review-shapes-1",
+    "description": "Review of agent-15's non-16:9 media, item 1 of the strip (portrait, square, 4:3, ultra-wide, no size, mixed pair) — dark",
+    "query": "app=agent-41&review=shapes&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-review-open]",
+      "[data-review-media=\"1\"]"
+    ]
+  },
+  {
+    "id": "review-shapes-2",
+    "description": "Review of agent-15's non-16:9 media, item 2 of the strip (portrait, square, 4:3, ultra-wide, no size, mixed pair) — dark",
+    "query": "app=agent-41&review=shapes&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-review-open]",
+      "[data-review-media=\"2\"]"
+    ]
+  },
+  {
+    "id": "review-shapes-3",
+    "description": "Review of agent-15's non-16:9 media, item 3 of the strip (portrait, square, 4:3, ultra-wide, no size, mixed pair) — dark",
+    "query": "app=agent-41&review=shapes&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-review-open]",
+      "[data-review-media=\"3\"]"
+    ]
+  },
+  {
+    "id": "review-shapes-4",
+    "description": "Review of agent-15's non-16:9 media, item 4 of the strip (portrait, square, 4:3, ultra-wide, no size, mixed pair) — dark",
+    "query": "app=agent-41&review=shapes&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-review-open]",
+      "[data-review-media=\"4\"]"
+    ]
+  },
+  {
+    "id": "review-shapes-5",
+    "description": "Review of agent-15's non-16:9 media, item 5 of the strip (portrait, square, 4:3, ultra-wide, no size, mixed pair) — dark",
+    "query": "app=agent-41&review=shapes&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-review-open]",
+      "[data-review-media=\"5\"]"
+    ]
+  },
+  {
+    "id": "review-shapes-6",
+    "description": "Review of agent-15's non-16:9 media, item 6 of the strip (portrait, square, 4:3, ultra-wide, no size, mixed pair) — dark",
+    "query": "app=agent-41&review=shapes&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-review-open]",
+      "[data-review-media=\"6\"]"
+    ]
   }
 ]

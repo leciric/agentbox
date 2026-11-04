@@ -55,3 +55,15 @@ test('a pair goes side by side or one over the other, whichever shows it larger'
   assert.equal(arrange({ w: 600, h: 700 }, { w: 1920, h: 1080 }, 8).arrangement, 'rows');
   assert.equal(arrange({ w: 1400, h: 460 }, { w: 1920, h: 1080 }, 8).arrangement, 'columns');
 });
+
+test('a box and the fit inside it agree: no bars beside a portrait or above an ultra-wide', () => {
+  for (const room of [{ w: 1800, h: 800 }, { w: 860, h: 460 }, { w: 400, h: 900 }]) {
+    for (const pic of [{ w: 1080, h: 1920 }, { w: 390, h: 4000 }, { w: 1080, h: 6000 }, { w: 3440, h: 1000 }, { w: 6000, h: 300 }, { w: 900, h: 900 }, { w: 1024, h: 768 }]) {
+      const b = box(room, pic);
+      const v = fitView(b, pic);
+      const shown = { w: pic.w * v.scale, h: pic.h * v.scale };
+      // The picture fills its box along one axis, whether it fits or scrolls.
+      assert.ok(shown.w >= b.w - 1 || shown.h >= b.h - 1, `${JSON.stringify(room)} ${JSON.stringify(pic)} -> ${JSON.stringify(b)}`);
+    }
+  }
+});

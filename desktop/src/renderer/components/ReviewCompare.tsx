@@ -86,7 +86,7 @@ export function ReviewCompare({
   const room: Size = { w: measured.w, h: height ?? measured.h };
   const afterSize = usePicSize(pair.after);
   const beforeSize = usePicSize(pair.before);
-  const pic = afterSize ?? beforeSize ?? { w: 1280, h: 800 };
+  const pic = afterSize ?? beforeSize ?? fallbackPic;
   const overlay = highlight && difference.status === 'ready' ? difference.url : undefined;
   const label = (s: Side) => t(s === 'before' ? 'review.compare.before' : 'review.compare.after');
   const hint = t(mode === 'side' ? 'review.compare.sideHint' : mode === 'slider' ? 'review.compare.sliderHint' : 'review.compare.flipHint', { mod: modKey() });
@@ -208,38 +208,41 @@ export const modKey = () => (navigator.platform.toLowerCase().includes('mac') ? 
 // usePicSize is a screenshot's or a recording's size: as recorded, or as its
 // file says once it has loaded, for one recorded without.
 export function usePicSize(item: T.MediaItem): Size | undefined {
-  const known = sizeOf(item.meta);
-  const [loaded, setLoaded] = useState<Size>();
+  const [loaded, setLoaded] = useState<{ url: string; size: Size }>();
   const url = mediaUrl(item);
-  const recorded = known !== undefined;
   const { kind } = item;
+  // The file's own size wins once it has loaded (a recording's videoWidth and
+  // videoHeight are as it is shown, turned or not); what was recorded with it
+  // holds the room until then.
   useEffect(() => {
-    if (recorded) return;
     let live = true;
     if (kind === 'recording') {
       const v = document.createElement('video');
       v.preload = 'metadata';
-      v.onloadedmetadata = () => live && v.videoWidth && setLoaded({ w: v.videoWidth, h: v.videoHeight });
+      v.onloadedmetadata = () => live && v.videoWidth && setLoaded({ url, size: { w: v.videoWidth, h: v.videoHeight } });
       v.src = url;
     } else {
       const img = new Image();
-      img.onload = () => live && img.naturalWidth && setLoaded({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onload = () => live && img.naturalWidth && setLoaded({ url, size: { w: img.naturalWidth, h: img.naturalHeight } });
       img.src = url;
     }
     return () => {
       live = false;
     };
-  }, [url, recorded, kind]);
-  return known ?? loaded;
+  }, [url, kind]);
+  return (loaded?.url === url ? loaded.size : undefined) ?? sizeOf(item.meta);
 }
+
+// fallbackPic is the shape given to proof whose size isn't known yet.
+export const fallbackPic: Size = { w: 1280, h: 800 };
 
 // Picture is one half of a pair at its own size, the scale being its
 // viewport's, stretched to the other's if they differ; the highlight over it.
 function Picture({ item, overlay }: { item: T.MediaItem; overlay?: string }) {
   return (
     <div className="absolute inset-0" data-review-picture={item.id}>
-      <img src={mediaUrl(item)} alt={item.name} draggable={false} className="size-full object-fill" />
-      {overlay && <img src={overlay} alt="" draggable={false} className="pointer-events-none absolute inset-0 size-full object-fill [image-rendering:pixelated]" data-review-overlay />}
+      <img src={mediaUrl(item)} alt={item.name} draggable={false} className="size-full object-contain" />
+      {overlay && <img src={overlay} alt="" draggable={false} className="pointer-events-none absolute inset-0 size-full object-contain [image-rendering:pixelated]" data-review-overlay />}
     </div>
   );
 }
@@ -331,7 +334,7 @@ export function ReviewVideos({ ref, pair, dark, height, zooming }: { ref?: Ref<C
   const measured = useSize(space);
   const afterSize = usePicSize(pair.after);
   const beforeSize = usePicSize(pair.before);
-  const pic = afterSize ?? beforeSize ?? { w: 1280, h: 800 };
+  const pic = afterSize ?? beforeSize ?? fallbackPic;
   // Each half's bar is under its picture, so the pictures share what's left.
   const bars = (n: number) => n * barHeight;
   const roomFor = (rows: number): Size => ({ w: measured.w, h: (height ?? measured.h) - bars(rows) });

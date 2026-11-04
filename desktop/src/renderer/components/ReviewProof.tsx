@@ -9,7 +9,7 @@ import { chapterAt, gallery, readableName, shownKey, step, type Proof, type Show
 import { cn } from '../lib/utils';
 import { box, percent, zoomAt, zoomStep, type Size, type View } from '../lib/zoom';
 import { PageIcon } from './pages/PageThumb';
-import { modKey, pairStart, ReviewCompare, ReviewVideos, usePicSize, type CompareHandle, type PairState, type Zooming } from './ReviewCompare';
+import { modKey, pairStart, ReviewCompare, ReviewVideos, usePicSize, fallbackPic, type CompareHandle, type PairState, type Zooming } from './ReviewCompare';
 import { barHeight, Clip, clock, useSize, Viewport, ZoomControls, type ClipHandle } from './ReviewZoom';
 import { Button } from './ui/button';
 import { Kbd } from './ui/card';
@@ -317,7 +317,7 @@ const pageBox = (room: Size): CSSProperties => {
 
 // Screenshot is one picture; a click on it, inline, opens it large.
 function Screenshot({ media, room, zooming, onOpen }: { media: T.MediaItem; room?: Size; zooming: Zooming; onOpen: () => void }) {
-  const pic = usePicSize(media) ?? { w: 1280, h: 800 };
+  const pic = usePicSize(media) ?? fallbackPic;
   const size = room && box(room, pic);
   return (
     <Viewport
@@ -331,7 +331,7 @@ function Screenshot({ media, room, zooming, onOpen }: { media: T.MediaItem; room
       data-review-stage="screenshot"
       data-review-stage-size={`${pic.w}x${pic.h}`}
     >
-      <img src={mediaUrl(media)} alt={media.name} draggable={false} className="size-full object-fill" />
+      <img src={mediaUrl(media)} alt={media.name} draggable={false} className="size-full object-contain" />
     </Viewport>
   );
 }
@@ -341,7 +341,7 @@ function Screenshot({ media, room, zooming, onOpen }: { media: T.MediaItem; room
 // between the stage and the viewer.
 function Recording({ ref, take, room, zooming, chapter, time, onTime }: { ref: Ref<ClipHandle>; take: Take; room?: Size; zooming: Zooming; chapter: number; time: number; onTime: (seconds: number) => void }) {
   const t = useT();
-  const pic = usePicSize(take.media) ?? { w: 1280, h: 800 };
+  const pic = usePicSize(take.media) ?? fallbackPic;
   const size = room && box({ w: room.w, h: room.h - barHeight }, pic);
   const current = take.chapters[chapter];
   // Where it starts is where it was when this stage opened, not as it plays.
@@ -465,7 +465,7 @@ function Thumb({ shown }: { shown: Shown }) {
 // Still is a screenshot, or a recording's first frame under a play mark,
 // covering its card.
 function Still({ item }: { item: T.MediaItem }) {
-  const cover = 'absolute inset-0 size-full object-cover object-left-top';
+  const cover = 'absolute inset-0 size-full bg-black object-contain object-center';
   if (item.kind !== 'recording') return <img src={mediaUrl(item)} alt="" draggable={false} loading="lazy" className={cover} />;
   return (
     <>

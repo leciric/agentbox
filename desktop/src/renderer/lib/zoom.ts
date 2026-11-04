@@ -36,6 +36,13 @@ export function fitView(port: Size, pic: Size): { scale: number; cx: number; cy:
   return { scale: all, cx: pic.w / 2, cy: pic.h / 2 };
 }
 
+// isSliver is whether fitView scrolls the picture in this viewport instead of
+// fitting all of it; box asks it so the two never disagree.
+export const isSliver = (port: Size, pic: Size) => {
+  const all = Math.min(contain(port, pic), 1);
+  return (pic.w * all) / port.w < 1 / 3 || (pic.h * all) / port.h < 1 / 3;
+};
+
 // limits are the least and the most a picture zooms to in a viewport: out to
 // all of it (or its own pixels, if smaller), in to 8× its pixels.
 export function limits(port: Size, pic: Size): [number, number] {
@@ -101,9 +108,19 @@ export function box(room: Size, pic: Size): Size {
   const all = Math.min(contain(room, pic), 1);
   const w = pic.w * all;
   const h = pic.h * all;
-  if (w / room.w < 1 / 3 && h >= room.h - 1) return { w: Math.floor(Math.min(room.w, pic.w, Math.max(room.w / 3, 480))), h: Math.floor(room.h) };
-  if (h / room.h < 1 / 3 && w >= room.w - 1) return { w: Math.floor(room.w), h: Math.floor(Math.min(room.h, pic.h, Math.max(room.h / 3, 240))) };
-  return { w: Math.floor(w), h: Math.floor(h) };
+  const hug = { w: Math.floor(w), h: Math.floor(h) };
+  // The sliver box is used only if fitView, given that box as its viewport,
+  // also calls the picture a sliver; otherwise it would fit the picture inside
+  // it with bars down its sides (or along its top), which hugging avoids.
+  if (w / room.w < 1 / 3 && h >= room.h - 1) {
+    const tall = { w: Math.floor(Math.min(room.w, pic.w, Math.max(room.w / 3, 480))), h: Math.floor(room.h) };
+    return isSliver(tall, pic) ? tall : hug;
+  }
+  if (h / room.h < 1 / 3 && w >= room.w - 1) {
+    const wide = { w: Math.floor(room.w), h: Math.floor(Math.min(room.h, pic.h, Math.max(room.h / 3, 240))) };
+    return isSliver(wide, pic) ? wide : hug;
+  }
+  return hug;
 }
 
 // A pair's halves go side by side or one over the other, whichever shows them
