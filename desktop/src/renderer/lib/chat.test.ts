@@ -23,6 +23,8 @@ import {
   isWork,
   retryLoad,
   retryLoadDelay,
+  chatReadyRetry,
+  retryChatReady,
   loadErrorMessage,
   fetchThread,
   forgetThread,
@@ -780,4 +782,15 @@ test('the first message of a session that reuses a deleted one\'s id is in the c
     timelineRows(shown, new Set()).filter((r) => r.type === 'user' || r.type === 'assistant').map((r) => r.key),
     ['u1', 'a1'],
   );
+});
+
+test('a project chat waits for a project that is not there yet, and for the connection, but not for other errors', () => {
+  assert.equal(retryChatReady(0, { status: 404 }), true);
+  assert.equal(retryChatReady(0, { status: 503 }), true);
+  assert.equal(retryChatReady(5, { status: 0 }), true);
+  assert.equal(retryChatReady(6, { status: 404 }), false);
+  assert.equal(retryChatReady(0, { status: 400 }), false);
+  const interval = chatReadyRetry.refetchInterval;
+  assert.equal(interval({ state: { status: 'error' } }), 5_000);
+  assert.equal(interval({ state: { status: 'success' } }), false);
 });

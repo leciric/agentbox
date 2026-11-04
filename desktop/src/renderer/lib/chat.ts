@@ -21,6 +21,26 @@ export function retryLoad(failures: number, err: unknown): boolean {
 export const retryLoadDelay = (failures: number) => Math.min(500 * 2 ** failures, 4000);
 export const chatLoadRetry = { retry: retryLoad, retryDelay: retryLoadDelay };
 
+// A project's chat — its sessions, and the session shown — can be asked about
+// before the daemon has it ready: the app opens a project the moment adding it
+// answers, while its other queries (the sidebar's, the panel's) are already on
+// their way, and a project the daemon doesn't have yet is a 404. That isn't
+// the chat being unavailable, only not there yet, so a not-found is waited
+// for like a dropped connection, a little longer; and what still fails is
+// asked again every few seconds rather than kept until the project is opened
+// again, which was the only way out of "The chat is unavailable.".
+const readyAttempts = 6;
+export function retryChatReady(failures: number, err: unknown): boolean {
+  const status = (err as { status?: number } | undefined)?.status;
+  return failures < readyAttempts && (status === 404 || status === 503 || status === 0);
+}
+export const chatReadyRetryEvery = 5_000;
+export const chatReadyRetry = {
+  retry: retryChatReady,
+  retryDelay: retryLoadDelay,
+  refetchInterval: (query: { state: { status: string } }) => (query.state.status === 'error' ? chatReadyRetryEvery : false),
+} as const;
+
 // loadErrorMessage is what a chat that couldn't load says: a readable line for
 // a daemon that couldn't be reached, instead of the errno it came with.
 export function loadErrorMessage(err: unknown, fallback: string): string {
