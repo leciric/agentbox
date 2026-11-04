@@ -649,9 +649,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       d.bubble.tex.needsUpdate = true;
     }
     // Its marker, while it needs you.
+    // Every desk has a label over the canvas, crisp at any distance; the ones
+    // that need you are loud, and the only ones shown from afar.
     const loudNow = tone === 'needs' || tone === 'error';
     let marker = markers.get(d.ref);
-    if (loudNow) {
+    {
       if (!marker) {
         // A chip: a button that walks you there, and beside it a "+n" button
         // for the chips folded into it, which opens the list of everyone.
@@ -698,10 +700,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       walkBtn.style.border = `1px solid ${color}88`;
       (walkBtn.children[1] as HTMLElement).textContent = title;
       walkBtn.setAttribute('aria-label', opts.markerLabel(title));
+      marker.dataset.loud = loudNow ? '1' : '';
+      walkBtn.style.background = loudNow ? 'rgba(10,14,24,.9)' : 'rgba(10,14,24,.62)';
+      walkBtn.style.fontWeight = loudNow ? '600' : '500';
+      walkBtn.style.color = loudNow ? '#fff' : '#e2e8f0';
+      if (!loudNow) walkBtn.style.border = '1px solid rgba(255,255,255,.08)';
       (marker.children[1] as HTMLElement).setAttribute('aria-label', opts.moreLabel);
-    } else if (marker) {
-      marker.remove();
-      markers.delete(d.ref);
     }
     const pr = desk?.pr;
     d.flag.visible = !!pr && pr.state !== 'closed';
@@ -1198,35 +1202,36 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // You fade while you look at a monitor, so you never stand in front of it.
     // At a counter you'd stand in front of its monitor: you all but fade. At
     // a desk you stand aside, half seen through, so you hide nothing.
-    me.fade(1 - cam.closeK * 0.82);
+    me.fade(1 - cam.closeK * (focusRef?.endsWith('/lead') ? 0.82 : 0.4));
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
     const tp = new THREE.Vector3();
-    const shown: { el: HTMLDivElement; x: number; y: number }[] = [];
+    const shown: { el: HTMLDivElement; x: number; y: number; loud: boolean }[] = [];
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
       tag.getWorldPosition(tp);
       const dist = tp.distanceTo(camera.position);
       const marker = markers.get(d.ref);
-      // From afar, a marker stands in for the tag.
-      const far = dist > 15;
+      // The labels: the loud ones from anywhere, the rest only near enough
+      // to mean something; none for the desk you're at (its card says it)
+      // or one stepped aside for the close-up.
+      const loud = marker?.dataset.loud === '1';
+      tag.visible = false;
       if (marker) {
         tp.project(camera);
-        const onScreen = far && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || (dist < 16 && cam.closeK < 0.3));
+        const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         marker.style.display = onScreen ? 'flex' : 'none';
-        if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight });
+        if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight, loud });
       }
-      tag.visible = !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && !(marker && far) && dist < 18 && !(cam.closeK > 0.3 && d.root.position.distanceTo(camera.position) < 4.2) && d.root.visible;
-      const w = Math.min(2.1, Math.max(0.8, dist * 0.085));
-      tag.scale.set(w, (w * 96) / 640, 1);
     }
     // The desks' chips stack clear of the labels and of each other, the
     // nearest (lowest on screen) where it belongs. Their stacking is worked
     // out only while the camera is still, and kept while it moves, so a chip
     // never jumps or goes as you reach for it; one with no room stays where
     // it is rather than vanish.
-    shown.sort((a, b) => b.y - a.y);
+    shown.sort((a, b) => Number(b.loud) - Number(a.loud) || b.y - a.y);
     const h = 24;
     const folded = new Map<HTMLElement, number>();
     const placed: { x0: number; x1: number; y: number }[] = taken.flatMap((r) => {
@@ -1239,7 +1244,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // A chip with no room of its own folds into the one in its way, as a
     // "+n" on it: N, or the list, still gets you to each.
     const restack = chipsShown;
-    const chips: { x0: number; x1: number; y: number; el: HTMLDivElement }[] = [];
+    const chips: { x0: number; x1: number; y: number; el: HTMLDivElement; loud: boolean }[] = [];
     for (const m of shown) {
       // With room for a "+n" it may get, so it doesn't grow into a neighbour.
       const moreShown = (m.el.children[1] as HTMLElement).style.display !== 'none';
@@ -1259,10 +1264,15 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         off = tries.find(([dx, dy]) => !clash(m.x + dx, m.y + dy)) ?? null;
         chipDy.set(m.el, off);
       }
+      if (!off && !m.loud) {
+        // A quiet label with no room simply steps out of the way.
+        m.el.style.display = 'none';
+        continue;
+      }
       if (!off) {
         // No room: folded into the chip in its way, if there's one nearby;
         // else it stays where it belongs.
-        const into = (restack ? undefined : chipInto.get(m.el)) ?? chips.find((c) => m.x - w / 2 < c.x1 + 4 && m.x + w / 2 > c.x0 - 4 && Math.abs(c.y - m.y) < 4 * h)?.el;
+        const into = (restack ? undefined : chipInto.get(m.el)) ?? chips.find((c) => c.loud && m.x - w / 2 < c.x1 + 4 && m.x + w / 2 > c.x0 - 4 && Math.abs(c.y - m.y) < 4 * h)?.el;
         if (into) {
           chipInto.set(m.el, into);
           m.el.style.display = 'none';
@@ -1274,7 +1284,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const x = inside(m.x + off[0]);
       const y = m.y + off[1];
       placed.push({ x0: x - w / 2, x1: x + w / 2, y });
-      chips.push({ x0: x - w / 2, x1: x + w / 2, y, el: m.el });
+      chips.push({ x0: x - w / 2, x1: x + w / 2, y, el: m.el, loud: m.loud });
       m.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -130%)`;
     }
     for (const c of chips) {
