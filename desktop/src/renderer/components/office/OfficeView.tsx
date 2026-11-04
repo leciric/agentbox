@@ -331,7 +331,14 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const hoverText = hoverTitle ? (hover === near && hover !== 'board' ? t('office.clickToOpen', { title: hoverTitle }) : hover === near ? undefined : t('office.clickToWalk', { title: hoverTitle })) : undefined;
 
   return (
-    <div className="relative h-full min-h-0 w-full overflow-hidden bg-[#1c2333]" data-office>
+    <div
+      className="relative h-full min-h-0 w-full overflow-hidden bg-[#1c2333]"
+      data-office
+      // After a click on a button over the room, the keys walk again.
+      onClickCapture={(e) => {
+        if ((e.target as HTMLElement).closest('button')) requestAnimationFrame(() => host.current?.querySelector<HTMLCanvasElement>('canvas')?.focus({ preventScroll: true }));
+      }}
+    >
       <div ref={host} className="absolute inset-0" aria-label={t('office.canvas')} role="application" onPointerDownCapture={() => listShown && setListChoice(false)} />
 
       {(status === 'loading' || (status === 'ready' && !office.loaded)) && (
@@ -458,7 +465,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
         </DeskCard>
       )}
       {near === 'board' && (
-        <div className="pointer-events-auto absolute bottom-16 right-3 top-16 flex w-[min(22rem,calc(100%-1.5rem))] flex-col gap-2 overflow-y-auto" data-office-board>
+        <div className="pointer-events-auto absolute bottom-16 right-3 top-16 flex w-[min(18rem,calc(100%-1.5rem))] flex-col gap-2 overflow-y-auto" data-office-board>
           <ListCard title={t('office.board.needs')} accent="text-amber-300" list="needs">
             {needs.length === 0 && <Empty>{t('office.board.needsEmpty')}</Empty>}
             {needs.map((i) => (

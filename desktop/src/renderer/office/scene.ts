@@ -381,7 +381,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   // Input.
   const keys = new Set<string>();
   let hover: string | undefined;
-  let pointer: { x: number; y: number; id: number; dragged: boolean; button: number } | undefined;
+  let pointer: { x: number; y: number; id: number; dragged: boolean; button: number; aim: { ref?: string; row?: string; floor?: P } } | undefined;
   const ndc = new THREE.Vector2();
   let hoverDirty = false;
   const ray = new THREE.Raycaster();
@@ -979,6 +979,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let held = false;
   function overview() {
     zoomTo(0);
+    zoomFocus = undefined;
     cam.yaw = 0;
     held = true;
     poke();
@@ -1127,12 +1128,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       // board in the part of the view the board's list (on the right) leaves.
       const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
       const bh = Math.min(2.6, lay.board.w * 0.52);
-      const free = Math.max(0.42, 1 - 410 / Math.max(1, canvas.clientWidth));
+      const free = Math.max(0.5, 1 - 320 / Math.max(1, canvas.clientWidth));
       const pitch = 0.4;
       // Wide enough for you, standing at its left end, too.
-      const dist = Math.max((lay.board.w + 1.6) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.7 * 2 * tan));
+      const dist = Math.max((lay.board.w + 0.5) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.7 * 2 * tan));
       const vw = 2 * dist * tan * aspect;
-      return { x: lay.board.x - 0.55 + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
+      return { x: lay.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x - 0.4, y: 1.35, z: a.lead.z - 0.2, dist: 4.8, pitch: 0.45, yaw: 0.25 };
@@ -1352,7 +1353,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // At a counter you'd stand in front of its monitor: you all but fade. At
     // a desk you stand aside, half seen through, so you hide nothing.
     // At a desk, half seen through: there, but never in the way.
-    me.fade(1 - cam.closeK * (focusRef?.endsWith('/lead') ? 0.82 : 0.45));
+    me.fade(1 - cam.closeK * (focusRef?.endsWith('/lead') ? 0.82 : 0.7));
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1526,7 +1527,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
 
   const onPointerDown = (e: PointerEvent) => {
     canvas.focus({ preventScroll: true });
-    pointer = { x: e.clientX, y: e.clientY, id: e.pointerId, dragged: false, button: e.button };
+    // What's under the pointer as it's pressed is what the click is for, even
+    // if the camera moves on before it's released.
+    pointer = { x: e.clientX, y: e.clientY, id: e.pointerId, dragged: false, button: e.button, aim: pick(e.clientX, e.clientY) };
     canvas.setPointerCapture(e.pointerId);
     poke();
   };
@@ -1573,7 +1576,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     pointer = undefined;
     canvas.style.cursor = hover ? 'pointer' : 'default';
     if (p.dragged || p.button !== 0) return;
-    const { ref, row, floor } = pick(e.clientX, e.clientY);
+    const { ref, row, floor } = p.aim;
     // A row on the board opens what it's about, from wherever you see it.
     if (row && (near === 'board' || !row.startsWith('more:'))) opts.onBoardRow(row);
     else if (ref) {

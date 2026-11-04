@@ -339,7 +339,8 @@ function cloud(k: Kit): Build {
   // The prompt, below the eyes.
   const glyph = k.m(new THREE.MeshBasicMaterial({ color: '#1d2433' }));
   // Bold, on a little dark screen, so it reads from across the room.
-  const prompt = at(new THREE.Group(), 0, -0.08, 0.02);
+  const prompt = at(new THREE.Group(), 0, -0.085, 0.02);
+  prompt.scale.setScalar(1.45);
   prompt.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.15, 0.075, 0.012, 2, 0.015), glyph), 0, 0, -0.004));
   const fg = k.m(new THREE.MeshBasicMaterial({ color: '#7ef0a8' }));
   for (const s of [1, -1]) {
