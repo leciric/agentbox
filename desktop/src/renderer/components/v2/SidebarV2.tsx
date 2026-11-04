@@ -105,6 +105,9 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // The prototype navigation's verbs (lib/uiVerbs.ts) are rows here, each
   // with the count that would make you go there.
   const on = verbOf(view);
+  // What the Office's "need you" counts: asks, failures and leads waiting on
+  // a permission (office/model.ts's board).
+  const officeNeeds = counts.all.needs + counts.all.error + [...counts.leads.values()].filter((c) => c === 'waiting').length;
   const badges = {
     ask: counts.all.needs > 0 ? { count: counts.all.needs, tone: 'bg-amber-400 text-black' } : undefined,
     watch: counts.all.working > 0 ? { count: counts.all.working, tone: 'bg-sky-400/90 text-black' } : undefined,
@@ -588,13 +591,13 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           <div className={cn('mb-1 grid gap-1', office ? 'grid-cols-4' : 'grid-cols-3')} data-v2-verbs>
             <VerbTile verb="watch" icon={MonitorPlay} label={t('verbs.watch')} hint={t('verbs.watch.hint')} active={on === 'watch'} badge={badges.watch} onClick={() => onSelect({ kind: 'watch' })} />
             <VerbTile verb="review" icon={ClipboardCheck} label={t('verbs.review')} hint={t('verbs.review.hint')} active={on === 'review'} badge={badges.review} onClick={() => onSelect({ kind: 'review' })} />
-            {office && <VerbTile verb="office" icon={Armchair} label={t('office.title')} hint={t('office.hint.nav')} active={view.kind === 'office'} onClick={() => onSelect({ kind: 'office' })} />}
+            {office && <VerbTile verb="office" icon={Armchair} label={t('office.title')} hint={t('office.hint.nav')} active={view.kind === 'office'} badge={officeNeeds > 0 ? { count: officeNeeds, tone: 'bg-amber-400 text-black' } : undefined} onClick={() => onSelect({ kind: 'office' })} />}
             <VerbTile verb="new-task" icon={SquarePen} label={t('v2.sidebar.newTask')} hint={`${t('v2.sidebar.newTask')} (${shortcut('N')})`} onClick={openNewTask} />
           </div>
         ) : (
           <>
             <NewTaskRow />
-            {office && <OfficeRow active={view.kind === 'office'} needs={counts.all.needs} onClick={() => onSelect({ kind: 'office' })} />}
+            {office && <OfficeRow active={view.kind === 'office'} needs={officeNeeds} onClick={() => onSelect({ kind: 'office' })} />}
           </>
         )}
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />

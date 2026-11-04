@@ -714,14 +714,19 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   }
 
   function started() {
+    held = false;
     if (moved) return;
     moved = true;
     opts.onMoved();
   }
 
   let followTarget = 0;
+  // overview stands back over the whole room, and stays there, close-up and
+  // all, until you move again.
+  let held = false;
   function overview() {
     followTarget = 0;
+    held = true;
     poke();
   }
 
@@ -931,7 +936,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     if (Math.abs(followTarget - cam.followK) < 1e-3) cam.followK = followTarget;
     // Close up at what you're at, and gliding into it over a walk's last
     // few metres, so you arrive in the close-up rather than settle into it.
-    let closeTarget = near && stillFor > 0.15 ? 1 : 0;
+    let closeTarget = near && stillFor > 0.15 && !held ? 1 : 0;
     if (!closeTarget && routeGoal && route.length) {
       const rem = Math.hypot(route[0].x - pos.x, route[0].z - pos.z) + pathLengthFrom(route);
       if (rem < 3.5) closeTarget = 1 - rem / 3.5;

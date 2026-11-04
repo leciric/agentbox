@@ -250,12 +250,12 @@
 //                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
 //   &verbs=1                with ?app=, the prototype navigation, Ask, Watch and Review
-//   ?app=office             the Office (components/office), with Storefront's and
-//                           Quill's agents too (dev/office.ts); &office=1 with
-//                           any ?app= puts it in the sidebar
 //                           (lib/uiVerbs.ts); ?app=watch opens Watch, ?app=watch:agent-41
 //                           that agent's machine, ?app=review Review, ?app=review:pulls
 //                           and ?app=review:proof its other tabs
+//   ?app=office             the Office (components/office), with Storefront's and
+//                           Quill's agents too (dev/office.ts); &office=1 with
+//                           any ?app= puts it, and them, in the sidebar
 //   &tour=welcome           with ?app=, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
@@ -767,7 +767,7 @@ if (appView) {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
   // ?app=office: more projects' agents, at their desks (dev/office.ts).
-  if (appView === 'office') seedOffice(queryClient);
+  if (appView === 'office' || params.get('office') === '1') seedOffice(queryClient);
   // &ios=…, after seedV2's projects: the project is an iOS one.
   if (iosScenario) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, ios: true } : p)));
   setGroupIdle(params.get('groupidle') === '1');
