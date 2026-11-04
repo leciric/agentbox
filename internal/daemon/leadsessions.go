@@ -298,6 +298,11 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 		}
 		out = append(out, row)
 	}
+	if !closed {
+		if err := s.standSessions(ctx, project, sessions, activity, agents, out); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
 }
 

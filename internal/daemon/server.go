@@ -297,6 +297,8 @@ type Server struct {
 	// leadPermissions carries agents' permission requests to their leads'
 	// chats (leadpermissions.go).
 	leadPermissions leadPermissions
+	// sessionStatus pushes where each chat session stands (sessionstatus.go).
+	sessionStatus sessionStatusWatch
 	baseSyncErrs    map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image           imageWork         // what the daemon is doing to the base image (imagetools.go)
 	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)
@@ -512,6 +514,7 @@ func New(cfg Config) (*Server, error) {
 	s.prTell, s.prLead = s.prTellAgent, s.tellSession
 	s.approve = s.approveInChat
 	s.homeHost.OnChange = s.homeHostChanged
+	s.events.observe = s.observeSessionStatus
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,
@@ -958,6 +961,7 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/projects/{project}/sessions/{session}", s.deleteSession)
 	h("POST /v1/projects/{project}/sessions/{session}/close", s.closeSession)
 	h("POST /v1/projects/{project}/sessions/{session}/reopen", s.reopenSession)
+	h("POST /v1/projects/{project}/sessions/{session}/seen", s.seeSession)
 	sessionRoute("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
 	sessionRoute("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
 	sessionRoute("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
