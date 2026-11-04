@@ -1135,7 +1135,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       return { x: lay.board.x - 0.55 + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
-      if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
+      if (ref === `${a.project}/lead`) return { x: a.lead.x - 0.4, y: 1.35, z: a.lead.z - 0.2, dist: 4.8, pitch: 0.45, yaw: 0.25 };
       const d = a.desks.find((x) => x.id === ref);
       if (d) return { x: d.x - 0.1, y: 1.25, z: d.z - 0.2, dist: 4.5, pitch: 0.5, yaw: 0.28 };
     }
@@ -1428,7 +1428,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         // else it stays where it belongs.
         // The nearest loud chip takes it.
         const near1 = chips.filter((c) => c.loud).sort((a, b) => Math.hypot((a.x0 + a.x1) / 2 - m.x, a.y - m.y) - Math.hypot((b.x0 + b.x1) / 2 - m.x, b.y - m.y))[0];
-        const into = (restack ? undefined : chipInto.get(m.el)) ?? (near1 && Math.hypot((near1.x0 + near1.x1) / 2 - m.x, near1.y - m.y) < 170 ? near1.el : undefined);
+        const into = (restack ? undefined : chipInto.get(m.el)) ?? near1?.el;
         if (into) {
           chipInto.set(m.el, into);
           m.el.style.display = 'none';
@@ -1536,7 +1536,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       if (!pointer.dragged && Math.hypot(dx, e.clientY - pointer.y) > 5) pointer.dragged = true;
       if (pointer.dragged) {
         // Dragging turns the room, within limits.
-        cam.yaw = Math.max(-1.0, Math.min(1.0, cam.yaw - e.movementX * 0.0035));
+        cam.yaw = Math.max(-0.6, Math.min(0.6, cam.yaw - e.movementX * 0.0035));
         canvas.style.cursor = 'grabbing';
         poke();
         return;

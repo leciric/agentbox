@@ -127,7 +127,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
       const lz = z + depth - LEAD_DEPTH / 2 - 0.1;
       obstacles.push(box(cx, lz, COUNTER.w, COUNTER.d));
       obstacles.push(box(cx, lz - 0.75, 0.7, 0.6));
-      areas[i] = { project: a.project, rug, lead: { x: cx, z: lz, spot: { x: cx - 0.3, z: lz + 1.25, face: Math.PI } }, desks, sign: { x: cx, z } };
+      areas[i] = { project: a.project, rug, lead: { x: cx, z: lz, spot: { x: cx - 1.65, z: lz + 0.55, face: Math.PI / 2 } }, desks, sign: { x: cx, z } };
       // The sign's posts, at the rug's back edge.
       obstacles.push(box(cx - 1.35, z + 0.13, 0.12, 0.12), box(cx + 1.35, z + 0.13, 0.12, 0.12));
       plants.push({ x: rug.x0 + 0.35, z: rug.z1 - 0.35 }, { x: rug.x1 - 0.35, z: rug.z1 - 0.35 });

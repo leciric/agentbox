@@ -334,12 +334,12 @@ function cloud(k: Kit): Build {
   const puff = new THREE.Mesh(merged, white);
   body.add(puff);
   ink(puff, 0.016);
-  const face = at(new THREE.Group(), 0, 0.43, 0.2);
+  const face = at(new THREE.Group(), 0, 0.5, 0.19);
   body.add(face);
   // The prompt, below the eyes.
   const glyph = k.m(new THREE.MeshBasicMaterial({ color: '#1d2433' }));
   // Bold, on a little dark screen, so it reads from across the room.
-  const prompt = at(new THREE.Group(), 0, -0.085, 0.01);
+  const prompt = at(new THREE.Group(), 0, -0.08, 0.02);
   prompt.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.15, 0.075, 0.012, 2, 0.015), glyph), 0, 0, -0.004));
   const fg = k.m(new THREE.MeshBasicMaterial({ color: '#7ef0a8' }));
   for (const s of [1, -1]) {
@@ -496,6 +496,8 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
   const onTop = acc.accessory === 'beanie' || acc.accessory === 'cap' || acc.accessory === 'crown' || acc.accessory === 'sprout' || acc.accessory === 'headphones';
   const worn: Accessory = opts.lead ? 'headset' : (tool === 'gemini' || tool === 'codex') && onTop ? (hash(ref) % 2 ? 'bow' : 'scarf') : acc.accessory;
   wear(kit, b, worn, acc.color);
+  // Arms a size up, so a wave or the typing reads from across the room.
+  for (const arm of b.arms) arm.scale.setScalar(1.5);
   const eyes = makeEyes(kit, b);
   // A blush, for when it's pleased or waving.
   const cheekM = kit.m(new THREE.MeshBasicMaterial({ color: '#ff7fa8', transparent: true, opacity: 0.6, depthWrite: false }));
@@ -544,8 +546,8 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
           // Typing: arms forward, tapping in turn, a little squash with each
           // tap, eyes down at the keys.
           const tap = (o: number) => bump(((t * 3.4 + o) % 1) * 1.7);
-          T.lax = -1.25 + tap(0) * 0.35;
-          T.rax = -1.25 + tap(0.5) * 0.35;
+          T.lax = -1.05 + tap(0) * 0.5;
+          T.rax = -1.05 + tap(0.5) * 0.5;
           T.laz = -0.15;
           T.raz = 0.15;
           T.lean = 0.03;
@@ -557,12 +559,12 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
         case 'needs': {
           // Waving at you, hopping: stretched in the air, squashed landing.
           const hop = Math.abs(Math.sin(t * 3.6));
-          T.raz = 2.5 + Math.sin(t * 8) * 0.45;
+          T.raz = 2.6 + Math.sin(t * 8) * 0.6;
           T.rax = -0.2;
           T.laz = -0.5;
           T.lift = hop * 0.06;
           T.squash = 1 + (hop - 0.35) * 0.12;
-          T.roll = Math.sin(t * 8) * 0.05;
+          T.roll = Math.sin(t * 4) * 0.08;
           T.eyeOpen = 1.15;
           break;
         }
@@ -670,8 +672,9 @@ export function walker(): Walker {
   const shoe = toon('#ffffff');
   const inkM = new THREE.MeshBasicMaterial({ color: '#16131f' });
   const white = new THREE.MeshBasicMaterial({ color: '#ffffff' });
+  const irisM = new THREE.MeshBasicMaterial({ color: '#7a4a2a' });
   const blush = new THREE.MeshBasicMaterial({ color: '#ff8fa3', transparent: true, opacity: 0.55, depthWrite: false });
-  const mats: THREE.Material[] = [hoodie, hood, pants, skin, hair, shoe, inkM, white];
+  const mats: THREE.Material[] = [hoodie, hood, pants, skin, hair, shoe, inkM, white, irisM];
   const lined: [THREE.Mesh, number][] = [];
   const line = (m: THREE.Mesh, th = 0.014) => (lined.push([m, th]), m);
 
@@ -717,12 +720,15 @@ export function walker(): Walker {
     e.rotation.y = sx * 0.2;
     const sclera = new THREE.Mesh(new THREE.CircleGeometry(0.062, 24), white);
     sclera.scale.y = 1.25;
-    const rim = new THREE.Mesh(new THREE.RingGeometry(0.062, 0.072, 24), inkM);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(0.062, 0.068, 24), inkM);
     rim.scale.y = 1.25;
-    const pupil = at(new THREE.Group(), 0, -0.005, 0.002);
-    const iris = new THREE.Mesh(new THREE.CircleGeometry(0.042, 20), inkM);
+    const pupil = at(new THREE.Group(), 0, -0.006, 0.002);
+    // A warm brown iris, a dark pupil, two catchlights: eyes, not goggles.
+    const iris = new THREE.Mesh(new THREE.CircleGeometry(0.05, 22), irisM);
     iris.scale.y = 1.2;
-    pupil.add(iris, at(new THREE.Mesh(new THREE.CircleGeometry(0.014, 10), white), 0.014, 0.02, 0.001), at(new THREE.Mesh(new THREE.CircleGeometry(0.007, 8), white), -0.012, -0.016, 0.001));
+    const dot = at(new THREE.Mesh(new THREE.CircleGeometry(0.028, 18), inkM), 0, 0, 0.0005);
+    dot.scale.y = 1.2;
+    pupil.add(iris, dot, at(new THREE.Mesh(new THREE.CircleGeometry(0.018, 12), white), 0.016, 0.024, 0.001), at(new THREE.Mesh(new THREE.CircleGeometry(0.008, 8), white), -0.014, -0.02, 0.001));
     const brow = at(new THREE.Mesh(new RoundedBoxGeometry(0.075, 0.016, 0.01, 2, 0.006), hair), 0, 0.1, 0);
     brow.rotation.z = sx * -0.15;
     e.add(sclera, rim, pupil, brow);
