@@ -508,6 +508,10 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
     b.face.add(c);
     return c;
   });
+  // Pixel faces get a pixel mouth: open when it calls you, a grin when pleased.
+  const mouthM = kit.m(new THREE.MeshBasicMaterial({ color: '#16131f' }));
+  const mouth = b.eyes === 'pixel' ? at(new THREE.Mesh(new THREE.BoxGeometry(b.eyeSize * 1.2, b.eyeSize * 0.5, 0.02), mouthM), 0, -b.eyeSize * 1.5, 0) : undefined;
+  if (mouth) b.face.add(mouth);
   // The status light: a little glowing pip over its head.
   const pipM = kit.m(new THREE.MeshBasicMaterial({ color: '#60a5fa', toneMapped: false }));
   const pip = at(new THREE.Mesh(new THREE.SphereGeometry(0.035, 14, 10), pipM), 0, b.height + 0.22, 0);
@@ -649,6 +653,10 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
         else e.open.position.set(lx * 0.6, ly * 0.6, 0);
       }
       for (const c of cheeks) c.visible = mood === 'happy' || tone === 'needs';
+      if (mouth) {
+        mouth.visible = mood === 'happy' || tone === 'needs';
+        mouth.scale.set(tone === 'needs' ? 0.7 : 1.4, tone === 'needs' ? 1.8 : 1, 1);
+      }
       pipM.color.set(toneColors[tone]);
       pip.visible = tone !== 'stopped';
       pip.position.y = b.height + 0.22 + (motion ? Math.sin(t * 2.4) * 0.025 : 0);

@@ -1128,7 +1128,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       // board in the part of the view the board's list (on the right) leaves.
       const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
       const bh = Math.min(2.6, lay.board.w * 0.52);
-      const free = Math.max(0.5, 1 - 320 / Math.max(1, canvas.clientWidth));
+      const free = Math.max(0.5, 1 - 350 / Math.max(1, canvas.clientWidth));
       const pitch = 0.4;
       // Wide enough for you, standing at its left end, too.
       const dist = Math.max((lay.board.w + 0.5) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.7 * 2 * tan));
@@ -1377,6 +1377,22 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight, loud });
       }
     }
+    // You, from far off: a chip in your colour over your head, or under your
+    // feet when a label is there. Placed first: the desks' chips keep clear of it.
+    meTag.sprite.getWorldPosition(tp);
+    const meFar = tp.distanceTo(camera.position) > 15;
+    tp.project(camera);
+    meMarker.style.display = meFar && tp.z < 1 ? 'block' : 'none';
+    if (meFar) {
+      const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
+      const my = ((1 - tp.y) / 2) * canvas.clientHeight;
+      const mw = meMarker.offsetWidth || 44;
+      const over = { x0: mx - mw / 2, x1: mx + mw / 2, y0: my - 40, y1: my - 18 };
+      const under = taken.some((r) => over.x0 < r.x1 && over.x1 > r.x0 && over.y0 < r.y1 && over.y1 > r.y0);
+      meMarker.style.transform = `translate(${mx}px, ${my}px) translate(-50%, ${under ? '140%' : '-110%'})`;
+      taken.push(under ? { x0: over.x0, x1: over.x1, y0: my + 30, y1: my + 52 } : over);
+      meTag.sprite.visible = false;
+    }
     // The desks' chips stack clear of the labels and of each other, the
     // nearest (lowest on screen) where it belongs. Their stacking is worked
     // out only while the camera is still, and kept while it moves, so a chip
@@ -1450,29 +1466,6 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       more.style.display = n ? 'inline' : 'none';
       if (n) more.textContent = `+${n}`;
     }
-    // You, from far off: a chip like theirs, in your colour, over your head,
-    // or under your feet when a chip or a label is there. It gives way to
-    // them, never they to it.
-    meTag.sprite.getWorldPosition(tp);
-    const meFar = tp.distanceTo(camera.position) > 15;
-    tp.project(camera);
-    meMarker.style.display = meFar && tp.z < 1 ? 'block' : 'none';
-    if (meFar) {
-      const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
-      const my = ((1 - tp.y) / 2) * canvas.clientHeight;
-      const mw = meMarker.offsetWidth || 44;
-      const over = { x0: mx - mw / 2, x1: mx + mw / 2, y0: my - 40, y1: my - 18 };
-      const busyAt = (dy: number) => {
-        const o = { x0: over.x0, x1: over.x1, y0: over.y0 + dy, y1: over.y1 + dy };
-        const hit2 = (r: { x0: number; x1: number; y0: number; y1: number }) => o.x0 < r.x1 && o.x1 > r.x0 && o.y0 < r.y1 && o.y1 > r.y0;
-        return taken.some(hit2) || placed.some((p) => hit2({ x0: p.x0, x1: p.x1, y0: p.y - 31, y1: p.y - 7 }));
-      };
-      const under = busyAt(0);
-      // Neither over your head nor under your feet: your figure says it alone.
-      if (under && busyAt(58)) meMarker.style.display = 'none';
-      meMarker.style.transform = `translate(${mx}px, ${my}px) translate(-50%, ${under ? '140%' : '-110%'})`;
-      meTag.sprite.visible = false;
-    }
     const ringO = 0.55 + (motion ? Math.sin(t * 2.5) * 0.25 : 0.2);
     (meRing.material as THREE.MeshBasicMaterial).opacity = ringO;
     renderer.render(scene, camera);
@@ -1539,6 +1532,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       if (!pointer.dragged && Math.hypot(dx, e.clientY - pointer.y) > 5) pointer.dragged = true;
       if (pointer.dragged) {
         // Dragging turns the room, within limits.
+        // Turning steps out of a close-up, so the turn shows at once.
+        if (cam.closeK > 0.3 && !held) {
+          held = true;
+          cam.yaw = eased.yaw;
+        }
         cam.yaw = Math.max(-0.6, Math.min(0.6, cam.yaw - e.movementX * 0.0035));
         canvas.style.cursor = 'grabbing';
         poke();
