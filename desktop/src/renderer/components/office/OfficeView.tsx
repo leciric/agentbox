@@ -209,6 +209,13 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   // review opens its review or pull request.
   const boardRow = useRef<(ref: string) => void>(() => {});
   boardRow.current = (ref: string) => {
+    // The board's "+n": the full list, in the panel beside it.
+    if (ref.startsWith('more:')) {
+      const card = document.querySelector<HTMLElement>(`[data-office-board-list="${ref.slice(5)}"]`);
+      card?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
+      card?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+      return;
+    }
     const desk = deskOf(office.model, ref);
     if (desk && office.model.board.review.some((i) => i.ref === ref) && desk.pr) openPr(desk);
     else activate.current(ref);
@@ -452,13 +459,13 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       )}
       {near === 'board' && (
         <div className="pointer-events-auto absolute bottom-16 right-3 top-16 flex w-[min(22rem,calc(100%-1.5rem))] flex-col gap-2 overflow-y-auto" data-office-board>
-          <ListCard title={t('office.board.needs')} accent="text-amber-300">
+          <ListCard title={t('office.board.needs')} accent="text-amber-300" list="needs">
             {needs.length === 0 && <Empty>{t('office.board.needsEmpty')}</Empty>}
             {needs.map((i) => (
               <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.open', { title: i.title })} onClick={() => activate.current(i.ref)} />
             ))}
           </ListCard>
-          <ListCard title={t('office.board.review')} accent="text-emerald-300">
+          <ListCard title={t('office.board.review')} accent="text-emerald-300" list="review">
             {review.length === 0 && <Empty>{t('office.board.reviewEmpty')}</Empty>}
             {review.map((i) => {
               const desk = deskOf(office.model, i.ref);
@@ -538,9 +545,9 @@ function Count({ dot, n, label }: { dot: string; n: number; label: string }) {
   );
 }
 
-function ListCard({ title, accent, children, onFold, foldLabel }: { title: string; accent: string; children: ReactNode; onFold?: () => void; foldLabel?: string }) {
+function ListCard({ title, accent, children, onFold, foldLabel, list }: { title: string; accent: string; children: ReactNode; onFold?: () => void; foldLabel?: string; list?: string }) {
   return (
-    <div className="w-full rounded-xl border border-white/10 bg-slate-950/75 p-1.5 shadow-xl backdrop-blur-md">
+    <div className="w-full rounded-xl border border-white/10 bg-slate-950/75 p-1.5 shadow-xl backdrop-blur-md" data-office-board-list={list}>
       <div className="flex items-center px-2 pb-1 pt-1">
         <span className={cn('flex-1 text-[10.5px] font-semibold uppercase tracking-[0.08em]', accent)}>{title}</span>
         {onFold && (

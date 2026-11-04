@@ -993,7 +993,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x + 0.15, y: 1.05, z: d.z + 0.1, dist: 4.3, pitch: 0.62, yaw: 0.3 };
+      if (d) return { x: d.x + 0.15, y: 1.05, z: d.z + 0.1, dist: 5.0, pitch: 0.66, yaw: 0.3 };
     }
     return undefined;
   }
@@ -1241,7 +1241,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const restack = chipsShown;
     const chips: { x0: number; x1: number; y: number; el: HTMLDivElement }[] = [];
     for (const m of shown) {
-      const w = m.el.offsetWidth || 120;
+      // With room for a "+n" it may get, so it doesn't grow into a neighbour.
+      const moreShown = (m.el.children[1] as HTMLElement).style.display !== 'none';
+      const w = (m.el.offsetWidth || 120) + (moreShown ? 0 : 30);
       // Kept inside the canvas, whichever way it steps.
       const inside = (x: number) => Math.min(canvas.clientWidth - w / 2 - 6, Math.max(w / 2 + 6, x));
       const clash = (x: number, y: number) => placed.some((p) => inside(x) - w / 2 < p.x1 + 4 && inside(x) + w / 2 > p.x0 - 4 && Math.abs(p.y - y) < h);
@@ -1356,7 +1358,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       if (!pointer.dragged && Math.hypot(dx, e.clientY - pointer.y) > 5) pointer.dragged = true;
       if (pointer.dragged) {
         // Dragging turns the room, within limits.
-        cam.yaw = Math.max(-1.0, Math.min(1.0, cam.yaw - e.movementX * 0.006));
+        cam.yaw = Math.max(-1.0, Math.min(1.0, cam.yaw - e.movementX * 0.0035));
         canvas.style.cursor = 'grabbing';
         poke();
         return;
@@ -1437,8 +1439,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       e.preventDefault();
       poke();
     } else if (k === 'escape' && (near || followTarget > 0) && !e.repeat) {
-      // Escape stands back: out of the close-up, to the overview.
-      overview();
+      // Escape stands back a step: out of a close-up, then to the overview.
+      if (cam.closeK > 0.3) {
+        held = true;
+        zoomTo(Math.min(zoomZ, 0.5));
+        poke();
+      } else overview();
     } else if (k === 'n' && !e.repeat) {
       e.preventDefault();
       opts.onNext();

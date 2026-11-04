@@ -178,6 +178,8 @@ export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen): BoardR
       y += rowH + 8;
     }
     if (c.items.length > shown) {
+      // The "+n" is a row too: a click on it goes to the full list.
+      rows.push({ ref: `more:${c === b.needs ? 'needs' : 'review'}`, x, y, w: 120, h: 44 });
       ctx.fillStyle = '#cbd5e1';
       ctx.font = `700 28px ${SANS}`;
       ctx.fillText(`+${c.items.length - shown}`, x + 8, y + 30);
