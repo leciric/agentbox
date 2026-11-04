@@ -178,6 +178,9 @@ async function capture(baseUrl, outDir, lang, only) {
       const missing = [];
       const miss = (selector) => () => missing.push(selector);
       await page.goto(`${baseUrl}/dev/preview.html?${s.query}${lang ? `&lang=${lang}` : ''}`, { waitUntil: 'networkidle' });
+      // A scenario can wait, "wait": ms, for what a fixture makes as the page
+      // runs (a recording drawn in real time).
+      if (s.wait) await page.waitForTimeout(s.wait);
       // A scenario can click an element, to show a popover it opens.
       // Or a list of them, one after the other: a row in the popover.
       for (const click of s.click ? [s.click].flat() : []) {

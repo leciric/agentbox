@@ -6,8 +6,8 @@ import { compareModes, nextMode, pixelDiff, setComparePrefs, useComparePrefs, ty
 import { useT } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
 import { cn, errorMessage } from '../lib/utils';
-import { arrange, box, sizeOf, type Size, type View } from '../lib/zoom';
-import { barHeight, Clip, Label, useSize, Viewport, type ClipHandle } from './ReviewZoom';
+import { arrangePair, box, sizeOf, type Size, type View } from '../lib/zoom';
+import { barHeight, Clip, Label, Placeholder, useSize, Viewport, type ClipHandle } from './ReviewZoom';
 import { Kbd } from './ui/card';
 
 // The review's stage for a before/after pair of screenshots
@@ -48,6 +48,9 @@ export interface Zooming {
 const modeIcon: Record<CompareMode, typeof Columns2> = { side: Columns2, slider: SplitSquareHorizontal, flip: FlipHorizontal2 };
 const modeLabel = { side: 'review.compare.side', slider: 'review.compare.slider', flip: 'review.compare.flip' } as const;
 const gap = 8;
+// placeholderShape is the box a piece of proof whose size isn't known yet
+// waits in: a window's 16:10, as large as fits.
+export const placeholderShape: Size = { w: 1600, h: 1000 };
 
 // ReviewCompare is a pair of screenshots. Inline (room's height given), each
 // half is a box hugging its picture (lib/zoom.ts box), side by side or one
@@ -84,16 +87,28 @@ export function ReviewCompare({
   const space = useRef<HTMLDivElement>(null);
   const measured = useSize(space);
   const room: Size = { w: measured.w, h: height ?? measured.h };
-  const afterSize = usePicSize(pair.after);
-  const beforeSize = usePicSize(pair.before);
-  const pic = afterSize ?? beforeSize ?? { w: 1280, h: 800 };
+  const sizes = { after: usePicSize(pair.after), before: usePicSize(pair.before) };
+  // The after's port, which the before's half keeps the shared view in the
+  // terms of (Viewport shared), the two not always being the same size.
+  const [afterPort, setAfterPort] = useState<Size>({ w: 0, h: 0 });
+  // Until both sizes are known (one recorded without, still loading) the
+  // pair is a placeholder: drawn at a guess it would be stretched.
+  const known = sizes.after && sizes.before ? { after: sizes.after, before: sizes.before } : undefined;
+  const pic = known?.after ?? { w: 16, h: 10 };
   const overlay = highlight && difference.status === 'ready' ? difference.url : undefined;
   const label = (s: Side) => t(s === 'before' ? 'review.compare.before' : 'review.compare.after');
   const hint = t(mode === 'side' ? 'review.compare.sideHint' : mode === 'slider' ? 'review.compare.sliderHint' : 'review.compare.flipHint', { mod: modKey() });
-  const { arrangement, half } = arrange(room, pic, gap);
-  const single = height === undefined ? room : box(room, pic);
-  const halfBox = height === undefined ? (arrangement === 'columns' ? { w: (room.w - gap) / 2, h: room.h } : { w: room.w, h: (room.h - gap) / 2 }) : half;
-  const onPort = (port: Size) => zooming.onPort(port, pic);
+  // Side by side, each half is boxed to its own picture (a 4:3 before
+  // beside a 16:9 after); the slider and Flip lay both in the after's box.
+  const { arrangement, ...halves } = arrangePair(room, known?.before ?? pic, pic, gap);
+  const single = height === undefined ? room : box(room, known ? pic : placeholderShape);
+  const halfRoom = arrangement === 'columns' ? { w: (room.w - gap) / 2, h: room.h } : { w: room.w, h: (room.h - gap) / 2 };
+  const halfBox = (s: Side) => (height === undefined ? halfRoom : halves[s]);
+  const tallest = Math.max(halfBox('before').h, halfBox('after').h);
+  const onPort = (port: Size) => {
+    setAfterPort((p) => (p.w === port.w && p.h === port.h ? p : port));
+    zooming.onPort(port, pic);
+  };
   const frame = cn('rounded-lg border bg-black', dark ? 'border-white/10' : 'border-line-strong');
 
   return (
@@ -155,11 +170,25 @@ export function ReviewCompare({
         {!dark && <span className="ml-auto min-w-0 truncate text-subtle @max-5xl:hidden">{hint}</span>}
       </div>
 
-      <div ref={space} className={cn('flex min-w-0 items-center justify-center', height === undefined && 'min-h-0', mode === 'side' && arrangement === 'rows' && 'flex-col')} style={{ gap, height: height === undefined ? undefined : mode === 'side' ? (arrangement === 'columns' ? halfBox.h : halfBox.h * 2 + gap) : single.h }}>
+      <div ref={space} className={cn('flex min-w-0 items-center justify-center', height === undefined && 'min-h-0', mode === 'side' && arrangement === 'rows' && 'flex-col')} style={{ gap, height: height === undefined ? undefined : !known ? single.h : mode === 'side' ? (arrangement === 'columns' ? tallest : halfBox('before').h + halfBox('after').h + gap) : single.h }}>
         {room.w > 0 &&
-          (mode === 'side' ? (
+          (!known ? (
+            <Placeholder size={height === undefined ? undefined : single} dark={dark} />
+          ) : mode === 'side' ? (
             (['before', 'after'] as const).map((s) => (
-              <Viewport key={s} pic={pic} view={zooming.view} onView={zooming.onView} onPort={onPort} className={cn(frame, 'shrink-0')} style={{ width: halfBox.w, height: halfBox.h }} over={(r) => <Label rect={r}>{label(s)}</Label>} data-review-frame={s}>
+              <Viewport
+                key={s}
+                pic={known[s]}
+                view={zooming.view}
+                onView={zooming.onView}
+                shared={s === 'before' ? { pic, port: afterPort } : undefined}
+                onPort={s === 'after' ? onPort : undefined}
+                className={cn(frame, 'shrink-0')}
+                style={{ width: halfBox(s).w, height: halfBox(s).h }}
+                over={(r) => <Label rect={r}>{label(s)}</Label>}
+                data-review-frame={s}
+                data-review-frame-size={`${known[s].w}x${known[s].h}`}
+              >
                 <Picture item={pair[s]} overlay={overlay} />
               </Viewport>
             ))
@@ -205,40 +234,50 @@ export function ReviewCompare({
 // modKey is the key held to zoom with the wheel, as this computer names it.
 export const modKey = () => (navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl');
 
-// usePicSize is a screenshot's or a recording's size: as recorded, or as its
-// file says once it has loaded, for one recorded without.
+// usePicSize is a screenshot's or a recording's size: as its file says once
+// it has loaded, and as recorded until then. The file wins: a phone recording
+// can be stored landscape and play portrait, rotated. Unknown (undefined)
+// while a piece recorded without a size loads, which the stage shows as a
+// placeholder rather than guess a shape and stretch it to it.
 export function usePicSize(item: T.MediaItem): Size | undefined {
   const known = sizeOf(item.meta);
-  const [loaded, setLoaded] = useState<Size>();
+  const [loaded, setLoaded] = useState<{ url: string; size: Size }>();
   const url = mediaUrl(item);
-  const recorded = known !== undefined;
   const { kind } = item;
   useEffect(() => {
-    if (recorded) return;
+    if (!url) return;
     let live = true;
+    const found = (w: number, h: number) => live && w > 0 && h > 0 && setLoaded({ url, size: { w, h } });
     if (kind === 'recording') {
       const v = document.createElement('video');
       v.preload = 'metadata';
-      v.onloadedmetadata = () => live && v.videoWidth && setLoaded({ w: v.videoWidth, h: v.videoHeight });
+      v.muted = true;
+      v.onloadedmetadata = () => found(v.videoWidth, v.videoHeight);
       v.src = url;
-    } else {
-      const img = new Image();
-      img.onload = () => live && img.naturalWidth && setLoaded({ w: img.naturalWidth, h: img.naturalHeight });
-      img.src = url;
+      return () => {
+        live = false;
+        v.removeAttribute('src');
+        v.load();
+      };
     }
+    const img = new Image();
+    img.onload = () => found(img.naturalWidth, img.naturalHeight);
+    img.src = url;
     return () => {
       live = false;
     };
-  }, [url, recorded, kind]);
-  return known ?? loaded;
+  }, [url, kind]);
+  return (loaded?.url === url ? loaded.size : undefined) ?? known;
 }
 
-// Picture is one half of a pair at its own size, the scale being its
-// viewport's, stretched to the other's if they differ; the highlight over it.
+// Picture is one half of a pair, the scale being its viewport's: side by
+// side at its own size, in the slider and Flip in the after's box, contained
+// in it, never stretched, if they differ; the highlight over it (only ever
+// for two of the same size).
 function Picture({ item, overlay }: { item: T.MediaItem; overlay?: string }) {
   return (
     <div className="absolute inset-0" data-review-picture={item.id}>
-      <img src={mediaUrl(item)} alt={item.name} draggable={false} className="size-full object-fill" />
+      <img src={mediaUrl(item)} alt={item.name} draggable={false} className="size-full object-contain" />
       {overlay && <img src={overlay} alt="" draggable={false} className="pointer-events-none absolute inset-0 size-full object-fill [image-rendering:pixelated]" data-review-overlay />}
     </div>
   );
@@ -329,23 +368,32 @@ export function ReviewVideos({ ref, pair, dark, height, zooming }: { ref?: Ref<C
   }));
   const space = useRef<HTMLDivElement>(null);
   const measured = useSize(space);
-  const afterSize = usePicSize(pair.after);
-  const beforeSize = usePicSize(pair.before);
-  const pic = afterSize ?? beforeSize ?? { w: 1280, h: 800 };
+  const sizes = { after: usePicSize(pair.after), before: usePicSize(pair.before) };
+  const known = sizes.after && sizes.before ? { after: sizes.after, before: sizes.before } : undefined;
+  const pic = known?.after ?? { w: 16, h: 10 };
+  const [afterPort, setAfterPort] = useState<Size>({ w: 0, h: 0 });
   // Each half's bar is under its picture, so the pictures share what's left.
   const bars = (n: number) => n * barHeight;
   const roomFor = (rows: number): Size => ({ w: measured.w, h: (height ?? measured.h) - bars(rows) });
-  const { arrangement } = arrange({ w: measured.w, h: (height ?? measured.h) - barHeight }, pic, gap);
+  const { arrangement } = arrangePair({ w: measured.w, h: (height ?? measured.h) - barHeight }, known?.before ?? pic, pic, gap);
   const room = roomFor(arrangement === 'rows' ? 2 : 1);
-  const half = height === undefined ? (arrangement === 'columns' ? { w: (room.w - gap) / 2, h: room.h } : { w: room.w, h: (room.h - gap) / 2 }) : arrange(room, pic, gap).half;
+  const halves = arrangePair(room, known?.before ?? pic, pic, gap);
+  const halfRoom = arrangement === 'columns' ? { w: (room.w - gap) / 2, h: room.h } : { w: room.w, h: (room.h - gap) / 2 };
+  const half = (s: Side) => (height === undefined ? halfRoom : halves[s]);
+  const placeholder = box({ w: measured.w, h: (height ?? measured.h) - barHeight }, placeholderShape);
   return (
     <div
       ref={space}
       className={cn('flex w-full min-w-0 items-center justify-center', height === undefined && 'h-full min-h-0', arrangement === 'rows' && 'flex-col')}
-      style={{ gap, height: height === undefined ? undefined : arrangement === 'columns' ? half.h + barHeight : (half.h + barHeight) * 2 + gap }}
+      style={{
+        gap,
+        height: height === undefined ? undefined : !known ? placeholder.h + barHeight : arrangement === 'columns' ? Math.max(half('before').h, half('after').h) + barHeight : half('before').h + half('after').h + 2 * barHeight + gap,
+      }}
       data-review-videos={arrangement}
     >
+      {measured.w > 0 && !known && <Placeholder size={height === undefined ? undefined : { w: placeholder.w, h: placeholder.h + barHeight }} dark={dark} />}
       {measured.w > 0 &&
+        known &&
         (['before', 'after'] as const).map((s) => (
           <Clip
             key={s}
@@ -353,11 +401,19 @@ export function ReviewVideos({ ref, pair, dark, height, zooming }: { ref?: Ref<C
               clips.current[s] = c;
             }}
             item={pair[s]}
-            pic={pic}
-            size={{ w: Math.floor(half.w), h: Math.floor(half.h) }}
+            pic={known[s]}
+            size={{ w: Math.floor(half(s).w), h: Math.floor(half(s).h) }}
             view={zooming.view}
             onView={zooming.onView}
-            onPort={(port) => zooming.onPort(port, pic)}
+            shared={s === 'before' ? { pic, port: afterPort } : undefined}
+            onPort={
+              s === 'after'
+                ? (port) => {
+                    setAfterPort((p) => (p.w === port.w && p.h === port.h ? p : port));
+                    zooming.onPort(port, pic);
+                  }
+                : undefined
+            }
             dark={dark}
             onUse={() => {
               used.current = s;
