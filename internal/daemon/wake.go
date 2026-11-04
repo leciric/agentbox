@@ -68,6 +68,7 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 		if err := m.Resume(ctx, a); err != nil {
 			return told{}, err
 		}
+		s.agentBack(a.Ref())
 		woke = "resumed"
 	default:
 		if err := s.diskPausedRefusal(a.Ref()); err != nil {
@@ -92,6 +93,7 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 func (s *Server) startMachine(ctx context.Context, m *agent.Manager, a state.Agent, why string) error {
 	s.logf("starting %s's machine for %s", a.Ref(), why)
 	s.markRetired(a.Ref(), false)
+	s.agentBack(a.Ref())
 	if err := s.serveAgentAPI(a.Instance); err != nil {
 		return err
 	}

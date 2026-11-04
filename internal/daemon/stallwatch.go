@@ -205,6 +205,12 @@ func stallNotice(a state.Agent, p chat.Progress, from, now time.Time) string {
 // rather than stopped, and it stopped in the middle of its work: the project's
 // chat is woken to see to it, the way it is for a stall.
 func (s *Server) agentLost(a state.Agent, why string) {
+	if s.stopExpected(a.Ref()) {
+		// Cut off along with its machine, which somebody stopped on purpose
+		// (expectStop): nobody needs to see to it.
+		s.logf("%s: its AI tool exited as it was stopped on purpose: %s", a.Ref(), headWords(why, 200))
+		return
+	}
 	s.recordError(errAdapterCrashed, a.AI)
 	s.setOutcome(a, api.AgentOutcomeFailed, headWords(why, 200))
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.runCtx), 30*time.Second)

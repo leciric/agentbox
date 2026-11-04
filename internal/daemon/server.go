@@ -182,6 +182,7 @@ type Server struct {
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
 	retired      map[string]bool         // agents a stop-retire stopped, by ref (markRetired)
+	stopping     map[string]bool         // agents being stopped on purpose, by ref (expectStop)
 	groupsDone   map[string]bool         // groups whose lead was told every agent finished (groupMaybeDone)
 	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
 	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)

@@ -82,9 +82,14 @@ func (s *Server) diskAgentAction(ctx context.Context, ref string, pause bool) er
 		return err
 	}
 	if pause {
+		s.expectStop(a.Ref())
 		return s.manager(nil).Pause(ctx, a)
 	}
-	return s.manager(nil).Resume(ctx, a)
+	if err := s.manager(nil).Resume(ctx, a); err != nil {
+		return err
+	}
+	s.agentBack(a.Ref())
+	return nil
 }
 
 // watchDisk checks the disks every diskWatch.every, and more often while one
