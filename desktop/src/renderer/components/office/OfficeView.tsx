@@ -251,6 +251,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             reducedMotion: reduced,
             markerLabel: (title) => t('office.walkTo', { title }),
             moreLabel: t('office.showAll'),
+            moreLabelShort: (n) => t('office.moreShort', { count: n }),
             onNear: setNear,
             onHover: setHover,
             onActivate: (ref) => activate.current(ref),

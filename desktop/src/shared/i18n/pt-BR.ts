@@ -4916,6 +4916,7 @@ export const ptBR: Messages = {
   'office.back': 'Voltar ao Escritório',
   'office.showAll': 'Mostrar todos que precisam de você',
   'office.here': '{count, plural, one {# aqui} other {# aqui}}',
+  'office.moreShort': '+{count} aqui',
   'office.clickToWalk': 'Clique para ir até {title}',
   'office.hint.click': 'Clique numa mesa ou no chão para ir até lá',
   'office.hint.keys': 'WASD para andar · E abre · N próximo que precisa de você',

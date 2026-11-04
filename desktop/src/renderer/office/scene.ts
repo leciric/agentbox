@@ -46,8 +46,9 @@ export type OfficeSceneOptions = {
   onMore(refs: string[]): void;
   // A click on a row of the board, standing at it: the desk it's about.
   onBoardRow(ref: string): void;
-  // The "+n" button's name for screen readers.
+  // The "+n" button's name for screen readers, and its words: "+2 more".
   moreLabel: string;
+  moreLabelShort(n: number): string;
   // A marker's name for screen readers: "Walk to {title}".
   markerLabel(title: string): string;
 };
@@ -807,7 +808,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         more.type = 'button';
         more.dataset.officeMore = '';
         more.style.cssText =
-          'pointer-events:auto;display:none;padding:2px 7px;border-radius:999px;background:rgba(10,14,24,.9);border:1px solid rgba(255,255,255,.25);color:#fff;font:700 11px/1.25 var(--font-sans,system-ui),sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer';
+          'pointer-events:auto;display:none;padding:3px 9px;border-radius:999px;background:#fbbf24;border:1px solid rgba(0,0,0,.25);color:#1a1405;font:700 11px/1.25 var(--font-sans,system-ui),sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer;white-space:nowrap';
         // The "+n" opens the list of this chip's desk and the ones folded into it.
         const host = marker;
         more.addEventListener('pointerdown', (e) => {
@@ -1138,7 +1139,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x - 0.4, y: 1.35, z: a.lead.z - 0.2, dist: 4.8, pitch: 0.45, yaw: 0.25 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x - 0.1, y: 1.25, z: d.z - 0.2, dist: 4.5, pitch: 0.5, yaw: 0.28 };
+      if (d) return { x: d.x + 0.15, y: 1.25, z: d.z - 0.2, dist: 4.6, pitch: 0.5, yaw: 0.3 };
     }
     return undefined;
   }
@@ -1324,7 +1325,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       d.root.position.y = d.ref === hover ? 0.02 : 0;
     }
     // Signs give way to the camera, and to the board's close-up over them.
-    for (const sg of signs) sg.visible = !(focusRef === 'board' && cam.closeK > 0.2) && sg.position.distanceTo(camera.position) > 3.5;
+    for (const sg of signs) sg.visible = !(focusRef === 'board' && cam.closeK > 0.2) && sg.position.distanceTo(camera.position) > (cam.closeK > 0.3 ? 7 : 3.5);
     // From far off, each area's label floats over its sign. What the labels
     // and your chip take, the desks' chips keep clear of.
     const taken: { x0: number; x1: number; y0: number; y1: number }[] = [];
@@ -1342,7 +1343,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       if (on) {
         const cx = ((ap.x + 1) / 2) * canvas.clientWidth;
         const cy = ((1 - ap.y) / 2) * canvas.clientHeight;
-        chip.style.transform = `translate(${cx}px, ${cy}px) translate(-50%, -100%)`;
+        const cxIn = Math.min(canvas.clientWidth - 80, Math.max(80, cx));
+        chip.style.transform = `translate(${cxIn}px, ${cy}px) translate(-50%, -100%)`;
         const w = chip.offsetWidth || 140;
         const h = chip.offsetHeight || 38;
         taken.push({ x0: cx - w / 2, x1: cx + w / 2, y0: cy - h, y1: cy });
@@ -1353,7 +1355,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // At a counter you'd stand in front of its monitor: you all but fade. At
     // a desk you stand aside, half seen through, so you hide nothing.
     // At a desk, half seen through: there, but never in the way.
-    me.fade(1 - cam.closeK * (focusRef?.endsWith('/lead') ? 0.82 : 0.7));
+    me.fade(focusRef?.endsWith('/lead') ? 1 - cam.closeK * 0.82 : 1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1374,7 +1376,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || (dist < 10 && cam.closeK < 0.3));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         marker.style.display = onScreen ? 'flex' : 'none';
-        if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight, loud });
+        if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: Math.min(canvas.clientHeight - 70, ((1 - tp.y) / 2) * canvas.clientHeight), loud });
       }
     }
     // You, from far off: a chip in your colour over your head, or under your
@@ -1464,7 +1466,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const n = folded.get(c.el) ?? 0;
       const more = c.el.children[1] as HTMLElement;
       more.style.display = n ? 'inline' : 'none';
-      if (n) more.textContent = `+${n}`;
+      if (n) more.textContent = opts.moreLabelShort(n);
     }
     const ringO = 0.55 + (motion ? Math.sin(t * 2.5) * 0.25 : 0.2);
     (meRing.material as THREE.MeshBasicMaterial).opacity = ringO;
@@ -1574,6 +1576,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     pointer = undefined;
     canvas.style.cursor = hover ? 'pointer' : 'default';
     if (p.dragged || p.button !== 0) return;
+    // While the camera is still gliding, a click on the room waits: what was
+    // under it a moment ago isn't what will be.
+    if (settledFor < 0.15 && !route.length) return;
     const { ref, row, floor } = p.aim;
     // A row on the board opens what it's about, from wherever you see it.
     if (row && (near === 'board' || !row.startsWith('more:'))) opts.onBoardRow(row);

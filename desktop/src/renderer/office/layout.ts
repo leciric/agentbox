@@ -121,7 +121,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
         obstacles.push(box(dx - 0.48, dz - SEAT, 0.62, 0.62));
         // You stand beside the desk, at the agent's end, as you'd stop by a
         // colleague's, turned half to the room: the close-up sees your face too.
-        return { id: d.id, x: dx, z: dz, spot: { x: dx - 1.4, z: dz + 0.3, face: Math.PI / 4 } };
+        return { id: d.id, x: dx, z: dz, spot: { x: dx - 1.4, z: dz + 0.5, face: Math.PI / 4 } };
       });
       // The counter sits at the area's front, its lead behind it facing you.
       const lz = z + depth - LEAD_DEPTH / 2 - 0.1;

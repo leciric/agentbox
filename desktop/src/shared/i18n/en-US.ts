@@ -4915,6 +4915,7 @@ export const enUS = {
   'office.back': 'Back to the Office',
   'office.showAll': 'Show everyone who needs you',
   'office.here': '{count, plural, one {# here} other {# here}}',
+  'office.moreShort': '+{count} more',
   'office.clickToWalk': 'Click to walk to {title}',
   'office.hint.click': 'Click a desk or the floor to walk there',
   'office.hint.keys': 'WASD to walk · E opens · N next who needs you',

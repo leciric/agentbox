@@ -165,23 +165,25 @@ type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number };
 // clawdShells are Clawd's voxels as two merged geometries, the light ones and
 // the shaded ones: only its shell, a few darker the way pixel art is shaded,
 // and four legs. Made once for every Clawd.
-let clawdCache: { light: THREE.BufferGeometry; dark: THREE.BufferGeometry } | undefined;
+let clawdCache: { light: THREE.BufferGeometry; dark: THREE.BufferGeometry; top: THREE.BufferGeometry } | undefined;
 function clawdShells(V: number, W: number, H: number, D: number) {
   if (clawdCache) return clawdCache;
   const cube = new THREE.BoxGeometry(V, V, V);
   const light: THREE.BufferGeometry[] = [];
   const dark: THREE.BufferGeometry[] = [];
+  const top: THREE.BufferGeometry[] = [];
   const put = (list: THREE.BufferGeometry[], x: number, y: number, z: number) => list.push(cube.clone().translate(x, y, z));
   for (let x = 0; x < W; x++)
     for (let y = 0; y < H; y++)
       for (let z = 0; z < D; z++) {
         if (x > 0 && x < W - 1 && y > 0 && y < H - 1 && z > 0 && z < D - 1) continue;
-        const shaded = y === 0 || (x + y * 3 + z * 7) % 11 === 0;
-        put(shaded ? dark : light, (x - (W - 1) / 2) * V, 0.13 + y * V, (z - (D - 1) / 2) * V);
+        // Shaded below and here and there; the top row lit, as pixel art is.
+        const shaded = y === 0 || (y < H - 1 && (x + y * 3 + z * 7) % 11 === 0);
+        put(y === H - 1 ? top : shaded ? dark : light, (x - (W - 1) / 2) * V, 0.13 + y * V, (z - (D - 1) / 2) * V);
       }
   for (const lx of [-3.5, -1.5, 1.5, 3.5]) for (const ly of [0, 1]) put(dark, lx * V, 0.13 - (ly + 1) * V, (D / 2 - 0.5) * V);
-  clawdCache = { light: mergeGeometries(light, false)!, dark: mergeGeometries(dark, false)! };
-  for (const g of [...light, ...dark, cube]) g.dispose();
+  clawdCache = { light: mergeGeometries(light, false)!, dark: mergeGeometries(dark, false)!, top: mergeGeometries(top, false)! };
+  for (const g of [...light, ...dark, ...top, cube]) g.dispose();
   return clawdCache;
 }
 
@@ -201,8 +203,9 @@ function clawd(k: Kit): Build {
   const shells = clawdShells(V, W, H, D);
   const lightM = new THREE.Mesh(shells.light, orange);
   const darkM = new THREE.Mesh(shells.dark, shade);
-  lightM.userData.shared = darkM.userData.shared = true;
-  body.add(lightM, darkM);
+  const topM = new THREE.Mesh(shells.top, k.m(toon(base.clone().offsetHSL(0, 0.02, 0.07))));
+  lightM.userData.shared = darkM.userData.shared = topM.userData.shared = true;
+  body.add(lightM, darkM, topM);
   // Ink round the block, as one simple hull.
   const hullBox = at(new THREE.Mesh(new RoundedBoxGeometry(W * V, H * V, D * V, 2, 0.01)), 0, 0.13 + ((H - 1) / 2) * V, 0);
   body.add(hullBox);
