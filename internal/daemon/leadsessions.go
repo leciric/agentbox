@@ -256,6 +256,9 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 	if err != nil {
 		return nil, err
 	}
+	if !closed {
+		state.SortTabs(sessions)
+	}
 	// A session imported from an archive made before colours has none.
 	if slices.ContainsFunc(sessions, func(ls state.LeadSession) bool { return ls.Color == "" }) {
 		if err := s.store.ColorLeadSessions(ctx, project); err != nil {
@@ -263,6 +266,9 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 		}
 		if sessions, err = list(ctx, project); err != nil {
 			return nil, err
+		}
+		if !closed {
+			state.SortTabs(sessions)
 		}
 	}
 	activity, err := activityOf(ctx, project)
@@ -303,7 +309,7 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 		row := api.LeadSession{
 			Project: project, ID: ls.ID, Ref: ref, Topic: ls.Topic, Untitled: ls.Untitled, Color: ls.Color, Chat: chatState,
 			Agents: owned[ls.ID], Last: s.lastChatLine(ctx, lead),
-			CreatedAt: ls.CreatedAt, ActiveAt: activity[ls.ID],
+			CreatedAt: ls.CreatedAt, ActiveAt: activity[ls.ID], Pinned: ls.Pinned,
 		}
 		if ls.Closed() {
 			row.ClosedAt = &ls.ClosedAt
@@ -532,23 +538,57 @@ func (s *Server) apiSession(ctx context.Context, project, id string) api.LeadSes
 	return api.LeadSession{Project: project, ID: id, Ref: agent.SessionRef(project, id)}
 }
 
-// renameSession answers PATCH /v1/projects/{project}/sessions/{session}.
+// renameSession answers PATCH /v1/projects/{project}/sessions/{session}: a
+// new topic, a pin, or both.
 func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) error {
 	project, id := r.PathValue("project"), r.PathValue("session")
 	var req api.LeadSessionPatch
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	if err := s.store.RenameLeadSession(r.Context(), project, id, req.Topic); err != nil {
-		return err
+	if req.Topic == "" && req.Pinned == nil {
+		return errors.New("a session's change is a topic, a pin, or both")
 	}
-	if a, err := s.manager(nil).LeadSession(r.Context(), project, id); err == nil {
-		if err := s.store.SetAgentTitle(r.Context(), a.Project, a.Name, strings.Join(strings.Fields(req.Topic), " ")); err != nil {
+	if req.Topic != "" {
+		if err := s.store.RenameLeadSession(r.Context(), project, id, req.Topic); err != nil {
+			return err
+		}
+		if a, err := s.manager(nil).LeadSession(r.Context(), project, id); err == nil {
+			if err := s.store.SetAgentTitle(r.Context(), a.Project, a.Name, strings.Join(strings.Fields(req.Topic), " ")); err != nil {
+				return err
+			}
+		}
+	}
+	if req.Pinned != nil {
+		if err := s.store.PinLeadSession(r.Context(), project, id, *req.Pinned); err != nil {
 			return err
 		}
 	}
 	s.sessionsChanged(r.Context(), project)
 	return writeJSON(w, http.StatusOK, s.apiSession(r.Context(), project, id))
+}
+
+// orderSessions answers PUT /v1/projects/{project}/sessions/order: the order
+// the chat's tabs were dragged into, kept for every computer and the phone.
+// It answers the open sessions in their new order.
+func (s *Server) orderSessions(w http.ResponseWriter, r *http.Request) error {
+	project := r.PathValue("project")
+	if err := s.chatProject(r.Context(), project); err != nil {
+		return err
+	}
+	var req api.LeadSessionOrder
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	if err := s.store.OrderLeadSessions(r.Context(), project, req.IDs); err != nil {
+		return err
+	}
+	s.sessionsChanged(r.Context(), project)
+	out, err := s.apiSessions(r.Context(), project, false)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, out)
 }
 
 // closeSession answers POST /v1/projects/{project}/sessions/{session}/close:

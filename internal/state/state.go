@@ -1575,6 +1575,11 @@ var migrations = []string{
 	`ALTER TABLE lead_sessions ADD COLUMN settled INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE archived_agents ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE projects ADD COLUMN settle_hours INTEGER NOT NULL DEFAULT 0`,
+	// A chat's tabs: pinned ones first, then each where it was dragged to
+	// (LeadSession.Pinned, Order). tab_order 0, every session's until its
+	// tabs are first reordered, falls back to when it was opened.
+	`ALTER TABLE lead_sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE lead_sessions ADD COLUMN tab_order INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

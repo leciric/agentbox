@@ -110,6 +110,19 @@ func (c *Client) RenameLeadSession(ctx context.Context, project, session, topic 
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), LeadSessionPatch{Topic: topic}, &out)
 }
 
+// PinLeadSession pins a session's tab before the others, or unpins it.
+func (c *Client) PinLeadSession(ctx context.Context, project, session string, pinned bool) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), LeadSessionPatch{Pinned: &pinned}, &out)
+}
+
+// OrderLeadSessions keeps the order a chat's tabs were dragged into, and
+// answers its open sessions in it.
+func (c *Client) OrderLeadSessions(ctx context.Context, project string, ids []string) ([]LeadSession, error) {
+	var out []LeadSession
+	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/sessions/order", LeadSessionOrder{IDs: ids}, &out)
+}
+
 // ClosedLeadSessions lists the sessions in a project chat's history.
 func (c *Client) ClosedLeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
 	var out []LeadSession
