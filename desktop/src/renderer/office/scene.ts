@@ -1195,7 +1195,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const x0 = m.x - w / 2;
       const x1 = m.x + w / 2;
       let dy = chipDy.get(m.el) ?? 0;
-      if (restack) {
+      if (restack || !chipDy.has(m.el)) {
         const clash = (y: number) => placed.some((p) => x0 < p.x1 + 4 && x1 > p.x0 - 4 && Math.abs(p.y - y) < h);
         dy = [0, -h, h, -2 * h, 2 * h].find((d) => !clash(m.y + d)) ?? 0;
         chipDy.set(m.el, dy);
