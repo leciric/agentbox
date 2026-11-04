@@ -1457,8 +1457,7 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 			}
 		case "stop":
 			s.expectStop(a.Ref())
-			s.chat.Stop(a.Ref(), "the agent was stopped")
-			err = s.stopAgent(ctx, m, a)
+			err = s.stopAgent(ctx, m, a, "the agent was stopped")
 		case "pause":
 			s.expectStop(a.Ref())
 			err = m.Pause(ctx, a)

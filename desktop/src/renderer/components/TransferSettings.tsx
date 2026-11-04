@@ -111,6 +111,9 @@ export function ExportSettings() {
         ? t('transfer.passphrase.differ')
         : '';
   const ready = (chosen.length > 0 || logins.size > 0) && path.trim() !== '' && !passphraseProblem;
+  // Why Export can't start yet, said beside it rather than a bare disabled
+  // button (the passphrase's problem has a note of its own).
+  const notYet = chosen.length === 0 && logins.size === 0 ? t('transfer.export.needChoice') : path.trim() === '' ? t('transfer.export.needPath') : undefined;
 
   const start = useMutation({
     mutationFn: () =>
@@ -227,9 +230,15 @@ export function ExportSettings() {
             <Download />
             {t('transfer.export.start')}
           </Button>
-          <span className="text-[12px] text-subtle" data-transfer-total>
-            {t('transfer.export.total', { size: formatBytes(total) })}
-          </span>
+          {notYet ? (
+            <span className="text-[12px] text-subtle" data-transfer-not-yet>
+              {notYet}
+            </span>
+          ) : (
+            <span className="text-[12px] text-subtle" data-transfer-total>
+              {t('transfer.export.total', { size: formatBytes(total) })}
+            </span>
+          )}
           {passphraseProblem && passphrase !== '' && <SettingNote tone="warning">{passphraseProblem}</SettingNote>}
         </div>
         {start.error && <Notice>{errorText(t, start.error)}</Notice>}

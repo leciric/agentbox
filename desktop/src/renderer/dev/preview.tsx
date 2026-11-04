@@ -36,6 +36,9 @@
 //                           needing you, working, finishing and failing every
 //                           few seconds, as the daemon's status events say
 //                           (dev/fixtures.ts' liveSessionSteps); use ?app=project
+//   ?homeAsk=1              the Home chat asked the project's lead something
+//                           and got its answer: cards in both chats (with
+//                           &home=1 for the Home chat's side)
 //   ?chat=lead              the project's chat, with the credential requests
 //                           its agents are waiting on at its end
 //   ?vm=create|lima|vz      a Mac's first screen in the middle: the VM to set up,
@@ -249,10 +252,6 @@
 //                           agents with no snapshots, pages, emulator, media or Hatch pages; busy,
 //                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
-//   &verbs=1                with ?app=, the prototype navigation, Ask, Watch and Review
-//                           (lib/uiVerbs.ts); ?app=watch opens Watch, ?app=watch:agent-41
-//                           that agent's machine, ?app=review Review, ?app=review:pulls
-//                           and ?app=review:proof its other tabs
 //   &tour=welcome           with ?app=, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
@@ -355,7 +354,7 @@ import { api } from '../lib/api';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -373,7 +372,6 @@ import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { seedIssues } from './issues';
-import { setUiVerbs } from '../lib/uiVerbs';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -725,7 +723,7 @@ if (artifacts) {
   seedPages(queryClient);
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
-if (pulls || appView === 'pulls' || appView?.startsWith('review')) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
+if (pulls || appView === 'pulls') queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (past || appView === 'work') seedPastAgents(queryClient);
 if (home) {
   const at = new Date().toISOString();
@@ -739,6 +737,17 @@ if (home) {
     memory('g3', 'Answer in Portuguese', 'Reply in Brazilian Portuguese when I write to you in it.', ''),
   ]);
 }
+if (params.get('homeAsk') === '1') {
+  const { lead, home: homeItems } = homeAskChats();
+  // The lead's session most recently active is the one asked: either the
+  // project opens on.
+  for (const [ref, items] of [[`${PROJECT}/lead`, lead], [`${PROJECT}/lead.prod-login-500s`, lead], ['_home/lead', homeItems]] as const) {
+    queryClient.setQueryData<T.ChatThread>(['chat', ref], (thread) => {
+      const base = thread ?? { ...leadChat(), agent: ref, session: { ...leadChat().session, state: 'ready' } };
+      return { ...base, items: [...base.items, ...items] };
+    });
+  }
+}
 if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
@@ -749,7 +758,6 @@ if (tabsScenario === 'idle') queryClient.setQueryData(['pages', PROJECT], { conn
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
 if (appView === 'issues') seedIssues(queryClient);
-setUiVerbs(params.get('verbs') === '1');
 // No tour plays over a scenario unless &tour= asks for one.
 {
   const tour = params.get('tour');
@@ -1672,8 +1680,6 @@ if (phoneMode === 'frame') {
     : appView === 'recap' ? { kind: 'recap' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
-    : appView === 'watch' || appView.startsWith('watch:') ? { kind: 'watch', ref: appView.startsWith('watch:') ? `${PROJECT}/${appView.slice(6)}` : undefined }
-    : appView === 'review' || appView.startsWith('review:') ? { kind: 'review', tab: appView === 'review:pulls' ? 'pulls' : appView === 'review:proof' ? 'proof' : 'work' }
     : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
   createRoot(document.getElementById('root')!).render(

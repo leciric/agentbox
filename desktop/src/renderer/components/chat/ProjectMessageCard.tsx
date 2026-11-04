@@ -1,6 +1,6 @@
 import { ArrowDownLeft, ArrowUpRight, ExternalLink, Handshake } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import type * as T from '../../../shared/api';
+import * as T from '../../../shared/api';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
@@ -17,17 +17,22 @@ export function openProject(project: string) {
 // ProjectMessageCard is a message between this project's lead and another
 // project's (message_project), or an alignment between them
 // settled: the same message shows in both chats, each from its own side, with
-// the other project's name and a link there.
+// the other project's name and a link there. The Home chat asks a project's
+// lead through the same threads (T.HomeProject): the lead's chat shows the
+// question as from the Home chat, and the Home chat the lead's answer.
 export function ProjectMessageCard({ item }: { item: T.ChatItem }) {
   const t = useT();
   const pm = item.projectMessage!;
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const name = projects.data?.find((p) => p.name === pm.project)?.displayName || pm.project;
+  const home = pm.project === T.HomeProject;
+  const name = home ? t('chat.project.homeName') : projects.data?.find((p) => p.name === pm.project)?.displayName || pm.project;
   const incoming = pm.direction === 'in';
   const settled = pm.kind === 'settled';
   const title = settled
     ? t('chat.project.settled', { project: name })
-    : pm.kind === 'reply'
+    : home
+      ? t(incoming ? 'chat.project.fromHome' : 'chat.project.replyToHome')
+      : pm.kind === 'reply'
       ? t(incoming ? 'chat.project.replyFrom' : 'chat.project.replyTo', { project: name })
       : t(incoming ? 'chat.project.from' : 'chat.project.to', { project: name });
   const Icon = settled ? Handshake : incoming ? ArrowDownLeft : ArrowUpRight;

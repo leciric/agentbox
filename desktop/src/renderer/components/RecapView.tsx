@@ -191,8 +191,17 @@ function Days({ recap }: { recap: T.Recap }) {
         {recap.days.map((d, i) => {
           const there = d.workSeconds - d.awaySeconds;
           return (
-            <div key={d.date} className="group relative flex h-full flex-col items-center justify-end gap-1.5" title={t('recap.dayTip', { work: duration(d.workSeconds), away: duration(d.awaySeconds), count: d.agents })}>
-              <span className="text-caption tabular-nums text-subtle opacity-0 transition-opacity group-hover:opacity-100">{d.workSeconds ? duration(d.workSeconds) : ''}</span>
+            // Each day is a stop of its own, named with its numbers, for the
+            // keyboard and a screen reader: a tooltip alone was mouse-only.
+            <div
+              key={d.date}
+              role="img"
+              tabIndex={0}
+              aria-label={`${dayName(d.date)}: ${t('recap.dayTip', { work: duration(d.workSeconds), away: duration(d.awaySeconds), count: d.agents })}`}
+              className="group relative flex h-full flex-col items-center justify-end gap-1.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+              title={t('recap.dayTip', { work: duration(d.workSeconds), away: duration(d.awaySeconds), count: d.agents })}
+            >
+              <span className="text-caption tabular-nums text-subtle opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">{d.workSeconds ? duration(d.workSeconds) : ''}</span>
               <div className="flex w-full max-w-11 flex-col gap-[2px] overflow-hidden rounded-t-md rounded-b-[2px]" style={{ height: `${(d.workSeconds / most) * 100}%`, minHeight: 4 }}>
                 {d.workSeconds === 0 ? (
                   <div className="h-1 bg-surface-strong" />
@@ -223,7 +232,12 @@ function Hours({ recap }: { recap: T.Recap }) {
         <h2 className="text-ui font-semibold text-title">{t('recap.byHour')}</h2>
         {peak && <span className="ml-auto text-caption text-muted">{t('recap.peak', { hour: peak })}</span>}
       </div>
-      <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[3px]">
+      {/* One image for the 24 cells, named with the hours that had work. */}
+      <div
+        role="img"
+        aria-label={recap.hours.flatMap((s, h) => (s ? [`${String(h).padStart(2, '0')}:00 · ${duration(s)}`] : [])).join(', ') || t('recap.byHour')}
+        className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[3px]"
+      >
         {recap.hours.map((s, h) => (
           <div key={h} className="h-7 rounded-[4px] bg-brand-500" style={{ opacity: s ? 0.18 + (0.82 * s) / most : 0.06 }} title={`${String(h).padStart(2, '0')}:00 · ${duration(s)}`} />
         ))}

@@ -15,6 +15,7 @@ import { ModelByName } from './ModelByName';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { Field, Input } from './ui/input';
 import { Select, SelectOption, selectTrigger } from './ui/select';
+import { openSettingsSection } from './SettingsPage';
 import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
 
@@ -411,7 +412,12 @@ export function CursorDefaults({ part }: { part: 'model' | 'effort' }) {
         )
       }
     >
-      {part === 'model' && note && <SettingNote tone={ready ? 'muted' : 'warning'}>{note}</SettingNote>}
+      {part === 'model' && note && (
+        <SettingNote tone={ready ? 'muted' : 'warning'}>
+          {note}
+          {!ready && <AccountsLink />}
+        </SettingNote>
+      )}
     </SettingRow>
   );
 }
@@ -451,7 +457,12 @@ export function GeminiDefaults() {
         </Select>
       }
     >
-      {note && <SettingNote tone={ready ? 'muted' : 'warning'}>{note}</SettingNote>}
+      {note && (
+        <SettingNote tone={ready ? 'muted' : 'warning'}>
+          {note}
+          {!ready && <AccountsLink />}
+        </SettingNote>
+      )}
     </SettingRow>
   );
 }
@@ -1392,5 +1403,19 @@ export function OpenCodeInImage() {
       )}
       {job && <JobProgress jobId={job} onDone={() => void queryClient.invalidateQueries({ queryKey: ['setup'] })} />}
     </SettingRow>
+  );
+}
+
+// AccountsLink takes a tool's "sign in under Accounts first" note to Accounts,
+// rather than leaving the reader to find the section.
+function AccountsLink() {
+  const t = useT();
+  return (
+    <>
+      {' '}
+      <button type="button" className="font-medium text-brand-300 underline-offset-2 hover:underline" onClick={() => openSettingsSection('accounts')} data-defaults-accounts-link>
+        {t('defaults.openAccounts')}
+      </button>
+    </>
   );
 }

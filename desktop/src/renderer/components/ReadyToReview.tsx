@@ -884,7 +884,7 @@ export function OutcomeBadge({ outcome }: { outcome: string }) {
   const t = useT();
   if (!outcome) return null;
   return (
-    <Badge variant={outcomeVariants[outcome] ?? 'default'} className="shrink-0" data-work-outcome={outcome}>
+    <Badge variant={outcomeVariants[outcome] ?? 'default'} className="shrink-0" title={outcome === 'working' ? undefined : t('work.outcome.tip')} data-work-outcome={outcome}>
       {outcomeLabels[outcome] ? t(outcomeLabels[outcome]) : outcome}
     </Badge>
   );

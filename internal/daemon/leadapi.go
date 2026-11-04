@@ -91,7 +91,7 @@ func (s *Server) serveSessionAPI(project, session string) error {
 	}
 	handler := s.leadRoutes(project, session)
 	if project == state.HomeProject {
-		handler = s.homeRoutes()
+		handler = s.homeRoutes(session)
 	}
 	srv := &http.Server{Handler: handler}
 	s.leadAPIs[key] = srv
