@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -280,6 +279,18 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 			owned[a.Session()]++
 		}
 	}
+	// The sessions these were forked or continued from, open, closed or gone.
+	var parents map[string]state.LeadSession
+	if slices.ContainsFunc(sessions, func(ls state.LeadSession) bool { return ls.Parent != "" }) {
+		all, err := s.store.AllLeadSessions(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		parents = make(map[string]state.LeadSession, len(all))
+		for _, ls := range all {
+			parents[ls.ID] = ls
+		}
+	}
 	out := make([]api.LeadSession, 0, len(sessions))
 	now := time.Now()
 	for _, ls := range sessions {
@@ -300,6 +311,12 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 		}
 		if ls.Snoozed(now) {
 			row.SnoozedUntil = &ls.SnoozedUntil
+		}
+		if ls.Parent != "" {
+			row.Parent = &api.LeadSessionParent{Session: ls.Parent, Item: ls.ParentItem}
+			if p, ok := parents[ls.Parent]; ok {
+				row.Parent.Topic, row.Parent.Closed = p.Topic, p.Closed()
+			}
 		}
 		out = append(out, row)
 	}
@@ -341,17 +358,42 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	var continued state.LeadSession
-	if req.ContinueFrom != "" {
+	if req.ForkFrom != nil && req.ContinueFrom != "" {
+		return errors.New("a session is forked from one session or continued from another, not both")
+	}
+	// The session the new one picks up from, continued or forked, and what
+	// of its conversation it starts on: all of it, or up to the fork's item.
+	var src state.LeadSession
+	var srcLead state.Agent
+	var items []api.ChatItem
+	fork := req.ForkFrom != nil
+	if id := req.ContinueFrom; id != "" || fork {
+		if fork {
+			id = req.ForkFrom.Session
+			if req.ForkFrom.Item == "" {
+				return errors.New("forkFrom names no message to fork at")
+			}
+		}
 		var err error
-		if continued, err = s.store.LeadSession(r.Context(), project, req.ContinueFrom); err != nil {
+		if src, err = s.store.LeadSession(r.Context(), project, id); err != nil {
+			return err
+		}
+		if srcLead, err = s.sessionLeadOf(r.Context(), project, src); err != nil {
+			return err
+		}
+		if fork {
+			items, err = s.chat.Through(srcLead, req.ForkFrom.Item)
+		} else {
+			items, err = s.chat.UpTo(srcLead, "")
+		}
+		if err != nil {
 			return err
 		}
 		if req.From == "" {
-			req.From = continued.ID
+			req.From = src.ID
 		}
-		if strings.TrimSpace(req.Topic) == "" && !continued.Untitled {
-			req.Topic = continued.Topic
+		if strings.TrimSpace(req.Topic) == "" && !src.Untitled {
+			req.Topic = src.Topic
 		}
 	}
 	// Asked before the new one exists, which would be the most recent.
@@ -376,75 +418,66 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) error {
 			s.logf("starting %s's %s session on %s's settings: %v", project, ls.ID, from, err)
 		}
 	}
-	if continued.ID != "" {
-		if err := s.seedSession(r.Context(), project, ls.ID, continued); err != nil {
-			s.logf("starting %s's %s session from %s: %v", project, ls.ID, continued.ID, err)
+	if src.ID != "" {
+		item := ""
+		if fork {
+			item = req.ForkFrom.Item
+		}
+		if err := s.store.SetLeadSessionParent(r.Context(), project, ls.ID, src.ID, item); err != nil {
+			return err
+		}
+		if err := s.seedSession(project, ls, src, srcLead, items, fork); err != nil {
+			s.logf("starting %s's %s session from %s: %v", project, ls.ID, src.ID, err)
 		}
 	}
 	s.sessionsChanged(r.Context(), project)
 	return writeJSON(w, http.StatusCreated, s.apiSession(r.Context(), project, ls.ID))
 }
 
-// seedLines is how many of the old session's last messages a session
-// continued from it starts with, and seedLineMax how much of each.
-const (
-	seedLines   = 6
-	seedLineMax = 600
-)
+// leadHandoffTokens is the most a session continued or forked from another
+// is told of that one's conversation, in tokens: enough for a long working
+// session's messages, at the price of a large brief or two, once. The model
+// isn't asked to summarise: the messages themselves go, the first and the
+// latest kept when they don't all fit (chat.HandoffWithin).
+const leadHandoffTokens = 20_000
 
-// seedSession starts session to where session from left off: a notice in its
-// chat, which the user sees and its lead reads with its first message, naming
-// from and quoting its last exchanges. Nothing of from's is reused: to has an
-// id, lead, conversation and memory of its own, and from's agents stay
-// from's. What mattered in from, its lead wrote to the project's memory.
-func (s *Server) seedSession(ctx context.Context, project, to string, from state.LeadSession) error {
-	items, err := s.store.ChatItems(ctx, project, state.LeadSessionName(from.ID))
-	if err != nil {
-		return err
+// seedSession starts session to from where session from was: its first
+// prompt carries a context transfer of from's conversation, items (all of it
+// to continue, up to the message forked at for a fork), and a notice in its
+// chat marks it and shows what was handed over. A fork's chat also starts as
+// a copy of items, so the user reads what its lead was told. Nothing else of
+// from's is reused: to has an id, lead, AI session and memory of its own,
+// and from's agents stay from's.
+func (s *Server) seedSession(project string, to, from state.LeadSession, fromLead state.Agent, items []api.ChatItem, fork bool) error {
+	var intro, notice string
+	if fork {
+		intro = fmt.Sprintf("You are the lead of %q (%s), a new session of this project's chat forked from the session %q (%s) at one of its messages, to take its conversation another way from there. "+
+			"The agents that session made stay its own, and it carries on; you start with none of them, and leave them to it unless the user says otherwise.", to.Topic, to.ID, from.Topic, from.ID)
+		notice = fmt.Sprintf("Forked from %q at the message above. Its lead is told this conversation with your first message here; %q and its agents carry on as they were.", from.Topic, from.Topic)
+	} else {
+		intro = fmt.Sprintf("This session continues the session %q (%s), which is closed and kept in this chat's history. "+
+			"Its agents still belong to it; what it learned is in the project's memory.", from.Topic, from.ID)
+		notice = fmt.Sprintf("Continues %q, which is closed and kept in this chat's history. Its lead is told where that one left off with your first message here; its agents stay with it.", from.Topic)
 	}
-	var lines []string
-	for i := len(items) - 1; i >= 0 && len(lines) < seedLines; i-- {
-		var item api.ChatItem
-		if json.Unmarshal(items[i].Data, &item) != nil || item.Hidden {
-			continue
-		}
-		who := map[string]string{"user": "The user", "assistant": "The lead"}[item.Kind]
-		text := strings.TrimSpace(item.Text)
-		if who == "" || text == "" {
-			continue
-		}
-		lines = append(lines, who+": "+cutText(text, seedLineMax))
+	ptrs := make([]*api.ChatItem, len(items))
+	for i := range items {
+		ptrs[i] = &items[i]
 	}
-	slices.Reverse(lines)
-	var b strings.Builder
-	fmt.Fprintf(&b, "This session continues the session %q (%s), which is closed and kept in this chat's history.", from.Topic, from.ID)
-	if len(lines) > 0 {
-		b.WriteString(" Where it left off:\n\n")
-		b.WriteString(strings.Join(lines, "\n\n"))
-	}
-	b.WriteString("\n\nIts agents still belong to it; what it learned is in the project's memory.")
-	// Its lead as leadFromPath reads a session never written to: the notice
-	// waits in its conversation, and makes nothing, needs no login, until the
-	// first message does.
+	handoff := chat.HandoffWithin(ptrs, intro, leadHandoffTokens*4)
+	// Its lead as leadFromPath reads a session never written to: the
+	// conversation waits, and makes nothing, needs no login, until the first
+	// message does.
 	lead := state.Agent{
-		Project: project, Name: state.LeadSessionName(to), AI: agent.ChatTool,
+		Project: project, Name: state.LeadSessionName(to.ID), AI: agent.ChatTool,
 		Interface: state.InterfaceChat, Role: state.RoleLead,
 	}
 	if project == state.HomeProject {
-		lead = s.manager(nil).HomeSession(to)
+		lead = s.manager(nil).HomeSession(to.ID)
 	}
-	return s.chat.Notice(lead, b.String(), chat.NoticeOptions{})
-}
-
-// cutText is text cut to at most max bytes, at a rune, marked when cut.
-func cutText(text string, max int) string {
-	if len(text) <= max {
-		return text
+	if !fork {
+		items = nil
 	}
-	for max > 0 && !utf8.RuneStart(text[max]) {
-		max--
-	}
-	return text[:max] + "…"
+	return s.chat.Seed(lead, fromLead, items, handoff, notice)
 }
 
 // inheritSessionSettings starts session to on what session from runs on: its

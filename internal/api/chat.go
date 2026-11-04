@@ -548,6 +548,27 @@ type LeadSession struct {
 	// comes back sooner when one of its agents asks something or needs a
 	// permission. Absent when it isn't snoozed.
 	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
+	// Parent is the session it was forked or continued from, which the app
+	// links to; absent for a session opened afresh.
+	Parent *LeadSessionParent `json:"parent,omitempty"`
+}
+
+// LeadSessionParent is where a session came from: the session, and for a
+// fork the chat item of that session's it was cut at (Item; "" when it was
+// continued from all of it). Topic is the parent's now, "" once it has been
+// deleted, and Closed says it is in the chat's history.
+type LeadSessionParent struct {
+	Session string `json:"session"`
+	Item    string `json:"item,omitempty"`
+	Topic   string `json:"topic,omitempty"`
+	Closed  bool   `json:"closed,omitempty"`
+}
+
+// LeadSessionFork names a point in a session's conversation to fork a new
+// session from: the session, and the chat item the copy ends with.
+type LeadSessionFork struct {
+	Session string `json:"session"`
+	Item    string `json:"item"`
 }
 
 // LeadSessionSnooze snoozes a session until Until (POST
@@ -612,6 +633,11 @@ type NewLeadSessionRequest struct {
 	// new one picks up from: it is opened on that one's topic and settings,
 	// under an id of its own, with a notice of where that one left off.
 	ContinueFrom string `json:"continueFrom,omitempty"`
+	// ForkFrom opens the session as a fork of another at one of its
+	// messages: on that one's topic and settings, its conversation copied up
+	// to and including the message, and its lead told what was said there.
+	// The agents stay the other session's. Not with ContinueFrom.
+	ForkFrom *LeadSessionFork `json:"forkFrom,omitempty"`
 }
 
 // LeadSessionPatch renames a session.

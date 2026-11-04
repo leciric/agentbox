@@ -34,7 +34,11 @@ export function useAgentCounts(): AgentCounts {
   const names = (projects.data ?? []).map((p) => p.name);
   const questions = useQueries({ queries: names.map((name) => ({ queryKey: ['questions', name], queryFn: () => api.questions(name) })) });
   const chats = useQueries({ queries: names.map((name) => ({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name), refetchInterval: 60_000 })) });
-  const fleets = useQueries({ queries: names.map((name) => ({ queryKey: ['fleet', name], queryFn: () => api.fleet(name), staleTime: 30_000 })) });
+  // Only the PR numbers are read from every project's fleet (api.agents has none,
+  // and pulls is a different shape), and the daemon measures each agent's diff
+  // for it, so it isn't re-asked on every focus: a PR number rarely changes, and
+  // the fleet's own tabs poll their project's.
+  const fleets = useQueries({ queries: names.map((name) => ({ queryKey: ['fleet', name], queryFn: () => api.fleet(name), staleTime: 5 * 60_000, refetchOnWindowFocus: false })) });
 
   // Keys of what the counts depend on, so they're worked out again only when
   // one changes, not on every render of every query.

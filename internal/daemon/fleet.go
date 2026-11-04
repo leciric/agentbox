@@ -70,7 +70,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 		out.GitHubError = s.githubErrorFor(p, repo, err)
 	}
 
-	changes := agentChanges(agents, prs, polledChanges)
+	changes := agentChanges(agents, prs, polledChangesOf(statuses))
 	topics := map[string]string{}
 	if sessions, err := s.store.LeadSessions(ctx, project); err == nil {
 		for _, ls := range sessions {
@@ -185,6 +185,58 @@ func polledChanges(a state.Agent, onto ...string) api.AgentChanges {
 	}
 	return changesOf(a, onto...)
 }
+
+// polledChangesOf is polledChanges for a list of statuses: an agent whose
+// machine isn't running can't have changed its worktree, so it is shown as
+// last read and measured (git add --all, diff, status, over virtiofs) only
+// when nothing was read yet, when its HEAD, index or branch moved since
+// (gitrepo.WorktreeStamp), or when it ran since it was last read, so what it
+// did before stopping is counted once. Every project's fleet is asked for
+// whenever the app is focused; stopped agents were most of the git it ran.
+func polledChangesOf(statuses []agent.Status) func(state.Agent, ...string) api.AgentChanges {
+	idle := make(map[string]bool, len(statuses))
+	for _, st := range statuses {
+		if st.State == "stopped" || st.State == "paused" {
+			idle[st.Name] = true
+		}
+	}
+	return func(a state.Agent, onto ...string) api.AgentChanges {
+		if a.Worktree == "" {
+			return polledChanges(a, onto...)
+		}
+		if !idle[a.Name] {
+			ranSince.Store(a.Worktree, true)
+			return polledChanges(a, onto...)
+		}
+		stampOf := func() string {
+			return gitrepo.WorktreeStamp(a.Worktree) + "|" + a.BaseCommit + "|" + strings.Join(onto, ",")
+		}
+		if last, ok := knownChanges.Load(a.Worktree); ok {
+			if at, ok := measuredAt.Load(a.Worktree); ok && at == stampOf() {
+				if _, ran := ranSince.Load(a.Worktree); !ran {
+					return last.(api.AgentChanges)
+				}
+			}
+		}
+		out := polledChanges(a, onto...)
+		// Only a read that stuck (knownChanges holds it) is worth keeping. The
+		// stamp is taken after: git status refreshes the index it reads.
+		if last, ok := knownChanges.Load(a.Worktree); ok && last.(api.AgentChanges) == out {
+			if stamp := stampOf(); !strings.HasPrefix(stamp, "|") {
+				measuredAt.Store(a.Worktree, stamp)
+				ranSince.Delete(a.Worktree)
+			}
+		}
+		return out
+	}
+}
+
+// measuredAt is the gitrepo.WorktreeStamp (with base and onto) of each
+// worktree's knownChanges, and ranSince the worktrees seen running since.
+var (
+	measuredAt sync.Map // worktree -> string
+	ranSince   sync.Map // worktree -> true
+)
 
 // knownChanges is the last changes measureChanges read for each worktree.
 var knownChanges sync.Map // worktree -> api.AgentChanges

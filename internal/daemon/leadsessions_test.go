@@ -2,13 +2,16 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
@@ -478,14 +481,27 @@ func TestAClosedSessionGoesToTheHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var told string
+	var told, handoff string
 	for _, it := range th.Items {
 		if it.Kind == "notice" && !it.Hidden {
 			told += it.Text
+			handoff += it.Handoff
 		}
 	}
-	if !strings.Contains(told, "The cookie is the culprit.") || !strings.Contains(told, first.ID) {
-		t.Errorf("the continued session shows %q; want where %s left off", told, first.ID)
+	if len(th.Items) != 1 || !strings.Contains(told, first.Topic) {
+		t.Errorf("the continued session shows %d items, %q; want a notice of %s alone", len(th.Items), told, first.Topic)
+	}
+	// Its lead is told the conversation itself, not its last lines.
+	for _, want := range []string{"Do the thing.", "The cookie is the culprit.", first.ID, "Its agents still belong to it"} {
+		if !strings.Contains(handoff, want) {
+			t.Errorf("the continued session's handoff lacks %q:\n%s", want, handoff)
+		}
+	}
+	if stored, err := d.srv.store.Chat(ctx, "hello-stack", state.LeadSessionName(cont.ID)); err != nil || stored.Handoff != handoff {
+		t.Errorf("the continued session's first prompt carries %q, %v; want the handoff shown", stored.Handoff, err)
+	}
+	if cont.Parent == nil || cont.Parent.Session != first.ID || cont.Parent.Item != "" || !cont.Parent.Closed {
+		t.Errorf("the continued session's parent = %+v; want %s, closed, and no message", cont.Parent, first.ID)
 	}
 	if a1, err = d.srv.store.Agent(ctx, "hello-stack", "agent-01"); err != nil || a1.Session() != first.ID {
 		t.Errorf("agent-01 = %+v, %v; want it still the closed session's", a1, err)
@@ -506,5 +522,118 @@ func TestAClosedSessionGoesToTheHistory(t *testing.T) {
 	d.srv.tellOwner(ctx, a1, "agent-01 is done", false)
 	if got := strings.Join(noticesOf(t, d, firstLead), "\n"); !strings.Contains(got, "agent-01 is done") {
 		t.Errorf("the reopened session heard %q; want its agent's notice", got)
+	}
+}
+
+// Forking a session at one of its messages opens a new session on its topic
+// and settings, its chat a copy of the conversation up to and including that
+// message, its lead told it (and nothing after it) with its first message,
+// and a link back to where it was cut. The agents stay with the original.
+func TestForkingASessionAtAMessage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	src, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{Topic: "Login 500s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcLead := state.Agent{Project: "hello-stack", Name: state.LeadSessionName(src.ID)}
+	saidLast(t, d, srcLead, "The cookie is the culprit.")
+	now := time.Now()
+	var later []state.ChatItem
+	for i, it := range []api.ChatItem{
+		{ID: "u2", Turn: "u2", Kind: "user", Text: "Now rewrite the session store.", CreatedAt: now, Result: &api.ChatTurnResult{State: "completed", EndedAt: now}},
+		{ID: "a2", Turn: "u2", Kind: "assistant", Text: "Rewritten.", CreatedAt: now},
+	} {
+		data, _ := json.Marshal(it)
+		later = append(later, state.ChatItem{ID: it.ID, Position: int64(3 + i), Data: data})
+	}
+	if err := d.srv.store.SaveChatItems(ctx, "hello-stack", srcLead.Name, later); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.srv.store.SaveChat(ctx, "hello-stack", srcLead.Name, state.Chat{Options: map[string]string{"model": "opus"}}); err != nil {
+		t.Fatal(err)
+	}
+	addAgent(t, d, repo, "hello-stack", "agent-01", "Fix the cookie")
+	if err := d.srv.store.SetAgentSession(ctx, "hello-stack", "agent-01", src.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	fork, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{ForkFrom: &api.LeadSessionFork{Session: src.ID, Item: "a1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fork.ID == src.ID || fork.Topic != "Login 500s" || fork.Agents != 0 {
+		t.Errorf("the fork = %+v; want a session of its own on %q, with no agents", fork, src.Topic)
+	}
+	if fork.Parent == nil || *fork.Parent != (api.LeadSessionParent{Session: src.ID, Item: "a1", Topic: "Login 500s"}) {
+		t.Errorf("the fork's parent = %+v; want %s at a1", fork.Parent, src.ID)
+	}
+	if listed, _ := d.client.LeadSessions(ctx, "hello-stack"); !slices.ContainsFunc(listed, func(ls api.LeadSession) bool {
+		return ls.ID == fork.ID && ls.Parent != nil && ls.Parent.Item == "a1"
+	}) {
+		t.Errorf("the sessions = %+v; want the fork listed with its parent", listed)
+	}
+	th, err := d.client.Chat(ctx, fork.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, it := range th.Items {
+		kinds = append(kinds, it.Kind)
+	}
+	if !slices.Equal(kinds, []string{"user", "tool", "assistant", "notice"}) {
+		t.Fatalf("the fork's chat = %v; want the conversation up to a1 and a notice", kinds)
+	}
+	handoff := th.Items[3].Handoff
+	for _, want := range []string{"Do the thing.", "The cookie is the culprit.", "forked from the session", src.ID} {
+		if !strings.Contains(handoff, want) {
+			t.Errorf("the fork's handoff lacks %q:\n%s", want, handoff)
+		}
+	}
+	if strings.Contains(handoff, "rewrite the session store") {
+		t.Errorf("the fork's handoff has what came after the message it was cut at:\n%s", handoff)
+	}
+	stored, err := d.srv.store.Chat(ctx, "hello-stack", state.LeadSessionName(fork.ID))
+	if err != nil || stored.Handoff != handoff || stored.Options["model"] != "opus" {
+		t.Errorf("the fork's chat settings = %+v, %v; want the source's, and the handoff for its first prompt", stored, err)
+	}
+	if _, err := d.srv.store.Agent(ctx, "hello-stack", state.LeadSessionName(fork.ID)); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("forking made the new session's lead: %v", err)
+	}
+	if a1, err := d.srv.store.Agent(ctx, "hello-stack", "agent-01"); err != nil || a1.Session() != src.ID {
+		t.Errorf("agent-01 = %+v, %v; want it still %s's", a1, err, src.ID)
+	}
+	if th, err := d.client.Chat(ctx, src.Ref); err != nil || len(th.Items) != 5 {
+		t.Errorf("the source's chat has %d items, %v; want it untouched", len(th.Items), err)
+	}
+
+	// A fork of a fork carries the lineage on; a deleted parent is still named.
+	again, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{ForkFrom: &api.LeadSessionFork{Session: fork.ID, Item: "u1"}})
+	if err != nil || again.Parent == nil || again.Parent.Session != fork.ID {
+		t.Fatalf("a fork of the fork = %+v, %v", again, err)
+	}
+	if err := d.client.DeleteLeadSession(ctx, "hello-stack", fork.ID); err != nil {
+		t.Fatal(err)
+	}
+	if listed, _ := d.client.LeadSessions(ctx, "hello-stack"); !slices.ContainsFunc(listed, func(ls api.LeadSession) bool {
+		return ls.ID == again.ID && ls.Parent != nil && ls.Parent.Session == fork.ID && ls.Parent.Topic == ""
+	}) {
+		t.Errorf("the sessions = %+v; want the fork of a deleted fork to still name it, with no topic", listed)
+	}
+
+	for name, req := range map[string]api.NewLeadSessionRequest{
+		"no such message": {ForkFrom: &api.LeadSessionFork{Session: src.ID, Item: "nope"}},
+		"no message":      {ForkFrom: &api.LeadSessionFork{Session: src.ID}},
+		"no such session": {ForkFrom: &api.LeadSessionFork{Session: "nope", Item: "a1"}},
+		"both":            {ForkFrom: &api.LeadSessionFork{Session: src.ID, Item: "a1"}, ContinueFrom: src.ID},
+	} {
+		if _, err := d.client.OpenLeadSession(ctx, "hello-stack", req); err == nil {
+			t.Errorf("forking with %s worked", name)
+		}
 	}
 }

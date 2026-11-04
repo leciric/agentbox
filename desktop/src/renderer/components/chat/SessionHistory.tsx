@@ -59,8 +59,11 @@ export function SessionHistory({
   onBack,
   onReopened,
   onContinued,
+  reading: initial,
 }: {
   project: string;
+  // reading is a closed session to open on rather than the list.
+  reading?: string;
   onBack: () => void;
   onReopened: (s: T.LeadSession) => void;
   onContinued: (s: T.LeadSession) => void;
@@ -68,7 +71,7 @@ export function SessionHistory({
   const t = useT();
   const queryClient = useQueryClient();
   const closed = useClosedSessions(project);
-  const [reading, setReading] = useState<string>();
+  const [reading, setReading] = useState<string | undefined>(initial);
   const [deleting, setDeleting] = useState<T.LeadSession>();
   const shown = closed.data?.find((s) => s.id === reading);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
