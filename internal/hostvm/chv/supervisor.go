@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -98,6 +99,10 @@ func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
 		return err
 	}
 	s.mem.Requested = c.MemoryMin
+	// Below the desktop, before it starts anything (priority_linux.go).
+	if failed := lowerPriority(); len(failed) > 0 {
+		s.logf("running the VM at the desktop's priority, as lowering it failed: %s", strings.Join(failed, "; "))
+	}
 	return s.run(ctx)
 }
 
@@ -526,8 +531,9 @@ func idleAgents(ctx context.Context, client *http.Client) int {
 }
 
 // trim has the guest reclaim d.Trim of its coldest file pages and compact
-// what's free, which free page reporting then returns to the host; with the
-// host short, the host drops what it caches of the VM's disks too, which a
+// what's free, which free page reporting then returns to the host (and,
+// before a shrink, what's left of the cache moves out of the blocks to be
+// unplugged); with the host short, the host drops what it caches of the VM's disks too, which a
 // disk without direct=on keeps a second copy of.
 func (s *supervisor) trim(ctx context.Context, d memDecision) {
 	started := time.Now()
