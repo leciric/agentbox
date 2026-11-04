@@ -60,15 +60,29 @@ export function SessionTabs({
   const seen = useSeenAt();
   const [renaming, setRenaming] = useState<string>();
   // The tab being dragged, and the gap it would drop in: before the tab at
-  // that index, or after the last.
+  // that index, or after the last. Pointer events rather than HTML5 drag and
+  // drop: they move the same under a mouse, a pen or a touchpad, and a drag
+  // only starts past a few pixels, so a click stays a click.
   const [dragging, setDragging] = useState<string>();
   const [dropAt, setDropAt] = useState<number>();
+  const row = useRef<HTMLDivElement>(null);
+  const press = useRef<{ id: string; x: number; moved: boolean } | null>(null);
+  const justDragged = useRef(false);
+  const gapAt = (x: number) => {
+    const tabs = [...(row.current?.querySelectorAll<HTMLElement>('[data-session]') ?? [])];
+    const i = tabs.findIndex((el) => {
+      const box = el.getBoundingClientRect();
+      return x < box.left + box.width / 2;
+    });
+    return i < 0 ? tabs.length : i;
+  };
   const endDrag = () => {
+    press.current = null;
     setDragging(undefined);
     setDropAt(undefined);
   };
   return (
-    <div role="tablist" aria-label={t('sessions.label')} data-session-tabs className="relative z-10 flex min-w-0 shrink-0 items-end gap-1 overflow-x-auto px-5 pt-1">
+    <div ref={row} role="tablist" aria-label={t('sessions.label')} data-session-tabs className="relative z-10 flex min-w-0 shrink-0 items-end gap-1 overflow-x-auto px-5 pt-1">
       {sessions.map((s, i) => {
         const on = s.id === current;
         const unread = !on && isUnread(s, seen[s.ref]);
@@ -99,25 +113,36 @@ export function SessionTabs({
                 data-session-pinned={s.pinned || undefined}
                 data-session-state={sessionStatus(s)}
                 data-session-color={color}
-                draggable={renaming === undefined}
-                onDragStart={(e) => {
-                  e.dataTransfer.effectAllowed = 'move';
-                  e.dataTransfer.setData('text/plain', s.topic);
+                onPointerDown={(e) => {
+                  if (e.button !== 0 || (e.target as Element).closest('button')) return;
+                  press.current = { id: s.id, x: e.clientX, moved: false };
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                  const p = press.current;
+                  if (!p || p.id !== s.id) return;
+                  if (!p.moved && Math.abs(e.clientX - p.x) < 6) return;
+                  p.moved = true;
                   setDragging(s.id);
+                  setDropAt(gapAt(e.clientX));
                 }}
-                onDragOver={(e) => {
-                  if (!dragging) return;
-                  e.preventDefault();
-                  const box = e.currentTarget.getBoundingClientRect();
-                  setDropAt(e.clientX < box.left + box.width / 2 ? i : i + 1);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  if (dragging && dropAt !== undefined) onMove(dragging, dropAt);
+                onPointerUp={(e) => {
+                  const p = press.current;
+                  if (p?.moved) {
+                    justDragged.current = true;
+                    onMove(p.id, gapAt(e.clientX));
+                  }
                   endDrag();
                 }}
-                onDragEnd={endDrag}
-                onClick={() => onChoose(s.id)}
+                onPointerCancel={endDrag}
+                onClick={() => {
+                  // The click that ends a drag doesn't choose the tab.
+                  if (justDragged.current) {
+                    justDragged.current = false;
+                    return;
+                  }
+                  onChoose(s.id);
+                }}
                 onDoubleClick={() => setRenaming(s.id)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') onChoose(s.id);
@@ -127,7 +152,7 @@ export function SessionTabs({
                   'group flex h-8 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border pl-2.5 pr-1 text-ui transition-colors',
                   color ? (on ? 'session-line' : 'session-line-quiet') : on ? 'border-line' : 'border-line-faint',
                   on ? 'border-b-0 bg-ink text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
-                  dragging === s.id && 'opacity-50',
+                  dragging === s.id && 'cursor-grabbing opacity-50',
                   gapBefore && 'shadow-[inset_2px_0_0_var(--color-brand-400)]',
                   gapAfter && 'shadow-[inset_-2px_0_0_var(--color-brand-400)]',
                 )}
