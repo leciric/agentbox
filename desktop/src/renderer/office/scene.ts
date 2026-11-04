@@ -477,13 +477,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       for (const [dx, dz] of [[-0.68, -0.32], [0.68, -0.32], [-0.68, 0.32], [0.68, 0.32]]) g.add(mesh(geo.box, mats.deskLeg, dx, DESK.h / 2, dz, 0.05, DESK.h, 0.05));
       // A mug, a plant or nothing, by desk.
       const n = [...ref].reduce((a, c) => a + c.charCodeAt(0), 0);
-      if (n % 3 === 0) g.add(mesh(geo.cyl, mats.mug, -0.6, DESK.h + 0.07, 0.15, 0.04, 0.1, 0.04));
-      else if (n % 3 === 1) {
-        const p = plant(mats, -0.62, 0.15, n);
-        p.scale.setScalar(0.35);
-        p.position.y = DESK.h;
-        g.add(p);
-      }
+      // A mug on some, between the laptop and the monitor, clear of the robot.
+      if (n % 2 === 0) g.add(mesh(geo.cyl, mats.mug, -0.08, DESK.h + 0.07, 0.22, 0.04, 0.1, 0.04));
     }
     // The chair, behind.
     const cz = lead ? -0.75 : -SEAT;
@@ -1053,7 +1048,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     if (!eased.init) {
       Object.assign(eased, { tx, ty, tz, dist, pitch, yaw, init: true });
     } else {
-      const e = motion ? 1 - Math.exp(-dt * 3.6) : 1;
+      // Standing back for the overview settles quickly; following you, gently.
+      const e = motion ? 1 - Math.exp(-dt * (held ? 7 : 3.6)) : 1;
       eased.tx += (tx - eased.tx) * e;
       eased.ty += (ty - eased.ty) * e;
       eased.tz += (tz - eased.tz) * e;
@@ -1316,7 +1312,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const n = Math.max(-3, Math.min(3, Math.abs(d) >= 50 ? Math.sign(d) * Math.max(1, Math.abs(d) / 120) : d / 100));
     if (n < 0) {
       if (followTarget < 1) followTarget = Math.min(1, followTarget - 0.34 * n);
-      else cam.dist = Math.max(5, cam.dist * Math.pow(0.82, -n));
+      else cam.dist = Math.max(6.5, cam.dist * Math.pow(0.82, -n));
     } else if (followTarget >= 1 && cam.dist < 11) cam.dist = Math.min(11, cam.dist / Math.pow(0.82, n));
     else {
       followTarget = Math.max(0, followTarget - 0.34 * n);

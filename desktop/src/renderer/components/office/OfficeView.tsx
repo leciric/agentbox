@@ -263,13 +263,6 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const nearDesk = nearAgent ? deskOf(office.model, nearAgent.ref) : undefined;
   const nearArea = near?.endsWith('/lead') ? office.model.areas.find((a) => leadRef(a.project) === near) : undefined;
   const listOpen = listChoice ?? (wide && !nearDesk && !nearArea);
-  // The short controls line goes a few seconds after you've started moving.
-  const [shortHint, setShortHint] = useState(true);
-  useEffect(() => {
-    if (hint) return;
-    const id = window.setTimeout(() => setShortHint(false), 8000);
-    return () => window.clearTimeout(id);
-  }, [hint]);
   // The overview frames the room beside the list while it's open.
   const listShown = listOpen && needs.length > 0 && near !== 'board';
   useEffect(() => scene.current?.setInset(listShown ? 280 : 0), [listShown, status]);
@@ -435,7 +428,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
               </button>
             </div>
           ) : (
-            shortHint && <div className="rounded-lg bg-slate-950/75 px-3 py-1 text-[12px] text-slate-200 backdrop-blur-md" data-office-hint-short>{t('office.hint.short')}</div>
+            <div className="rounded-lg bg-slate-950/75 px-3 py-1 text-[12px] text-slate-200 backdrop-blur-md" data-office-hint-short>{t('office.hint.short')}</div>
           )}
         </div>
       )}
