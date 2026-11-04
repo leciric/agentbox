@@ -131,7 +131,7 @@ func TestStoringAConsolidationWritesMemories(t *testing.T) {
 		t.Errorf("the discovery = %q / %q", got.Title, got.Content)
 	}
 	// The narrative is what the recap finds again, by the event it came from.
-	summary, err := store.LatestFrom(ctx, "hello-stack", memory.KindEpisodic, memory.EventConversationCompacted)
+	summary, err := store.LatestFrom(ctx, "hello-stack", "lead", memory.KindEpisodic, memory.EventConversationCompacted)
 	if err != nil || !strings.Contains(summary.Content, "reminders page to paginate") {
 		t.Fatalf("LatestFrom() = %+v, %v", summary, err)
 	}

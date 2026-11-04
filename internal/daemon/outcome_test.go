@@ -180,7 +180,7 @@ func TestATurnThatDiesMidWayIsStoppedWithAnError(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var told []string
-	d.srv.stallTell = func(_ context.Context, _ string, note string) {
+	d.srv.stallTell = func(_ context.Context, _ state.Agent, note string) {
 		mu.Lock()
 		defer mu.Unlock()
 		told = append(told, note)
@@ -210,6 +210,7 @@ func TestATurnThatDiesMidWayIsStoppedWithAnError(t *testing.T) {
 	// Its AI tool exits mid-turn: the turn fails on the closed output, and
 	// agentLost says so with the exit status. One notice, not two.
 	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Lost: true, Error: "connection closed"})
+	d.srv.lostResumeDelay = 0
 	d.srv.agentLost(a, "Claude Code exited (exit status 137)")
 	mu.Lock()
 	defer mu.Unlock()
@@ -450,7 +451,7 @@ func TestAUsageLimitPausesTheAgentRatherThanFinishingIt(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var told []string
-	d.srv.stallTell = func(_ context.Context, _ string, note string) {
+	d.srv.stallTell = func(_ context.Context, _ state.Agent, note string) {
 		mu.Lock()
 		defer mu.Unlock()
 		told = append(told, note)

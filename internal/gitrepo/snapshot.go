@@ -14,23 +14,60 @@ var snapshotIdentity = []string{
 }
 
 // worktreeTree writes a tree object of the worktree's tracked and untracked
-// files (ignored files excluded). It stages into a temporary index, so the
-// worktree's own index is untouched.
+// files (ignored files excluded, unless its index tracks them). It stages into
+// a temporary index, so the worktree's own index is untouched.
+//
+// The temporary index starts as a copy of the worktree's own: its file stats
+// let `add --all` hash only what changed. Started from HEAD instead, it hashes
+// every file, which over the Mac's shared folder took 49s for 14k files. A
+// copy git can't use (torn mid-write, say) falls back to that.
 func worktreeTree(worktree string) (string, error) {
 	tmp, err := os.MkdirTemp("", "agentbox-index-")
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	env := []string{"GIT_INDEX_FILE=" + filepath.Join(tmp, "index")}
+	index := filepath.Join(tmp, "index")
+	env := []string{"GIT_INDEX_FILE=" + index}
+	stage := func() (string, error) {
+		if _, err := output(worktree, env, "add", "--all"); err != nil {
+			return "", err
+		}
+		tree, err := output(worktree, env, "write-tree")
+		return strings.TrimSpace(tree), err
+	}
+	if copyIndex(worktree, index) == nil {
+		if tree, err := stage(); err == nil {
+			return tree, nil
+		}
+		_ = os.Remove(index)
+	}
 	if _, err := output(worktree, env, "read-tree", "HEAD"); err != nil {
 		return "", err
 	}
-	if _, err := output(worktree, env, "add", "--all"); err != nil {
-		return "", err
+	return stage()
+}
+
+// copyIndex copies the worktree's index file to dst, mtime included: git
+// rehashes a file changed in the same second as the index was written only
+// while the index keeps that time, so a fresh one would trust the stale stat.
+func copyIndex(worktree, dst string) error {
+	src, err := run(worktree, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
+		return err
 	}
-	tree, err := output(worktree, env, "write-tree")
-	return strings.TrimSpace(tree), err
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, b, 0o600); err != nil {
+		return err
+	}
+	return os.Chtimes(dst, info.ModTime(), info.ModTime())
 }
 
 // SnapshotWorktree records the worktree's files as a commit whose parent is

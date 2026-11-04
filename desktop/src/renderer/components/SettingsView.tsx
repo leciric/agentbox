@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
-  Columns3,
-  PanelLeft,
+  ArrowLeftRight,
   Bell,
   ArrowLeft,
   Languages,
@@ -15,7 +14,9 @@ import {
   CircleDashed,
   Copy,
   Cpu,
+  Droplet,
   ExternalLink,
+  FlaskConical,
   KeyRound,
   Lightbulb,
   ListChecks,
@@ -51,8 +52,11 @@ import { updateHint } from "../lib/appUpdate";
 import { useAppUpdate } from "../lib/useAppUpdate";
 import { useConnection } from "../lib/events";
 import { RestartVM } from "./RestartVM";
+import { DoctorPanel } from "./DoctorPanel";
+import { KrunkitRemake } from "./KrunkitRemake";
+import { offersRemake } from "../lib/krunkit";
 import type { SettingSection } from "../lib/settingsSearch";
-import { cn, errorMessage, timeAgo } from "../lib/utils";
+import { appendOutput, cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
@@ -61,20 +65,26 @@ import { WhatsNewDialog } from "./WhatsNewDialog";
 import { ToolAccountList, ToolKeyForm } from "./ToolAccounts";
 import {
   AutoStopIdle,
+  RemoveStopped,
   DockerPruneOnStop,
   CompactWindow,
   DefaultContextWindow,
   CursorDefaults,
+  GeminiDefaults,
   DefaultModel,
+  DefaultTool,
   LeadRecheck,
   MediaRetention,
   DiskFloor,
   DockerImageCache,
   SharedPackageCaches,
-  NewAgentEffort,
+  LocalNodeModules,
+  DefaultChoice,
   OpenCodeInImage,
   ResumeAfterLimit,
   ContinueAfterRestart,
+  LeadSleep,
+  leadSleepFallback,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -83,9 +93,10 @@ import { projectSection } from "./ProjectSettings";
 import { SkillsPanel } from "./SkillsPanel";
 import { ConnectorsTab } from "./ConnectorsTab";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { IdleReclaim } from "./IdleReclaim";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { phoneGroups } from "./PhoneSettings";
-import { SettingsPage, keepScroll, openSettingsSection, type SectionIcons } from "./SettingsPage";
+import { SettingsPage, openSettingsSection, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
 import { Input, Label } from "./ui/input";
@@ -95,16 +106,18 @@ import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs
 import { setGroupIdle, useGroupIdle } from "../lib/groupIdle";
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
-import { setUiV2, useUiV2 } from "../lib/uiV2";
-import { onSwitchToV2, setTourState, startTour, welcomeTour } from "../lib/tours";
+import { setUiVerbs, useUiVerbs } from "../lib/uiVerbs";
+import { JobsView } from "./JobsView";
+import { startTour, verbsTour } from "../lib/tours";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
 import { VMMigrate } from "./VMMigrate";
 import { CHVSize, VMSize } from "./VMSize";
 import { VMSwap } from "./VMSwap";
-import { MoveToVM, moveToVMKeywords } from "./RunInVM";
+import { kvmFixable, MoveToVM, moveToVMKeywords } from "./RunInVM";
+import { ExportSettings, ImportSettings } from "./TransferSettings";
 
-type Status =
+export type Status =
   | "ok"
   | "missing"
   | "outdated"
@@ -118,7 +131,7 @@ type Status =
 // the daemon is updating in the background, or failed to, is still the one
 // agents use, a first image being built is one agents wait for, and a
 // warning is a caveat, never a reason to stop.
-const usable = (status: Status) =>
+export const usable = (status: Status) =>
   status === "ok" || status === "updating" || status === "building" || status === "warn";
 
 // background is a step whose work runs on by itself: nothing to do but wait.
@@ -127,7 +140,7 @@ const background = (status: Status) =>
 
 // A step is one thing to get right, whether the daemon checks it (Incus, the
 // base image) or the app does (its own command-line tool, GitHub).
-type Step = {
+export type Step = {
   id: string;
   title: string;
   description: string;
@@ -166,6 +179,7 @@ const descriptions: Record<string, MessageKey> = {
   codex: "settings.setup.desc.codex",
   opencode: "settings.setup.desc.opencode",
   cursor: "settings.setup.desc.cursor",
+  gemini: "settings.setup.desc.gemini",
   github: "settings.setup.desc.github",
   android: "settings.setup.desc.android",
   preview: "settings.setup.desc.preview",
@@ -182,6 +196,7 @@ const checkTitles: Record<string, MessageKey> = {
   codex: "settings.setup.title.codex",
   opencode: "settings.setup.title.opencode",
   cursor: "settings.setup.title.cursor",
+  gemini: "settings.setup.title.gemini",
   android: "settings.setup.title.android",
   preview: "settings.setup.title.preview",
 };
@@ -197,7 +212,7 @@ const environmentIds = new Set([
   "android",
   "preview",
 ]);
-const accountIds = new Set(["claude", "codex", "opencode", "cursor", "github"]);
+const accountIds = new Set(["claude", "codex", "opencode", "cursor", "gemini", "github"]);
 
 // githubDetail says who the default account's token belongs to, or why it
 // can't be used.
@@ -209,15 +224,10 @@ function githubDetail(auth?: T.AuthStatus): string | undefined {
     : t("settings.setup.githubOwn");
 }
 
-export function SettingsView({
-  onHome,
-  linked,
-}: {
-  onHome?: () => void;
-  // linked is the section a link elsewhere in the app opened Settings at
-  // (openSettingsSection).
-  linked?: string;
-}) {
+// useSetupSteps is Setup's steps, each with what it offers to do about
+// itself: the wizard's and the Settings page's, and the first run's
+// (FirstRun), which shows a few of them in its own order.
+export function useSetupSteps() {
   const t = useT();
   const queryClient = useQueryClient();
   const setup = useQuery({
@@ -256,6 +266,7 @@ export function SettingsView({
       setImageJob(job.id);
       void queryClient.invalidateQueries({ queryKey: ["setup"] });
       void queryClient.invalidateQueries({ queryKey: ["image"] });
+      void queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 
@@ -362,7 +373,7 @@ export function SettingsView({
     // this machine, so this step only says how to run it again.
     host: (
       <div className="grid gap-2">
-        <p className="text-[13px] text-muted">{t("settings.setup.hostBodyAfterIncus")}</p>
+        <p className="text-ui text-muted">{t("settings.setup.hostBodyAfterIncus")}</p>
         <CommandBox command={check("host")?.fix ?? `sudo ${agentbox} host setup`} />
       </div>
     ),
@@ -425,7 +436,7 @@ export function SettingsView({
         {check("codex")?.fix !== "agentbox image build --codex" && (
           <ToolKeyForm tool="codex" accounts={auth.data?.codexAccounts ?? []} />
         )}
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {check("codex")?.fix === "agentbox image build --codex" ? (
             t("settings.setup.codexNoImage")
           ) : (
@@ -443,7 +454,7 @@ export function SettingsView({
         {check("opencode")?.fix !== "agentbox image build --opencode" && (
           <ToolKeyForm tool="opencode" accounts={auth.data?.openCodeAccounts ?? []} />
         )}
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {check("opencode")?.fix === "agentbox image build --opencode" ? (
             t("settings.setup.opencodeNoImage")
           ) : (
@@ -458,9 +469,10 @@ export function SettingsView({
       </div>
     ),
     cursor: <CursorAccount command={check("cursor")?.fix ?? "agentbox auth cursor"} />,
+    gemini: <GeminiAccount command={check("gemini")?.fix ?? "agentbox auth gemini"} />,
     android: check("android")?.fix ? (
       <div className="grid gap-2">
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {t.rich("settings.setup.androidBody", {
             code: (c) => <Code>{c}</Code>,
           })}
@@ -489,6 +501,19 @@ export function SettingsView({
     if (c.id === "opencode") steps.push(githubStep);
   }
   steps.push(notificationsStep);
+  return { steps, setup, cli, info, imageJob, hostSetupRan };
+}
+
+export function SettingsView({
+  onHome,
+  linked,
+}: {
+  onHome?: () => void;
+  // linked is the section a link elsewhere in the app opened Settings at
+  // (openSettingsSection).
+  linked?: string;
+}) {
+  const { steps, setup, cli, info, imageJob, hostSetupRan } = useSetupSteps();
 
   // Which page: the wizard while there is setting up left to do, the tabbed
   // page once there isn't. It waits for both answers — the daemon's checks and
@@ -586,7 +611,7 @@ function SetupWizard({
       <div className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-9">
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-title">
+            <h1 className="text-display font-semibold tracking-tight text-title">
               {t("settings.setup.heading")}
             </h1>
             <p className="mt-1 text-sm text-muted">
@@ -604,13 +629,16 @@ function SetupWizard({
           </Button>
         </div>
         {error && <Notice className="mt-4">{error}</Notice>}
+        <div className="mt-6 empty:hidden">
+          <DoctorPanel compact />
+        </div>
 
         <div className="mt-6 grid gap-5 md:grid-cols-[13rem_minmax(0,1fr)]">
           <nav
             aria-label={t("settings.setup.steps")}
             className="md:sticky md:top-0 md:self-start"
           >
-            <p className="px-2 pb-2 text-[11px] uppercase tracking-wider text-faint">
+            <p className="px-2 pb-2 text-caption uppercase tracking-wider text-faint">
               {t("settings.setup.progress", { done: doneCount, total: steps.length })}
             </p>
             <ol className="grid gap-0.5">
@@ -648,7 +676,7 @@ function SetupWizard({
               {step ? (
                 <>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] tabular-nums text-faint">
+                    <span className="text-caption tabular-nums text-faint">
                       {t("settings.setup.stepOf", { n: at + 1, total: steps.length })}
                     </span>
                     <StepBadge step={step} />
@@ -656,7 +684,7 @@ function SetupWizard({
                       <StepIcon status={step.status} />
                     </span>
                   </div>
-                  <h2 className="mt-2 text-lg font-semibold text-title">
+                  <h2 className="mt-2 text-heading font-semibold text-title">
                     {step.title}
                   </h2>
                   <p className="mt-1 text-sm text-muted">{step.description}</p>
@@ -742,7 +770,7 @@ function RailItem({
         data-status={step.status}
         aria-current={active ? "step" : undefined}
         className={cn(
-          "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px] transition",
+          "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-ui transition",
           active
             ? "bg-surface-raised text-primary"
             : "text-muted hover:bg-surface hover:text-secondary",
@@ -756,7 +784,7 @@ function RailItem({
   );
 }
 
-function StepIcon({ status, small }: { status: Status; small?: boolean }) {
+export function StepIcon({ status, small }: { status: Status; small?: boolean }) {
   const size = small ? "size-4" : "size-5";
   if (status === "checking")
     return <LoaderCircle className={cn(size, "animate-spin text-subtle")} />;
@@ -786,7 +814,7 @@ function Finished({
           className={cn("size-5", ready ? "text-emerald-400" : "text-subtle")}
         />
       </span>
-      <h2 className="text-lg font-semibold text-title">
+      <h2 className="text-heading font-semibold text-title">
         {ready ? t("settings.setup.complete") : t("settings.setup.almost")}
       </h2>
       <p className="max-w-md text-sm leading-relaxed text-muted">
@@ -819,8 +847,8 @@ function Finished({
 // you, the phone), AI and agents (the logins, the models, what agents do and
 // what they can use), and this computer (what agents may take of it, what it
 // needs). Each project's settings follow them, as
-// a section per project. Each section leads with the few settings people
-// change; the rest are marked advanced, and folded at the end of it.
+// a section per project. The few settings a new user changes are marked
+// essential: Settings opens on them, and keeps the sections under Advanced.
 function InstalledSettings({
   steps,
   error,
@@ -848,7 +876,7 @@ function InstalledSettings({
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const topBarDetailed = useTopBarDetailed();
-  const uiV2 = useUiV2();
+  const uiVerbs = useUiVerbs();
   const reviewing = useReviewing();
   const groupIdle = useGroupIdle();
   const pageStack = usePageStackMode();
@@ -894,10 +922,12 @@ function InstalledSettings({
   // guess.
   const changed = (test: (s: T.Settings) => boolean) => (s ? test(s) : undefined);
 
-  const stepEntry = (step: Step, alwaysShow = false) => ({
+  const stepEntry = (step: Step, alwaysShow = false, essential = false) => ({
     id: step.id,
     label: step.title,
-    keywords: `${step.description} ${step.detail ?? ""}`,
+    description: step.description,
+    keywords: step.detail ?? "",
+    essential,
     render: () => (
       <ChecklistStep step={step} alwaysShow={alwaysShow} />
     ),
@@ -925,6 +955,7 @@ function InstalledSettings({
   ];
   const githubSteps = accountSteps.filter((step) => step.id === "github");
 
+  const traySettings = useTraySettings();
   const notifyPrefs = usePrefs();
   const dnd = useDnd();
   const notifyChanged =
@@ -943,6 +974,8 @@ function InstalledSettings({
           entries: [
             {
               id: "appearance",
+              description: t("settings.appearance.description"),
+              essential: true,
               label: t("settings.entry.appearance.label"),
               keywords: t("settings.entry.appearance.keywords"),
               modified: theme.data ? theme.data.appearance !== "follow" : undefined,
@@ -950,38 +983,47 @@ function InstalledSettings({
             },
             {
               id: "language",
+              description: t("common.languageDescription"),
+              essential: true,
               label: t("common.language"),
               keywords: t("settings.languageKeywords"),
               modified: changed((s) => s.language !== T.DefaultLanguage),
               render: () => <LanguageSetting />,
             },
             {
-              id: "layout",
-              label: t("settings.entry.layout.label"),
-              keywords: t("settings.entry.layout.keywords"),
-              modified: !uiV2,
-              render: () => <LayoutSetting />,
+              id: "group-idle",
+              description: t("settings.groupIdle.description"),
+              label: t("settings.entry.group-idle.label"),
+              keywords: t("settings.entry.group-idle.keywords"),
+              modified: groupIdle,
+              render: () => <GroupIdleSetting />,
             },
-            ...(uiV2
-              ? [
-                  {
-                    id: "group-idle",
-                    label: t("settings.entry.group-idle.label"),
-                    keywords: t("settings.entry.group-idle.keywords"),
-                    modified: groupIdle,
-                    render: () => <GroupIdleSetting />,
-                  },
-                ]
-              : []),
-            // v2's sidebar keeps only Settings and Past agents at its foot, so
+            {
+              id: "verbs",
+              label: t("settings.entry.verbs.label"),
+              keywords: t("settings.entry.verbs.keywords"),
+              modified: uiVerbs,
+              render: () => <VerbsSetting />,
+            },
+            // The sidebar keeps only Settings and Past agents at its foot, so
             // which AgentBox this window drives is chosen here.
-            ...(uiV2
+            {
+              id: "environment",
+              description: t("settings.environment.description"),
+              label: t("settings.entry.environment.label"),
+              keywords: t("settings.entry.environment.keywords"),
+              render: () => <EnvironmentSetting />,
+            },
+            // The desktop app's only: a browser has no tray.
+            ...(traySettings.data
               ? [
                   {
-                    id: "environment",
-                    label: t("settings.entry.environment.label"),
-                    keywords: t("settings.entry.environment.keywords"),
-                    render: () => <EnvironmentSetting />,
+                    id: "tray",
+                    description: t("settings.tray.description"),
+                    label: t("settings.entry.tray.label"),
+                    keywords: t("settings.entry.tray.keywords"),
+                    modified: traySettings.data.keepRunning,
+                    render: () => <TraySetting />,
                   },
                 ]
               : []),
@@ -993,6 +1035,7 @@ function InstalledSettings({
           entries: [
             {
               id: "reviewing",
+              description: t("settings.reviewing.description"),
               label: t("settings.entry.reviewing.label"),
               keywords: t("settings.entry.reviewing.keywords"),
               modified: !reviewing,
@@ -1000,9 +1043,9 @@ function InstalledSettings({
             },
             {
               id: "topbar-detailed",
+              description: t("settings.topbarDetailed.description"),
               label: t("settings.entry.topbar-detailed.label"),
               keywords: t("settings.entry.topbar-detailed.keywords"),
-              advanced: true,
               modified: topBarDetailed,
               render: () => <TopBarDetailedSetting />,
             },
@@ -1010,9 +1053,9 @@ function InstalledSettings({
               ? [
                   {
                     id: "pages-stack",
+                    description: t("settings.pagesStack.description"),
                     label: t("settings.entry.pages-stack.label"),
                     keywords: t("settings.entry.pages-stack.keywords"),
-                    advanced: true,
                     modified: pageStack !== "new",
                     render: () => <PagesStackSetting />,
                   },
@@ -1026,10 +1069,19 @@ function InstalledSettings({
           entries: [
             {
               id: "credit-ai-tool",
+              description: t("settings.creditAITool.description"),
               label: t("settings.entry.credit-ai-tool.label"),
               keywords: t("settings.entry.credit-ai-tool.keywords"),
               modified: changed((s) => s.creditAITool),
               render: () => <CreditAIToolSetting />,
+            },
+            {
+              id: "built-with-badge",
+              description: t("settings.builtWithBadge.description"),
+              label: t("settings.entry.built-with-badge.label"),
+              keywords: t("settings.entry.built-with-badge.keywords"),
+              modified: changed((s) => s.builtWithBadge),
+              render: () => <BuiltWithBadgeSetting />,
             },
           ],
         },
@@ -1039,6 +1091,7 @@ function InstalledSettings({
           entries: [
             {
               id: "update-channel",
+              description: t("settings.channel.description"),
               label: t("settings.entry.update-channel.label"),
               keywords: t("settings.entry.update-channel.keywords"),
               modified: update.data ? update.data.channel !== (update.data.nightly ? "nightly" : "stable") : undefined,
@@ -1048,6 +1101,7 @@ function InstalledSettings({
               ? [
                   {
                     id: "whats-new",
+                    description: t("settings.whatsNew.description"),
                     label: t("settings.entry.whats-new.label"),
                     keywords: t("settings.entry.whats-new.keywords"),
                     render: () => <WhatsNewRow version={info.version} />,
@@ -1056,15 +1110,16 @@ function InstalledSettings({
               : []),
             {
               id: "report-problem",
+              description: t("settings.reportProblem.description"),
               label: t("settings.entry.report-problem.label"),
               keywords: t("settings.entry.report-problem.keywords"),
               render: () => <ReportProblemRow />,
             },
             {
               id: "update-check",
+              description: t("settings.updateCheck.description"),
               label: t("settings.entry.update-check.label"),
               keywords: t("settings.entry.update-check.keywords"),
-              advanced: true,
               modified: changed((s) => !s.updateCheck),
               render: () => <UpdateCheck />,
             },
@@ -1076,6 +1131,7 @@ function InstalledSettings({
           entries: [
             {
               id: "usage-stats",
+              description: t("settings.usageStats.description"),
               label: t("settings.entry.usage-stats.label"),
               keywords: t("settings.entry.usage-stats.keywords"),
               modified: changed((s) => !s.usageStats),
@@ -1083,6 +1139,7 @@ function InstalledSettings({
             },
             {
               id: "error-reports",
+              description: t("settings.errorReports.description"),
               label: t("settings.entry.error-reports.label"),
               keywords: t("settings.entry.error-reports.keywords"),
               modified: changed((s) => !s.errorReports),
@@ -1092,7 +1149,7 @@ function InstalledSettings({
         },
       ],
       footer: info && (
-        <p className="text-center font-mono text-[11px] text-faint">
+        <p className="text-center font-mono text-caption text-faint">
           AgentBox {isNightly(info.version) ? `Nightly ${info.version}` : info.version} · Electron {info.electron} · {info.socket}
         </p>
       ),
@@ -1109,6 +1166,7 @@ function InstalledSettings({
           entries: [
             {
               id: "notify-dnd",
+              description: t("notify.dnd.description"),
               label: t("notify.dnd.title"),
               keywords: t("notify.dnd.keywords"),
               modified: dnd.on,
@@ -1116,6 +1174,7 @@ function InstalledSettings({
             },
             {
               id: "notify-kinds",
+              essential: true,
               label: t("settings.entry.notify-kinds.label"),
               keywords: t("settings.entry.notify-kinds.keywords"),
               modified: notifyChanged,
@@ -1123,6 +1182,7 @@ function InstalledSettings({
             },
             {
               id: "notify-volume",
+              description: t("notify.volume.description"),
               label: t("settings.reviewSound.volume"),
               keywords: t("settings.entry.review-sound.keywords"),
               render: () => <ChimeVolume />,
@@ -1143,6 +1203,64 @@ function InstalledSettings({
         ]
       : []),
     {
+      id: "experimental",
+      title: t("settings.section.experimental.title"),
+      description: t("settings.section.experimental.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "experimental-tests",
+          title: t("settings.group.experimental-tests.title"),
+          entries: [
+            {
+              id: "block-full-suite",
+              description: t("settings.blockFullSuite.description"),
+              label: t("settings.entry.block-full-suite.label"),
+              keywords: t("settings.entry.block-full-suite.keywords"),
+              modified: changed((s) => s.blockFullSuite),
+              render: () => <BlockFullSuite />,
+            },
+          ],
+        },
+        {
+          id: "experimental-agents",
+          title: t("settings.group.experimental-agents.title"),
+          entries: [
+            {
+              id: "agent-goals",
+              description: t("settings.agentGoals.description"),
+              label: t("settings.entry.agent-goals.label"),
+              keywords: t("settings.entry.agent-goals.keywords"),
+              modified: changed((s) => s.agentGoals),
+              render: () => <AgentGoalsSetting />,
+            },
+          ],
+        },
+        {
+          id: "experimental-memory",
+          title: t("settings.group.experimental-memory.title"),
+          entries: [
+            {
+              id: "idle-reclaim",
+              description: t("settings.idleReclaim.description"),
+              label: t("settings.idleReclaim.label"),
+              keywords: t("settings.entry.idle-reclaim.keywords"),
+              modified: changed((s) => s.idleReclaim),
+              render: () => <IdleReclaim />,
+            },
+            {
+              id: "agent-freeze",
+              description: t("settings.agentFreeze.description"),
+              label: t("settings.entry.agent-freeze.label"),
+              keywords: t("settings.entry.agent-freeze.keywords"),
+              modified: changed((s) => s.agentFreeze),
+              render: () => <AgentFreezeSetting />,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "accounts",
       title: t("settings.section.accounts.title"),
       description: t("settings.section.accounts.description"),
@@ -1156,13 +1274,14 @@ function InstalledSettings({
           cards: true,
           // Every tool's accounts are managed here even once they're done:
           // accounts to add, rename or remove, a key to change.
-          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor"].includes(step.id))),
+          // Every AI tool and GitHub are essential: agents run on nothing else.
+          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor", "gemini"].includes(step.id), true)),
         },
         {
           id: "github",
           title: t("settings.group.github.title"),
           cards: true,
-          entries: githubSteps.map((step) => stepEntry({ ...step, body: step.settingsBody ?? step.body }, true)),
+          entries: githubSteps.map((step) => stepEntry({ ...step, body: step.settingsBody ?? step.body }, true, true)),
         },
       ],
     },
@@ -1179,7 +1298,17 @@ function InstalledSettings({
           description: t("settings.group.new-agents.description"),
           entries: [
             {
+              id: "default-tool",
+              description: t("defaults.tool.description"),
+              label: t("defaults.tool.label"),
+              keywords: t("defaults.tool.keywords"),
+              modified: changed((s) => s.lastAgentPick.ai !== "" && s.lastAgentPick.ai !== "claude"),
+              render: () => <DefaultTool />,
+            },
+            {
               id: "agent-model",
+              description: t("defaults.newAgent.agents.about"),
+              essential: true,
               label: t("settings.entry.agent-model.label"),
               keywords: t("settings.entry.agent-model.keywords"),
               modified: changed((s) => s.defaultClaudeModel !== ""),
@@ -1187,6 +1316,7 @@ function InstalledSettings({
             },
             {
               id: "agent-window",
+              description: t("defaults.newAgent.agents.windowAbout"),
               label: t("settings.entry.agent-window.label"),
               keywords: t("settings.entry.agent-window.keywords"),
               modified: changed((s) => s.defaultAgentContextWindow !== ""),
@@ -1194,14 +1324,15 @@ function InstalledSettings({
             },
             {
               id: "agent-effort",
+              description: t("defaults.newAgent.effortDescription"),
               label: t("settings.entry.agent-effort.label"),
               keywords: t("settings.entry.agent-effort.keywords"),
               modified: changed((s) => s.defaultClaudeEffort !== ""),
-              render: () => <NewAgentEffort />,
+              render: () => <DefaultChoice setting="agentEffort" />,
             },
             {
               id: "cursor-model",
-              advanced: true,
+              description: t("defaults.cursor.modelDescription"),
               label: t("settings.entry.cursor-model.label"),
               keywords: t("settings.entry.cursor-model.keywords"),
               modified: changed((s) => s.defaultCursorModel !== ""),
@@ -1209,15 +1340,23 @@ function InstalledSettings({
             },
             {
               id: "cursor-effort",
-              advanced: true,
+              description: t("defaults.cursor.effortDescription"),
               label: t("settings.entry.cursor-effort.label"),
               keywords: t("settings.entry.cursor-effort.keywords"),
               modified: changed((s) => s.defaultCursorEffort !== ""),
               render: () => <CursorDefaults part="effort" />,
             },
             {
+              id: "gemini-model",
+              description: t("defaults.gemini.modelDescription"),
+              label: t("settings.entry.gemini-model.label"),
+              keywords: t("settings.entry.gemini-model.keywords"),
+              modified: changed((s) => s.defaultGeminiModel !== ""),
+              render: () => <GeminiDefaults />,
+            },
+            {
               id: "enforce",
-              advanced: true,
+              description: `${t("settings.enforce.descriptionOff")} ${t("settings.enforce.descriptionOn")}`,
               label: t("settings.entry.enforce.label"),
               keywords: t("settings.entry.enforce.keywords"),
               modified: changed((s) => s.enforceAgentDefaults),
@@ -1232,6 +1371,7 @@ function InstalledSettings({
           entries: [
             {
               id: "lead-model",
+              description: t("defaults.newAgent.lead.about"),
               label: t("settings.entry.lead-model.label"),
               keywords: t("settings.entry.lead-model.keywords"),
               modified: changed((s) => s.defaultLeadModel !== ""),
@@ -1239,10 +1379,27 @@ function InstalledSettings({
             },
             {
               id: "lead-window",
+              description: t("defaults.newAgent.lead.windowAbout"),
               label: t("settings.entry.lead-window.label"),
               keywords: t("settings.entry.lead-window.keywords"),
               modified: changed((s) => s.defaultLeadContextWindow !== ""),
               render: () => <DefaultContextWindow role="lead" />,
+            },
+            {
+              id: "lead-effort",
+              description: t("defaults.newAgent.lead.effortDescription"),
+              label: t("settings.entry.lead-effort.label"),
+              keywords: t("settings.entry.lead-effort.keywords"),
+              modified: changed((s) => s.defaultLeadEffort !== ""),
+              render: () => <DefaultChoice setting="leadEffort" />,
+            },
+            {
+              id: "lead-mode",
+              description: t("defaults.newAgent.lead.modeDescription"),
+              label: t("settings.entry.lead-mode.label"),
+              keywords: t("settings.entry.lead-mode.keywords"),
+              modified: changed((s) => s.defaultLeadMode !== ""),
+              render: () => <DefaultChoice setting="leadMode" />,
             },
           ],
         },
@@ -1252,6 +1409,7 @@ function InstalledSettings({
           entries: [
             {
               id: "claude-code-update",
+              description: t("settings.claudeCodeUpdate.description"),
               label: t("settings.entry.claude-code-update.label"),
               keywords: t("settings.entry.claude-code-update.keywords"),
               modified: changed((s) => s.claudeCodeUpdate.on),
@@ -1266,7 +1424,7 @@ function InstalledSettings({
           entries: [
             {
               id: "compact",
-              advanced: true,
+              description: t("defaults.newAgent.compactDescription"),
               label: t("settings.entry.compact.label"),
               keywords: t("settings.entry.compact.keywords"),
               modified: changed((s) => s.claudeCompactWindow !== s.defaultClaudeCompactWindow),
@@ -1274,6 +1432,7 @@ function InstalledSettings({
             },
             {
               id: "resume",
+              description: t("defaults.newAgent.resumeDescription"),
               label: t("settings.entry.resume.label"),
               keywords: t("settings.entry.resume.keywords"),
               modified: changed((s) => !s.resumeAfterLimit),
@@ -1281,10 +1440,19 @@ function InstalledSettings({
             },
             {
               id: "continue-after-restart",
+              description: t("defaults.newAgent.continueDescription"),
               label: t("settings.entry.continueAfterRestart.label"),
               keywords: t("settings.entry.continueAfterRestart.keywords"),
               modified: changed((s) => !s.continueAfterRestart),
               render: () => <ContinueAfterRestart />,
+            },
+            {
+              id: "lead-sleep",
+              description: t("defaults.newAgent.sleepDescription"),
+              label: t("settings.entry.leadSleep.label"),
+              keywords: t("settings.entry.leadSleep.keywords"),
+              modified: changed((s) => !s.leadSleep || s.leadSleepMinutes !== leadSleepFallback),
+              render: () => <LeadSleep />,
             },
           ],
         },
@@ -1295,7 +1463,7 @@ function InstalledSettings({
       footer: (
         <p
           data-lead-preference-tip
-          className="flex items-start gap-2 px-1 text-[12px] leading-relaxed text-subtle"
+          className="flex items-start gap-2 px-1 text-caption leading-relaxed text-subtle"
         >
           <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-brand-300" />
           <span>
@@ -1318,10 +1486,19 @@ function InstalledSettings({
           entries: [
             {
               id: "pr-watch",
+              description: t("settings.prWatch.description"),
               label: t("settings.entry.pr-watch.label"),
               keywords: t("settings.entry.pr-watch.keywords"),
               modified: changed((s) => !s.prWatch),
               render: () => <PRWatch />,
+            },
+            {
+              id: "merge-when-green",
+              description: t("settings.mergeWhenGreen.description"),
+              label: t("settings.entry.merge-when-green.label"),
+              keywords: t("settings.entry.merge-when-green.keywords"),
+              modified: changed((s) => s.mergeWhenGreen),
+              render: () => <MergeWhenGreen />,
             },
           ],
         },
@@ -1332,6 +1509,7 @@ function InstalledSettings({
           entries: [
             {
               id: "lead-recheck",
+              description: t("defaults.newAgent.recheckDescription"),
               label: t("settings.entry.lead-recheck.label"),
               keywords: t("settings.entry.lead-recheck.keywords"),
               modified: changed((s) => s.leadRecheck),
@@ -1345,10 +1523,19 @@ function InstalledSettings({
           entries: [
             {
               id: "auto-stop",
+              description: t("defaults.newAgent.idleDescription"),
               label: t("settings.entry.auto-stop.label"),
               keywords: t("settings.entry.auto-stop.keywords"),
               modified: changed((s) => s.autoStopIdle),
               render: () => <AutoStopIdle />,
+            },
+            {
+              id: "remove-stopped",
+              description: t("defaults.newAgent.removeStoppedDescription", { days: 7 }),
+              label: t("settings.entry.remove-stopped.label"),
+              keywords: t("settings.entry.remove-stopped.keywords"),
+              modified: changed((s) => s.removeStopped || s.removeStoppedDays !== 7),
+              render: () => <RemoveStopped />,
             },
           ],
         },
@@ -1358,6 +1545,7 @@ function InstalledSettings({
           entries: [
             {
               id: "agent-gpu",
+              description: t("settings.agentGPU.description"),
               label: t("settings.entry.agent-gpu.label"),
               keywords: t("settings.entry.agent-gpu.keywords"),
               modified: changed((s) => s.agentGPU),
@@ -1381,6 +1569,7 @@ function InstalledSettings({
           entries: [
             {
               id: "skills",
+              description: t("settings.section.skills.description"),
               label: t("settings.section.skills.title"),
               keywords: t("settings.entry.skills.keywords"),
               render: () => <SkillsPanel embedded />,
@@ -1403,6 +1592,7 @@ function InstalledSettings({
           entries: [
             {
               id: "connectors",
+              description: t("settings.section.connectors.description"),
               label: t("settings.section.connectors.title"),
               keywords: t("settings.entry.connectors.keywords"),
               render: () => <ConnectorsTab target="" embedded />,
@@ -1426,6 +1616,7 @@ function InstalledSettings({
           entries: [
             {
               id: "global-memory",
+              description: t("settings.section.memory.description"),
               label: t("settings.section.memory.title"),
               keywords: t("settings.entry.memory.keywords"),
               render: () => <GlobalMemoryPanel />,
@@ -1447,6 +1638,7 @@ function InstalledSettings({
           entries: [
             {
               id: "disk-floor",
+              description: t("defaults.newAgent.diskDescription"),
               label: t("settings.entry.disk-floor.label"),
               keywords: t("settings.entry.disk-floor.keywords"),
               modified: changed((s) => s.diskFloorMin !== 10 * 1024 ** 3 || s.diskFloorPercent !== 5),
@@ -1454,6 +1646,7 @@ function InstalledSettings({
             },
             {
               id: "media-retention",
+              description: t("defaults.newAgent.mediaDescription"),
               label: t("settings.entry.media-retention.label"),
               keywords: t("settings.entry.media-retention.keywords"),
               modified: changed((s) => s.mediaRetention !== "1d"),
@@ -1461,7 +1654,7 @@ function InstalledSettings({
             },
             {
               id: "docker-prune",
-              advanced: true,
+              description: t("defaults.newAgent.pruneDescription"),
               label: t("settings.entry.docker-prune.label"),
               keywords: t("settings.entry.docker-prune.keywords"),
               modified: changed((s) => !s.dockerPruneOnStop),
@@ -1469,7 +1662,7 @@ function InstalledSettings({
             },
             {
               id: "docker-image-cache",
-              advanced: true,
+              description: t("defaults.newAgent.imageCacheDescription"),
               label: t("settings.entry.docker-image-cache.label"),
               keywords: t("settings.entry.docker-image-cache.keywords"),
               modified: changed((s) => !s.imageCache || s.imageCacheMaxBytes !== s.defaultImageCacheMaxBytes),
@@ -1477,11 +1670,19 @@ function InstalledSettings({
             },
             {
               id: "package-caches",
-              advanced: true,
+              description: t("defaults.newAgent.pkgCacheDescription"),
               label: t("settings.entry.package-caches.label"),
               keywords: t("settings.entry.package-caches.keywords"),
               modified: changed((s) => !s.packageCache || s.packageCacheMaxBytes !== s.defaultPackageCacheMaxBytes),
               render: () => <SharedPackageCaches />,
+            },
+            {
+              id: "local-node-modules",
+              description: t("defaults.newAgent.localNodeModulesDescription"),
+              label: t("settings.entry.local-node-modules.label"),
+              keywords: t("settings.entry.local-node-modules.keywords"),
+              modified: changed((s) => !s.localNodeModules),
+              render: () => <LocalNodeModules />,
             },
           ],
         },
@@ -1494,6 +1695,8 @@ function InstalledSettings({
                 entries: [
                   {
                     id: "vm-size",
+                    description: chv ? t("vm.size.descriptionCHV") : t("vm.size.descriptionMac"),
+                    essential: true,
                     label: t("settings.entry.vm-size.label"),
                     keywords: t("settings.entry.vm-size.keywords"),
                     render: () =>
@@ -1505,6 +1708,7 @@ function InstalledSettings({
                   },
                   {
                     id: "vm-swap",
+                    description: t("vm.swap.description"),
                     label: t("settings.entry.vm-swap.label"),
                     keywords: t("settings.entry.vm-swap.keywords"),
                     render: () =>
@@ -1528,9 +1732,10 @@ function InstalledSettings({
       nav: t("settings.nav.machine"),
       attention: needsLook(machineSteps),
       groups: [
-        // Moving to a VM is offered where it can happen: without /dev/kvm,
-        // the Incus step says why not instead.
-        ...((hostMode && linux?.kvm) || moving
+        // Moving to a VM is offered where it can happen, or can once this
+        // user is given /dev/kvm (MoveToVM offers that first): without
+        // virtualization, the Incus step says why not instead.
+        ...((hostMode && (linux?.kvm || kvmFixable(linux))) || moving
           ? [
               {
                 id: "where",
@@ -1549,6 +1754,7 @@ function InstalledSettings({
                       ) : (
                         <MoveToVM
                           kvm={linux?.kvm ?? false}
+                          linux={linux}
                           command={<CommandBox command={`${agentbox} vm migrate`} />}
                           action={moving ? <VMMigrate migration={moving} kvm={linux?.kvm ?? false} embedded /> : undefined}
                         />
@@ -1559,12 +1765,25 @@ function InstalledSettings({
             ]
           : []),
         {
+          id: "doctor",
+          title: t("settings.doctor.title"),
+          entries: [
+            {
+              id: "doctor",
+              label: t("settings.doctor.title"),
+              keywords: "agentbox doctor",
+              render: () => <DoctorPanel />,
+            },
+          ],
+        },
+        {
           id: "required",
           title: t("settings.checklist.title"),
           cards: true,
           entries: [
             {
               id: "checklist",
+              description: t("settings.section.setup.description"),
               label: t("settings.checklist.title"),
               keywords: checklist.map((step) => `${step.title} ${step.description} ${step.detail ?? ""}`).join(" "),
               render: () => (
@@ -1592,11 +1811,47 @@ function InstalledSettings({
           entries: [
             {
               id: "opencode-image",
-              advanced: true,
+              description: t("defaults.newAgent.openCodeDescription"),
               label: t("settings.entry.opencode-image.label"),
               keywords: t("settings.entry.opencode-image.keywords"),
               modified: setup.data ? setup.data.image.components.opencode : undefined,
               render: () => <OpenCodeInImage />,
+            },
+            {
+              id: "opencode-v2",
+              description: t("settings.openCodeV2.description"),
+              label: t("settings.entry.opencode-v2.label"),
+              keywords: t("settings.entry.opencode-v2.keywords"),
+              modified: changed((s) => s.openCodeVersion === "2"),
+              render: () => <OpenCodeV2Setting />,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "transfer",
+      title: t("settings.section.transfer.title"),
+      description: t("settings.section.transfer.description"),
+      scope: "installation",
+      nav: t("settings.nav.machine"),
+      groups: [
+        {
+          id: "transfer",
+          title: t("settings.section.transfer.title"),
+          entries: [
+            {
+              id: "export",
+              label: t("transfer.export.title"),
+              keywords: t("settings.entry.transfer.keywords"),
+              render: () => <ExportSettings />,
+            },
+            {
+              id: "import",
+              description: t("transfer.import.description"),
+              label: t("transfer.import.title"),
+              keywords: t("settings.entry.transfer.keywords"),
+              render: () => <ImportSettings />,
             },
           ],
         },
@@ -1616,6 +1871,7 @@ function InstalledSettings({
           entries: [
             {
               id: "diagnostics",
+              description: t("settings.section.diagnostics.description"),
               label: t("settings.section.diagnostics.title"),
               keywords: t("settings.entry.diagnostics.keywords"),
               render: () => <DiagnosticsPanel version={info?.version} />,
@@ -1624,6 +1880,33 @@ function InstalledSettings({
         },
       ],
     },
+    // The prototype navigation (lib/uiVerbs.ts) has no Jobs page: they're here.
+    ...(uiVerbs
+      ? [
+          {
+            id: "jobs",
+            title: t("shell.nav.jobs"),
+            description: t("settings.section.jobs.description"),
+            scope: "installation" as const,
+            nav: t("settings.nav.machine"),
+            groups: [
+              {
+                id: "jobs",
+                title: t("shell.nav.jobs"),
+                cards: true,
+                entries: [
+                  {
+                    id: "jobs",
+                    label: t("shell.nav.jobs"),
+                    keywords: t("settings.entry.jobs.keywords"),
+                    render: () => <div className="h-[32rem]"><JobsView /></div>,
+                  },
+                ],
+              },
+            ],
+          },
+        ]
+      : []),
     ...(projects.data ?? []).map(projectSection),
   ];
 
@@ -1651,7 +1934,10 @@ const sectionIcons: SectionIcons = {
   accounts: KeyRound,
   setup: Wrench,
   notifications: Bell,
+  transfer: ArrowLeftRight,
   diagnostics: Activity,
+  experimental: FlaskConical,
+  jobs: ListChecks,
 };
 
 // EnforceAgentDefaults decides what the model and window above mean to a
@@ -1688,8 +1974,8 @@ function EnforceAgentDefaults() {
         <Switch
           data-enforce-agent-defaults
           aria-label={t("settings.entry.enforce.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={enforced}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : enforced}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -1731,8 +2017,8 @@ function UpdateCheck() {
         <Switch
           data-update-check
           aria-label={t("settings.entry.update-check.label")}
-          disabled={save.isPending || settings.data === undefined || !!blocked}
-          checked={!blocked && (settings.data?.updateCheck ?? true)}
+          disabled={settings.data === undefined || !!blocked}
+          checked={save.isPending ? save.variables : (!blocked && (settings.data?.updateCheck ?? true))}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -1791,7 +2077,7 @@ function ClaudeCodeAutoUpdate() {
       }
     >
       {u && (
-        <div data-claude-code-versions className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">
+        <div data-claude-code-versions className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-muted">
           <span className="font-mono">{t("settings.claudeCodeUpdate.installed", { version: installed })}</span>
           {u.on && u.latest && <span className="font-mono">{t("settings.claudeCodeUpdate.latest", { version: u.latest })}</span>}
           {u.on && (
@@ -1877,7 +2163,7 @@ function UpdateChannel() {
             disabled={set.isPending || update.data === undefined || !!update.data.blocked}
             onClick={() => set.mutate(value)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
               current === value
                 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
                 : "text-muted hover:text-primary",
@@ -1915,7 +2201,9 @@ function UpdateChannel() {
 // to ready (vmGPU.setup), which turning it on starts: it says how far that
 // has got, asking again every few seconds while it runs. On Linux the VM gets
 // the host's GPU only as it starts ("host"): the switch works, and the note
-// says the VM gets it at its next start.
+// says the VM gets it at its next start. A Mac's VM made with Apple's
+// Virtualization framework has none, and is offered a remake with krunkit
+// (KrunkitRemake), installed by Homebrew first when it's missing.
 export function AgentGPU() {
   const t = useT();
   const settings = useQuery({
@@ -1932,6 +2220,11 @@ export function AgentGPU() {
     if (connected) void refetchSettings();
   }, [connected, refetchSettings]);
   const queryClient = useQueryClient();
+  const hostSetup = useQuery({
+    queryKey: ["host-setup"],
+    queryFn: () => window.agentbox.hostSetup.status(),
+  });
+  const vm = hostSetup.data?.vm;
   const save = useMutation({
     mutationFn: (agentGPU: boolean) => api.updateSettings({ agentGPU }),
     onSuccess: (next) => queryClient.setQueryData(["settings"], next),
@@ -1951,8 +2244,8 @@ export function AgentGPU() {
         <Switch
           data-agent-gpu
           aria-label={t("settings.entry.agent-gpu.label")}
-          disabled={save.isPending || settings.data === undefined || unavailable}
-          checked={!unavailable && (settings.data?.agentGPU ?? false)}
+          disabled={settings.data === undefined || unavailable}
+          checked={save.isPending ? save.variables : (!unavailable && (settings.data?.agentGPU ?? false))}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -1963,6 +2256,7 @@ export function AgentGPU() {
         </SettingNote>
       )}
       {needsRestart && <RestartVM />}
+      {vm && offersRemake(vm) && <KrunkitRemake vm={vm} />}
     </SettingRow>
   );
 }
@@ -1977,6 +2271,13 @@ const gpuSetupNotes: Record<string, MessageKey> = {
 
 // vmGPUNote says which GPU agents get, or how far readying it has got.
 function vmGPUNote(t: ReturnType<typeof useT>, gpu: T.VMGPU): string {
+  // With a GPU there, it's a newer driver being built: agents keep theirs.
+  if (gpu.kind && gpu.setup === "running") {
+    return t("settings.agentGPU.setup.updating");
+  }
+  if (gpu.kind && gpu.setup === "failed") {
+    return t("settings.agentGPU.setup.updateFailed", { reason: gpu.reason });
+  }
   const setup = gpuSetupNotes[gpu.setup];
   if (setup) {
     return t(setup, { reason: gpu.reason });
@@ -2015,8 +2316,74 @@ export function PRWatch() {
           id="pr-watch"
           data-pr-watch
           aria-label={t("settings.entry.pr-watch.label")}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.prWatch ?? true)}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// MergeWhenGreen offers "Resolved — merge when CI is green" in the review,
+// whose marks the daemon merges once their checks pass
+// (internal/daemon/mergewhengreen.go). Off by default.
+export function MergeWhenGreen() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (mergeWhenGreen: boolean) => api.updateSettings({ mergeWhenGreen }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.merge-when-green.label")}
+      htmlFor="merge-when-green"
+      description={t("settings.mergeWhenGreen.description")}
+      details={t("settings.mergeWhenGreen.details")}
+      control={
+        <Switch
+          id="merge-when-green"
+          data-merge-when-green-setting
+          aria-label={t("settings.entry.merge-when-green.label")}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.mergeWhenGreen ?? false)}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// BlockFullSuite refuses a Claude Code agent's whole test suite (`go test
+// ./...`, a bare `npm test`) before it runs, and says what to run instead,
+// from the files it changed (internal/cli/fullsuite.go). A project can let its
+// agents run them anyway (Project.fullTestSuite). Codex and OpenCode have no
+// hook to refuse with: only their brief tells them.
+export function BlockFullSuite() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (blockFullSuite: boolean) => api.updateSettings({ blockFullSuite }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.block-full-suite.label")}
+      htmlFor="block-full-suite"
+      description={t("settings.blockFullSuite.description")}
+      details={t("settings.blockFullSuite.details")}
+      control={
+        <Switch
+          id="block-full-suite"
+          data-block-full-suite
+          aria-label={t("settings.entry.block-full-suite.label")}
           disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.prWatch ?? true}
+          checked={settings.data?.blockFullSuite ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -2058,9 +2425,9 @@ function UsageStats() {
           data-usage-stats
           aria-label={t("settings.entry.usage-stats.label")}
           disabled={
-            save.isPending || settings.data === undefined || !!blocked || checkOff
+            settings.data === undefined || !!blocked || checkOff
           }
-          checked={!blocked && !checkOff && (settings.data?.usageStats ?? true)}
+          checked={save.isPending ? save.variables : (!blocked && !checkOff && (settings.data?.usageStats ?? true))}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -2119,58 +2486,32 @@ function TopBarDetailedSetting() {
   );
 }
 
-// LayoutSetting is New (v2) or Classic (lib/uiV2.ts), switched at once, with
-// no restart. Choosing New the first time plays its tour (lib/tours.ts).
-function LayoutSetting() {
+// GroupIdleSetting is whether v2's sidebar groups idle projects at the bottom
+// and sorts by activity (lib/groupIdle.ts), applied at once.
+// VerbsSetting turns on the prototype navigation, Ask, Watch and Review
+// (lib/uiVerbs.ts).
+function VerbsSetting() {
   const t = useT();
-  const on = useUiV2();
-  const choose = (v2: boolean) => {
-    if (v2 === on) return;
-    keepScroll();
-    setUiV2(v2);
-    if (v2) setTourState(onSwitchToV2);
-  };
+  const on = useUiVerbs();
   return (
-    <SettingRow label={t("settings.entry.layout.label")} description={t("settings.layout.description")}>
-      <div
-        className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
-        role="radiogroup"
-        aria-label={t("settings.entry.layout.label")}
-        data-layout-choice
-      >
-        {([true, false] as const).map((v2) => (
-          <button
-            key={String(v2)}
-            role="radio"
-            aria-checked={on === v2}
-            data-layout={v2 ? "v2" : "classic"}
-            onClick={() => choose(v2)}
-            className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
-              on === v2 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]" : "text-muted hover:text-primary",
-            )}
-          >
-            {v2 ? <PanelLeft className="size-[15px]" /> : <Columns3 className="size-[15px]" />}
-            {t(v2 ? "settings.layout.new" : "settings.layout.classic")}
-          </button>
-        ))}
-      </div>
-      {on && (
-        <button
-          type="button"
-          className="w-fit text-[12px] text-subtle underline-offset-2 hover:text-primary hover:underline"
-          onClick={() => startTour(welcomeTour.id)}
-          data-layout-tour
-        >
-          {t("settings.layout.tour")}
-        </button>
-      )}
-    </SettingRow>
+    <SettingRow
+      label={t("settings.entry.verbs.label")}
+      description={t("settings.verbs.description")}
+      control={
+        <Switch
+          data-verbs-setting
+          aria-label={t("settings.entry.verbs.label")}
+          checked={on}
+          onCheckedChange={(v) => {
+            setUiVerbs(v);
+            if (v) startTour(verbsTour.id);
+          }}
+        />
+      }
+    />
   );
 }
 
-// GroupIdleSetting is whether v2's sidebar groups idle projects at the bottom
-// and sorts by activity (lib/groupIdle.ts), applied at once.
 function GroupIdleSetting() {
   const t = useT();
   const on = useGroupIdle();
@@ -2179,6 +2520,38 @@ function GroupIdleSetting() {
       label={t("settings.entry.group-idle.label")}
       description={t("settings.groupIdle.description")}
       control={<Switch data-group-idle-setting aria-label={t("settings.entry.group-idle.label")} checked={on} onCheckedChange={setGroupIdle} />}
+    />
+  );
+}
+
+// The tray's settings are the main process's (main/tray.ts), kept in its
+// tray.json: its menu can change them too.
+const traySettingsKey = ["traySettings"];
+const useTraySettings = () => useQuery({ queryKey: traySettingsKey, queryFn: () => window.agentbox.tray.settings(), refetchOnWindowFocus: "always" });
+
+// TraySetting is whether closing the window keeps AgentBox running in the
+// tray, or a Mac's menu bar, instead of quitting.
+function TraySetting() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const settings = useTraySettings();
+  const set = useMutation({
+    mutationFn: (keepRunning: boolean) => window.agentbox.tray.set({ keepRunning }),
+    onSuccess: (next) => queryClient.setQueryData(traySettingsKey, next),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.tray.label")}
+      description={t("settings.tray.description")}
+      control={
+        <Switch
+          data-tray-setting
+          aria-label={t("settings.entry.tray.label")}
+          checked={settings.data?.keepRunning ?? false}
+          disabled={set.isPending}
+          onCheckedChange={(on) => set.mutate(on)}
+        />
+      }
     />
   );
 }
@@ -2226,7 +2599,7 @@ function PagesStackSetting() {
             data-pages-stack={m}
             onClick={() => setPageStackMode(m)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
               mode === m
                 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
                 : "text-muted hover:text-primary",
@@ -2237,6 +2610,69 @@ function PagesStackSetting() {
         ))}
       </div>
     </SettingRow>
+  );
+}
+
+// AgentFreezeSetting is the experimental memory governor (internal/daemon/
+// agentfreeze.go): whole agents paused for memory, and new ones started on the
+// VM's real free memory. Off until turned on.
+function AgentFreezeSetting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (agentFreeze: boolean) => api.updateSettings({ agentFreeze }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.agent-freeze.label")}
+      description={t("settings.agentFreeze.description")}
+      details={t("settings.agentFreeze.details")}
+      control={
+        <Switch
+          data-agent-freeze
+          aria-label={t("settings.entry.agent-freeze.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.agentFreeze ?? false}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// AgentGoalsSetting is the experimental agent goals (internal/daemon/goals.go,
+// internal/chat/goal.go): agents' goals shown, and create_agent's driven by
+// the daemon's own checks. Off until turned on; nothing changes while off.
+function AgentGoalsSetting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (agentGoals: boolean) => api.updateSettings({ agentGoals }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["settings"], next);
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.agent-goals.label")}
+      description={t("settings.agentGoals.description")}
+      details={t("settings.agentGoals.details")}
+      control={
+        <Switch
+          data-agent-goals
+          aria-label={t("settings.entry.agent-goals.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.agentGoals ?? false}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
   );
 }
 
@@ -2258,8 +2694,70 @@ function ErrorReportsSetting() {
         <Switch
           data-error-reports
           aria-label={t("settings.entry.error-reports.label")}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.errorReports ?? true)}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// BuiltWithBadgeSetting decides whether agents end their pull requests'
+// descriptions with a "Built with AgentBox" line and badge. Off until turned
+// on (the app offers it once, after the first merged agent pull request:
+// BuiltWithBadgeOffer); an agent follows it from its next start.
+function BuiltWithBadgeSetting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (builtWithBadge: boolean) => api.updateSettings({ builtWithBadge }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.built-with-badge.label")}
+      description={t("settings.builtWithBadge.description")}
+      details={t("settings.builtWithBadge.details")}
+      control={
+        <Switch
+          data-built-with-badge
+          aria-label={t("settings.entry.built-with-badge.label")}
           disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.errorReports ?? true}
+          checked={settings.data?.builtWithBadge ?? false}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// OpenCodeV2Setting decides which OpenCode agents and the project chat run:
+// OpenCode 1, what every installation ran before, or OpenCode 2, which each
+// agent installs at its first start under it. The two versions don't read
+// each other's sessions, so a chat switched between them starts a new one.
+function OpenCodeV2Setting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (openCodeV2: boolean) => api.updateSettings({ openCodeVersion: openCodeV2 ? "2" : "1" }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.opencode-v2.label")}
+      description={t("settings.openCodeV2.description")}
+      details={t("settings.openCodeV2.details")}
+      control={
+        <Switch
+          data-opencode-v2
+          aria-label={t("settings.entry.opencode-v2.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={(settings.data?.openCodeVersion ?? "1") === "2"}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -2289,8 +2787,8 @@ function CreditAIToolSetting() {
         <Switch
           data-credit-ai-tool
           aria-label={t("settings.entry.credit-ai-tool.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.creditAITool ?? false}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.creditAITool ?? false)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -2368,7 +2866,7 @@ function LanguageSetting() {
             disabled={set.isPending || settings.data === undefined}
             onClick={() => set.mutate(tag)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
               current === tag
                 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
                 : "text-muted hover:text-primary",
@@ -2390,11 +2888,12 @@ function LanguageSetting() {
 // applies to the agents' desktops as well, which the copy says, since nothing
 // else on this page reaches into an agent's window.
 //
-// Three choices and no more. Wearing the desktop's theme means wearing its
-// mode too, so "follow" already covers a light desktop; what light and dark are
-// for is the person who wants AgentBox one way round whatever Omarchy is doing.
-// Pinning is AgentBox's own palette by definition, so it is also how you keep
-// its own colours on a machine that has a theme.
+// Wearing the desktop's theme means wearing its mode too, so "follow" already
+// covers a light desktop; what light and dark are for is the person who wants
+// AgentBox one way round whatever Omarchy is doing. Pinning is AgentBox's own
+// palette by definition, so it is also how you keep its own colours on a
+// machine that has a theme. Dracula is the one theme AgentBox carries itself,
+// worn like a followed one, on agents' desktops too.
 //
 // On a machine with no theme to follow, following is still offered and still
 // says what it would do — and says there is nothing to follow — rather than
@@ -2407,6 +2906,7 @@ const appearances: {
   { value: "follow", label: "settings.appearance.follow", icon: Monitor },
   { value: "light", label: "settings.appearance.light", icon: Sun },
   { value: "dark", label: "settings.appearance.dark", icon: Moon },
+  { value: "dracula", label: "settings.appearance.dracula", icon: Droplet },
 ];
 
 function Appearance() {
@@ -2442,7 +2942,7 @@ function Appearance() {
             disabled={set.isPending || theme.data === undefined}
             onClick={() => set.mutate(value)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
               current === value
                 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
                 : "text-muted hover:text-primary",
@@ -2455,7 +2955,7 @@ function Appearance() {
       </div>
       {theme.data !== undefined &&
         (found ? (
-          <div className="flex items-center gap-2 text-[12px] text-subtle">
+          <div className="flex items-center gap-2 text-caption text-subtle">
             <span
               className="size-3 rounded-full border border-line-vivid"
               style={{ background: theme.data.accent }}
@@ -2464,9 +2964,11 @@ function Appearance() {
             />
             <span data-theme-name>
               {t.rich(
-                current === "follow"
-                  ? "settings.appearance.onThemeFollowing"
-                  : "settings.appearance.onThemeNot",
+                current === "dracula"
+                  ? "settings.appearance.onDracula"
+                  : current === "follow"
+                    ? "settings.appearance.onThemeFollowing"
+                    : "settings.appearance.onThemeNot",
                 {
                   name: (
                     <span className="text-tertiary">
@@ -2564,7 +3066,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
   return (
     <div className="grid gap-3">
       {accounts.length > 0 && (
-        <p className="text-[12.5px] text-subtle">
+        <p className="text-ui text-subtle">
           {t("settings.accounts.defaultReaches")}
           {notDefault.length > 0 &&
             ` ${t("settings.accounts.theRest", { names: notDefault.map((p) => p.name).join(", ") })}`}
@@ -2598,7 +3100,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                     }}
                     disabled={rename.isPending}
                     autoFocus
-                    className="h-7 w-32 font-mono text-[12.5px]"
+                    className="h-7 w-32 font-mono text-ui"
                   />
                   <Button
                     type="submit"
@@ -2618,7 +3120,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                   </Button>
                 </form>
               ) : (
-                <span className="truncate font-mono text-[12.5px] text-secondary">
+                <span className="truncate font-mono text-ui text-secondary">
                   {acc.name}
                 </span>
               )}
@@ -2627,7 +3129,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                 <Badge variant="danger">{t("settings.accounts.badgeRejected")}</Badge>
               )}
               {acc.valid === "valid" && <Badge variant="success">{t("settings.accounts.badgeValid")}</Badge>}
-              <span className="truncate text-[11.5px] text-subtle">
+              <span className="truncate text-caption text-subtle">
                 {savedAtLabel(acc.savedAt)}
               </span>
               <div className="ml-auto flex items-center gap-1">
@@ -2687,15 +3189,63 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
   );
 }
 
+// LoginFlow is a sign-in the daemon runs as a job that opens a page and may
+// end on a code to paste back: Claude Code's `claude setup-token`, or Gemini
+// CLI's Google sign-in. ClaudeLogin shows either, with its own endpoints and
+// words; the controls are the same.
+interface LoginFlow {
+  id: string; // the job's kind, and the prefix of the form's ids
+  start: (account?: string) => Promise<T.Job>;
+  status: (job: string) => Promise<T.ClaudeLogin>;
+  sendCode: (job: string, code: string) => Promise<void>;
+  // openCodeUrl opens the code page by itself: for a flow whose only page is
+  // the one that ends on a code.
+  openCodeUrl: boolean;
+  intro: MessageKey;
+  logIn: MessageKey;
+  addAccount: MessageKey;
+  saved: MessageKey;
+  starting: MessageKey;
+}
+
+const claudeLoginFlow: LoginFlow = {
+  id: "claude-login",
+  start: api.startClaudeLogin,
+  status: api.claudeLogin,
+  sendCode: api.claudeLoginCode,
+  openCodeUrl: false,
+  intro: "settings.claudeLogin.intro",
+  logIn: "settings.claudeLogin.logIn",
+  addAccount: "settings.claudeLogin.addAccount",
+  saved: "settings.claudeLogin.saved",
+  starting: "settings.claudeLogin.starting",
+};
+
+const geminiLoginFlow: LoginFlow = {
+  id: "gemini-login",
+  start: api.startGeminiLogin,
+  status: api.geminiLogin,
+  sendCode: api.geminiLoginCode,
+  openCodeUrl: true,
+  intro: "settings.geminiLogin.intro",
+  logIn: "settings.geminiLogin.logIn",
+  addAccount: "settings.geminiLogin.addAccount",
+  saved: "settings.geminiLogin.saved",
+  starting: "settings.geminiLogin.starting",
+};
+
 // ClaudeLogin runs `claude setup-token` on this machine, through the daemon,
 // and opens the page it asks for in your browser. Approving it there is the
-// whole login: nothing is copied, and no terminal is involved (D59).
+// whole login: nothing is copied, and no terminal is involved (D59). With
+// geminiLoginFlow it runs Gemini CLI's Google sign-in the same way.
 function ClaudeLogin({
   accounts,
   onSaved,
+  flow = claudeLoginFlow,
 }: {
-  accounts: T.ClaudeAccount[];
+  accounts: readonly unknown[];
   onSaved: () => Promise<void>;
+  flow?: LoginFlow;
 }) {
   const t = useT();
   const [account, setAccount] = useState("");
@@ -2704,7 +3254,7 @@ function ClaudeLogin({
   const opened = useRef<string | null>(null);
 
   const start = useMutation({
-    mutationFn: () => api.startClaudeLogin(account.trim() || undefined),
+    mutationFn: () => flow.start(account.trim() || undefined),
     onSuccess: (started) => {
       opened.current = null;
       setCode("");
@@ -2712,8 +3262,8 @@ function ClaudeLogin({
     },
   });
   const login = useQuery({
-    queryKey: ["claude-login", job],
-    queryFn: () => api.claudeLogin(job!),
+    queryKey: [flow.id, job],
+    queryFn: () => flow.status(job!),
     enabled: job !== null,
     // The page to approve appears a moment after the job starts, and the login
     // ends whenever you get round to approving it.
@@ -2732,12 +3282,12 @@ function ClaudeLogin({
   useEffect(() => {
     if (job !== null) return;
     const running = jobs.data?.find(
-      (j) => j.kind === "claude-login" && j.status === "running",
+      (j) => j.kind === flow.id && j.status === "running",
     );
     if (running) setJob(running.id);
-  }, [job, jobs.data]);
+  }, [job, jobs.data, flow.id]);
   const sendCode = useMutation({
-    mutationFn: () => api.claudeLoginCode(job!, code.trim()),
+    mutationFn: () => flow.sendCode(job!, code.trim()),
     onSuccess: () => setCode(""),
   });
 
@@ -2746,11 +3296,13 @@ function ClaudeLogin({
   // itself — it is a second, parallel login, and only one is worth finishing.
   const url = login.data?.url;
   const codeUrl = login.data?.codeUrl;
+  // A flow whose only page ends on a code opens that one instead.
+  const first = url ?? (flow.openCodeUrl ? codeUrl : undefined);
   useEffect(() => {
-    if (!url || opened.current === url) return;
-    opened.current = url;
-    void window.agentbox.openExternal(url);
-  }, [url]);
+    if (!first || opened.current === first) return;
+    opened.current = first;
+    void window.agentbox.openExternal(first);
+  }, [first]);
 
   const running =
     job !== null && (!login.data || login.data.status === "running");
@@ -2760,15 +3312,16 @@ function ClaudeLogin({
     <div
       className="grid gap-3"
       data-claude-login={login.data?.status ?? (job ? "running" : "idle")}
+      data-login-flow={flow.id}
     >
-      <p className="text-[13px] text-muted">
-        {t.rich("settings.claudeLogin.intro", { code: (c) => <Code>{c}</Code> })}
+      <p className="text-ui text-muted">
+        {t.rich(flow.intro, { code: (c) => <Code>{c}</Code> })}
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <div className="grid gap-1.5">
-          <Label htmlFor="claude-login-account">{t("settings.accounts.account")}</Label>
+          <Label htmlFor={`${flow.id}-account`}>{t("settings.accounts.account")}</Label>
           <Input
-            id="claude-login-account"
+            id={`${flow.id}-account`}
             placeholder={accounts.length === 0 ? "default" : "work"}
             value={account}
             onChange={(event) => setAccount(event.target.value)}
@@ -2786,7 +3339,7 @@ function ClaudeLogin({
           ) : (
             <LogIn />
           )}
-          {accounts.length === 0 ? t("settings.claudeLogin.logIn") : t("settings.claudeLogin.addAccount")}
+          {accounts.length === 0 ? t(flow.logIn) : t(flow.addAccount)}
         </Button>
         {running && (
           <Button
@@ -2801,7 +3354,7 @@ function ClaudeLogin({
 
       {job && (
         <div className="grid gap-3 rounded-xl border border-line bg-surface-faint p-3.5">
-          <div className="flex flex-wrap items-center gap-2 text-[13px]">
+          <div className="flex flex-wrap items-center gap-2 text-ui">
             {running ? (
               <LoaderCircle className="size-4 animate-spin text-brand-400" />
             ) : (
@@ -2812,7 +3365,7 @@ function ClaudeLogin({
             )}
             <span className="text-secondary">
               {login.data?.status === "succeeded"
-                ? t("settings.claudeLogin.saved", { account: login.data.account })
+                ? t(flow.saved, { account: login.data.account })
                 : login.data?.status === "cancelled"
                   ? t("settings.claudeLogin.cancelled")
                   : login.data?.status === "failed"
@@ -2821,7 +3374,7 @@ function ClaudeLogin({
                       ? t("settings.claudeLogin.waiting")
                       : codeUrl
                         ? t("settings.claudeLogin.approveThenCode")
-                        : t("settings.claudeLogin.starting")}
+                        : t(flow.starting)}
             </span>
             {url && running && (
               <Button
@@ -2884,7 +3437,7 @@ function ClaudeLogin({
             onDone={(finished) => {
               if (finished.status !== "succeeded") return;
               toast(
-                t("settings.claudeLogin.saved", {
+                t(flow.saved, {
                   account: login.data?.account ?? "default",
                 }),
               );
@@ -2932,7 +3485,7 @@ function ClaudeTokenForm({
         save.mutate();
       }}
     >
-      <p className="text-[13px] text-muted">
+      <p className="text-ui text-muted">
         {t.rich("settings.claudeToken.intro", { code: (c) => <Code>{c}</Code> })}
       </p>
       <div className="flex flex-wrap items-end gap-2">
@@ -3049,7 +3602,7 @@ function CursorAccount({ command }: { command: string }) {
 
   return (
     <div className="grid gap-3">
-      <div className="flex flex-wrap items-center gap-2 text-[13px]">
+      <div className="flex flex-wrap items-center gap-2 text-ui">
         <StepIcon status={signedIn ? "ok" : "optional"} small />
         <span className="text-secondary">
           {signedIn
@@ -3115,7 +3668,7 @@ function CursorAccount({ command }: { command: string }) {
         {state === "waiting" && url && (
           <button
             type="button"
-            className="inline-flex items-center gap-1 text-[13px] text-brand-300 underline-offset-2 hover:underline"
+            className="inline-flex items-center gap-1 text-ui text-brand-300 underline-offset-2 hover:underline"
             onClick={() => void window.agentbox.openExternal(url)}
           >
             <ExternalLink className="size-3.5" />
@@ -3135,8 +3688,266 @@ function CursorAccount({ command }: { command: string }) {
       )}
       {save.error && <Notice>{errorMessage(save.error)}</Notice>}
       {start.error && <Notice>{errorMessage(start.error)}</Notice>}
-      <p className="text-[13px] text-muted">
+      <p className="text-ui text-muted">
         {t.rich("settings.cursor.cliBody", { code: (c) => <Code>{c}</Code> })}
+      </p>
+      <CommandBox command={command} />
+    </div>
+  );
+}
+
+// GitHubLogin signs in through the daemon, which runs `gh auth login --web`
+// where it runs: it shows gh's code, opens github.com/login/device, and the
+// token arrives once the code is entered there. Nothing is pasted, and the
+// user's own machine needs no gh.
+function GitHubLogin({
+  accounts,
+  onSaved,
+}: {
+  accounts: T.GitHubAccount[];
+  onSaved: () => Promise<void>;
+}) {
+  const t = useT();
+  const [account, setAccount] = useState("");
+  const [job, setJob] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const opened = useRef<string | null>(null);
+  const announced = useRef<string | null>(null);
+
+  const start = useMutation({
+    mutationFn: () => api.startGitHubLogin(account.trim() || undefined),
+    onSuccess: (started) => {
+      opened.current = null;
+      setCopied(false);
+      setJob(started.id);
+    },
+  });
+  const login = useQuery({
+    queryKey: ["github-login", job],
+    queryFn: () => api.githubLogin(job!),
+    enabled: job !== null,
+    // The code appears a moment after the job starts, and the sign-in ends
+    // whenever you get round to entering it.
+    refetchInterval: (query) =>
+      query.state.data && query.state.data.status !== "running" ? false : 1_000,
+  });
+  const cancel = useMutation({ mutationFn: () => api.cancelJob(job!) });
+  // A sign-in outlives this component, as ClaudeLogin's does: pick a running
+  // one back up rather than leave "already running" a dead end.
+  const jobs = useQuery({
+    queryKey: ["jobs"],
+    queryFn: api.jobs,
+    enabled: job === null,
+  });
+  useEffect(() => {
+    if (job !== null) return;
+    const running = jobs.data?.find(
+      (j) => j.kind === "github-login" && j.status === "running",
+    );
+    if (running) setJob(running.id);
+  }, [job, jobs.data]);
+
+  const data = login.data;
+  const code = data?.userCode;
+  const verificationUri = data?.verificationUri;
+  const copyCode = () => {
+    if (!code) return;
+    window.agentbox.copyText(code);
+    setCopied(true);
+  };
+  // Copy the code and open GitHub's page as soon as there is a code, once: the
+  // page asks for exactly what is on the clipboard.
+  useEffect(() => {
+    if (!code || !verificationUri || opened.current === code) return;
+    opened.current = code;
+    window.agentbox.copyText(code);
+    setCopied(true);
+    void window.agentbox.openExternal(verificationUri);
+  }, [code, verificationUri]);
+  // Say so once when it is saved, and refresh the accounts above.
+  useEffect(() => {
+    if (!job || data?.status !== "succeeded" || announced.current === job) return;
+    announced.current = job;
+    toast(t("settings.github.saved", { account: data.account, user: data.user ?? "" }));
+    setAccount("");
+    void onSaved();
+  }, [job, data, onSaved, t]);
+
+  const running = job !== null && (!data || data.status === "running");
+  const error = start.error ?? cancel.error;
+  const ended =
+    data?.status === "succeeded"
+      ? t("settings.github.saved", { account: data.account, user: data.user ?? "" })
+      : data?.status === "cancelled"
+        ? t("settings.githubLogin.cancelled")
+        : data?.outcome === "expired"
+          ? t("settings.githubLogin.expired")
+          : data?.outcome === "denied"
+            ? t("settings.githubLogin.denied")
+            : data?.status === "failed"
+              ? t("settings.githubLogin.failed")
+              : null;
+
+  return (
+    <div
+      className="grid gap-3"
+      data-github-login={data?.outcome ?? data?.status ?? (job ? "running" : "idle")}
+    >
+      <p className="text-ui text-muted">{t("settings.github.intro")}</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="github-login-account">{t("settings.accounts.account")}</Label>
+          <Input
+            id="github-login-account"
+            placeholder={accounts.length === 0 ? "default" : "work"}
+            value={account}
+            onChange={(event) => setAccount(event.target.value)}
+            disabled={running}
+            className="w-32 font-mono"
+          />
+        </div>
+        <Button
+          variant="primary"
+          disabled={running || start.isPending}
+          onClick={() => start.mutate()}
+        >
+          {running || start.isPending ? (
+            <LoaderCircle className="animate-spin" />
+          ) : (
+            <LogIn />
+          )}
+          {accounts.length === 0
+            ? t("settings.githubLogin.signIn")
+            : t("settings.githubLogin.addAccount")}
+        </Button>
+        {running && (
+          <Button
+            variant="ghost"
+            disabled={cancel.isPending}
+            onClick={() => cancel.mutate()}
+          >
+            {t("common.cancel")}
+          </Button>
+        )}
+      </div>
+
+      {job && (
+        <div className="grid gap-3 rounded-xl border border-line bg-surface-faint p-3.5">
+          {running && code && (
+            <div className="grid gap-2">
+              <p className="text-ui text-secondary">
+                {t("settings.githubLogin.enterCode")}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className="select-all rounded-lg border border-line-strong bg-well px-3 py-1.5 font-mono text-2xl font-semibold tracking-[0.15em] text-primary"
+                  data-github-code
+                >
+                  {code}
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={copyCode}
+                >
+                  {copied ? <Check className="text-emerald-400" /> : <Copy />}
+                  {copied ? t("settings.githubLogin.copied") : t("settings.githubLogin.copy")}
+                </Button>
+                {verificationUri && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void window.agentbox.openExternal(verificationUri)}
+                  >
+                    <ExternalLink />
+                    {t("settings.githubLogin.open")}
+                  </Button>
+                )}
+              </div>
+              {verificationUri && (
+                <p className="break-all text-xs text-subtle">
+                  {t("settings.githubLogin.where", { url: verificationUri })}
+                </p>
+              )}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2 text-ui">
+            {running ? (
+              <LoaderCircle className="size-4 animate-spin text-brand-400" />
+            ) : (
+              <StepIcon
+                status={data?.status === "succeeded" ? "ok" : "missing"}
+                small
+              />
+            )}
+            <span className="min-w-0 text-secondary">
+              {ended ??
+                (code
+                  ? t("settings.githubLogin.waiting")
+                  : t("settings.githubLogin.starting"))}
+            </span>
+            {!running && data?.status !== "succeeded" && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="ml-auto"
+                disabled={start.isPending}
+                onClick={() => start.mutate()}
+              >
+                <RefreshCw />
+                {data?.outcome === "expired"
+                  ? t("settings.githubLogin.newCode")
+                  : t("settings.githubLogin.tryAgain")}
+              </Button>
+            )}
+          </div>
+          {data?.status === "failed" && data.outcome !== "expired" && (
+            <p className="text-xs text-subtle">
+              {data.outcome === "denied"
+                ? t("settings.githubLogin.deniedHint")
+                : data.error}
+            </p>
+          )}
+        </div>
+      )}
+      {error && <Notice>{errorMessage(error)}</Notice>}
+    </div>
+  );
+}
+
+// GeminiAccount is Gemini CLI's accounts: a Google sign-in, run by the daemon
+// as Claude Code's login is (ClaudeLogin with geminiLoginFlow), or a Gemini
+// API key pasted here, as Codex's is.
+function GeminiAccount({ command }: { command: string }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const auth = useQuery({ queryKey: ["auth"], queryFn: api.auth });
+  const accounts = auth.data?.geminiAccounts ?? [];
+  const signedIn = auth.data?.gemini === true;
+  const refresh = async () => {
+    await Promise.all(
+      ["auth", "setup", "settings", "chatRunners"].map((k) =>
+        queryClient.invalidateQueries({ queryKey: [k] }),
+      ),
+    );
+  };
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-2 text-ui">
+        <StepIcon status={signedIn ? "ok" : "optional"} small />
+        <span className="text-secondary">
+          {signedIn
+            ? auth.data?.geminiEmail
+              ? t("settings.gemini.signedInAs", { email: auth.data.geminiEmail })
+              : t("settings.gemini.signedInPlain")
+            : t("settings.gemini.notSignedIn")}
+        </span>
+      </div>
+      <ToolAccountList tool="gemini" accounts={accounts} />
+      <ClaudeLogin accounts={accounts} onSaved={refresh} flow={geminiLoginFlow} />
+      <ToolKeyForm tool="gemini" accounts={accounts} />
+      <p className="text-ui text-muted">
+        {t.rich("settings.gemini.cliBody", { code: (c) => <Code>{c}</Code> })}
       </p>
       <CommandBox command={command} />
     </div>
@@ -3153,6 +3964,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
   const notDefault = (projects.data ?? []).filter((p) => p.githubAccount);
   const [token, setToken] = useState("");
   const [account, setAccount] = useState("");
+  const [pasting, setPasting] = useState(false);
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ["setup"] });
     await queryClient.invalidateQueries({ queryKey: ["auth"] });
@@ -3227,7 +4039,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
   return (
     <div className="grid gap-3">
       {accounts.length > 0 && (
-        <p className="text-[12.5px] text-subtle">
+        <p className="text-ui text-subtle">
           {t("settings.accounts.defaultReaches")}
           {notDefault.length > 0 &&
             ` ${t("settings.accounts.theRest", { names: notDefault.map((p) => p.name).join(", ") })}`}
@@ -3261,7 +4073,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                     }}
                     disabled={rename.isPending}
                     autoFocus
-                    className="h-7 w-32 font-mono text-[12.5px]"
+                    className="h-7 w-32 font-mono text-ui"
                   />
                   <Button
                     type="submit"
@@ -3281,12 +4093,12 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                   </Button>
                 </form>
               ) : (
-                <span className="truncate font-mono text-[12.5px] text-secondary">
+                <span className="truncate font-mono text-ui text-secondary">
                   {acc.name}
                 </span>
               )}
               {acc.login && (
-                <span className="truncate text-[12px] text-subtle">
+                <span className="truncate text-caption text-subtle">
                   {acc.login}
                 </span>
               )}
@@ -3325,68 +4137,80 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
           ))}
         </ul>
       )}
-      <form
-        className="grid gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          save.mutate();
-        }}
-      >
-        <p className="text-[13px] text-muted">
-          {t.rich("settings.github.intro", { code: (c) => <Code>{c}</Code> })}
-        </p>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="github-account-name">{t("settings.accounts.account")}</Label>
-            <Input
-              id="github-account-name"
-              placeholder={accounts.length === 0 ? "default" : "work"}
-              value={account}
-              onChange={(event) => setAccount(event.target.value)}
-              className="w-32 font-mono"
-            />
-          </div>
-          <div className="grid min-w-48 flex-1 gap-1.5">
-            <Label htmlFor="github-account-token">{t("settings.accounts.token")}</Label>
-            <Input
-              id="github-account-token"
-              type="password"
-              placeholder={t("settings.github.tokenPlaceholder")}
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              className="font-mono"
-            />
-          </div>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!token.trim() || save.isPending}
-          >
-            {save.isPending ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
-              <KeyRound />
+      <GitHubLogin accounts={accounts} onSaved={refresh} />
+      <div className="grid gap-2">
+        <button
+          type="button"
+          onClick={() => setPasting((open) => !open)}
+          aria-expanded={pasting}
+          className="flex w-fit items-center gap-1.5 text-xs text-subtle transition hover:text-tertiary"
+        >
+          <ChevronDown
+            className={cn(
+              "size-3.5 transition-transform",
+              pasting && "rotate-180",
             )}
-            {t("common.save")}
-          </Button>
-        </div>
-        <p className="text-xs text-subtle">
-          {t("settings.github.note")}
-        </p>
-      </form>
+          />
+          {t("settings.github.useToken")}
+        </button>
+        {pasting && (
+          <form
+            className="grid gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              save.mutate();
+            }}
+          >
+            <p className="text-ui text-muted">
+              {t.rich("settings.github.tokenIntro", { code: (c) => <Code>{c}</Code> })}
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="github-account-name">{t("settings.accounts.account")}</Label>
+                <Input
+                  id="github-account-name"
+                  placeholder={accounts.length === 0 ? "default" : "work"}
+                  value={account}
+                  onChange={(event) => setAccount(event.target.value)}
+                  className="w-32 font-mono"
+                />
+              </div>
+              <div className="grid min-w-48 flex-1 gap-1.5">
+                <Label htmlFor="github-account-token">{t("settings.accounts.token")}</Label>
+                <Input
+                  id="github-account-token"
+                  type="password"
+                  placeholder={t("settings.github.tokenPlaceholder")}
+                  value={token}
+                  onChange={(event) => setToken(event.target.value)}
+                  className="font-mono"
+                />
+              </div>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={!token.trim() || save.isPending}
+              >
+                {save.isPending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <KeyRound />
+                )}
+                {t("common.save")}
+              </Button>
+            </div>
+          </form>
+        )}
+      </div>
+      <p className="text-xs text-subtle">
+        {t("settings.github.note")}
+      </p>
       {error && <Notice>{errorMessage(error)}</Notice>}
     </div>
   );
 }
 
-// appendOutput adds a chunk of a command's output to the lines so far. A chunk
-// can stop in the middle of a line, so the last one stays open.
-export function appendOutput(lines: string[], text: string): string[] {
-  const parts = text.split("\n");
-  const next = lines.length > 0 ? [...lines] : [""];
-  next[next.length - 1] += parts[0];
-  return next.concat(parts.slice(1));
-}
+export { appendOutput };
 
 // HostSetup runs `agentbox host setup` as root, from the app: pkexec asks for
 // the password in the desktop's own dialog, and the output arrives here as it
@@ -3457,10 +4281,10 @@ function HostSetup({
   // which needs no password either (D94).
   const wsl = status.data?.wsl != null;
   // A machine that can't run a VM has no move to make: Incus here is the way.
-  if (linux?.mode === "host" && !linux.kvm) {
+  if (linux?.mode === "host" && !linux.kvm && !kvmFixable(linux)) {
     return (
       <div className="grid gap-2" data-host-setup="no-kvm">
-        <p className="text-[13px] text-muted">{t("settings.hostSetup.noKVMHere")}</p>
+        <p className="text-ui text-muted">{t("settings.hostSetup.noKVMHere")}</p>
         <CommandBox command={`sudo ${agentbox} host setup`} />
         <details className="text-xs text-subtle">
           <summary className="w-fit cursor-pointer hover:text-secondary">{t("settings.hostSetup.whyNotVM")}</summary>
@@ -3472,7 +4296,7 @@ function HostSetup({
   if (linux?.mode === "host") {
     return (
       <div className="grid gap-2" data-host-setup="moving">
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {t("settings.hostSetup.moving")}
         </p>
         <CommandBox command={`sudo ${agentbox} host setup`} />
@@ -3486,7 +4310,7 @@ function HostSetup({
       className="grid gap-2"
       data-host-setup={noDialog ? "terminal" : "button"}
     >
-      <p className="text-[13px] text-muted">
+      <p className="text-ui text-muted">
         {mac
           ? t("settings.hostSetup.introVM")
           : wsl
@@ -3520,7 +4344,7 @@ function HostSetup({
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
       {(noDialog || run.error) && (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">
+          <p className="text-ui text-muted">
             {noDialog
               ? t("settings.hostSetup.noPkexec")
               : mac || wsl
@@ -3554,7 +4378,7 @@ export function SetupLog({ lines, label }: { lines: string[]; label: string }) {
       ref={log}
       data-host-setup-log
       aria-label={label}
-      className="h-64 overflow-auto rounded-xl border border-line bg-well p-3.5 font-mono text-[11.5px] leading-relaxed text-subtle"
+      className="h-64 overflow-auto rounded-xl border border-line bg-well p-3.5 font-mono text-caption leading-relaxed text-subtle"
     >
       {lines.map((line = "", i) => (
         <div
@@ -3582,7 +4406,7 @@ export function CommandBox({ command }: { command: string }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-line-strong bg-well py-1.5 pl-3.5 pr-1.5 font-mono text-[12.5px] text-secondary">
+    <div className="flex items-center gap-2 rounded-xl border border-line-strong bg-well py-1.5 pl-3.5 pr-1.5 font-mono text-ui text-secondary">
       <span className="select-none text-faint">$</span>
       <span className="min-w-0 flex-1 truncate" title={command}>
         {command}
@@ -3637,7 +4461,7 @@ function SetupChecklist({
     <div className="grid gap-3" data-setup-checklist>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
         <span
-          className="text-[13px] tabular-nums text-muted"
+          className="text-ui tabular-nums text-muted"
           data-setup-progress={`${done}/${steps.length}`}
         >
           {t("settings.checklist.progress", { done, total: steps.length })}
@@ -3677,7 +4501,7 @@ function SetupChecklist({
                 onClick={toggle}
                 aria-expanded={step.body ? expanded : undefined}
                 className={cn(
-                  "flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left text-[13px] transition enabled:hover:bg-surface",
+                  "flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left text-ui transition enabled:hover:bg-surface",
                   after && "opacity-60",
                 )}
               >
@@ -3695,7 +4519,7 @@ function SetupChecklist({
                   {isNext ? t("settings.checklist.next", { step: step.title }) : step.title}
                 </span>
                 {isNext ? (
-                  <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+                  <span className="shrink-0 text-caption font-semibold uppercase tracking-wider text-amber-300">
                     {t("settings.checklist.nextBadge")}
                   </span>
                 ) : after ? (
@@ -3718,7 +4542,7 @@ function SetupChecklist({
               </button>
               {expanded && !after && (
                 <div className="grid gap-3 px-4 pb-4 pl-11">
-                  <p className="text-[13px] text-muted">{step.description}</p>
+                  <p className="text-ui text-muted">{step.description}</p>
                   {isNext && step.detail && (
                     <p className="break-words text-xs text-subtle">{step.detail}</p>
                   )}
@@ -3729,7 +4553,7 @@ function SetupChecklist({
           );
         })}
       </ol>
-      <p className="px-1 text-[13px] text-muted">
+      <p className="px-1 text-ui text-muted">
         {next || done < steps.length
           ? t("settings.checklist.leadMeanwhile")
           : t("settings.checklist.allDone")}
@@ -3785,12 +4609,12 @@ function ChecklistStep({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="text-[14px] font-semibold text-primary">
+              <h3 className="text-body font-semibold text-primary">
                 {step.title}
               </h3>
               <StepBadge step={step} />
             </div>
-            <p className="mt-0.5 text-[13px] text-muted">{step.description}</p>
+            <p className="mt-0.5 text-ui text-muted">{step.description}</p>
             {step.detail && (
               <p
                 className={cn(

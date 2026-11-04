@@ -24,6 +24,9 @@ type resumingTool struct {
 	mu       sync.Mutex
 	launches int
 	accounts map[string][]string // by agent
+	// hold, when set before the first launch, keeps each turn running until
+	// it is closed.
+	hold chan struct{}
 }
 
 func (r *resumingTool) launch(_ context.Context, a state.Agent, _ func(string)) (*chat.Process, error) {
@@ -77,6 +80,13 @@ func (r *resumingTool) Request(method string, _ json.RawMessage, reply func(any,
 	case acp.MethodSessionResume:
 		reply(map[string]any{}, nil)
 	case acp.MethodSessionPrompt:
+		if r.hold != nil {
+			go func() {
+				<-r.hold
+				reply(map[string]any{"stopReason": "end_turn"}, nil)
+			}()
+			return
+		}
 		reply(map[string]any{"stopReason": "end_turn"}, nil)
 	default:
 		reply(nil, &acp.Error{Code: acp.CodeMethodNotFound, Message: method})

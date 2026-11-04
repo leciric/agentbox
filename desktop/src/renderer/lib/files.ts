@@ -182,7 +182,6 @@ export interface PanelPrefs {
 }
 
 const prefsKey = 'ab.files.panel';
-export const panelMin = 320;
 export const treeMin = 160;
 const defaults: PanelPrefs = { open: false, width: 640, treeWidth: 240, ignored: false, tree: true };
 
@@ -221,17 +220,6 @@ export function setPanelPrefs(change: Partial<PanelPrefs>): void {
 
 export function usePanelPrefs(): PanelPrefs {
   return useSyncExternalStore(subscribe, panelPrefs);
-}
-
-// panelLayout fits the panel into the width the chat and it share: beside the
-// chat while that leaves the chat chatMin, and over it, as a drawer leaving a
-// strip of the chat in view, when the panel is wider than that. Dragging it
-// wider than the room beside the chat makes it a drawer, narrower puts it back.
-export const chatMin = 420;
-export function panelLayout(width: number, available: number): { width: number; overlay: boolean } {
-  const w = Math.max(Math.min(panelMin, available), width);
-  if (w <= available - chatMin) return { width: Math.round(w), overlay: false };
-  return { width: Math.round(Math.max(Math.min(panelMin, available), Math.min(w, available - 48))), overlay: true };
 }
 
 // narrowPanel is a panel too narrow for the tree and a file side by side: it

@@ -37,6 +37,7 @@ type heavyClient interface {
 	StartHeavy(ctx context.Context, req api.HeavyRequest) (api.HeavyStart, error)
 	JoinHeavy(ctx context.Context, key string, pid int) error
 	EndHeavy(ctx context.Context, key string) error
+	TestPolicy(ctx context.Context) (api.TestPolicy, error)
 }
 
 // heavyRenew is how often `agentbox heavy` asks again for its command while
@@ -174,8 +175,9 @@ func randomKey() string {
 // (agent.withHeavyHooks), with the call as JSON on stdin. It must cost the
 // conversation nothing: it prints nothing and exits 0 whenever the command
 // may start, isn't heavy, or the daemon can't be reached. Only when the wait
-// to start runs out does it print one line, and exit 2, which keeps the tool
-// from running and tells the model why.
+// to start runs out, or the command is a whole test suite the agent may not
+// run (fullsuite.go), does it print, and exit 2, which keeps the tool from
+// running and tells the model why.
 
 // heavyCommand matches a Bash command that runs tests, builds or the app:
 // the commands an agent's memory spikes in. Only a command's own words count,
@@ -189,6 +191,8 @@ var heavyCommand = regexp.MustCompile(`(?m)(?:^|[;&|(\x60]|\$\(|-c\s+["']|\b(?:t
 	`(?:npm|pnpm|yarn|bun)\s+(?:--prefix[\s=]\S+\s+|-C\s+\S+\s+|--filter[\s=]\S+\s+)*(?:(?:run\s+)?(?:test|build|e2e|dist|start|dev|preview)\b|exec\s+(?:vitest|jest|playwright|electron))|` +
 	`(?:npx|pnpx|bunx)\s+(?:vitest|jest|playwright|tsc|electron|next|vite)\b|` +
 	`(?:(?:npx|pnpx|bunx)\s+)?vp\s+(?:test|build|dev|preview)\b|` +
+	`vite(?:\s+(?:build|dev|serve|preview|--host|--port|--config|--mode)\b|\s*(?:$|[;&|)]))|` +
+	`node\s+(?:-\S+\s+)*(?:\S*/)?build[\w.-]*\.[cm]?js\b|` +
 	`(?:vitest|jest|pytest|tox|tsc|electron|gradle|gradlew|mvn|make|cmake|ninja|bazel|dotnet)\b|` +
 	`cargo\s+(?:test|build|run|bench|check|clippy)\b|` +
 	`docker\s+(?:build|buildx|compose\s+(?:up|build))\b|` +
@@ -238,6 +242,7 @@ type hookCall struct {
 	Event     string `json:"hook_event_name"`
 	Tool      string `json:"tool_name"`
 	ToolUseID string `json:"tool_use_id"`
+	Cwd       string `json:"cwd"`
 	Input     struct {
 		Command string `json:"command"`
 	} `json:"tool_input"`
@@ -288,6 +293,15 @@ func heavyHook(ctx context.Context, in io.Reader, stderr io.Writer, c heavyClien
 	var call hookCall
 	if err := json.NewDecoder(io.LimitReader(in, 4<<20)).Decode(&call); err != nil {
 		return 0
+	}
+	if call.Event == "PreToolUse" && call.Tool == "Bash" {
+		if run, ok := fullSuite(call.Input.Command, call.Cwd); ok {
+			// Asked only now, so a command that isn't one costs nothing.
+			if policy, err := c.TestPolicy(ctx); err == nil && policy.BlockFullSuite {
+				_, _ = fmt.Fprint(stderr, fullSuiteMessage(ctx, run, policy.Base))
+				return 2
+			}
+		}
 	}
 	key := heavyKey(call)
 	if key == "" {

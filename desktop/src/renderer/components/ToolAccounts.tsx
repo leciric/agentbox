@@ -12,7 +12,7 @@ import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Input, Label } from './ui/input';
 
-// Codex, OpenCode and Cursor logins are named accounts, like Claude Code's and
+// Codex, OpenCode, Cursor and Gemini CLI logins are named accounts, like Claude Code's and
 // GitHub's (internal/credentials/toolaccounts.go). These are their lists in
 // Settings → Accounts, and the form that adds one from an API key; a ChatGPT
 // or OAuth sign-in runs the tool's own login, which only a terminal can.
@@ -20,7 +20,7 @@ import { Input, Label } from './ui/input';
 // accountsOf is a tool's stored accounts, from GET /v1/auth.
 export function accountsOf(auth: T.AuthStatus | undefined, tool: string): T.ToolAccount[] {
   if (!auth) return [];
-  return (tool === 'codex' ? auth.codexAccounts : tool === 'opencode' ? auth.openCodeAccounts : tool === 'cursor' ? auth.cursorAccounts : undefined) ?? [];
+  return (tool === 'codex' ? auth.codexAccounts : tool === 'opencode' ? auth.openCodeAccounts : tool === 'cursor' ? auth.cursorAccounts : tool === 'gemini' ? auth.geminiAccounts : undefined) ?? [];
 }
 
 // accountKind says how an account signs in, and whose it is.
@@ -33,6 +33,7 @@ export function accountKind(t: ReturnType<typeof useT>, account: T.ToolAccount):
 const kindKeys: Record<string, MessageKey> = {
   apikey: 'settings.toolAccounts.kindAPIKey',
   chatgpt: 'settings.toolAccounts.kindChatGPT',
+  google: 'settings.toolAccounts.kindGoogle',
   oauth: 'settings.toolAccounts.kindOAuth',
   wellknown: 'settings.toolAccounts.kindWellKnown',
 };
@@ -87,7 +88,7 @@ export function ToolAccountList({ tool, accounts }: { tool: string; accounts: T.
             className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-faint py-1.5 pl-3 pr-1.5"
           >
             <KeyRound className="size-3.5 shrink-0 text-subtle" />
-            {acc.provider && <span className="shrink-0 text-[12px] text-subtle">{acc.provider}</span>}
+            {acc.provider && <span className="shrink-0 text-caption text-subtle">{acc.provider}</span>}
             {renaming === key(acc) ? (
               <form
                 className="flex min-w-0 items-center gap-1"
@@ -107,7 +108,7 @@ export function ToolAccountList({ tool, accounts }: { tool: string; accounts: T.
                   }}
                   disabled={rename.isPending}
                   autoFocus
-                  className="h-7 w-32 font-mono text-[12.5px]"
+                  className="h-7 w-32 font-mono text-ui"
                 />
                 <Button type="submit" size="sm" disabled={rename.isPending || newName.trim() === ''}>
                   {t('common.rename')}
@@ -117,9 +118,9 @@ export function ToolAccountList({ tool, accounts }: { tool: string; accounts: T.
                 </Button>
               </form>
             ) : (
-              <span className="truncate font-mono text-[12.5px] text-secondary">{acc.name}</span>
+              <span className="truncate font-mono text-ui text-secondary">{acc.name}</span>
             )}
-            <span className="min-w-0 truncate text-[12px] text-subtle">{accountKind(t, acc)}</span>
+            <span className="min-w-0 truncate text-caption text-subtle">{accountKind(t, acc)}</span>
             {acc.default && <Badge variant="brand">{t('settings.accounts.badgeDefault')}</Badge>}
             {acc.expired && <Badge variant="danger">{t('settings.toolAccounts.expired')}</Badge>}
             <div className="ml-auto flex items-center gap-1">
@@ -159,9 +160,9 @@ export function ToolAccountList({ tool, accounts }: { tool: string; accounts: T.
   );
 }
 
-// ToolKeyForm adds a Codex or OpenCode account from an API key: OpenAI's for
-// Codex, a provider's for OpenCode.
-export function ToolKeyForm({ tool, accounts }: { tool: 'codex' | 'opencode'; accounts: T.ToolAccount[] }) {
+// ToolKeyForm adds a Codex, OpenCode or Gemini CLI account from an API key:
+// OpenAI's for Codex, a provider's for OpenCode, Google's for Gemini CLI.
+export function ToolKeyForm({ tool, accounts }: { tool: 'codex' | 'opencode' | 'gemini'; accounts: T.ToolAccount[] }) {
   const t = useT();
   const queryClient = useQueryClient();
   const [account, setAccount] = useState('');
@@ -186,7 +187,7 @@ export function ToolKeyForm({ tool, accounts }: { tool: 'codex' | 'opencode'; ac
         if (ready) save.mutate();
       }}
     >
-      <p className="text-[13px] text-muted">{t.rich(tool === 'codex' ? 'settings.toolAccounts.introCodex' : 'settings.toolAccounts.introOpenCode', { code: (c) => <Code>{c}</Code> })}</p>
+      <p className="text-ui text-muted">{t.rich(introKeys[tool], { code: (c) => <Code>{c}</Code> })}</p>
       <div className="flex flex-wrap items-end gap-2">
         {tool === 'opencode' && (
           <div className="grid gap-1.5">
@@ -223,7 +224,7 @@ export function ToolKeyForm({ tool, accounts }: { tool: 'codex' | 'opencode'; ac
             type="password"
             autoComplete="off"
             spellCheck={false}
-            placeholder={t(tool === 'codex' ? 'settings.toolAccounts.keyPlaceholderCodex' : 'settings.toolAccounts.keyPlaceholderOpenCode')}
+            placeholder={t(placeholderKeys[tool])}
             value={key}
             onChange={(event) => setKey(event.target.value)}
             className="font-mono"
@@ -238,3 +239,15 @@ export function ToolKeyForm({ tool, accounts }: { tool: 'codex' | 'opencode'; ac
     </form>
   );
 }
+
+const introKeys: Record<'codex' | 'opencode' | 'gemini', MessageKey> = {
+  codex: 'settings.toolAccounts.introCodex',
+  opencode: 'settings.toolAccounts.introOpenCode',
+  gemini: 'settings.toolAccounts.introGemini',
+};
+
+const placeholderKeys: Record<'codex' | 'opencode' | 'gemini', MessageKey> = {
+  codex: 'settings.toolAccounts.keyPlaceholderCodex',
+  opencode: 'settings.toolAccounts.keyPlaceholderOpenCode',
+  gemini: 'settings.toolAccounts.keyPlaceholderGemini',
+};

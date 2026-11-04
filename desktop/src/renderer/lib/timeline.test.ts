@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { clockAt, dayStart, frameAt, holdFor, layout, marks, minStep, mmss, placedAt, slidesOf, spanOf, trackAt, workedSince } from './timeline.ts';
+import { clockAt, frameAt, layout, marks, minStep, mmss, placedAt, spanOf, trackAt } from './timeline.ts';
 
 const t0 = Date.parse('2026-10-17T09:00:00Z');
 const iso = (secs: number) => new Date(t0 + secs * 1000).toISOString();
@@ -72,25 +72,7 @@ test('marks place screenshots and pages as ticks and recordings as spans', () =>
   assert.equal(m.find((x) => x.id === 'p1')?.kind, 'page');
 });
 
-test('slidesOf is a title card per agent, then what it kept', () => {
-  const slides = slidesOf([
-    { ref: 'p/agent-1', timeline: tl },
-    { ref: 'p/agent-2', timeline: { ...tl, steps: [step('task', 0, 0, { media: [media('note', 'note', 1)] })] } },
-  ]);
-  assert.deepEqual(
-    slides.map((s) => `${s.ref.slice(2)}:${s.kind === 'media' ? s.media.id : s.kind === 'page' ? s.page.item : 'intro'}`),
-    ['agent-1:intro', 'agent-1:rec', 'agent-1:shot', 'agent-1:p1', 'agent-2:intro'],
-  );
-  // A recording plays through, up to a minute.
-  assert.equal(holdFor(slides[1]!), 60);
-  assert.equal(holdFor(slides[0]!), 3);
-});
-
-test('workedSince, dayStart and mmss', () => {
-  assert.equal(workedSince(tl, t0 + 4205_000), true);
-  assert.equal(workedSince(tl, t0 + 4206_000), false);
-  const start = dayStart(Date.parse('2026-10-17T15:30:00'));
-  assert.equal(new Date(start).getHours(), 0);
+test('mmss', () => {
   assert.equal(mmss(65), '1:05');
   assert.equal(mmss(3725), '1:02:05');
 });

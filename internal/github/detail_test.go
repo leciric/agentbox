@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestPullRequestDetailReadsBodyLabelsAndCheckRuns(t *testing.T) {
@@ -47,6 +49,43 @@ func TestPullRequestDetailReadsBodyLabelsAndCheckRuns(t *testing.T) {
 	}
 	if pr.Checks != "pending" {
 		t.Errorf("Checks = %q, want pending while one runs", pr.Checks)
+	}
+}
+
+// Told where the head was, the pull request and its check runs are read at
+// once: here the pull request isn't answered until the check runs have been
+// asked for. When the head has moved, the runs are read again for the new one.
+func TestPullRequestDetailAtReadsChecksAlongside(t *testing.T) {
+	t.Parallel()
+	asked := make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/app/pulls/7":
+			select {
+			case <-asked:
+			case <-time.After(5 * time.Second):
+				t.Error("the check runs weren't asked for alongside the pull request")
+			}
+			_, _ = w.Write([]byte(`{"number":7,"title":"Pages","state":"open","base":{"ref":"main"},"head":{"ref":"feat/pages","sha":"new"}}`))
+		case "/repos/acme/app/commits/old/check-runs":
+			once.Do(func() { close(asked) })
+			_, _ = w.Write([]byte(`{"check_runs":[{"name":"go","status":"completed","conclusion":"failure"}]}`))
+		case "/repos/acme/app/commits/new/check-runs":
+			_, _ = w.Write([]byte(`{"check_runs":[{"name":"go","status":"completed","conclusion":"success"}]}`))
+		default:
+			t.Errorf("unexpected call %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	pr, err := Client{BaseURL: srv.URL}.PullRequestDetailAt(context.Background(), Repo{"acme", "app"}, 7, "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.Checks != "passing" || len(pr.CheckRuns) != 1 || pr.CheckRuns[0].Conclusion != "success" {
+		t.Errorf("checks = %q %+v, want the new head's", pr.Checks, pr.CheckRuns)
 	}
 }
 

@@ -306,7 +306,7 @@ func TestAPRWatchTellWhileTheMachineStopsWaitsAndStartsIt(t *testing.T) {
 	// The watch sees the conflict now.
 	var leads []string
 	var mu sync.Mutex
-	w.srv.prLead = func(_ context.Context, _ string, notice string, _ bool) {
+	w.srv.prLead = func(_ context.Context, _ string, _ string, notice string, _ bool) {
 		mu.Lock()
 		defer mu.Unlock()
 		leads = append(leads, notice)

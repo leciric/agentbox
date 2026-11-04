@@ -2,6 +2,7 @@
 // is, as the web phone app's does: the first connection says nothing, and
 // getting back says so for a moment.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Wifi, WifiOff } from 'lucide-react-native';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { reconnectNow, useConnection } from '../connection/events.ts';
@@ -55,6 +56,7 @@ export function ConnectionBar() {
   if (!lost && !back) return null;
   return (
     <View style={[styles.bar, { paddingTop: insets.top + 4 }, lost ? styles.lost : styles.back]} accessibilityRole="alert">
+      {lost ? <WifiOff size={14} color={colors.amber} /> : <Wifi size={14} color={colors.emerald} />}
       <Text style={[styles.text, { color: lost ? colors.amber : colors.emerald }]} numberOfLines={1}>
         {lost ? t('web.phone.reconnecting') : t('web.phone.backOnline')}
       </Text>

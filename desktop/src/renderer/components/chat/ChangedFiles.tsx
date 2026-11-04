@@ -37,7 +37,7 @@ export function ChangedFiles({ files, root }: { files: ChangedFile[]; root: stri
             <div key={file.path}>
               <div className="group/file flex items-center pr-1">
               <button
-                className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left font-mono text-[11.5px] text-tertiary transition-colors hover:bg-surface-faint"
+                className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left font-mono text-caption text-tertiary transition-colors hover:bg-surface-faint"
                 aria-expanded={openFile === file.path}
                 onClick={() => setOpenFile(openFile === file.path ? null : file.path)}
               >
@@ -92,7 +92,7 @@ export function DiffView({ diff, className }: { diff: T.ChatDiff; className?: st
     return out;
   }, [diff, t]);
   return (
-    <pre className={cn('max-h-80 overflow-auto py-1.5 font-mono text-[11.5px] leading-[1.6]', className)} data-diff={diff.path}>
+    <pre className={cn('max-h-80 overflow-auto py-1.5 font-mono text-caption leading-[1.6]', className)} data-diff={diff.path}>
       {lines.map((line, i) => (
         <div
           key={i}
@@ -101,14 +101,14 @@ export function DiffView({ diff, className }: { diff: T.ChatDiff; className?: st
             line.sign === '+' && 'bg-emerald-400/[0.08] text-emerald-200',
             line.sign === '-' && 'bg-rose-400/[0.08] text-rose-200',
             line.sign === ' ' && 'text-subtle',
-            line.sign === '…' && 'py-0.5 text-center text-[10.5px] text-faint',
+            line.sign === '…' && 'py-0.5 text-center text-caption text-faint',
           )}
         >
           {line.sign !== '…' && <span className="mr-3 inline-block w-2 select-none text-faint">{line.sign}</span>}
           {line.text}
         </div>
       ))}
-      {diff.truncated && <div className="px-3 pt-1 text-[10.5px] text-faint">{t('chat.diff.truncated')}</div>}
+      {diff.truncated && <div className="px-3 pt-1 text-caption text-faint">{t('chat.diff.truncated')}</div>}
     </pre>
   );
 }

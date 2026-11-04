@@ -1,7 +1,12 @@
 import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { extendTailwindMerge } from 'tailwind-merge';
 import * as T from '../../shared/api.ts';
-import { formatNumber, t } from '../../shared/i18n/index.ts';
+import { formatNumber, formatTime, t } from '../../shared/i18n/index.ts';
+
+// tailwind-merge knows Tailwind's own sizes, not ours: told nothing, it reads
+// text-ui as a colour and drops it for the text-title after it. These are the
+// type scale in styles.css.
+const twMerge = extendTailwindMerge({ extend: { theme: { text: ['caption', 'ui', 'body', 'heading', 'display'] } } });
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
@@ -131,6 +136,12 @@ export function githubErrorSentence(err: T.GitHubError): string {
       return t('shell.github.noAccess', { account, repo: err.repo });
     case T.GitHubBadToken:
       return t('shell.github.badToken', { account });
+    case T.GitHubRateLimited:
+      // One sentence with the time it ends, not GitHub's 403: waiting is the
+      // fix, and nothing about the account is wrong.
+      return err.resetAt
+        ? t('shell.github.rateLimited', { account, time: formatTime(err.resetAt) })
+        : t('shell.github.rateLimitedSoon', { account });
     case T.GitHubNoAccount:
       return err.account
         ? t('shell.github.accountGone', { account: err.account })
@@ -143,3 +154,12 @@ export function githubErrorSentence(err: T.GitHubError): string {
 // shortcut is how a Ctrl/⌘ shortcut reads on this computer, for a menu or a hint.
 export const onMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
 export const shortcut = (key: string) => (onMac ? `⌘${key}` : `Ctrl ${key}`);
+
+// appendOutput adds a chunk of a command's output to the lines so far. A chunk
+// can stop in the middle of a line, so the last one stays open.
+export function appendOutput(lines: string[], text: string): string[] {
+  const parts = text.split("\n");
+  const next = lines.length > 0 ? [...lines] : [""];
+  next[next.length - 1] += parts[0];
+  return next.concat(parts.slice(1));
+}

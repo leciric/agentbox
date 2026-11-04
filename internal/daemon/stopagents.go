@@ -105,6 +105,7 @@ func (s *Server) runStopAgents(ctx context.Context, m *agent.Manager, targets []
 			mu.Lock()
 			_, _ = fmt.Fprintf(log, "Stopping %s…\n", label)
 			mu.Unlock()
+			s.expectStop(ref)
 			err := s.stopAgent(ctx, m, st.Agent, "every agent was stopped to free resources")
 			mu.Lock()
 			defer mu.Unlock()

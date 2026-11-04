@@ -41,7 +41,7 @@ func (m *Manager) ReloadTools(a state.Agent) (api.ChatSession, error) {
 		c.toolsChanged(false)
 		c.markSession()
 		c.flush(false)
-		return clone(c.session), nil
+		return c.view(), nil
 	}
 	tool := ToolNames[c.agent.AI]
 	it := c.add("notice", c.lastTurn())
@@ -52,7 +52,7 @@ func (m *Manager) ReloadTools(a state.Agent) (api.ChatSession, error) {
 	}
 	c.restartForTools()
 	c.flush(true)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // reloadRefused says why the tools can't be reloaded now, or nil. Caller

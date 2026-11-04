@@ -100,6 +100,14 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 		a.CreatedAt.Unix(), at.Unix(), pr.Number, pr.Title, pr.URL, pr.State); err != nil {
 		return err
 	}
+	// Kept apart from archivedColumns, which nothing reading the archive
+	// needs it in: the session's own output (daemon/sessionoutput.go) asks.
+	if a.CreatedBySession != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE archived_agents SET created_by_session = ? WHERE project = ? AND name = ?`,
+			a.CreatedBySession, a.Project, a.Name); err != nil {
+			return err
+		}
+	}
 	for _, q := range []string{
 		`DELETE FROM agents WHERE project = ? AND name = ?`,
 		`DELETE FROM secrets WHERE project = ? AND agent = ?`,
@@ -108,6 +116,7 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 		`DELETE FROM agent_events WHERE project = ? AND agent = ?`,
 		`DELETE FROM checkpoints WHERE project = ? AND agent = ?`,
 		`DELETE FROM running_turns WHERE project = ? AND agent = ?`,
+		`DELETE FROM agent_goals WHERE project = ? AND agent = ?`,
 		// The session lived in its machine, which is gone: nothing resumes it.
 		`UPDATE chats SET session_id = '', handoff = '' WHERE project = ? AND agent = ?`,
 	} {
@@ -123,10 +132,22 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 	return tx.Commit()
 }
 
+// FirstMessage is the text of the first message somebody sent in an agent's
+// chat, its task, as ArchiveAgent keeps it: "" for none.
+func (s *Store) FirstMessage(ctx context.Context, project, agent string) (string, error) {
+	task, err := firstMessage(ctx, s.db, project, agent)
+	if r := []rune(task); len(r) > maxTask {
+		task = string(r[:maxTask]) + "…"
+	}
+	return task, err
+}
+
 // firstMessage is the text of the first message somebody sent in a chat.
-func firstMessage(ctx context.Context, tx *trace.Tx, project, agent string) (string, error) {
+func firstMessage(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, project, agent string) (string, error) {
 	var text sql.NullString
-	err := tx.QueryRowContext(ctx, `SELECT json_extract(data, '$.text') FROM chat_items
+	err := q.QueryRowContext(ctx, `SELECT json_extract(data, '$.text') FROM chat_items
 		WHERE project = ? AND agent = ? AND json_extract(data, '$.kind') = 'user' AND coalesce(json_extract(data, '$.woken'), 0) = 0
 		ORDER BY position LIMIT 1`, project, agent).Scan(&text)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -313,4 +334,9 @@ func (s *Store) LastMessage(ctx context.Context, project, agent, kind string) (s
 		return "", nil
 	}
 	return strings.TrimSpace(text.String), err
+}
+
+// ArchivedOfSession is the archived agents a chat session made, oldest first.
+func (s *Store) ArchivedOfSession(ctx context.Context, project, session string) ([]ArchivedAgent, error) {
+	return s.queryArchived(ctx, `SELECT `+archivedColumns+` FROM archived_agents WHERE project = ? AND created_by_session = ? ORDER BY created_at, name`, project, session)
 }
