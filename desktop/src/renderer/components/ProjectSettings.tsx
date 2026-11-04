@@ -278,6 +278,14 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           modified: project.finishNotices !== 'lead',
           render: () => <FinishNoticesPicker project={project} />,
         },
+        {
+          id: 'settle-sessions',
+          description: t('defaults.project.settleDescription'),
+          label: t('defaults.project.settleLabel'),
+          keywords: t('defaults.project.settleKeywords'),
+          modified: project.settleHours !== 24,
+          render: () => <SettlePicker project={project} />,
+        },
       ],
     },
     {
@@ -1025,6 +1033,41 @@ function PullsTabToggle({ project }: { project: T.Project }) {
 // agent, and fast-forwards the local branch when it is strictly behind. On by
 // default, since an agent made from a stale main starts without what was
 // merged since.
+// settleChoices are the idle times SettlePicker offers, in hours; 0 is never.
+const settleChoices = [1, 4, 24, 72, 168, 0];
+
+// SettlePicker chooses how long one of the project's chat sessions waits
+// idle, its agents' pull requests all merged or closed, before it settles
+// into History by itself (daemon/sessionsettle.go), or that it never does.
+function SettlePicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (settleHours: number) => api.updateProject(project.name, { settleHours }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const value = save.isPending ? save.variables : project.settleHours;
+  return (
+    <SettingRow
+      label={t('defaults.project.settleLabel')}
+      description={t('defaults.project.settleDescription')}
+      details={t('defaults.project.settleDetails')}
+      control={
+        <Select id="project-settle" data-project-settle aria-label={t('defaults.project.settleLabel')} value={String(value)} disabled={save.isPending} onChange={(v) => save.mutate(Number(v))}>
+          {[...new Set([...settleChoices, value])].map((hours) => (
+            <SelectOption key={hours} value={String(hours)}>
+              {hours === 0 ? t('defaults.project.settleNever') : t('defaults.project.settleAfter', { hours })}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
 function SyncBaseToggle({ project }: { project: T.Project }) {
   const t = useT();
   const queryClient = useQueryClient();

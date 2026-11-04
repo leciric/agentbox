@@ -925,8 +925,9 @@ function ReportStrip({ report, inert, className }: { report: T.AgentReport; iner
 
 // AgentDiff is the agent's whole diff, for an agent that opened no pull
 // request: file by file, as the pull request's are, notes and all. A past
-// agent's is its kept branch's.
-function AgentDiff({ agent, past }: { agent: string; past?: boolean }) {
+// agent's is its kept branch's. A session's header shows its agents' together
+// (chat/SessionHeader.tsx).
+export function AgentDiff({ agent, past }: { agent: string; past?: boolean }) {
   const t = useT();
   const diff = useQuery({ queryKey: ['diff', agent, !!past], queryFn: () => (past ? api.archivedDiff(agent) : api.diff(agent)) });
   if (diff.error) return <Notice className="m-5">{t('review.diffUnavailable', { error: errorMessage(diff.error) })}</Notice>;
