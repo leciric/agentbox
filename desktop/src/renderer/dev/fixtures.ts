@@ -2710,7 +2710,7 @@ function devEmit(type: string, data: unknown): void {
   for (const fn of devEventListeners) fn({ type, time: new Date().toISOString(), data });
 }
 
-// liveSessionSteps is ?sessionStatus=live's script, a step every few seconds:
+// liveSessionSteps is ?sessionStatus=live's script, a step every 5 seconds:
 // a permission waits in a session you aren't on (toast), another, the main
 // session's turn ends with its agents done (toast), one stops on an error,
 // and the waiting is answered.
@@ -2732,7 +2732,7 @@ function startLiveSessions(project: string): void {
     const list = devSessions(project).map((s) => (s.id === next.id ? { ...s, ...set } : s));
     sessionsByProject.set(project, list);
     devEmit('lead.session.status', { project, sessions: list } satisfies T.LeadSessionStatusChange);
-  }, 3000);
+  }, 5000);
 }
 
 // seeded is the preview's query client, which a message sent from the
