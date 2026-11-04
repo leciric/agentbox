@@ -511,6 +511,30 @@ func (s *Store) LastActiveLeadSession(ctx context.Context, project string) (Lead
 	return best, nil
 }
 
+// LatestLeadSession is the project's session most recently active, open or
+// closed: the one whose settings a session nobody asked for starts on
+// (the daemon's pickedLead). ErrNotFound when it has never had one.
+func (s *Store) LatestLeadSession(ctx context.Context, project string) (LeadSession, error) {
+	sessions, err := s.AllLeadSessions(ctx, project)
+	if err != nil {
+		return LeadSession{}, err
+	}
+	activity, err := s.leadSessionActivity(ctx, project, sessions)
+	if err != nil {
+		return LeadSession{}, err
+	}
+	var best LeadSession
+	for _, ls := range sessions {
+		if best.ID == "" || !activity[ls.ID].Before(activity[best.ID]) {
+			best = ls
+		}
+	}
+	if best.ID == "" {
+		return LeadSession{}, fmt.Errorf("%s's chat has never had a session: %w", project, ErrNotFound)
+	}
+	return best, nil
+}
+
 // FirstLeadSession is the project's oldest open session, its main one: where
 // another project's lead writes (the daemon's projectmessages.go), so a
 // thread between two projects stays in one conversation whichever session

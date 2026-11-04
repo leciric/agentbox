@@ -23,6 +23,10 @@ import (
 // permissionChanged reports a change to it, one of this agent's permission
 // requests as just published. The conversation is locked.
 func (c *conversation) permissionChanged(it *api.ChatItem) {
+	if c.agent.IsLead() && it.Permission != nil && it.Permission.Outcome == "" && c.m.LeadWaiting != nil {
+		c.m.LeadWaiting(c.agent)
+		return
+	}
 	if c.m.PermissionChanged == nil || it.Permission == nil || it.Permission.Approval != "" || c.agent.IsLead() {
 		return
 	}

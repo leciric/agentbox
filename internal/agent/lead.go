@@ -732,14 +732,31 @@ func leadGitConfig() string { return gitConfigWith(gitQuote(leadCredentialHelper
 // reaches the user in the project's chat, who may switch the mode there like
 // in any other chat. It's rewritten whole every time, so a lead made by an
 // older AgentBox loses the deny list that used to keep it off the host.
+//
+// The one thing it never asks about is AgentBox's own MCP server
+// (leadMCPTool): list_agents, read_agent, tell_agent, retire_agent and the
+// rest are how it directs its agents, and are what it reaches for when a
+// notice or a scheduled task wakes it with nobody watching. Asking there left
+// a card nobody saw and the chat stuck behind it, its notices queued. Those
+// tools act inside AgentBox, not on the host (bar the Home chat's
+// add_project, which clones into a new folder), and what in them takes
+// something away from the user waits for the user in the daemon itself
+// (approveInChat): changing or deleting a skill, a first message to another
+// project, destroying an agent with uncommitted work. The connectors'
+// servers, which reach outside services, still ask.
 func leadSettings() map[string]any {
 	return map[string]any{
 		"permissions": map[string]any{
 			"defaultMode": "default",
+			"allow":       []string{leadMCPTool},
 		},
 		"includeCoAuthoredBy": false,
 	}
 }
+
+// leadMCPTool is Claude Code's permission rule for every tool of the lead's
+// "agentbox" MCP server (writeLeadHome).
+const leadMCPTool = "mcp__agentbox"
 
 // noteSuggestionExcerpt is how much of an offered memory's content the lead's
 // brief carries: enough to judge it by, since the brief is resent with every

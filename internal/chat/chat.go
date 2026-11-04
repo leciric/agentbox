@@ -140,6 +140,12 @@ type Manager struct {
 	// conversation lock: it must hand the change on and return, never call
 	// back into the Manager.
 	PermissionChanged func(a state.Agent, p api.ChatAgentPermission)
+	// LeadWaiting, when set, is told when a lead's own chat puts a card in
+	// front of the user and waits on it: its AI tool's permission request,
+	// or AgentBox's approval (Approve). It may be told again while the card
+	// waits. Called like PermissionChanged, under the conversation's lock: it
+	// must hand it on and return.
+	LeadWaiting func(a state.Agent)
 	// IdleStop, when set, is how long a's chat may sit idle before its AI
 	// tool is put to sleep, until its next turn resumes the session
 	// (idle.go). applies is false for a chat that never sleeps; after 0 is

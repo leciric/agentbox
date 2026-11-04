@@ -2275,6 +2275,7 @@ export const enUS = {
   'chat.permission.oneOf': '1 of {count}',
   'chat.permission.approval': 'The project’s chat wants to change a skill',
   'chat.permission.projectApproval': 'The project’s chat wants to talk to another project’s',
+  'chat.permission.agentApproval': 'The project’s chat wants to destroy an agent’s uncommitted work',
   'chat.permission.sending': 'Sending…',
   'chat.permission.moreChoices': 'More ways to answer',
   'chat.permission.alwaysFor': 'Always allow {action, select, execute {commands} edit {edits} delete {deletions} move {moves} read {reads} fetch {fetches} search {searches} other {this}} for {agent}',

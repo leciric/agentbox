@@ -136,8 +136,20 @@ func (s *Server) pickedLead(ctx context.Context, project, topic string, open boo
 		}
 	}
 	if errors.Is(err, state.ErrNotFound) && open {
+		// Asked before the new one exists, which would be the most recent. A
+		// notice or a scheduled run opening it means to act with nobody
+		// watching, so it starts on what the user last chose — the tool, the
+		// model, the permission mode — as newSession's do, not on the
+		// defaults, whose Manual mode would leave its first command waiting
+		// on a card nobody sees.
+		last, lastErr := s.store.LatestLeadSession(ctx, project)
 		if ls, err = s.store.AddLeadSession(ctx, project, topic, time.Now()); err == nil {
 			s.logf("%s's chat had no session: opened %q for %s", project, ls.Topic, firstWords(topic))
+			if lastErr == nil {
+				if err := s.inheritSessionSettings(ctx, project, last.ID, ls.ID); err != nil {
+					s.logf("starting %s's %s session on %s's settings: %v", project, ls.ID, last.ID, err)
+				}
+			}
 			s.sessionsChanged(ctx, project)
 		}
 	}

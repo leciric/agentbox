@@ -517,6 +517,12 @@ func (s *Server) leadCopyFromHost(w http.ResponseWriter, r *http.Request) error 
 // leadRetire is retire for a session's lead: the agents it names that another
 // session made are retired directly like its own, and one that names none
 // retires only its own and nobody's.
+//
+// A lead's tools run without asking (agent.leadSettings), so a forced destroy
+// that would lose an agent's uncommitted work waits here for the user's
+// approval, on a card in the lead's chat, like the other lead actions that
+// take something away (leadskills.go). Everything else a retire does keeps
+// the work, on the agent's branch or in its worktree.
 func (s *Server) leadRetire(w http.ResponseWriter, r *http.Request) error {
 	var req api.RetireRequest
 	if err := readJSON(r, &req); err != nil {
@@ -554,6 +560,11 @@ func (s *Server) leadRetire(w http.ResponseWriter, r *http.Request) error {
 			})
 		}
 	}
+	if req.How == api.RetireDestroy && req.Force && !req.DryRun {
+		if err := s.approveLosingWork(r.Context(), r.PathValue("project"), req.Agents); err != nil {
+			return err
+		}
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -561,4 +572,32 @@ func (s *Server) leadRetire(w http.ResponseWriter, r *http.Request) error {
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
 	return s.retire(w, r)
+}
+
+// approveLosingWork asks the user before a lead destroys agents with
+// uncommitted work, those of names or, with none, any of the project's: nil
+// when none has any or the user approves, errRefused when they don't.
+func (s *Server) approveLosingWork(ctx context.Context, project string, names []string) error {
+	agents, err := s.store.Agents(ctx, project)
+	if err != nil {
+		return err
+	}
+	var lose []string
+	for _, a := range agents {
+		if a.IsLead() || (len(names) > 0 && !slices.Contains(names, a.Name)) {
+			continue
+		}
+		if changesOf(a).Dirty {
+			lose = append(lose, a.Name)
+		}
+	}
+	if len(lose) == 0 {
+		return nil
+	}
+	return s.askApproval(ctx, project, api.ChatPermission{
+		Approval: "agent",
+		Title:    "Destroy " + strings.Join(lose, ", ") + " and the uncommitted work in it",
+		Detail: "The lead asked to destroy it with force. What is committed stays on its branch; " +
+			"what isn't committed is lost with its worktree. Refuse, and it is left as it is.",
+	})
 }

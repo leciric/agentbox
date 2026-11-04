@@ -637,3 +637,49 @@ func TestForkingASessionAtAMessage(t *testing.T) {
 		}
 	}
 }
+
+// A session a notice or a scheduled run opens, every other one closed, starts
+// on what the user last chose — the closed session's mode included — rather
+// than on Manual, which would leave its first command waiting on a card
+// nobody sees.
+func TestASessionAnEventOpensStartsOnTheLastSettings(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	leadReadyToChat(t, d, "hello-stack")
+	ls, err := d.client.NewLeadSession(ctx, "hello-stack", "Prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chosen := state.Chat{Options: map[string]string{"mode": "acceptEdits", "model": "opus"}}
+	if err := d.srv.store.SaveChat(ctx, "hello-stack", state.LeadSessionName(ls.ID), chosen); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.CloseLeadSession(ctx, "hello-stack", ls.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.client.DeleteLeadSession(ctx, "hello-stack", state.MigratedSession); err != nil {
+		t.Fatal(err)
+	}
+	if open, err := d.client.LeadSessions(ctx, "hello-stack"); err != nil || len(open) != 0 {
+		t.Fatalf("LeadSessions() = %+v, %v; want none open", open, err)
+	}
+	lead, err := d.srv.eventLead(ctx, "hello-stack", "Nightly: check the dependencies", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lead.Session() == ls.ID {
+		t.Fatalf("the event reopened %s rather than opening a session", ls.ID)
+	}
+	got, err := d.srv.store.Chat(ctx, "hello-stack", lead.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Options["mode"] != "acceptEdits" || got.Options["model"] != "opus" {
+		t.Errorf("the event's session starts on %+v; want the closed session's acceptEdits and opus", got)
+	}
+}

@@ -173,3 +173,42 @@ func TestACrashNobodyAskedForStillFails(t *testing.T) {
 		t.Error("the mark outlived the agent coming back")
 	}
 }
+
+// A pause that fails leaves the machine up, and its AI tool never relaunches
+// to clear the mark: the mark goes with the failure, so a crash after it
+// still reports.
+func TestAFailedPauseLeavesNoMark(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), `case "$1" in
+  list) cat "$INCUS_INSTANCES_FILE" ;;
+  query) echo '{"config":{},"devices":{}}' ;;
+  pause|stop) echo "Error: the instance is busy" >&2; exit 1 ;;
+esac
+exit 0
+`, testConfig{instances: autoStopIdleInstances("ab-p-a1", "Running")})
+	if err := d.srv.store.AddProject(ctx, state.Project{Name: "p", Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	a := state.Agent{
+		Project: "p", Name: "a1", Instance: "ab-p-a1", AI: "none",
+		Branch: "agentbox/a1", Worktree: t.TempDir(), Status: state.AgentReady, CreatedAt: time.Now(),
+	}
+	if err := d.srv.store.AddAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"pause", "stop"} {
+		if _, err := d.client.AgentAction(ctx, a.Ref(), action); err == nil {
+			t.Fatalf("%s succeeded against an Incus that refuses it", action)
+		}
+		if d.srv.stopExpected(a.Ref()) {
+			t.Errorf("a failed %s left the agent marked as stopping on purpose", action)
+		}
+	}
+	if err := d.srv.diskAgentAction(ctx, a.Ref(), true); err == nil {
+		t.Fatal("the disk guard's pause succeeded against an Incus that refuses it")
+	}
+	if d.srv.stopExpected(a.Ref()) {
+		t.Error("the disk guard's failed pause left the mark")
+	}
+}

@@ -350,8 +350,8 @@ type ChatPermission struct {
 	Options []ChatPermissionOption `json:"options"`
 	Outcome string                 `json:"outcome,omitempty"` // the ID of the option chosen, or "cancelled"; empty while it waits
 	// Approval is set when AgentBox asks rather than the AI tool: what it
-	// is about ("skill", or "project" for a lead's first message to another
-	// project's), with Detail saying what would change and Diffs showing it.
+	// is about ("skill", "project" for a lead's first message to another
+	// project's, or "agent" for destroying an agent's uncommitted work), with Detail saying what would change and Diffs showing it.
 	Approval string     `json:"approval,omitempty"`
 	Detail   string     `json:"detail,omitempty"`
 	Diffs    []ChatDiff `json:"diffs,omitempty"`
