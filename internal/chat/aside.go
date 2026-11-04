@@ -78,7 +78,7 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 		if !errors.Is(err, acp.ErrClosed) {
 			return err
 		}
-		if line := lastLine(proc.Stderr()); line != "" {
+		if line := failureLine(proc.Stderr()); line != "" {
 			return fmt.Errorf("%w: %s", err, line)
 		}
 		return err
