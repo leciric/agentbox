@@ -348,12 +348,12 @@ export function diorama(l: Layout, sign: string): Diorama {
     tufts.push(s);
   }
 
-  // The server rack, in the lobby's corner, its lights blinking green.
+  // A server rack by the bookshelf, its lights to the room.
   const rk = l.rack;
   put(rbox(0.6, 1.5, 0.6, 0.05), m('#1e242c', { roughness: 0.4 }), rk.x, 0.75, rk.z);
   const led = keep(new THREE.MeshBasicMaterial({ color: '#45e08a', toneMapped: false }));
   const ledBlue = keep(new THREE.MeshBasicMaterial({ color: '#5ab8ff', toneMapped: false }));
-  for (let i = 0; i < 6; i++) put(rbox(0.32, 0.03, 0.02, 0.01), i % 3 === 2 ? ledBlue : led, rk.x - 0.31, 0.35 + i * 0.18, rk.z, [0, -Math.PI / 2, 0]);
+  for (let i = 0; i < 6; i++) put(rbox(0.32, 0.03, 0.02, 0.01), i % 3 === 2 ? ledBlue : led, rk.x + 0.31, 0.35 + i * 0.18, rk.z, [0, Math.PI / 2, 0]);
 
   // The lounge: a sectional sofa along the brick wall, facing the room, its
   // chaise on the left, cushions and a throw; a low table with mugs and a

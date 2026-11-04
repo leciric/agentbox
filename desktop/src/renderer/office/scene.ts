@@ -86,6 +86,8 @@ const FOV = 24;
 // The overview's 3/4 view: from the front right, over the open corner.
 const HOME_YAW = 0.76;
 const OVERVIEW_PITCH = 0.62;
+// Following you, the camera looks down this steeply.
+const FOLLOW_PITCH = 0.78;
 
 // rug is a flat rounded rectangle, w by d with corners of radius r, h thick,
 // lying on the floor.
@@ -466,7 +468,6 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   let near: string | undefined;
   // What the close-up looks at, kept while it eases out.
   let focusRef: string | undefined;
-  let focusAt: { x: number; z: number } | undefined;
   const figPos = new THREE.Vector3();
   // Where the wheel zoomed in, until you walk.
   let zoomFocus: P | undefined;
@@ -476,6 +477,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // Each chip's offset from its desk, or null when it has no room.
   const chipDy = new WeakMap<HTMLElement, [number, number] | null>();
   const chipInto = new WeakMap<HTMLElement, HTMLDivElement>();
+  // Where each project's pill went, and for which view.
+  const pillAt = new WeakMap<HTMLElement, { key: string; at: number }>();
   let stillFor = 0;
 
   // Input.
@@ -1310,8 +1313,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // right so you don't stand in the way.
     const c = cam.closeK;
     const focus = focusRef ? focusOf(focusRef, aspect) : undefined;
-    focusAt = focus;
-    const fPitch = 0.78;
+    const fPitch = FOLLOW_PITCH;
     const fDist = cam.dist;
     const f = cam.followK;
     // Following you, or the spot the wheel zoomed in on.
@@ -1374,6 +1376,26 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const t = now / 1000;
     lighting();
     let markHere = false;
+    const crowded = desks.size > 16;
+    // Where the agents' heads are on screen, which the projects' pills keep off.
+    const heads: { x: number; y: number }[] = [];
+    // In a close-up: where on screen the agent you're at and you are, and how
+    // far the camera is from it, for what's in the way (below).
+    let lookAt: { dist: number; spots: { x: number; y: number }[] } | undefined;
+    const focusDesk = focusRef ? desks.get(focusRef) : undefined;
+    if (focusDesk && cam.closeK > 0.3) {
+      const v = new THREE.Vector3();
+      const scr = (w: THREE.Vector3) => {
+        w.project(camera);
+        return { x: ((w.x + 1) / 2) * canvas.clientWidth, y: ((1 - w.y) / 2) * canvas.clientHeight };
+      };
+      focusDesk.figure.group.getWorldPosition(v);
+      v.y += 1.0;
+      const dist = v.distanceTo(camera.position);
+      const a = scr(v.clone());
+      const me0 = scr(new THREE.Vector3(pos.x, 0.7, pos.z));
+      lookAt = { dist, spots: [a, me0] };
+    }
     for (const d of desks.values()) {
       // Where you are, from the robot: near enough, it turns to look at you.
       const fx = d.root.position.x + d.figure.group.position.x;
@@ -1389,13 +1411,26 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const k = base * (1 + Math.min(0.65, Math.max(0, (far - 12) / 36)) * (1 - cam.followK));
       fg.scale.setScalar(k);
       fg.position.y = 0.49 * (1 - k);
+      if (d.root.visible) {
+        const hv = new THREE.Vector3(fx, 0.49 + 0.75 * k, fz).project(camera);
+        heads.push({ x: ((hv.x + 1) / 2) * canvas.clientWidth, y: ((1 - hv.y) / 2) * canvas.clientHeight });
+      }
       // Up close, what floats over the desks beside the camera would be in
       // the way of the one you're looking at.
       // So does the row in front of the desk you're at: it sits between you
       // and the camera.
-      const p0 = d.root.position;
-      const ahead = !!focusAt && focusRef !== 'board' && p0.z > focusAt.z + 1 && p0.z - focusAt.z < 2.2 && Math.abs(p0.x - focusAt.x) < 3.2;
-      const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (p0.distanceTo(camera.position) < 4.2 || ahead);
+      // Any desk nearer the camera than the one you're at, on screen over it
+      // or you, steps out of the way.
+      let ahead = false;
+      if (lookAt && d.ref !== focusRef) {
+        figPos.y += 1.0;
+        const nearer = figPos.distanceTo(camera.position) < lookAt.dist - 0.8;
+        figPos.project(camera);
+        const sx = ((figPos.x + 1) / 2) * canvas.clientWidth;
+        const sy = ((1 - figPos.y) / 2) * canvas.clientHeight;
+        ahead = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 150 && Math.abs(sy - p.y) < 190);
+      }
+      const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (d.root.position.distanceTo(camera.position) < 4.2 || ahead);
       d.root.visible = !(inWay && ahead);
       d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone];
       const b = d.beacon;
@@ -1408,7 +1443,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // overview; over the grown figures' heads.
       // Only the loud ones (needs you, failed) grow: the overview shows those.
       const loudTone = d.tone === 'needs' || d.tone === 'error';
-      const grow = Math.min(d.tone === 'needs' ? 3.6 : loudTone ? 2.6 : 1.7, Math.max(1, (far - 8) / 12));
+      const grow = Math.min(d.tone === 'needs' ? 3.6 : loudTone ? 2.6 : crowded ? 1 : 1.7, Math.max(1, (far - 8) / 12));
+      // A crowd's quiet bubbles show as you come in: from afar they'd bury the loud ones.
+      if (crowded && !loudTone && far > 30) s.visible = false;
       const sb = (s.userData.base as THREE.Vector2 | undefined) ?? (s.userData.base = new THREE.Vector2(s.scale.x, s.scale.y));
       s.scale.set(sb.x * grow, sb.y * grow, 1);
       s.position.y = 1.95 + lift * 0.5 + (k / base - 1) * 1.25 + (grow - 1) * 0.2 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 * grow : 0);
@@ -1455,9 +1492,44 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (!chip) continue;
       const sg = signs[i];
       void sg;
-      // In its zone's front left corner, a name plate: clear of its agents'
-      // heads and its counter, and plainly its own.
-      ap.set(place.rug.x0 + 1.25, 0.05, place.rug.z1 - 0.45);
+      // A name plate by its zone: of a few places at its edges, the one over
+      // the fewest heads (and pills), chosen as the camera comes to rest and
+      // kept while it moves.
+      const zr = place.rug;
+      const zw = zr.x1 - zr.x0;
+      const spots: [number, number][] = [
+        [zr.x0 + Math.min(2.6, zw / 2), zr.z1 - 0.45],
+        [zr.x1 - Math.min(2.6, zw / 2), zr.z1 - 0.45],
+        [zr.x0 + Math.min(2.6, zw / 2), zr.z1 + 0.75],
+        [(zr.x0 + zr.x1) / 2, zr.z1 + 0.75],
+        [zr.x0 + Math.min(2.6, zw / 2), zr.z0 + 0.3],
+        [zr.x1 - Math.min(2.6, zw / 2), zr.z1 + 0.75],
+      ];
+      const w0 = chip.offsetWidth || 140;
+      const h0 = chip.offsetHeight || 30;
+      const pkey = `${eased.tx.toFixed(1)}:${eased.tz.toFixed(1)}:${eased.dist.toFixed(1)}:${eased.yaw.toFixed(2)}:${heads.length}`;
+      let pick0 = pillAt.get(chip);
+      if (chipsShown && (!pick0 || pick0.key !== pkey)) {
+        let best = 0;
+        let bestN = Infinity;
+        for (const [si, [sx, sz]] of spots.entries()) {
+          ap.set(sx, 0.05, sz).project(camera);
+          const px = ((ap.x + 1) / 2) * canvas.clientWidth;
+          const py = ((1 - ap.y) / 2) * canvas.clientHeight;
+          const off = ap.z >= 1 || Math.abs(ap.x) > 0.95 || py < 100 || py > canvas.clientHeight - 96;
+          const covers = heads.filter((hd) => Math.abs(hd.x - px) < w0 / 2 + 14 && Math.abs(hd.y - py) < h0 / 2 + 22).length;
+          const clash = taken.some((r) => px + w0 / 2 > r.x0 && px - w0 / 2 < r.x1 && py + h0 / 2 > r.y0 && py - h0 / 2 < r.y1) ? 5 : 0;
+          const n = (off ? 100 : 0) + covers + clash + si * 0.01;
+          if (n < bestN) {
+            bestN = n;
+            best = si;
+          }
+        }
+        pick0 = { key: pkey, at: best };
+        pillAt.set(chip, pick0);
+      }
+      const [px0, pz0] = spots[pick0?.at ?? 0];
+      ap.set(px0, 0.05, pz0);
       const far = cam.closeK < 0.3;
       ap.project(camera);
       // Not under the top bar, whose 4.5rem it would hide beneath.
@@ -1501,9 +1573,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     }
     // A small team's tags show from anywhere, as name tags in a room do; a
     // big one's as you come near.
-    const few = desks.size <= 16;
+    const few = !crowded;
     // Small from afar, as name tags are; wider as you come in to read them.
-    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '112px' : '170px';
+    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '136px' : '170px';
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
@@ -1523,7 +1595,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // The overview shows the pods' pills and counts and the bubbles over
         // heads; the tags come as you come in.
         // Quiet ones only near enough to read, so a mid view isn't a wall of tags.
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (few || cam.followK > (loud ? 0.2 : 0.4)) && (loud || (cam.closeK < 0.3 && (few || dist < 17)));
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (few || loud || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (few || dist < 17)));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 70, ((1 - tp.y) / 2) * canvas.clientHeight);
@@ -1785,6 +1857,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   };
   // The wheel zooms in steps from the overview down to following you, and
   // then closer; a trackpad's small deltas make small steps.
+  const zoomProbe = new THREE.PerspectiveCamera(FOV, 1, 0.1, 400);
+  const zoomRay = new THREE.Raycaster();
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
     // A mouse wheel's notch is a whole step, whatever its delta; a
@@ -1812,9 +1886,27 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const fd1 = z1 <= 0.5 ? FOLLOW_FAR : FOLLOW_FAR - (z1 - 0.5) * 2 * (FOLLOW_FAR - FOLLOW_NEAR);
         const d1 = oDist + (fd1 - oDist) * f1;
         const k = d1 / Math.max(0.01, before.d);
-        // Where the target should be for the point to hold still...
-        const tx = under.x + (before.x - under.x) * k;
-        const tz = under.z + (before.z - under.z) * k;
+        // Where the target should be for the point to hold still: scaled
+        // about it, then put right for the camera tilting and rising as it
+        // comes in, by where the pointer would land on the floor.
+        let tx = under.x + (before.x - under.x) * k;
+        let tz = under.z + (before.z - under.z) * k;
+        const r = canvas.getBoundingClientRect();
+        const at = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+        const p1 = OVERVIEW_PITCH + (FOLLOW_PITCH - OVERVIEW_PITCH) * f1;
+        const g = new THREE.Vector3();
+        for (let i = 0; i < 3; i++) {
+          zoomProbe.aspect = camera.aspect || 1;
+          zoomProbe.updateProjectionMatrix();
+          const cp = Math.cos(p1);
+          zoomProbe.position.set(tx + Math.sin(eased.yaw) * cp * d1, 0.9 * f1 + Math.sin(p1) * d1, tz + Math.cos(eased.yaw) * cp * d1);
+          zoomProbe.lookAt(tx, 0.9 * f1, tz);
+          zoomProbe.updateMatrixWorld();
+          zoomRay.setFromCamera(at, zoomProbe);
+          if (!zoomRay.ray.intersectPlane(floorPlane, g)) break;
+          tx += under.x - g.x;
+          tz += under.z - g.z;
+        }
         // ...and the focus that, blended with the overview's centre, gives it.
         if (f1 > 0.02) zoomFocus = { x: Math.min(W, Math.max(0, cx + (tx - cx) / f1)), z: Math.min(D, Math.max(0, cz + (tz - cz) / f1)) };
       }

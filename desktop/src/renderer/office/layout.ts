@@ -289,10 +289,6 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   const zb = Math.min(roomD - 2.0, zp + 3.8);
   prop('beanbags', wx + 2.7, zb);
   prop('whiteboard', wx + 6.9, zb);
-  // The racks in the front corner.
-  const rack = { x: roomW - 0.55, z: roomD - 0.7 };
-  obstacles.push(box(rack.x, rack.z, 0.65, 0.65));
-  prop('rack', roomW - 1.3, roomD - 0.7);
   if (roomD > 18) {
     prop('tree', roomW - 0.7, (zp + zb) / 2 + 0.8);
     prop('standing', wx + 6.3, zp + 2.0 + (zb - zp - 3.8) / 2);
@@ -309,9 +305,13 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     plants.push(p);
     obstacles.push(box(p.x, p.z, 0.6, 0.6));
   }
-  // The bookshelf against the left wall, at the front.
+  // The bookshelf against the left wall, at the front, and the server racks
+  // beside it: a corner of their own.
   const shelf: Box = { x0: 0, z0: roomD - 3.2, x1: 0.4, z1: roomD - 1.6 };
   obstacles.push(shelf);
+  const rack = { x: 0.36, z: shelf.z0 - 0.5 };
+  obstacles.push(box(rack.x, rack.z, 0.65, 0.65));
+  prop('rack', footOf('rack')[1] / 2 + 0.03, shelf.z0 - 1.3, Math.PI / 2);
   // The board, right of the meeting room, on the work's back wall.
   const boardW = Math.min(5.2, workW - meeting.x1 - 2);
   const boardX = Math.min(workW - boardW / 2 - 0.8, Math.max(workW / 2, meeting.x1 + boardW / 2 + 1));
@@ -337,11 +337,11 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   const window = { at: meeting.z1 + 0.4 + winW / 2, w: winW };
   const mossW = Math.min(3.6, Math.max(1.4, roomD - (window.at + winW / 2) - 1.6));
   const moss = { at: window.at + winW / 2 + 0.4 + mossW / 2, w: mossW };
-  for (let lz = moss.at + mossW / 2 + 1.6; lz + 1.1 < shelf.z0 - 0.4; lz += 3.2) prop('lockers', footOf('lockers')[1] / 2 + 0.02, lz, Math.PI / 2);
+  for (let lz = moss.at + mossW / 2 + 1.6; lz + 1.25 < shelf.z0 - 1.8; lz += 3.2) prop('lockers', footOf('lockers')[1] / 2 + 0.02, lz, Math.PI / 2);
   // The brick wall behind the lounge, its sign over the sofa.
   const brick = { at: (lounge.x0 + lounge.x1) / 2, w: 3.6 };
   // The commons' front, when the room is deep.
-  if (roomD - 1.2 - (zb + 1.6) > 2.6) free.push({ x0: wx + 0.4, z0: zb + 1.6, x1: roomW - 1.9, z1: roomD - 1.2 });
+  if (roomD - 0.9 - (zb + 1.6) > 2.6) free.push({ x0: wx + 0.4, z0: zb + 1.6, x1: roomW - 0.5, z1: roomD - 0.9 });
   // The work's bare floor, furnished: islands of trees, standing tables,
   // a printer and water cooler, a phone booth, bean bags, low shelves, a
   // rolling whiteboard, each on a cell of its own with room to pass.

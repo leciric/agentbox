@@ -54,14 +54,26 @@ export type Accessory = (typeof ACCESSORIES)[number] | 'headset';
 // accentOf is an agent's accent, from its ref: a colour and a thing to wear.
 // variant, when given, is the agent's place in the room: then no two agents
 // wear the same thing in the same colour until sixty-four of them do.
-export function accentOf(ref: string, variant?: number): { color: string; accessory: Accessory; tint: number } {
+// The logo's gradient, its hue turned by these many degrees, for an agent's
+// head: from sky blue to pink about the logo's violet, so every head is still
+// the logo's cube and yet they read apart across the room. (Leads keep the
+// logo's own.)
+export const HEAD_SHIFTS = [35, -35, 70, -62, 17, -17, 52, -48];
+
+export function accentOf(ref: string, variant?: number): { color: string; accessory: Accessory; tint: number; shift: number } {
   const r = rng(hash(ref));
   const a = r();
   const c = r();
   const tint = r() * 2 - 1;
-  if (variant === undefined) return { color: ACCENTS[Math.floor(c * ACCENTS.length)], accessory: ACCESSORIES[Math.floor(a * ACCESSORIES.length)], tint };
+  const h = r();
+  if (variant === undefined) return { color: ACCENTS[Math.floor(c * ACCENTS.length)], accessory: ACCESSORIES[Math.floor(a * ACCESSORIES.length)], tint, shift: HEAD_SHIFTS[Math.floor(h * HEAD_SHIFTS.length)] };
   // Sixty-four pairings of a thing and a colour before any repeats.
-  return { color: ACCENTS[(Math.floor(variant / ACCESSORIES.length) + variant * 3) % ACCENTS.length], accessory: ACCESSORIES[variant % ACCESSORIES.length], tint };
+  return {
+    color: ACCENTS[(Math.floor(variant / ACCESSORIES.length) + variant * 3) % ACCENTS.length],
+    accessory: ACCESSORIES[variant % ACCESSORIES.length],
+    tint,
+    shift: HEAD_SHIFTS[(variant * 5 + Math.floor(variant / HEAD_SHIFTS.length)) % HEAD_SHIFTS.length],
+  };
 }
 
 // Toy plastic: smooth, soft, a little sheen.
@@ -119,7 +131,7 @@ type Build = {
   hover: number;
 };
 
-type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number; accent: string; logo?: boolean };
+type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number; accent: string; shift: number; logo?: boolean };
 
 type Ramp = { light: THREE.Color; mid: THREE.Color; dark: THREE.Color };
 // The logo's colours: violet to indigo, white lines. The leads wear them.
@@ -135,6 +147,16 @@ export function rampOf(accent: string): Ramp {
   const mid = new THREE.Color(accent);
   const dark = new THREE.Color().setHSL(hsl.h + 0.05, Math.min(1, hsl.s * 0.9), Math.max(0.3, hsl.l - 0.16));
   return { light, mid, dark };
+}
+
+// turned is a ramp with its hue turned by deg degrees.
+function turned(r: Ramp, deg: number): Ramp {
+  const t = (c: THREE.Color) => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    c.getHSL(hsl);
+    return new THREE.Color().setHSL((hsl.h + deg / 360 + 1) % 1, hsl.s, hsl.l);
+  };
+  return { light: t(r.light), mid: t(r.mid), dark: t(r.dark) };
 }
 
 // gradient paints a geometry's vertex colours from the ramp's light at its
@@ -160,9 +182,9 @@ function gradient(g: THREE.BufferGeometry, size: number, ramp: Ramp = LOGO) {
 // stubby arms and legs. Seated, facing +z; its origin on the seat.
 function boxie(k: Kit): Build {
   const body = new THREE.Group();
-  const ramp = k.logo ? LOGO : rampOf(k.accent);
+  const ramp = k.logo ? LOGO : turned(LOGO, k.shift);
   // The body a shade under the head, all one colour, as a toy is.
-  const coat = k.m(toon(k.logo ? '#8b5cf6' : ramp.mid.clone().lerp(ramp.dark, 0.35), { roughness: 0.55 }));
+  const coat = k.m(toon(ramp.mid.clone().lerp(ramp.light, 0.15), { roughness: 0.55 }));
   const shoe = k.m(toon('#ffffff', { roughness: 0.4 }));
   // The body: a soft little bean, legs sticking forward off the seat.
   const torso = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.12, 8, 18), coat), 0, 0.22, 0);
@@ -189,7 +211,7 @@ function boxie(k: Kit): Build {
   const hh = (S * 0.92) / 2 - inset;
   const hd = (S * 0.9) / 2 - inset;
   const edge = (len: number, x: number, y: number, z: number, axis: 'x' | 'y' | 'z') => {
-    const e = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.019, len, 4, 8), pipe), x, y, z);
+    const e = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.026, len, 4, 8), pipe), x, y, z);
     if (axis === 'x') e.rotation.z = Math.PI / 2;
     if (axis === 'z') e.rotation.x = Math.PI / 2;
     head.add(e);
@@ -380,7 +402,7 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
   const acc = accentOf(ref, opts.variant);
   const r = rng(hash(`${ref}:life`));
   const mats: THREE.Material[] = [];
-  const kit: Kit = { m: (x) => (mats.push(x), x), tint: acc.tint, accent: acc.color, logo: !!opts.lead };
+  const kit: Kit = { m: (x) => (mats.push(x), x), tint: acc.tint, accent: acc.color, shift: acc.shift, logo: !!opts.lead };
   const b = boxie(kit);
   // What it wears stands out against it: another of the accents.
   wear(kit, b, opts.lead ? 'headset' : acc.accessory, ACCENTS[(ACCENTS.indexOf(acc.color) + 3) % ACCENTS.length]);
