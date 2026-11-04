@@ -246,15 +246,16 @@ type Server struct {
 	removingStopped sync.Mutex
 
 	mu           sync.Mutex
-	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
-	retired      map[string]bool         // agents a stop-retire stopped, by ref (markRetired)
-	stopping     map[string]bool         // agents being stopped on purpose, by ref (expectStop)
-	groupsDone   map[string]bool         // groups whose lead was told every agent finished (groupMaybeDone)
-	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
-	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
-	reviewHeld   map[string]bool         // projects whose review list waits for the startup look at GitHub (prreconcile.go)
-	reviewKnown  map[string]knownReview  // each finished agent's review item as last read in full, by ref (review.go)
-	leadAPIs     map[string]*http.Server // per-project lead API servers
+	agentAPIs    map[string]*http.Server  // in-agent API servers, by instance
+	retired      map[string]bool          // agents a stop-retire stopped, by ref (markRetired)
+	stopping     map[string]bool          // agents being stopped on purpose, by ref (expectStop)
+	stopWaits    map[string]chan struct{} // agents whose machine is stopping, by ref, closed when it has (stopAgent)
+	groupsDone   map[string]bool          // groups whose lead was told every agent finished (groupMaybeDone)
+	freeWhenIdle map[string]bool          // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
+	machineKept  map[string]bool          // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
+	reviewHeld   map[string]bool          // projects whose review list waits for the startup look at GitHub (prreconcile.go)
+	reviewKnown  map[string]knownReview   // each finished agent's review item as last read in full, by ref (review.go)
+	leadAPIs     map[string]*http.Server  // per-project lead API servers
 	// homeHost is the desktop app's helper on the user's computer, which the
 	// Home chat runs through when it is there, and homePlace where its adapter
 	// last started, by session (homehost.go). homePlace is under mu.

@@ -266,8 +266,7 @@ func (s *Server) tellIdleStopped(_ context.Context, a state.Agent, stopped []age
 // idle, as auto-stop idle agents does, but without the retired mark: the
 // next message starts it again.
 func (s *Server) stopFinishedIdle(ctx context.Context, m *agent.Manager, a state.Agent, idleFor time.Duration) bool {
-	s.chat.Stop(a.Ref(), "the agent finished and went idle")
-	if err := s.stopAgent(ctx, m, a); err != nil {
+	if err := s.stopAgent(ctx, m, a, "the agent finished and went idle"); err != nil {
 		s.logf("idle reclaim: stopping %s: %v", a.Ref(), err)
 		return false
 	}
