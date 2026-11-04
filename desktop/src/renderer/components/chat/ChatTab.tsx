@@ -17,7 +17,7 @@ import { Button } from '../ui/button';
 import { Notice } from '../ui/card';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
-import { PageStack } from '../pages/PageStack';
+import { PageStack, pileRoom } from '../pages/PageStack';
 import { Composer } from './Composer';
 import { leadOn } from '../../lib/leadRunner';
 import { FindBar } from './FindBar';
@@ -150,15 +150,24 @@ export function ChatTab({
     const follow = () => {
       if (following.current) box.scrollTop = box.scrollHeight;
     };
-    const observer = new ResizeObserver(() => {
-      setComposerHeight(bottom.offsetHeight);
+    // The pages stack sits above the composer, out of its flow: its room is
+    // added, and a stack arriving or leaving measures again.
+    const measure = () => {
+      setComposerHeight(bottom.offsetHeight + (bottom.querySelector('[data-page-stack]') ? pileRoom : 0));
       follow();
-    });
+    };
+    const observer = new ResizeObserver(measure);
     // The room left for the composer is padding, which only the border box includes.
     observer.observe(inner, { box: 'border-box' });
     observer.observe(bottom);
-    follow();
-    return () => observer.disconnect();
+    const holder = bottom.firstElementChild;
+    const stackWatch = new MutationObserver(measure);
+    if (holder) stackWatch.observe(holder, { childList: true });
+    measure();
+    return () => {
+      observer.disconnect();
+      stackWatch.disconnect();
+    };
   }, []);
 
   // A banner on the composer, like a permission request, takes room at the end: keep the end in view.
