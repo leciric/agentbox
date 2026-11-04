@@ -203,6 +203,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let bounds: Box = lay.room;
   const desks = new Map<string, DeskObj>();
   const hits: THREE.Object3D[] = [];
+  const signs: THREE.Group[] = [];
   let board: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string } | undefined;
   let sideWalls: { mat: THREE.MeshStandardMaterial; side: 'left' | 'right' }[] = [];
 
@@ -259,6 +260,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const m of markers.values()) m.remove();
     markers.clear();
     hits.length = 0;
+    signs.length = 0;
     room = new THREE.Group();
     scene.add(room);
     const own = <T extends { dispose(): void }>(x: T) => (roomDispose.push(() => x.dispose()), x);
@@ -356,9 +358,14 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       own(sign.tex);
       drawSign(sign.ctx, area.label, area.hue);
       sign.tex.needsUpdate = true;
-      const signMesh = mesh(geo.plane, own(new THREE.MeshBasicMaterial({ map: sign.tex, transparent: true, toneMapped: false })), lx, 2.35, lz - 1.25, 3.0, 0.586, 1, false);
-      room.add(signMesh);
-      room.add(mesh(geo.cyl, mats.pole, lx - 1.35, 1.2, lz - 1.27, 0.025, 2.4, 0.025), mesh(geo.cyl, mats.pole, lx + 1.35, 1.2, lz - 1.27, 0.025, 2.4, 0.025));
+      // The sign stands at the area's back edge, behind its desks, so it is
+      // never between the camera and one of them.
+      const sg = new THREE.Group();
+      sg.position.set(lx, 0, r.z0 + 0.15);
+      sg.add(mesh(geo.plane, own(new THREE.MeshBasicMaterial({ map: sign.tex, transparent: true, toneMapped: false })), 0, 2.45, 0, 3.0, 0.586, 1, false));
+      sg.add(mesh(geo.cyl, mats.pole, -1.35, 1.25, -0.02, 0.025, 2.5, 0.025), mesh(geo.cyl, mats.pole, 1.35, 1.25, -0.02, 0.025, 2.5, 0.025));
+      room.add(sg);
+      signs.push(sg);
       addDesk(input, `${area.project}/lead`, lx, lz, area.hue, true);
       for (const d of place.desks) addDesk(input, d.id, d.x, d.z, area.hue, false);
     }
@@ -504,7 +511,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     g.add(flag);
 
     // What a click picks: the desk and the robot, as one box.
-    const hit = mesh(geo.box, mats.hit, 0, 0.9, lead ? -0.3 : -0.25, lead ? COUNTER.w : 1.7, 1.8, 1.7, false);
+    const hit = mesh(geo.box, mats.hit, 0, 0.75, lead ? -0.3 : -0.3, lead ? COUNTER.w : 1.5, 1.5, 1.45, false);
     hit.userData.ref = ref;
     g.add(hit);
     hits.push(hit);
@@ -852,7 +859,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     meRing.position.set(pos.x, 0.02, pos.z);
 
     // What you're at, once you've stopped.
-    const at = stillFor > 0.15 ? nearest(lay, pos) : undefined;
+    // Standing back for the overview, you're at nothing.
+    const at = stillFor > 0.15 && !held ? nearest(lay, pos) : undefined;
     if (at !== near) {
       near = at;
       opts.onNear(near);
@@ -1033,6 +1041,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       // Hovered: lifted a little.
       d.root.position.y = d.ref === hover ? 0.02 : 0;
     }
+    // Signs give way to the camera, and to the board's close-up over them.
+    for (const sg of signs) sg.visible = !(focusRef === 'board' && cam.closeK > 0.2) && sg.position.distanceTo(camera.position) > 3.5;
     // You fade while you look at a monitor, so you never stand in front of it.
     me.fade(1 - cam.closeK * 0.85);
     meTag.sprite.visible = cam.closeK < 0.3;
