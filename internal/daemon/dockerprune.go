@@ -14,7 +14,15 @@ import (
 // every agent at once. Destroy doesn't, as it deletes the machine, Docker and
 // all. The disk guard pauses rather than stops, and a paused machine can't
 // run a prune.
-func (s *Server) stopAgent(ctx context.Context, m *agent.Manager, a state.Agent) error {
+//
+// It stops the agent's chat first, saying why. Until the machine has
+// stopped, a message for the agent waits (waitStopped): told while the
+// machine still runs, it would go to a chat about to die with it and be lost
+// without an error, as the pull request watch's fix messages were.
+func (s *Server) stopAgent(ctx context.Context, m *agent.Manager, a state.Agent, why string) error {
+	done := s.markStopping(a.Ref())
+	defer done()
+	s.chat.Stop(a.Ref(), why)
 	s.pruneDocker(ctx, m, a)
 	err := m.Stop(ctx, a)
 	s.dropHeavy(ctx, a.Ref())

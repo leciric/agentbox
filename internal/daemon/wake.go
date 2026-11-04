@@ -40,6 +40,12 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 		item, err := s.chat.SendMessage(a, msg)
 		return told{item: item}, err
 	}
+	// A machine that is stopping still says Running, and its chat would take
+	// the message and die with it: wait for the stop, then start it again
+	// below, as for any stopped machine.
+	if err := s.waitStopped(ctx, a.Ref()); err != nil {
+		return told{}, err
+	}
 	// Most messages go to a machine that runs: no lock for those.
 	if inst, err := s.cfg.Incus.Instance(ctx, a.Instance); err == nil && inst.Status == "Running" {
 		item, err := s.chat.SendMessage(a, msg)
@@ -113,6 +119,52 @@ func (s *Server) prTellAgent(ctx context.Context, a state.Agent, text string) (t
 	return s.tellAgent(ctx, a, text)
 }
 
+// markStopping records that an agent's machine is stopping, until done is
+// called (stopAgent). A second stop of the same agent at once waits for the
+// first's mark to go rather than sharing it.
+func (s *Server) markStopping(ref string) (done func()) {
+	ch := make(chan struct{})
+	for {
+		s.mu.Lock()
+		prev, busy := s.stopping[ref]
+		if !busy {
+			if s.stopping == nil {
+				s.stopping = map[string]chan struct{}{}
+			}
+			s.stopping[ref] = ch
+			s.mu.Unlock()
+			break
+		}
+		s.mu.Unlock()
+		<-prev
+	}
+	return func() {
+		s.mu.Lock()
+		delete(s.stopping, ref)
+		s.mu.Unlock()
+		close(ch)
+	}
+}
+
+// waitStopped waits while an agent's machine is stopping, so that a message
+// for it reaches the chat of a machine started again rather than the one
+// going away.
+func (s *Server) waitStopped(ctx context.Context, ref string) error {
+	for {
+		s.mu.Lock()
+		ch, busy := s.stopping[ref]
+		s.mu.Unlock()
+		if !busy {
+			return nil
+		}
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for %s's machine to stop: %w", ref, ctx.Err())
+		}
+	}
+}
+
 // markRetired remembers that a retire stopped or paused an agent, so that
 // automatic messages (an answer, a memory notice) don't start its machine
 // again. Anything that starts the machine clears it (startMachine).
@@ -132,6 +184,11 @@ func (s *Server) markRetired(ref string, retired bool) {
 // tellUnlessRetired is tellAgent for messages nobody asked for: an agent
 // retired with how=stop stays stopped rather than being started to hear them.
 func (s *Server) tellUnlessRetired(ctx context.Context, a state.Agent, text string) (told, error) {
+	// A retire under way has to finish before it can be told apart from a
+	// machine that merely runs.
+	if err := s.waitStopped(ctx, a.Ref()); err != nil {
+		return told{}, err
+	}
 	s.mu.Lock()
 	retired := s.retired[a.Ref()]
 	s.mu.Unlock()
