@@ -448,7 +448,11 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	case verdictCancelled:
 		// Stopped from its chat: whoever stopped it knows.
 		s.markToldWaiting(a, false)
-		s.setOutcome(a, api.AgentOutcomeIdle, "")
+		if !s.stopExpected(a.Ref()) {
+			// A stop, pause, retire or destroy cancels it too, and the agent
+			// keeps what its last turn left: done, with its pull request.
+			s.setOutcome(a, api.AgentOutcomeIdle, "")
+		}
 		return
 	case verdictPaused:
 		// Not a finish: leadWaits stays as it was, so the finish that follows
@@ -457,6 +461,13 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 		return
 	case verdictFailed:
 		s.markToldWaiting(a, false)
+		if s.stopExpected(a.Ref()) {
+			// Its machine went down under it because somebody stopped,
+			// paused, retired or destroyed it (expectStop): not a failure,
+			// and the agent keeps the outcome of its last real turn.
+			s.logf("%s: its turn ended as it was stopped on purpose: %s", a.Ref(), headWords(note, 200))
+			return
+		}
 		s.setOutcome(a, api.AgentOutcomeFailed, note)
 		s.pushFailed(a, note)
 		if end.Lost {

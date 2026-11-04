@@ -582,6 +582,12 @@ export const api = {
     call<T.LeadSession>('POST', `${project(name)}/sessions`, req satisfies T.NewLeadSessionRequest).then(untitledTopic),
   renameLeadSession: (name: string, session: string, topic: string) =>
     call<T.LeadSession>('PATCH', `${project(name)}/sessions/${encodeURIComponent(session)}`, { topic } satisfies T.LeadSessionPatch),
+  // A tab pinned before the others, or unpinned; and the order the tabs were
+  // dragged into, which answers the open sessions in it.
+  pinLeadSession: (name: string, session: string, pinned: boolean) =>
+    call<T.LeadSession>('PATCH', `${project(name)}/sessions/${encodeURIComponent(session)}`, { pinned } satisfies T.LeadSessionPatch).then(untitledTopic),
+  orderLeadSessions: (name: string, ids: string[]) =>
+    call<T.LeadSession[]>('PUT', `${project(name)}/sessions/order`, { ids } satisfies T.LeadSessionOrder).then((list) => list.map(untitledTopic)),
   // The sessions in the chat's history (closeLeadSession), the most recently
   // closed first; reopenLeadSession brings one back, deleteLeadSession removes
   // one, open or closed, for good.

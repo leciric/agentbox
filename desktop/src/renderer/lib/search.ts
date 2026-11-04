@@ -7,6 +7,7 @@ import type { Reveal } from './reveal.ts';
 
 export type SearchKind =
   | typeof T.SearchProjects
+  | typeof T.SearchSessions
   | typeof T.SearchAgents
   | typeof T.SearchChats
   | typeof T.SearchMemories
@@ -57,8 +58,18 @@ export function searchTarget({ kind, hit }: SearchItem, query?: string): SearchT
   switch (kind) {
     case T.SearchAgents:
       return { open: 'view', view: { kind: 'agent', ref: hit.id } };
+    case T.SearchSessions: {
+      // A session opens among the tabs, or read-only in the chat's history
+      // once closed, at the message that matched when one did.
+      const id = hit.session || hit.id;
+      const reveal: Reveal = hit.item ? { session: { project, id }, chat: { project, item: hit.item, query, session: id } } : { session: { project, id } };
+      return project === T.HomeProject ? { open: 'view', view: { kind: 'homeChat' }, reveal } : { open: 'view', view: { kind: 'project', project, tab: 'chat' }, reveal };
+    }
     case T.SearchChats: {
-      const reveal = { chat: { project, agent: hit.agent, item: hit.id, query } };
+      // A lead's message is in one session of its chat (hit.session).
+      const reveal: Reveal = hit.session
+        ? { chat: { project, agent: hit.agent, item: hit.id, query, session: hit.session }, session: { project, id: hit.session } }
+        : { chat: { project, agent: hit.agent, item: hit.id, query } };
       if (project === T.HomeProject) return { open: 'view', view: { kind: 'homeChat' }, reveal };
       // A past agent's chat opens in Past agents, read-only.
       if (hit.archived && ref) return { open: 'view', view: { kind: 'pastAgents', ref }, reveal };

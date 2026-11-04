@@ -5,7 +5,7 @@ import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { chatLoadRetry } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
-import { useChatOpenAt } from '../lib/reveal';
+import { inSession, useChatOpenAt } from '../lib/reveal';
 import { ChatMenu, ChatStatus, ChatTab } from './chat/ChatTab';
 import { SessionChatPanel, useCurrentSession } from './ProjectChatPanel';
 import { GlobalMemoryPanel } from './GlobalMemoryPanel';
@@ -112,7 +112,7 @@ export function HomeChatPanel({ home, bare }: { home?: HomeTabs; bare?: boolean 
       <TabsContent value="chat" className="flex flex-col">
         <div className={'flex min-h-0 flex-1 flex-col overflow-hidden'}>
           <SessionChatPanel project={T.HomeProject}>
-            {(info, session) => <ChatTab key={info.ref} agent={homeAgentFrom(info, session.topic)} starting={false} onStart={() => {}} openAt={openAt} />}
+            {(info, session) => <ChatTab key={info.ref} agent={homeAgentFrom(info, session.topic)} starting={false} onStart={() => {}} openAt={inSession(openAt, session.id)} />}
           </SessionChatPanel>
         </div>
       </TabsContent>

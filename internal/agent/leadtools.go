@@ -132,7 +132,7 @@ func (m *Manager) LeadToolInstalled(ctx context.Context, tool string) bool {
 	switch tool {
 	case "claude":
 		// Where hostTools looks: AgentBox's own copies, else the PATH's.
-		return (usable(m.adapterPath()) || onPath(ChatAdapters["claude"].Command) != "") && (usable(m.claudePath()) || onPath(ChatTool) != "")
+		return (usable(m.adapterPath()) || pathAdapter() != "") && (usable(m.claudePath()) || onPath(ChatTool) != "")
 	case "cursor":
 		return m.cursorSDKVersion() == cursor.SDKVersion()
 	}
@@ -304,7 +304,8 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 		if token != "" {
 			env = append(env, "CLAUDE_CODE_OAUTH_TOKEN="+token)
 		}
-		return tools.Adapter, nil, env, []string{tools.Bin}, nil
+		command, args := tools.command()
+		return command, args, env, []string{tools.Bin}, nil
 	case "cursor":
 		helper, err := m.CursorHelper(ctx, status)
 		if err != nil {

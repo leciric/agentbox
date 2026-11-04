@@ -156,6 +156,7 @@ func (s *Server) autoStopIdleSince(ctx context.Context, m *agent.Manager, st age
 // records why: a memory event alongside every other retiring of an agent, and
 // an api.AgentEvent the app can show in the agent's own view.
 func (s *Server) stopIdleAgent(ctx context.Context, m *agent.Manager, a state.Agent, idleTime time.Duration) error {
+	s.expectStop(a.Ref())
 	s.chat.Stop(a.Ref(), "the agent went idle")
 	if err := s.stopAgent(ctx, m, a); err != nil {
 		return err

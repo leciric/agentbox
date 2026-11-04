@@ -177,6 +177,8 @@ func (s *Server) retire(w http.ResponseWriter, r *http.Request) error {
 // retireOne frees one agent. The branch is kept unless it is merged or
 // pushed: until then it is the work.
 func (s *Server) retireOne(ctx context.Context, m *agent.Manager, a state.Agent, how string) error {
+	// Its turn ending now is the retire's doing, not a failure.
+	s.expectStop(a.Ref())
 	var err error
 	switch how {
 	case api.RetirePause:
@@ -197,6 +199,7 @@ func (s *Server) retireOne(ctx context.Context, m *agent.Manager, a state.Agent,
 		return errors.New("unknown way to retire")
 	}
 	if err != nil {
+		s.agentBack(a.Ref())
 		return err
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": how, "branch": a.Branch}, "")

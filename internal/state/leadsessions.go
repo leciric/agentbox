@@ -77,6 +77,11 @@ type LeadSession struct {
 	// ParentItem, for a fork, the chat item of Parent's it was cut at; ""
 	// for a session opened afresh. The parent may since have been deleted.
 	Parent, ParentItem string
+	// Pinned keeps its tab before the others (PinLeadSession), and Order is
+	// where among them it was dragged to (OrderLeadSessions): 0 for one never
+	// moved, which sits where it was opened. SortTabs reads both.
+	Pinned bool
+	Order  int
 }
 
 // Snoozed reports whether the session is hidden from the tabs as of now.
@@ -258,7 +263,9 @@ func (s *Store) claimLeadSessionID(ctx context.Context, project, id, topic strin
 		args []any
 	}{
 		{`INSERT INTO lead_session_ids (project, id) VALUES (?, ?)`, []any{project, id}},
-		{`INSERT INTO lead_sessions (project, id, topic, created_at, untitled, color) VALUES (?, ?, ?, ?, ?, ?)`, []any{project, id, topic, at.UnixMilli(), untitled, color}},
+		{`INSERT INTO lead_sessions (project, id, topic, created_at, untitled, color, tab_order)
+			VALUES (?, ?, ?, ?, ?, ?, ` + lastTab + `)`,
+			[]any{project, id, topic, at.UnixMilli(), untitled, color, project, id, project, id}},
 	} {
 		if _, err := tx.ExecContext(ctx, q.sql, q.args...); err != nil {
 			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -352,7 +359,7 @@ func (s *Store) ColorLeadSessions(ctx context.Context, project string) error {
 }
 
 // leadSessionColumns is what scanLeadSession reads.
-const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at, color, parent, parent_item, settled, snoozed_until, reopened_at`
+const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at, color, parent, parent_item, settled, snoozed_until, reopened_at, pinned, tab_order`
 
 // LeadSessions lists a project's open sessions, oldest first.
 func (s *Store) LeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
@@ -410,7 +417,7 @@ func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSessio
 func scanLeadSession(row interface{ Scan(...any) error }) (LeadSession, error) {
 	var ls LeadSession
 	var created, closed, snoozed, reopened int64
-	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed, &ls.Color, &ls.Parent, &ls.ParentItem, &ls.Settled, &snoozed, &reopened); err != nil {
+	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed, &ls.Color, &ls.Parent, &ls.ParentItem, &ls.Settled, &snoozed, &reopened, &ls.Pinned, &ls.Order); err != nil {
 		return LeadSession{}, err
 	}
 	if snoozed != 0 {
@@ -576,6 +583,9 @@ func (s *Store) ReopenLeadSession(ctx context.Context, project, id string) error
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE lead_sessions SET settled = 0, snoozed_until = 0, reopened_at = ? WHERE project = ? AND id = ?`,
 		time.Now().UnixMilli(), project, id); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE lead_sessions SET tab_order = `+lastTab+` WHERE project = ? AND id = ?`, project, id, project, id, project, id); err != nil {
 		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -753,6 +763,47 @@ func (s *Store) SetProjectSettleHours(ctx context.Context, name string, hours in
 	return nil
 }
 
+// lastTab is the tab_order of a session opened or reopened now, which goes
+// last: 0 while the chat's tabs have never been dragged, all being in the
+// order they opened, and after every open one otherwise. Either way a chat's
+// open sessions all have 0 or all have an order of their own. Its arguments
+// are the project and the session's id, twice.
+const lastTab = `(SELECT CASE WHEN EXISTS (SELECT 1 FROM lead_sessions WHERE project = ? AND id != ? AND closed_at = 0 AND tab_order > 0)
+	THEN (SELECT max(tab_order) + 1 FROM lead_sessions WHERE project = ? AND id != ? AND closed_at = 0) ELSE 0 END)`
+
+// SortTabs puts open sessions in the order their tabs show: pinned first,
+// then where each was dragged to, then by when it was opened.
+func SortTabs(sessions []LeadSession) {
+	slices.SortStableFunc(sessions, func(a, b LeadSession) int {
+		if a.Pinned != b.Pinned {
+			if a.Pinned {
+				return -1
+			}
+			return 1
+		}
+		if a.Order != b.Order {
+			return a.Order - b.Order
+		}
+		if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+}
+
+// PinLeadSession pins a session's tab before the others, or unpins it. A
+// closed session keeps it, for when it is reopened.
+func (s *Store) PinLeadSession(ctx context.Context, project, id string, pinned bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE lead_sessions SET pinned = ? WHERE project = ? AND id = ?`, pinned, project, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("session %s of %s: %w", id, project, ErrNotFound)
+	}
+	return nil
+}
+
 // SettleLeadSession is CloseLeadSession for a session that settled by itself
 // (daemon/sessionsettle.go), which the history marks so.
 func (s *Store) SettleLeadSession(ctx context.Context, project, id string, at time.Time) error {
@@ -819,4 +870,48 @@ func (s *Store) WakeLeadSessions(ctx context.Context, now time.Time) (map[string
 		}
 	}
 	return woke, nil
+}
+
+// OrderLeadSessions keeps the order a chat's tabs were dragged into: ids, its
+// open sessions in their new order. One left out goes after them, in the
+// order it had; an id that isn't an open session of the project is an
+// error, so a list read before a session closed doesn't half apply. Pinned
+// tabs still come first (SortTabs).
+func (s *Store) OrderLeadSessions(ctx context.Context, project string, ids []string) error {
+	open, err := s.LeadSessions(ctx, project)
+	if err != nil {
+		return err
+	}
+	SortTabs(open)
+	isOpen := map[string]bool{}
+	for _, ls := range open {
+		isOpen[ls.ID] = true
+	}
+	seen := map[string]bool{}
+	order := make([]string, 0, len(open))
+	for _, id := range ids {
+		if !isOpen[id] {
+			return fmt.Errorf("session %s of %s isn't open: %w", id, project, ErrNotFound)
+		}
+		if !seen[id] {
+			seen[id] = true
+			order = append(order, id)
+		}
+	}
+	for _, ls := range open {
+		if !seen[ls.ID] {
+			order = append(order, ls.ID)
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for i, id := range order {
+		if _, err := tx.ExecContext(ctx, `UPDATE lead_sessions SET tab_order = ? WHERE project = ? AND id = ?`, i+1, project, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

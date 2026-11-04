@@ -54,6 +54,18 @@ test('the sessions keys: Mod+T, Mod+W, Mod+Shift+⌫, Ctrl+Tab and Ctrl+Shift+Ta
   assert.equal(sessionShortcut(key('t', { target: { closest: () => ({}) } as unknown as EventTarget })), undefined);
 });
 
+test('Mod+1…9 goes to the Nth session, by key or by its place, not with Shift or in a terminal', async () => {
+  const { sessionJump } = await import('./shortcuts.ts');
+  assert.equal(sessionJump(key('1')), 1);
+  assert.equal(sessionJump(key('9', { ctrlKey: false, metaKey: true })), 9);
+  assert.equal(sessionJump({ ...key('&'), code: 'Digit1' }), 1, 'a layout whose digits need Shift');
+  assert.equal(sessionJump(key('0')), undefined);
+  assert.equal(sessionJump(key('1', { ctrlKey: false })), undefined);
+  assert.equal(sessionJump(key('1', { shiftKey: true })), undefined);
+  assert.equal(sessionJump(key('1', { altKey: true })), undefined);
+  assert.equal(sessionJump(key('1', { target: { closest: () => ({}) } as unknown as EventTarget })), undefined);
+});
+
 test('the target keys: Mod+. and Mod+Shift+., whatever Shift makes of "."', async () => {
   const { targetShortcut } = await import('./shortcuts.ts');
   assert.equal(targetShortcut(key('.')), 'next');

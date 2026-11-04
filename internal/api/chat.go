@@ -571,6 +571,9 @@ type LeadSession struct {
 	// Parent is the session it was forked or continued from, which the app
 	// links to; absent for a session opened afresh.
 	Parent *LeadSessionParent `json:"parent,omitempty"`
+	// Pinned keeps its tab before the others. The open sessions come in their
+	// tabs' order: pinned first, then as they were dragged, then as opened.
+	Pinned bool `json:"pinned,omitempty"`
 }
 
 // Where a chat session stands (LeadSession.Status), the first that applies.
@@ -688,9 +691,18 @@ type NewLeadSessionRequest struct {
 	ForkFrom *LeadSessionFork `json:"forkFrom,omitempty"`
 }
 
-// LeadSessionPatch renames a session.
+// LeadSessionPatch renames a session, pins or unpins it, or both; what it
+// leaves out stays as it is.
 type LeadSessionPatch struct {
-	Topic string `json:"topic"`
+	Topic  string `json:"topic,omitempty"`
+	Pinned *bool  `json:"pinned,omitempty"`
+}
+
+// LeadSessionOrder is PUT /v1/projects/{project}/sessions/order: the chat's
+// open sessions in the order their tabs were dragged into. One left out
+// goes after them; pinned ones stay first.
+type LeadSessionOrder struct {
+	IDs []string `json:"ids"`
 }
 
 // AgentSessionRequest hands an agent to a session of its project's chat,
