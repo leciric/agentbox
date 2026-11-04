@@ -192,7 +192,7 @@ function SessionMeta({ s }: { s: T.LeadSession }) {
         <CalendarDays className="size-3 shrink-0" />
         {t('sessions.activeAgo', { when: timeAgo(s.activeAt) })}
       </span>
-      {s.closedAt && <span title={new Date(s.closedAt).toLocaleString()}>{t('sessions.closedAgo', { when: timeAgo(s.closedAt) })}</span>}
+      {s.closedAt && <span title={new Date(s.closedAt).toLocaleString()}>{t(s.settled ? 'sessions.settledAgo' : 'sessions.closedAgo', { when: timeAgo(s.closedAt) })}</span>}
       {s.agents > 0 && (
         <span className="flex items-center gap-1">
           <Bot className="size-3 shrink-0" />

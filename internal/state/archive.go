@@ -100,6 +100,14 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 		a.CreatedAt.Unix(), at.Unix(), pr.Number, pr.Title, pr.URL, pr.State); err != nil {
 		return err
 	}
+	// Kept apart from archivedColumns, which nothing reading the archive
+	// needs it in: the session's own output (daemon/sessionoutput.go) asks.
+	if a.CreatedBySession != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE archived_agents SET created_by_session = ? WHERE project = ? AND name = ?`,
+			a.CreatedBySession, a.Project, a.Name); err != nil {
+			return err
+		}
+	}
 	for _, q := range []string{
 		`DELETE FROM agents WHERE project = ? AND name = ?`,
 		`DELETE FROM secrets WHERE project = ? AND agent = ?`,
@@ -326,4 +334,9 @@ func (s *Store) LastMessage(ctx context.Context, project, agent, kind string) (s
 		return "", nil
 	}
 	return strings.TrimSpace(text.String), err
+}
+
+// ArchivedOfSession is the archived agents a chat session made, oldest first.
+func (s *Store) ArchivedOfSession(ctx context.Context, project, session string) ([]ArchivedAgent, error) {
+	return s.queryArchived(ctx, `SELECT `+archivedColumns+` FROM archived_agents WHERE project = ? AND created_by_session = ? ORDER BY created_at, name`, project, session)
 }

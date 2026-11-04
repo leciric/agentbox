@@ -292,6 +292,7 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 		}
 	}
 	out := make([]api.LeadSession, 0, len(sessions))
+	now := time.Now()
 	for _, ls := range sessions {
 		ref := agent.SessionRef(project, ls.ID)
 		lead := state.Agent{Project: project, Name: state.LeadSessionName(ls.ID)}
@@ -306,6 +307,10 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 		}
 		if ls.Closed() {
 			row.ClosedAt = &ls.ClosedAt
+			row.Settled = ls.Settled
+		}
+		if ls.Snoozed(now) {
+			row.SnoozedUntil = &ls.SnoozedUntil
 		}
 		if ls.Parent != "" {
 			row.Parent = &api.LeadSessionParent{Session: ls.Parent, Item: ls.ParentItem}
@@ -554,9 +559,23 @@ func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) error {
 // put down.
 func (s *Server) closeSession(w http.ResponseWriter, r *http.Request) error {
 	project, id := r.PathValue("project"), r.PathValue("session")
+	if err := s.closeLeadSession(r.Context(), project, id, false); err != nil {
+		return err
+	}
+	s.sessionsChanged(r.Context(), project)
+	return writeJSON(w, http.StatusOK, s.apiSession(r.Context(), project, id))
+}
+
+// closeLeadSession closes a session into the history, by the user or, with
+// settled, by itself (sessionsettle.go). The caller tells the app.
+func (s *Server) closeLeadSession(ctx context.Context, project, id string, settled bool) error {
 	// Closed first, so that a message arriving now is refused rather than
 	// starting the turn the stop below would cut.
-	if err := s.store.CloseLeadSession(r.Context(), project, id, time.Now()); err != nil {
+	closeIt := s.store.CloseLeadSession
+	if settled {
+		closeIt = s.store.SettleLeadSession
+	}
+	if err := closeIt(ctx, project, id, time.Now()); err != nil {
 		return err
 	}
 	ref := agent.SessionRef(project, id)
@@ -564,12 +583,15 @@ func (s *Server) closeSession(w http.ResponseWriter, r *http.Request) error {
 	s.chat.Forget(ref)
 	s.settleLeadCache(ref, true)
 	s.stopSessionAPI(project, id)
-	if err := s.memory().ForgetSession(r.Context(), project, id); err != nil {
+	if err := s.memory().ForgetSession(ctx, project, id); err != nil {
 		s.logf("forgetting what %s's %s session was working on: %v", project, id, err)
 	}
-	s.logf("Closed %s's %s session into its history", project, id)
-	s.sessionsChanged(r.Context(), project)
-	return writeJSON(w, http.StatusOK, s.apiSession(r.Context(), project, id))
+	if settled {
+		s.logf("%s's %s session settled into its history: its work is in", project, id)
+	} else {
+		s.logf("Closed %s's %s session into its history", project, id)
+	}
+	return nil
 }
 
 // reopenSession answers POST /v1/projects/{project}/sessions/{session}/reopen:

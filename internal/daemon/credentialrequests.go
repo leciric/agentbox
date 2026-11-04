@@ -96,6 +96,7 @@ func (s *Server) requestCredentialFor(ctx context.Context, a state.Agent, req ap
 	}, "")
 	s.events.publish(api.EventQuestion, toAPIQuestion(q))
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
+	s.wakeSessionOf(ctx, a, "asks for a credential")
 	s.notifyQuestion(ctx, q, a.Title)
 	s.logf("%s asks the user for %s: %s", a.Ref(), credentialWanted(q), q.Text)
 	// The lead is told, so it knows why the agent is waiting, but not woken:

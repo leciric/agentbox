@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // chatPath is where a chat lives. A ref with no slash, like "pawly", is a
@@ -134,6 +135,23 @@ func (c *Client) ReopenLeadSession(ctx context.Context, project, session string)
 func (c *Client) SeeLeadSession(ctx context.Context, project, session string) (LeadSession, error) {
 	var out LeadSession
 	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/seen", SeeLeadSessionRequest{}, &out)
+}
+
+// SnoozeLeadSession hides a session from the tabs until until, or with the
+// zero time brings it back now.
+func (c *Client) SnoozeLeadSession(ctx context.Context, project, session string, until time.Time) (LeadSession, error) {
+	var req LeadSessionSnooze
+	if !until.IsZero() {
+		req.Until = &until
+	}
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/snooze", req, &out)
+}
+
+// SessionOutput is what a session made: its agents and their pull requests.
+func (c *Client) SessionOutput(ctx context.Context, project, session string) (SessionOutput, error) {
+	var out SessionOutput
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/output", nil, &out)
 }
 
 // DeleteLeadSession deletes a session with its conversation for good; its

@@ -79,6 +79,25 @@ export function leadSessions(v: unknown): T.LeadSession[] {
   );
 }
 
+// sessionOutput is what a session made: its agents, each with its pull
+// request when it has one.
+export function sessionOutput(v: unknown): T.SessionAgent[] {
+  const o = isObj(v) ? v : {};
+  return list(o.agents, (a) =>
+    keyed(a, 'ref')
+      ? {
+          ...(a as unknown as T.SessionAgent),
+          name: str(a.name),
+          title: str(a.title),
+          branch: str(a.branch),
+          working: a.working === true,
+          archived: a.archived === true,
+          pr: opt(a.pr, (pr) => (typeof pr.number === 'number' ? { ...(pr as unknown as T.PullRequest), state: str(pr.state), checks: str(pr.checks), url: str(pr.url) } : undefined)),
+        }
+      : undefined,
+  );
+}
+
 // leadSessionStatus is an EventLeadSessionStatus: a project's open sessions as
 // they stand now; undefined for one that names no project.
 export function leadSessionStatus(v: unknown): { project: string; sessions: T.LeadSession[] } | undefined {

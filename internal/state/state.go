@@ -1560,6 +1560,21 @@ var migrations = []string{
 		seen_at INTEGER NOT NULL,
 		PRIMARY KEY (project, session)
 	)`,
+
+	// A chat session settles into the history by itself once its agents'
+	// work is in (daemon/sessionsettle.go): settled marks one closed that
+	// way, reopened_at is when it was last reopened or woken, which its idle
+	// time counts from as well as its last message, and snoozed_until hides
+	// an open one from the tabs until then (0 for not snoozed).
+	// archived_agents.created_by_session keeps whose an agent was once its
+	// machine is gone, its pull request still the session's.
+	// projects.settle_hours is how long a session waits idle: 0 for the
+	// default, DefaultSettleHours, and below 0 for never.
+	`ALTER TABLE lead_sessions ADD COLUMN snoozed_until INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE lead_sessions ADD COLUMN reopened_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE lead_sessions ADD COLUMN settled INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE archived_agents ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE projects ADD COLUMN settle_hours INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1768,6 +1783,11 @@ type Project struct {
 	// never a branch with commits of its own, and a checked-out one only when
 	// nothing in its checkout is changed.
 	BaseSyncOff bool
+	// SettleHours is how long one of this project's chat sessions waits idle,
+	// once every pull request of its agents is merged or closed and none of
+	// them works, before it settles into the history by itself: 0 for
+	// DefaultSettleHours, below 0 for never (SettleAfter).
+	SettleHours int
 	// FullTestSuite is whether this project's agents may run a whole test
 	// suite (`go test ./...`, a bare `npm test`) while the installation
 	// blocks them (SettingBlockFullSuite); it means nothing otherwise.
@@ -2022,7 +2042,7 @@ func (s *Store) SetProjectAgentDefaults(ctx context.Context, name string, d Proj
 	return err
 }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, gemini_account`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, gemini_account, settle_hours`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -2110,11 +2130,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.GeminiAccount)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.GeminiAccount, p.SettleHours)
 	return err
 }
 
@@ -2235,7 +2255,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -2797,7 +2817,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
 	if errors.Is(err, sql.ErrNoRows) {

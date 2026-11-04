@@ -7,11 +7,12 @@ import { api, sessionOfRef } from '../lib/api';
 import { chatReadyRetry, forgetThread, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { requestReveal, useChatOpenAt } from '../lib/reveal';
-import { afterClose, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, showingSession, useChosenSession, withSession } from '../lib/sessions';
+import { afterClose, awake, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, showingSession, snoozedOf, useChosenSession, withSession } from '../lib/sessions';
 import { requestSessionFocus } from '../lib/newTask';
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
 import { cn, errorMessage } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
+import { SessionHeader } from './chat/SessionHeader';
 import { SessionHistory, useClosedSessions } from './chat/SessionHistory';
 import { SessionTabs } from './chat/SessionTabs';
 import { Button } from './ui/button';
@@ -58,7 +59,7 @@ export function useLeadSessions(project: string) {
 export function useCurrentSession(project: string | undefined): T.LeadSession | undefined {
   const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project!), enabled: !!project });
   const chosen = useChosenSession(project ?? '');
-  return project ? pickSession(sessions.data ?? [], chosen) : undefined;
+  return project ? pickSession(awake(sessions.data ?? []), chosen) : undefined;
 }
 
 // showSession shows a session of a chat, opened or moved to, to write in: its
@@ -115,7 +116,10 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   // for it rather than say the chat is unavailable (chatReadyRetry).
   const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project), ...chatReadyRetry });
   const chosen = useChosenSession(project);
-  const list = sessions.data ?? [];
+  // The tabs are the sessions not snoozed; the snoozed wait at the row's end.
+  const all = sessions.data ?? [];
+  const list = awake(all);
+  const sleeping = snoozedOf(all);
   const current = pickSession(list, chosen);
   const color = sessionColor(list, current);
   const box = (content: ReactNode) => (
@@ -177,6 +181,25 @@ export function SessionChatPanel({ project, card, children }: { project: string;
       forgetThread(queryClient, s.ref);
       refresh();
       toast(t('sessions.closed', { topic: s.topic }), { action: { label: t('sessions.reopen'), onClick: () => reopen.mutate(s.id) } });
+    },
+    onError: (err) => {
+      refresh();
+      toast.error(errorMessage(err));
+    },
+  });
+  // Snoozing hides the tab at once, as closing does; waking shows it.
+  const snooze = useMutation({
+    mutationFn: ({ id, until }: { id: string; until?: Date }) => api.snoozeLeadSession(project, id, until),
+    onMutate: ({ id, until }) => {
+      if (!until) return;
+      const next = afterClose(list, id);
+      if (next && id === current?.id) chooseSession(project, next.id);
+      queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project], (had) => had?.map((s) => (s.id === id ? { ...s, snoozedUntil: until.toISOString() } : s)));
+    },
+    onSuccess: (s, { until }) => {
+      refresh();
+      if (until) toast(t('sessions.snoozed.done', { topic: s.topic }), { action: { label: t('sessions.snoozed.wake'), onClick: () => snooze.mutate({ id: s.id }) } });
+      else showSession(project, s);
     },
     onError: (err) => {
       refresh();
@@ -255,6 +278,8 @@ export function SessionChatPanel({ project, card, children }: { project: string;
       current={current?.id}
       adding={add.isPending}
       closedCount={closedCount}
+      snoozed={sleeping}
+      onWake={(id) => snooze.mutate({ id })}
       onChoose={(id) => {
         const s = list.find((x) => x.id === id);
         if (s) showSession(project, s);
@@ -269,6 +294,8 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   if (!current) {
     return box(
       <div className="flex h-full min-h-0 flex-col">
+        {/* Every open one snoozed: the row still lists them. */}
+        {sleeping.length > 0 && tabs}
         <EmptyState
           icon={MessagesSquare}
           title={t('sessions.none')}
@@ -317,7 +344,10 @@ export function SessionChatPanel({ project, card, children }: { project: string;
       <div className="-mt-px flex min-h-0 flex-1 flex-col">
         {box(
           ready ? (
-            children(info, current)
+            <>
+              <SessionHeader project={project} session={current} onSnooze={(until) => snooze.mutate({ id: current.id, until })} />
+              {children(info, current)}
+            </>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? loadErrorMessage(chat.error, t('chat.unavailable')) : t('common.loading')}</div>
           ),

@@ -594,6 +594,14 @@ export const api = {
   seeLeadSession: (name: string, session: string, at?: string) =>
     call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/seen`, { at } satisfies T.SeeLeadSessionRequest).then(untitledTopic),
   deleteLeadSession: (name: string, session: string) => call<void>('DELETE', `${project(name)}/sessions/${encodeURIComponent(session)}`),
+  // snoozeLeadSession hides an open session from the tabs until a time, or
+  // with none brings it back now; it comes back early when one of its agents
+  // needs you (daemon/sessionsettle.go).
+  snoozeLeadSession: (name: string, session: string, until?: Date) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/snooze`, { until: until?.toISOString() } satisfies T.LeadSessionSnooze).then(untitledTopic),
+  // sessionOutput is what a session made: its agents, live and retired, with
+  // their pull requests.
+  sessionOutput: (name: string, session: string) => call<T.SessionOutput>('GET', `${project(name)}/sessions/${encodeURIComponent(session)}/output`),
   handOverAgent: (ref: string, session: string) => call<void>('PUT', `${agent(ref)}/session`, { session } satisfies T.AgentSessionRequest),
   resetProjectChat: (project: string) => call<void>('DELETE', `/v1/projects/${encodeURIComponent(project)}/lead`),
 

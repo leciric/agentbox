@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { afterClose, byActivity, isUnread, isWorking, needsYouCount, neighbour, openSession, pickSession, SESSION_COLORS, sessionAlerts, sessionColor, sessionStatus, topicFrom, withSession } from './sessions.ts';
+import { afterClose, awake, byActivity, isSnoozed, snoozeChoices, snoozedOf, isUnread, isWorking, needsYouCount, neighbour, openSession, pickSession, SESSION_COLORS, sessionAlerts, sessionColor, sessionStatus, topicFrom, withSession } from './sessions.ts';
 
 const session = (id: string, activeAt: string, over: Partial<T.LeadSession> = {}): T.LeadSession => ({
   project: 'web',
@@ -123,6 +123,44 @@ test('every session colour has its look in styles.css', () => {
     assert.match(css, new RegExp(`\\[data-session-color="${c}"\\] \\{ --session: var\\(--ab-session-${c}\\); \\}`), c);
     assert.equal(css.match(new RegExp(`--ab-session-${c}: #`, 'g'))?.length, 2, `${c} in the dark and light themes`);
   }
+});
+
+test('a snoozed session leaves the tabs until its time', () => {
+  const now = new Date('2026-11-04T10:00:00Z').getTime();
+  const later = session('later', '2026-10-29T09:00:00Z', { snoozedUntil: '2026-11-05T09:00:00Z' });
+  const soon = session('soon', '2026-10-29T09:00:00Z', { snoozedUntil: '2026-11-04T11:00:00Z' });
+  const past = session('past', '2026-10-29T09:00:00Z', { snoozedUntil: '2026-11-04T09:00:00Z' });
+  const list = [main, later, soon, past];
+  assert.deepEqual(
+    awake(list, now).map((s) => s.id),
+    ['main', 'past'],
+  );
+  assert.deepEqual(
+    snoozedOf(list, now).map((s) => s.id),
+    ['soon', 'later'],
+  );
+  assert.equal(isSnoozed(past, now), false);
+});
+
+test('the snooze menu offers an hour, this evening, tomorrow and next week', () => {
+  // A Wednesday morning, local time.
+  const morning = new Date(2026, 10, 4, 10, 0);
+  const choices = snoozeChoices(morning);
+  assert.deepEqual(
+    choices.map((c) => c.key),
+    ['hour', 'evening', 'tomorrow', 'week'],
+  );
+  assert.equal(choices[1].until.getHours(), 18);
+  assert.equal(choices[2].until.getDate(), 5);
+  assert.equal(choices[3].until.getDay(), 1);
+  assert.equal(choices[3].until.getDate(), 9);
+  // Late in the day there is no evening left; on a Monday, next week is a
+  // week away.
+  assert.deepEqual(
+    snoozeChoices(new Date(2026, 10, 4, 17, 30)).map((c) => c.key),
+    ['hour', 'tomorrow', 'week'],
+  );
+  assert.equal(snoozeChoices(new Date(2026, 10, 9, 10, 0)).at(-1)!.until.getDate(), 16);
 });
 
 test('a session stands where the daemon says, or where its chat is for an older one', () => {

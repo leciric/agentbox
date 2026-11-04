@@ -33,6 +33,7 @@ export interface Project {
   agentPRs: boolean;
   prWatch: string;
   syncBase: boolean;
+  settleHours: number;
   fullTestSuite: boolean;
   pickUpIssues: boolean;
   pullRequests: boolean;
@@ -123,6 +124,7 @@ export interface UpdateProjectRequest {
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
+  settleHours?: number;
   fullTestSuite?: boolean;
   pickUpIssues?: boolean;
   pullRequests?: boolean;
@@ -3012,6 +3014,8 @@ export interface LeadSession {
   agentsWorking?: number;
   seenAt?: string;
   unread?: boolean;
+  settled?: boolean;
+  snoozedUntil?: string;
   parent?: LeadSessionParent;
 }
 
@@ -3053,6 +3057,31 @@ export interface LeadSessionStatusChange {
 
 export interface SeeLeadSessionRequest {
   at?: string;
+}
+
+export interface LeadSessionSnooze {
+  until?: string;
+}
+
+export interface SessionsSettled {
+  project: string;
+  sessions: LeadSession[];
+}
+
+export interface SessionOutput {
+  project: string;
+  session: string;
+  agents: SessionAgent[];
+}
+
+export interface SessionAgent {
+  ref: string;
+  name: string;
+  title: string;
+  branch: string;
+  archived?: boolean;
+  working?: boolean;
+  pr?: PullRequest;
 }
 
 export interface ChatLine {
@@ -3979,6 +4008,7 @@ export const EventGroup = "group";
 export const EventChat = "chat";
 export const EventChatCache = "chat.cache";
 export const EventLeadSessions = "lead.sessions";
+export const EventSessionsSettled = "lead.sessions.settled";
 export const EventLeadSessionStatus = "lead.session.status";
 export const SessionNeedsYou = "needsYou";
 export const SessionFailed = "failed";

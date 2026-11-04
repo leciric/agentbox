@@ -22,7 +22,7 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Briefcase, Check, ClipboardCheck, MonitorPlay, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, Briefcase, Check, ClipboardCheck, MonitorPlay, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -67,7 +67,8 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, Cont
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 import { GroupChips } from '../groups/GroupChip';
-import { chooseSession, chosenSession, isUnread, isWorking, openSession, sessionStatus, useSeenAt } from '../../lib/sessions';
+import { chooseSession, chosenSession, isUnread, isWorking, openSession, sessionStatus, snoozedOf, useSeenAt } from '../../lib/sessions';
+import { wakeTime } from '../chat/SessionHeader';
 
 const stLabel: Record<AgentSt, MessageKey> = {
   needs: 'v2.st.needs',
@@ -1232,6 +1233,58 @@ function ProjectLead({
       <div className="ml-[15px] mr-1 flex flex-col gap-px pl-[7px] empty:hidden" data-v2-groups={project.name}>
         <GroupChips project={project.name} activeId={view.kind === 'group' ? view.id : undefined} />
       </div>
+      <SnoozedRows
+        sessions={snoozedOf(sessions)}
+        onWake={(s) => {
+          void api
+            .snoozeLeadSession(project.name, s.id)
+            .then(() => {
+              chooseSession(project.name, s.id);
+              onSelect({ kind: 'project', project: project.name });
+              requestSessionFocus(s.ref);
+            })
+            .catch((err) => toast.error(errorMessage(err)))
+            .finally(() => void queryClient.invalidateQueries({ queryKey: ['leadSessions', project.name] }));
+        }}
+      />
+    </div>
+  );
+}
+
+// SnoozedRows is a project's snoozed chat sessions, under its row: folded to
+// a count, and open, each with when it comes back. Clicking one wakes it now
+// and shows it.
+function SnoozedRows({ sessions, onWake }: { sessions: T.LeadSession[]; onWake: (s: T.LeadSession) => void }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  if (sessions.length === 0) return null;
+  return (
+    <div className="ml-[15px] mr-1 flex flex-col gap-px pl-[7px]" data-v2-snoozed>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[11.5px] text-subtle hover:bg-surface-raised hover:text-secondary"
+        data-v2-snoozed-toggle
+      >
+        <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
+        <AlarmClock className="size-3 shrink-0" />
+        <span className="truncate">{t('sessions.snoozed.count', { count: sessions.length })}</span>
+      </button>
+      {open &&
+        sessions.map((s) => (
+          <Tip key={s.id} label={t('sessions.snoozed.wake')}>
+            <button
+              type="button"
+              onClick={() => onWake(s)}
+              className="flex min-w-0 items-center gap-2 rounded-md py-0.5 pl-7 pr-2 text-left text-[11.5px] hover:bg-surface-raised"
+              data-v2-snoozed-session={s.id}
+            >
+              <span className="min-w-0 flex-1 truncate text-secondary">{s.topic}</span>
+              <span className="shrink-0 tabular-nums text-faint">{wakeTime(s.snoozedUntil!)}</span>
+            </button>
+          </Tip>
+        ))}
     </div>
   );
 }

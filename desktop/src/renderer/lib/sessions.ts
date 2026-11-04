@@ -257,3 +257,47 @@ export function resetSessionsForTest(s: Store): void {
   seenHere = {};
   notify();
 }
+
+// isSnoozed says a session is hidden from the tabs as of now, until its
+// snoozedUntil (daemon/sessionsettle.go); one whose time has come is back,
+// whether or not the daemon has said so yet.
+export const isSnoozed = (s: T.LeadSession, now = Date.now()): boolean => !!s.snoozedUntil && new Date(s.snoozedUntil).getTime() > now;
+
+// awake is the sessions the tabs show: the open ones not snoozed.
+export const awake = (sessions: readonly T.LeadSession[], now = Date.now()): T.LeadSession[] => sessions.filter((s) => !isSnoozed(s, now));
+
+// snoozedOf is the snoozed sessions, the first to come back first.
+export const snoozedOf = (sessions: readonly T.LeadSession[], now = Date.now()): T.LeadSession[] =>
+  sessions.filter((s) => isSnoozed(s, now)).sort((a, b) => new Date(a.snoozedUntil!).getTime() - new Date(b.snoozedUntil!).getTime());
+
+// SnoozeChoice is one of the times the Snooze menu offers.
+export type SnoozeChoice = { key: 'hour' | 'evening' | 'tomorrow' | 'week'; until: Date };
+
+// snoozeChoices are the times the Snooze menu offers from now: in an hour,
+// this evening at 18:00 while that is more than an hour away, tomorrow at
+// 9:00, and next Monday at 9:00.
+export function snoozeChoices(now: Date): SnoozeChoice[] {
+  const at = (days: number, hour: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + days);
+    d.setHours(hour, 0, 0, 0);
+    return d;
+  };
+  const out: SnoozeChoice[] = [{ key: 'hour', until: new Date(now.getTime() + 3_600_000) }];
+  const evening = at(0, 18);
+  if (evening.getTime() - now.getTime() > 3_600_000) out.push({ key: 'evening', until: evening });
+  out.push({ key: 'tomorrow', until: at(1, 9) });
+  out.push({ key: 'week', until: at(((8 - now.getDay()) % 7) || 7, 9) });
+  return out;
+}
+
+// Sessions settling by themselves (T.EventSessionsSettled), from the event
+// stream (lib/events.ts) to the toast that offers Undo (SettledToasts).
+const settledListeners = new Set<(s: T.SessionsSettled) => void>();
+export function onSessionsSettled(fn: (s: T.SessionsSettled) => void): () => void {
+  settledListeners.add(fn);
+  return () => void settledListeners.delete(fn);
+}
+export function sessionsSettled(s: T.SessionsSettled): void {
+  for (const l of settledListeners) l(s);
+}

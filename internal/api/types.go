@@ -152,6 +152,10 @@ type Project struct {
 	// behind — never a diverged branch, and a checked-out one only when its
 	// checkout has no changes. On by default.
 	SyncBase bool `json:"syncBase"`
+	// SettleHours is how long one of the project's chat sessions waits idle,
+	// once its agents' pull requests are all merged or closed and none of
+	// them works, before it settles into the history by itself; 0 for never.
+	SettleHours int `json:"settleHours"`
 	// FullTestSuite is whether this project's agents may run a whole test
 	// suite while Settings.BlockFullSuite refuses them; it means nothing
 	// while that is off. Off by default.
@@ -389,6 +393,9 @@ type UpdateProjectRequest struct {
 	// SyncBase turns on or off keeping this project's base branch up to date
 	// with its remote.
 	SyncBase *bool `json:"syncBase,omitempty"`
+	// SettleHours sets how long the project's sessions wait idle before
+	// settling into the history, in hours; 0 turns settling off.
+	SettleHours *int `json:"settleHours,omitempty"`
 	// FullTestSuite turns on or off whether this project's agents may run a
 	// whole test suite while Settings.BlockFullSuite refuses them.
 	FullTestSuite *bool `json:"fullTestSuite,omitempty"`

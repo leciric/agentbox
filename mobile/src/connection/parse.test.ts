@@ -120,6 +120,18 @@ test('a project chat’s sessions keep only the ones with an id and a ref', () =
   assert.deepEqual(P.leadSessions(null), []);
 });
 
+test('a session output keeps the agents that have a ref, and pull requests with a number', () => {
+  const got = P.sessionOutput({
+    agents: [{ ref: 'web/agent-01', name: 'agent-01', working: true, pr: { number: 7, state: 'merged', checks: 'passing' } }, { name: 'nobody' }, { ref: 'web/agent-02', archived: true, pr: { state: 'open' } }],
+  });
+  assert.equal(got.length, 2);
+  assert.equal(got[0].working, true);
+  assert.equal(got[0].pr?.number, 7);
+  assert.equal(got[1].archived, true);
+  assert.equal(got[1].pr, undefined);
+  assert.deepEqual(P.sessionOutput(null), []);
+});
+
 test('a session status event carries the project and its sessions as they stand', () => {
   const change = P.leadSessionStatus({ project: 'web', sessions: [{ id: 'prod', ref: 'web/lead.prod', status: 'needsYou', needsYou: 2, unread: 'yes' }, { id: 'broken' }] });
   assert.equal(change?.project, 'web');

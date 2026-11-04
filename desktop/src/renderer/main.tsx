@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { SettledToasts } from './components/chat/SettledToasts';
 import { Toasts } from './components/Toasts';
 import { TooltipProvider } from './components/ui/tooltip';
 import { api } from './lib/api';
@@ -57,6 +58,7 @@ function Root() {
     <TooltipProvider delayDuration={250}>
       <App />
       <Toasts />
+      <SettledToasts />
     </TooltipProvider>
   );
 }

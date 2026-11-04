@@ -9,6 +9,7 @@ import { questionsKey, withQuestion } from './inboxPages.ts';
 import { applyMediaEvent, setMediaUnseen } from './mediaPages.ts';
 import { pastAgentsKey } from './pastAgents.ts';
 import { workKey } from './work.ts';
+import { sessionsSettled } from './sessions.ts';
 import { applySeen } from './notifications.ts';
 import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
@@ -139,6 +140,15 @@ export function connectEvents(queryClient: QueryClient): void {
         const change = event.data as T.LeadSessionsChange;
         void queryClient.invalidateQueries({ queryKey: ['leadSessions', change.project] });
         void queryClient.invalidateQueries({ queryKey: ['fleet', change.project] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionOutput', change.project] });
+        break;
+      }
+      case T.EventSessionsSettled: {
+        // Sessions whose work is in closed into History by themselves: the
+        // toast offers them back (SettledToasts).
+        const settled = event.data as T.SessionsSettled;
+        void queryClient.invalidateQueries({ queryKey: ['leadSessions', settled.project] });
+        sessionsSettled(settled);
         break;
       }
       case T.EventLeadSessionStatus: {
@@ -241,6 +251,7 @@ export function connectEvents(queryClient: QueryClient): void {
         // stops showing "refreshing"; the fleet has nothing to redraw.
         const { project, unchanged } = event.data as T.PullsChange;
         void queryClient.invalidateQueries({ queryKey: ['pulls', project] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionOutput', project] });
         if (!unchanged) {
           void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
           // A pull request fixed brings its agent back to "Ready to review".
