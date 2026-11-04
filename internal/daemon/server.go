@@ -294,6 +294,10 @@ type Server struct {
 	// approve asks the user to approve what a project's lead asked for, and
 	// waits for the answer: approveInChat, or the test's (leadskills.go).
 	approve func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
+	// sessionPRs, when set, stands in for the pull request cache in what a
+	// session made (sessionOutput), for tests.
+	sessionPRs func(p state.Project, agents []state.Agent) (map[string]*api.PullRequest, bool)
+
 	// leadPermissions carries agents' permission requests to their leads'
 	// chats (leadpermissions.go).
 	leadPermissions leadPermissions
@@ -644,6 +648,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.sweepStoppedMachines(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
+	loops.Go(func() { s.sweepSessions(ctx) })
 	loops.Go(func() { s.runIdleReclaim(ctx) })
 	loops.Go(func() { s.runUsage(ctx) })
 	loops.Go(func() {
@@ -958,6 +963,8 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/projects/{project}/sessions/{session}", s.deleteSession)
 	h("POST /v1/projects/{project}/sessions/{session}/close", s.closeSession)
 	h("POST /v1/projects/{project}/sessions/{session}/reopen", s.reopenSession)
+	h("POST /v1/projects/{project}/sessions/{session}/snooze", s.snoozeSession)
+	h("GET /v1/projects/{project}/sessions/{session}/output", s.sessionOutputRoute)
 	sessionRoute("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
 	sessionRoute("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
 	sessionRoute("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))

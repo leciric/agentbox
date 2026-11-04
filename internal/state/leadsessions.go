@@ -62,6 +62,22 @@ type LeadSession struct {
 	// ClosedAt is when the session was closed, into the chat's history; zero
 	// while it is open.
 	ClosedAt time.Time
+	// Settled says it closed by itself, its work in (SettleLeadSession),
+	// rather than by the user.
+	Settled bool
+	// SnoozedUntil is when a snoozed open session comes back to the tabs;
+	// zero when it isn't snoozed. It comes back early when one of its agents
+	// needs the user.
+	SnoozedUntil time.Time
+	// ReopenedAt is when it was last reopened from the history or woken from
+	// a snooze, which its idle time counts from as well as its last message;
+	// zero for never.
+	ReopenedAt time.Time
+}
+
+// Snoozed reports whether the session is hidden from the tabs as of now.
+func (ls LeadSession) Snoozed(now time.Time) bool {
+	return !ls.SnoozedUntil.IsZero() && ls.SnoozedUntil.After(now)
 }
 
 // Closed reports whether the session is in the chat's history.
@@ -332,7 +348,7 @@ func (s *Store) ColorLeadSessions(ctx context.Context, project string) error {
 }
 
 // leadSessionColumns is what scanLeadSession reads.
-const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at, color`
+const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at, color, settled, snoozed_until, reopened_at`
 
 // LeadSessions lists a project's open sessions, oldest first.
 func (s *Store) LeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
@@ -375,9 +391,15 @@ func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSessio
 
 func scanLeadSession(row interface{ Scan(...any) error }) (LeadSession, error) {
 	var ls LeadSession
-	var created, closed int64
-	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed, &ls.Color); err != nil {
+	var created, closed, snoozed, reopened int64
+	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed, &ls.Color, &ls.Settled, &snoozed, &reopened); err != nil {
 		return LeadSession{}, err
+	}
+	if snoozed != 0 {
+		ls.SnoozedUntil = time.UnixMilli(snoozed)
+	}
+	if reopened != 0 {
+		ls.ReopenedAt = time.UnixMilli(reopened)
 	}
 	ls.CreatedAt = time.UnixMilli(created)
 	if closed != 0 {
@@ -435,7 +457,8 @@ func (s *Store) leadSessionActivity(ctx context.Context, project string, session
 }
 
 // LastActiveLeadSession is the project's open session most recently active,
-// the one a notice nobody owns goes to; ErrNotFound when it has none open.
+// not counting snoozed ones while another is open, the one a notice nobody
+// owns goes to; ErrNotFound when it has none open.
 func (s *Store) LastActiveLeadSession(ctx context.Context, project string) (LeadSession, error) {
 	sessions, err := s.LeadSessions(ctx, project)
 	if err != nil {
@@ -444,6 +467,12 @@ func (s *Store) LastActiveLeadSession(ctx context.Context, project string) (Lead
 	activity, err := s.LeadSessionActivity(ctx, project)
 	if err != nil {
 		return LeadSession{}, err
+	}
+	// A snoozed session is hidden from the user, so what belongs to nobody
+	// goes to one that isn't while there is one.
+	now := time.Now()
+	if slices.ContainsFunc(sessions, func(ls LeadSession) bool { return !ls.Snoozed(now) }) {
+		sessions = slices.DeleteFunc(sessions, func(ls LeadSession) bool { return ls.Snoozed(now) })
 	}
 	var best LeadSession
 	for _, ls := range sessions {
@@ -513,7 +542,11 @@ func (s *Store) NameLeadSession(ctx context.Context, project, id, topic string) 
 // the session most recently active while it is closed (daemon.leadOf), and
 // back to it once it is reopened.
 func (s *Store) CloseLeadSession(ctx context.Context, project, id string, at time.Time) error {
-	return s.setLeadSessionClosed(ctx, project, id, at.UnixMilli(), `closed_at = 0`)
+	if err := s.setLeadSessionClosed(ctx, project, id, at.UnixMilli(), `closed_at = 0`); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE lead_sessions SET settled = 0, snoozed_until = 0 WHERE project = ? AND id = ?`, project, id)
+	return err
 }
 
 // ReopenLeadSession moves a closed session from the history back among the
@@ -521,6 +554,10 @@ func (s *Store) CloseLeadSession(ctx context.Context, project, id string, at tim
 // with one none has, while any is free.
 func (s *Store) ReopenLeadSession(ctx context.Context, project, id string) error {
 	if err := s.setLeadSessionClosed(ctx, project, id, 0, `closed_at != 0`); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE lead_sessions SET settled = 0, snoozed_until = 0, reopened_at = ? WHERE project = ? AND id = ?`,
+		time.Now().UnixMilli(), project, id); err != nil {
 		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -611,6 +648,7 @@ func (s *Store) DeleteLeadSession(ctx context.Context, project, id string) ([]st
 	name := LeadSessionName(id)
 	for _, q := range []string{
 		`UPDATE agents SET created_by_session = '' WHERE project = ? AND created_by_session = ?`,
+		`UPDATE archived_agents SET created_by_session = '' WHERE project = ? AND created_by_session = ?`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, project, id); err != nil {
 			return nil, err
@@ -663,4 +701,104 @@ func (s *Store) RemoveLeadSessions(ctx context.Context, project string) error {
 // AllLeadSessions is every session of a project, open or closed.
 func (s *Store) AllLeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
 	return s.leadSessions(ctx, `SELECT `+leadSessionColumns+` FROM lead_sessions WHERE project = ? ORDER BY created_at, id`, project)
+}
+
+// DefaultSettleHours is how long a session waits idle, its work in, before
+// it settles into the history, for a project that hasn't said.
+const DefaultSettleHours = 24
+
+// SettleAfter is how long the project's sessions wait idle before settling,
+// or 0 when they never do.
+func (p Project) SettleAfter() time.Duration {
+	switch {
+	case p.SettleHours < 0:
+		return 0
+	case p.SettleHours == 0:
+		return DefaultSettleHours * time.Hour
+	}
+	return time.Duration(p.SettleHours) * time.Hour
+}
+
+// SetProjectSettleHours sets how long the project's sessions wait idle before
+// settling: hours, or 0 for never.
+func (s *Store) SetProjectSettleHours(ctx context.Context, name string, hours int) error {
+	if hours <= 0 {
+		hours = -1
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET settle_hours = ? WHERE name = ?`, hours, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+// SettleLeadSession is CloseLeadSession for a session that settled by itself
+// (daemon/sessionsettle.go), which the history marks so.
+func (s *Store) SettleLeadSession(ctx context.Context, project, id string, at time.Time) error {
+	if err := s.setLeadSessionClosed(ctx, project, id, at.UnixMilli(), `closed_at = 0`); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE lead_sessions SET settled = 1, snoozed_until = 0 WHERE project = ? AND id = ?`, project, id)
+	return err
+}
+
+// SnoozeLeadSession hides an open session from the tabs until until, or with
+// the zero time brings it back now; at is when, which a woken session's idle
+// time counts from (LeadSession.ReopenedAt), so a session snoozed for a week
+// doesn't settle the moment it wakes.
+func (s *Store) SnoozeLeadSession(ctx context.Context, project, id string, until, at time.Time) error {
+	var ms int64
+	if !until.IsZero() {
+		ms = until.UnixMilli()
+	}
+	set := `snoozed_until = ?`
+	args := []any{ms}
+	if ms == 0 {
+		set += `, reopened_at = ?`
+		args = append(args, at.UnixMilli())
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE lead_sessions SET `+set+` WHERE project = ? AND id = ? AND closed_at = 0`, append(args, project, id)...)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return nil
+	}
+	if _, err := s.LeadSession(ctx, project, id); err != nil {
+		return err
+	}
+	return fmt.Errorf("session %s of %s is closed: reopen it first", id, project)
+}
+
+// WakeLeadSessions brings back every snoozed session, of any project, whose
+// time came by now, and says which, by project.
+func (s *Store) WakeLeadSessions(ctx context.Context, now time.Time) (map[string][]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT project, id FROM lead_sessions WHERE snoozed_until != 0 AND snoozed_until <= ? AND closed_at = 0`, now.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	woke := map[string][]string{}
+	for rows.Next() {
+		var p, id string
+		if err := rows.Scan(&p, &id); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		woke[p] = append(woke[p], id)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+	for p, ids := range woke {
+		for _, id := range ids {
+			if err := s.SnoozeLeadSession(ctx, p, id, time.Time{}, now); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return woke, nil
 }

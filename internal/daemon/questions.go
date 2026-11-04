@@ -95,6 +95,7 @@ func (s *Server) ask(instance string) func(http.ResponseWriter, *http.Request) e
 		s.events.publish(api.EventQuestion, toAPIQuestion(q))
 		s.record(r.Context(), questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
 		s.logf("%s asks its project's chat: %s", a.Ref(), req.Question)
+		s.wakeSessionOf(r.Context(), a, "asks something")
 		// Put it in front of the lead, and wake it: an agent waits on an answer,
 		// so a question always starts a turn whatever finishNotices says.
 		s.tellLeadAbout(r.Context(), a, questionNotice(q), chat.NoticeOptions{Act: true}, peerEvent{Status: state.RemoteAsking, Summary: q.Text})
@@ -127,6 +128,7 @@ func (s *Server) askForTest(ctx context.Context, a state.Agent, question, about 
 		"questionId": q.ID, "question": q.Text, "context": q.Context,
 	}, "")
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
+	s.wakeSessionOf(ctx, a, "asks something")
 	s.tellLeadAbout(ctx, a, questionNotice(q), chat.NoticeOptions{Act: true}, peerEvent{Status: state.RemoteAsking, Summary: q.Text})
 	select {
 	case answered := <-ch:

@@ -63,7 +63,7 @@ func (s *Server) projectSettings(ctx context.Context, p state.Project) api.Proje
 		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, SettleHours: int(p.SettleAfter() / time.Hour), FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
@@ -546,6 +546,15 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		p.BaseSyncOff = !*req.SyncBase
 		if *req.SyncBase {
 			go s.syncBase(s.background(), p)
+		}
+	}
+	if req.SettleHours != nil {
+		if err := s.store.SetProjectSettleHours(r.Context(), p.Name, *req.SettleHours); err != nil {
+			return err
+		}
+		p.SettleHours = max(*req.SettleHours, -1)
+		if p.SettleHours == 0 {
+			p.SettleHours = -1
 		}
 	}
 	if req.PullRequests != nil {

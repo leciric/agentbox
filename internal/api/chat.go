@@ -536,6 +536,56 @@ type LeadSession struct {
 	// ClosedAt is when a session in the chat's history was closed: it is read,
 	// reopened or continued from there, and starts no turn until reopened.
 	ClosedAt *time.Time `json:"closedAt,omitempty"`
+	// Settled says a session in the history closed by itself: every pull
+	// request of its agents merged or closed, none of them working, and it
+	// idle for the project's SettleHours.
+	Settled bool `json:"settled,omitempty"`
+	// SnoozedUntil is when a snoozed session comes back among the tabs; it
+	// comes back sooner when one of its agents asks something or needs a
+	// permission. Absent when it isn't snoozed.
+	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
+}
+
+// LeadSessionSnooze snoozes a session until Until (POST
+// .../sessions/{session}/snooze), or with none brings it back now.
+type LeadSessionSnooze struct {
+	Until *time.Time `json:"until,omitempty"`
+}
+
+// EventSessionsSettled carries a SessionsSettled when sessions settle into
+// the history by themselves, for the app's Undo.
+const EventSessionsSettled = "lead.sessions.settled"
+
+// SessionsSettled is the sessions of a project that just settled.
+type SessionsSettled struct {
+	Project  string        `json:"project"`
+	Sessions []LeadSession `json:"sessions"`
+}
+
+// SessionOutput is what a session made (GET .../sessions/{session}/output):
+// its agents, the live ones first and then those retired, each with its pull
+// request.
+type SessionOutput struct {
+	Project string         `json:"project"`
+	Session string         `json:"session"`
+	Agents  []SessionAgent `json:"agents"`
+}
+
+// SessionAgent is one of a session's agents and its pull request.
+type SessionAgent struct {
+	Ref    string `json:"ref"`
+	Name   string `json:"name"`
+	Title  string `json:"title"`
+	Branch string `json:"branch"`
+	// Archived says its machine is gone (ArchivedAgent): its diff can't be
+	// read, its pull request still counts.
+	Archived bool `json:"archived,omitempty"`
+	// Working says it is busy: a turn running, a question waiting or a job
+	// going.
+	Working bool `json:"working,omitempty"`
+	// PR is its pull request as last read, without waiting on GitHub; absent
+	// when none is known.
+	PR *PullRequest `json:"pr,omitempty"`
 }
 
 // EventLeadSessions carries a LeadSessionsChange when a project's sessions

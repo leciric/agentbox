@@ -24,6 +24,7 @@ type leadPermissions struct {
 
 type queuedPermission struct {
 	project, session string
+	agent            state.Agent
 	p                api.ChatAgentPermission
 }
 
@@ -34,7 +35,7 @@ func (s *Server) agentPermission(a state.Agent, p api.ChatAgentPermission) {
 	q := &s.leadPermissions
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.queue = append(q.queue, queuedPermission{a.Project, a.Session(), p})
+	q.queue = append(q.queue, queuedPermission{a.Project, a.Session(), a, p})
 	if !q.running {
 		q.running = true
 		go s.showAgentPermissions()
@@ -55,6 +56,9 @@ func (s *Server) showAgentPermissions() {
 		next := q.queue[0]
 		q.queue = q.queue[1:]
 		q.mu.Unlock()
+		if next.p.Permission.Outcome == "" {
+			s.wakeSessionOf(context.Background(), next.agent, "needs a permission")
+		}
 		s.showAgentPermission(context.Background(), next.project, next.session, next.p)
 	}
 }
