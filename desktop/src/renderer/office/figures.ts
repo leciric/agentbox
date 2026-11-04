@@ -1,14 +1,13 @@
 // The Office's people, as rounded toys: soft plastic shading, chunky shapes,
 // big eyes, squash and stretch.
 //
-// Each agent is its AI tool's mascot, built here from simple shapes, with no
-// image files: Claude Code's Clawd, the orange pixel critter, as a voxel
-// figure; Cursor a shaded cube; Gemini a gradient sparkle; OpenCode a framed
-// block; Codex a little cloud with a terminal prompt for a mouth. They share
-// one rig (a body that squashes, two arms, a face whose eyes change shape
-// with its mood) and one set of poses: typing, waving, celebrating, an error,
-// asleep. A per-agent accent (a hat, headphones, a bow, a scarf, in a colour
-// of its own, from a stable hash of its ref) tells two Clawds apart.
+// Every agent is Boxie, the AgentBox character, chibi: its head as big as
+// the rest of it, the logo's cube rounded off in its violet-to-indigo
+// gradient with white piping, a face screen with big eyes that change with
+// its mood, and a tiny body with stubby limbs. One rig and one set of poses:
+// typing, waving, celebrating, an error, asleep. Variety is in the details:
+// the agent's colour (its body), something to wear (a hat, headphones, a
+// bow…), and a badge on its chest for its AI tool, all from a stable hash.
 //
 // You are a chibi person: a big head, a stubby body, big eyes, a hoodie.
 import * as THREE from 'three';
@@ -110,7 +109,7 @@ type Build = {
   body: THREE.Group;
   face: THREE.Group;
   arms: [THREE.Group, THREE.Group];
-  eyes: 'pixel' | 'big';
+  eyes: 'pixel' | 'big' | 'screen';
   eyeGap: number;
   eyeSize: number;
   height: number;
@@ -120,164 +119,114 @@ type Build = {
 
 type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number; accent: string };
 
-// clawd: Claude Code's critter as a rounded toy: a wide orange body, two
-// tall dark eyes, round nubs for arms, four stubby legs.
-function clawd(k: Kit): Build {
-  // Its arms and feet in the agent's accent: a room of Clawds, each its own.
-  const limb = k.m(toon(k.accent));
-  const base = new THREE.Color('#d97757').offsetHSL(k.tint * 0.025, k.tint * 0.06, k.tint * 0.05);
-  const orange = k.m(toon(base));
-  const shade = k.m(toon(base.clone().offsetHSL(0, 0, -0.07)));
-  const body = new THREE.Group();
-  const H = 0.42;
-  const shell = at(new THREE.Mesh(new RoundedBoxGeometry(0.7, H, 0.4, 5, 0.15), orange), 0, 0.13 + H / 2, 0);
-  body.add(shell);
-  for (const lx of [-0.24, -0.08, 0.08, 0.24]) body.add(at(new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.07, 6, 12), limb), lx, 0.1, 0.14));
-  void shade;
-  const face = at(new THREE.Group(), 0, 0.13 + H * 0.58, 0.2);
-  body.add(face);
-  const arms = [-1, 1].map((sx) => {
-    const p = at(new THREE.Group(), sx * 0.35, 0.13 + H * 0.45, 0);
-    const nub = at(new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), limb), sx * 0.03, -0.06, 0);
-    nub.scale.set(1, 0.85, 0.85);
-    p.add(nub);
-    body.add(p);
-    return p;
-  }) as [THREE.Group, THREE.Group];
-  return { body, face, arms, eyes: 'pixel', eyeGap: 0.12, eyeSize: 0.07, height: 0.13 + H, hover: 0 };
-}
+// The logo's colours: violet to indigo, white lines.
+const LOGO = { light: new THREE.Color('#a78bfa'), mid: new THREE.Color('#7c3aed'), dark: new THREE.Color('#4f46e5') };
 
-// cube: Cursor's mark, a cube turned to show three faces, light, mid and dark.
-function cube(k: Kit): Build {
-  const body = new THREE.Group();
-  const faces = [k.m(toon('#5e6470')), k.m(toon('#2a2e36')), k.m(toon('#eef0f3')), k.m(toon('#1c1f25')), k.m(toon('#3b4049')), k.m(toon('#1c1f25'))];
-  const c = at(new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.4, 0.4, 3, 0.05), faces), 0, 0.36, 0);
-  c.rotation.set(-0.5, Math.PI / 4, 0, 'YXZ');
-  body.add(c);
-  // The face floats on the front corner, where you see it.
-  const face = at(new THREE.Group(), 0, 0.37, 0.3);
-  body.add(face);
-  const dark = k.m(toon('#2a2e36'));
-  const arms = [-1, 1].map((sx) => {
-    const p = at(new THREE.Group(), sx * 0.24, 0.3, 0.05);
-    const nub = at(new THREE.Mesh(new THREE.SphereGeometry(0.05, 14, 10), dark), 0, -0.07, 0);
-    p.add(nub);
-    body.add(p);
-    return p;
-  }) as [THREE.Group, THREE.Group];
-  return { body, face, arms, eyes: 'big', eyeGap: 0.075, eyeSize: 0.05, height: 0.66, hover: 0.04 };
-}
-
-// sparkle: Gemini's four-pointed star, puffy, blue through violet to rose.
-function sparkle(k: Kit): Build {
-  const body = new THREE.Group();
-  const shape = new THREE.Shape();
-  const R = 0.38;
-  const inner = 0.035;
-  shape.moveTo(0, R);
-  shape.quadraticCurveTo(inner, inner, R, 0);
-  shape.quadraticCurveTo(inner, -inner, 0, -R);
-  shape.quadraticCurveTo(-inner, -inner, -R, 0);
-  shape.quadraticCurveTo(-inner, inner, 0, R);
-  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.1, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.02, bevelSegments: 3, curveSegments: 20 });
-  g.center();
-  // The gradient, in vertex colours: blue at the top left to rose below.
+// gradient paints a geometry's vertex colours from the logo's violet at its
+// top left to its indigo at the bottom right.
+function gradient(g: THREE.BufferGeometry, size: number) {
   const pos = g.attributes.position;
   const col = new Float32Array(pos.count * 3);
-  const a = new THREE.Color('#4f8ff7');
-  const b = new THREE.Color('#9b72cb');
-  const c2 = new THREE.Color('#e0697a');
-  const tmp = new THREE.Color();
+  const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
-    const u = THREE.MathUtils.clamp(0.5 - (pos.getY(i) - pos.getX(i) * 0.6) / (2 * R), 0, 1);
-    if (u < 0.5) tmp.copy(a).lerp(b, u * 2);
-    else tmp.copy(b).lerp(c2, (u - 0.5) * 2);
-    col.set([tmp.r, tmp.g, tmp.b], i * 3);
+    const u = THREE.MathUtils.clamp(0.5 + (pos.getX(i) - pos.getY(i) + pos.getZ(i) * 0.3) / (2.4 * size), 0, 1);
+    if (u < 0.55) c.copy(LOGO.light).lerp(LOGO.mid, u / 0.55);
+    else c.copy(LOGO.mid).lerp(LOGO.dark, (u - 0.55) / 0.45);
+    col.set([c.r, c.g, c.b], i * 3);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const star = at(new THREE.Mesh(g, k.m(toon('#ffffff', { vertexColors: true }))), 0, 0.46, 0);
-  body.add(star);
-  const face = at(new THREE.Group(), 0, 0.46, 0.105);
-  body.add(face);
-  const hand = k.m(toon('#7f86e8'));
-  const arms = [-1, 1].map((sx) => {
-    const p = at(new THREE.Group(), sx * 0.15, 0.36, 0.06);
-    const nub = at(new THREE.Mesh(new THREE.SphereGeometry(0.045, 14, 10), hand), 0, -0.06, 0);
-    p.add(nub);
-    body.add(p);
-    return p;
-  }) as [THREE.Group, THREE.Group];
-  return { body, face, arms, eyes: 'big', eyeGap: 0.07, eyeSize: 0.045, height: 0.84, hover: 0.05 };
+  return g;
 }
 
-// block: OpenCode's mark, a square frame block with a dark face inside.
-function block(k: Kit): Build {
+// boxie is the AgentBox character, chibi: a head as big as the rest of it,
+// the logo's cube rounded off, in its gradient with white piping along the
+// edges, a face screen with big eyes; a tiny body in the agent's colour with
+// stubby arms and legs. Seated, facing +z; its origin on the seat.
+function boxie(k: Kit): Build {
   const body = new THREE.Group();
-  const light = k.m(toon('#ededed'));
-  const dark = k.m(toon('#17181c'));
-  const frame = at(new THREE.Mesh(new RoundedBoxGeometry(0.46, 0.44, 0.3, 3, 0.04), light), 0, 0.36, 0);
-  body.add(frame);
-  body.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.28, 0.05, 2, 0.02), dark), 0, 0.36, 0.14));
+  const coat = k.m(toon(k.accent, { roughness: 0.55 }));
+  const shoe = k.m(toon('#ffffff', { roughness: 0.4 }));
+  // The body: a soft little bean, legs sticking forward off the seat.
+  const torso = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.1, 8, 18), coat), 0, 0.2, 0);
+  torso.scale.set(1.05, 1, 0.9);
+  body.add(torso);
   for (const sx of [-1, 1]) {
-    const f = at(new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.08, 0.14, 2, 0.02), dark), sx * 0.12, 0.12, 0.06);
-    body.add(f);
+    const leg = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.1, 6, 12), coat), sx * 0.07, 0.07, 0.11);
+    leg.rotation.x = Math.PI / 2;
+    body.add(leg);
+    body.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.065, 14, 10), shoe), sx * 0.07, 0.06, 0.2));
   }
-  const face = at(new THREE.Group(), 0, 0.37, 0.168);
-  body.add(face);
+  // The head: the logo's cube, rounded.
+  const S = 0.46;
+  const headG = gradient(new RoundedBoxGeometry(S, S * 0.92, S * 0.9, 6, 0.12), S);
+  const head = at(new THREE.Mesh(headG, k.m(toon('#ffffff', { vertexColors: true, roughness: 0.35 }))), 0, 0.34 + S * 0.46, 0);
+  body.add(head);
+  // White piping along its edges, as the logo's line art.
+  const pipe = k.m(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 }));
+  const hw = S / 2 - 0.035;
+  const hh = (S * 0.92) / 2 - 0.035;
+  const hd = (S * 0.9) / 2 - 0.035;
+  const edge = (len: number, x: number, y: number, z: number, axis: 'x' | 'y' | 'z') => {
+    const e = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.009, len, 4, 8), pipe), x, y, z);
+    if (axis === 'x') e.rotation.z = Math.PI / 2;
+    if (axis === 'z') e.rotation.x = Math.PI / 2;
+    head.add(e);
+  };
+  for (const y of [-hh, hh]) for (const z of [-hd, hd]) edge(S - 0.16, 0, y + Math.sign(y) * 0.03, z + Math.sign(z) * 0.03, 'x');
+  for (const x of [-hw, hw]) for (const z of [-hd, hd]) edge(S * 0.92 - 0.16, x + Math.sign(x) * 0.03, 0, z + Math.sign(z) * 0.03, 'y');
+  for (const x of [-hw, hw]) for (const y of [-hh, hh]) edge(S * 0.9 - 0.16, x + Math.sign(x) * 0.03, y + Math.sign(y) * 0.03, 0, 'z');
+  // The face: a dark, glossy screen on the front.
+  const screen = at(new THREE.Mesh(new RoundedBoxGeometry(S * 0.78, S * 0.6, 0.03, 4, 0.06), k.m(new THREE.MeshStandardMaterial({ color: '#1a1530', roughness: 0.2, metalness: 0.1, emissive: '#221a44', emissiveIntensity: 0.4 }))), 0, -0.01, S * 0.45);
+  head.add(screen);
+  const face = at(new THREE.Group(), 0, -0.005, S * 0.45 + 0.017);
+  head.add(face);
+  // Stubby arms with round hands.
   const arms = [-1, 1].map((sx) => {
-    const p = at(new THREE.Group(), sx * 0.24, 0.34, 0);
-    const nub = at(new THREE.Mesh(new RoundedBoxGeometry(0.08, 0.13, 0.08, 2, 0.02), light), 0, -0.06, 0);
-    p.add(nub);
+    const p = at(new THREE.Group(), sx * 0.16, 0.27, 0.01);
+    p.add(at(new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.07, 6, 12), coat), 0, -0.06, 0));
+    p.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.052, 14, 10), shoe), 0, -0.13, 0));
     body.add(p);
     return p;
   }) as [THREE.Group, THREE.Group];
-  return { body, face, arms, eyes: 'big', eyeGap: 0.075, eyeSize: 0.045, height: 0.6, hover: 0 };
+  // The status light and the hats sit on the head; its tool's badge on its chest.
+  body.userData.chest = new THREE.Vector3(0.06, 0.24, 0.14);
+  return { body, face, arms, eyes: 'screen', eyeGap: 0.075, eyeSize: 0.046, height: 0.34 + S * 0.92 + 0.02, hover: 0 };
 }
 
-// cloud: Codex, a soft cloud with a terminal prompt, >_, for a mouth.
-function cloud(k: Kit): Build {
-  const body = new THREE.Group();
-  const white = k.m(toon('#f4f6fb'));
-  const puffs: [number, number, number, number][] = [
-    [0, 0.36, 0, 0.2],
-    [-0.17, 0.3, 0.01, 0.15],
-    [0.17, 0.3, 0.01, 0.15],
-    [-0.09, 0.47, -0.01, 0.15],
-    [0.1, 0.48, -0.01, 0.14],
-    [0, 0.25, 0.03, 0.16],
-  ];
-  const geos = puffs.map(([x, y, z, r]) => new THREE.SphereGeometry(r, 20, 14).translate(x, y, z));
-  const merged = mergeGeometries(geos, false)!;
-  for (const g of geos) g.dispose();
-  const puff = new THREE.Mesh(merged, white);
-  body.add(puff);
-  const face = at(new THREE.Group(), 0, 0.5, 0.19);
-  body.add(face);
-  // The prompt, below the eyes.
-  const glyph = k.m(new THREE.MeshBasicMaterial({ color: '#1d2433' }));
-  // Bold, on a little dark screen, so it reads from across the room.
-  const prompt = at(new THREE.Group(), 0, -0.085, 0.02);
-  prompt.scale.setScalar(1.45);
-  prompt.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.15, 0.075, 0.012, 2, 0.015), glyph), 0, 0, -0.004));
-  const fg = k.m(new THREE.MeshBasicMaterial({ color: '#7ef0a8' }));
-  for (const s of [1, -1]) {
-    const bar = at(new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.014, 0.01), fg), -0.035, s * 0.012, 0.004);
-    bar.rotation.z = -s * 0.65;
-    prompt.add(bar);
-  }
-  prompt.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.014, 0.01), fg), 0.025, -0.02, 0.004));
-  face.add(prompt);
-  const arms = [-1, 1].map((sx) => {
-    const p = at(new THREE.Group(), sx * 0.27, 0.3, 0.03);
-    const nub = at(new THREE.Mesh(new THREE.SphereGeometry(0.055, 14, 10), white), 0, -0.05, 0);
-    p.add(nub);
-    body.add(p);
-    return p;
-  }) as [THREE.Group, THREE.Group];
-  return { body, face, arms, eyes: 'big', eyeGap: 0.075, eyeSize: 0.045, height: 0.66, hover: 0.05 };
+// The badge's look for each tool: a colour and a glyph.
+const BADGES: Record<Tool, { bg: string; fg: string; glyph: string }> = {
+  claude: { bg: '#d97757', fg: '#ffffff', glyph: '✳' },
+  codex: { bg: '#111318', fg: '#ffffff', glyph: '>_' },
+  opencode: { bg: '#f2f2f2', fg: '#111318', glyph: '▣' },
+  cursor: { bg: '#2b2f37', fg: '#ffffff', glyph: '◆' },
+  gemini: { bg: '#5b7cf6', fg: '#ffffff', glyph: '✦' },
+};
+const badgeTextures = new Map<Tool, THREE.CanvasTexture>();
+function badgeTexture(tool: Tool): THREE.CanvasTexture {
+  let tex = badgeTextures.get(tool);
+  if (tex) return tex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  const b = BADGES[tool];
+  g.fillStyle = '#ffffff';
+  g.beginPath();
+  g.arc(64, 64, 62, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = b.bg;
+  g.beginPath();
+  g.arc(64, 64, 54, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = b.fg;
+  g.font = `800 ${b.glyph.length > 1 ? 50 : 66}px "Inter Variable", Inter, system-ui, sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(b.glyph, 64, 68);
+  tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  badgeTextures.set(tool, tex);
+  return tex;
 }
-
-const builders: Record<Tool, (k: Kit) => Build> = { claude: clawd, cursor: cube, gemini: sparkle, opencode: block, codex: cloud };
 
 // wear puts the agent's accent on its head (or round its neck).
 function wear(k: Kit, b: Build, accessory: Accessory, color: string) {
@@ -361,6 +310,8 @@ function makeEyes(k: Kit, b: Build): Eye[] {
   const inkM = k.m(new THREE.MeshBasicMaterial({ color: '#16131f' }));
   const white = k.m(new THREE.MeshBasicMaterial({ color: '#ffffff' }));
   const s = b.eyeSize;
+  // On a dark face screen the moods are drawn in light.
+  const lineM = b.eyes === 'screen' ? white : inkM;
   return [-1, 1].map((sx) => {
     const g = at(new THREE.Group(), sx * b.eyeGap, 0, 0);
     b.face.add(g);
@@ -382,14 +333,14 @@ function makeEyes(k: Kit, b: Build): Eye[] {
       eye.add(sclera, ring, pupil);
       open = eye;
     }
-    const happy = new THREE.Mesh(new THREE.TorusGeometry(s * 0.75, s * 0.22, 6, 16, Math.PI), inkM);
+    const happy = new THREE.Mesh(new THREE.TorusGeometry(s * 0.75, s * 0.22, 6, 16, Math.PI), lineM);
     const cross = new THREE.Group();
     for (const a of [0.78, -0.78]) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(s * 1.6, s * 0.35, 0.01), inkM);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(s * 1.6, s * 0.35, 0.01), lineM);
       bar.rotation.z = a;
       cross.add(bar);
     }
-    const sleep = new THREE.Mesh(new THREE.TorusGeometry(s * 0.7, s * 0.18, 6, 16, Math.PI), inkM);
+    const sleep = new THREE.Mesh(new THREE.TorusGeometry(s * 0.7, s * 0.18, 6, 16, Math.PI), lineM);
     sleep.rotation.z = Math.PI;
     g.add(open, happy, cross, sleep);
     return { open, pupil, happy, cross, sleep };
@@ -408,14 +359,12 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
   const r = rng(hash(`${ref}:life`));
   const mats: THREE.Material[] = [];
   const kit: Kit = { m: (x) => (mats.push(x), x), tint: acc.tint, accent: acc.color };
-  const b = builders[tool](kit);
-  // The sparkle's top point and the cloud's prompt stay clear: they wear a
-  // bow or a scarf rather than anything on top.
-  const onTop = acc.accessory === 'beanie' || acc.accessory === 'cap' || acc.accessory === 'crown' || acc.accessory === 'sprout' || acc.accessory === 'headphones';
-  const worn: Accessory = opts.lead ? 'headset' : (tool === 'gemini' || tool === 'codex') && onTop ? (hash(ref) % 2 ? 'bow' : 'scarf') : acc.accessory;
-  wear(kit, b, worn, acc.color);
-  // Arms a size up, so a wave or the typing reads from across the room.
-  for (const arm of b.arms) arm.scale.setScalar(1.5);
+  const b = boxie(kit);
+  wear(kit, b, opts.lead ? 'headset' : acc.accessory, acc.color);
+  // Its AI tool's badge, on its chest: what tells a Claude Code agent from a Codex one.
+  const badge = at(new THREE.Mesh(new THREE.CircleGeometry(0.045, 24), kit.m(new THREE.MeshStandardMaterial({ map: badgeTexture(tool), roughness: 0.4 }))), ...(b.body.userData.chest as THREE.Vector3).toArray());
+  badge.rotation.x = -0.15;
+  b.body.add(badge);
   const eyes = makeEyes(kit, b);
   // A blush, for when it's pleased or waving.
   const cheekM = kit.m(new THREE.MeshBasicMaterial({ color: '#ff7fa8', transparent: true, opacity: 0.6, depthWrite: false }));
@@ -427,7 +376,11 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
   });
   // Pixel faces get a pixel mouth: open when it calls you, a grin when pleased.
   const mouthM = kit.m(new THREE.MeshBasicMaterial({ color: '#16131f' }));
-  const mouth = b.eyes === 'pixel' ? at(new THREE.Mesh(new THREE.BoxGeometry(b.eyeSize * 1.2, b.eyeSize * 0.5, 0.02), mouthM), 0, -b.eyeSize * 1.5, 0) : undefined;
+  const mouth = b.eyes === 'pixel' ? at(new THREE.Mesh(new THREE.BoxGeometry(b.eyeSize * 1.2, b.eyeSize * 0.5, 0.02), mouthM), 0, -b.eyeSize * 1.5, 0) : b.eyes === 'screen' ? at(new THREE.Mesh(new THREE.TorusGeometry(b.eyeSize * 0.45, b.eyeSize * 0.13, 6, 16, Math.PI), mouthM), 0, -b.eyeSize * 1.55, 0) : undefined;
+  if (mouth && b.eyes === 'screen') {
+    mouthM.color.set('#ffffff');
+    mouth.rotation.z = Math.PI;
+  }
   if (mouth) b.face.add(mouth);
   // The status light: a little glowing pip over its head.
   const pipM = kit.m(new THREE.MeshBasicMaterial({ color: '#60a5fa', toneMapped: false }));
@@ -445,7 +398,7 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
     mesh.receiveShadow = false;
   });
   // Bigger than life: they're who you came to see.
-  g.scale.setScalar(opts.lead ? 1.75 : 1.62);
+  g.scale.setScalar(opts.lead ? 1.5 : 1.38);
 
   const cur = restPose();
   const T = restPose();
@@ -599,9 +552,8 @@ export function walker(): Walker {
   const shoe = toon('#ffffff');
   const inkM = new THREE.MeshBasicMaterial({ color: '#16131f' });
   const white = new THREE.MeshBasicMaterial({ color: '#ffffff' });
-  const irisM = new THREE.MeshBasicMaterial({ color: '#7a4a2a' });
   const blush = new THREE.MeshBasicMaterial({ color: '#ff8fa3', transparent: true, opacity: 0.55, depthWrite: false });
-  const mats: THREE.Material[] = [hoodie, hood, pants, skin, hair, shoe, inkM, white, irisM];
+  const mats: THREE.Material[] = [hoodie, hood, pants, skin, hair, shoe, inkM, white];
   // (Once outlined; the toy look needs no ink.)
   const line = (m: THREE.Mesh, _th?: number) => m;
 
@@ -645,25 +597,19 @@ export function walker(): Walker {
   const eyes = [-1, 1].map((sx) => {
     const e = at(new THREE.Group(), sx * 0.1, 0.0, 0.258);
     e.rotation.y = sx * 0.2;
-    const sclera = new THREE.Mesh(new THREE.CircleGeometry(0.062, 24), white);
-    sclera.scale.y = 1.25;
-    const rim = new THREE.Mesh(new THREE.RingGeometry(0.062, 0.068, 24), inkM);
-    rim.scale.y = 1.25;
-    const pupil = at(new THREE.Group(), 0, -0.006, 0.002);
-    // A warm brown iris, a dark pupil, two catchlights: eyes, not goggles.
-    const iris = new THREE.Mesh(new THREE.CircleGeometry(0.05, 22), irisM);
-    iris.scale.y = 1.2;
-    const dot = at(new THREE.Mesh(new THREE.CircleGeometry(0.028, 18), inkM), 0, 0, 0.0005);
-    dot.scale.y = 1.2;
-    pupil.add(iris, dot, at(new THREE.Mesh(new THREE.CircleGeometry(0.018, 12), white), 0.016, 0.024, 0.001), at(new THREE.Mesh(new THREE.CircleGeometry(0.008, 8), white), -0.014, -0.02, 0.001));
+    // Big black eyes with two catchlights, the toy look's.
+    const sclera = new THREE.Mesh(new THREE.CircleGeometry(0.05, 24), inkM);
+    sclera.scale.y = 1.35;
+    const pupil = at(new THREE.Group(), 0, 0, 0.002);
+    pupil.add(at(new THREE.Mesh(new THREE.CircleGeometry(0.017, 12), white), 0.016, 0.026, 0.001), at(new THREE.Mesh(new THREE.CircleGeometry(0.008, 8), white), -0.014, -0.02, 0.001));
     const brow = at(new THREE.Mesh(new RoundedBoxGeometry(0.075, 0.016, 0.01, 2, 0.006), hair), 0, 0.1, 0);
     brow.rotation.z = sx * -0.15;
-    e.add(sclera, rim, pupil, brow);
+    e.add(sclera, pupil, brow);
     head.add(e);
     const cheek = at(new THREE.Mesh(new THREE.CircleGeometry(0.035, 16), blush), sx * 0.17, -0.09, 0.225);
     cheek.rotation.y = sx * 0.5;
     head.add(cheek);
-    return { sclera, rim, pupil };
+    return { sclera, pupil };
   });
   const smile = at(new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.009, 6, 16, Math.PI), inkM), 0, -0.1, 0.262);
   smile.rotation.z = Math.PI;
@@ -710,8 +656,7 @@ export function walker(): Walker {
       if (motion && t > blinkAt) blinkAt = t + 2.4 + ((t * 7.3) % 3);
       const blink = motion && blinkAt - t > 0 && blinkAt - t < 0.12;
       for (const e of eyes) {
-        e.sclera.scale.y = blink ? 0.1 : 1.25;
-        e.rim.scale.y = blink ? 0.1 : 1.25;
+        e.sclera.scale.y = blink ? 0.12 : 1.35;
         e.pupil.visible = !blink;
       }
     },
