@@ -548,6 +548,7 @@ func New(cfg Config) (*Server, error) {
 		LeadLogins:        s.leadToolLogins,
 		Logf:              s.logf,
 		PermissionChanged: s.agentPermission,
+		LeadWaiting:       s.leadWaiting,
 		IdleStop:          s.leadSleepAfter,
 		StayUp:            s.leadDueSoon,
 		GoalsOn:           s.goalsEnabled,

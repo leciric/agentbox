@@ -2271,6 +2271,7 @@ export const ptBR: Messages = {
   'chat.permission.oneOf': '1 de {count}',
   'chat.permission.approval': 'O chat do projeto quer mudar uma skill',
   'chat.permission.projectApproval': 'O chat do projeto quer falar com o de outro projeto',
+  'chat.permission.agentApproval': 'O chat do projeto quer destruir um agente com trabalho sem commit',
   'chat.permission.sending': 'Enviando…',
   'chat.permission.moreChoices': 'Outras formas de responder',
   'chat.permission.alwaysFor': 'Sempre permitir {action, select, execute {comandos} edit {edições} delete {exclusões} move {movimentações} read {leituras} fetch {buscas de página} search {pesquisas} other {isto}} para {agent}',

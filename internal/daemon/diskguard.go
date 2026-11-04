@@ -82,8 +82,7 @@ func (s *Server) diskAgentAction(ctx context.Context, ref string, pause bool) er
 		return err
 	}
 	if pause {
-		s.expectStop(a.Ref())
-		return s.manager(nil).Pause(ctx, a)
+		return s.stopOnPurpose(a.Ref(), func() error { return s.manager(nil).Pause(ctx, a) })
 	}
 	if err := s.manager(nil).Resume(ctx, a); err != nil {
 		return err

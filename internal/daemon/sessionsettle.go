@@ -31,7 +31,8 @@ import (
 // Snoozing: an open session hidden from the tabs until a time of the user's
 // choosing, when it comes back (WakeLeadSessions); sooner when one of its
 // agents asks the chat something or needs a permission (wakeSessionOf), since
-// that is the user's to see.
+// that is the user's to see, and when its own lead waits on the user
+// (leadWaiting).
 
 // sessionSweepInterval is how often the daemon wakes snoozed sessions whose
 // time came, which is as precise as a snooze is; settling, counted in hours,
@@ -74,10 +75,11 @@ func (s *Server) wakeSnoozed(ctx context.Context, now time.Time) {
 }
 
 // wakeSessionOf brings a's session back from a snooze, for why: one of its
-// agents needs the user. Nothing when it has none or it isn't snoozed.
+// agents needs the user, or a is its lead and does (leadWaiting). Nothing
+// when it has none or it isn't snoozed.
 func (s *Server) wakeSessionOf(ctx context.Context, a state.Agent, why string) {
 	id := a.Session()
-	if id == "" || a.IsLead() {
+	if id == "" {
 		return
 	}
 	now := time.Now()
@@ -91,6 +93,15 @@ func (s *Server) wakeSessionOf(ctx context.Context, a state.Agent, why string) {
 	}
 	s.logf("%s's %s session is back from its snooze: %s %s", a.Project, id, a.Name, why)
 	s.sessionsChanged(ctx, a.Project)
+}
+
+// leadWaiting is the chat's LeadWaiting: a session's own lead put a card in
+// front of the user — a permission it asks, an approval AgentBox asks for
+// it — and waits on it. A snoozed session would hide the card, and the chat
+// would sit on it with every notice queued behind, so the session comes
+// back. Off the chat's lock, which called it.
+func (s *Server) leadWaiting(a state.Agent) {
+	go s.wakeSessionOf(context.Background(), a, "is waiting on you")
 }
 
 // settleSessions settles, as of now, every open session of every project

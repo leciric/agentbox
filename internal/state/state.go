@@ -3005,6 +3005,13 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 		return err
 	}
 	// A conversation left by an earlier agent of the same name isn't this one's.
+	// A lead's settings are kept: a session's name is never reused, so its
+	// chat row was written for it before its first turn made it — what its
+	// composer chose, or what it inherited from the session it was opened
+	// after (the daemon's inheritSessionSettings) — and is its own.
+	if a.Role == RoleLead {
+		return removeChatItems(ctx, s.db, a.Project, a.Name)
+	}
 	return removeChat(ctx, s.db, a.Project, a.Name)
 }
 

@@ -518,3 +518,23 @@ func openTestStore(t *testing.T) *state.Store {
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
+
+// A lead woken by a notice or a scheduled task, with nobody watching, calls
+// list_agents first: in Manual mode that call must not wait on a card. Every
+// tool of AgentBox's own server is allowed, and nothing else is: a command,
+// an edit or a connector's tool still asks.
+func TestLeadSettingsAllowOnlyAgentBoxsOwnTools(t *testing.T) {
+	t.Parallel()
+	raw, err := json.Marshal(leadSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	perms, _ := settingsOf(t, raw)["permissions"].(map[string]any)
+	if perms["defaultMode"] != "default" {
+		t.Errorf("defaultMode = %v, want default: the lead asks before anything else", perms["defaultMode"])
+	}
+	allow, _ := perms["allow"].([]any)
+	if len(allow) != 1 || allow[0] != "mcp__agentbox" {
+		t.Errorf("allow = %v, want only mcp__agentbox", allow)
+	}
+}
