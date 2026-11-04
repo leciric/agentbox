@@ -62,6 +62,10 @@ export type OfficeScene = {
   // How much of the canvas's left edge an overlay covers, in CSS pixels: the
   // overview frames the room in the rest.
   setInset(left: number): void;
+  // attach puts the room, as it is, into a page again, with that page's
+  // handlers; detach takes it out and stops drawing, keeping it built.
+  attach(host: HTMLElement, opts: OfficeSceneOptions): void;
+  detach(): void;
   dispose(): void;
 };
 
@@ -222,7 +226,12 @@ const bubbleOf: Partial<Record<DeskTone, [string, string]>> = {
   stopped: ['z', '#94a3b8'],
 };
 
-export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): OfficeScene {
+export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions): OfficeScene {
+  // The page it's in, and what it tells, both replaced as the Office is left
+  // and come back to (attach): the room itself stays built.
+  let host = host0;
+  const opts: OfficeSceneOptions = { ...opts0 };
+  let attached = true;
   let motion = !opts.reducedMotion;
   let disposed = false;
   // Transparent: the pale sky behind the diorama is the page's own.
@@ -917,7 +926,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let running = false;
   let nap = 0;
   function wake() {
-    if (document.hidden || disposed) return;
+    if (document.hidden || disposed || !attached) return;
     if (nap) {
       // Napping between idle frames: wake now.
       window.clearTimeout(nap);
@@ -1605,6 +1614,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   const editable = (el: Element | null) => !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable || el.closest('[role="dialog"]') !== null);
   const walkKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
   const onKeyDown = (e: KeyboardEvent) => {
+    if (!attached) return;
     if (e.ctrlKey || e.metaKey || e.altKey || editable(document.activeElement) || document.querySelector('[role="dialog"]')) return;
     const k = e.key.toLowerCase();
     if (walkKeys.has(k)) {
@@ -1663,6 +1673,30 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     setReducedMotion(on) {
       motion = !on;
       poke();
+    },
+    attach(next, nextOpts) {
+      Object.assign(opts, nextOpts);
+      ro.disconnect();
+      host = next;
+      host.appendChild(canvas);
+      host.appendChild(markerLayer);
+      attached = true;
+      ro.observe(host);
+      resize();
+      // The new page hears where you are, as the old one had.
+      opts.onNear(near);
+      poke();
+    },
+    detach() {
+      attached = false;
+      keys.clear();
+      cancelAnimationFrame(raf);
+      window.clearTimeout(nap);
+      nap = 0;
+      running = false;
+      ro.disconnect();
+      canvas.remove();
+      markerLayer.remove();
     },
     setInset(left) {
       inset = left;

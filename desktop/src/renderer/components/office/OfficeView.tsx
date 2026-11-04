@@ -24,6 +24,9 @@ import { useOpenReview } from '../v2/ReviewV2';
 
 const hintKey = 'agentbox.office.hintSeen';
 
+// The Office's scene, kept between visits (see the effect that makes it).
+let kept: OfficeScene | null = null;
+
 const toneDot: Record<DeskTone, string> = {
   needs: 'bg-amber-400',
   error: 'bg-red-400',
@@ -249,7 +252,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       .then((mod) => {
         if (gone || !host.current) return;
         try {
-          made = mod.createOfficeScene(host.current, {
+          const handlers: Parameters<typeof mod.createOfficeScene>[1] = {
             reducedMotion: reduced,
             markerLabel: (title) => t('office.walkTo', { title }),
             moreLabel: t('office.showAll'),
@@ -272,7 +275,12 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
                 // Shown again next time, then.
               }
             },
-          });
+          };
+          // The room is built once and kept while the app runs: coming back
+          // to the Office is instant, where you left it.
+          if (kept) kept.attach(host.current, handlers);
+          else kept = mod.createOfficeScene(host.current, handlers);
+          made = kept;
           scene.current = made;
           setStatus('ready');
         } catch {
@@ -282,7 +290,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       .catch(() => !gone && setStatus('unsupported'));
     return () => {
       gone = true;
-      made?.dispose();
+      made?.detach();
       scene.current = null;
     };
     // The scene is made once; reduced motion is passed on below.
