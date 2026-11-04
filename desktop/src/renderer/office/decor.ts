@@ -14,10 +14,10 @@ export const PALETTE = {
   wall: '#efcfa5',
   wallTop: '#f7e2c4',
   wallEdge: '#e2b98a',
-  slab: '#e3ac6d',
-  slabDark: '#c98d4f',
+  slab: '#e6b77f',
+  slabDark: '#c99862',
   terrazzo: '#f4e4cf',
-  wood: '#e3a464',
+  wood: '#e2b27c',
   frame: '#2f4a3a',
   brick: '#b8664a',
   moss: ['#3f7d3c', '#5c9b46', '#78b35a', '#2f6a33'],
@@ -69,7 +69,7 @@ function planks(): THREE.CanvasTexture {
     let x = -rnd() * 240;
     while (x < 512) {
       const w = 220 + rnd() * 200;
-      ctx.fillStyle = `hsl(${27 + rnd() * 5} ${62 + rnd() * 8}% ${58 + rnd() * 7}%)`;
+      ctx.fillStyle = `hsl(${31 + rnd() * 5} ${46 + rnd() * 8}% ${63 + rnd() * 6}%)`;
       ctx.fillRect(x, r * h, w, h);
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
       ctx.fillRect(x, r * h, w, 3);
@@ -288,6 +288,54 @@ export function diorama(l: Layout, sign: string): Diorama {
   const led = keep(new THREE.MeshBasicMaterial({ color: '#45e08a', toneMapped: false }));
   const ledBlue = keep(new THREE.MeshBasicMaterial({ color: '#5ab8ff', toneMapped: false }));
   for (let i = 0; i < 6; i++) put(rbox(0.32, 0.03, 0.02, 0.01), i % 3 === 2 ? ledBlue : led, rk.x - 0.31, 0.35 + i * 0.18, rk.z, [0, -Math.PI / 2, 0]);
+
+  // The lounge: a rug, two armchairs and a low table, a floor lamp, a shelf.
+  const lg = l.lounge;
+  const lcx = (lg.x0 + lg.x1) / 2;
+  const lcz = (lg.z0 + lg.z1) / 2;
+  put(rbox(lg.x1 - lg.x0, 0.02, lg.z1 - lg.z0, 0.01), m('#cfe0c6', { roughness: 0.95 }), lcx, 0.012, lcz);
+  const chairM = [m('#e9b44c', { roughness: 0.8 }), m('#4aa3a2', { roughness: 0.8 })];
+  for (const [i, dx] of [-0.75, 0.75].entries()) {
+    const c = chairM[i];
+    put(rbox(0.75, 0.32, 0.7, 0.14), c, lcx + dx, 0.24, lcz - 0.25);
+    put(rbox(0.75, 0.5, 0.18, 0.08), c, lcx + dx, 0.55, lcz - 0.58);
+    for (const sx of [-0.33, 0.33]) put(rbox(0.12, 0.34, 0.7, 0.06), c, lcx + dx + sx, 0.42, lcz - 0.25);
+  }
+  put(keep(new THREE.CylinderGeometry(0.4, 0.4, 0.05, 28)), m('#e1a86d', { roughness: 0.5 }), lcx, 0.38, lcz + 0.45);
+  put(keep(new THREE.CylinderGeometry(0.05, 0.08, 0.36, 10)), m('#3b3f46'), lcx, 0.18, lcz + 0.45);
+  // A floor lamp, warm.
+  put(keep(new THREE.CylinderGeometry(0.015, 0.015, 1.5, 8)), m('#3b3f46'), lg.x0 + 0.25, 0.75, lg.z0 + 0.3);
+  put(keep(new THREE.ConeGeometry(0.22, 0.26, 20, 1, true)), m('#fff1d6', { emissive: '#ffd59a', emissiveIntensity: 0.6, side: THREE.DoubleSide }), lg.x0 + 0.25, 1.55, lg.z0 + 0.3);
+  // A bookshelf against the left wall, by the lounge.
+  const shelfZ = Math.max(lg.z0 - 0.9, l.planter.z1 + 0.6);
+  put(rbox(0.36, 1.6, 1.4, 0.03), m('#c08b5c', { roughness: 0.6 }), 0.2, 0.8, shelfZ);
+  const books = ['#c4622d', '#2f5a4c', '#e9b44c', '#7c8bd6', '#f4efe6', '#a8502f'].map((c) => m(c));
+  for (let row = 0; row < 3; row++)
+    for (let i = 0; i < 9; i++) {
+      const h = 0.22 + ((i * 7 + row) % 4) * 0.03;
+      put(rbox(0.22, h, 0.09, 0.01), books[(i + row * 2) % books.length], 0.24, 0.28 + row * 0.48 + h / 2, shelfZ - 0.58 + i * 0.135);
+    }
+
+  // The café: round tables with two chairs each, a counter with cups.
+  if (l.cafe) {
+    const cf = l.cafe;
+    const cw = cf.x1 - cf.x0;
+    const cd = cf.z1 - cf.z0;
+    put(rbox(cw, 0.02, cd, 0.01), m('#f1dcc2', { roughness: 0.95 }), (cf.x0 + cf.x1) / 2, 0.012, (cf.z0 + cf.z1) / 2);
+    const tables = Math.max(1, Math.floor(cd / 1.8));
+    const seats = [m('#e07a5f', { roughness: 0.8 }), m('#8fb39a', { roughness: 0.8 }), m('#7c8bd6', { roughness: 0.8 })];
+    for (let i = 0; i < tables; i++) {
+      const tx = cf.x0 + cw / 2;
+      const tzz = cf.z0 + 0.9 + i * 1.8;
+      put(keep(new THREE.CylinderGeometry(0.38, 0.38, 0.05, 24)), oak, tx, 0.74, tzz);
+      put(keep(new THREE.CylinderGeometry(0.04, 0.12, 0.72, 10)), m('#3b3f46'), tx, 0.36, tzz);
+      for (const sx of [-0.65, 0.65]) {
+        put(rbox(0.36, 0.08, 0.36, 0.05), seats[(i + (sx > 0 ? 1 : 0)) % 3], tx + sx, 0.46, tzz);
+        put(keep(new THREE.CylinderGeometry(0.02, 0.02, 0.44, 8)), m('#3b3f46'), tx + sx, 0.22, tzz);
+      }
+      put(keep(new THREE.CylinderGeometry(0.04, 0.035, 0.09, 14)), m('#fbfaf7', { roughness: 0.3 }), tx + 0.1, 0.81, tzz - 0.05);
+    }
+  }
 
   bake(g, parts);
   bake(g, tufts, false);

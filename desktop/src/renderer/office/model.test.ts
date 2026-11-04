@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
 import type { AgentSt, Row } from '../lib/leadFirst.ts';
-import { deskOf, deskTone, hueOf, leadTone, officeModel, prLook, type OfficeInputs } from './model.ts';
+import { deskOf, deskTone, hueOf, leadTone, officeModel, prLook, readable, type OfficeInputs } from './model.ts';
 
 const agent = (ref: string, over: Partial<T.Agent> = {}): T.Agent =>
   ({ ref, project: ref.split('/')[0], name: ref.split('/')[1], title: `Task ${ref}`, branch: `agentbox/${ref.split('/')[1]}`, ai: 'claude', state: 'running', createdAt: '2026-11-01T10:00:00Z', ...over }) as T.Agent;
@@ -116,4 +116,11 @@ test('agents with the same title are told apart by name', () => {
   const m = officeModel(inputs({ rows: [row(agent('web/agent-1', { title: 'Fix it' }), 'needs'), row(agent('web/agent-2', { title: 'Fix it' }), 'working'), row(agent('web/agent-3', { title: 'Other' }), 'working')] }));
   assert.deepEqual(m.areas[0].desks.map((d) => d.title), ['Fix it (agent-1)', 'Fix it (agent-2)', 'Other']);
   assert.equal(m.board.needs[0].title, 'Fix it (agent-1)');
+});
+
+test('a question asked in JSON reads as its fields', () => {
+  assert.equal(readable('Paginate?'), 'Paginate?');
+  assert.equal(readable('{"state":"running","limit":3}'), 'state: running · limit: 3');
+  assert.equal(readable('["a", 2]'), 'a · 2');
+  assert.equal(readable('{not json'), '{not json');
 });

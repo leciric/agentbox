@@ -206,3 +206,19 @@ export function deskOf(model: OfficeModel, ref: string): DeskModel | undefined {
   for (const a of model.areas) for (const d of a.desks) if (d.id === ref) return d;
   return undefined;
 }
+
+// readable is a question as a person reads it: JSON, which some agents ask
+// in, becomes its fields, "key: value", one after another.
+export function readable(text: string): string {
+  const t = text.trim();
+  if (!(t.startsWith('{') || t.startsWith('['))) return text;
+  try {
+    const v: unknown = JSON.parse(t);
+    const show = (x: unknown) => (typeof x === 'string' ? x : JSON.stringify(x));
+    if (Array.isArray(v)) return v.slice(0, 6).map(show).join(' · ');
+    if (v && typeof v === 'object') return Object.entries(v).slice(0, 6).map(([k, x]) => `${k}: ${show(x)}`).join(' · ');
+  } catch {
+    // Not JSON after all: as it is.
+  }
+  return text;
+}

@@ -44,6 +44,10 @@ export type Layout = {
   // window and a moss wall on the left wall, a brick wall on the back one,
   // a planter dividing the lobby, a server rack in its corner.
   meeting: Box;
+  // Free floor the room furnishes: a lounge in the lobby's left half, a
+  // café where the work area has room to spare.
+  lounge: Box;
+  cafe?: Box;
   window: { at: number; w: number };
   moss: { at: number; w: number };
   brick: { at: number; w: number };
@@ -149,7 +153,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   const roomD = lobby.z1;
   const cx = roomW / 2;
   // The meeting room, in the back left corner, behind glass.
-  const meeting: Box = { x0: 0, z0: 0, x1: Math.min(4.6, roomW * 0.3), z1: BACK_AISLE - 0.5 };
+  const meeting: Box = { x0: 0, z0: 0, x1: Math.min(6, roomW * 0.28), z1: BACK_AISLE - 0.4 };
   obstacles.push({ x0: meeting.x0, z0: meeting.z0, x1: meeting.x1 + 0.05, z1: meeting.z1 + 0.05 });
   // The sofa faces the room from the lobby's front, a coffee table before it.
   const sofa = box(cx + roomW * 0.12, lobby.z1 - 1.0, 2.6, 0.95);
@@ -159,6 +163,13 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   const planter: Box = { x0: 0.5, z0: lobby.z0 + 0.15, x1: Math.max(3, roomW * 0.5), z1: lobby.z0 + 0.6 };
   obstacles.push(planter);
   const rack = { x: roomW - 0.55, z: lobby.z1 - 0.7 };
+  // The lounge: two armchairs and a low table on a rug, by the left wall.
+  const lounge: Box = { x0: 0.6, z0: lobby.z0 + 1.2, x1: Math.min(4.2, roomW * 0.3), z1: lobby.z1 - 0.5 };
+  obstacles.push({ x0: lounge.x0 + 0.3, z0: lounge.z0 + 0.5, x1: lounge.x1 - 0.3, z1: lounge.z1 - 0.6 });
+  // A café in the work area's spare floor, right of the areas, when wide enough.
+  const areasRight = areas.reduce((m, a) => Math.max(m, a.rug.x1), 0);
+  const cafe: Box | undefined = roomW - areasRight > 4.2 ? { x0: areasRight + 1.2, z0: BACK_AISLE + 0.4, x1: roomW - 0.8, z1: Math.min(lobby.z0 - 0.6, BACK_AISLE + 5) } : undefined;
+  if (cafe) obstacles.push({ x0: cafe.x0 + 0.4, z0: cafe.z0 + 0.4, x1: cafe.x1 - 0.4, z1: cafe.z1 - 0.4 });
   obstacles.push(box(rack.x, rack.z, 0.65, 0.65));
   const corners = [
     { x: roomW - 0.55, z: 0.55 },
@@ -176,9 +187,9 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   const rightGap = roomW - (boardX + boardW / 2);
   const brick = leftGap >= rightGap ? { at: meeting.x1 + leftGap / 2, w: Math.max(1.6, Math.min(2.6, leftGap - 0.5)) } : { at: roomW - rightGap / 2, w: Math.max(1.6, Math.min(2.6, rightGap - 0.5)) };
   // The left wall: the window past the meeting room, the moss wall after it.
-  const winW = Math.min(3.2, Math.max(1.8, (lobby.z0 - meeting.z1) * 0.45));
+  const winW = Math.min(4.6, Math.max(2.2, (lobby.z0 - meeting.z1) * 0.5));
   const window = { at: meeting.z1 + 0.4 + winW / 2, w: winW };
-  const mossW = Math.min(2.6, Math.max(1.2, lobby.z0 - (window.at + winW / 2) - 0.8));
+  const mossW = Math.min(3.6, Math.max(1.4, lobby.z0 - (window.at + winW / 2) - 0.8));
   const moss = { at: window.at + winW / 2 + 0.4 + mossW / 2, w: mossW };
   return {
     room: { x0: 0, z0: 0, x1: roomW, z1: roomD },
@@ -197,6 +208,8 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     brick,
     planter,
     rack,
+    lounge,
+    cafe,
   };
 }
 

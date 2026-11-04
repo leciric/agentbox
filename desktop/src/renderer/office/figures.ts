@@ -118,11 +118,13 @@ type Build = {
   hover: number;
 };
 
-type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number };
+type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number; accent: string };
 
 // clawd: Claude Code's critter as a rounded toy: a wide orange body, two
 // tall dark eyes, round nubs for arms, four stubby legs.
 function clawd(k: Kit): Build {
+  // Its arms and feet in the agent's accent: a room of Clawds, each its own.
+  const limb = k.m(toon(k.accent));
   const base = new THREE.Color('#d97757').offsetHSL(k.tint * 0.025, k.tint * 0.06, k.tint * 0.05);
   const orange = k.m(toon(base));
   const shade = k.m(toon(base.clone().offsetHSL(0, 0, -0.07)));
@@ -130,12 +132,13 @@ function clawd(k: Kit): Build {
   const H = 0.42;
   const shell = at(new THREE.Mesh(new RoundedBoxGeometry(0.7, H, 0.4, 5, 0.15), orange), 0, 0.13 + H / 2, 0);
   body.add(shell);
-  for (const lx of [-0.24, -0.08, 0.08, 0.24]) body.add(at(new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.07, 6, 12), shade), lx, 0.1, 0.14));
+  for (const lx of [-0.24, -0.08, 0.08, 0.24]) body.add(at(new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.07, 6, 12), limb), lx, 0.1, 0.14));
+  void shade;
   const face = at(new THREE.Group(), 0, 0.13 + H * 0.58, 0.2);
   body.add(face);
   const arms = [-1, 1].map((sx) => {
     const p = at(new THREE.Group(), sx * 0.35, 0.13 + H * 0.45, 0);
-    const nub = at(new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), orange), sx * 0.03, -0.06, 0);
+    const nub = at(new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), limb), sx * 0.03, -0.06, 0);
     nub.scale.set(1, 0.85, 0.85);
     p.add(nub);
     body.add(p);
@@ -404,7 +407,7 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
   const acc = accentOf(ref, opts.variant);
   const r = rng(hash(`${ref}:life`));
   const mats: THREE.Material[] = [];
-  const kit: Kit = { m: (x) => (mats.push(x), x), tint: acc.tint };
+  const kit: Kit = { m: (x) => (mats.push(x), x), tint: acc.tint, accent: acc.color };
   const b = builders[tool](kit);
   // The sparkle's top point and the cloud's prompt stay clear: they wear a
   // bow or a scarf rather than anything on top.
@@ -532,8 +535,9 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
       if (looking && lookAt) {
         // A turn of the body towards you, the eyes doing the rest, so its
         // face stays to the camera.
+        // The eyes look at you; the body stays to the room, its face to the camera.
         const toward = Math.atan2(lookAt.x, lookAt.z);
-        T.yaw = Math.max(-0.4, Math.min(0.4, toward * 0.5));
+        T.yaw = Math.max(-0.15, Math.min(0.15, toward * 0.2));
         T.lookX = Math.max(-1, Math.min(1, toward));
         T.lean = Math.min(T.lean, -0.04);
       }

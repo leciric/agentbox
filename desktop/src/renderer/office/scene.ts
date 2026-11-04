@@ -1053,7 +1053,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       // board in the part of the view the board's list (on the right) leaves.
       const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
       const bh = Math.min(2.6, lay.board.w * 0.52);
-      const free = Math.max(0.5, 1 - 350 / Math.max(1, canvas.clientWidth));
+      const free = Math.max(0.5, 1 - 390 / Math.max(1, canvas.clientWidth));
       const pitch = 0.4;
       // Wide enough for you, standing at its left end, too.
       const dist = Math.max((lay.board.w + 0.5) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.7 * 2 * tan));
@@ -1098,7 +1098,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       fitProbe.updateMatrixWorld();
       return corners.every((c) => {
         v.copy(c).project(fitProbe);
-        return v.x > left && v.x < 0.95 && v.y < 0.78 && v.y > -0.88 && v.z < 1;
+        return v.x > left && v.x < 0.97 && v.y < 0.84 && v.y > -0.93 && v.z < 1;
       });
     };
     let lo = 4;
@@ -1310,7 +1310,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         tp.project(camera);
         // Every character wears its name tag, as in a real office; up close
         // only the loud ones.
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || (cam.closeK < 0.3 && dist < 18));
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || cam.closeK < 0.3);
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         marker.style.display = onScreen ? 'flex' : 'none';
         if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: Math.min(canvas.clientHeight - 70, ((1 - tp.y) / 2) * canvas.clientHeight), loud });
@@ -1583,7 +1583,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         const W = lay.room.x1;
         const D = lay.room.z1;
         const before = { x: eased.tx, z: eased.tz, d: eased.dist };
-        const z1 = Math.max(0, Math.min(1, zoomZ - n * 0.125));
+        const z1 = Math.max(0, Math.min(1, zoomZ - n * 0.07));
         const f1 = Math.min(1, z1 * 2);
         const { dist: oDist, shift } = fitDistance(W, D, camera.aspect || 1, OVERVIEW_PITCH);
         const fd1 = z1 <= 0.5 ? FOLLOW_FAR : FOLLOW_FAR - (z1 - 0.5) * 2 * (FOLLOW_FAR - FOLLOW_NEAR);
@@ -1597,7 +1597,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         const cz = D / 2 + 0.6;
         if (f1 > 0.02) zoomFocus = { x: Math.min(W, Math.max(0, cx + (tx - cx) / f1)), z: Math.min(D, Math.max(0, cz + (tz - cz) / f1)) };
       }
-      zoomTo(zoomZ - n * 0.125);
+      zoomTo(zoomZ - n * 0.07);
       if (zoomZ === 0) zoomFocus = undefined;
     }
     poke();

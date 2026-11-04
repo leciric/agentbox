@@ -15,7 +15,7 @@ import { useReviewHead } from '../../lib/inboxPages';
 import { useReviewing } from '../../lib/reviewAlert';
 import { useAgentCounts } from '../../lib/useAgentCounts';
 import { cn } from '../../lib/utils';
-import { deskOf, leadRef, officeModel, type BoardItem, type DeskModel, type DeskTone, type OfficeModel, type PrLook } from '../../office/model';
+import { deskOf, leadRef, officeModel, readable, type BoardItem, type DeskModel, type DeskTone, type OfficeModel, type PrLook } from '../../office/model';
 import type { OfficeScene } from '../../office/scene';
 import type { BoardScreen, Screen } from '../../office/textures';
 import { PullRequestModal } from '../PullRequestModal';
@@ -443,7 +443,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           project={office.model.areas.find((a) => a.project === nearDesk.project)?.label ?? nearDesk.project}
           facts={[nearDesk.branch, [nearAgent.ai, modelOf(nearThread)].filter(Boolean).join(' · ')]}
           activity={nearThread ? agentChatStatus(nearAgent, nearThread).text : undefined}
-          question={nearDesk.question ?? (nearDesk.tone === 'needs' || nearDesk.tone === 'error' ? agentChatStatus(nearAgent, nearThread).text : undefined)}
+          question={nearDesk.question ? readable(nearDesk.question) : nearDesk.tone === 'needs' || nearDesk.tone === 'error' ? agentChatStatus(nearAgent, nearThread).text : undefined}
           last={nearDesk.question ? undefined : lastMessage(nearThread)}
           pr={nearDesk.pr ? prLine(nearDesk.pr).text : undefined}
           prTone={nearDesk.pr?.checks === 'failing' ? 'bad' : 'ok'}
