@@ -1660,6 +1660,8 @@ if (phoneMode === 'frame') {
   const { App } = await import('../App');
   // Last, over the chat any scenario above seeded.
   if (params.get('thread') === 'rich') queryClient.setQueryData(['chat', `${PROJECT}/lead`], richChat());
+  // ?sessionStatus=live: the dev bridge's status events reach the app.
+  if (params.get('sessionStatus') === 'live') connectEvents(queryClient);
   const initial: View =
     appView === 'home' ? { kind: 'home' }
     : appView === 'work' ? { kind: 'work' }
