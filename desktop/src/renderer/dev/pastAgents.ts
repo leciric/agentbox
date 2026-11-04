@@ -86,6 +86,22 @@ function liveWork(): T.WorkItem[] {
       { report: report('agent-38', 'done', 'Added the popover with the breakdown by agent, the page cache and swap. Tests pass; screenshots attached.'), screenshots: 2, recordings: 1 },
       { changes: { files: 6, insertions: 214, deletions: 18, dirty: false }, pr: { ...pr(371, 'open', 'feat: the VM memory breakdown in a popover'), checks: 'passing' }, summary: 'Added the popover.' },
     ),
+    // Resolved to merge when green, its checks failed after: still armed,
+    // its agent at work on the fix, and out of To review.
+    live(
+      'agent-37',
+      'Retry the base image download on a reset connection',
+      'working',
+      hour,
+      {},
+      {
+        changes: { files: 2, insertions: 41, deletions: 6, dirty: false },
+        pr: { ...pr(402, 'open', 'fix: retry the base image download'), checks: 'failing' },
+        verdict: 'reviewed',
+        reviewedAt: ago(hour),
+        mergeWhenGreen: { number: 402, method: 'squash', at: ago(hour), waiting: 'failing', detail: 'test', fixRounds: 1 },
+      },
+    ),
     live(
       'agent-36',
       'Pause only the heavy command when swap is full',

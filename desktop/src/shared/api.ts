@@ -1999,6 +1999,9 @@ export interface MergeWhenGreen {
   at: string;
   error?: string;
   failedAt?: string;
+  waiting?: string;
+  detail?: string;
+  fixRounds?: number;
 }
 
 export interface PullRequestDetail {

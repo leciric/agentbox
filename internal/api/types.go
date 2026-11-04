@@ -2126,17 +2126,35 @@ type MergeWhenGreenRequest struct {
 	Fingerprint string `json:"fingerprint"`
 }
 
-// MergeWhenGreen is a pull request waiting to be merged when its checks pass,
-// or, with Error, one the daemon gave up on: its checks failed, it conflicts
-// with its base, new commits came after it was resolved, or GitHub refused
-// the merge.
+// MergeWhenGreen is a pull request waiting to be merged on its first green,
+// mergeable head, while its agent fixes what is red or conflicting, or, with
+// Error, one the daemon gave up on: closed, refused by GitHub for a reason no
+// fix changes, its agent gone, or unmergeable past the limits.
 type MergeWhenGreen struct {
 	Number   int        `json:"number"`
 	Method   string     `json:"method"`
 	At       time.Time  `json:"at"`
 	Error    string     `json:"error,omitempty"`
 	FailedAt *time.Time `json:"failedAt,omitempty"`
+	// Waiting is what a pending one waits on now: MergeWaitChecks,
+	// MergeWaitFailing, MergeWaitConflict, MergeWaitDraft or MergeWaitRetry;
+	// empty before the watch first looked. Detail says more: the failing
+	// checks, or GitHub's message.
+	Waiting string `json:"waiting,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	// FixRounds is how many fixes were pushed and came out red or
+	// conflicting again.
+	FixRounds int `json:"fixRounds,omitempty"`
 }
+
+// What a pending merge when green waits on (MergeWhenGreen.Waiting).
+const (
+	MergeWaitChecks   = "checks"   // its checks are running
+	MergeWaitFailing  = "failing"  // its checks failed: its agent is fixing them
+	MergeWaitConflict = "conflict" // it conflicts with its base: its agent is rebasing
+	MergeWaitDraft    = "draft"    // it was turned back into a draft
+	MergeWaitRetry    = "retry"    // GitHub refused the merge for now
+)
 
 // PullRequestDetail is one pull request as the app's pull request view shows
 // it: the list's fields, read fresh, and its description and check

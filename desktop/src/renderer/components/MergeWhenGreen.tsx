@@ -23,8 +23,24 @@ export function cancelMergeWhenGreen(queryClient: QueryClient, project: string, 
     .finally(() => refreshInbox(queryClient));
 }
 
+// waitText is what a pending mark waits on now, in words: checks running,
+// the agent fixing or rebasing, with the failing checks or GitHub's reason.
+// Undefined before the daemon's first look.
+export function waitText(mark: T.MergeWhenGreen, t: ReturnType<typeof useT>): string | undefined {
+  const words: Record<string, string> = {
+    checks: t('mergeWhenGreen.wait.checks'),
+    failing: t('mergeWhenGreen.wait.failing'),
+    conflict: t('mergeWhenGreen.wait.conflict'),
+    draft: t('mergeWhenGreen.wait.draft'),
+    retry: t('mergeWhenGreen.wait.retry'),
+  };
+  const word = mark.waiting ? words[mark.waiting] : undefined;
+  if (!word) return undefined;
+  return mark.detail && mark.waiting !== 'conflict' ? `${word} (${mark.detail})` : word;
+}
+
 // MergeWhenGreenNote is the strip over the review's footer while an item's
-// pull request waits to merge, or why it didn't.
+// pull request waits to merge, and on what, or why it didn't.
 export function MergeWhenGreenNote({ item, className }: { item: T.ReviewItem; className?: string }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -32,11 +48,17 @@ export function MergeWhenGreenNote({ item, className }: { item: T.ReviewItem; cl
   const cancel = useMutation({ mutationFn: (n: number) => cancelMergeWhenGreen(queryClient, item.project, n, t, !!mark?.error) });
   if (!mark) return null;
   const failed = !!mark.error;
+  const wait = failed ? undefined : waitText(mark, t);
+  const text = failed
+    ? t('review.mergeWhenGreen.notMerged', { error: mark.error ?? '' })
+    : wait
+      ? t('review.mergeWhenGreen.waiting', { number: mark.number, wait })
+      : t('review.mergeWhenGreen.pending', { number: mark.number });
   return (
     <div className={cn('flex min-w-0 items-center gap-2 border-t border-line px-4 py-2 text-caption', failed ? 'text-rose-300' : 'text-amber-200', className)} data-merge-when-green={failed ? 'failed' : 'pending'}>
       {failed ? <CircleAlert className="size-3.5 shrink-0" /> : <Clock className="size-3.5 shrink-0" />}
-      <span className="min-w-0 flex-1 truncate" title={mark.error}>
-        {failed ? t('review.mergeWhenGreen.notMerged', { error: mark.error ?? '' }) : t('review.mergeWhenGreen.pending', { number: mark.number })}
+      <span className="min-w-0 flex-1 truncate" title={text} data-merge-when-green-waiting={mark.waiting}>
+        {text}
       </span>
       <Button size="sm" variant="ghost" className="h-6 shrink-0" disabled={cancel.isPending} onClick={() => cancel.mutate(mark.number)} data-merge-when-green-cancel>
         {t(failed ? 'review.mergeWhenGreen.dismiss' : 'review.mergeWhenGreen.cancel')}
@@ -45,13 +67,22 @@ export function MergeWhenGreenNote({ item, className }: { item: T.ReviewItem; cl
   );
 }
 
-// MergeWhenGreenBadge is the same on a Work page row, the reason on hover.
+// MergeWhenGreenBadge is the same on a Work page row: what it waits on
+// beside it, the reason it was given up on hover.
 export function MergeWhenGreenBadge({ mark }: { mark?: T.MergeWhenGreen }) {
   const t = useT();
   if (!mark) return null;
+  const wait = mark.error ? undefined : waitText(mark, t);
   return (
-    <Badge variant={mark.error ? 'danger' : 'warning'} className="shrink-0" title={mark.error} data-work-merge-when-green={mark.error ? 'failed' : 'pending'}>
-      {t(mark.error ? 'work.mergeWhenGreen.failed' : 'work.mergeWhenGreen.pending')}
-    </Badge>
+    <>
+      <Badge variant={mark.error ? 'danger' : 'warning'} className="shrink-0" title={mark.error ?? wait} data-work-merge-when-green={mark.error ? 'failed' : 'pending'}>
+        {t(mark.error ? 'work.mergeWhenGreen.failed' : 'work.mergeWhenGreen.pending')}
+      </Badge>
+      {wait && (
+        <span className="min-w-0 truncate text-caption text-amber-200" title={wait} data-work-merge-when-green-waiting={mark.waiting}>
+          {wait}
+        </span>
+      )}
+    </>
   );
 }

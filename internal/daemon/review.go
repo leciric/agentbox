@@ -240,6 +240,8 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 			e.ended = prEnded(pr, a)
 			e.item = api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branchOf(heads, a, pr), BaseRef: a.BaseRef, AI: a.AI, PR: pr}
 			if !finished {
+				// At work, fixing what its merge when green waits on, say.
+				markItem(&e.item, marks)
 				out = append(out, e)
 				continue
 			}
@@ -264,6 +266,14 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 				e.item.Verdict, e.item.ReviewedAt = r.Verdict, &at
 				e.item.MachineKept = r.Verdict == api.ReviewReviewed && s.isMachineKept(a.Ref())
 			}
+		}
+		if m := e.item.MergeWhenGreen; m != nil && m.Error == "" && e.item.Verdict == "" {
+			// Resolved to merge when green, it is out of the review for good
+			// while the mark is armed, however its work moves as the agent
+			// fixes checks and conflicts: it comes back only if the mark is
+			// given up or cancelled (mergewhengreen.go).
+			at := m.At
+			e.item.Verdict, e.item.ReviewedAt = api.ReviewReviewed, &at
 		}
 		out = append(out, e)
 	}
