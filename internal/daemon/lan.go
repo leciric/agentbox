@@ -74,6 +74,11 @@ const lanCookie = "agentbox_phone"
 const lanNetPrefix = "/v1/lan/net"
 
 type lanState struct {
+	// applying serializes applyLAN: each works out the tunnel from the
+	// settings and applies it as one step, so a config read before another
+	// call's newer one (a hub's answer arriving meanwhile) can't land after
+	// it and undo it. Taken before mu, never while holding it.
+	applying  sync.Mutex
 	mu        sync.Mutex
 	srv       *http.Server // the daemon's own listener, when it has one
 	port      int          // what srv listens on
@@ -139,13 +144,15 @@ func (s *Server) applyLAN(ctx context.Context) {
 		s.logf("phones: %v", err)
 		return
 	}
+	l := s.lan
+	l.applying.Lock()
 	port, _ := s.lanPort(ctx)
 	tun := s.lanTunnelConfig(ctx, on)
-	l := s.lan
 	l.mu.Lock()
 	stop := s.applyTunnelLocked(ctx, tun)
 	defer func() {
 		l.mu.Unlock()
+		l.applying.Unlock()
 		if stop != nil {
 			stop()
 		}
