@@ -953,7 +953,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x - 0.1, y: 1.05, z: d.z + 0.15, dist: 5.0, pitch: 0.62, yaw: 0.25 };
+      if (d) return { x: d.x + 0.1, y: 1.05, z: d.z + 0.1, dist: 5.0, pitch: 0.62, yaw: 0.3 };
     }
     return undefined;
   }
@@ -1073,7 +1073,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const after = eased.tx + eased.tz + eased.dist + eased.pitch + eased.yaw;
     // The chips over the canvas show only once the camera has settled: one
     // sliding under the pointer would send a click somewhere else.
-    const moving = Math.abs(after - before) > 2e-3;
+    // Moving is moving visibly, not the easing's last hair.
+    const moving = Math.abs(after - before) > 0.02;
     settledFor = moving ? 0 : settledFor + dt;
     const show = settledFor > 0.12;
     if (show !== chipsShown) {
