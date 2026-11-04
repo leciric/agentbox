@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -186,13 +187,22 @@ func polledChanges(a state.Agent, onto ...string) api.AgentChanges {
 	return changesOf(a, onto...)
 }
 
-// polledChangesOf is polledChanges for a list of statuses: an agent whose
-// machine isn't running can't have changed its worktree, so it is shown as
-// last read and measured (git add --all, diff, status, over virtiofs) only
-// when nothing was read yet, when its HEAD, index or branch moved since
-// (gitrepo.WorktreeStamp), or when it ran since it was last read, so what it
-// did before stopping is counted once. Every project's fleet is asked for
-// whenever the app is focused; stopped agents were most of the git it ran.
+// polledChangesOf is polledChanges for a list of statuses, and the one way
+// everything that polls shows an agent's changes (the fleet, groups, the
+// review lists, the lead's recheck): measured by git (add --all, diff,
+// status, over virtiofs) only when it can have changed.
+//
+//   - Its key is gitrepo.WorktreeStamp (HEAD, index, branch tip), its base and
+//     its PR's base. A new key is measured at once.
+//   - An agent whose machine isn't running can't have changed its files: with
+//     the same key it is shown as last read, however long ago, until it runs
+//     again (it is then measured once more after it stops, so what it did
+//     before stopping is counted).
+//   - A running one edits files without touching the key, so the same key is
+//     measured again only after changesFloor.
+//
+// What decides anything (retire, cleanup, remove-stopped, review-free) calls
+// measureChanges and reads fresh. An agent not in statuses counts as running.
 func polledChangesOf(statuses []agent.Status) func(state.Agent, ...string) api.AgentChanges {
 	idle := make(map[string]bool, len(statuses))
 	for _, st := range statuses {
@@ -204,37 +214,53 @@ func polledChangesOf(statuses []agent.Status) func(state.Agent, ...string) api.A
 		if a.Worktree == "" {
 			return polledChanges(a, onto...)
 		}
-		if !idle[a.Name] {
+		stopped := idle[a.Name]
+		if !stopped {
 			ranSince.Store(a.Worktree, true)
-			return polledChanges(a, onto...)
 		}
-		stampOf := func() string {
+		keyOf := func() string {
 			return gitrepo.WorktreeStamp(a.Worktree) + "|" + a.BaseCommit + "|" + strings.Join(onto, ",")
 		}
 		if last, ok := knownChanges.Load(a.Worktree); ok {
-			if at, ok := measuredAt.Load(a.Worktree); ok && at == stampOf() {
-				if _, ran := ranSince.Load(a.Worktree); !ran {
+			if e, ok := measuredAt.Load(a.Worktree); ok && e.(changesRead).key == keyOf() {
+				_, ran := ranSince.Load(a.Worktree)
+				if (stopped && !ran) || (!stopped && changesNow().Sub(e.(changesRead).at) < changesFloor) {
 					return last.(api.AgentChanges)
 				}
 			}
 		}
 		out := polledChanges(a, onto...)
 		// Only a read that stuck (knownChanges holds it) is worth keeping. The
-		// stamp is taken after: git status refreshes the index it reads.
+		// key is taken after: git status refreshes the index it reads.
 		if last, ok := knownChanges.Load(a.Worktree); ok && last.(api.AgentChanges) == out {
-			if stamp := stampOf(); !strings.HasPrefix(stamp, "|") {
-				measuredAt.Store(a.Worktree, stamp)
-				ranSince.Delete(a.Worktree)
+			if key := keyOf(); !strings.HasPrefix(key, "|") {
+				measuredAt.Store(a.Worktree, changesRead{key: key, at: changesNow()})
+				if stopped {
+					ranSince.Delete(a.Worktree)
+				}
 			}
 		}
 		return out
 	}
 }
 
-// measuredAt is the gitrepo.WorktreeStamp (with base and onto) of each
-// worktree's knownChanges, and ranSince the worktrees seen running since.
+// changesFloor is the least time between two measurements of a running
+// agent's worktree whose key hasn't changed.
+const changesFloor = 15 * time.Second
+
+// changesNow is the clock the floor reads, replaced in tests.
+var changesNow = time.Now
+
+// changesRead is when, and under which key, a worktree's knownChanges was read.
+type changesRead struct {
+	key string
+	at  time.Time
+}
+
+// measuredAt is each worktree's changesRead, and ranSince the worktrees seen
+// running since they were last read stopped.
 var (
-	measuredAt sync.Map // worktree -> string
+	measuredAt sync.Map // worktree -> changesRead
 	ranSince   sync.Map // worktree -> true
 )
 

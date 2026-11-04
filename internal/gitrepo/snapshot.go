@@ -1,9 +1,13 @@
 package gitrepo
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Snapshot commits never land on a branch, so they don't depend on the user's
@@ -22,30 +26,130 @@ var snapshotIdentity = []string{
 // every file, which over the Mac's shared folder took 49s for 14k files. A
 // copy git can't use (torn mid-write, say) falls back to that.
 func worktreeTree(worktree string) (string, error) {
+	if tree, ok := persistentTree(worktree); ok {
+		return tree, nil
+	}
+	return copiedTree(worktree)
+}
+
+// copiedTree is worktreeTree through a throwaway copy of the worktree's index.
+func copiedTree(worktree string) (string, error) {
 	tmp, err := os.MkdirTemp("", "agentbox-index-")
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 	index := filepath.Join(tmp, "index")
-	env := []string{"GIT_INDEX_FILE=" + index}
-	stage := func() (string, error) {
-		if _, err := output(worktree, env, "add", "--all"); err != nil {
-			return "", err
-		}
-		tree, err := output(worktree, env, "write-tree")
-		return strings.TrimSpace(tree), err
-	}
 	if copyIndex(worktree, index) == nil {
-		if tree, err := stage(); err == nil {
+		if tree, err := stageTree(worktree, index); err == nil {
 			return tree, nil
 		}
 		_ = os.Remove(index)
 	}
-	if _, err := output(worktree, env, "read-tree", "HEAD"); err != nil {
+	if _, err := output(worktree, []string{"GIT_INDEX_FILE=" + index}, "read-tree", "HEAD"); err != nil {
 		return "", err
 	}
-	return stage()
+	return stageTree(worktree, index)
+}
+
+// stageTree stages the worktree into the index file and writes its tree.
+func stageTree(worktree, index string) (string, error) {
+	env := []string{"GIT_INDEX_FILE=" + index}
+	if _, err := output(worktree, env, "add", "--all"); err != nil {
+		return "", err
+	}
+	tree, err := output(worktree, env, "write-tree")
+	return strings.TrimSpace(tree), err
+}
+
+// The persistent index: copying the worktree's index for every measurement
+// leaves the copy with the stat information the worktree's own index last
+// had, which over virtiofs made `add --all` ~350ms where a warm index took
+// ~100ms. With a directory set (SetIndexDir, the daemon's state), each
+// worktree keeps one temporary index there between calls, so the stats
+// `add --all` refreshes survive. It is never the worktree's own index, and
+// `add --all` makes the tree match the files whatever it started from; only
+// what the worktree's index tracks despite .gitignore could go stale, so it
+// is seeded again from a copy when the worktree's index changes size (an
+// entry added or removed; a stat refresh keeps it) and every
+// persistentIndexMaxAge. One that git can't use is dropped for the copy.
+var (
+	indexDir   string
+	indexMu    sync.Mutex
+	indexState = map[string]*persistentIndex{}
+)
+
+const (
+	persistentIndexMaxAge  = 10 * time.Minute
+	persistentIndexMaxIdle = 14 * 24 * time.Hour
+)
+
+type persistentIndex struct {
+	mu       sync.Mutex // held while git uses the file
+	seededAt time.Time
+	srcSize  int64 // the worktree's index size when seeded
+}
+
+// SetIndexDir turns the persistent index on, keeping the files in dir, and
+// forgets those not used for two weeks (removed worktrees').
+func SetIndexDir(dir string) {
+	indexMu.Lock()
+	indexDir = dir
+	indexMu.Unlock()
+	if dir == "" {
+		return
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > persistentIndexMaxIdle {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+}
+
+// persistentTree is worktreeTree through the worktree's persistent index; not
+// ok when there is none to use (turned off, in use by another measurement,
+// or git can't use it).
+func persistentTree(worktree string) (string, bool) {
+	indexMu.Lock()
+	dir := indexDir
+	st := indexState[worktree]
+	if st == nil && dir != "" {
+		st = &persistentIndex{}
+		indexState[worktree] = st
+	}
+	indexMu.Unlock()
+	if dir == "" || !st.mu.TryLock() {
+		return "", false
+	}
+	defer st.mu.Unlock()
+	sum := sha1.Sum([]byte(worktree))
+	index := filepath.Join(dir, hex.EncodeToString(sum[:])+".index")
+	src, err := run(worktree, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
+		return "", false
+	}
+	var size int64 = -1
+	if info, err := os.Stat(src); err == nil {
+		size = info.Size()
+	}
+	_, statErr := os.Stat(index)
+	if statErr != nil || size != st.srcSize || time.Since(st.seededAt) > persistentIndexMaxAge {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", false
+		}
+		_ = os.Remove(index)
+		if copyIndex(worktree, index) != nil {
+			return "", false
+		}
+		st.seededAt, st.srcSize = time.Now(), size
+	}
+	tree, err := stageTree(worktree, index)
+	if err != nil {
+		_ = os.Remove(index)
+		return "", false
+	}
+	return tree, true
 }
 
 // copyIndex copies the worktree's index file to dst, mtime included: git

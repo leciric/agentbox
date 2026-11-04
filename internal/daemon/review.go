@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
@@ -209,7 +210,7 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 		}
 	}
 	changes := map[string]api.AgentChanges{}
-	for i, c := range agentChanges(done, prs, polledChanges) {
+	for i, c := range agentChanges(done, prs, polledChangesOf(s.machineStates(ctx, p.Name))) {
 		changes[done[i].Name] = c
 	}
 	marks := s.mergeMarks(ctx, p.Name)
@@ -593,4 +594,15 @@ func (s *Server) changesRequested(ctx context.Context, project, name, chatState 
 		return ""
 	}
 	return r.Note
+}
+
+// machineStates is the project's agents' statuses, for showing their changes
+// (polledChangesOf); none when they can't be read, which counts every agent
+// as running.
+func (s *Server) machineStates(ctx context.Context, project string) []agent.Status {
+	statuses, err := s.manager(nil).List(ctx, project)
+	if err != nil {
+		return nil
+	}
+	return statuses
 }

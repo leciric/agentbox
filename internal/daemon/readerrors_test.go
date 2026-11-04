@@ -352,7 +352,10 @@ func TestPolledChangesDoNotStackOnAMeasurement(t *testing.T) {
 // its last read instead of running git over it again; it is measured once
 // when it has no read, again when its index moved, and once more after it ran.
 func TestStoppedAgentsAreNotRescanned(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it moves the floor's clock.
+	now := time.Now()
+	changesNow = func() time.Time { return now }
+	t.Cleanup(func() { changesNow = time.Now })
 	root := testutil.FixtureRepo(t, "hello-stack")
 	repo, _ := gitrepo.Open(root)
 	base, _ := repo.ResolveCommit("main")
@@ -393,6 +396,7 @@ func TestStoppedAgentsAreNotRescanned(t *testing.T) {
 	}
 	// It runs and writes more, then stops: counted once more.
 	write("two.txt")
+	now = now.Add(changesFloor)
 	if c := running(a); c.Files != 2 {
 		t.Fatalf("running: %+v, want measured now", c)
 	}
@@ -403,5 +407,54 @@ func TestStoppedAgentsAreNotRescanned(t *testing.T) {
 	write("four.txt")
 	if c := stopped(a); c.Files != 3 {
 		t.Fatalf("stopped again: %+v, want the last read", c)
+	}
+}
+
+// TestRunningAgentsAreRescannedOnlyAfterTheFloor: a running agent edits files
+// without touching HEAD or its index, so the same key is read again only
+// after changesFloor; a new key is read at once; an agent the statuses don't
+// know counts as running.
+func TestRunningAgentsAreRescannedOnlyAfterTheFloor(t *testing.T) {
+	// Not parallel: it moves the floor's clock.
+	now := time.Now()
+	changesNow = func() time.Time { return now }
+	t.Cleanup(func() { changesNow = time.Now })
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	base, _ := repo.ResolveCommit("main")
+	for _, name := range []string{"running", "unknown"} {
+		worktree := filepath.Join(t.TempDir(), "agent-"+name)
+		if err := repo.AddWorktree(worktree, "agentbox/agent-"+name, base, "test"); err != nil {
+			t.Fatal(err)
+		}
+		a := state.Agent{Name: "agent-" + name, Worktree: worktree, BaseCommit: base}
+		show := polledChangesOf(nil)
+		if name == "running" {
+			show = polledChangesOf([]agent.Status{{Agent: a, State: "running"}})
+		}
+		if c := show(a); c.Files != 0 {
+			t.Fatalf("%s: first call = %+v, want none", name, c)
+		}
+		if err := os.WriteFile(filepath.Join(worktree, name+".txt"), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(changesFloor - time.Second)
+		if c := show(a); c.Files != 0 {
+			t.Errorf("%s: inside the floor = %+v, want the last read", name, c)
+		}
+		now = now.Add(time.Second)
+		if c := show(a); c.Files != 1 {
+			t.Errorf("%s: after the floor = %+v, want one file", name, c)
+		}
+		// A moved key doesn't wait for the floor.
+		if err := os.WriteFile(filepath.Join(worktree, name+"2.txt"), []byte("y\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command("git", "-C", worktree, "add", name+"2.txt").CombinedOutput(); err != nil {
+			t.Fatalf("git add: %v\n%s", err, out)
+		}
+		if c := show(a); c.Files != 2 {
+			t.Errorf("%s: after its index moved = %+v, want two files", name, c)
+		}
 	}
 }

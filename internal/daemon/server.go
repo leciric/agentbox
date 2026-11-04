@@ -564,6 +564,7 @@ var firewall dockerfw.Run = dockerfw.System
 
 // Run serves the API until ctx ends or a client asks the daemon to stop.
 func (s *Server) Run(ctx context.Context) error {
+	gitrepo.SetIndexDir(filepath.Join(s.cfg.Paths.Data, "git-index"))
 	socket := s.cfg.Paths.Socket()
 	if err := checkSocketPaths(socket, s.agentSocketPath("any")); err != nil {
 		return err

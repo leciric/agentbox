@@ -169,6 +169,7 @@ func (s *Server) recheckInput(ctx context.Context, p state.Project, now time.Tim
 	if err != nil {
 		return in, err
 	}
+	showChanges := polledChangesOf(statuses)
 	questions, err := s.store.Questions(ctx, p.Name, true)
 	if err != nil {
 		return in, err
@@ -227,7 +228,7 @@ func (s *Server) recheckInput(ctx context.Context, p state.Project, now time.Tim
 			a.Report = reportLine(reports[0])
 		}
 		if !a.Busy {
-			changes := changesOf(st.Agent)
+			changes := showChanges(st.Agent)
 			a.Dirty = changes.Dirty
 			a.Unpushed = repoErr == nil && changes.Files > 0 && !agent.BranchDisposable(repo, st.Agent)
 		}
