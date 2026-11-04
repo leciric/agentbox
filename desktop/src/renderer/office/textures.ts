@@ -130,63 +130,72 @@ export function drawScreen(ctx: CanvasRenderingContext2D, s: Screen, t = 0) {
 // drawBoard paints the wall board: what needs you on the left, what waits for
 // your review on the right, as sticky notes on cork.
 export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen): BoardRow[] {
+  // A kanban whiteboard: a white surface, a coloured tab over each column,
+  // sticky notes in pastel, written in dark ink.
   const rows: BoardRow[] = [];
   const { width: W, height: H } = ctx.canvas;
-  ctx.fillStyle = '#1a2233';
+  ctx.fillStyle = '#fbfaf6';
   ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#f8fafc';
-  ctx.font = `700 40px ${SANS}`;
+  ctx.fillStyle = '#2b3340';
+  ctx.font = `700 34px ${SANS}`;
   ctx.textAlign = 'center';
-  ctx.fillText(b.title, W / 2, 52);
+  ctx.fillText(b.title, W / 2, 46);
   ctx.textAlign = 'left';
   const colW = (W - 90) / 2;
-  const column = (c: BoardColumn, x: number, accent: string) => {
-    ctx.fillStyle = accent;
-    ctx.beginPath();
-    ctx.arc(x + 14, 96, 11, 0, Math.PI * 2);
+  const column = (c: BoardColumn, x: number, tab: string, note: string, edge: string) => {
+    ctx.fillStyle = tab;
+    roundRect(ctx, x, 70, colW, 46, 12);
     ctx.fill();
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = `700 30px ${SANS}`;
-    ctx.fillText(fit(ctx, c.head, colW - 40), x + 36, 106);
-    let y = 126;
+    ctx.fillStyle = '#1f2630';
+    ctx.font = `700 26px ${SANS}`;
+    ctx.fillText(fit(ctx, c.head, colW - 30), x + 16, 101);
+    let y = 130;
     if (c.items.length === 0) {
-      ctx.fillStyle = '#64748b';
-      ctx.font = `500 28px ${SANS}`;
+      ctx.fillStyle = '#8a8f98';
+      ctx.font = `500 24px ${SANS}`;
       for (const l of wrap(ctx, c.empty, colW - 20, 2)) {
-        ctx.fillText(l, x + 4, y + 40);
-        y += 36;
+        ctx.fillText(l, x + 6, y + 34);
+        y += 32;
       }
       return;
     }
-    const rowH = 66;
-    const fits = Math.max(1, Math.floor((H - y - 10) / (rowH + 8)));
+    const rowH = 64;
+    const fits = Math.max(1, Math.floor((H - y - 10) / (rowH + 9)));
     const shown = c.items.length > fits ? fits - 1 : fits;
-    for (const it of c.items.slice(0, shown)) {
+    for (const [k, it] of c.items.slice(0, shown).entries()) {
       rows.push({ ref: it.ref, x, y, w: colW, h: rowH });
-      ctx.fillStyle = '#0f172a';
-      roundRect(ctx, x, y, colW, rowH, 14);
+      // A sticky note, a little askew, with a soft shadow.
+      ctx.save();
+      ctx.translate(x + colW / 2, y + rowH / 2);
+      ctx.rotate(((k % 3) - 1) * 0.008);
+      ctx.fillStyle = 'rgba(60,40,20,0.12)';
+      roundRect(ctx, -colW / 2 + 3, -rowH / 2 + 4, colW, rowH, 8);
       ctx.fill();
-      ctx.fillStyle = toneColor[it.tone];
-      roundRect(ctx, x, y, 10, rowH, 5);
+      ctx.fillStyle = note;
+      roundRect(ctx, -colW / 2, -rowH / 2, colW, rowH, 8);
       ctx.fill();
-      ctx.fillStyle = '#f1f5f9';
-      ctx.font = `600 26px ${SANS}`;
-      ctx.fillText(fit(ctx, it.title, colW - 40), x + 24, y + 29);
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = `500 20px ${SANS}`;
-      ctx.fillText(fit(ctx, it.sub, colW - 40), x + 24, y + 55);
-      y += rowH + 8;
+      ctx.fillStyle = it.tone === 'error' ? '#e0675f' : edge;
+      roundRect(ctx, -colW / 2, -rowH / 2, 8, rowH, 4);
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#26221d';
+      ctx.font = `700 24px ${SANS}`;
+      ctx.fillText(fit(ctx, it.title, colW - 36), x + 22, y + 28);
+      ctx.fillStyle = '#6b6258';
+      ctx.font = `500 19px ${SANS}`;
+      ctx.fillText(fit(ctx, it.sub, colW - 36), x + 22, y + 52);
+      y += rowH + 9;
     }
     if (c.items.length > shown) {
       // The "+n" is a row too: a click on it goes to the full list.
       rows.push({ ref: `more:${c === b.needs ? 'needs' : 'review'}`, x, y, w: 120, h: 44 });
-      ctx.fillStyle = '#cbd5e1';
-      ctx.font = `700 28px ${SANS}`;
+      ctx.fillStyle = '#4a4f58';
+      ctx.font = `700 26px ${SANS}`;
       ctx.fillText(`+${c.items.length - shown}`, x + 8, y + 30);
     }
   };
-  column(b.needs, 30, toneColor.needs);
-  column(b.review, 60 + colW, toneColor.finished);
+  column(b.needs, 30, '#ffd66b', '#fff3c2', '#f2b731');
+  column(b.review, 60 + colW, '#a8e6c3', '#e2f7ea', '#3fbf7f');
   return rows;
 }
 
