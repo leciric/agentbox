@@ -241,6 +241,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           made = mod.createOfficeScene(host.current, {
             reducedMotion: reduced,
             markerLabel: (title) => t('office.walkTo', { title }),
+            moreLabel: t('office.showAll'),
             onNear: setNear,
             onHover: setHover,
             onActivate: (ref) => activate.current(ref),
@@ -538,6 +539,20 @@ function Empty({ children }: { children: ReactNode }) {
   return <div className="px-2 pb-2 text-[12px] text-slate-400">{children}</div>;
 }
 
+// RowTitle is a row's title; an agent told apart from another of the same
+// title by its name (model.ts) keeps the name in view, set apart.
+function RowTitle({ item }: { item: BoardItem }) {
+  const name = item.ref.split('/')[1];
+  const suffix = ` (${name})`;
+  const named = item.title.endsWith(suffix);
+  return (
+    <span className="flex min-w-0 items-baseline gap-1.5">
+      <span className="truncate text-[12.5px] font-medium text-white">{named ? item.title.slice(0, -suffix.length) : item.title}</span>
+      {named && <span className="shrink-0 font-mono text-[10.5px] text-slate-400">{name}</span>}
+    </span>
+  );
+}
+
 function WalkRow({ item, sub, label, onClick, active }: { item: BoardItem; sub?: string; label: string; onClick: () => void; active?: boolean }) {
   return (
     <button
@@ -551,7 +566,7 @@ function WalkRow({ item, sub, label, onClick, active }: { item: BoardItem; sub?:
     >
       <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', toneDot[item.tone])} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12.5px] font-medium text-white">{item.title}</span>
+        <RowTitle item={item} />
         {sub && <span className="line-clamp-2 text-[11.5px] text-slate-400">{sub}</span>}
       </span>
       <ArrowRight className="mt-1 size-3.5 shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-white" />

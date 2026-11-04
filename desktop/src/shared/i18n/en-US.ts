@@ -4913,6 +4913,7 @@ export const enUS = {
   'office.next': 'Next who needs you',
   'office.nextOf': '{at} of {count}',
   'office.back': 'Back to the Office',
+  'office.showAll': 'Show everyone who needs you',
   'office.clickToWalk': 'Click to walk to {title}',
   'office.hint.click': 'Click a desk or the floor to walk there',
   'office.hint.keys': 'WASD to walk · E opens · N next who needs you',

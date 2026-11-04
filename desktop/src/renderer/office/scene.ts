@@ -45,6 +45,8 @@ export type OfficeSceneOptions = {
   onMore(): void;
   // A click on a row of the board, standing at it: the desk it's about.
   onBoardRow(ref: string): void;
+  // The "+n" button's name for screen readers.
+  moreLabel: string;
   // A marker's name for screen readers: "Walk to {title}".
   markerLabel(title: string): string;
 };
@@ -181,7 +183,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   const markerLayer = document.createElement('div');
   markerLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;transition:opacity .15s';
   host.appendChild(markerLayer);
-  const markers = new Map<string, HTMLButtonElement>();
+  const markers = new Map<string, HTMLDivElement>();
   // Each area's label from far off, a map's: a click walks to its front desk.
   const areaChips = new Map<string, HTMLButtonElement>();
   function syncAreaChips(input: SceneInput) {
@@ -291,6 +293,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let chipsShown = true;
   // Each chip's offset from its desk, or null when it has no room.
   const chipDy = new WeakMap<HTMLElement, [number, number] | null>();
+  const chipInto = new WeakMap<HTMLElement, HTMLDivElement>();
   let stillFor = 0;
 
   // Input.
@@ -640,29 +643,36 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     let marker = markers.get(d.ref);
     if (loudNow) {
       if (!marker) {
-        marker = document.createElement('button');
-        marker.type = 'button';
+        // A chip: a button that walks you there, and beside it a "+n" button
+        // for the chips folded into it, which opens the list of everyone.
+        marker = document.createElement('div');
         marker.dataset.officeMarker = d.ref;
         marker.style.cssText =
-          'position:absolute;left:0;top:0;pointer-events:auto;display:flex;align-items:center;gap:6px;max-width:190px;padding:2px 8px 2px 6px;border-radius:999px;background:rgba(10,14,24,.9);color:#fff;font:600 11.5px/1.25 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer;will-change:transform';
+          'position:absolute;left:0;top:0;display:flex;align-items:center;gap:3px;pointer-events:none;will-change:transform';
+        const walk = document.createElement('button');
+        walk.type = 'button';
+        walk.style.cssText =
+          'pointer-events:auto;display:flex;align-items:center;gap:6px;max-width:190px;padding:2px 8px 2px 6px;border-radius:999px;background:rgba(10,14,24,.9);color:#fff;font:600 11.5px/1.25 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer';
         const dot = document.createElement('span');
         dot.style.cssText = 'flex:none;width:8px;height:8px;border-radius:50%';
         const label = document.createElement('span');
         label.style.cssText = 'overflow:hidden;text-overflow:ellipsis';
-        // "+2": the chips folded into this one, with no room of their own.
-        const more = document.createElement('span');
-        more.style.cssText = 'flex:none;display:none;padding:0 5px;border-radius:999px;background:rgba(255,255,255,.16);font-size:10.5px';
-        // The "+n" opens the list of everyone waiting.
+        walk.append(dot, label);
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.dataset.officeMore = '';
+        more.style.cssText =
+          'pointer-events:auto;display:none;padding:2px 7px;border-radius:999px;background:rgba(10,14,24,.9);border:1px solid rgba(255,255,255,.25);color:#fff;font:700 11px/1.25 var(--font-sans,system-ui),sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer';
         more.addEventListener('pointerdown', (e) => {
           e.preventDefault();
           e.stopPropagation();
           opts.onMore();
         });
-        marker.append(dot, label, more);
+        marker.append(walk, more);
         const ref = d.ref;
         // On press, not click: the camera may still be easing, and a chip that
         // moved before the release would lose the click to the floor.
-        marker.addEventListener('pointerdown', (e) => {
+        walk.addEventListener('pointerdown', (e) => {
           e.preventDefault();
           e.stopPropagation();
           walkTo(ref);
@@ -670,10 +680,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         markerLayer.appendChild(marker);
         markers.set(d.ref, marker);
       }
-      (marker.firstChild as HTMLElement).style.background = color;
-      marker.style.border = `1px solid ${color}88`;
-      (marker.children[1] as HTMLElement).textContent = title;
-      marker.setAttribute('aria-label', opts.markerLabel(title));
+      const walkBtn = marker.children[0] as HTMLButtonElement;
+      (walkBtn.children[0] as HTMLElement).style.background = color;
+      walkBtn.style.border = `1px solid ${color}88`;
+      (walkBtn.children[1] as HTMLElement).textContent = title;
+      walkBtn.setAttribute('aria-label', opts.markerLabel(title));
+      (marker.children[1] as HTMLElement).setAttribute('aria-label', opts.moreLabel);
     } else if (marker) {
       marker.remove();
       markers.delete(d.ref);
@@ -844,6 +856,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     clock += dt;
     const idleFor = now - lastInput;
     const busy = step(dt);
+    if (busy && hoverAt && !pointer) refreshHover();
     // While nothing moves: a few frames a second for the robots' life, or
     // none at all with reduced motion.
     const lively = busy || idleFor < 4000;
@@ -1089,7 +1102,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // The chips over the canvas show only once the camera has settled: one
     // sliding under the pointer would send a click somewhere else.
     // Moving is moving visibly, not the easing's last hair.
-    const moving = Math.abs(after - before) > 0.02;
+    // As a speed, so it means the same at any frame rate.
+    const moving = Math.abs(after - before) / Math.max(dt, 1e-3) > 0.6;
     settledFor = moving ? 0 : settledFor + dt;
     const show = settledFor > 0.12;
     if (show !== chipsShown) {
@@ -1175,7 +1189,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
     const tp = new THREE.Vector3();
-    const shown: { el: HTMLButtonElement; x: number; y: number }[] = [];
+    const shown: { el: HTMLDivElement; x: number; y: number }[] = [];
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
       tag.getWorldPosition(tp);
@@ -1211,32 +1225,37 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // A chip with no room of its own folds into the one in its way, as a
     // "+n" on it: N, or the list, still gets you to each.
     const restack = chipsShown;
-    const chips: { x0: number; x1: number; y: number; el: HTMLButtonElement }[] = [];
+    const chips: { x0: number; x1: number; y: number; el: HTMLDivElement }[] = [];
     for (const m of shown) {
       const w = m.el.offsetWidth || 120;
-      const clash = (x: number, y: number) => placed.some((p) => x - w / 2 < p.x1 + 4 && x + w / 2 > p.x0 - 4 && Math.abs(p.y - y) < h);
+      // Kept inside the canvas, whichever way it steps.
+      const inside = (x: number) => Math.min(canvas.clientWidth - w / 2 - 6, Math.max(w / 2 + 6, x));
+      const clash = (x: number, y: number) => placed.some((p) => inside(x) - w / 2 < p.x1 + 4 && inside(x) + w / 2 > p.x0 - 4 && Math.abs(p.y - y) < h);
       // Where to try, nearest first: above and below, then a little aside.
       const tries: [number, number][] = [];
       for (const dy of [0, -h, h, -2 * h, 2 * h, -3 * h, 3 * h]) for (const dx of [0, w * 0.55, -w * 0.55]) tries.push([dx, dy]);
       tries.sort((a, b) => Math.abs(a[1]) + Math.abs(a[0]) / 2 - (Math.abs(b[1]) + Math.abs(b[0]) / 2));
       let off = chipDy.get(m.el);
       // Kept while the camera moves, unless where it was is taken now.
-      if (restack || off === undefined || (off && clash(m.x + off[0], m.y + off[1]))) {
+      // Laid out again only while the camera is still: moving, they keep their
+      // places, overlapping for a moment rather than jumping.
+      if (restack || off === undefined) {
         off = tries.find(([dx, dy]) => !clash(m.x + dx, m.y + dy)) ?? null;
         chipDy.set(m.el, off);
       }
       if (!off) {
         // No room: folded into the chip in its way, if there's one nearby;
         // else it stays where it belongs.
-        const into = chips.find((c) => m.x - w / 2 < c.x1 + 4 && m.x + w / 2 > c.x0 - 4 && Math.abs(c.y - m.y) < 4 * h);
+        const into = (restack ? undefined : chipInto.get(m.el)) ?? chips.find((c) => m.x - w / 2 < c.x1 + 4 && m.x + w / 2 > c.x0 - 4 && Math.abs(c.y - m.y) < 4 * h)?.el;
         if (into) {
+          chipInto.set(m.el, into);
           m.el.style.display = 'none';
-          folded.set(into.el, (folded.get(into.el) ?? 0) + 1);
+          folded.set(into, (folded.get(into) ?? 0) + 1);
           continue;
         }
         off = [0, 0];
       }
-      const x = m.x + off[0];
+      const x = inside(m.x + off[0]);
       const y = m.y + off[1];
       placed.push({ x0: x - w / 2, x1: x + w / 2, y });
       chips.push({ x0: x - w / 2, x1: x + w / 2, y, el: m.el });
@@ -1244,7 +1263,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     }
     for (const c of chips) {
       const n = folded.get(c.el) ?? 0;
-      const more = c.el.children[2] as HTMLElement;
+      const more = c.el.children[1] as HTMLElement;
       more.style.display = n ? 'inline' : 'none';
       if (n) more.textContent = `+${n}`;
     }
@@ -1323,27 +1342,31 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         return;
       }
     }
-    hoverDirty = true;
     hoverAt = { x: e.clientX, y: e.clientY };
-    if (!pendingHover) {
-      pendingHover = true;
-      requestAnimationFrame(() => {
-        pendingHover = false;
-        if (!hoverDirty || !hoverAt) return;
-        hoverDirty = false;
-        const { ref, row } = pick(hoverAt.x, hoverAt.y);
-        // At the board only its rows do something.
-        canvas.style.cursor = ref && !(ref === 'board' && near === 'board' && !row) ? 'pointer' : 'default';
-        if (ref !== hover) {
-          hover = ref;
-          opts.onHover(ref);
-          poke();
-        }
-      });
-    }
+    refreshHover();
   };
   let hoverAt: { x: number; y: number } | undefined;
   let pendingHover = false;
+  // refreshHover works out, by the next frame, what's under the pointer: as
+  // it moves, and as the camera moves under a pointer that doesn't.
+  function refreshHover() {
+    hoverDirty = true;
+    if (pendingHover) return;
+    pendingHover = true;
+    requestAnimationFrame(() => {
+      pendingHover = false;
+      if (!hoverDirty || !hoverAt) return;
+      hoverDirty = false;
+      const { ref, row } = pick(hoverAt.x, hoverAt.y);
+      // At the board only its rows do something.
+      canvas.style.cursor = ref && !(ref === 'board' && near === 'board' && !row) ? 'pointer' : 'default';
+      if (ref !== hover) {
+        hover = ref;
+        opts.onHover(ref);
+        poke();
+      }
+    });
+  }
   const onPointerUp = (e: PointerEvent) => {
     if (!pointer || pointer.id !== e.pointerId) return;
     const p = pointer;
@@ -1359,6 +1382,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     } else if (floor) walkToPoint(floor);
   };
   const onPointerLeave = () => {
+    hoverAt = undefined;
     if (hover) {
       hover = undefined;
       opts.onHover(undefined);
@@ -1374,11 +1398,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const d = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
     const n = Math.max(-3, Math.min(3, Math.abs(d) >= 50 ? Math.sign(d) * Math.max(1, Math.abs(d) / 120) : d / 100));
     if (n < 0) {
-      if (followTarget < 1) followTarget = Math.min(1, followTarget - 0.34 * n);
-      else cam.dist = Math.max(6.5, cam.dist * Math.pow(0.82, -n));
-    } else if (followTarget >= 1 && cam.dist < 11) cam.dist = Math.min(11, cam.dist / Math.pow(0.82, n));
+      if (followTarget < 1) followTarget = Math.min(1, followTarget - 0.25 * n);
+      else cam.dist = Math.max(6.5, cam.dist * Math.pow(0.88, -n));
+    } else if (followTarget >= 1 && cam.dist < 11) cam.dist = Math.min(11, cam.dist / Math.pow(0.88, n));
     else {
-      followTarget = Math.max(0, followTarget - 0.34 * n);
+      followTarget = Math.max(0, followTarget - 0.25 * n);
       cam.dist = 11;
     }
     poke();

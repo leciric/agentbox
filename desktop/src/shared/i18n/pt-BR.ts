@@ -4914,6 +4914,7 @@ export const ptBR: Messages = {
   'office.next': 'Próximo que precisa de você',
   'office.nextOf': '{at} de {count}',
   'office.back': 'Voltar ao Escritório',
+  'office.showAll': 'Mostrar todos que precisam de você',
   'office.clickToWalk': 'Clique para ir até {title}',
   'office.hint.click': 'Clique numa mesa ou no chão para ir até lá',
   'office.hint.keys': 'WASD para andar · E abre · N próximo que precisa de você',
