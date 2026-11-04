@@ -177,9 +177,13 @@ func (m *Manager) BalanceCPU(ctx context.Context) (changed int, err error) {
 // share as agents start and stop rather than staying what they were when the
 // AI tool started. A variable set to something else, by the user or a
 // project's scripts, is left alone: only the value this script set last,
-// remembered in AGENTBOX_CPUS, is replaced.
-const workersScript = `# Worker counts follow this machine's share of the VM's cores (nproc).
+// remembered in AGENTBOX_CPUS, is replaced. While the VM's memory is short
+// (MemoryShortFile has something in it) every count is halved, as each job
+// holds memory of its own.
+const workersScript = `# Worker counts follow this machine's share of the VM's cores (nproc),
+# halved while the VM's memory is short.
 _ab_n=$(nproc 2>/dev/null)
+if [ -n "$_ab_n" ] && [ -s "${AGENTBOX_MEMORY_SHORT_FILE:-` + MemoryShortFile + `}" ]; then _ab_n=$(((_ab_n + 1) / 2)); fi
 if [ -n "$_ab_n" ]; then
   for _ab_v in GOMAXPROCS CARGO_BUILD_JOBS VITEST_MAX_WORKERS; do
     eval "_ab_c=\${$_ab_v-}"
@@ -205,6 +209,21 @@ if [ -n "$_ab_n" ]; then
 fi
 unset _ab_n _ab_h _ab_o _ab_v _ab_c _ab_f _ab_w
 `
+
+// MemoryShortFile is the file in each machine the daemon writes "short" into
+// while the VM's memory is short, and empties once it isn't
+// (SetMemoryShort).
+const MemoryShortFile = "/run/agentbox/memory-short"
+
+// SetMemoryShort tells a's machine whether the VM's memory is short, which
+// the worker counts of the shells started from then on follow.
+func (m *Manager) SetMemoryShort(ctx context.Context, a state.Agent, short bool) error {
+	content := ""
+	if short {
+		content = "short\n"
+	}
+	return m.Incus.WriteFile(ctx, a.Instance, MemoryShortFile, []byte(content), 0, 0, 0o644)
+}
 
 // BashEnvPath is the file BASH_ENV names in an agent's Claude Code, which
 // every Bash tool call's shell reads: the worker counts, the heavy command's

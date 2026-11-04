@@ -39,7 +39,7 @@ type Profile struct {
 	Name        string `json:"name"`
 	// Keyring names the browser's entry in the host keyring (the
 	// `application` attribute of its Secret Service item: chrome, chromium,
-	// brave, msedge, vivaldi), empty for Firefox, whose store needs no key.
+	// brave, msedge, vivaldi, arc), empty for Firefox, whose store needs no key.
 	Keyring string `json:"keyring,omitempty"`
 	dir     string
 	db      string
@@ -50,10 +50,25 @@ type Profile struct {
 	goos string
 }
 
+// AppBound reports whether this is a Chromium profile on Windows, whose
+// cookies are sealed with app-bound encryption (v20): readable only by the
+// browser itself, so the daemon in the VM can't open them and the desktop app
+// reads them on the host instead (desktop/src/main/browsercookies.ts).
+func (p Profile) AppBound() bool {
+	return p.goos == "windows" && p.Engine == EngineChromium
+}
+
+// Dir is the profile's sub-directory under the browser's user-data directory
+// (Default, Profile 1, …), which the host passes to the browser as
+// --profile-directory when it reads an app-bound profile's cookies.
+func (p Profile) Dir() string { return filepath.Base(p.dir) }
+
 // browser is a browser AgentBox can read, and where it keeps its profiles
-// relative to the home directory, per GOOS. A Chromium browser's roots are
-// left empty on windows: Chrome, Edge and Brave seal cookies there with
-// app-bound encryption (v20), which only the browser itself opens.
+// relative to the home directory, per GOOS. A Chromium browser on Windows
+// seals its cookies with app-bound encryption (v20), which only the browser
+// itself opens: its profiles are still listed (a Profile with AppBound set),
+// but the Go daemon in the VM can't decrypt them. The desktop app does it on
+// the host, by launching the browser itself (desktop/src/main/browsercookies.ts).
 type browser struct {
 	id, name, engine, keyring string
 	roots                     map[string][]string
@@ -78,15 +93,18 @@ var browsers = []browser{
 	chromium("brave", "Brave", "brave",
 		[]string{"Library/Application Support/BraveSoftware/Brave-Browser"},
 		[]string{".config/BraveSoftware/Brave-Browser"},
-		nil),
+		[]string{"AppData/Local/BraveSoftware/Brave-Browser/User Data"}),
 	chromium("edge", "Microsoft Edge", "msedge",
 		[]string{"Library/Application Support/Microsoft Edge"},
 		[]string{".config/microsoft-edge"},
-		nil),
+		[]string{"AppData/Local/Microsoft/Edge/User Data"}),
 	chromium("vivaldi", "Vivaldi", "vivaldi",
 		[]string{"Library/Application Support/Vivaldi"},
 		[]string{".config/vivaldi"},
 		nil),
+	chromium("arc", "Arc", "arc",
+		[]string{"Library/Application Support/Arc/User Data"},
+		nil, nil),
 	{id: "firefox", name: "Firefox", engine: EngineFirefox, roots: map[string][]string{
 		"darwin":  {"Library/Application Support/Firefox"},
 		"linux":   {".mozilla/firefox", "snap/firefox/common/.mozilla/firefox"},

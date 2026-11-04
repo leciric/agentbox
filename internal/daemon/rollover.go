@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"agentbox/internal/agent"
 	"agentbox/internal/chat"
 	"agentbox/internal/memory"
 	"agentbox/internal/state"
@@ -69,7 +68,7 @@ func (s *Server) rolloverIfNeeded(ctx context.Context, a state.Agent) {
 	// The size is already the room the session really has: the chat measures
 	// a Claude lead against the compact window it started with, not the
 	// model's (D83), and that is the lead's own context window now (D91).
-	used, size, ready := s.chat.Context(agent.LeadRef(a.Project))
+	used, size, ready := s.chat.Context(a.Ref())
 	if !ready || !needsRollover(used, size, p.RolloverThreshold) {
 		return
 	}
@@ -92,11 +91,13 @@ func (s *Server) rolloverIfNeeded(ctx context.Context, a state.Agent) {
 }
 
 // leadIdle is the chat's Idle hook: a turn has ended and nothing followed it.
+// A full chat is compacted, and an untitled session named (sessionname.go).
 func (s *Server) leadIdle(a state.Agent) {
 	if !a.IsLead() {
 		return
 	}
 	s.rolloverIfNeeded(context.Background(), a)
+	s.nameSession(context.Background(), a)
 }
 
 // needsRollover reports whether a context this full is worth compacting, for a
@@ -189,7 +190,7 @@ func (s *Server) storeConsolidation(ctx context.Context, a state.Agent, c consol
 	// it said is still there, by id and through this one, and the raw answer
 	// it came from is still its event.
 	previous := ""
-	if was, err := store.LatestFrom(ctx, a.Project, memory.KindEpisodic, memory.EventConversationCompacted); err == nil {
+	if was, err := store.LatestFrom(ctx, a.Project, a.Name, memory.KindEpisodic, memory.EventConversationCompacted); err == nil {
 		previous = was.ID
 	} else if !errors.Is(err, memory.ErrNotFound) {
 		return err
@@ -244,6 +245,8 @@ func (s *Server) storeConsolidation(ctx context.Context, a state.Agent, c consol
 		}
 	}
 	if !c.Working.Empty() {
+		// What it is working on is this session's own.
+		c.Working.Session = a.Session()
 		if _, err := s.memory().SetWorkingMemory(ctx, a.Project, c.Working); err != nil {
 			s.logf("compacting the %s chat: what it is doing now: %v", a.Project, err)
 		}

@@ -83,6 +83,7 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "AgentBox preview: "+err.Error(), http.StatusBadGateway)
 		return
 	}
+	s.touchIdle(project + "/" + agentName)
 	target := &url.URL{Scheme: "http", Host: net.JoinHostPort(ip, strconv.Itoa(port))}
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {

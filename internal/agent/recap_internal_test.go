@@ -37,7 +37,7 @@ func TestLeadRecap(t *testing.T) {
 
 	// Before anything has been remembered there is nothing to say, and the
 	// brief leaves the section out rather than printing an empty one.
-	recap, err := m.leadRecap(ctx, "pawly")
+	recap, err := m.leadRecap(ctx, state.Agent{Project: "pawly", Name: state.LeadName, Role: state.RoleLead})
 	if err != nil || recap != "" {
 		t.Fatalf("leadRecap() on an empty project = %q, %v", recap, err)
 	}
@@ -64,7 +64,7 @@ func TestLeadRecap(t *testing.T) {
 		}
 	}
 
-	recap, err = m.leadRecap(ctx, "pawly")
+	recap, err = m.leadRecap(ctx, state.Agent{Project: "pawly", Name: state.LeadName, Role: state.RoleLead})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestLeadRecap(t *testing.T) {
 	// The next compaction's narrative supersedes this one, the way
 	// storeConsolidation writes it, so the recap is the newest one only: a
 	// pile of stale summaries would be worse than none.
-	was, err := mem.LatestFrom(ctx, "pawly", memory.KindEpisodic, memory.EventConversationCompacted)
+	was, err := mem.LatestFrom(ctx, "pawly", "", memory.KindEpisodic, memory.EventConversationCompacted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestLeadRecap(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	recap, err = m.leadRecap(ctx, "pawly")
+	recap, err = m.leadRecap(ctx, state.Agent{Project: "pawly", Name: state.LeadName, Role: state.RoleLead})
 	if err != nil {
 		t.Fatal(err)
 	}

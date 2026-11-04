@@ -44,22 +44,22 @@ export function DiskGuardPill({ onSelect }: { onSelect: (view: View) => void }) 
       <PopoverContent className="w-96">
         <div className="grid gap-3">
           <div className="grid gap-1">
-            <span className={cn('text-[13px] font-medium', full ? 'text-rose-200' : 'text-amber-200')}>{view.title}</span>
-            <span className="text-[12px] leading-relaxed text-secondary">{view.body}</span>
+            <span className={cn('text-ui font-medium', full ? 'text-rose-200' : 'text-amber-200')}>{view.title}</span>
+            <span className="text-caption leading-relaxed text-secondary">{view.body}</span>
             {view.advice && <Advice text={view.advice} />}
           </div>
           {!vm?.pausedForDisk && disk.data && disk.data.disks.length > 0 && <DiskList disks={disk.data.disks} />}
           {!vm?.pausedForDisk && disk.data && disk.data.paused.length > 0 && (
             <div className="grid gap-1">
-              <span className="text-[12px] font-medium text-secondary">{t('shell.diskPill.pausedForIt')}</span>
-              <span className="font-mono text-[11.5px] text-muted">{disk.data.paused.join(', ')}</span>
+              <span className="text-caption font-medium text-secondary">{t('shell.diskPill.pausedForIt')}</span>
+              <span className="font-mono text-caption text-muted">{disk.data.paused.join(', ')}</span>
             </div>
           )}
           <div className="flex items-center justify-between gap-3 border-t border-line pt-2.5">
-            <span className="text-[11.5px] text-faint">{t('shell.diskPill.nothingStopped')}</span>
+            <span className="text-caption text-faint">{t('shell.diskPill.nothingStopped')}</span>
             <button
               type="button"
-              className="rounded-md px-2 py-1 text-[12px] font-medium text-brand-300 transition hover:bg-surface-raised"
+              className="rounded-md px-2 py-1 text-caption font-medium text-brand-300 transition hover:bg-surface-raised"
               onClick={() => onSelect({ kind: 'settings' })}
             >
               {t('shell.diskPill.settings')}
@@ -74,10 +74,10 @@ export function DiskGuardPill({ onSelect }: { onSelect: (view: View) => void }) 
 // Advice is what to do about the disk, its `commands` set as code.
 function Advice({ text }: { text: string }) {
   return (
-    <span className="text-[12px] leading-relaxed text-secondary">
+    <span className="text-caption leading-relaxed text-secondary">
       {text.split('`').map((part, i) =>
         i % 2 === 1 ? (
-          <code key={i} className="rounded bg-surface-raised px-1 font-mono text-[11.5px] text-primary">
+          <code key={i} className="rounded bg-surface-raised px-1 font-mono text-caption text-primary">
             {part}
           </code>
         ) : (
@@ -97,7 +97,7 @@ function DiskList({ disks }: { disks: T.DiskGuardDisk[] }) {
         const floorAt = d.total > 0 ? Math.min(100, (1 - d.floor / d.total) * 100) : 100;
         return (
           <div key={d.label + (d.path ?? '')} className="grid gap-1">
-            <div className="flex items-center justify-between gap-3 text-[12px]">
+            <div className="flex items-center justify-between gap-3 text-caption">
               <span className="flex min-w-0 items-center gap-1.5 text-secondary">
                 <HardDrive className="size-3.5 shrink-0 text-subtle" />
                 <span className="truncate" title={d.path}>
@@ -106,7 +106,7 @@ function DiskList({ disks }: { disks: T.DiskGuardDisk[] }) {
               </span>
               <span
                 className={cn(
-                  'shrink-0 font-mono text-[11px] tabular-nums',
+                  'shrink-0 font-mono text-caption tabular-nums',
                   d.level === 'full' ? 'text-rose-300' : d.level === 'low' ? 'text-amber-300' : 'text-tertiary',
                 )}
               >
@@ -121,7 +121,7 @@ function DiskList({ disks }: { disks: T.DiskGuardDisk[] }) {
               {/* Where the floor starts: AgentBox keeps everything right of it free. */}
               <span className="absolute inset-y-0 w-px bg-rose-300/80" style={{ left: `${floorAt}%` }} />
             </span>
-            <span className="text-[11px] text-faint">
+            <span className="text-caption text-faint">
               {t('shell.diskPill.keeps', { floor: humanBytes(d.floor), total: humanBytes(d.total) })}
             </span>
           </div>

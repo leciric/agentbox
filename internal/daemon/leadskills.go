@@ -26,7 +26,12 @@ var errRefused = errors.New("the user refused")
 
 // approveInChat is Server.approve: a card in the project's chat.
 func (s *Server) approveInChat(ctx context.Context, project string, req api.ChatPermission) (bool, error) {
-	lead, err := s.manager(nil).Lead(ctx, project)
+	// The card goes in the chat session that asked: the one whose turn waits.
+	session := leadSessionOf(ctx)
+	if session == "" {
+		session = state.MigratedSession
+	}
+	lead, err := s.manager(nil).LeadSession(ctx, project, session)
 	if err != nil {
 		return false, err
 	}
@@ -61,7 +66,7 @@ func (s *Server) leadCreateSkill(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if _, err := s.store.Skill(r.Context(), req.Name); err == nil {
-		return fmt.Errorf("skill %s: %w: edit_skill changes it, with the user's approval", req.Name, state.ErrExists)
+		return fmt.Errorf("skill %s: %w: skills edit changes it, with the user's approval", req.Name, state.ErrExists)
 	}
 	save := api.SaveSkillRequest{Content: req.Content, Project: project}
 	if req.Everywhere {

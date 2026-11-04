@@ -37,14 +37,16 @@ import (
 // phone deletes it and ends whatever it has open, its event stream first.
 //
 // Where the port is opened depends on where the daemon runs. On a machine of
-// its own, it listens itself, on every interface. In AgentBox's VM on a Linux
-// host (hostos.Linux), the network is the host's: the VM's supervisor opens
-// the port there and passes each request on over the daemon's socket, under
+// its own, it listens itself, on every interface. In AgentBox's VM, the
+// network is the computer's the VM runs on: a process there (lan.Forward)
+// opens the port and passes each request on over the daemon's socket, under
 // /v1/lan/net/, and reports how that went (PUT /v1/lan/host). The socket is
-// already forwarded to the host, so this needs nothing new of the VM. The
-// Mac's vz VM runs under the same supervisor, which does the same there, and
-// its report wins over the daemon's own port. In Lima's VM on a Mac and in
-// Windows' nothing brings the network to the daemon yet.
+// already forwarded to that computer, so this needs nothing new of the VM.
+// That process is the VM's supervisor on a Linux host and for the Mac's vz
+// driver, `agentbox vm lan` beside Lima's VM on a Mac, and the app's relay on
+// Windows. The daemon doesn't listen itself there: Lima and WSL would bring
+// its port to the computer's, where it would take the port from the
+// forwarder.
 //
 // It is plain HTTP: the phone and the daemon share no certificate. The
 // cookie is HttpOnly and SameSite=Strict, and a phone reaches only what its
@@ -61,7 +63,7 @@ import (
 const pairingTTL = 10 * time.Minute
 
 // hostReportTTL is how old the supervisor's last report may be before the
-// supervisor is taken as gone: it reports every lanReportEvery.
+// supervisor is taken as gone: it reports every lan.ReportEvery.
 const hostReportTTL = 10 * time.Second
 
 // lanCookie holds a paired phone's token.
@@ -72,6 +74,11 @@ const lanCookie = "agentbox_phone"
 const lanNetPrefix = "/v1/lan/net"
 
 type lanState struct {
+	// applying serializes applyLAN: each works out the tunnel from the
+	// settings and applies it as one step, so a config read before another
+	// call's newer one (a hub's answer arriving meanwhile) can't land after
+	// it and undo it. Taken before mu, never while holding it.
+	applying  sync.Mutex
 	mu        sync.Mutex
 	srv       *http.Server // the daemon's own listener, when it has one
 	port      int          // what srv listens on
@@ -83,7 +90,7 @@ type lanState struct {
 	seen      map[string]time.Time                        // when each phone's last visit was recorded
 	api       http.Handler                                // routes(), as phones reach it
 	limiter   *lan.Limiter                                // wrong pairing codes and tokens, by address
-	tunnel    *lanTunnel                                  // the Cloudflare Tunnel, when it runs (lantunnel.go)
+	tunnel    *lanTunnel                                  // the tunnel, when it runs (lantunnel.go)
 
 	// The tunnel the hub makes for this machine (lantunnel.go), by hubKey:
 	// which hub and environment it was last asked of this run, and the one
@@ -98,9 +105,12 @@ type lanState struct {
 	// port). Fields for tests: nil is tunnel.Installer's.
 	cloudflared func(ctx context.Context, status func(string)) (string, error)
 	tunnelPort  int
+	// tailscale finds the directory of tailscale and tailscaled, for a hub
+	// that gives out tailnet addresses; nil is tunnel.TailscaleInstaller's.
+	tailscale func(ctx context.Context, status func(string)) (string, error)
 
-	// own says the daemon opens the port itself: everywhere but in the
-	// Linux host's VM, whose supervisor opens it on the host. addresses are
+	// own says the daemon opens the port itself: everywhere but in
+	// AgentBox's VM, where the computer it runs on opens it. addresses are
 	// this machine's, for when it does. Fields for tests.
 	own       bool
 	addresses func() []string
@@ -109,7 +119,7 @@ type lanState struct {
 func newLANState() *lanState {
 	return &lanState{
 		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]struct{}{}, seen: map[string]time.Time{},
-		own: hostos.OS() != hostos.Linux, addresses: lan.Addresses,
+		own: !hostos.InVM(), addresses: lan.Addresses,
 		limiter: lan.NewLimiter(), tunnelPort: state.DefaultLANTunnelPort, hubRetry: 30 * time.Second,
 	}
 }
@@ -134,13 +144,15 @@ func (s *Server) applyLAN(ctx context.Context) {
 		s.logf("phones: %v", err)
 		return
 	}
+	l := s.lan
+	l.applying.Lock()
 	port, _ := s.lanPort(ctx)
 	tun := s.lanTunnelConfig(ctx, on)
-	l := s.lan
 	l.mu.Lock()
 	stop := s.applyTunnelLocked(ctx, tun)
 	defer func() {
 		l.mu.Unlock()
+		l.applying.Unlock()
 		if stop != nil {
 			stop()
 		}
@@ -222,18 +234,15 @@ func (s *Server) lanStatus(ctx context.Context) (api.LANStatus, error) {
 	case l.host != nil && time.Since(l.hostAt) < hostReportTTL:
 		out.Listening = l.host.Listening && l.host.Port == port
 		out.Error = l.host.Error
+		out.Warning = l.host.Warning
 		addrs = l.host.Addresses
 	case l.own:
 		out.Listening = l.srv != nil
 		out.Error = l.listenErr
 		addrs = l.addresses()
-		if on && hostos.InVM() {
-			// Lima's VM on a Mac and WSL have no supervisor to bring the
-			// VM's port to the network of the computer it runs on.
-			out.Listening = false
-			out.Error = fmt.Sprintf("phones can't reach AgentBox's VM on %s yet: this works on Linux for now", hostos.Name())
-			addrs = nil
-		}
+	case on && hostos.OS() == hostos.Windows:
+		// The app's relay opens it, and runs while the app does.
+		out.Error = "waiting for the AgentBox app to open the port on Windows: phones reach AgentBox while the app is open"
 	case on:
 		out.Error = "waiting for AgentBox's VM to open the port on this computer"
 	}
@@ -402,7 +411,7 @@ func (s *Server) lanHostReport(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.lan.mu.Lock()
 	changed := s.lan.host == nil || time.Since(s.lan.hostAt) >= hostReportTTL || s.lan.host.Listening != req.Listening ||
-		s.lan.host.Port != req.Port || s.lan.host.Error != req.Error || strings.Join(s.lan.host.Addresses, ",") != strings.Join(req.Addresses, ",")
+		s.lan.host.Port != req.Port || s.lan.host.Error != req.Error || s.lan.host.Warning != req.Warning || strings.Join(s.lan.host.Addresses, ",") != strings.Join(req.Addresses, ",")
 	s.lan.host, s.lan.hostAt = &req, time.Now()
 	s.lan.mu.Unlock()
 	if changed {
@@ -427,10 +436,18 @@ func (s *Server) lanWebVersion() string {
 		return ""
 	}
 	v := strings.TrimSpace(string(b))
-	if !lanWebVersionRe.MatchString(v) {
+	if !lanWebVersionRe.MatchString(v) || !hasLANWebPage(filepath.Join(s.lanWebDir(), v)) {
 		return ""
 	}
 	return v
+}
+
+// hasLANWebPage says dir has a web.html with something in it. An empty one
+// came of an install cut short by the daemon restarting, and is installed
+// again by the app, which installs whatever version the daemon hasn't.
+func hasLANWebPage(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, "web.html"))
+	return err == nil && st.Size() > 0
 }
 
 // maxLANWebFile bounds one file of the web app: the largest, the app's main
@@ -475,7 +492,7 @@ func (s *Server) installLANWeb(w http.ResponseWriter, r *http.Request) error {
 	}
 	dir := s.lanWebDir()
 	staging := filepath.Join(dir, ".staging-"+version)
-	if _, err := os.Stat(filepath.Join(staging, "web.html")); err != nil {
+	if !hasLANWebPage(staging) {
 		return fmt.Errorf("version %s has no web.html: put its files first", version)
 	}
 	final := filepath.Join(dir, version)
@@ -539,6 +556,10 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			}
 		case via == lanViaTunnel && r.Header.Get("Cf-Connecting-IP") != "":
 			addr = r.Header.Get("Cf-Connecting-IP")
+		case via == lanViaTunnel && r.Header.Get("X-Forwarded-For") != "":
+			// tailscale serve, from a device in the tailnet.
+			parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+			addr = strings.TrimSpace(parts[len(parts)-1])
 		default:
 			if host, _, err := net.SplitHostPort(addr); err == nil {
 				addr = host
@@ -568,6 +589,8 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			http.SetCookie(w, &http.Cookie{Name: lanCookie, Path: "/", MaxAge: -1, HttpOnly: true, Secure: via == lanViaTunnel, SameSite: http.SameSiteStrictMode})
 			s.publishLAN(r.Context())
 			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/lan/push" || r.URL.Path == "/lan/push/test":
+			s.lanPush(w, r, addr)
 		case strings.HasPrefix(r.URL.Path, "/api/"):
 			s.lanAPI(w, r, addr)
 		default:
@@ -859,9 +882,12 @@ var lanWrites = []struct {
 	// the card its lead's chat shows (leadpermissions.go): what the agent
 	// asks, like a question.
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/chat/permissions/[^/]+$`), state.PhoneScopeChat},
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|resume|permissions/[^/]+)$`), ""},
-	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`), ""},
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+(/sessions/[^/]+)?|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|resume|permissions/[^/]+)$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+(/sessions/[^/]+)?|agents/[^/]+/[^/]+)/chat/options/[^/]+$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+(/sessions/[^/]+)?/chat/cache$`), ""},
+	// Opening a session of a project's chat is chatting; renaming or deleting
+	// one is the app's.
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/sessions$`), ""},
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`), ""},
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/projects/[^/]+/questions/[^/]+/answer$`), ""},
 	// Marking an agent's work reviewed, or asking it for changes, is what the
@@ -869,6 +895,8 @@ var lanWrites = []struct {
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(review|request-changes)$`), ""},
 	{state.PhoneScopeMerge, regexp.MustCompile(`^POST /v1/projects/[^/]+/pulls/[0-9]+/merge$`), ""},
 	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/usage-stats/[^/]+$`), ""},
+	// A session shown on the phone is read there, which is reading.
+	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/projects/[^/]+/sessions/[^/]+/seen$`), ""},
 }
 
 // lanScopeVerb is what each scope lets a phone do, for saying it may not.

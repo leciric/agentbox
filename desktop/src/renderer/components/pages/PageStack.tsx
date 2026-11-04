@@ -118,8 +118,8 @@ export function PageStack({ agent }: { agent: T.Agent }) {
                     fanned ? 'opacity-100' : 'pointer-events-none opacity-0',
                   )}
                 >
-                  <span className="truncate text-[12px] font-medium leading-tight text-title">{page.title}</span>
-                  <span className="truncate text-[10.5px] leading-tight text-subtle">
+                  <span className="truncate text-caption font-medium leading-tight text-title">{page.title}</span>
+                  <span className="truncate text-caption leading-tight text-subtle">
                     <AgentName agentRef={page.agent} />
                   </span>
                 </span>
@@ -145,7 +145,7 @@ export function PageStack({ agent }: { agent: T.Agent }) {
       )}
       {!more && list.length > 1 && !fanned && (
         <span
-          className="pointer-events-none absolute z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand-500 px-1 text-[10.5px] font-semibold tabular-nums text-white shadow"
+          className="pointer-events-none absolute z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand-500 px-1 text-caption font-semibold tabular-nums text-white shadow"
           style={{ right: -7, bottom: cardW * 0.625 * piled - 11 }}
         >
           {list.length}
@@ -205,8 +205,8 @@ function MoreList({
           className={cn(
             'pointer-events-auto absolute z-10 flex items-center justify-center rounded-full font-semibold tabular-nums transition-all duration-300',
             fanned
-              ? 'h-8 border border-line-strong bg-composer/90 px-3 text-[12px] text-secondary shadow-md backdrop-blur-xl hover:border-line-vivid hover:text-title'
-              : 'h-[22px] min-w-[26px] bg-brand-500 px-1.5 text-[11px] text-white shadow',
+              ? 'h-8 border border-line-strong bg-composer/90 px-3 text-caption text-secondary shadow-md backdrop-blur-xl hover:border-line-vivid hover:text-title'
+              : 'h-[22px] min-w-[26px] bg-brand-500 px-1.5 text-caption text-white shadow',
           )}
           style={style}
         >
@@ -229,7 +229,7 @@ function MoreList({
               }}
             />
           ))}
-          {found.length === 0 && <p className="px-2 py-4 text-center text-[12.5px] text-subtle">{t('pages.noMatch')}</p>}
+          {found.length === 0 && <p className="px-2 py-4 text-center text-ui text-subtle">{t('pages.noMatch')}</p>}
         </div>
       </PopoverContent>
     </Popover>

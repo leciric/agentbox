@@ -190,10 +190,10 @@ function Player({ track, x, playing, onClock, className }: { track: Track; x: nu
       ) : frame?.kind === 'step' ? (
         <StepText placed={frame.placed} />
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center text-[12px] text-white/50">{t('timeline.empty')}</div>
+        <div className="absolute inset-0 flex items-center justify-center text-caption text-white/50">{t('timeline.empty')}</div>
       )}
       {p && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/75 to-transparent px-2.5 pb-1.5 pt-6 text-[11px] tabular-nums text-white/85">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/75 to-transparent px-2.5 pb-1.5 pt-6 text-caption tabular-nums text-white/85">
           {recording && (
             <span className="flex items-center gap-1">
               <span className="size-1.5 rounded-full bg-rose-500" />
@@ -262,7 +262,7 @@ function Scrubber({ track, x, onX, tall, labels }: { track: Track; x: number; on
       {labels && (
         <div className="relative mb-1 h-4 overflow-hidden">
           {track.steps.map((p) => (
-            <span key={p.index} className={cn('absolute top-0 truncate pl-0.5 text-[10.5px]', p.index === active ? 'text-title' : 'text-faint')} style={{ left: pct(p.from), width: pct(p.to - p.from) }}>
+            <span key={p.index} className={cn('absolute top-0 truncate pl-0.5 text-caption', p.index === active ? 'text-title' : 'text-faint')} style={{ left: pct(p.from), width: pct(p.to - p.from) }}>
               {title(p.step)}
             </span>
           ))}
@@ -314,7 +314,7 @@ function Scrubber({ track, x, onX, tall, labels }: { track: Track; x: number; on
           <span className="absolute -left-1 -top-1 size-2.5 rounded-full bg-title" />
         </div>
         {hovered && hover !== null && (
-          <div className="pointer-events-none absolute bottom-full z-20 mb-1.5 max-w-[240px] -translate-x-1/2 truncate rounded-md border border-line bg-overlay px-2 py-1 text-[11px] text-secondary shadow-md" style={{ left: `clamp(60px, ${pct(hover)}, calc(100% - 60px))` }}>
+          <div className="pointer-events-none absolute bottom-full z-20 mb-1.5 max-w-[240px] -translate-x-1/2 truncate rounded-md border border-line bg-overlay px-2 py-1 text-caption text-secondary shadow-md" style={{ left: `clamp(60px, ${pct(hover)}, calc(100% - 60px))` }}>
             {clockTime(clockAt(track, hover))} · {title(hovered.step)}
           </div>
         )}
@@ -351,14 +351,14 @@ function MediaThumb({ m, onJump }: { m: T.MediaItem; onJump: (ms: number) => voi
               <Play className="size-3.5 translate-x-px" />
             </span>
           </span>
-          {!!m.meta?.duration && <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[10px] tabular-nums text-white">{mmss(m.meta.duration)}</span>}
+          {!!m.meta?.duration && <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-caption tabular-nums text-white">{mmss(m.meta.duration)}</span>}
         </span>
       ) : m.kind === 'screenshot' ? (
         <img src={mediaUrl(m)} alt="" loading="lazy" className="aspect-[16/10] w-full rounded-md object-cover ring-1 ring-line group-hover:ring-brand-400" />
       ) : (
-        <span className="flex aspect-[16/10] items-center justify-center rounded-md bg-surface-raised text-[11px] text-subtle ring-1 ring-line">{m.kind}</span>
+        <span className="flex aspect-[16/10] items-center justify-center rounded-md bg-surface-raised text-caption text-subtle ring-1 ring-line">{m.kind}</span>
       )}
-      <span className="mt-1 block truncate text-[10.5px] text-subtle">{m.name}</span>
+      <span className="mt-1 block truncate text-caption text-subtle">{m.name}</span>
     </button>
   );
 }
@@ -376,7 +376,7 @@ function PageCard({ project, page }: { project: string; page: T.TimelinePage }) 
       <span className="relative block aspect-[16/10] overflow-hidden rounded-md ring-1 ring-line group-enabled:group-hover:ring-pink-400">
         <TitleTile page={{ id: artifact?.id ?? page.item, title: page.title }} />
       </span>
-      <span className="mt-1 block truncate text-[10.5px] text-subtle">{page.title}</span>
+      <span className="mt-1 block truncate text-caption text-subtle">{page.title}</span>
     </button>
   );
 }
@@ -398,7 +398,7 @@ function Meta({ p }: { p: Placed }) {
   const s = p.step;
   const kind = kindOf(s);
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-[10.5px] text-faint">
+    <span className="flex min-w-0 items-center gap-1.5 text-caption text-faint">
       <span className={kindText[kind]}>{t(`timeline.kind.${kind}`)}</span>
       {p.end - p.start >= 1000 && <span>· {mmss((p.end - p.start) / 1000)}</span>}
       {kind === 'edit' && (s.added || s.removed) ? (
@@ -415,7 +415,7 @@ function Meta({ p }: { p: Placed }) {
 
 function Loading({ query }: { query: ReturnType<typeof useTimeline> }) {
   const t = useT();
-  return <p className="p-4 text-[12px] text-subtle">{query.error ? t('timeline.failedToLoad') : query.isPending ? t('common.loading') : t('timeline.empty')}</p>;
+  return <p className="p-4 text-caption text-subtle">{query.error ? t('timeline.failedToLoad') : query.isPending ? t('common.loading') : t('timeline.empty')}</p>;
 }
 
 // TimelinePanel is an agent's timeline down the right-hand panel: the
@@ -472,8 +472,8 @@ function PanelBody({ project, tl }: { project: string; tl: T.Timeline }) {
               <div className={cn('min-w-0 flex-1 rounded-lg px-2 py-1', on && 'bg-surface')}>
                 <button type="button" onClick={() => setX(p.from)} className="block w-full text-left">
                   <span className="flex items-baseline gap-2">
-                    <span className={cn('min-w-0 flex-1 truncate text-[12.5px]', on ? 'text-title' : 'text-secondary', kind === 'run' && 'font-mono text-[11.5px]')}>{title(p.step)}</span>
-                    <span className="shrink-0 text-[10.5px] tabular-nums text-faint">{clockTime(p.start)}</span>
+                    <span className={cn('min-w-0 flex-1 truncate text-ui', on ? 'text-title' : 'text-secondary', kind === 'run' && 'font-mono text-caption')}>{title(p.step)}</span>
+                    <span className="shrink-0 text-caption tabular-nums text-faint">{clockTime(p.start)}</span>
                   </span>
                   <Meta p={p} />
                 </button>
@@ -483,8 +483,8 @@ function PanelBody({ project, tl }: { project: string; tl: T.Timeline }) {
           );
         })}
         {tl.working && (
-          <li className="flex items-center gap-2.5 pl-1.5 text-[11.5px] text-subtle">
-            <span className="size-2 animate-pulse rounded-full bg-emerald-400" /> {t('timeline.working')}
+          <li className="flex items-center gap-2.5 pl-1.5 text-caption text-subtle">
+            <span className="size-2 animate-working rounded-full bg-emerald-400" /> {t('timeline.working')}
           </li>
         )}
       </ol>
@@ -535,13 +535,13 @@ function WideBody({ project, tl }: { project: string; tl: T.Timeline }) {
             <span className={cn('flex size-7 items-center justify-center rounded-full text-black', kindTone[kind])}>
               <Icon className="size-3.5" />
             </span>
-            <span className="text-[11px] tabular-nums text-faint">{clockTime(p.start)}</span>
+            <span className="text-caption tabular-nums text-faint">{clockTime(p.start)}</span>
           </div>
-          <p className={cn('text-[14px] font-medium text-title', kind === 'run' && 'break-all font-mono text-[12.5px]')}>{title(p.step)}</p>
+          <p className={cn('text-body font-medium text-title', kind === 'run' && 'break-all font-mono text-ui')}>{title(p.step)}</p>
           <Meta p={p} />
-          {kind === 'task' && p.step.lines && p.step.lines.length > 1 && <p className="whitespace-pre-wrap text-[12px] text-secondary">{p.step.lines.join('\n')}</p>}
+          {kind === 'task' && p.step.lines && p.step.lines.length > 1 && <p className="whitespace-pre-wrap text-caption text-secondary">{p.step.lines.join('\n')}</p>}
           {kind === 'edit' && p.step.paths && (
-            <ul className="space-y-0.5 font-mono text-[11px] text-subtle">
+            <ul className="space-y-0.5 font-mono text-caption text-subtle">
               {p.step.paths.slice(0, 8).map((f) => <li key={f} className="truncate" title={f}>{f}</li>)}
             </ul>
           )}
@@ -570,7 +570,7 @@ function WideBody({ project, tl }: { project: string; tl: T.Timeline }) {
               <span className="relative block aspect-[16/10] overflow-hidden rounded bg-black">
                 {shot ? <img src={mediaUrl(shot)} alt="" loading="lazy" className="size-full object-cover" /> : <StepText placed={q} />}
               </span>
-              <span className="mt-1 flex items-center gap-1 text-[10.5px]">
+              <span className="mt-1 flex items-center gap-1 text-caption">
                 <KIcon className={cn('size-3 shrink-0', kindText[k])} />
                 <span className="truncate text-secondary">{title(q.step)}</span>
               </span>

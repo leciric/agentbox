@@ -16,8 +16,8 @@ import { aiLabel } from './state';
 import { accountKind, accountsOf } from './ToolAccounts';
 
 // The accounts a project's new agents get, from the ones stored in Settings:
-// its Claude Code login, the logins it may use at all, its Codex, OpenCode and
-// Cursor accounts, and its GitHub account.
+// its Claude Code login, the logins it may use at all, its Codex, OpenCode,
+// Cursor and Gemini CLI accounts, and its GitHub account.
 // They're project settings like the rest, so they're drawn with them
 // (ProjectSettings), in Settings and on the project's Overview alike.
 
@@ -228,7 +228,7 @@ export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
               title={locked ? t('project.accounts.locked') : undefined}
               onClick={() => toggle(account.name)}
               className={cn(
-                'flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[13px] text-muted transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:cursor-default',
+                'flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-ui text-muted transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:cursor-default',
                 on && 'border-transparent bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]',
               )}
             >
@@ -337,22 +337,24 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
   );
 }
 
-// The project's accounts for the other tools: Codex's and Cursor's, one each,
+// The project's accounts for the other tools: Codex's, Cursor's and Gemini
+// CLI's, one each,
 // and OpenCode's, one per provider. New agents on the tool get it, and the
 // project's chat moves to it as its tool next starts (the daemon restarts a
 // chat running that tool on it at once).
 
-// ToolAccountPicker chooses the project's Codex or Cursor account.
-export function ToolAccountPicker({ project, tool }: { project: T.Project; tool: 'codex' | 'cursor' }) {
+// ToolAccountPicker chooses the project's Codex, Cursor or Gemini CLI account.
+export function ToolAccountPicker({ project, tool }: { project: T.Project; tool: 'codex' | 'cursor' | 'gemini' }) {
   const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const accounts = accountsOf(auth.data, tool);
-  const chosen = tool === 'codex' ? project.codexAccount : project.cursorAccount;
+  const chosen = tool === 'codex' ? project.codexAccount : tool === 'gemini' ? project.geminiAccount : project.cursorAccount;
   const fallback = accounts.find((a) => a.default)?.name;
-  const label = t(tool === 'codex' ? 'project.accounts.codexLabel' : 'project.accounts.cursorLabel');
+  const label = t(tool === 'codex' ? 'project.accounts.codexLabel' : tool === 'gemini' ? 'project.accounts.geminiLabel' : 'project.accounts.cursorLabel');
   const pick = useMutation({
-    mutationFn: (account: string) => api.updateProject(project.name, tool === 'codex' ? { codexAccount: account } : { cursorAccount: account }),
+    mutationFn: (account: string) =>
+      api.updateProject(project.name, tool === 'codex' ? { codexAccount: account } : tool === 'gemini' ? { geminiAccount: account } : { cursorAccount: account }),
     onSuccess: async (updated, account) => {
       toast(
         account
@@ -366,7 +368,7 @@ export function ToolAccountPicker({ project, tool }: { project: T.Project; tool:
   return (
     <SettingRow
       label={label}
-      description={auth.isPending ? t('common.loading') : t(tool === 'codex' ? 'project.accounts.codexDescription' : 'project.accounts.cursorDescription')}
+      description={auth.isPending ? t('common.loading') : t(tool === 'codex' ? 'project.accounts.codexDescription' : tool === 'gemini' ? 'project.accounts.geminiDescription' : 'project.accounts.cursorDescription')}
       details={accounts.length > 0 && t('project.accounts.toolDetails')}
       control={
         accounts.length > 0 && (
@@ -424,7 +426,7 @@ export function OpenCodeAccountsPicker({ project }: { project: T.Project }) {
             const value = chosen[provider] ?? '';
             return (
               <div key={provider} className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="w-24 shrink-0 truncate font-mono text-[12px] text-secondary">{provider}</span>
+                <span className="w-24 shrink-0 truncate font-mono text-caption text-secondary">{provider}</span>
                 <div className="w-48 min-w-0">
                   <Select
                     aria-label={t('project.accounts.providerAria', { provider })}
@@ -473,7 +475,7 @@ export function ToolAccountState({ accounts, chosen, inline }: { accounts: T.Too
   }
   return (
     <span
-      className={cn('flex min-w-0 items-start gap-1.5 text-[12px] leading-snug', !inline && 'mt-1', tone === 'warning' ? 'text-amber-300' : 'text-subtle')}
+      className={cn('flex min-w-0 items-start gap-1.5 text-caption leading-snug', !inline && 'mt-1', tone === 'warning' ? 'text-amber-300' : 'text-subtle')}
       data-account-state={tone}
     >
       <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', tone === 'ok' ? 'bg-emerald-400' : tone === 'warning' ? 'bg-amber-400' : 'bg-faint')} />
@@ -503,7 +505,7 @@ export function ClaudeAccountState({ chosen }: { chosen: string }) {
   if (used !== null) parts.push(t('project.accounts.usage', { percent: Math.round(used * 100) }));
   const rejected = on.valid === 'rejected';
   return (
-    <span className={cn('mt-1 flex min-w-0 items-start gap-1.5 text-[12px] leading-snug', rejected ? 'text-amber-300' : 'text-subtle')} data-account-state={rejected ? 'warning' : 'ok'}>
+    <span className={cn('mt-1 flex min-w-0 items-start gap-1.5 text-caption leading-snug', rejected ? 'text-amber-300' : 'text-subtle')} data-account-state={rejected ? 'warning' : 'ok'}>
       <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', rejected ? 'bg-amber-400' : 'bg-emerald-400')} />
       <span className="min-w-0 break-words">{rejected ? t('project.accounts.rejectedState', { account: on.name }) : parts.join(' · ')}</span>
     </span>

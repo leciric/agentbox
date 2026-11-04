@@ -5,6 +5,8 @@
 node_modules
 /desktop/out/
 /desktop/dist/
+# hub/scripts/npm-build.sh's packages.
+/hub/npm/dist/
 # Copied from the root CHANGELOG.md by desktop/scripts/build.mjs.
 /desktop/src/renderer/changelog.md
 

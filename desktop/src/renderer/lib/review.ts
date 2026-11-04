@@ -3,12 +3,16 @@
 // the review marks it reviewed), and the carousel of everything one of them
 // made.
 import type * as T from '../../shared/api';
+import { pairUp, type Pair } from '../../shared/pairs.ts';
+import { t, type MessageKey } from '../../shared/i18n/index.ts';
 import { recordedFor, videoAt } from './recording.ts';
 
 // Proof is what an agent showed it checked, for the review's Proof tab:
-// its recordings, the latest first, each in chapters; its screenshots,
-// oldest first; and its Hatch pages.
+// its before/after pairs, in the order they were taken, to compare; its
+// other recordings, the latest first, each in chapters; its other
+// screenshots, oldest first; and its Hatch pages.
 export interface Proof {
+  pairs?: Pair[];
   recordings: Take[];
   screenshots: T.MediaItem[];
   pages: T.Artifact[];
@@ -41,26 +45,46 @@ export function proofOf(media: readonly T.MediaItem[], pages: readonly T.Artifac
   const byTime = [...media].sort((a, b) => ms(a.createdAt) - ms(b.createdAt));
   const screenshots = byTime.filter((m) => m.kind === 'screenshot');
   const notes = byTime.filter((m) => m.kind === 'note');
-  const recordings = byTime
+  // A paired screenshot still marks the chapter of a recording it was taken in.
+  const { pairs, rest } = pairUp(byTime.filter((m) => m.kind === 'screenshot' || m.kind === 'recording'));
+  const recordings = rest
     .filter((m) => m.kind === 'recording')
     .reverse()
     .map((rec) => ({ media: rec, chapters: chaptersOf(rec, notes, screenshots) }));
-  return { recordings, screenshots, pages: [...pages].sort((a, b) => ms(a.createdAt) - ms(b.createdAt)) };
+  return { pairs, recordings, screenshots: rest.filter((m) => m.kind === 'screenshot'), pages: [...pages].sort((a, b) => ms(a.createdAt) - ms(b.createdAt)) };
 }
 
 // A shown item is one piece of proof the review's gallery steps through:
-// a recording, a screenshot or a page.
-export type Shown = { kind: 'recording'; take: Take } | { kind: 'screenshot'; media: T.MediaItem } | { kind: 'page'; page: T.Artifact };
+// a before/after pair, a recording, a screenshot or a page.
+export type Shown = { kind: 'pair'; pair: Pair } | { kind: 'recording'; take: Take } | { kind: 'screenshot'; media: T.MediaItem } | { kind: 'page'; page: T.Artifact };
+
+// shownKey is what tells a piece of proof from the others.
+export const shownKey = (s: Shown) => (s.kind === 'pair' ? `pair:${s.pair.key}` : s.kind === 'recording' ? s.take.media.id : s.kind === 'screenshot' ? s.media.id : s.page.id);
 
 // gallery is every piece of proof in the order the review shows it: the
+// before/after pairs, in the order they were taken, then the other
 // recordings, the latest first, then the screenshots and the pages, oldest
 // first. ← → step through it, whatever the kind.
 export function gallery(proof: Proof): Shown[] {
   return [
+    ...(proof.pairs ?? []).map((pair): Shown => ({ kind: 'pair', pair })),
     ...proof.recordings.map((take): Shown => ({ kind: 'recording', take })),
     ...proof.screenshots.map((media): Shown => ({ kind: 'screenshot', media })),
     ...proof.pages.map((page): Shown => ({ kind: 'page', page })),
   ];
+}
+
+// A pane is what the review's body shows: the proof, the diff or the details.
+export type Pane = 'proof' | 'diff' | 'details';
+
+// reviewPane is the pane the review opens on: the proof when there is any to
+// show, else Details, since an agent with no media still has something to
+// read. Until the proof has loaded it opens on the proof; and a pane the user
+// picked by hand for this item always wins.
+export function reviewPane(proof: Proof, picked: Pane | undefined, loaded: boolean): Pane {
+  if (picked) return picked;
+  if (!loaded) return 'proof';
+  return gallery(proof).length === 0 ? 'details' : 'proof';
 }
 
 function chaptersOf(rec: T.MediaItem, notes: readonly T.MediaItem[], screenshots: readonly T.MediaItem[]): Chapter[] {
@@ -109,9 +133,6 @@ export function step(index: number, count: number, by: number): number {
   return Math.min(count - 1, Math.max(0, index + by));
 }
 
-// countLabel is a button's count, capped so it stays a badge.
-export const countLabel = (n: number) => (n > 99 ? '99+' : String(n));
-
 // MergeBlock is why a pull request can't be merged from the review: it
 // isn't open any more, it's a draft, its checks fail, it conflicts with its
 // base, or the project's account may not merge in this repository.
@@ -127,6 +148,20 @@ export function mergeBlock(pr: T.PullRequest, pulls?: Pick<T.ProjectPullRequests
   if (pr.conflict) return 'conflict';
   if (pr.checks === 'failing') return 'failing';
   return null;
+}
+
+const blockLabels: Record<Exclude<MergeBlock, 'merged' | 'closed'>, MessageKey> = {
+  draft: 'review.mergeBlocked.draft',
+  failing: 'review.mergeBlocked.failing',
+  conflict: 'review.mergeBlocked.conflict',
+  noPermission: 'review.mergeBlocked.noPermission',
+};
+
+// mergeBlockReason is why an open pull request can't be merged, in a
+// sentence shown beside its Merge, or undefined when it can.
+export function mergeBlockReason(pr: T.PullRequest, pulls?: Pick<T.ProjectPullRequests, 'canMergeKnown' | 'canMerge'>): string | undefined {
+  const blocked = mergeBlock(pr, pulls);
+  return blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr.baseBranch ?? '' }) : undefined;
 }
 
 // queueOf is the order "Review all" walks: the agents waiting when it began,
@@ -183,6 +218,11 @@ export type ReviewAction =
   | 'previousChapter'
   | 'nextChapter'
   | 'expand'
+  | 'compareMode'
+  | 'highlight'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'zoomReset'
   | 'help';
 
 // The keys, as the review's ? overlay lists them: the verdicts, then the
@@ -202,6 +242,11 @@ export const reviewKeys: readonly { keys: readonly string[]; match?: readonly st
   { keys: ['['], action: 'previousChapter' },
   { keys: [']'], action: 'nextChapter' },
   { keys: ['F'], action: 'expand' },
+  { keys: ['Q'], action: 'compareMode' },
+  { keys: ['H'], action: 'highlight' },
+  { keys: ['+'], match: ['+', '='], action: 'zoomIn' },
+  { keys: ['−'], match: ['-', '_'], action: 'zoomOut' },
+  { keys: ['0'], action: 'zoomReset' },
   { keys: ['D'], action: 'toggleDiff' },
   { keys: ['J'], action: 'nextFile' },
   { keys: ['K'], action: 'previousFile' },
@@ -221,14 +266,26 @@ export function reviewShortcut(e: { key: string; ctrlKey?: boolean; altKey?: boo
 }
 
 // proofKey is whether action works the proof's gallery, which only the proof
-// pane takes: in the diff, the arrows scroll.
+// pane takes: in the diff, the arrows scroll. Q and H work a pair's
+// comparison, and sit away from the verdicts' M, C and R, so a slip of the
+// finger on them can't merge or ask for changes (review.test.ts).
 export const proofKey = (action: ReviewAction) =>
-  action === 'previousMedia' || action === 'nextMedia' || action === 'play' || action === 'previousChapter' || action === 'nextChapter' || action === 'expand';
+  action === 'previousMedia' ||
+  action === 'nextMedia' ||
+  action === 'play' ||
+  action === 'previousChapter' ||
+  action === 'nextChapter' ||
+  action === 'expand' ||
+  action === 'compareMode' ||
+  action === 'highlight' ||
+  action === 'zoomIn' ||
+  action === 'zoomOut' ||
+  action === 'zoomReset';
 
 // repeatable is whether holding a key down may act again: moving through
 // files and agents may, a verdict or a toggle may not.
 export const repeatable = (action: ReviewAction) =>
-  action === 'nextFile' || action === 'previousFile' || action === 'nextItem' || action === 'previousItem' || action === 'previousMedia' || action === 'nextMedia' || action === 'previousChapter' || action === 'nextChapter';
+  action === 'nextFile' || action === 'previousFile' || action === 'nextItem' || action === 'previousItem' || action === 'previousMedia' || action === 'nextMedia' || action === 'previousChapter' || action === 'nextChapter' || action === 'zoomIn' || action === 'zoomOut';
 
 // isTyping is whether a key press belongs to what has focus rather than to
 // the review: a field, an editable element, or a menu's typeahead.
@@ -245,6 +302,12 @@ export function isTyping(target: { tagName?: string; isContentEditable?: boolean
 export function pressable(target: { tagName?: string; closest?: (selector: string) => unknown } | null): boolean {
   return !!target?.closest?.('button,a[href],summary,[role="button"],[role="tab"],[role="radio"],[role="checkbox"],[role="switch"]');
 }
+
+// seeking is whether a key press belongs to a player that has focus: a
+// recording pair's players take Space and the arrows to play and seek, as
+// players do, instead of the review stepping through its gallery.
+export const seeking = (action: ReviewAction, target: { tagName?: string } | null) =>
+  target?.tagName?.toUpperCase() === 'VIDEO' && (action === 'play' || action === 'previousMedia' || action === 'nextMedia');
 
 // firstLine is a summary cut to its first line, without Markdown's heading
 // and list marks, for the review's header.

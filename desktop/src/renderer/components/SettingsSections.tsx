@@ -41,7 +41,7 @@ export function SettingsSections<Id extends string>({
                 aria-current={active ? 'page' : undefined}
                 onClick={() => onValueChange(id)}
                 className={cn(
-                  'flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 @3xl:py-[7px]',
+                  'flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-ui transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 @3xl:py-[7px]',
                   active ? 'bg-surface-raised text-title' : 'text-muted hover:bg-surface hover:text-primary',
                 )}
               >

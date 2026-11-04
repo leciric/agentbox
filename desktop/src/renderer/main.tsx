@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { SettledToasts } from './components/chat/SettledToasts';
 import { Toasts } from './components/Toasts';
 import { TooltipProvider } from './components/ui/tooltip';
 import { api } from './lib/api';
@@ -19,6 +20,14 @@ import { restoreMode } from './lib/theme';
 // daemon's answer confirms or corrects it a moment later (lib/theme.ts).
 restoreMode();
 restoreLanguage();
+
+// Out of focus, the window's endless animations hold still (styles.css). The
+// event says which way it went: document.hasFocus() still answers the old way
+// while it runs.
+const markBlurred = (blurred: boolean) => document.documentElement.toggleAttribute('data-blurred', blurred);
+addEventListener('focus', () => markBlurred(false));
+addEventListener('blur', () => markBlurred(true));
+markBlurred(!document.hasFocus());
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 5_000 } },
@@ -49,6 +58,7 @@ function Root() {
     <TooltipProvider delayDuration={250}>
       <App />
       <Toasts />
+      <SettledToasts />
     </TooltipProvider>
   );
 }

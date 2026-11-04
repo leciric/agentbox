@@ -29,7 +29,7 @@ func retireWhileTurnOpen(t *testing.T, req api.RetireRequest, background bool) (
 	d, a := newAutoStopIdleTest(t, "Running", time.Now().Add(-time.Hour))
 	var mu sync.Mutex
 	told := &[]string{}
-	d.srv.stallTell = func(_ context.Context, _ string, note string) {
+	d.srv.stallTell = func(_ context.Context, _ state.Agent, note string) {
 		mu.Lock()
 		defer mu.Unlock()
 		*told = append(*told, note)
@@ -126,7 +126,7 @@ func TestDestroyWhileATurnIsOpenIsNotAFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var told []string
-	d.srv.stallTell = func(_ context.Context, _ string, note string) { told = append(told, note) }
+	d.srv.stallTell = func(_ context.Context, _ state.Agent, note string) { told = append(told, note) }
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
 	d.srv.leadAsked(a)
 	d.srv.setOutcome(a, api.AgentOutcomeDone, "")
@@ -155,7 +155,7 @@ func TestACrashNobodyAskedForStillFails(t *testing.T) {
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	var told []string
-	d.srv.stallTell = func(_ context.Context, _ string, note string) { told = append(told, note) }
+	d.srv.stallTell = func(_ context.Context, _ state.Agent, note string) { told = append(told, note) }
 	a := state.Agent{Project: "p", Name: "agent-02", Title: "Import the catalogue"}
 	d.srv.setOutcome(a, api.AgentOutcomeDone, "")
 	d.srv.agentLost(a, "Claude Code exited (exit status 137): Killed")

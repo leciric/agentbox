@@ -21,6 +21,10 @@ type Secret struct {
 	// UpdatedAt is when the value was last written. A secret has no created_at
 	// of its own: what matters is how old the value in the agents is.
 	UpdatedAt time.Time
+	// LeadManaged, for a project secret, is the user letting the project's lead
+	// answer agents' requests for it with the stored value: the lead keeps it
+	// fresh itself. Setting the value leaves it as it was.
+	LeadManaged bool
 }
 
 // Scopes a secret can have.
@@ -39,7 +43,7 @@ func (s Secret) Scope() string {
 	return ScopeAgent
 }
 
-const secretColumns = `project, agent, name, value, updated_at`
+const secretColumns = `project, agent, name, value, updated_at, lead_managed`
 
 // SetSecret stores a secret's ciphertext, replacing whatever was there. The
 // primary key is (project, agent, name), so a project secret and an agent's own
@@ -47,10 +51,24 @@ const secretColumns = `project, agent, name, value, updated_at`
 // delivered.
 func (s *Store) SetSecret(ctx context.Context, sec Secret) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO secrets (`+secretColumns+`) VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO secrets (`+secretColumns+`) VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(project, agent, name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-		sec.Project, sec.Agent, sec.Name, sec.Value, sec.UpdatedAt.Unix())
+		sec.Project, sec.Agent, sec.Name, sec.Value, sec.UpdatedAt.Unix(), sec.Agent == "" && sec.LeadManaged)
 	return err
+}
+
+// SetSecretLeadManaged marks a project secret as kept by the project's lead,
+// or not. Only a project's own secrets can be: an agent's are the user's.
+func (s *Store) SetSecretLeadManaged(ctx context.Context, project, name string, managed bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE secrets SET lead_managed = ? WHERE project = ? AND agent = '' AND name = ?`,
+		managed, project, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("secret %s: %w", name, ErrNotFound)
+	}
+	return nil
 }
 
 // Secret reads one secret, ciphertext and all. An agent is "" for a project
@@ -114,7 +132,7 @@ func (s *Store) querySecrets(ctx context.Context, clause string, args ...any) ([
 	for rows.Next() {
 		var sec Secret
 		var updated int64
-		if err := rows.Scan(&sec.Project, &sec.Agent, &sec.Name, &sec.Value, &updated); err != nil {
+		if err := rows.Scan(&sec.Project, &sec.Agent, &sec.Name, &sec.Value, &updated, &sec.LeadManaged); err != nil {
 			return nil, err
 		}
 		sec.UpdatedAt = time.Unix(updated, 0)

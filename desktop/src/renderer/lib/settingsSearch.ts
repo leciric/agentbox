@@ -9,13 +9,14 @@ export type SettingEntry = {
   id: string;
   // label is the setting's name, as its row shows it.
   label: string;
-  // keywords are what else a search should find it by: the words of its
-  // description, and the ones someone might look for it under ("theme" for
-  // Appearance, "limits" for resources).
+  // description is the line its row says it does, which a search reads too.
+  description?: string;
+  // keywords are what else a search should find it by: the words someone
+  // might look for it under ("theme" for Appearance, "limits" for resources).
   keywords?: string;
-  // advanced settings are the ones most people never change: a section keeps
-  // them folded at its end, and a search shows them like any other.
-  advanced?: boolean;
+  // essential settings are the few a new user changes: Settings opens on them,
+  // and keeps the rest under Advanced. A search finds either alike.
+  essential?: boolean;
   // modified is whether it's set to something other than its default, when
   // that can be told; the row is marked, and "@changed" finds it.
   modified?: boolean;
@@ -82,12 +83,12 @@ export function isEmptyQuery(q: SettingsQuery): boolean {
 }
 
 // matches says whether one setting answers the query: every word is somewhere
-// in its section's title, its group's, its own name or its keywords — so
+// in its section's title, its group's, its own name, description or keywords — so
 // "project nesting" finds a project's nesting switch — and it's changed from
 // its default when the query asks for that.
 export function matches(q: SettingsQuery, section: SettingSection, group: SettingGroup, entry: SettingEntry): boolean {
   if (q.changed && !entry.modified) return false;
-  const haystack = normalize([section.title, group.title, entry.label, entry.keywords ?? ''].join(' '));
+  const haystack = normalize([section.title, group.title, entry.label, entry.description ?? '', entry.keywords ?? ''].join(' '));
   return q.words.every((word) => haystack.includes(word));
 }
 
@@ -115,17 +116,30 @@ export function countEntries(section: SettingSection): number {
   return section.groups.reduce((n, g) => n + g.entries.length, 0);
 }
 
-// splitAdvanced takes a section's advanced settings out of their groups, for
-// the page to draw folded at the end. A group left with nothing else goes.
-export function splitAdvanced(groups: SettingGroup[]): { groups: SettingGroup[]; advanced: SettingEntry[] } {
-  const advanced: SettingEntry[] = [];
-  const kept: SettingGroup[] = [];
+// splitEssentials parts groups into the essential settings and the rest,
+// each still under its own group. A group left with nothing goes from that
+// side.
+export function splitEssentials(groups: SettingGroup[]): { essentials: SettingGroup[]; advanced: SettingGroup[] } {
+  const essentials: SettingGroup[] = [];
+  const advanced: SettingGroup[] = [];
   for (const group of groups) {
-    const entries = group.entries.filter((entry) => {
-      if (entry.advanced) advanced.push(entry);
-      return !entry.advanced;
-    });
-    if (entries.length > 0) kept.push({ ...group, entries });
+    const kept = group.entries.filter((entry) => entry.essential);
+    const rest = group.entries.filter((entry) => !entry.essential);
+    if (kept.length > 0) essentials.push({ ...group, entries: kept });
+    if (rest.length > 0) advanced.push({ ...group, entries: rest });
   }
-  return { groups: kept, advanced };
+  return { essentials, advanced };
 }
+
+// essentialsSection gathers every section's essential settings into the one
+// Settings opens on, under the groups they come from, in the sections' order.
+// Each group's id is prefixed with its section's, as two sections may share
+// a group id.
+export function essentialsSection(sections: SettingSection[], title: string, description: ReactNode): SettingSection {
+  const groups = sections.flatMap((section) =>
+    splitEssentials(section.groups).essentials.map((group) => ({ ...group, id: `${section.id}.${group.id}` })),
+  );
+  return { id: essentialsId, title, description, scope: 'installation', groups };
+}
+
+export const essentialsId = 'essentials';

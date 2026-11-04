@@ -38,7 +38,7 @@ function GroupChip({ group: g, active }: { group: T.Group; active: boolean }) {
       onClick={() => openCompare(g.id)}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'group flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400',
+        'group flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-caption outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400',
         active ? 'bg-surface-raised' : 'hover:bg-surface',
       )}
       title={t('group.chip.tip', { title: g.title })}
@@ -50,13 +50,13 @@ function GroupChip({ group: g, active }: { group: T.Group; active: boolean }) {
       </span>
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate font-medium leading-[18px] text-primary">{g.title}</span>
-        <span className={cn('truncate text-[11px] leading-4', done ? 'font-medium text-brand-200' : 'text-subtle')}>
+        <span className={cn('truncate text-caption leading-4', done ? 'font-medium text-brand-200' : 'text-subtle')}>
           {done ? t('group.chip.ready', { count: g.members.length }) : t('group.chip.working', { finished: g.finished, count: g.members.length })}
         </span>
       </span>
       <span className="flex shrink-0 -space-x-1">
         {g.members.map((m) => (
-          <span key={m.label} className={cn('flex size-4 items-center justify-center rounded bg-surface-strong font-mono text-[9px] font-semibold ring-1 ring-sidebar', dotTone[memberSt(g, m)])}>
+          <span key={m.label} className={cn('flex size-4 items-center justify-center rounded bg-surface-strong font-mono text-caption font-semibold ring-1 ring-sidebar', dotTone[memberSt(g, m)])}>
             {m.label}
           </span>
         ))}
@@ -84,7 +84,7 @@ export function GroupLetter({ agentRef }: { agentRef: string }) {
     const m = g.members.find((x) => x.ref === agentRef);
     if (m)
       return (
-        <span className="shrink-0 rounded bg-brand-500/15 px-1 font-mono text-[10px] font-semibold text-brand-200" title={t('group.letterTip', { title: g.title, label: m.label })} data-group-letter={m.label}>
+        <span className="shrink-0 rounded bg-brand-500/15 px-1 font-mono text-caption font-semibold text-brand-200" title={t('group.letterTip', { title: g.title, label: m.label })} data-group-letter={m.label}>
           {m.label}
         </span>
       );
@@ -115,7 +115,7 @@ export function GroupCard({ item }: { item: T.ChatItem }) {
         </span>
         <span className="grid min-w-0 flex-1">
           <span className="truncate font-medium text-title">{g.title}</span>
-          <span className="truncate text-[12px] text-subtle">
+          <span className="truncate text-caption text-subtle">
             {t('group.card.line', { count: g.members.length })} · {status}
           </span>
         </span>
@@ -126,11 +126,11 @@ export function GroupCard({ item }: { item: T.ChatItem }) {
       </div>
       <div className="flex flex-wrap gap-1.5 border-t border-line px-3.5 py-2.5">
         {g.members.map((m) => (
-          <span key={m.label} className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-surface-strong px-2 py-1 text-[11.5px] text-secondary">
+          <span key={m.label} className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-surface-strong px-2 py-1 text-caption text-secondary">
             <span className="font-mono font-semibold text-title">{m.label}</span>
             <AIIcon ai={m.ai} className="size-3.5 shrink-0" />
             <span className="truncate">{m.model || toolName(m.ai)}</span>
-            <span className={cn('text-[10.5px]', dotTone[memberSt(g, m)])}>{t(`group.st.${memberSt(g, m)}`)}</span>
+            <span className={cn('text-caption', dotTone[memberSt(g, m)])}>{t(`group.st.${memberSt(g, m)}`)}</span>
             {g.recommended && g.recommended === m.agent && <Sparkles className="size-3 text-brand-300" />}
           </span>
         ))}

@@ -19,7 +19,8 @@ import (
 // starts on when nobody chooses, and whether Settings enforces them on the
 // lead. window is in tokens.
 func (m *Manager) LeadAgentDefaults(ctx context.Context, p state.Project) (model string, window int64, enforced bool, err error) {
-	if model, err = m.chosenSetting(ctx, nil, p.DirectAgentModel(), state.SettingDefaultClaudeModel, state.DefaultClaudeModel); err != nil {
+	projectModel, _, projectWindow, _ := p.AgentDefaults("claude")
+	if model, err = m.chosenSetting(ctx, nil, projectModel, state.SettingDefaultClaudeModel, state.DefaultClaudeModel); err != nil {
 		return "", 0, false, err
 	}
 	w, err := m.Store.ClaudeWindows(ctx)
@@ -31,9 +32,11 @@ func (m *Manager) LeadAgentDefaults(ctx context.Context, p state.Project) (model
 		return "", 0, false, err
 	}
 	model = w.NormalizeClaudeModel(model)
-	def, err := m.Store.Setting(ctx, state.SettingDefaultAgentContextWindow)
-	if err != nil {
-		return "", 0, false, err
+	def := projectWindow
+	if def == "" {
+		if def, err = m.Store.Setting(ctx, state.SettingDefaultAgentContextWindow); err != nil {
+			return "", 0, false, err
+		}
 	}
 	window = agentWindow(w, model, def, installation)
 	enforced, err = m.Store.Flag(ctx, state.SettingEnforceAgentDefaults)

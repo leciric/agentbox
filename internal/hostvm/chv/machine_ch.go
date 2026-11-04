@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	"agentbox/internal/api"
@@ -52,8 +53,8 @@ func (m *chMachine) boot(ctx context.Context) error {
 // bootVM starts virtiofsd, passt and Cloud Hypervisor.
 func (m *chMachine) bootVM(ctx context.Context) error {
 	if m.c.Home != "" {
-		// virtiofsd takes as many files as it may: the hard limit, or a
-		// million. What the VM keeps cached of the home costs one each.
+		// virtiofsd takes as many files as it may: the hard limit, up to
+		// fs.nr_open. What the VM keeps cached of the home costs one each.
 		if n := maxOpenFiles(); n > 0 && n < minVirtiofsdFiles {
 			m.logf("warning: this session may only open %d files (ulimit -Hn), and virtiofsd needs one for every file of your home the VM has in its cache: reads there may fail with \"Too many open files in system\". Raise it to %d or more (DefaultLimitNOFILE in systemd's user.conf).", n, minVirtiofsdFiles)
 		}
@@ -140,7 +141,11 @@ func (m *chMachine) gpuFailed(why string) {
 }
 
 func (m *chMachine) startVirtiofsd(ctx context.Context, sandbox string) (*child, error) {
-	c, err := startChild("virtiofsd", m.l.Bin("virtiofsd"), virtiofsdArgs(m.c, m.l, sandbox), m.log)
+	args := virtiofsdArgs(m.c, m.l, sandbox)
+	if n := virtiofsdFileLimit(maxOpenFiles()); n > 0 {
+		args = append(args, "--rlimit-nofile="+strconv.FormatUint(n, 10))
+	}
+	c, err := startChild("virtiofsd", m.l.Bin("virtiofsd"), args, m.log)
 	if err != nil {
 		return nil, err
 	}
@@ -270,16 +275,20 @@ func (m *chMachine) granted(ctx context.Context) int64 {
 	return 0
 }
 
+// resident is what Cloud Hypervisor holds of the host's memory, cheaply
+// read, which is about the VM's memory the guest has touched; and what it and
+// the programs beside it hold together, each shared page once (footprint).
 func (m *chMachine) resident() (vm, all int64) {
 	if m.running() {
 		vm = resident(m.cloud.pid())
 	}
+	var pids []int
 	for _, c := range []*child{m.cloud, m.gpu, m.passt, m.fs} {
 		if c != nil && !c.exited() {
-			all += resident(c.pid())
+			pids = append(pids, c.pid())
 		}
 	}
-	return vm, all
+	return vm, footprint(pids)
 }
 
 // live is what the running VM can be resized to: every vCPU it booted with

@@ -3,15 +3,19 @@ package hostvm
 import (
 	"archive/tar"
 	"bytes"
+	"cmp"
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/hostvm/chv"
 )
@@ -75,11 +79,11 @@ func venusTar() (*bytes.Buffer, error) {
 // kernel it installed: in /run, which a restart empties.
 const restartMarker = "/run/agentbox-gpu-restart"
 
-// setupGPU puts venus/ in a krunkit VM, for Setup: the daemon there runs
-// venus.sh when "GPU for agents" is on (agent.ReadyVenus), and only then, since
-// it changes the VM's kernel and builds a driver; that it's there is how the
-// daemon knows its VM's GPU can be readied. A failure doesn't stop Setup,
-// since agents run without a GPU too: it says what went wrong.
+// setupGPU puts venus/ in a krunkit VM, with the binary (Install): the daemon
+// there runs venus.sh when "GPU for agents" is on (agent.ReadyVenus), and only
+// then, since it changes the VM's kernel and builds a driver; that it's there
+// is how the daemon knows its VM's GPU can be readied. A failure doesn't stop
+// the install, since agents run without a GPU too: it says what went wrong.
 func (v *VM) setupGPU(ctx context.Context) {
 	if v.CHV != nil {
 		return
@@ -89,7 +93,9 @@ func (v *VM) setupGPU(ctx context.Context) {
 	}
 	files, err := venusTar()
 	if err == nil {
-		_, err = v.exec(ctx, files, "sudo", "sh", "-c", "rm -rf "+venusSrc+" && mkdir -p "+venusSrc+" && tar -x -o -C "+venusSrc)
+		// sync: a VM stopped right after (quitting the app) otherwise keeps
+		// the files empty, and venus.sh then does nothing until the next version.
+		_, err = v.exec(ctx, files, "sudo", "sh", "-c", "rm -rf "+venusSrc+" && mkdir -p "+venusSrc+" && tar -x -o -C "+venusSrc+" && sync")
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(v.Log, "note: agents can't get a GPU in this VM, for now: copying what readies it failed (%v). agentbox vm init tries again.\n", err)
@@ -140,6 +146,53 @@ func noGPU(driver, vmType string) string {
 			"then agentbox vm delete and agentbox vm init make the VM again with it."
 	}
 	return "no GPU: this VM has none to give agents."
+}
+
+// gpuReason is noGPU for Settings, beside the "GPU for agents" switch: one
+// line, no trailing period, the same advice. "" for a VM that has a GPU or
+// gets one (krunkit, Cloud Hypervisor), which the daemon finds itself.
+func gpuReason(driver, vmType string) string {
+	const remake = "install krunkit (" + krunkitInstall + "), then agentbox vm delete --yes (it removes the agents' machines) and agentbox vm init"
+	switch {
+	case driver == api.VMDriverLima && vmType == krunkitVMType, driver == api.VMDriverCloudHypervisor:
+		return ""
+	case driver == api.VMDriverLima && vmType == "qemu":
+		return "Lima's qemu VM has no 3D for agents"
+	case driver == api.VMDriverLima:
+		return "AgentBox's VM runs on Apple's Virtualization framework (vz), which gives it no 3D. A VM made with krunkit has a GPU: " + remake
+	case driver == api.VMDriverVZ:
+		return "AgentBox's vz driver gives the VM no 3D. Lima's VM made with krunkit has a GPU: " + remake
+	}
+	return ""
+}
+
+// writeGPUReason tells the daemon in the VM why it has no GPU for agents
+// (gpuReason, in agent.VMGPUReasonFile), which it can't tell from inside: for
+// Setup, and after an upgrade puts a new binary in a VM made before. Nothing
+// for a VM that has a GPU, and nothing said when it fails: Settings then
+// says only that there's none.
+func (v *VM) writeGPUReason(ctx context.Context) {
+	vmType := ""
+	if v.CHV == nil {
+		st, err := v.State(ctx)
+		if err != nil || !st.Exists {
+			return
+		}
+		vmType = st.VMType
+	}
+	reason := gpuReason(v.Driver(), vmType)
+	if reason == "" {
+		return
+	}
+	b, err := json.Marshal(struct {
+		VMType string `json:"vmType"`
+		Reason string `json:"reason"`
+	}{cmp.Or(vmType, v.Driver()), reason})
+	if err != nil {
+		return
+	}
+	f := agent.VMGPUReasonFile
+	_, _ = v.exec(ctx, bytes.NewReader(b), "sudo", "sh", "-c", "mkdir -p "+filepath.Dir(f)+" && cat >"+f+".new && mv -f "+f+".new "+f)
 }
 
 // chvGPUReport says what the Linux VM's supervisor found of the host's GPU
