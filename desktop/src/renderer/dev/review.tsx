@@ -228,6 +228,32 @@ function big(agent: string): T.MediaItem[] {
   ];
 }
 
+// aspect is ?review=aspect: agent-41's media at the shapes a 16:9 stage
+// gets wrong (components/ReviewProof.tsx, lib/zoom.ts): phone screenshots at
+// 1080×1920 and 1170×2532, a square, a 4:3 window, three monitors at
+// 5760×1080, a pair whose before is 4:3 and after 16:9, a screenshot
+// recorded without a size (the stage waits for its file), and a phone
+// recording stored as 1280×720 whose video is portrait, as a rotated one is.
+function aspect(agent: string): T.MediaItem[] {
+  const base = { agent: `${PROJECT}/${agent}`, agentName: agent, source: 'agent', size: 900_000, mime: 'image/png' };
+  const shot = (id: string, name: string, at: number, w: number, h: number, hue: number, after: boolean, more: T.MediaMeta = { width: w, height: h }): T.MediaItem => {
+    setMediaFile(id, appScreen(w, h, hue, name, after));
+    return { ...base, id, kind: 'screenshot', name, file: `${name}.png`, meta: more, createdAt: ago(at) };
+  };
+  void recording(360, 640).then((url) => setMediaFile('aspect-rotated', url));
+  return [
+    shot('aspect-phone', 'phone-1080x1920', 40 * min, 1080, 1920, 200, false),
+    shot('aspect-iphone', 'iphone-1170x2532', 38 * min, 1170, 2532, 150, false),
+    shot('aspect-square', 'square-1200x1200', 36 * min, 1200, 1200, 90, false),
+    shot('aspect-four-three', 'window-1600x1200', 34 * min, 1600, 1200, 30, false),
+    shot('aspect-triple', 'three-monitors-5760x1080', 32 * min, 5760, 1080, 330, false),
+    shot('aspect-pair-before', 'settings-4x3-before', 30 * min, 1600, 1200, 262, false, { width: 1600, height: 1200, pair: 'settings-4x3', side: 'before' }),
+    shot('aspect-pair-after', 'settings-16x9-after', 20 * min, 1920, 1080, 262, true, { width: 1920, height: 1080, pair: 'settings-4x3', side: 'after' }),
+    shot('aspect-unsized', 'unsized-900x1600', 18 * min, 900, 1600, 120, true, {}),
+    { ...base, id: 'aspect-rotated', kind: 'recording', name: 'phone-rotated', file: 'phone-rotated.webm', mime: 'video/webm', meta: { duration: 4, width: 1280, height: 720 }, createdAt: ago(16 * min) },
+  ];
+}
+
 // appScreen draws a w × h app as a PNG: a sidebar, a title and rows of cards
 // filling the height, the after's second card a different colour and its
 // badge moved, so a pair has something to compare.
@@ -369,8 +395,8 @@ export function seedEvidence(queryClient: QueryClient): void {
 
 // recording draws a few seconds of a cursor crossing a window, so the
 // carousel has a video to play inline.
-async function recording(): Promise<string> {
-  const canvas = Object.assign(document.createElement('canvas'), { width: 640, height: 400 });
+async function recording(w = 640, h = 400): Promise<string> {
+  const canvas = Object.assign(document.createElement('canvas'), { width: w, height: h });
   const ctx = canvas.getContext('2d')!;
   const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm' });
   const chunks: Blob[] = [];
@@ -382,16 +408,16 @@ async function recording(): Promise<string> {
     const frame = () => {
       const t = (performance.now() - start) / 4000;
       ctx.fillStyle = '#16151f';
-      ctx.fillRect(0, 0, 640, 400);
+      ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = '#211f2e';
-      ctx.fillRect(0, 0, 150, 400);
+      ctx.fillRect(0, 0, 150, h);
       ctx.fillStyle = t > 0.6 ? '#6366f1' : '#2f2c40';
       ctx.fillRect(16, 20, 118, 28);
       ctx.fillStyle = '#e7e7ee';
       ctx.font = '600 13px sans-serif';
       ctx.fillText('+ New project', 30, 39);
       ctx.beginPath();
-      ctx.arc(500 - 420 * Math.min(t / 0.6, 1), 300 - 266 * Math.min(t / 0.6, 1), 7, 0, 2 * Math.PI);
+      ctx.arc(w * 0.78 - (w * 0.78 - 80) * Math.min(t / 0.6, 1), h * 0.75 - (h * 0.75 - 34) * Math.min(t / 0.6, 1), 7, 0, 2 * Math.PI);
       ctx.fill();
       if (t < 1) requestAnimationFrame(frame);
       else resolve();
@@ -425,6 +451,7 @@ export function seedReview(queryClient: QueryClient): void {
     [13.5, 'Accounts at 800×600', 'The narrowest window the app allows: no horizontal scroll.'],
   ]));
   if (new URLSearchParams(location.search).get('review') === 'big') queryClient.setQueryData(['media', `${PROJECT}/agent-41`], big('agent-41'));
+  if (new URLSearchParams(location.search).get('review') === 'aspect') queryClient.setQueryData(['media', `${PROJECT}/agent-41`], aspect('agent-41'));
   queryClient.setQueryData(['media', `${PROJECT}/agent-18`], []);
   queryClient.setQueryData(['media', `${PROJECT}/agent-17`], evidence('agent-17', 'markdown', 10 * min, 14, [
     [0.3, 'Rich blocks in the lead chat', ''],

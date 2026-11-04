@@ -2904,5 +2904,94 @@
     "query": "settings=phone&phones=long&theme=dark",
     "width": 420,
     "height": 2300
+  },
+  {
+    "id": "window-1440-review-aspect-phone-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, the 1080×1920 phone screenshot: its box as wide as the picture drawn, no black bars beside it — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"3\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-iphone-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, the 1170×2532 iPhone screenshot: the box hugs the picture — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"4\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-square-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a 1200×1200 square screenshot: the box hugs it — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"5\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-four-three-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a 1600×1200 (4:3) screenshot: the box hugs it — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"6\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-triple-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a 5760×1080 three-monitor screenshot: the box hugs it, no bars above and below — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"7\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-pair-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a pair whose before is 4:3 and after 16:9: each half at its own shape, neither stretched — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"1\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-unsized-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a screenshot recorded without a size: its own shape once its file loads, never 16:10 stretched — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"8\"]"
+    ]
+  },
+  {
+    "id": "window-1440-review-aspect-rotated-dark",
+    "description": "At 1440×900, \"Ready to review\" on agent-41 with ?review=aspect, a phone recording stored as 1280×720 whose video is portrait: shown at the video's own shape — dark",
+    "query": "app=work&review=aspect&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "wait": 5000,
+    "click": [
+      "[data-work-row$='agent-41'] button",
+      "[data-review-media=\"2\"]"
+    ]
   }
 ]

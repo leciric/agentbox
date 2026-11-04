@@ -7,10 +7,10 @@ import { useT } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
 import { chapterAt, gallery, readableName, shownKey, step, type Proof, type Shown, type Take } from '../lib/review';
 import { cn } from '../lib/utils';
-import { box, percent, zoomAt, zoomStep, type Size, type View } from '../lib/zoom';
+import { box, percent, sizeOf, zoomAt, zoomStep, type Size, type View } from '../lib/zoom';
 import { PageIcon } from './pages/PageThumb';
-import { modKey, pairStart, ReviewCompare, ReviewVideos, usePicSize, type CompareHandle, type PairState, type Zooming } from './ReviewCompare';
-import { barHeight, Clip, clock, useSize, Viewport, ZoomControls, type ClipHandle } from './ReviewZoom';
+import { modKey, pairStart, placeholderShape, ReviewCompare, ReviewVideos, usePicSize, type CompareHandle, type PairState, type Zooming } from './ReviewCompare';
+import { barHeight, Clip, clock, Placeholder, useSize, Viewport, ZoomControls, type ClipHandle } from './ReviewZoom';
 import { Button } from './ui/button';
 import { Kbd } from './ui/card';
 
@@ -315,9 +315,12 @@ const pageBox = (room: Size): CSSProperties => {
   return { width: w, height: w / 1.6 };
 };
 
-// Screenshot is one picture; a click on it, inline, opens it large.
+// Screenshot is one picture; a click on it, inline, opens it large. Until
+// its size is known (recorded without one, still loading) a placeholder
+// stands in for it.
 function Screenshot({ media, room, zooming, onOpen }: { media: T.MediaItem; room?: Size; zooming: Zooming; onOpen: () => void }) {
-  const pic = usePicSize(media) ?? { w: 1280, h: 800 };
+  const pic = usePicSize(media);
+  if (!pic) return <Placeholder size={room && box(room, placeholderShape)} dark={!room} />;
   const size = room && box(room, pic);
   return (
     <Viewport
@@ -331,7 +334,7 @@ function Screenshot({ media, room, zooming, onOpen }: { media: T.MediaItem; room
       data-review-stage="screenshot"
       data-review-stage-size={`${pic.w}x${pic.h}`}
     >
-      <img src={mediaUrl(media)} alt={media.name} draggable={false} className="size-full object-fill" />
+      <img src={mediaUrl(media)} alt={media.name} draggable={false} className="size-full object-contain" />
     </Viewport>
   );
 }
@@ -341,11 +344,12 @@ function Screenshot({ media, room, zooming, onOpen }: { media: T.MediaItem; room
 // between the stage and the viewer.
 function Recording({ ref, take, room, zooming, chapter, time, onTime }: { ref: Ref<ClipHandle>; take: Take; room?: Size; zooming: Zooming; chapter: number; time: number; onTime: (seconds: number) => void }) {
   const t = useT();
-  const pic = usePicSize(take.media) ?? { w: 1280, h: 800 };
-  const size = room && box({ w: room.w, h: room.h - barHeight }, pic);
+  const pic = usePicSize(take.media);
+  const size = room && box({ w: room.w, h: room.h - barHeight }, pic ?? placeholderShape);
   const current = take.chapters[chapter];
   // Where it starts is where it was when this stage opened, not as it plays.
   const [startAt] = useState(time);
+  if (!pic) return <Placeholder size={size && { w: size.w, h: size.h + barHeight }} dark={!room} />;
   return (
     <Clip
       ref={ref}
@@ -422,7 +426,9 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
 }
 
 // thumbHeight is every card's picture, whatever the shape of what's in it:
-// cropped from its top-left corner, where an app's title and navigation are.
+// cropped from its top-left corner, where an app's title and navigation are,
+// or, for a portrait or very wide one that cropping would reduce to a strip
+// of it (Still), all of it, contained.
 const thumb = 'relative block h-[5.5rem] overflow-hidden bg-black';
 
 function Thumb({ shown }: { shown: Shown }) {
@@ -463,18 +469,41 @@ function Thumb({ shown }: { shown: Shown }) {
 }
 
 // Still is a screenshot, or a recording's first frame under a play mark,
-// covering its card.
+// covering its card; or contained in it when it's portrait or more than about
+// 2.5 times as wide as tall (stillFit), by its file's size once loaded.
 function Still({ item }: { item: T.MediaItem }) {
-  const cover = 'absolute inset-0 size-full object-cover object-left-top';
-  if (item.kind !== 'recording') return <img src={mediaUrl(item)} alt="" draggable={false} loading="lazy" className={cover} />;
+  const [loaded, setLoaded] = useState<Size>();
+  const fit = stillFit(loaded ?? sizeOf(item.meta));
+  const cls = cn('absolute inset-0 size-full', fit === 'contain' ? 'object-contain' : 'object-cover object-left-top');
+  if (item.kind !== 'recording') {
+    return <img src={mediaUrl(item)} alt="" draggable={false} loading="lazy" className={cls} onLoad={(e) => setLoaded({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })} data-review-still={fit} />;
+  }
   return (
     <>
-      <video src={`${mediaUrl(item)}#t=0.1`} muted preload="metadata" tabIndex={-1} className={cn(cover, 'pointer-events-none opacity-70')} />
+      <video
+        src={`${mediaUrl(item)}#t=0.1`}
+        muted
+        preload="metadata"
+        tabIndex={-1}
+        className={cn(cls, 'pointer-events-none opacity-70')}
+        onLoadedMetadata={(e) => setLoaded({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })}
+        data-review-still={fit}
+      />
       <span className="absolute inset-0 flex items-center justify-center text-white/90">
         <Play className="size-5 fill-current drop-shadow" />
       </span>
     </>
   );
+}
+
+// stillFit is how a card shows a picture of this size: cropped, for one
+// about as wide as a card; contained, for a portrait one (a phone's) or one
+// more than 2.5 times as wide as tall (monitors side by side), which a crop
+// would reduce to a corner of it.
+export function stillFit(size: Size | undefined): 'cover' | 'contain' {
+  if (!size || !size.w || !size.h) return 'cover';
+  const ratio = size.w / size.h;
+  return ratio < 1 || ratio > 2.5 ? 'contain' : 'cover';
 }
 
 // Chapters is what the agent checked in the recording playing, the chapter
