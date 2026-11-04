@@ -76,3 +76,23 @@ export function seedOffice(queryClient: QueryClient): void {
     return inner(method, path, body);
   };
 }
+
+// stubProjectChats answers the chats of seedV2's extra projects (Storefront,
+// Quill, Courier…), their leads' and their agents', with empty threads: the
+// dev bridge has none, and a chat that can't be read shows an error where a
+// quiet chat belongs.
+export function stubProjectChats(): void {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  bridge.request = async (method, path, body) => {
+    const chat = method === 'GET' && /^\/v1\/(?:projects\/([^/]+)(?:\/sessions\/[^/]+)?|agents\/([^/]+)\/([^/?]+))\/chat(?:\?|$)/.exec(path);
+    const project = chat ? decodeURIComponent(chat[1] ?? chat[2]) : '';
+    if (chat && project !== PROJECT) {
+      const ref = chat[1] ? `${project}/lead` : `${project}/${decodeURIComponent(chat[3])}`;
+      const thread: T.ChatThread = { agent: ref, seq: 0, session: { state: 'off', tool: 'claude', options: [], commands: [] }, items: [] };
+      return { status: 200, body: JSON.stringify(thread), contentType: 'application/json' };
+    }
+    return inner(method, path, body);
+  };
+}

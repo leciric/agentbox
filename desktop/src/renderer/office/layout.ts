@@ -40,7 +40,15 @@ export type Layout = {
   obstacles: Box[];
   // Plants, at the room's corners and the areas' ends.
   plants: { x: number; z: number }[];
-  windows: { side: 'back' | 'left' | 'right'; at: number; w: number }[];
+  // The room's features: a glass meeting room in the back left corner, a big
+  // window and a moss wall on the left wall, a brick wall on the back one,
+  // a planter dividing the lobby, a server rack in its corner.
+  meeting: Box;
+  window: { at: number; w: number };
+  moss: { at: number; w: number };
+  brick: { at: number; w: number };
+  planter: Box;
+  rack: { x: number; z: number };
 };
 
 export const DESK = { w: 1.5, d: 0.75, h: 0.74 };
@@ -140,44 +148,55 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   const lobby: Box = { x0: 0, z0: areasEnd + 0.6, x1: roomW, z1: areasEnd + 0.6 + LOBBY };
   const roomD = lobby.z1;
   const cx = roomW / 2;
-  // The sofa faces the room from the lobby's front, a coffee table before it;
-  // the water cooler and plants by the walls.
-  const sofa = box(cx, lobby.z1 - 1.0, 2.6, 0.95);
-  obstacles.push(sofa, box(cx, lobby.z1 - 2.25, 1.3, 0.7));
-  obstacles.push(box(0.6, lobby.z0 + 1.2, 0.6, 0.6));
+  // The meeting room, in the back left corner, behind glass.
+  const meeting: Box = { x0: 0, z0: 0, x1: Math.min(4.6, roomW * 0.3), z1: BACK_AISLE - 0.5 };
+  obstacles.push({ x0: meeting.x0, z0: meeting.z0, x1: meeting.x1 + 0.05, z1: meeting.z1 + 0.05 });
+  // The sofa faces the room from the lobby's front, a coffee table before it.
+  const sofa = box(cx + roomW * 0.12, lobby.z1 - 1.0, 2.6, 0.95);
+  obstacles.push(sofa, box(cx + roomW * 0.12, lobby.z1 - 2.25, 1.3, 0.7));
+  // The planter divides the lobby from the room, on its left half: the way
+  // in is round its end.
+  const planter: Box = { x0: 0.5, z0: lobby.z0 + 0.15, x1: Math.max(3, roomW * 0.5), z1: lobby.z0 + 0.6 };
+  obstacles.push(planter);
+  const rack = { x: roomW - 0.55, z: lobby.z1 - 0.7 };
+  obstacles.push(box(rack.x, rack.z, 0.65, 0.65));
   const corners = [
-    { x: 0.55, z: 0.55 },
     { x: roomW - 0.55, z: 0.55 },
     { x: 0.55, z: roomD - 0.55 },
-    { x: roomW - 0.55, z: roomD - 0.55 },
   ];
   for (const p of corners) {
     plants.push(p);
     obstacles.push(box(p.x, p.z, 0.6, 0.6));
   }
-  // The board's ledge and the bookshelves beside the sofa.
-  const boardW = Math.min(5.2, roomW - 6);
-  obstacles.push(box(cx, 0.2, boardW, 0.4));
-  const windows: Layout['windows'] = [];
-  const side = (roomW - boardW) / 2;
-  if (side > 4) {
-    windows.push({ side: 'back', at: side / 2, w: Math.min(3.2, side - 1.6) }, { side: 'back', at: roomW - side / 2, w: Math.min(3.2, side - 1.6) });
-  }
-  for (let wz = 3; wz < roomD - 2; wz += 5.5) {
-    windows.push({ side: 'left', at: wz + 1.2, w: 2.4 }, { side: 'right', at: wz + 1.2, w: 2.4 });
-  }
+  // The board, right of the meeting room; the brick wall where there's room.
+  const boardW = Math.min(5.2, roomW - meeting.x1 - 3);
+  const boardX = Math.min(roomW - boardW / 2 - 1, Math.max(cx, meeting.x1 + boardW / 2 + 1));
+  obstacles.push(box(boardX, 0.2, boardW, 0.4));
+  const leftGap = boardX - boardW / 2 - meeting.x1;
+  const rightGap = roomW - (boardX + boardW / 2);
+  const brick = leftGap >= rightGap ? { at: meeting.x1 + leftGap / 2, w: Math.max(1.6, Math.min(2.6, leftGap - 0.5)) } : { at: roomW - rightGap / 2, w: Math.max(1.6, Math.min(2.6, rightGap - 0.5)) };
+  // The left wall: the window past the meeting room, the moss wall after it.
+  const winW = Math.min(3.2, Math.max(1.8, (lobby.z0 - meeting.z1) * 0.45));
+  const window = { at: meeting.z1 + 0.4 + winW / 2, w: winW };
+  const mossW = Math.min(2.6, Math.max(1.2, lobby.z0 - (window.at + winW / 2) - 0.8));
+  const moss = { at: window.at + winW / 2 + 0.4 + mossW / 2, w: mossW };
   return {
     room: { x0: 0, z0: 0, x1: roomW, z1: roomD },
     areas,
     // You stand at the board's left end, out of the way of reading it and of
     // its list, which is on the right.
-    board: { x: cx, w: boardW, spot: { x: cx - boardW / 2 + 0.2, z: 2.2, face: Math.PI } },
+    board: { x: boardX, w: boardW, spot: { x: boardX - boardW / 2 + 0.2, z: 2.2, face: Math.PI } },
     lobby,
-    spawn: { x: cx, z: lobby.z0 + 1.6, face: Math.PI },
+    spawn: { x: cx + roomW * 0.12, z: lobby.z0 + 1.6, face: Math.PI },
     sofa,
     obstacles,
     plants,
-    windows,
+    meeting,
+    window,
+    moss,
+    brick,
+    planter,
+    rack,
   };
 }
 

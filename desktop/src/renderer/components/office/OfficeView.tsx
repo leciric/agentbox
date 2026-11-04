@@ -189,12 +189,12 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
 
   // Each area's label from far off: its name and what's going on in it.
   const areaLabels = useMemo(() => {
-    const out = new Map<string, { name: string; sub: string }>();
+    const out = new Map<string, { name: string; sub: string; count: number }>();
     for (const a of office.model.areas) {
       const n = (tone: DeskTone) => a.desks.filter((d) => d.tone === tone).length;
       const needs = n('needs') + n('error') + (a.lead.tone === 'needs' ? 1 : 0);
       const parts = [needs ? t('office.count.needs', { count: needs }) : '', n('working') ? t('office.count.working', { count: n('working') }) : '', n('finished') ? t('office.count.review', { count: n('finished') }) : ''].filter(Boolean);
-      out.set(a.project, { name: a.label, sub: parts.length ? parts.join(' · ') : t('office.lead.agents', { count: a.desks.length }) });
+      out.set(a.project, { name: a.label, sub: parts.length ? parts.join(' · ') : t('office.lead.agents', { count: a.desks.length }), count: needs });
     }
     return out;
   }, [office.model, t]);
@@ -312,11 +312,11 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const listOpen = listChoice ?? (wide && !nearDesk && !nearArea);
   const hasNext = needs.some((i) => i.ref !== near);
   const nextButton = hasNext && (
-    <Button size="sm" variant="secondary" onClick={() => next.current()} data-office-next>
+    <Button size="sm" variant="secondary" className="bg-slate-100 text-slate-800 shadow-none hover:bg-slate-200" onClick={() => next.current()} data-office-next>
       <ArrowRight className="size-3.5" />
       {t('office.next')}
       {needs.length > 1 && needs.some((i) => i.ref === near) && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: needs.findIndex((i) => i.ref === near) + 1, count: needs.length })}</span>}
-      <kbd className="ml-1 rounded bg-black/20 px-1 font-mono text-[10.5px]">N</kbd>
+      <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">N</kbd>
     </Button>
   );
   const listShown = listOpen && needs.length > 0 && near !== 'board';
@@ -339,7 +339,8 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
 
   return (
     <div
-      className="relative h-full min-h-0 w-full overflow-hidden bg-[#1c2333]"
+      // A pale sky for the diorama to float on.
+      className="relative h-full min-h-0 w-full overflow-hidden bg-[linear-gradient(180deg,#e9f2f7_0%,#d5e5ee_100%)]"
       data-office
       // After a click on a button over the room, the keys walk again.
       onClickCapture={(e) => {
@@ -349,33 +350,33 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       <div ref={host} className="absolute inset-0" aria-label={t('office.canvas')} role="application" onPointerDownCapture={() => listShown && setListChoice(false)} />
 
       {(status === 'loading' || (status === 'ready' && !office.loaded)) && (
-        <div className="absolute inset-0 flex items-center justify-center gap-2 text-[13px] text-slate-300">
+        <div className="absolute inset-0 flex items-center justify-center gap-2 text-[13px] text-slate-600">
           <LoaderCircle className="size-4 animate-spin" />
           {t('office.loading')}
         </div>
       )}
       {status === 'unsupported' && (
         <div className="absolute inset-0 flex items-center justify-center p-6">
-          <div className="max-w-sm rounded-xl border border-white/10 bg-slate-900/90 p-5 text-center text-[13px] text-slate-200">{t('office.unsupported')}</div>
+          <div className="max-w-sm rounded-xl border border-black/5 bg-slate-900/90 p-5 text-center text-[13px] text-slate-700">{t('office.unsupported')}</div>
         </div>
       )}
 
       {/* The top: what's going on, and the overview. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start gap-2 p-3">
-        <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-[12.5px] text-slate-200 shadow-lg backdrop-blur-md" data-office-summary data-office-review={review.map((i) => i.ref).join(",")}>
-          <span className="text-[13px] font-semibold text-white">{t('office.title')}</span>
+        <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md" data-office-summary data-office-review={review.map((i) => i.ref).join(",")}>
+          <span className="text-[13px] font-semibold text-slate-900">{t('office.title')}</span>
           {needs.length > 0 && near !== 'board' ? (
             // The count opens and folds the list of who needs you.
             <button
               type="button"
-              className="-my-1 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1 font-medium text-amber-100 ring-1 ring-amber-300/30 transition hover:bg-amber-400/10"
+              className="-my-1 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1 font-medium text-amber-800 ring-1 ring-amber-300/30 transition hover:bg-amber-400/10"
               onClick={() => setListChoice(!listOpen)}
               aria-expanded={listOpen}
               data-office-unfold
             >
               <span className="size-2 animate-pulse rounded-full bg-amber-400" />
               {t('office.count.needs', { count: needs.length })}
-              {listOpen ? <ChevronUp className="size-3.5 text-amber-200/70" /> : <ChevronDown className="size-3.5 text-amber-200/70" />}
+              {listOpen ? <ChevronUp className="size-3.5 text-amber-700/70" /> : <ChevronDown className="size-3.5 text-amber-700/70" />}
             </button>
           ) : (
             <Count dot="bg-amber-400" n={needs.length} label={t('office.count.needs', { count: needs.length })} />
@@ -387,7 +388,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
         {near !== 'board' && (
           <button
             type="button"
-            className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-[12.5px] text-slate-200 shadow-lg backdrop-blur-md transition hover:bg-slate-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
+            className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
             onClick={() => walkTo('board')}
             data-office-to-board
           >
@@ -397,7 +398,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
         )}
         <button
           type="button"
-          className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-[12.5px] text-slate-200 shadow-lg backdrop-blur-md transition hover:bg-slate-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
+          className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
           onClick={() => scene.current?.overview()}
           data-office-overview
         >
@@ -414,7 +415,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           style={listOnly && listAt ? { left: `min(${Math.round(listAt.x)}px, calc(100% - 17rem))`, top: `min(${Math.round(listAt.y)}px, calc(100% - 12rem))` } : undefined}
           data-office-needs="open"
         >
-          <ListCard title={listOnly ? t('office.here', { count: listed.length }) : t('office.board.needs')} accent="text-amber-300" onFold={() => setListChoice(false)} foldLabel={t('office.fold')}>
+          <ListCard title={listOnly ? t('office.here', { count: listed.length }) : t('office.board.needs')} accent="text-amber-600" onFold={() => setListChoice(false)} foldLabel={t('office.fold')}>
             {listed.map((i) => (
               <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => {
                 setListChoice(false);
@@ -422,7 +423,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
               }} />
             ))}
             {listOnly && (
-              <button type="button" className="w-full rounded-lg px-2 py-1.5 text-left text-[12px] text-amber-200 hover:bg-white/10" onClick={() => {
+              <button type="button" className="w-full rounded-lg px-2 py-1.5 text-left text-[12px] text-amber-700 hover:bg-black/5" onClick={() => {
                 setListOnly(null);
                 setListAt(null);
               }} data-office-list-all>
@@ -447,14 +448,14 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           pr={nearDesk.pr ? prLine(nearDesk.pr).text : undefined}
           prTone={nearDesk.pr?.checks === 'failing' ? 'bad' : 'ok'}
         >
-          <Button size="sm" onClick={() => activate.current(nearDesk.id)} data-office-open>
+          <Button size="sm" className="bg-violet-600 text-white shadow-sm hover:bg-violet-500" onClick={() => activate.current(nearDesk.id)} data-office-open>
             <MessageSquare className="size-3.5" />
             {t('office.openChat')}
-            <kbd className="ml-1 rounded bg-black/20 px-1 font-mono text-[10.5px]">E</kbd>
+            <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">E</kbd>
           </Button>
           {nextButton}
           {nearDesk.pr && (
-            <Button size="sm" variant="secondary" onClick={() => openPr(nearDesk)} data-office-pr>
+            <Button size="sm" variant="secondary" className="bg-slate-100 text-slate-800 shadow-none hover:bg-slate-200" onClick={() => openPr(nearDesk)} data-office-pr>
               <GitPullRequest className="size-3.5" />
               {t('office.openPr', { number: nearDesk.pr.number })}
             </Button>
@@ -470,23 +471,23 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           facts={[]}
           last={nearArea.lead.line}
         >
-          <Button size="sm" onClick={() => activate.current(leadRef(nearArea.project))} data-office-open>
+          <Button size="sm" className="bg-violet-600 text-white shadow-sm hover:bg-violet-500" onClick={() => activate.current(leadRef(nearArea.project))} data-office-open>
             <MessageSquare className="size-3.5" />
             {t('office.openProjectChat')}
-            <kbd className="ml-1 rounded bg-black/20 px-1 font-mono text-[10.5px]">E</kbd>
+            <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">E</kbd>
           </Button>
           {nextButton}
         </DeskCard>
       )}
       {near === 'board' && (
         <div className="pointer-events-auto absolute bottom-16 right-3 top-16 flex w-[min(18rem,calc(100%-1.5rem))] flex-col gap-2 overflow-y-auto" data-office-board>
-          <ListCard title={t('office.board.needs')} accent="text-amber-300" list="needs">
+          <ListCard title={t('office.board.needs')} accent="text-amber-600" list="needs">
             {needs.length === 0 && <Empty>{t('office.board.needsEmpty')}</Empty>}
             {needs.map((i) => (
               <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.open', { title: i.title })} onClick={() => activate.current(i.ref)} />
             ))}
           </ListCard>
-          <ListCard title={t('office.board.review')} accent="text-emerald-300" list="review">
+          <ListCard title={t('office.board.review')} accent="text-emerald-600" list="review">
             {review.length === 0 && <Empty>{t('office.board.reviewEmpty')}</Empty>}
             {review.map((i) => {
               const desk = deskOf(office.model, i.ref);
@@ -509,27 +510,27 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3">
           {/* One bar: what a click on what's under the pointer does, or else the controls. */}
           {hoverText && !hint ? (
-            <div className="rounded-lg bg-slate-950/85 px-3 py-1 text-[12.5px] font-medium text-white shadow-lg backdrop-blur-md" data-office-hover>{hoverText}</div>
+            <div className="rounded-lg bg-white/90 px-3 py-1 text-[12.5px] font-medium text-slate-900 shadow-lg backdrop-blur-md" data-office-hover>{hoverText}</div>
           ) : hint ? (
-            <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-5 gap-y-1.5 rounded-xl border border-violet-300/30 bg-slate-950/90 px-4 py-2.5 text-[13px] font-medium text-white shadow-xl ring-1 ring-violet-400/20 backdrop-blur-md" data-office-hint>
+            <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-5 gap-y-1.5 rounded-xl border border-violet-300/30 bg-white/90 px-4 py-2.5 text-[13px] font-medium text-slate-900 shadow-xl ring-1 ring-violet-400/20 backdrop-blur-md" data-office-hint>
               <span className="flex items-center gap-1.5"><Mouse className="size-3.5 text-violet-300" />{t('office.hint.click')}</span>
               <span className="flex items-center gap-1.5"><Keyboard className="size-3.5 text-violet-300" />{t('office.hint.keys')}</span>
               <span className="flex items-center gap-1.5"><Eye className="size-3.5 text-violet-300" />{t('office.hint.look')}</span>
-              <button type="button" aria-label={t('common.close')} className="rounded p-0.5 text-slate-400 hover:text-white" onClick={() => setHint(false)}>
+              <button type="button" aria-label={t('common.close')} className="rounded p-0.5 text-slate-500 hover:text-slate-900" onClick={() => setHint(false)}>
                 <X className="size-3.5" />
               </button>
             </div>
           ) : (
-            <div className="rounded-lg bg-slate-950/75 px-3 py-1 text-[12px] text-slate-200 backdrop-blur-md" data-office-hint-short>{t('office.hint.short')}</div>
+            <div className="rounded-lg bg-white/90 px-3 py-1 text-[12px] text-slate-700 backdrop-blur-md" data-office-hint-short>{t('office.hint.short')}</div>
           )}
         </div>
       )}
 
       {empty && (
         <div className="absolute inset-0 flex items-center justify-center p-6">
-          <div className="max-w-sm rounded-xl border border-white/10 bg-slate-950/80 p-5 text-center shadow-xl backdrop-blur-md" data-office-empty>
-            <div className="text-[14px] font-semibold text-white">{t('office.empty.title')}</div>
-            <div className="mt-1 text-[12.5px] text-slate-300">{t('office.empty.body')}</div>
+          <div className="max-w-sm rounded-xl border border-black/5 bg-white/90 p-5 text-center shadow-xl backdrop-blur-md" data-office-empty>
+            <div className="text-[14px] font-semibold text-slate-900">{t('office.empty.title')}</div>
+            <div className="mt-1 text-[12.5px] text-slate-600">{t('office.empty.body')}</div>
           </div>
         </div>
       )}
@@ -568,11 +569,11 @@ function Count({ dot, n, label }: { dot: string; n: number; label: string }) {
 
 function ListCard({ title, accent, children, onFold, foldLabel, list }: { title: string; accent: string; children: ReactNode; onFold?: () => void; foldLabel?: string; list?: string }) {
   return (
-    <div className="w-full rounded-xl border border-white/10 bg-slate-950/75 p-1.5 shadow-xl backdrop-blur-md" data-office-board-list={list}>
+    <div className="w-full rounded-xl border border-black/5 bg-white/90 p-1.5 shadow-xl backdrop-blur-md" data-office-board-list={list}>
       <div className="flex items-center px-2 pb-1 pt-1">
         <span className={cn('flex-1 text-[10.5px] font-semibold uppercase tracking-[0.08em]', accent)}>{title}</span>
         {onFold && (
-          <button type="button" aria-label={foldLabel} title={foldLabel} onClick={onFold} className="rounded p-0.5 text-slate-400 hover:text-white" aria-expanded data-office-fold>
+          <button type="button" aria-label={foldLabel} title={foldLabel} onClick={onFold} className="rounded p-0.5 text-slate-500 hover:text-slate-900" aria-expanded data-office-fold>
             <ChevronUp className="size-3.5" />
           </button>
         )}
@@ -583,7 +584,7 @@ function ListCard({ title, accent, children, onFold, foldLabel, list }: { title:
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <div className="px-2 pb-2 text-[12px] text-slate-400">{children}</div>;
+  return <div className="px-2 pb-2 text-[12px] text-slate-500">{children}</div>;
 }
 
 // RowTitle is a row's title; an agent told apart from another of the same
@@ -594,8 +595,8 @@ function RowTitle({ item }: { item: BoardItem }) {
   const named = item.title.endsWith(suffix);
   return (
     <span className="flex min-w-0 items-baseline gap-1.5">
-      <span className="truncate text-[12.5px] font-medium text-white">{named ? item.title.slice(0, -suffix.length) : item.title}</span>
-      {named && <span className="shrink-0 font-mono text-[10.5px] text-slate-400">{name}</span>}
+      <span className="truncate text-[12.5px] font-medium text-slate-900">{named ? item.title.slice(0, -suffix.length) : item.title}</span>
+      {named && <span className="shrink-0 font-mono text-[10.5px] text-slate-500">{name}</span>}
     </span>
   );
 }
@@ -607,16 +608,16 @@ function WalkRow({ item, sub, label, onClick, active }: { item: BoardItem; sub?:
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={cn('group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60', active && 'bg-white/10 ring-1 ring-amber-300/40')}
+      className={cn('group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60', active && 'bg-black/5 ring-1 ring-amber-300/40')}
       aria-current={active ? 'true' : undefined}
       data-office-walk={item.ref}
     >
       <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', toneDot[item.tone])} />
       <span className="min-w-0 flex-1">
         <RowTitle item={item} />
-        {sub && <span className="line-clamp-2 text-[11.5px] text-slate-400">{sub}</span>}
+        {sub && <span className="line-clamp-2 text-[11.5px] text-slate-500">{sub}</span>}
       </span>
-      <ArrowRight className="mt-1 size-3.5 shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-white" />
+      <ArrowRight className="mt-1 size-3.5 shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-slate-900" />
     </button>
   );
 }
@@ -647,24 +648,24 @@ function DeskCard({
   children: ReactNode;
 }) {
   return (
-    <div className="pointer-events-auto absolute bottom-16 right-3 w-[min(21rem,calc(100%-1.5rem))] rounded-2xl border border-white/10 bg-slate-950/85 p-4 text-slate-200 shadow-2xl backdrop-blur-md" data-office-desk={tone}>
+    <div className="pointer-events-auto absolute bottom-16 right-3 w-[min(21rem,calc(100%-1.5rem))] rounded-2xl border border-black/5 bg-white/90 p-4 text-slate-700 shadow-2xl backdrop-blur-md" data-office-desk={tone}>
       <div className="flex items-center gap-2 text-[11.5px] font-semibold uppercase tracking-[0.06em]">
         <span className={cn('size-2 rounded-full', toneDot[tone], tone === 'needs' && 'animate-pulse')} />
-        <span className="text-slate-300">{toneLabel}</span>
-        <span className="ml-auto truncate font-normal normal-case tracking-normal text-slate-400">{project}</span>
+        <span className="text-slate-600">{toneLabel}</span>
+        <span className="ml-auto truncate font-normal normal-case tracking-normal text-slate-500">{project}</span>
       </div>
-      <div className="mt-1.5 line-clamp-2 text-[14.5px] font-semibold leading-snug text-white">{title}</div>
+      <div className="mt-1.5 line-clamp-2 text-[14.5px] font-semibold leading-snug text-slate-900">{title}</div>
       {facts.filter(Boolean).length > 0 && (
-        <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 text-[11.5px] text-slate-400">
+        <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 text-[11.5px] text-slate-500">
           {facts.filter(Boolean).map((f) => (
             <span key={f} className="max-w-full truncate font-mono">{f}</span>
           ))}
         </div>
       )}
-      {question && <div className="mt-2.5 max-h-28 overflow-y-auto rounded-lg bg-amber-400/10 px-2.5 py-2 text-[12.5px] text-amber-100 ring-1 ring-amber-400/30 [overflow-wrap:anywhere]">{question}</div>}
-      {activity && <div className="mt-2.5 flex min-w-0 items-center gap-1.5 text-[12px] text-emerald-300"><span className="size-1.5 shrink-0 rounded-full bg-emerald-400" /><span className="min-w-0 truncate">{activity}</span></div>}
-      {last && <div className="mt-1.5 line-clamp-3 text-[12.5px] text-slate-300 [overflow-wrap:anywhere]">{last}</div>}
-      {pr && <div className={cn('mt-2 flex items-center gap-1.5 text-[12px]', prTone === 'bad' ? 'text-red-300' : 'text-slate-300')}><GitPullRequest className="size-3.5" />{pr}</div>}
+      {question && <div className="mt-2.5 max-h-28 overflow-y-auto rounded-lg bg-amber-400/10 px-2.5 py-2 text-[12.5px] text-amber-800 ring-1 ring-amber-400/50 [overflow-wrap:anywhere]">{question}</div>}
+      {activity && <div className="mt-2.5 flex min-w-0 items-center gap-1.5 text-[12px] text-emerald-600"><span className="size-1.5 shrink-0 rounded-full bg-emerald-400" /><span className="min-w-0 truncate">{activity}</span></div>}
+      {last && <div className="mt-1.5 line-clamp-3 text-[12.5px] text-slate-600 [overflow-wrap:anywhere]">{last}</div>}
+      {pr && <div className={cn('mt-2 flex items-center gap-1.5 text-[12px]', prTone === 'bad' ? 'text-red-600' : 'text-slate-600')}><GitPullRequest className="size-3.5" />{pr}</div>}
       <div className="mt-3 flex flex-wrap gap-2">{children}</div>
     </div>
   );

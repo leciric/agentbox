@@ -378,7 +378,7 @@ import { seedTimelines } from './timeline';
 import { seedIssues } from './issues';
 import { setUiVerbs } from '../lib/uiVerbs';
 import { setUiOffice } from '../lib/uiOffice';
-import { seedOffice } from './office';
+import { seedOffice, stubProjectChats } from './office';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -768,6 +768,8 @@ if (appView) {
   seedV2(queryClient, params.get('pins'));
   // ?app=office: more projects' agents, at their desks (dev/office.ts).
   if (appView === 'office' || params.get('office') === '1') seedOffice(queryClient);
+  // The other projects' chats, empty rather than failing.
+  stubProjectChats();
   // &ios=…, after seedV2's projects: the project is an iOS one.
   if (iosScenario) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, ios: true } : p)));
   setGroupIdle(params.get('groupidle') === '1');

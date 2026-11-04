@@ -14,7 +14,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { bake, hash, mascot, walker as makeWalker, type Figure } from './figures.ts';
 import { COUNTER, DESK, SEAT, layout as layOut, nearest, spotOf, walkable, type Box, type Layout } from './layout.ts';
 import type { DeskTone, LeadTone, OfficeModel } from './model.ts';
-import { canvasTexture, drawBoard, type BoardRow, drawBubble, drawScreen, drawSign, drawTag, paintSky, planks, toneColor, type BoardScreen, type Screen } from './textures.ts';
+import { diorama } from './decor.ts';
+import { canvasTexture, drawBoard, type BoardRow, drawBubble, drawScreen, drawTag, toneColor, type BoardScreen, type Screen } from './textures.ts';
 import { path, pathLength, slide, turn, type P } from './walk.ts';
 
 // pathLengthFrom is a route's length after its first point.
@@ -27,7 +28,7 @@ export type SceneInput = {
   board: BoardScreen;
   you: string;
   // Each area's label from far off: its name and, in words, its counts.
-  areaLabels: ReadonlyMap<string, { name: string; sub: string }>;
+  areaLabels: ReadonlyMap<string, { name: string; sub: string; count: number }>;
 };
 
 export type OfficeSceneOptions = {
@@ -70,7 +71,10 @@ let lastVisit: { pos: P; facing: number; follow: number; yaw: number; dist: numb
 
 const RADIUS = 0.3;
 const SPEED = 3.4; // metres a second, walking
-const FOV = 38;
+const FOV = 30;
+// The overview's 3/4 view: from the front right, over the open corner.
+const HOME_YAW = 0.62;
+const OVERVIEW_PITCH = 0.68;
 
 const leadAsDesk = (t: LeadTone): DeskTone => (t === 'needs' ? 'needs' : t === 'working' ? 'working' : 'idle');
 const std = (color: THREE.ColorRepresentation, o: Partial<THREE.MeshStandardMaterialParameters> = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, ...o });
@@ -79,10 +83,11 @@ const std = (color: THREE.ColorRepresentation, o: Partial<THREE.MeshStandardMate
 function sharedMaterials() {
   const phys = (color: THREE.ColorRepresentation, o: Partial<THREE.MeshPhysicalMaterialParameters> = {}) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.5, ...o });
   return {
-    oak: phys('#c89566', { roughness: 0.48, clearcoat: 0.35, clearcoatRoughness: 0.4 }),
+    oak: phys('#dfa86e', { roughness: 0.5, clearcoat: 0.25, clearcoatRoughness: 0.5 }),
+    chairs: ['#e9b44c', '#4aa3a2', '#e07a5f', '#8fb39a', '#7c8bd6'].map((c) => std(c, { roughness: 0.75 })),
     deskTop: phys('#efe6d8', { roughness: 0.45, clearcoat: 0.2 }),
     deskLeg: std('#2d333f', { metalness: 0.6, roughness: 0.35 }),
-    metal: std('#2d333f', { metalness: 0.65, roughness: 0.32 }),
+    metal: std('#3d3a38', { metalness: 0.3, roughness: 0.45 }),
     plastic: phys('#1f2430', { roughness: 0.35, clearcoat: 0.5 }),
     fabric: std('#3a4763', { roughness: 0.92 }),
     alu: phys('#d3d7de', { metalness: 0.75, roughness: 0.28 }),
@@ -220,13 +225,16 @@ const bubbleOf: Partial<Record<DeskTone, [string, string]>> = {
 export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): OfficeScene {
   let motion = !opts.reducedMotion;
   let disposed = false;
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  // Transparent: the pale sky behind the diorama is the page's own.
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+  renderer.setClearColor(0x000000, 0);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   // AgX keeps highlights and saturated colours soft; output is sRGB.
-  renderer.toneMapping = THREE.AgXToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  // Neutral keeps the pastels true; output is sRGB.
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 1.0;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const canvas = renderer.domElement;
   canvas.style.display = 'block';
@@ -259,10 +267,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         chip.type = 'button';
         chip.dataset.officeArea = area.project;
         chip.style.cssText =
-          'position:absolute;left:0;top:0;display:none;pointer-events:auto;flex-direction:column;align-items:center;padding:4px 12px 5px;border-radius:10px;background:rgba(10,14,24,.88);color:#fff;font:700 13px/1.2 var(--font-sans,system-ui),sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.45);cursor:pointer;white-space:nowrap;will-change:transform';
+          'position:absolute;left:0;top:0;display:none;pointer-events:auto;align-items:center;gap:6px;padding:5px 14px;border-radius:999px;color:#fff;font:700 13px/1.2 var(--font-sans,system-ui),sans-serif;box-shadow:0 3px 10px rgba(40,30,20,.22);cursor:pointer;white-space:nowrap;will-change:transform';
         const name = document.createElement('span');
         const sub = document.createElement('span');
-        sub.style.cssText = 'font-weight:500;font-size:11px;color:#cbd5e1';
+        sub.style.cssText = 'font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.28)';
         chip.append(name, sub);
         const ref = `${area.project}/lead`;
         chip.addEventListener('pointerdown', (e) => {
@@ -273,9 +281,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         markerLayer.prepend(chip);
         areaChips.set(area.project, chip);
       }
-      chip.style.border = `1px solid hsl(${area.hue} 70% 62% / .7)`;
+      // The pod's pill, in its project's colour, its waiting count beside.
+      chip.style.background = `hsl(${area.hue} 58% 48%)`;
       (chip.firstChild as HTMLElement).textContent = label.name;
-      (chip.lastChild as HTMLElement).textContent = label.sub;
+      (chip.lastChild as HTMLElement).textContent = label.count ? String(label.count) : '';
+      (chip.lastChild as HTMLElement).style.display = label.count ? 'inline' : 'none';
+      chip.title = label.sub;
       chip.setAttribute('aria-label', opts.markerLabel(label.name));
     }
   }
@@ -297,6 +308,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.bias = -0.0005;
+  // Soft-edged shadows, as daylight through a big window gives.
+  sun.shadow.radius = 5;
   sun.shadow.normalBias = 0.02;
   scene.add(sun, sun.target);
   const fill = new THREE.AmbientLight('#ffffff', 0.25);
@@ -315,9 +328,6 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   scene.add(rim);
 
   const mats = sharedMaterials();
-  const floorTex = planks();
-  const sky = canvasTexture(512, 256);
-  let skyHour = -1;
 
   // What a layout builds: the room, its furniture and the desks.
   let room = new THREE.Group();
@@ -353,7 +363,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
 
   // The camera: an overview of the whole room to start, then following you;
   // closer, lower, when you stop at a desk.
-  const cam = { yaw: 0, followK: 0, dist: 13, closeK: 0 };
+  const cam = { yaw: HOME_YAW, followK: 0, dist: 13, closeK: 0 };
   // The wheel's one scale, 0 (the overview) to 1 (close behind you): the
   // first half comes down from the overview, the second half closer.
   let zoomZ = 0;
@@ -369,6 +379,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   // What the close-up looks at, kept while it eases out.
   let focusRef: string | undefined;
   let focusAt: { x: number; z: number } | undefined;
+  const figPos = new THREE.Vector3();
   // Where the wheel zoomed in, until you walk.
   let zoomFocus: P | undefined;
   let settledFor = 0;
@@ -415,49 +426,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const W = l.room.x1;
     const D = l.room.z1;
 
-    // The floor, its planks a metre and a bit wide.
-    const tex = floorTex.clone();
-    tex.repeat.set(W / 4, D / 4);
-    tex.needsUpdate = true;
-    own(tex);
-    const floor = mesh(own(new THREE.PlaneGeometry(W, D)), own(std('#ffffff', { map: tex, roughness: 0.75 })), W / 2, 0, D / 2, 1, 1, 1, false);
-    floor.rotation.x = -Math.PI / 2;
-    floor.userData.floor = true;
-    room.add(floor);
-
-    // Walls: the back one, and the sides, which fade when the camera's behind them.
-    const wallMat = own(std('#efe8dc', { roughness: 0.9 }));
-    const H = 3.2;
-    room.add(mesh(geo.box, wallMat, W / 2, H / 2, -0.1, W + 0.4, H, 0.2, false));
+    // The room: a diorama slab with its walls and features (decor.ts).
+    const dio = diorama(l, 'AgentBox');
+    roomDispose.push(() => dio.dispose());
+    room.add(dio.group);
     sideWalls = [];
-    for (const side of ['left', 'right'] as const) {
-      const m = own(std('#e9e1d3', { roughness: 0.9, transparent: true }));
-      sideWalls.push({ mat: m, side });
-      const w = mesh(geo.box, m, side === 'left' ? -0.1 : W + 0.1, H / 2, D / 2, 0.2, H, D + 0.4, false);
-      room.add(w);
-    }
-    const base = own(std('#8b7355'));
-    room.add(mesh(geo.box, base, W / 2, 0.06, 0.01, W, 0.12, 0.04, false));
-
-    // Windows, with the sky at this hour.
-    const skyMat = own(new THREE.MeshBasicMaterial({ map: sky.tex }));
-    const frame = own(std('#ffffff', { roughness: 0.4 }));
-    for (const win of l.windows) {
-      const g = new THREE.Group();
-      const h = 1.5;
-      if (win.side === 'back') g.position.set(win.at, 1.75, 0.005);
-      else {
-        g.position.set(win.side === 'left' ? 0.005 : W - 0.005, 1.75, win.at);
-        g.rotation.y = win.side === 'left' ? Math.PI / 2 : -Math.PI / 2;
-      }
-      g.add(mesh(geo.plane, skyMat, 0, 0, 0, win.w, h, 1, false));
-      g.add(mesh(geo.box, frame, 0, h / 2, 0.02, win.w + 0.12, 0.08, 0.06, false));
-      g.add(mesh(geo.box, frame, 0, -h / 2, 0.04, win.w + 0.2, 0.08, 0.14, false));
-      g.add(mesh(geo.box, frame, -win.w / 2, 0, 0.02, 0.07, h, 0.06, false));
-      g.add(mesh(geo.box, frame, win.w / 2, 0, 0.02, 0.07, h, 0.06, false));
-      g.add(mesh(geo.box, frame, 0, 0, 0.02, 0.05, h, 0.05, false));
-      room.add(g);
-    }
 
     // The board, on the back wall.
     {
@@ -470,13 +443,14 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       board = { ctx, tex: btex, key: '', rows: [] };
       const g = new THREE.Group();
       g.position.set(l.board.x, 0.45 + bh / 2, 0.04);
-      g.add(mesh(geo.box, own(std('#5b4636', { roughness: 0.6 })), 0, 0, 0, bw + 0.24, bh + 0.24, 0.08, false));
+      // A whiteboard in a dark green frame, its columns of sticky notes.
+      g.add(mesh(geo.roundTop, own(std('#2f4a3a', { roughness: 0.5 })), 0, 0, 0, bw + 0.16, bh + 0.16, 0.06, false));
       const face = mesh(geo.plane, own(new THREE.MeshBasicMaterial({ map: btex, toneMapped: false })), 0, 0, 0.045, bw, bh, 1, false);
       g.add(face);
       board.face = face;
       room.add(g);
       // A ledge below it, with markers.
-      room.add(mesh(geo.box, own(std('#5b4636')), l.board.x, 0.3, 0.15, bw * 0.7, 0.05, 0.22));
+      room.add(mesh(geo.roundTop, own(std('#2f4a3a')), l.board.x, 0.42, 0.1, bw * 0.6, 0.04, 0.14));
       const hit = mesh(geo.box, mats.hit, l.board.x, 1.5, 0.3, bw, 3, 0.6, false);
       hit.userData.ref = 'board';
       room.add(hit);
@@ -488,60 +462,40 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const place = l.areas[i];
       const area = input.model.areas[i];
       const r = place.rug;
-      const rugEdge = own(std(new THREE.Color().setHSL(area.hue / 360, 0.35, 0.45), { roughness: 0.95 }));
-      const rugMat = own(std(new THREE.Color().setHSL(area.hue / 360, 0.28, 0.3), { roughness: 0.95 }));
+      // A soft pastel rug in the project's colour, its corners rounded.
+      const rugMat = own(std(new THREE.Color().setHSL(area.hue / 360, 0.5, 0.78), { roughness: 0.95 }));
+      const rugEdge = own(std(new THREE.Color().setHSL(area.hue / 360, 0.45, 0.68), { roughness: 0.95 }));
       const rw = r.x1 - r.x0;
       const rd = r.z1 - r.z0;
-      const edge = mesh(geo.box, rugEdge, (r.x0 + r.x1) / 2, 0.006, (r.z0 + r.z1) / 2, rw, 0.012, rd, false);
-      const inner = mesh(geo.box, rugMat, (r.x0 + r.x1) / 2, 0.009, (r.z0 + r.z1) / 2, rw - 0.24, 0.014, rd - 0.24, false);
-      room.add(edge, inner);
+      room.add(mesh(own(new RoundedBoxGeometry(rw, 0.02, rd, 2, 0.009)), rugEdge, (r.x0 + r.x1) / 2, 0.01, (r.z0 + r.z1) / 2, 1, 1, 1, false));
+      room.add(mesh(own(new RoundedBoxGeometry(rw - 0.2, 0.022, rd - 0.2, 2, 0.01)), rugMat, (r.x0 + r.x1) / 2, 0.012, (r.z0 + r.z1) / 2, 1, 1, 1, false));
 
-      // The counter: a long desk with a front in the project's colour.
+      // The lead's counter: a rounded wooden front desk, its front in the
+      // project's colour.
       const { x: lx, z: lz } = place.lead;
-      const counterFront = own(std(new THREE.Color().setHSL(area.hue / 360, 0.45, 0.42)));
-      room.add(mesh(geo.roundTop, mats.deskTop, lx, 1.0, lz, COUNTER.w + 0.1, 0.06, COUNTER.d + 0.1));
-      room.add(mesh(geo.box, counterFront, lx, 0.5, lz + 0.05, COUNTER.w, 0.96, COUNTER.d - 0.1));
-      // The sign, on two posts over the counter.
-      const sign = sprite(1024, 200, 3.0);
-      own(sign.tex);
-      drawSign(sign.ctx, area.label, area.hue);
-      sign.tex.needsUpdate = true;
-      // The sign stands at the area's back edge, behind its desks, so it is
-      // never between the camera and one of them.
-      const sg = new THREE.Group();
-      sg.position.set(lx, 0, r.z0 + 0.15);
-      sg.add(mesh(geo.plane, own(new THREE.MeshBasicMaterial({ map: sign.tex, transparent: true, toneMapped: false })), 0, 2.45, 0, 3.0, 0.586, 1, false));
-      sg.add(mesh(geo.cyl, mats.pole, -1.35, 1.25, -0.02, 0.025, 2.5, 0.025), mesh(geo.cyl, mats.pole, 1.35, 1.25, -0.02, 0.025, 2.5, 0.025));
-      room.add(sg);
-      signs.push(sg);
+      const counterFront = own(std(new THREE.Color().setHSL(area.hue / 360, 0.5, 0.62), { roughness: 0.6 }));
+      room.add(mesh(geo.roundTop, mats.oak, lx, 1.0, lz, COUNTER.w + 0.1, 0.07, COUNTER.d + 0.1));
+      room.add(mesh(geo.roundSoft, counterFront, lx, 0.5, lz + 0.05, COUNTER.w, 0.96, COUNTER.d - 0.1));
       addDesk(input, `${area.project}/lead`, lx, lz, area.hue, true);
       for (const d of place.desks) addDesk(input, d.id, d.x, d.z, area.hue, false);
     }
     for (const [i, p] of l.plants.entries()) room.add(plant(mats, p.x, p.z, i));
 
-    // The lobby: a sofa facing the room, a coffee table, a water cooler and a lamp.
+    // The lobby: a sofa facing the room and a coffee table.
     {
       const s = l.sofa;
       const sx = (s.x0 + s.x1) / 2;
       const sz = (s.z0 + s.z1) / 2;
-      const fabric = own(std('#2f7d7a', { roughness: 0.95 }));
-      const cushion = own(std('#3a9692', { roughness: 0.95 }));
-      room.add(mesh(geo.roundTop, fabric, sx, 0.25, sz, 2.6, 0.4, 0.95));
-      room.add(mesh(geo.roundTop, cushion, sx - 0.62, 0.5, sz - 0.05, 1.18, 0.16, 0.75), mesh(geo.roundTop, cushion, sx + 0.62, 0.5, sz - 0.05, 1.18, 0.16, 0.75));
-      room.add(mesh(geo.roundTop, fabric, sx, 0.75, sz + 0.38, 2.6, 0.7, 0.22));
-      room.add(mesh(geo.roundTop, fabric, sx - 1.25, 0.55, sz, 0.18, 0.5, 0.95), mesh(geo.roundTop, fabric, sx + 1.25, 0.55, sz, 0.18, 0.5, 0.95));
+      const fabric = own(std('#9cb89a', { roughness: 0.95 }));
+      const cushion = own(std('#b3cbb0', { roughness: 0.95 }));
+      room.add(mesh(geo.roundSoft, fabric, sx, 0.25, sz, 2.6, 0.4, 0.95));
+      room.add(mesh(geo.roundSoft, cushion, sx - 0.62, 0.5, sz - 0.05, 1.18, 0.16, 0.75), mesh(geo.roundSoft, cushion, sx + 0.62, 0.5, sz - 0.05, 1.18, 0.16, 0.75));
+      room.add(mesh(geo.roundSoft, fabric, sx, 0.75, sz + 0.38, 2.6, 0.7, 0.22));
+      room.add(mesh(geo.roundSoft, fabric, sx - 1.25, 0.55, sz, 0.2, 0.5, 0.95), mesh(geo.roundSoft, fabric, sx + 1.25, 0.55, sz, 0.2, 0.5, 0.95));
       const tz = s.z0 - 1.25 + 0.475;
-      room.add(mesh(geo.roundTop, mats.deskTop, sx, 0.42, tz, 1.3, 0.06, 0.7));
-      for (const [dx, dz] of [[-0.55, -0.25], [0.55, -0.25], [-0.55, 0.25], [0.55, 0.25]]) room.add(mesh(geo.cyl, mats.deskLeg, sx + dx, 0.2, tz + dz, 0.025, 0.4, 0.025));
-      room.add(mesh(geo.cyl, mats.mug, sx + 0.3, 0.5, tz + 0.05, 0.05, 0.1, 0.05), mesh(geo.cyl, mats.mug, sx - 0.2, 0.5, tz - 0.1, 0.05, 0.1, 0.05));
-      // Water cooler.
-      const cz = l.lobby.z0 + 1.2;
-      room.add(mesh(geo.box, own(std('#e5e7eb')), 0.6, 0.5, cz, 0.4, 1.0, 0.4));
-      room.add(mesh(geo.cyl, own(std('#7dd3fc', { transparent: true, opacity: 0.7, roughness: 0.1 })), 0.6, 1.22, cz, 0.15, 0.45, 0.15));
-      // A floor lamp by the sofa, warm.
-      room.add(mesh(geo.cyl, mats.deskLeg, sx + 1.75, 0.8, sz, 0.02, 1.6, 0.02));
-      lampShade = mesh(geo.cyl, own(std('#fde7c2', { emissive: '#ffcf8a', emissiveIntensity: 0.6 })), sx + 1.75, 1.65, sz, 0.22, 0.3, 0.22);
-      room.add(lampShade);
+      room.add(mesh(geo.roundTop, mats.oak, sx, 0.42, tz, 1.3, 0.06, 0.7));
+      for (const [dx, dz] of [[-0.55, -0.25], [0.55, -0.25], [-0.55, 0.25], [0.55, 0.25]]) room.add(mesh(geo.cyl, mats.metal, sx + dx, 0.2, tz + dz, 0.025, 0.4, 0.025));
+      room.add(mesh(geo.mug, mats.ceramic, sx + 0.3, 0.45, tz + 0.05), mesh(geo.mug, mats.ceramic, sx - 0.2, 0.45, tz - 0.1));
     }
 
     // The sun's shadow covers the room.
@@ -558,7 +512,6 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     boxes = walkable(l, RADIUS);
     bounds = { x0: l.room.x0 + RADIUS, z0: l.room.z0 + RADIUS, x1: l.room.x1 - RADIUS, z1: l.room.z1 - RADIUS };
   }
-  let lampShade: THREE.Mesh | undefined;
 
   // addDesk puts an agent's desk at (x, z): the desk, its chair, the laptop
   // and the monitor facing you, the robot, its beacon, bubble, name tag and
@@ -612,9 +565,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         }
       }
     }
-    // An office chair under the robot: seat, back, gas lift, five-star base.
-    put(g, mesh(geo.roundSoft, mats.fabric, rx, 0.45, cz, 0.5, 0.08, 0.48));
-    const back = put(g, mesh(geo.roundSoft, mats.fabric, rx, 0.8, cz - 0.25, 0.48, 0.5, 0.07));
+    // An office chair under the agent, in one of the room's pastels.
+    const seatMat = mats.chairs[n % mats.chairs.length];
+    put(g, mesh(geo.roundSoft, seatMat, rx, 0.45, cz, 0.5, 0.08, 0.48));
+    const back = put(g, mesh(geo.roundSoft, seatMat, rx, 0.8, cz - 0.25, 0.48, 0.5, 0.07));
     back.rotation.x = 0.12;
     put(g, mesh(geo.roundTop, mats.metal, rx, 0.6, cz - 0.27, 0.05, 0.22, 0.03));
     put(g, mesh(geo.cyl, mats.metal, rx, 0.26, cz, 0.028, 0.34, 0.028));
@@ -672,7 +626,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     void hue;
     disp.push(() => fig.dispose());
     // Scaled up, so seated on the seat from below.
-    fig.group.position.set(rx, lead ? -0.29 : -0.22, cz + 0.1);
+    fig.group.position.set(rx, lead ? -0.36 : -0.3, cz + 0.1);
     g.add(fig.group);
 
     // Its beacon and bubble above it, its name tag, and a ring and a beam of
@@ -798,7 +752,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         const walk = document.createElement('button');
         walk.type = 'button';
         walk.style.cssText =
-          'pointer-events:auto;display:flex;align-items:center;gap:6px;max-width:190px;padding:2px 8px 2px 6px;border-radius:999px;background:rgba(10,14,24,.9);color:#fff;font:600 11.5px/1.25 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer';
+          'pointer-events:auto;display:flex;align-items:center;gap:5px;max-width:170px;padding:2px 8px 2px 6px;border-radius:7px;background:#fff;color:#2b2620;font:600 11px/1.3 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(40,30,20,.18);cursor:pointer';
         const dot = document.createElement('span');
         dot.style.cssText = 'flex:none;width:8px;height:8px;border-radius:50%';
         const label = document.createElement('span');
@@ -833,14 +787,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       }
       const walkBtn = marker.children[0] as HTMLButtonElement;
       (walkBtn.children[0] as HTMLElement).style.background = color;
-      walkBtn.style.border = `1px solid ${color}88`;
+      walkBtn.style.border = loudNow ? `2px solid ${color}` : '1px solid rgba(0,0,0,.06)';
       (walkBtn.children[1] as HTMLElement).textContent = title;
       walkBtn.setAttribute('aria-label', opts.markerLabel(title));
       marker.dataset.loud = loudNow ? '1' : '';
-      walkBtn.style.background = loudNow ? 'rgba(10,14,24,.9)' : 'rgba(10,14,24,.62)';
-      walkBtn.style.fontWeight = loudNow ? '600' : '500';
-      walkBtn.style.color = loudNow ? '#fff' : '#e2e8f0';
-      if (!loudNow) walkBtn.style.border = '1px solid rgba(255,255,255,.08)';
+      walkBtn.style.fontWeight = loudNow ? '700' : '600';
       (marker.children[1] as HTMLElement).setAttribute('aria-label', opts.moreLabel);
     }
     const pr = desk?.pr;
@@ -850,50 +801,21 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
 
   // lighting follows the clock: daylight through the windows by day, a warm
   // lamp-lit room at night.
+  // lighting is one bright, soft day: a warm sky light, a sun from the
+  // camera's side for faces and soft shadows, a little bounce.
   function lighting(force = false) {
-    const now = new Date();
-    const hour = now.getHours() + now.getMinutes() / 60;
-    const h = Math.floor(hour * 4) / 4;
-    if (!force && h === skyHour) return;
-    skyHour = h;
-    paintSky(sky.ctx, hour);
-    sky.tex.needsUpdate = true;
-    const night = hour < 6 || hour >= 20;
-    const dusk = !night && (hour < 8 || hour >= 17.5);
+    if (!force) return;
     const W = lay.room.x1;
     const D = lay.room.z1;
-    // The sun comes in from the left in the morning, the right in the afternoon.
-    const side = hour < 13 ? -1 : 1;
-    sun.position.set(W / 2 + side * W * 0.6, 14, D / 2 - D * 0.5);
-    if (night) {
-      hemi.color.set('#c7d2fe');
-      hemi.groundColor.set('#4b3a2e');
-      hemi.intensity = 0.55;
-      sun.color.set('#ffd9a8');
-      sun.intensity = 1.1;
-      fill.intensity = 0.12;
-      scene.environmentIntensity = 0.3;
-      scene.background = new THREE.Color('#141a2a');
-    } else if (dusk) {
-      hemi.color.set('#ffe2c4');
-      hemi.groundColor.set('#7a5a44');
-      hemi.intensity = 0.6;
-      sun.color.set('#ffb27a');
-      sun.intensity = 2.0;
-      fill.intensity = 0.1;
-      scene.environmentIntensity = 0.38;
-      scene.background = new THREE.Color('#2a2236');
-    } else {
-      hemi.color.set('#e0ecff');
-      hemi.groundColor.set('#8a6a4c');
-      hemi.intensity = 0.65;
-      sun.color.set('#fff1dc');
-      sun.intensity = 2.4;
-      fill.intensity = 0.08;
-      scene.environmentIntensity = 0.45;
-      scene.background = new THREE.Color('#1c2333');
-    }
-    if (lampShade) (lampShade.material as THREE.MeshStandardMaterial).emissiveIntensity = night || dusk ? 1.6 : 0.4;
+    sun.position.set(W / 2 + W * 0.45, 16, D / 2 + D * 0.55);
+    hemi.color.set('#fff6ea');
+    hemi.groundColor.set('#e8cfae');
+    hemi.intensity = 1.35;
+    sun.color.set('#fff0dc');
+    sun.intensity = 2.1;
+    fill.intensity = 0.15;
+    scene.environmentIntensity = 0.35;
+    scene.background = null;
   }
 
   function apply(input: SceneInput) {
@@ -983,7 +905,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   function overview() {
     zoomTo(0);
     zoomFocus = undefined;
-    cam.yaw = 0;
+    cam.yaw = HOME_YAW;
     held = true;
     poke();
   }
@@ -1154,7 +1076,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let fitCache = { key: '', dist: 20, shift: 0 };
   let inset = 0;
   function fitDistance(W: number, D: number, aspect: number, pitch: number): { dist: number; shift: number } {
-    const key = `${W.toFixed(2)}:${D.toFixed(2)}:${aspect.toFixed(3)}:${inset}`;
+    const key = `${W.toFixed(2)}:${D.toFixed(2)}:${aspect.toFixed(3)}:${inset}:${HOME_YAW}`;
     if (fitCache.key === key) return fitCache;
     const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     // The share of the width the overlay covers, which the target moves left
@@ -1165,17 +1087,18 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     fitProbe.updateProjectionMatrix();
     const tx = W / 2;
     const tz = D / 2 + 0.6;
-    const corners = [0, W].flatMap((x) => [0, D].flatMap((z) => [0, 2.2].map((y) => new THREE.Vector3(x, y, z))));
+    // The slab's underside and the walls' tops, all of the diorama.
+    const corners = [-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].flatMap((z) => [-0.45, 3.6].map((y) => new THREE.Vector3(x, y, z))));
     const v = new THREE.Vector3();
     const shiftAt = (d: number) => d * tan * aspect * cover;
     const fits = (d: number) => {
       const sx = tx - shiftAt(d);
-      fitProbe.position.set(sx, Math.sin(pitch) * d, tz + Math.cos(pitch) * d);
+      fitProbe.position.set(sx + Math.sin(HOME_YAW) * Math.cos(pitch) * d, Math.sin(pitch) * d, tz + Math.cos(HOME_YAW) * Math.cos(pitch) * d);
       fitProbe.lookAt(sx, 0, tz);
       fitProbe.updateMatrixWorld();
       return corners.every((c) => {
         v.copy(c).project(fitProbe);
-        return v.x > left && v.x < 0.94 && v.y < 0.7 && v.y > -0.8 && v.z < 1;
+        return v.x > left && v.x < 0.95 && v.y < 0.78 && v.y > -0.88 && v.z < 1;
       });
     };
     let lo = 4;
@@ -1211,7 +1134,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     if (Math.abs(closeTarget - cam.closeK) < 1e-3) cam.closeK = closeTarget;
 
     // The overview fits the room, from the front and above.
-    const oPitch = 0.92;
+    const oPitch = OVERVIEW_PITCH;
     const { dist: oDist, shift: oShift } = fitDistance(W, D, aspect, oPitch);
     // Following: behind you, looking down at you; close up at a desk, lower
     // and nearer, the monitor and the robot in view.
@@ -1288,6 +1211,14 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const fz = d.root.position.z + d.figure.group.position.z;
       const near2 = (pos.x - fx) ** 2 + (pos.z - fz) ** 2 < 25;
       d.figure.pose(d.tone, t, motion, near2 ? { x: pos.x - fx, z: pos.z - fz } : undefined);
+      // From afar the characters grow a little, toy-like, so the room reads
+      // as theirs; always seated on their chairs.
+      const fg = d.figure.group;
+      const base = (fg.userData.base as number | undefined) ?? (fg.userData.base = fg.scale.x);
+      const far = fg.getWorldPosition(figPos).distanceTo(camera.position);
+      const k = base * (1 + Math.min(0.45, Math.max(0, (far - 12) / 40)));
+      fg.scale.setScalar(k);
+      fg.position.y = 0.49 * (1 - k);
       // Up close, what floats over the desks beside the camera would be in
       // the way of the one you're looking at.
       // So does the row in front of the desk you're at: it sits between you
@@ -1336,8 +1267,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const chip = areaChips.get(place.project);
       if (!chip) continue;
       const sg = signs[i];
-      ap.set(sg ? sg.position.x : place.lead.x, 3.4, sg ? sg.position.z : place.rug.z0);
-      const far = ap.distanceTo(camera.position) > 15;
+      // At the rug's front edge, on the floor, as a pod's name plate.
+      void sg;
+      ap.set(place.lead.x, 0.05, place.rug.z1 + 0.15);
+      const far = cam.closeK < 0.3;
       ap.project(camera);
       // Not under the top bar, whose 4.5rem it would hide beneath.
       const on = far && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1 && ((1 - ap.y) / 2) * canvas.clientHeight > 100;
@@ -1346,10 +1279,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         const cx = ((ap.x + 1) / 2) * canvas.clientWidth;
         const cy = ((1 - ap.y) / 2) * canvas.clientHeight;
         const cxIn = Math.min(canvas.clientWidth - 80, Math.max(80, cx));
-        chip.style.transform = `translate(${cxIn}px, ${cy}px) translate(-50%, -100%)`;
+        chip.style.transform = `translate(${cxIn}px, ${cy}px) translate(-50%, -50%)`;
         const w = chip.offsetWidth || 140;
         const h = chip.offsetHeight || 38;
-        taken.push({ x0: cx - w / 2, x1: cx + w / 2, y0: cy - h, y1: cy });
+        taken.push({ x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2 });
       }
       if (sg && on) sg.visible = false;
     }
@@ -1375,7 +1308,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       tag.visible = false;
       if (marker) {
         tp.project(camera);
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || (dist < 10 && cam.closeK < 0.3));
+        // Every character wears its name tag, as in a real office; up close
+        // only the loud ones.
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || (cam.closeK < 0.3 && dist < 18));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         marker.style.display = onScreen ? 'flex' : 'none';
         if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: Math.min(canvas.clientHeight - 70, ((1 - tp.y) / 2) * canvas.clientHeight), loud });
@@ -1522,7 +1457,22 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     return {};
   }
 
+  // Two fingers on a touch screen pinch to zoom.
+  const touches = new Map<number, { x: number; y: number }>();
+  let pinchFrom = 0;
+  const pinchDist = () => {
+    const [a, b] = [...touches.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  };
   const onPointerDown = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) {
+        pinchFrom = pinchDist();
+        pointer = undefined;
+        return;
+      }
+    }
     canvas.focus({ preventScroll: true });
     // What's under the pointer as it's pressed is what the click is for, even
     // if the camera moves on before it's released.
@@ -1531,6 +1481,17 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     poke();
   };
   const onPointerMove = (e: PointerEvent) => {
+    if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2 && pinchFrom > 0) {
+        const now = pinchDist();
+        // Spreading the fingers comes in; pinching them goes out.
+        zoomTo(zoomZ + Math.log(now / pinchFrom) * 0.9);
+        pinchFrom = now;
+        poke();
+        return;
+      }
+    }
     if (pointer && pointer.id === e.pointerId) {
       const dx = e.clientX - pointer.x;
       if (!pointer.dragged && Math.hypot(dx, e.clientY - pointer.y) > 5) pointer.dragged = true;
@@ -1541,7 +1502,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
           held = true;
           cam.yaw = eased.yaw;
         }
-        cam.yaw = Math.max(-0.6, Math.min(0.6, cam.yaw - e.movementX * 0.0035));
+        cam.yaw = Math.max(HOME_YAW - 0.7, Math.min(HOME_YAW + 0.5, cam.yaw - e.movementX * 0.0035));
         canvas.style.cursor = 'grabbing';
         poke();
         return;
@@ -1573,6 +1534,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     });
   }
   const onPointerUp = (e: PointerEvent) => {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinchFrom = 0;
     if (!pointer || pointer.id !== e.pointerId) return;
     const p = pointer;
     pointer = undefined;
@@ -1603,7 +1566,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     e.preventDefault();
     // A mouse wheel's notch is a whole step, whatever its delta; a
     // trackpad's little deltas are parts of one.
-    const d = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+    // A trackpad's pinch arrives as a ctrl-wheel with small deltas: scaled
+    // up so a pinch zooms about as far as it moves.
+    const d = (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY) * (e.ctrlKey ? 4 : 1);
     const n = Math.max(-3, Math.min(3, Math.abs(d) >= 50 ? Math.sign(d) * Math.max(1, Math.abs(d) / 120) : d / 100));
     // At a desk, a turn of the wheel outwards stands back from it.
     if (cam.closeK > 0.5 && n > 0) {
@@ -1620,7 +1585,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         const before = { x: eased.tx, z: eased.tz, d: eased.dist };
         const z1 = Math.max(0, Math.min(1, zoomZ - n * 0.125));
         const f1 = Math.min(1, z1 * 2);
-        const { dist: oDist, shift } = fitDistance(W, D, camera.aspect || 1, 0.92);
+        const { dist: oDist, shift } = fitDistance(W, D, camera.aspect || 1, OVERVIEW_PITCH);
         const fd1 = z1 <= 0.5 ? FOLLOW_FAR : FOLLOW_FAR - (z1 - 0.5) * 2 * (FOLLOW_FAR - FOLLOW_NEAR);
         const d1 = oDist + (fd1 - oDist) * f1;
         const k = d1 / Math.max(0.01, before.d);
@@ -1681,6 +1646,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('pointermove', onPointerMove);
   canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointercancel', onPointerUp);
   canvas.addEventListener('pointerleave', onPointerLeave);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1689,11 +1655,6 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   window.addEventListener('blur', onBlur);
   document.addEventListener('visibilitychange', onVisibility);
   // The sky moves on with the clock, even while you're away.
-  const tick = window.setInterval(() => {
-    const before = skyHour;
-    lighting();
-    if (skyHour !== before) poke();
-  }, 60_000);
 
   return {
     apply,
@@ -1713,7 +1674,6 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       disposed = true;
       cancelAnimationFrame(raf);
       window.clearTimeout(nap);
-      window.clearInterval(tick);
       ro.disconnect();
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
@@ -1724,9 +1684,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       mePulse?.cancel();
       markerLayer.remove();
       me.dispose();
-      floorTex.dispose();
-      sky.tex.dispose();
-      for (const m of Object.values(mats)) m.dispose();
+      for (const m of Object.values(mats)) (Array.isArray(m) ? m : [m]).forEach((x) => x.dispose());
       env.dispose();
       pmrem.dispose();
       renderer.dispose();
