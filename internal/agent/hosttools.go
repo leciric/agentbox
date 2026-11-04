@@ -51,7 +51,7 @@ func nodeScript(path string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	head := make([]byte, 128)
 	n, _ := f.Read(head)
 	line, _, _ := strings.Cut(string(head[:n]), "\n")
