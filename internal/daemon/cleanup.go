@@ -356,7 +356,11 @@ func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.
 		}
 		cancel()
 	}
+	// The machine goes before its chat is stopped: an open turn dies with it,
+	// which is the destroy's doing, not a failure.
+	s.expectStop(a.Ref())
 	if err := m.Destroy(ctx, a, opts); err != nil {
+		s.agentBack(a.Ref())
 		return err
 	}
 	s.chat.Stop(a.Ref(), "the agent was destroyed")

@@ -1452,12 +1452,16 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 				s.recordErr(errStartFailed, a.AI, err, agentNames(a)...)
 			}
 		case "stop":
+			s.expectStop(a.Ref())
 			s.chat.Stop(a.Ref(), "the agent was stopped")
 			err = s.stopAgent(ctx, m, a)
 		case "pause":
+			s.expectStop(a.Ref())
 			err = m.Pause(ctx, a)
 		case "resume":
-			err = m.Resume(ctx, a)
+			if err = m.Resume(ctx, a); err == nil {
+				s.agentBack(a.Ref())
+			}
 		case "session":
 			err = m.PrepareShell(ctx, a)
 		}
