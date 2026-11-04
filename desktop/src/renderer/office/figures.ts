@@ -159,22 +159,26 @@ function boxie(k: Kit): Build {
   // The head: the logo's cube, rounded.
   const S = 0.46;
   const headG = gradient(new RoundedBoxGeometry(S, S * 0.92, S * 0.9, 6, 0.12), S);
+  // (R below is this bevel.)
   const head = at(new THREE.Mesh(headG, k.m(toon('#ffffff', { vertexColors: true, roughness: 0.35 }))), 0, 0.34 + S * 0.46, 0);
   body.add(head);
   // White piping along its edges, as the logo's line art.
   const pipe = k.m(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 }));
-  const hw = S / 2 - 0.035;
-  const hh = (S * 0.92) / 2 - 0.035;
-  const hd = (S * 0.9) / 2 - 0.035;
+  // On the rounded edges themselves: a bevel of r puts its middle r(1 - 1/√2) in.
+  const R = 0.12;
+  const inset = R * (1 - Math.SQRT1_2);
+  const hw = S / 2 - inset;
+  const hh = (S * 0.92) / 2 - inset;
+  const hd = (S * 0.9) / 2 - inset;
   const edge = (len: number, x: number, y: number, z: number, axis: 'x' | 'y' | 'z') => {
-    const e = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.009, len, 4, 8), pipe), x, y, z);
+    const e = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.011, len, 4, 8), pipe), x, y, z);
     if (axis === 'x') e.rotation.z = Math.PI / 2;
     if (axis === 'z') e.rotation.x = Math.PI / 2;
     head.add(e);
   };
-  for (const y of [-hh, hh]) for (const z of [-hd, hd]) edge(S - 0.16, 0, y + Math.sign(y) * 0.03, z + Math.sign(z) * 0.03, 'x');
-  for (const x of [-hw, hw]) for (const z of [-hd, hd]) edge(S * 0.92 - 0.16, x + Math.sign(x) * 0.03, 0, z + Math.sign(z) * 0.03, 'y');
-  for (const x of [-hw, hw]) for (const y of [-hh, hh]) edge(S * 0.9 - 0.16, x + Math.sign(x) * 0.03, y + Math.sign(y) * 0.03, 0, 'z');
+  for (const y of [-hh, hh]) for (const z of [-hd, hd]) edge(S - 2 * R, 0, y, z, 'x');
+  for (const x of [-hw, hw]) for (const z of [-hd, hd]) edge(S * 0.92 - 2 * R, x, 0, z, 'y');
+  for (const x of [-hw, hw]) for (const y of [-hh, hh]) edge(S * 0.9 - 2 * R, x, y, 0, 'z');
   // The face: a dark, glossy screen on the front.
   const screen = at(new THREE.Mesh(new RoundedBoxGeometry(S * 0.78, S * 0.6, 0.03, 4, 0.06), k.m(new THREE.MeshStandardMaterial({ color: '#1a1530', roughness: 0.2, metalness: 0.1, emissive: '#221a44', emissiveIntensity: 0.4 }))), 0, -0.01, S * 0.45);
   head.add(screen);
