@@ -37,6 +37,8 @@ export type OfficeSceneOptions = {
   onActivate(ref: string): void;
   // You moved for the first time (the controls hint can go).
   onMoved(): void;
+  // A marker's name for screen readers: "Walk to {title}".
+  markerLabel(title: string): string;
 };
 
 export type OfficeScene = {
@@ -46,6 +48,10 @@ export type OfficeScene = {
   setReducedMotion(on: boolean): void;
   dispose(): void;
 };
+
+// Where you were when you left the Office, so coming back from an agent's
+// chat puts you back at its desk rather than at the door.
+let lastVisit: { pos: P; facing: number; follow: number; yaw: number; dist: number } | undefined;
 
 const RADIUS = 0.3;
 const SPEED = 3.4; // metres a second, walking
@@ -121,7 +127,7 @@ type DeskObj = {
   root: THREE.Group;
   figure: Figure;
   screen: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; data?: Screen; mat: THREE.MeshBasicMaterial };
-  tag: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string };
+  tag: { sprite: THREE.Sprite; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string };
   bubble: { sprite: THREE.Sprite; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string };
   beacon: THREE.Mesh;
   ring: THREE.Mesh;
@@ -159,6 +165,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   canvas.tabIndex = 0;
   canvas.setAttribute('data-office-canvas', '');
   host.appendChild(canvas);
+  // Markers over the canvas for the desks that need you: from far off a name
+  // tag is a smudge, and these are what you'd look for. Each walks you there.
+  const markerLayer = document.createElement('div');
+  markerLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden';
+  host.appendChild(markerLayer);
+  const markers = new Map<string, HTMLButtonElement>();
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 200);
@@ -214,6 +226,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   const cam = { yaw: 0, followK: 0, dist: 11, closeK: 0 };
   const eased = { tx: 0, ty: 0, tz: 0, dist: 20, pitch: 0.9, yaw: 0, init: false };
   let near: string | undefined;
+  // What the close-up looks at, kept while it eases out.
+  let focusRef: string | undefined;
   let stillFor = 0;
 
   // Input.
@@ -239,6 +253,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     scene.remove(room);
     for (const d of desks.values()) for (const f of d.dispose) f();
     desks.clear();
+    for (const m of markers.values()) m.remove();
+    markers.clear();
     hits.length = 0;
     room = new THREE.Group();
     scene.add(room);
@@ -495,7 +511,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       root: g,
       figure: fig,
       screen: { ctx, tex, key: '', mat: screenMat },
-      tag: { ctx: tag.ctx, tex: tag.tex, key: '' },
+      tag: { sprite: tag.sprite, ctx: tag.ctx, tex: tag.tex, key: '' },
       bubble: { sprite: bubble.sprite, ctx: bubble.ctx, tex: bubble.tex, key: '' },
       beacon,
       ring,
@@ -554,6 +570,34 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       drawBubble(d.bubble.ctx, b[0], b[1]);
       d.bubble.tex.needsUpdate = true;
     }
+    // Its marker, while it needs you.
+    const loudNow = tone === 'needs' || tone === 'error';
+    let marker = markers.get(d.ref);
+    if (loudNow) {
+      if (!marker) {
+        marker = document.createElement('button');
+        marker.type = 'button';
+        marker.dataset.officeMarker = d.ref;
+        marker.style.cssText =
+          'position:absolute;left:0;top:0;pointer-events:auto;display:flex;align-items:center;gap:6px;max-width:230px;padding:3px 10px 3px 7px;border-radius:999px;background:rgba(10,14,24,.9);color:#fff;font:600 12px/1.25 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer;will-change:transform';
+        const dot = document.createElement('span');
+        dot.style.cssText = 'flex:none;width:8px;height:8px;border-radius:50%';
+        const label = document.createElement('span');
+        label.style.cssText = 'overflow:hidden;text-overflow:ellipsis';
+        marker.append(dot, label);
+        const ref = d.ref;
+        marker.addEventListener('click', () => walkTo(ref));
+        markerLayer.appendChild(marker);
+        markers.set(d.ref, marker);
+      }
+      (marker.firstChild as HTMLElement).style.background = color;
+      marker.style.border = `1px solid ${color}88`;
+      (marker.lastChild as HTMLElement).textContent = title;
+      marker.setAttribute('aria-label', opts.markerLabel(title));
+    } else if (marker) {
+      marker.remove();
+      markers.delete(d.ref);
+    }
     const pr = desk?.pr;
     d.flag.visible = !!pr && pr.state !== 'closed';
     if (pr) d.flagMat.color.set(pr.checks === 'failing' ? '#ef4444' : pr.state === 'merged' ? '#a78bfa' : pr.state === 'draft' ? '#9ca3af' : '#22c55e');
@@ -610,7 +654,19 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       layKey = key;
       lay = layOut(input.model);
       build(input);
-      if (!placed) {
+      if (!placed && lastVisit) {
+        Object.assign(pos, lastVisit.pos);
+        facing = lastVisit.facing;
+        followTarget = lastVisit.follow;
+        cam.followK = lastVisit.follow;
+        cam.yaw = lastVisit.yaw;
+        cam.dist = lastVisit.dist;
+        moved = true;
+        placed = true;
+        const back = path(boxes, bounds, pos, pos);
+        if (back.length) Object.assign(pos, back[back.length - 1]);
+        stillFor = 1;
+      } else if (!placed) {
         pos.x = lay.spawn.x;
         pos.z = lay.spawn.z;
         facing = lay.spawn.face;
@@ -671,9 +727,17 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let last = performance.now();
   let clock = 0;
   let running = false;
-  let lastRender = 0;
+  let nap = 0;
   function wake() {
-    if (running || document.hidden || disposed) return;
+    if (document.hidden || disposed) return;
+    if (nap) {
+      // Napping between idle frames: wake now.
+      window.clearTimeout(nap);
+      nap = 0;
+      raf = requestAnimationFrame(frame);
+      return;
+    }
+    if (running) return;
     running = true;
     last = performance.now();
     raf = requestAnimationFrame(frame);
@@ -689,17 +753,23 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // While nothing moves: a few frames a second for the robots' life, or
     // none at all with reduced motion.
     const lively = busy || idleFor < 4000;
-    const interval = lively ? 0 : motion ? 1000 / 8 : Infinity;
-    if (dirty || now - lastRender >= interval) {
+    if (lively || dirty || motion) {
       dirty = false;
-      lastRender = now;
       render(now);
     }
-    if (!lively && !motion && !dirty) {
+    if (lively) {
+      raf = requestAnimationFrame(frame);
+      return;
+    }
+    if (!motion) {
       running = false;
       return;
     }
-    raf = requestAnimationFrame(frame);
+    // Idle: the robots' life at 8 frames a second, 2 after a minute untouched.
+    nap = window.setTimeout(() => {
+      nap = 0;
+      raf = requestAnimationFrame(frame);
+    }, idleFor > 60_000 ? 500 : 125);
   }
 
   // step moves you and the camera; true while either is still moving.
@@ -783,6 +853,28 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     return camStep(dt) || moving;
   }
 
+  // focusOf is what the close-up looks at, standing at ref: a desk's monitor,
+  // a counter's, or the board, and from how far.
+  function focusOf(ref: string, aspect: number): { x: number; y: number; z: number; dist: number; pitch: number; yaw: number } | undefined {
+    if (ref === 'board') {
+      // From high over the first row, so no desk is in the way, the whole
+      // board in the part of the view the board's list (on the right) leaves.
+      const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+      const bh = Math.min(3.0, lay.board.w * 0.48);
+      const free = Math.max(0.45, 1 - 330 / Math.max(1, canvas.clientWidth));
+      const pitch = 0.5;
+      const dist = Math.max((lay.board.w + 0.5) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.85 * 2 * tan));
+      const vw = 2 * dist * tan * aspect;
+      return { x: lay.board.x + (vw * (1 - free)) / 2, y: 0.6 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
+    }
+    for (const a of lay.areas) {
+      if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
+      const d = a.desks.find((x) => x.id === ref);
+      if (d) return { x: d.x + 0.25, y: 1.0, z: d.z - 0.05, dist: 3.3, pitch: 0.55, yaw: 0.34 };
+    }
+    return undefined;
+  }
+
   // fitDistance is how far back the overview stands for the whole room, its
   // floor and the tops of its walls, to be in view: found by trying, since a
   // tilted view of a box has no neat formula. Kept until the room or the
@@ -826,7 +918,14 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const k = motion ? 1 - Math.exp(-dt * 5) : 1;
     cam.followK += (followTarget - cam.followK) * k;
     if (Math.abs(followTarget - cam.followK) < 1e-3) cam.followK = followTarget;
-    const closeTarget = near && near !== 'board' && stillFor > 0.4 ? 1 : near === 'board' && stillFor > 0.4 ? 0.6 : 0;
+    // Close up at what you're at, and gliding into it over a walk's last
+    // few metres, so you arrive in the close-up rather than settle into it.
+    let closeTarget = near && stillFor > 0.15 ? 1 : 0;
+    if (!closeTarget && routeGoal && route.length) {
+      const rem = Math.hypot(route[0].x - pos.x, route[0].z - pos.z) + pathLengthFrom(route);
+      if (rem < 3.5) closeTarget = 1 - rem / 3.5;
+    }
+    if (closeTarget > 0) focusRef = near ?? routeGoal;
     cam.closeK += (closeTarget - cam.closeK) * (motion ? 1 - Math.exp(-dt * 3) : 1);
     if (Math.abs(closeTarget - cam.closeK) < 1e-3) cam.closeK = closeTarget;
 
@@ -835,19 +934,27 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const oDist = fitDistance(W, D, aspect, oPitch);
     // Following: behind you, looking down at you; close up at a desk, lower
     // and nearer, the monitor and the robot in view.
-    const fPitch = 0.78 - cam.closeK * 0.32;
-    const fDist = cam.dist * (1 - cam.closeK * 0.5);
-    const spot = near ? spotOf(lay, near) : undefined;
-    const ftx = pos.x;
-    const ftz = spot && cam.closeK > 0 ? pos.z - 0.9 * cam.closeK : pos.z;
-    const fty = 0.9;
+    // Close up, the camera looks past your shoulder at the monitor, from the
+    // right so you don't stand in the way.
+    const c = cam.closeK;
+    const focus = focusRef ? focusOf(focusRef, aspect) : undefined;
+    const fPitch = 0.78;
+    const fDist = cam.dist;
     const f = cam.followK;
-    const tx = W / 2 + (ftx - W / 2) * f;
-    const tz = D / 2 + 0.6 + (ftz - D / 2 - 0.6) * f;
-    const ty = fty * f;
-    const dist = oDist + (fDist - oDist) * f;
-    const pitch = oPitch + (fPitch - oPitch) * f;
-    const yaw = cam.yaw;
+    let tx = W / 2 + (pos.x - W / 2) * f;
+    let tz = D / 2 + 0.6 + (pos.z - D / 2 - 0.6) * f;
+    let ty = 0.9 * f;
+    let dist = oDist + (fDist - oDist) * f;
+    let pitch = oPitch + (fPitch - oPitch) * f;
+    let yaw = cam.yaw;
+    if (focus && c > 0) {
+      tx += (focus.x - tx) * c;
+      ty += (focus.y - ty) * c;
+      tz += (focus.z - tz) * c;
+      dist += (focus.dist - dist) * c;
+      pitch += (focus.pitch - pitch) * c;
+      yaw += (focus.yaw - yaw) * c;
+    }
     const before = eased.tx + eased.tz + eased.dist + eased.pitch + eased.yaw;
     if (!eased.init) {
       Object.assign(eased, { tx, ty, tz, dist, pitch, yaw, init: true });
@@ -879,7 +986,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     lighting();
     for (const d of desks.values()) {
       d.figure.pose(d.tone, t, motion);
+      // Up close, what floats over the desks beside the camera would be in
+      // the way of the one you're looking at.
+      const inWay = cam.closeK > 0.3 && d.ref !== focusRef && d.root.position.distanceTo(camera.position) < 4.2;
+      d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone];
       const b = d.beacon;
+      b.visible = !inWay && d.tone !== 'stopped';
       b.rotation.y = motion ? t * (d.tone === 'working' ? 2.2 : 0.8) : 0.6;
       b.position.y = 1.95 + (motion ? Math.sin(t * 2 + b.position.x) * 0.05 : 0);
       const s = d.bubble.sprite;
@@ -889,6 +1001,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         d.ring.scale.setScalar(0.9 + p * 0.5);
         (d.ring.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - p);
       }
+      // The beams stand down while you read the board over them.
+      d.beam.visible = d.tone === 'needs' && !(focusRef === 'board' && cam.closeK > 0.2);
       if (d.beam.visible) (d.beam.material as THREE.MeshBasicMaterial).opacity = 0.09 + (motion ? Math.sin(t * 3) * 0.035 : 0);
       if (d.flag.visible && motion) d.flag.children[1].rotation.y = Math.sin(t * 3 + b.position.x) * 0.25;
       // The monitor you're at blinks its cursor.
@@ -902,6 +1016,49 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       }
       // Hovered: lifted a little.
       d.root.position.y = d.ref === hover ? 0.02 : 0;
+    }
+    // You fade while you look at a monitor, so you never stand in front of it.
+    me.fade(1 - cam.closeK * 0.85);
+    meTag.sprite.visible = cam.closeK < 0.3;
+    // Name tags grow with distance to stay readable, up to a point; from far
+    // off only the ones that need you stay, and up close they get out of the way.
+    const tp = new THREE.Vector3();
+    const shown: { el: HTMLButtonElement; x: number; y: number }[] = [];
+    for (const d of desks.values()) {
+      const tag = d.tag.sprite;
+      tag.getWorldPosition(tp);
+      const dist = tp.distanceTo(camera.position);
+      const marker = markers.get(d.ref);
+      // From afar, a marker stands in for the tag.
+      const far = dist > 15;
+      if (marker) {
+        tp.project(camera);
+        const onScreen = far && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05;
+        marker.style.display = onScreen ? 'flex' : 'none';
+        if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight });
+      }
+      tag.visible = !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && !(marker && far) && dist < 18 && !(cam.closeK > 0.3 && d.root.position.distanceTo(camera.position) < 4.2);
+      const w = Math.min(2.1, Math.max(0.8, dist * 0.085));
+      tag.scale.set(w, (w * 96) / 640, 1);
+    }
+    // Markers that would overlap stack upwards instead, the nearest (lowest
+    // on screen) where it belongs.
+    shown.sort((a, b) => b.y - a.y);
+    const placed: { x0: number; x1: number; y: number }[] = [];
+    for (const m of shown) {
+      const w = m.el.offsetWidth || 120;
+      const h = 24;
+      const x0 = m.x - w / 2;
+      const x1 = m.x + w / 2;
+      const clash = (y: number) => placed.some((p) => x0 < p.x1 + 4 && x1 > p.x0 - 4 && Math.abs(p.y - y) < h);
+      // One step up at most; past that it's a tower, and the list has it.
+      const y = !clash(m.y) ? m.y : !clash(m.y - h) ? m.y - h : undefined;
+      if (y === undefined) {
+        m.el.style.display = 'none';
+        continue;
+      }
+      placed.push({ x0, x1, y });
+      m.el.style.transform = `translate(${m.x}px, ${y}px) translate(-50%, -130%)`;
     }
     const ringO = 0.55 + (motion ? Math.sin(t * 2.5) * 0.25 : 0.2);
     (meRing.material as THREE.MeshBasicMaterial).opacity = ringO;
@@ -1026,6 +1183,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   const onVisibility = () => {
     if (document.hidden) {
       cancelAnimationFrame(raf);
+      window.clearTimeout(nap);
+      nap = 0;
       running = false;
     } else poke();
   };
@@ -1055,8 +1214,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       poke();
     },
     dispose() {
+      lastVisit = { pos: { ...pos }, facing, follow: followTarget, yaw: cam.yaw, dist: cam.dist };
       disposed = true;
       cancelAnimationFrame(raf);
+      window.clearTimeout(nap);
       window.clearInterval(tick);
       ro.disconnect();
       window.removeEventListener('keydown', onKeyDown);
@@ -1065,6 +1226,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       document.removeEventListener('visibilitychange', onVisibility);
       for (const d of roomDispose) d();
       for (const d of desks.values()) for (const f of d.dispose) f();
+      markerLayer.remove();
       me.dispose();
       floorTex.dispose();
       sky.tex.dispose();

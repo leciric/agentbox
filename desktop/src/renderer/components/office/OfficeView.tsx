@@ -3,7 +3,7 @@
 // its data, read from the queries the rest of the app keeps live, and the
 // overlay around the canvas: who needs you, the desk you're at, the controls.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Eye, GitPullRequest, Keyboard, LoaderCircle, MessageSquare, Mouse, Scan, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronUp, Eye, GitPullRequest, Keyboard, LoaderCircle, MessageSquare, Mouse, Scan, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -110,6 +110,18 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   });
   const [viewingPr, setViewingPr] = useState<{ project: string; pr: T.PullRequest } | null>(null);
   const reduced = useReducedMotion();
+  // The needs list: the user's choice, or else open while the window is wide
+  // and you're not at a desk. Arriving somewhere new forgets the choice.
+  const [listChoice, setListChoice] = useState<boolean | null>(null);
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    const el = host.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setWide(el.clientWidth >= 1000));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => setListChoice(null), [near]);
   const office = useOffice();
   const openReview = useOpenReview();
 
@@ -188,6 +200,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
         try {
           made = mod.createOfficeScene(host.current, {
             reducedMotion: reduced,
+            markerLabel: (title) => t('office.walkTo', { title }),
             onNear: setNear,
             onHover: setHover,
             onActivate: (ref) => activate.current(ref),
@@ -236,7 +249,9 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const empty = office.loaded && office.model.areas.length === 0;
   const nearDesk = nearAgent ? deskOf(office.model, nearAgent.ref) : undefined;
   const nearArea = near?.endsWith('/lead') ? office.model.areas.find((a) => leadRef(a.project) === near) : undefined;
-  const hoverTitle = hover && hover !== near ? titleOf(office.model, hover, t('office.board.title')) : undefined;
+  const listOpen = listChoice ?? (wide && !nearDesk && !nearArea);
+  const hoverTitle = hover ? titleOf(office.model, hover, t('office.board.title')) : undefined;
+  const hoverText = hoverTitle ? (hover === near && hover !== 'board' ? t('office.clickToOpen', { title: hoverTitle }) : hover === near ? undefined : t('office.clickToWalk', { title: hoverTitle })) : undefined;
 
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden bg-[#1c2333]" data-office>
@@ -274,18 +289,31 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
         </button>
       </div>
 
-      {/* Who needs you, each a walk away. */}
-      {(needs.length > 0 || review.length > 0) && (
-        <div className="pointer-events-auto absolute left-3 top-16 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col gap-2 overflow-y-auto" data-office-needs>
-          {needs.length > 0 && (
-            <ListCard title={t('office.board.needs')} accent="text-amber-300">
-              {needs.slice(0, 4).map((i) => (
+      {/* Who needs you, each a walk away: open while there's room for it,
+          folded to a pill at a desk or in a small window. */}
+      {(needs.length > 0 || review.length > 0) && near !== 'board' && (
+        <div className="pointer-events-auto absolute left-3 top-16 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col items-start gap-2 overflow-y-auto" data-office-needs={listOpen ? 'open' : 'folded'}>
+          {needs.length > 0 && listOpen && (
+            <ListCard title={t('office.board.needs')} accent="text-amber-300" onFold={() => setListChoice(false)} foldLabel={t('office.fold')}>
+              {needs.map((i) => (
                 <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => walkTo(i.ref)} />
               ))}
-              {needs.length > 4 && <div className="px-2 pb-1 text-[11.5px] text-slate-400">{t('office.board.more', { count: needs.length - 4 })}</div>}
             </ListCard>
           )}
-          <button type="button" className="flex items-center gap-2 self-start rounded-lg bg-slate-950/70 px-2.5 py-1.5 text-[12px] text-slate-300 backdrop-blur-md transition hover:text-white" onClick={() => walkTo('board')} data-office-to-board>
+          {needs.length > 0 && !listOpen && (
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-xl border border-amber-300/30 bg-slate-950/85 px-3 py-2 text-[12.5px] font-medium text-amber-100 shadow-lg backdrop-blur-md transition hover:bg-slate-900"
+              onClick={() => setListChoice(true)}
+              aria-expanded={false}
+              data-office-unfold
+            >
+              <span className="size-2 animate-pulse rounded-full bg-amber-400" />
+              {t('office.count.needs', { count: needs.length })}
+              <ChevronDown className="size-3.5 text-amber-200/70" />
+            </button>
+          )}
+          <button type="button" className="flex items-center gap-2 rounded-lg bg-slate-950/70 px-2.5 py-1.5 text-[12px] text-slate-300 backdrop-blur-md transition hover:text-white" onClick={() => walkTo('board')} data-office-to-board>
             <ArrowRight className="size-3.5" />
             {t('office.toBoard')}
           </button>
@@ -364,9 +392,9 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       {/* The controls, until you've moved; after that a line. */}
       {status === 'ready' && !empty && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3">
-          {hoverTitle && <div className="rounded-lg bg-slate-950/80 px-2.5 py-1 text-[12px] text-white shadow-lg backdrop-blur-md" data-office-hover>{t('office.clickToWalk', { title: hoverTitle })}</div>}
+          {hoverText && <div className="rounded-lg bg-slate-950/85 px-2.5 py-1 text-[12.5px] text-white shadow-lg backdrop-blur-md" data-office-hover>{hoverText}</div>}
           {hint ? (
-            <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-4 gap-y-1.5 rounded-xl border border-white/10 bg-slate-950/80 px-4 py-2.5 text-[12.5px] text-slate-200 shadow-xl backdrop-blur-md" data-office-hint>
+            <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-5 gap-y-1.5 rounded-xl border border-violet-300/30 bg-slate-950/90 px-4 py-2.5 text-[13px] font-medium text-white shadow-xl ring-1 ring-violet-400/20 backdrop-blur-md" data-office-hint>
               <span className="flex items-center gap-1.5"><Mouse className="size-3.5 text-violet-300" />{t('office.hint.click')}</span>
               <span className="flex items-center gap-1.5"><Keyboard className="size-3.5 text-violet-300" />{t('office.hint.keys')}</span>
               <span className="flex items-center gap-1.5"><Eye className="size-3.5 text-violet-300" />{t('office.hint.look')}</span>
@@ -375,7 +403,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
               </button>
             </div>
           ) : (
-            <div className="rounded-lg bg-slate-950/60 px-3 py-1 text-[11.5px] text-slate-300 backdrop-blur-md" data-office-hint-short>{t('office.hint.short')}</div>
+            <div className="rounded-lg bg-slate-950/75 px-3 py-1 text-[12px] text-slate-200 backdrop-blur-md" data-office-hint-short>{t('office.hint.short')}</div>
           )}
         </div>
       )}
@@ -421,10 +449,17 @@ function Count({ dot, n, label }: { dot: string; n: number; label: string }) {
   );
 }
 
-function ListCard({ title, accent, children }: { title: string; accent: string; children: ReactNode }) {
+function ListCard({ title, accent, children, onFold, foldLabel }: { title: string; accent: string; children: ReactNode; onFold?: () => void; foldLabel?: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-slate-950/75 p-1.5 shadow-xl backdrop-blur-md">
-      <div className={cn('px-2 pb-1 pt-1 text-[10.5px] font-semibold uppercase tracking-[0.08em]', accent)}>{title}</div>
+    <div className="w-full rounded-xl border border-white/10 bg-slate-950/75 p-1.5 shadow-xl backdrop-blur-md">
+      <div className="flex items-center px-2 pb-1 pt-1">
+        <span className={cn('flex-1 text-[10.5px] font-semibold uppercase tracking-[0.08em]', accent)}>{title}</span>
+        {onFold && (
+          <button type="button" aria-label={foldLabel} title={foldLabel} onClick={onFold} className="rounded p-0.5 text-slate-400 hover:text-white" aria-expanded data-office-fold>
+            <ChevronUp className="size-3.5" />
+          </button>
+        )}
+      </div>
       {children}
     </div>
   );

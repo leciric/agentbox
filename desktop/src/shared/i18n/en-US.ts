@@ -4909,6 +4909,8 @@ export const enUS = {
   'office.checks.pending': 'checks running',
   'office.changes': '+{insertions} −{deletions} in {files, plural, one {# file} other {# files}}',
   'office.you': 'You',
+  'office.clickToOpen': 'Click or press E to open {title}',
+  'office.fold': 'Fold the list',
   'office.clickToWalk': 'Click to walk to {title}',
   'office.hint.click': 'Click a desk or the floor to walk there',
   'office.hint.keys': 'WASD or arrows to walk · E to open',

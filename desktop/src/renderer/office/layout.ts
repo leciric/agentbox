@@ -52,7 +52,7 @@ const STAND = 1.3; // from the desk's centre to where you stand
 const AREA_PAD = 0.8; // the rug's margin around its desks
 const LEAD_DEPTH = 2.7; // the counter's strip at the front of an area
 const AISLE = 1.8; // between areas
-const BACK_AISLE = 3.4; // before the board
+const BACK_AISLE = 3.8; // before the board
 const LOBBY = 5.2;
 const WALL_PAD = 1.6;
 const MAX_ROW_W = 22; // areas wrap onto a new row past this, at least
@@ -79,10 +79,10 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     const d = rows * PITCH_Z + LEAD_DEPTH + AREA_PAD;
     return { cols, rows, w, d };
   });
-  // Rows wrap at a width that keeps the room about 16:10, never narrower
+  // Rows wrap at a width that keeps the room wider than deep, never narrower
   // than its widest area.
   const floorArea = sizes.reduce((sum, s) => sum + (s.w + AISLE) * (s.d + AISLE), 0);
-  const maxRow = Math.max(MAX_ROW_W, Math.sqrt(floorArea * 1.6), ...sizes.map((s) => s.w));
+  const maxRow = Math.max(MAX_ROW_W, Math.sqrt(floorArea * 2.2), ...sizes.map((s) => s.w));
   const lines: number[][] = [];
   let lineW = 0;
   sizes.forEach((s, i) => {
@@ -119,13 +119,14 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
         const dz = z + AREA_PAD + 1.1 + row * PITCH_Z;
         obstacles.push(box(dx, dz, DESK.w, DESK.d));
         obstacles.push(box(dx, dz - SEAT, 0.62, 0.62));
-        return { id: d.id, x: dx, z: dz, spot: { x: dx, z: dz + STAND, face: Math.PI } };
+        // You stand a little left of centre: the monitor is on the right.
+        return { id: d.id, x: dx, z: dz, spot: { x: dx - 0.3, z: dz + STAND, face: Math.PI } };
       });
       // The counter sits at the area's front, its lead behind it facing you.
       const lz = z + depth - LEAD_DEPTH / 2 - 0.1;
       obstacles.push(box(cx, lz, COUNTER.w, COUNTER.d));
       obstacles.push(box(cx, lz - 0.75, 0.7, 0.6));
-      areas[i] = { project: a.project, rug, lead: { x: cx, z: lz, spot: { x: cx, z: lz + 1.25, face: Math.PI } }, desks, sign: { x: cx, z } };
+      areas[i] = { project: a.project, rug, lead: { x: cx, z: lz, spot: { x: cx - 0.3, z: lz + 1.25, face: Math.PI } }, desks, sign: { x: cx, z } };
       plants.push({ x: rug.x0 + 0.35, z: rug.z1 - 0.35 }, { x: rug.x1 - 0.35, z: rug.z1 - 0.35 });
       obstacles.push(box(rug.x0 + 0.35, rug.z1 - 0.35, 0.5, 0.5), box(rug.x1 - 0.35, rug.z1 - 0.35, 0.5, 0.5));
       x += s.w + AISLE;
@@ -165,7 +166,8 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   return {
     room: { x0: 0, z0: 0, x1: roomW, z1: roomD },
     areas,
-    board: { x: cx, w: boardW, spot: { x: cx, z: 2.4, face: Math.PI } },
+    // You stand at the board's right end, out of the way of reading it.
+    board: { x: cx, w: boardW, spot: { x: cx + boardW / 2 - 0.2, z: 2.2, face: Math.PI } },
     lobby,
     spawn: { x: cx, z: lobby.z0 + 1.6, face: Math.PI },
     sofa,

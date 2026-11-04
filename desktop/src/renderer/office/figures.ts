@@ -170,7 +170,7 @@ export function robot(hue: number, seed: number): Figure {
 
 // walker is you: a person, standing, facing +z until you turn. The legs swing
 // with speed (metres a second).
-export type Walker = Figure & { stride(speed: number, t: number, motion: boolean): void };
+export type Walker = Figure & { stride(speed: number, t: number, motion: boolean): void; fade(opacity: number): void };
 
 export function walker(): Walker {
   const disposables: { dispose(): void }[] = [];
@@ -230,6 +230,19 @@ export function walker(): Walker {
       g.position.y = motion ? Math.abs(Math.cos(t * 9)) * 0.03 * k : 0;
       // Breathing, standing still.
       torso.scale.y = 1 + (motion && k === 0 ? Math.sin(t * 2) * 0.012 : 0);
+    },
+    fade(opacity) {
+      g.visible = opacity > 0.2;
+      for (const m of [shirt, pants, skin, hair, eyeM]) {
+        const see = opacity < 1;
+        // Switching transparency recompiles the material's shader.
+        if (m.transparent !== see) {
+          m.transparent = see;
+          m.needsUpdate = true;
+        }
+        m.opacity = opacity;
+        m.depthWrite = !see;
+      }
     },
     dispose() {
       for (const d of disposables) d.dispose();
