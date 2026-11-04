@@ -43,7 +43,7 @@ export type OfficeSceneOptions = {
   // N: on to the next desk that needs you.
   onNext(): void;
   // A chip's "+n": show the list of who needs you.
-  onMore(refs: string[]): void;
+  onMore(refs: string[], at: { x: number; y: number }): void;
   // A click on a row of the board, standing at it: the desk it's about.
   onBoardRow(ref: string): void;
   // The "+n" button's name for screen readers, and its words: "+2 more".
@@ -815,7 +815,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
           e.preventDefault();
           e.stopPropagation();
           const inside = [...markers].filter(([, el]) => el !== host && el.style.display === 'none' && chipInto.get(el) === host).map(([r]) => r);
-          opts.onMore([ref, ...inside]);
+          const box = more.getBoundingClientRect();
+          const hostBox = host.getBoundingClientRect();
+          opts.onMore([ref, ...inside], { x: box.left - hostBox.left, y: box.bottom - hostBox.top + 6 });
         });
         marker.append(walk, more);
         const ref = d.ref;
@@ -1608,12 +1610,27 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       held = true;
       zoomTo(0.5);
     } else {
-      // Zooming in looks at what's under the pointer; out, it lets go.
-      if (n < 0 && cam.closeK < 0.5 && !zoomFocus) {
-        const { floor, ref } = pick(e.clientX, e.clientY);
-        const s = ref ? spotOf(lay, ref) : undefined;
-        const p = s ?? floor;
-        if (p) zoomFocus = { x: Math.min(lay.room.x1, Math.max(0, p.x)), z: Math.min(lay.room.z1, Math.max(0, p.z)) };
+      // Zooming keeps the floor under the pointer where it is on screen: the
+      // camera's target moves towards it as the camera comes in. Out to the
+      // overview, it lets go.
+      const under = pick(e.clientX, e.clientY).floor;
+      if (under && cam.closeK < 0.5) {
+        const W = lay.room.x1;
+        const D = lay.room.z1;
+        const before = { x: eased.tx, z: eased.tz, d: eased.dist };
+        const z1 = Math.max(0, Math.min(1, zoomZ - n * 0.125));
+        const f1 = Math.min(1, z1 * 2);
+        const { dist: oDist, shift } = fitDistance(W, D, camera.aspect || 1, 0.92);
+        const fd1 = z1 <= 0.5 ? FOLLOW_FAR : FOLLOW_FAR - (z1 - 0.5) * 2 * (FOLLOW_FAR - FOLLOW_NEAR);
+        const d1 = oDist + (fd1 - oDist) * f1;
+        const k = d1 / Math.max(0.01, before.d);
+        // Where the target should be for the point to hold still...
+        const tx = under.x + (before.x - under.x) * k;
+        const tz = under.z + (before.z - under.z) * k;
+        // ...and the focus that, blended with the overview's centre, gives it.
+        const cx = W / 2 - shift;
+        const cz = D / 2 + 0.6;
+        if (f1 > 0.02) zoomFocus = { x: Math.min(W, Math.max(0, cx + (tx - cx) / f1)), z: Math.min(D, Math.max(0, cz + (tz - cz) / f1)) };
       }
       zoomTo(zoomZ - n * 0.125);
       if (zoomZ === 0) zoomFocus = undefined;

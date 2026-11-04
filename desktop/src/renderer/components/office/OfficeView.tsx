@@ -115,6 +115,8 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const [listChoice, setListChoice] = useState<boolean | null>(null);
   // A chip's "+n" opens the list on just its group; null is everyone.
   const [listOnly, setListOnly] = useState<string[] | null>(null);
+  // Where a "+n more" was pressed: its list opens there.
+  const [listAt, setListAt] = useState<{ x: number; y: number } | null>(null);
   const [wide, setWide] = useState(true);
   useEffect(() => {
     const el = host.current;
@@ -257,8 +259,9 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             onActivate: (ref) => activate.current(ref),
             onNext: () => next.current(),
             onBoardRow: (ref) => boardRow.current(ref),
-            onMore: (refs) => {
+            onMore: (refs, at) => {
               setListOnly(refs);
+              setListAt(at);
               setListChoice(true);
             },
             onMoved: () => {
@@ -325,7 +328,10 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [listShown]);
   useEffect(() => {
-    if (!listOpen) setListOnly(null);
+    if (!listOpen) {
+      setListOnly(null);
+      setListAt(null);
+    }
   }, [listOpen]);
   const listed = listOnly ? needs.filter((i) => listOnly.includes(i.ref)) : needs;
   const hoverTitle = hover ? titleOf(office.model, hover, t('office.board.title')) : undefined;
@@ -403,7 +409,11 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       {/* Who needs you, each a walk away: open while there's room for it,
           folded to a pill at a desk or in a small window. */}
       {listOpen && needs.length > 0 && near !== 'board' && (
-        <div className="pointer-events-auto absolute left-3 top-16 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col items-start gap-2 overflow-y-auto" data-office-needs="open">
+        <div
+          className="pointer-events-auto absolute left-3 top-16 z-10 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col items-start gap-2 overflow-y-auto"
+          style={listOnly && listAt ? { left: `min(${Math.round(listAt.x)}px, calc(100% - 17rem))`, top: `min(${Math.round(listAt.y)}px, calc(100% - 12rem))` } : undefined}
+          data-office-needs="open"
+        >
           <ListCard title={listOnly ? t('office.here', { count: listed.length }) : t('office.board.needs')} accent="text-amber-300" onFold={() => setListChoice(false)} foldLabel={t('office.fold')}>
             {listed.map((i) => (
               <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => {
@@ -412,7 +422,10 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
               }} />
             ))}
             {listOnly && (
-              <button type="button" className="w-full rounded-lg px-2 py-1.5 text-left text-[12px] text-amber-200 hover:bg-white/10" onClick={() => setListOnly(null)} data-office-list-all>
+              <button type="button" className="w-full rounded-lg px-2 py-1.5 text-left text-[12px] text-amber-200 hover:bg-white/10" onClick={() => {
+                setListOnly(null);
+                setListAt(null);
+              }} data-office-list-all>
                 {t('office.showAll')} · {needs.length}
               </button>
             )}
