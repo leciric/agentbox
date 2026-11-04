@@ -9,8 +9,9 @@
 // nothing while the window is hidden, and with reduced motion only when
 // something changed.
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { robot, walker as makeWalker, type Figure } from './figures.ts';
+import { bake, hash, robot, walker as makeWalker, type Figure } from './figures.ts';
 import { COUNTER, DESK, SEAT, layout as layOut, nearest, spotOf, walkable, type Box, type Layout } from './layout.ts';
 import type { DeskTone, LeadTone, OfficeModel } from './model.ts';
 import { canvasTexture, drawBoard, type BoardRow, drawBubble, drawScreen, drawSign, drawTag, paintSky, planks, toneColor, type BoardScreen, type Screen } from './textures.ts';
@@ -75,21 +76,46 @@ const std = (color: THREE.ColorRepresentation, o: Partial<THREE.MeshStandardMate
 
 // Materials every desk shares, made once.
 function sharedMaterials() {
+  const phys = (color: THREE.ColorRepresentation, o: Partial<THREE.MeshPhysicalMaterialParameters> = {}) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.5, ...o });
   return {
-    deskTop: std('#e8dcc8', { roughness: 0.5 }),
-    deskLeg: std('#3a3f4b', { metalness: 0.4, roughness: 0.4 }),
-    chair: std('#2b3242'),
-    chairSeat: std('#3b4458'),
-    laptop: std('#c7ccd6', { metalness: 0.6, roughness: 0.3 }),
-    monitorFrame: std('#1b2029', { roughness: 0.35 }),
+    oak: phys('#c89566', { roughness: 0.48, clearcoat: 0.35, clearcoatRoughness: 0.4 }),
+    deskTop: phys('#efe6d8', { roughness: 0.45, clearcoat: 0.2 }),
+    deskLeg: std('#2d333f', { metalness: 0.6, roughness: 0.35 }),
+    metal: std('#2d333f', { metalness: 0.65, roughness: 0.32 }),
+    plastic: phys('#1f2430', { roughness: 0.35, clearcoat: 0.5 }),
+    fabric: std('#3a4763', { roughness: 0.92 }),
+    alu: phys('#d3d7de', { metalness: 0.75, roughness: 0.28 }),
+    keys: std('#262b35', { roughness: 0.7 }),
+    bezel: phys('#141922', { roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.2 }),
+    ceramic: phys('#fbfaf7', { roughness: 0.25, clearcoat: 0.8 }),
+    penA: std('#ef6f6c'),
+    penB: std('#4f86f7'),
+    noteA: std('#ffe27a', { side: THREE.DoubleSide }),
+    noteB: std('#ffb3c9', { side: THREE.DoubleSide }),
+    noteC: std('#a6ecff', { side: THREE.DoubleSide }),
     pole: std('#9aa3b2', { metalness: 0.6, roughness: 0.3 }),
-    pot: std('#c96f4a'),
-    leaf: std('#3f8f55', { roughness: 0.8 }),
-    leafLight: std('#5fb36b', { roughness: 0.8 }),
-    mug: std('#f8fafc'),
+    pot: phys('#d27c55', { roughness: 0.75 }),
+    soil: std('#4a3326', { roughness: 1 }),
+    leaf: phys('#3f8f55', { roughness: 0.55, clearcoat: 0.3, side: THREE.DoubleSide }),
+    leafLight: phys('#69b86d', { roughness: 0.55, clearcoat: 0.3, side: THREE.DoubleSide }),
+    mug: phys('#fbfaf7', { roughness: 0.25, clearcoat: 0.8 }),
+    contact: new THREE.MeshBasicMaterial({ map: contactTexture(), transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2 }),
     hit: new THREE.MeshBasicMaterial({ visible: false }),
   };
 }
+
+// contactTexture is a soft dark blot, the shadow where things meet the floor.
+function contactTexture(): THREE.CanvasTexture {
+  const { tex, ctx } = canvasTexture(128, 128);
+  const g = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+  g.addColorStop(0, 'rgba(20,14,8,0.55)');
+  g.addColorStop(0.55, 'rgba(20,14,8,0.28)');
+  g.addColorStop(1, 'rgba(20,14,8,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  return tex;
+}
+
 type Mats = ReturnType<typeof sharedMaterials>;
 
 const geo = {
@@ -101,6 +127,27 @@ const geo = {
   ring: new THREE.RingGeometry(0.85, 1, 48),
   beam: new THREE.CylinderGeometry(0.75, 0.95, 5, 32, 1, true),
   roundTop: new RoundedBoxGeometry(1, 1, 1, 3, 0.04),
+  roundSoft: new RoundedBoxGeometry(1, 1, 1, 4, 0.3),
+  roundThin: new RoundedBoxGeometry(1, 1, 1, 2, 0.02),
+  circle: new THREE.CircleGeometry(1, 24),
+  mug: (() => {
+    const g = new THREE.LatheGeometry([new THREE.Vector2(0, 0), new THREE.Vector2(0.038, 0), new THREE.Vector2(0.042, 0.01), new THREE.Vector2(0.043, 0.1), new THREE.Vector2(0.036, 0.1), new THREE.Vector2(0.036, 0.02), new THREE.Vector2(0, 0.02)], 24);
+    return g;
+  })(),
+  handle: new THREE.TorusGeometry(0.026, 0.007, 8, 16, Math.PI),
+  pot: new THREE.LatheGeometry([new THREE.Vector2(0, 0), new THREE.Vector2(0.15, 0), new THREE.Vector2(0.19, 0.36), new THREE.Vector2(0.215, 0.37), new THREE.Vector2(0.215, 0.42), new THREE.Vector2(0.19, 0.42), new THREE.Vector2(0.18, 0.38), new THREE.Vector2(0, 0.38)], 28),
+  leaf: (() => {
+    // A leaf: a pointed blade, a little cupped.
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0);
+    shape.quadraticCurveTo(0.09, 0.18, 0, 0.42);
+    shape.quadraticCurveTo(-0.09, 0.18, 0, 0);
+    const g = new THREE.ShapeGeometry(shape, 8);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setZ(i, Math.abs(p.getX(i)) * 0.6);
+    g.computeVertexNormals();
+    return g;
+  })(),
 };
 
 function mesh(g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1, shadow = true): THREE.Mesh {
@@ -112,18 +159,27 @@ function mesh(g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, 
   return o;
 }
 
-// plant is a potted plant, leaves in a loose bunch.
+// plant is a potted plant: a terracotta pot with a rim, soil, and a rosette of
+// curved leaves in two greens, merged into a few meshes.
 function plant(m: Mats, x: number, z: number, seed: number): THREE.Group {
   const g = new THREE.Group();
   g.position.set(x, 0, z);
-  g.add(mesh(geo.cyl, m.pot, 0, 0.22, 0, 0.2, 0.44, 0.2));
-  for (let i = 0; i < 7; i++) {
-    const a = i * 2.4 + seed;
-    const r = i === 0 ? 0 : 0.16;
-    const leaf = mesh(geo.sphere, i % 2 ? m.leaf : m.leafLight, Math.cos(a) * r, 0.62 + (i % 3) * 0.16, Math.sin(a) * r, 0.17, 0.32, 0.17);
-    leaf.rotation.set(Math.sin(a) * 0.5, 0, Math.cos(a) * 0.5);
-    g.add(leaf);
+  const parts: THREE.Mesh[] = [];
+  const put = (o: THREE.Mesh) => (g.add(o), parts.push(o), o);
+  put(mesh(geo.pot, m.pot, 0, 0, 0));
+  put(mesh(geo.cyl, m.soil, 0, 0.375, 0, 0.18, 0.01, 0.18));
+  const count = 9 + (seed % 4);
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + seed * 0.7;
+    const tilt = 0.35 + (i % 3) * 0.22;
+    const leaf = put(mesh(geo.leaf, i % 2 ? m.leaf : m.leafLight, Math.sin(a) * 0.04, 0.38, Math.cos(a) * 0.04, 1.1 + (i % 4) * 0.12, 1.1 + (i % 3) * 0.25, 1));
+    leaf.rotation.set(0, a, 0, 'YXZ');
+    leaf.rotateX(tilt);
   }
+  const blot = mesh(geo.plane, m.contact, 0, 0.02, 0, 0.75, 0.75, 1, false);
+  blot.rotation.x = -Math.PI / 2;
+  g.add(blot);
+  bake(g, parts);
   return g;
 }
 
@@ -167,8 +223,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  // AgX keeps highlights and saturated colours soft; output is sRGB.
+  renderer.toneMapping = THREE.AgXToneMapping;
+  renderer.toneMappingExposure = 1.15;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const canvas = renderer.domElement;
   canvas.style.display = 'block';
@@ -243,6 +300,18 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   scene.add(sun, sun.target);
   const fill = new THREE.AmbientLight('#ffffff', 0.25);
   scene.add(fill);
+  // Image-based light from a soft studio room: what gives the plastics,
+  // ceramics and metals their sheen. Made once, cheaply.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envRoom = new RoomEnvironment();
+  const env = pmrem.fromScene(envRoom, 0.04);
+  envRoom.dispose();
+  scene.environment = env.texture;
+  scene.environmentIntensity = 0.42;
+  // A cool rim from behind, against the warm sun: shapes read against the floor.
+  const rim = new THREE.DirectionalLight('#c7dcff', 0.6);
+  rim.position.set(0, 9, -12);
+  scene.add(rim);
 
   const mats = sharedMaterials();
   const floorTex = planks();
@@ -494,32 +563,62 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     room.add(g);
-    if (!lead) {
-      g.add(mesh(geo.roundTop, mats.deskTop, 0, DESK.h, 0, DESK.w, 0.05, DESK.d));
-      for (const [dx, dz] of [[-0.68, -0.32], [0.68, -0.32], [-0.68, 0.32], [0.68, 0.32]]) g.add(mesh(geo.box, mats.deskLeg, dx, DESK.h / 2, dz, 0.05, DESK.h, 0.05));
-      // A mug, a plant or nothing, by desk.
-      const n = [...ref].reduce((a, c) => a + c.charCodeAt(0), 0);
-      // A mug on some, between the laptop and the monitor, clear of the robot.
-      if (n % 2 === 0) g.add(mesh(geo.cyl, mats.mug, -0.08, DESK.h + 0.07, 0.22, 0.04, 0.1, 0.04));
-    }
-    // The chair, behind.
+    const n = hash(ref);
+    const rx = lead ? 0 : -0.48; // where the robot sits, and its chair
     const cz = lead ? -0.75 : -SEAT;
-    g.add(mesh(geo.roundTop, mats.chairSeat, 0, 0.45, cz, 0.5, 0.08, 0.5));
-    g.add(mesh(geo.roundTop, mats.chair, 0, 0.78, cz - 0.24, 0.48, 0.55, 0.07));
-    g.add(mesh(geo.cyl, mats.deskLeg, 0, 0.22, cz, 0.03, 0.44, 0.03));
-
     const top = lead ? 1.03 : DESK.h + 0.025;
+    // What never moves is merged into a few meshes for the desk (bake).
+    const fixed: THREE.Mesh[] = [];
+    const put = (parent: THREE.Object3D, o: THREE.Mesh) => (parent.add(o), fixed.push(o), o);
+    if (!lead) {
+      // An oak top on two metal side frames, with a modesty panel.
+      put(g, mesh(geo.roundTop, mats.oak, 0, DESK.h, 0, DESK.w, 0.05, DESK.d));
+      for (const sx of [-1, 1]) {
+        put(g, mesh(geo.roundTop, mats.metal, sx * 0.66, DESK.h / 2, 0, 0.05, DESK.h - 0.02, 0.08));
+        put(g, mesh(geo.roundTop, mats.metal, sx * 0.66, 0.02, 0, 0.07, 0.04, DESK.d - 0.04));
+        put(g, mesh(geo.roundTop, mats.metal, sx * 0.66, DESK.h - 0.04, 0, 0.06, 0.03, DESK.d - 0.06));
+      }
+      put(g, mesh(geo.roundTop, mats.metal, 0, 0.48, 0.3, 1.28, 0.32, 0.02));
+      // A mug, a pen cup, a sticky note on the monitor: some of each, by desk.
+      if (n % 3 !== 0) {
+        const mug = put(g, mesh(geo.mug, mats.ceramic, 0.02, DESK.h + 0.025, 0.25, 1, 1, 1));
+        mug.rotation.y = (n % 7) * 0.8;
+        const handle = put(g, mesh(geo.handle, mats.ceramic, 0.02 + 0.045, DESK.h + 0.075, 0.25, 1, 1, 1));
+        handle.rotation.y = Math.PI / 2;
+      }
+      if (n % 2 === 0) {
+        put(g, mesh(geo.cyl, mats.metal, -0.72 + 0.1, DESK.h + 0.07, -0.25, 0.035, 0.1, 0.035));
+        for (const [dx, c] of [[-0.012, mats.penA], [0.012, mats.penB]] as const) {
+          const pen = put(g, mesh(geo.cyl, c, -0.62 + dx, DESK.h + 0.14, -0.25, 0.006, 0.14, 0.006));
+          pen.rotation.z = dx * 8;
+        }
+      }
+    }
+    // An office chair under the robot: seat, back, gas lift, five-star base.
+    put(g, mesh(geo.roundSoft, mats.fabric, rx, 0.45, cz, 0.5, 0.08, 0.48));
+    const back = put(g, mesh(geo.roundSoft, mats.fabric, rx, 0.8, cz - 0.25, 0.48, 0.5, 0.07));
+    back.rotation.x = 0.12;
+    put(g, mesh(geo.roundTop, mats.metal, rx, 0.6, cz - 0.27, 0.05, 0.22, 0.03));
+    put(g, mesh(geo.cyl, mats.metal, rx, 0.26, cz, 0.028, 0.34, 0.028));
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2 + 0.3;
+      const spoke = put(g, mesh(geo.roundTop, mats.plastic, rx + Math.sin(a) * 0.13, 0.07, cz + Math.cos(a) * 0.13, 0.05, 0.04, 0.27));
+      spoke.rotation.y = a;
+      put(g, mesh(geo.sphere, mats.plastic, rx + Math.sin(a) * 0.26, 0.03, cz + Math.cos(a) * 0.26, 0.03, 0.03, 0.03));
+    }
+
     // The laptop before the robot, its lid's back glowing in its state's colour.
     const glowMat = new THREE.MeshStandardMaterial({ color: '#60a5fa', emissive: '#60a5fa', emissiveIntensity: 0.6 });
     disp.push(() => glowMat.dispose());
     const lx = lead ? -0.55 : -0.48;
-    g.add(mesh(geo.box, mats.laptop, lx, top + 0.01, -0.12, 0.42, 0.02, 0.28));
+    put(g, mesh(geo.roundThin, mats.alu, lx, top + 0.012, -0.16, 0.4, 0.022, 0.27));
+    put(g, mesh(geo.plane, mats.keys, lx, top + 0.024, -0.13, 0.34, 0.13, 1, false)).rotation.x = -Math.PI / 2;
     const lid = new THREE.Group();
-    lid.position.set(lx, top + 0.02, -0.02);
-    lid.rotation.x = -0.35;
-    lid.add(mesh(geo.box, mats.laptop, 0, 0.14, 0, 0.42, 0.28, 0.015));
-    lid.add(mesh(geo.box, glowMat, 0, 0.14, 0.009, 0.08, 0.08, 0.002, false));
+    lid.position.set(lx, top + 0.022, -0.035);
+    lid.rotation.x = -0.32;
     g.add(lid);
+    put(lid, mesh(geo.roundThin, mats.alu, 0, 0.135, 0, 0.4, 0.27, 0.012));
+    lid.add(mesh(geo.circle, glowMat, 0, 0.14, 0.0075, 0.035, 0.035, 1, false));
 
     // The monitor on the desk's front corner, turned to you.
     const { tex, ctx } = canvasTexture(512, 320);
@@ -529,18 +628,29 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const mon = new THREE.Group();
     mon.position.set(lead ? 0.45 : 0.3, top, lead ? 0.1 : 0.05);
     mon.rotation.y = -0.12;
+    g.add(mon);
     const mw = lead ? 0.86 : 0.92;
     const mh = mw * (320 / 512);
-    mon.add(mesh(geo.box, mats.monitorFrame, 0, 0.06 + mh / 2 + 0.06, 0, mw + 0.05, mh + 0.05, 0.035));
-    mon.add(mesh(geo.plane, screenMat, 0, 0.06 + mh / 2 + 0.06, 0.019, mw, mh, 1, false));
-    mon.add(mesh(geo.box, mats.monitorFrame, 0, 0.06, -0.02, 0.05, 0.12, 0.05), mesh(geo.box, mats.monitorFrame, 0, 0.005, -0.02, 0.24, 0.01, 0.16));
-    g.add(mon);
+    const my = 0.07 + mh / 2 + 0.06;
+    put(mon, mesh(geo.roundThin, mats.bezel, 0, my, 0, mw + 0.05, mh + 0.05, 0.035));
+    put(mon, mesh(geo.roundThin, mats.bezel, 0, my, -0.03, mw * 0.6, mh * 0.6, 0.04));
+    put(mon, mesh(geo.roundTop, mats.metal, 0, 0.09, -0.04, 0.05, 0.16, 0.03));
+    put(mon, mesh(geo.cyl, mats.metal, 0, 0.006, -0.03, 0.13, 0.012, 0.09));
+    mon.add(mesh(geo.plane, screenMat, 0, my, 0.0185, mw, mh, 1, false));
+    if (!lead && n % 4 === 1) {
+      const note = put(mon, mesh(geo.plane, [mats.noteA, mats.noteB, mats.noteC][n % 3], mw / 2 - 0.02, my + mh / 2 - 0.02, 0.019, 0.08, 0.08, 1, false));
+      note.rotation.z = 0.12;
+    }
+    // A soft contact shadow under it all.
+    const blot = mesh(geo.plane, mats.contact, lead ? 0 : -0.1, 0.02, lead ? -0.3 : -0.2, lead ? 3.0 : 2.1, lead ? 2.2 : 1.9, 1, false);
+    blot.rotation.x = -Math.PI / 2;
+    g.add(blot);
+    for (const merged of bake(g, fixed)) merged.castShadow = merged.material !== mats.keys;
 
     // The robot, on its chair.
-    const fig = robot(hue, [...ref].reduce((a, c) => a + c.charCodeAt(0), 0));
+    const fig = robot(ref, new THREE.Color().setHSL(hue / 360, 0.55, 0.55), { lead });
     disp.push(() => fig.dispose());
-    fig.group.position.set(lead ? 0 : -0.48, 0, cz + 0.02);
-    if (lead) fig.group.scale.setScalar(1.12);
+    fig.group.position.set(rx, 0, cz + 0.08);
     g.add(fig.group);
 
     // Its beacon and bubble above it, its name tag, and a ring and a beam of
@@ -732,26 +842,29 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     if (night) {
       hemi.color.set('#c7d2fe');
       hemi.groundColor.set('#4b3a2e');
-      hemi.intensity = 0.75;
+      hemi.intensity = 0.55;
       sun.color.set('#ffd9a8');
-      sun.intensity = 0.9;
-      fill.intensity = 0.35;
+      sun.intensity = 1.1;
+      fill.intensity = 0.12;
+      scene.environmentIntensity = 0.3;
       scene.background = new THREE.Color('#141a2a');
     } else if (dusk) {
       hemi.color.set('#ffe2c4');
       hemi.groundColor.set('#7a5a44');
-      hemi.intensity = 0.95;
+      hemi.intensity = 0.6;
       sun.color.set('#ffb27a');
-      sun.intensity = 1.5;
-      fill.intensity = 0.3;
+      sun.intensity = 2.0;
+      fill.intensity = 0.1;
+      scene.environmentIntensity = 0.38;
       scene.background = new THREE.Color('#2a2236');
     } else {
       hemi.color.set('#e0ecff');
       hemi.groundColor.set('#8a6a4c');
-      hemi.intensity = 1.05;
-      sun.color.set('#fff3e0');
-      sun.intensity = 1.9;
-      fill.intensity = 0.25;
+      hemi.intensity = 0.65;
+      sun.color.set('#fff1dc');
+      sun.intensity = 2.4;
+      fill.intensity = 0.08;
+      scene.environmentIntensity = 0.45;
       scene.background = new THREE.Color('#1c2333');
     }
     if (lampShade) (lampShade.material as THREE.MeshStandardMaterial).emissiveIntensity = night || dusk ? 1.6 : 0.4;
@@ -1136,7 +1249,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const t = now / 1000;
     lighting();
     for (const d of desks.values()) {
-      d.figure.pose(d.tone, t, motion);
+      // Where you are, from the robot: near enough, it turns to look at you.
+      const fx = d.root.position.x + d.figure.group.position.x;
+      const fz = d.root.position.z + d.figure.group.position.z;
+      const near2 = (pos.x - fx) ** 2 + (pos.z - fz) ** 2 < 25;
+      d.figure.pose(d.tone, t, motion, near2 ? { x: pos.x - fx, z: pos.z - fz } : undefined);
       // Up close, what floats over the desks beside the camera would be in
       // the way of the one you're looking at.
       // So does the row in front of the desk you're at: it sits between you
@@ -1526,6 +1643,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       floorTex.dispose();
       sky.tex.dispose();
       for (const m of Object.values(mats)) m.dispose();
+      env.dispose();
+      pmrem.dispose();
       renderer.dispose();
       canvas.remove();
     },

@@ -118,7 +118,8 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
         const dx = cx + (col - (inRow - 1) / 2) * PITCH_X;
         const dz = z + AREA_PAD + 1.1 + row * PITCH_Z;
         obstacles.push(box(dx, dz, DESK.w, DESK.d));
-        obstacles.push(box(dx, dz - SEAT, 0.62, 0.62));
+        // The chair, under the robot, which sits left of centre.
+        obstacles.push(box(dx - 0.48, dz - SEAT, 0.62, 0.62));
         // You stand to the left: the monitor is on the right, and the close-up sees
         // both of you and it.
         return { id: d.id, x: dx, z: dz, spot: { x: dx - 0.6, z: dz + STAND, face: Math.PI } };
