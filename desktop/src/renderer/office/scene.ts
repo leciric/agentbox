@@ -25,6 +25,8 @@ export type SceneInput = {
   screens: ReadonlyMap<string, Screen>;
   board: BoardScreen;
   you: string;
+  // Each area's label from far off: its name and, in words, its counts.
+  areaLabels: ReadonlyMap<string, { name: string; sub: string }>;
 };
 
 export type OfficeSceneOptions = {
@@ -174,11 +176,48 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   markerLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden';
   host.appendChild(markerLayer);
   const markers = new Map<string, HTMLButtonElement>();
+  // Each area's label from far off, a map's: a click walks to its front desk.
+  const areaChips = new Map<string, HTMLButtonElement>();
+  function syncAreaChips(input: SceneInput) {
+    for (const [project, chip] of areaChips)
+      if (!input.areaLabels.has(project)) {
+        chip.remove();
+        areaChips.delete(project);
+      }
+    for (const area of input.model.areas) {
+      const label = input.areaLabels.get(area.project);
+      if (!label) continue;
+      let chip = areaChips.get(area.project);
+      if (!chip) {
+        chip = document.createElement('button');
+        chip.type = 'button';
+        chip.dataset.officeArea = area.project;
+        chip.style.cssText =
+          'position:absolute;left:0;top:0;display:none;pointer-events:auto;flex-direction:column;align-items:center;padding:4px 12px 5px;border-radius:10px;background:rgba(10,14,24,.88);color:#fff;font:700 13px/1.2 var(--font-sans,system-ui),sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.45);cursor:pointer;white-space:nowrap;will-change:transform';
+        const name = document.createElement('span');
+        const sub = document.createElement('span');
+        sub.style.cssText = 'font-weight:500;font-size:11px;color:#cbd5e1';
+        chip.append(name, sub);
+        const ref = `${area.project}/lead`;
+        chip.addEventListener('click', () => walkTo(ref));
+        markerLayer.prepend(chip);
+        areaChips.set(area.project, chip);
+      }
+      chip.style.border = `1px solid hsl(${area.hue} 70% 62% / .7)`;
+      (chip.firstChild as HTMLElement).textContent = label.name;
+      (chip.lastChild as HTMLElement).textContent = label.sub;
+      chip.setAttribute('aria-label', opts.markerLabel(label.name));
+    }
+  }
   // And you, from far off.
   const meMarker = document.createElement('div');
   meMarker.style.cssText =
     'position:absolute;left:0;top:0;display:none;padding:2px 8px;border-radius:999px;background:#7c3aed;color:#fff;font:700 11.5px/1.25 var(--font-sans,system-ui),sans-serif;box-shadow:0 0 0 3px rgba(167,139,250,.35),0 4px 14px rgba(0,0,0,.4);pointer-events:none;will-change:transform';
   markerLayer.appendChild(meMarker);
+  // Until you first move, your chip pulses: this is you.
+  let mePulse: Animation | undefined;
+  if (!opts.reducedMotion && !lastVisit)
+    mePulse = meMarker.animate([{ boxShadow: '0 0 0 3px rgba(167,139,250,.35)' }, { boxShadow: '0 0 0 12px rgba(167,139,250,0)' }], { duration: 1300, iterations: Infinity });
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 200);
@@ -702,6 +741,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       drawTag(meTag.ctx, youLabel, '#a78bfa');
       meTag.tex.needsUpdate = true;
     }
+    syncAreaChips(input);
     const bKey = JSON.stringify(input.board);
     if (board && bKey !== board.key) {
       board.key = bKey;
@@ -733,6 +773,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     held = false;
     if (moved) return;
     moved = true;
+    mePulse?.cancel();
     opts.onMoved();
   }
 
@@ -929,7 +970,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       fitProbe.updateMatrixWorld();
       return corners.every((c) => {
         v.copy(c).project(fitProbe);
-        return v.x > left && v.x < 0.94 && v.y < 0.86 && v.y > -0.8 && v.z < 1;
+        return v.x > left && v.x < 0.94 && v.y < 0.7 && v.y > -0.8 && v.z < 1;
       });
     };
     let lo = 4;
@@ -1053,6 +1094,20 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     }
     // Signs give way to the camera, and to the board's close-up over them.
     for (const sg of signs) sg.visible = !(focusRef === 'board' && cam.closeK > 0.2) && sg.position.distanceTo(camera.position) > 3.5;
+    // From far off, each area's label floats over its sign.
+    const ap = new THREE.Vector3();
+    for (const [i, place] of lay.areas.entries()) {
+      const chip = areaChips.get(place.project);
+      if (!chip) continue;
+      const sg = signs[i];
+      ap.set(sg ? sg.position.x : place.lead.x, 2.9, sg ? sg.position.z : place.rug.z0);
+      const far = ap.distanceTo(camera.position) > 15;
+      ap.project(camera);
+      const on = far && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
+      chip.style.display = on ? 'flex' : 'none';
+      if (on) chip.style.transform = `translate(${((ap.x + 1) / 2) * canvas.clientWidth}px, ${((1 - ap.y) / 2) * canvas.clientHeight}px) translate(-50%, -100%)`;
+      if (sg && on) sg.visible = false;
+    }
     // You fade while you look at a monitor, so you never stand in front of it.
     me.fade(1 - cam.closeK * 0.85);
     meTag.sprite.visible = cam.closeK < 0.3;
@@ -1283,6 +1338,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       document.removeEventListener('visibilitychange', onVisibility);
       for (const d of roomDispose) d();
       for (const d of desks.values()) for (const f of d.dispose) f();
+      mePulse?.cancel();
       markerLayer.remove();
       me.dispose();
       floorTex.dispose();

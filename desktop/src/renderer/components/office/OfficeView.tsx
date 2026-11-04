@@ -3,7 +3,7 @@
 // its data, read from the queries the rest of the app keeps live, and the
 // overlay around the canvas: who needs you, the desk you're at, the controls.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, ChevronDown, ChevronUp, Eye, GitPullRequest, Keyboard, LoaderCircle, MessageSquare, Mouse, Scan, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, ClipboardList, ChevronUp, Eye, GitPullRequest, Keyboard, LoaderCircle, MessageSquare, Mouse, Scan, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -181,6 +181,18 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     };
   }, [office.model, t]);
 
+  // Each area's label from far off: its name and what's going on in it.
+  const areaLabels = useMemo(() => {
+    const out = new Map<string, { name: string; sub: string }>();
+    for (const a of office.model.areas) {
+      const n = (tone: DeskTone) => a.desks.filter((d) => d.tone === tone).length;
+      const needs = n('needs') + n('error') + (a.lead.tone === 'needs' ? 1 : 0);
+      const parts = [needs ? t('office.count.needs', { count: needs }) : '', n('working') ? t('office.count.working', { count: n('working') }) : '', n('finished') ? t('office.count.review', { count: n('finished') }) : ''].filter(Boolean);
+      out.set(a.project, { name: a.label, sub: parts.length ? parts.join(' · ') : t('office.lead.agents', { count: a.desks.length }) });
+    }
+    return out;
+  }, [office.model, t]);
+
   // Opening what you're at: an agent's chat, a project's chat, or the board's list.
   const activate = useRef<(ref: string) => void>(() => {});
   activate.current = (ref: string) => {
@@ -229,8 +241,8 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   }, []);
   useEffect(() => scene.current?.setReducedMotion(reduced), [reduced, status]);
   useEffect(() => {
-    if (status === 'ready') scene.current?.apply({ model: office.model, screens, board: boardScreen, you: t('office.you') });
-  }, [status, office.model, screens, boardScreen, t]);
+    if (status === 'ready') scene.current?.apply({ model: office.model, screens, board: boardScreen, you: t('office.you'), areaLabels });
+  }, [status, office.model, screens, boardScreen, areaLabels, t]);
 
   const walkTo = (ref: string) => {
     scene.current?.walkTo(ref);
@@ -249,6 +261,13 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const nearDesk = nearAgent ? deskOf(office.model, nearAgent.ref) : undefined;
   const nearArea = near?.endsWith('/lead') ? office.model.areas.find((a) => leadRef(a.project) === near) : undefined;
   const listOpen = listChoice ?? (wide && !nearDesk && !nearArea);
+  // The short controls line goes a few seconds after you've started moving.
+  const [shortHint, setShortHint] = useState(true);
+  useEffect(() => {
+    if (hint) return;
+    const id = window.setTimeout(() => setShortHint(false), 8000);
+    return () => window.clearTimeout(id);
+  }, [hint]);
   // The overview frames the room beside the list while it's open.
   const listShown = listOpen && needs.length > 0 && near !== 'board';
   useEffect(() => scene.current?.setInset(listShown ? 280 : 0), [listShown, status]);
@@ -275,11 +294,37 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start gap-2 p-3">
         <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-[12.5px] text-slate-200 shadow-lg backdrop-blur-md" data-office-summary data-office-review={review.map((i) => i.ref).join(",")}>
           <span className="text-[13px] font-semibold text-white">{t('office.title')}</span>
-          <Count dot="bg-amber-400" n={needs.length} label={t('office.count.needs', { count: needs.length })} />
+          {needs.length > 0 && near !== 'board' ? (
+            // The count opens and folds the list of who needs you.
+            <button
+              type="button"
+              className="-my-1 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1 font-medium text-amber-100 ring-1 ring-amber-300/30 transition hover:bg-amber-400/10"
+              onClick={() => setListChoice(!listOpen)}
+              aria-expanded={listOpen}
+              data-office-unfold
+            >
+              <span className="size-2 animate-pulse rounded-full bg-amber-400" />
+              {t('office.count.needs', { count: needs.length })}
+              {listOpen ? <ChevronUp className="size-3.5 text-amber-200/70" /> : <ChevronDown className="size-3.5 text-amber-200/70" />}
+            </button>
+          ) : (
+            <Count dot="bg-amber-400" n={needs.length} label={t('office.count.needs', { count: needs.length })} />
+          )}
           <Count dot="bg-sky-400" n={working} label={t('office.count.working', { count: working })} />
           <Count dot="bg-emerald-400" n={review.length} label={t('office.count.review', { count: review.length })} />
         </div>
         <span className="flex-1" />
+        {near !== 'board' && (
+          <button
+            type="button"
+            className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-[12.5px] text-slate-200 shadow-lg backdrop-blur-md transition hover:bg-slate-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
+            onClick={() => walkTo('board')}
+            data-office-to-board
+          >
+            <ClipboardList className="size-3.5" />
+            {t('office.toBoard')}
+          </button>
+        )}
         <button
           type="button"
           className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-[12.5px] text-slate-200 shadow-lg backdrop-blur-md transition hover:bg-slate-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
@@ -293,32 +338,13 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
 
       {/* Who needs you, each a walk away: open while there's room for it,
           folded to a pill at a desk or in a small window. */}
-      {(needs.length > 0 || review.length > 0) && near !== 'board' && (
-        <div className="pointer-events-auto absolute left-3 top-16 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col items-start gap-2 overflow-y-auto" data-office-needs={listOpen ? 'open' : 'folded'}>
-          {needs.length > 0 && listOpen && (
-            <ListCard title={t('office.board.needs')} accent="text-amber-300" onFold={() => setListChoice(false)} foldLabel={t('office.fold')}>
-              {needs.map((i) => (
-                <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => walkTo(i.ref)} />
-              ))}
-            </ListCard>
-          )}
-          {needs.length > 0 && !listOpen && (
-            <button
-              type="button"
-              className="flex items-center gap-2 rounded-xl border border-amber-300/30 bg-slate-950/85 px-3 py-2 text-[12.5px] font-medium text-amber-100 shadow-lg backdrop-blur-md transition hover:bg-slate-900"
-              onClick={() => setListChoice(true)}
-              aria-expanded={false}
-              data-office-unfold
-            >
-              <span className="size-2 animate-pulse rounded-full bg-amber-400" />
-              {t('office.count.needs', { count: needs.length })}
-              <ChevronDown className="size-3.5 text-amber-200/70" />
-            </button>
-          )}
-          <button type="button" className="flex items-center gap-2 rounded-lg bg-slate-950/70 px-2.5 py-1.5 text-[12px] text-slate-300 backdrop-blur-md transition hover:text-white" onClick={() => walkTo('board')} data-office-to-board>
-            <ArrowRight className="size-3.5" />
-            {t('office.toBoard')}
-          </button>
+      {listOpen && needs.length > 0 && near !== 'board' && (
+        <div className="pointer-events-auto absolute left-3 top-16 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col items-start gap-2 overflow-y-auto" data-office-needs="open">
+          <ListCard title={t('office.board.needs')} accent="text-amber-300" onFold={() => setListChoice(false)} foldLabel={t('office.fold')}>
+            {needs.map((i) => (
+              <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => walkTo(i.ref)} />
+            ))}
+          </ListCard>
         </div>
       )}
 
@@ -407,7 +433,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
               </button>
             </div>
           ) : (
-            <div className="rounded-lg bg-slate-950/75 px-3 py-1 text-[12px] text-slate-200 backdrop-blur-md" data-office-hint-short>{t('office.hint.short')}</div>
+            shortHint && <div className="rounded-lg bg-slate-950/75 px-3 py-1 text-[12px] text-slate-200 backdrop-blur-md" data-office-hint-short>{t('office.hint.short')}</div>
           )}
         </div>
       )}
