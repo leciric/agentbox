@@ -730,7 +730,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const color = toneColor[tone];
     (d.beacon.material as THREE.MeshStandardMaterial).color.set(color);
     (d.beacon.material as THREE.MeshStandardMaterial).emissive.set(color);
-    d.beacon.visible = tone !== 'stopped';
+    // The antenna's bulb says the state now; the floating beacon is gone.
+    d.beacon.visible = false;
     d.glowMat.color.set(color);
     d.glowMat.emissive.set(color);
     d.glowMat.emissiveIntensity = tone === 'stopped' ? 0 : 0.8;
@@ -1113,7 +1114,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x - 0.25, y: 1.0, z: d.z + 0.05, dist: 4.6, pitch: 0.58, yaw: 0.12 };
+      if (d) return { x: d.x - 0.2, y: 1.3, z: d.z - 0.1, dist: 4.9, pitch: 0.55, yaw: 0.2 };
     }
     return undefined;
   }
@@ -1267,7 +1268,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       d.root.visible = !(inWay && ahead);
       d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone];
       const b = d.beacon;
-      b.visible = !inWay && d.tone !== 'stopped';
+      b.visible = false;
       b.rotation.y = motion ? t * (d.tone === 'working' ? 2.2 : 0.8) : 0.6;
       const lift = d.ref.endsWith('/lead') ? 0.3 : 0.12;
       b.position.y = 1.95 + lift + (motion ? Math.sin(t * 2 + b.position.x) * 0.05 : 0);
@@ -1393,7 +1394,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       if (!off) {
         // No room: folded into the chip in its way, if there's one nearby;
         // else it stays where it belongs.
-        const into = (restack ? undefined : chipInto.get(m.el)) ?? chips.find((c) => c.loud && m.x - w / 2 < c.x1 + 4 && m.x + w / 2 > c.x0 - 4 && Math.abs(c.y - m.y) < 4 * h)?.el;
+        // The nearest loud chip takes it.
+        const near1 = chips.filter((c) => c.loud).sort((a, b) => Math.hypot((a.x0 + a.x1) / 2 - m.x, a.y - m.y) - Math.hypot((b.x0 + b.x1) / 2 - m.x, b.y - m.y))[0];
+        const into = (restack ? undefined : chipInto.get(m.el)) ?? (near1 && Math.hypot((near1.x0 + near1.x1) / 2 - m.x, near1.y - m.y) < 260 ? near1.el : undefined);
         if (into) {
           chipInto.set(m.el, into);
           m.el.style.display = 'none';
@@ -1527,8 +1530,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     canvas.style.cursor = hover ? 'pointer' : 'default';
     if (p.dragged || p.button !== 0) return;
     const { ref, row, floor } = pick(e.clientX, e.clientY);
-    // At the board, a row opens what it's about; from afar it walks you there.
-    if (row && near === 'board') opts.onBoardRow(row);
+    // A row on the board opens what it's about, from wherever you see it.
+    if (row && (near === 'board' || !row.startsWith('more:'))) opts.onBoardRow(row);
     else if (ref) {
       if (ref === near && !route.length) opts.onActivate(ref);
       else walkTo(ref);

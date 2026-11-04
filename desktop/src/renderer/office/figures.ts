@@ -40,7 +40,8 @@ function rng(seed: number) {
   };
 }
 
-export const SHELLS = ['#f4efe6', '#ffd36e', '#86dcf2', '#a8ecd9', '#f5b3e6', '#c9b6ef', '#ffab73', '#9cc8f2', '#e5e9ee', '#f7c9a6'];
+// Bright enough to tell apart from across the room.
+export const SHELLS = ['#ffc94d', '#4fc3f0', '#5fd8a8', '#f58fcf', '#a98bf2', '#ff8f52', '#6fa8f7', '#f3f1ec', '#ff9f9a', '#9adf6f'];
 const EYES = ['#86f7ff', '#ffe58a', '#b5ffc6', '#ffffff', '#ffc2f2'];
 const ACCESSORIES = ['none', 'headphones', 'beanie', 'bowtie', 'sprout', 'cap', 'glasses', 'scarf', 'none', 'headphones'] as const;
 export type Accessory = (typeof ACCESSORIES)[number] | 'headset';
