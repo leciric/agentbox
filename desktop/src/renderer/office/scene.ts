@@ -41,6 +41,8 @@ export type OfficeSceneOptions = {
   onMoved(): void;
   // N: on to the next desk that needs you.
   onNext(): void;
+  // A chip's "+n": show the list of who needs you.
+  onMore(): void;
   // A click on a row of the board, standing at it: the desk it's about.
   onBoardRow(ref: string): void;
   // A marker's name for screen readers: "Walk to {title}".
@@ -650,6 +652,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         // "+2": the chips folded into this one, with no room of their own.
         const more = document.createElement('span');
         more.style.cssText = 'flex:none;display:none;padding:0 5px;border-radius:999px;background:rgba(255,255,255,.16);font-size:10.5px';
+        // The "+n" opens the list of everyone waiting.
+        more.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          opts.onMore();
+        });
         marker.append(dot, label, more);
         const ref = d.ref;
         // On press, not click: the camera may still be easing, and a chip that
@@ -784,7 +792,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     routeGoal = undefined;
     // From the overview a click on the floor comes halfway down, not all the
     // way behind you.
-    followTarget = Math.max(followTarget, 0.55);
+    if (followTarget === 0) followTarget = 0.55;
     started();
     poke();
   }
@@ -887,7 +895,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const dist = Math.hypot(dx, dz);
       // A long walk is a jog, so a desk across the room is a moment away.
       const left = dist + pathLengthFrom(route);
-      const pace = Math.min(14, Math.max(SPEED, left / 1.0));
+      const pace = Math.min(16, Math.max(SPEED, left / 0.8));
       const stepLen = pace * dt;
       if (dist <= stepLen) {
         pos.x = goal.x;
@@ -948,7 +956,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       // board in the part of the view the board's list (on the right) leaves.
       const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
       const bh = Math.min(2.6, lay.board.w * 0.52);
-      const free = Math.max(0.45, 1 - 380 / Math.max(1, canvas.clientWidth));
+      const free = Math.max(0.42, 1 - 410 / Math.max(1, canvas.clientWidth));
       const pitch = 0.4;
       // Wide enough for you, standing at its left end, too.
       const dist = Math.max((lay.board.w + 1.6) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.85 * 2 * tan));

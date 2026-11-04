@@ -111,3 +111,9 @@ test('an agent asking in its own words, with no question filed, is quoted', () =
   const m = officeModel(inputs({ rows: [row(agent('web/agent-1', { outcome: 'asking', outcomeNote: 'Launch or stop?' }), 'needs')] }));
   assert.equal(m.board.needs[0].text, 'Launch or stop?');
 });
+
+test('agents with the same title are told apart by name', () => {
+  const m = officeModel(inputs({ rows: [row(agent('web/agent-1', { title: 'Fix it' }), 'needs'), row(agent('web/agent-2', { title: 'Fix it' }), 'working'), row(agent('web/agent-3', { title: 'Other' }), 'working')] }));
+  assert.deepEqual(m.areas[0].desks.map((d) => d.title), ['Fix it (agent-1)', 'Fix it (agent-2)', 'Other']);
+  assert.equal(m.board.needs[0].title, 'Fix it (agent-1)');
+});

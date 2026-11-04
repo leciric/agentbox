@@ -246,6 +246,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             onActivate: (ref) => activate.current(ref),
             onNext: () => next.current(),
             onBoardRow: (ref) => boardRow.current(ref),
+            onMore: () => setListChoice(true),
             onMoved: () => {
               setHint(false);
               try {
@@ -375,7 +376,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
         <div className="pointer-events-auto absolute left-3 top-16 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col items-start gap-2 overflow-y-auto" data-office-needs="open">
           <ListCard title={t('office.board.needs')} accent="text-amber-300" onFold={() => setListChoice(false)} foldLabel={t('office.fold')}>
             {needs.map((i) => (
-              <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => {
+              <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => {
                 setListChoice(false);
                 walkTo(i.ref);
               }} />
@@ -393,7 +394,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           project={office.model.areas.find((a) => a.project === nearDesk.project)?.label ?? nearDesk.project}
           facts={[nearDesk.branch, [nearAgent.ai, modelOf(nearThread)].filter(Boolean).join(' · ')]}
           activity={nearThread ? agentChatStatus(nearAgent, nearThread).text : undefined}
-          question={nearDesk.question ?? (nearDesk.tone === 'needs' && nearThread ? agentChatStatus(nearAgent, nearThread).text : undefined)}
+          question={nearDesk.question ?? (nearDesk.tone === 'needs' || nearDesk.tone === 'error' ? agentChatStatus(nearAgent, nearThread).text : undefined)}
           last={nearDesk.question ? undefined : lastMessage(nearThread)}
           pr={nearDesk.pr ? prLine(nearDesk.pr).text : undefined}
           prTone={nearDesk.pr?.checks === 'failing' ? 'bad' : 'ok'}
@@ -537,14 +538,15 @@ function Empty({ children }: { children: ReactNode }) {
   return <div className="px-2 pb-2 text-[12px] text-slate-400">{children}</div>;
 }
 
-function WalkRow({ item, sub, label, onClick }: { item: BoardItem; sub?: string; label: string; onClick: () => void }) {
+function WalkRow({ item, sub, label, onClick, active }: { item: BoardItem; sub?: string; label: string; onClick: () => void; active?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
+      className={cn('group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60', active && 'bg-white/10 ring-1 ring-amber-300/40')}
+      aria-current={active ? 'true' : undefined}
       data-office-walk={item.ref}
     >
       <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', toneDot[item.tone])} />

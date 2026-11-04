@@ -141,6 +141,15 @@ export function TopBar({
             </button>
           </Tip>
         )}
+        {/* Opened from the Office: it heads the breadcrumb, as where ← goes. */}
+        {crumbProject && view.kind === 'agent' && view.from === 'office' && (
+          <span className="flex shrink-0 items-center gap-1.5">
+            <button className="-mx-1 rounded-md px-1 text-muted transition hover:bg-surface-raised hover:text-primary" onClick={() => onSelect({ kind: 'office' })} data-crumb-office>
+              {t('office.title')}
+            </button>
+            <ChevronRight className="size-3.5 shrink-0 text-faint" />
+          </span>
+        )}
         {crumbProject ? (
           <ProjectCrumb project={crumbProject} then={crumbThen} onProject={view.kind === 'agent' ? () => onSelect({ kind: 'project', project: crumbProject.name }) : undefined} />
         ) : crumbs.map((crumb, i) => (

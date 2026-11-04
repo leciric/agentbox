@@ -189,6 +189,15 @@ export function officeModel(inp: OfficeInputs): OfficeModel {
     }
   }
   needs.sort((a, b) => toneRank(a.tone) - toneRank(b.tone));
+  // Two agents with the same title are told apart by their names.
+  const seen = new Map<string, number>();
+  for (const a of areas) for (const d of a.desks) seen.set(d.title, (seen.get(d.title) ?? 0) + 1);
+  const withName = (title: string, name: string) => ((seen.get(title) ?? 0) > 1 ? `${title} (${name})` : title);
+  for (const a of areas) for (const d of a.desks) d.title = withName(d.title, d.name);
+  for (const i of [...needs, ...review]) {
+    const d = i.ref.endsWith('/lead') ? undefined : areas.find((a) => a.project === i.project)?.desks.find((x) => x.id === i.ref);
+    if (d) i.title = d.title;
+  }
   return { areas, board: { needs, review } };
 }
 
