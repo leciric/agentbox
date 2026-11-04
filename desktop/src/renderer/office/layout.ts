@@ -169,8 +169,9 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   return {
     room: { x0: 0, z0: 0, x1: roomW, z1: roomD },
     areas,
-    // You stand at the board's right end, out of the way of reading it.
-    board: { x: cx, w: boardW, spot: { x: cx + boardW / 2 - 0.2, z: 2.2, face: Math.PI } },
+    // You stand at the board's left end, out of the way of reading it and of
+    // its list, which is on the right.
+    board: { x: cx, w: boardW, spot: { x: cx - boardW / 2 + 0.2, z: 2.2, face: Math.PI } },
     lobby,
     spawn: { x: cx, z: lobby.z0 + 1.6, face: Math.PI },
     sofa,

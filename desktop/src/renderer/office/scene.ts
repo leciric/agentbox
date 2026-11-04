@@ -869,7 +869,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const dist = Math.hypot(dx, dz);
       // A long walk is a jog, so a desk across the room is a moment away.
       const left = dist + pathLengthFrom(route);
-      const pace = Math.min(9, Math.max(SPEED, left / 1.4));
+      const pace = Math.min(14, Math.max(SPEED, left / 1.0));
       const stepLen = pace * dt;
       if (dist <= stepLen) {
         pos.x = goal.x;
@@ -939,7 +939,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x - 0.05, y: 1.0, z: d.z + 0.1, dist: 4.4, pitch: 0.52, yaw: 0.25 };
+      if (d) return { x: d.x - 0.1, y: 1.05, z: d.z + 0.15, dist: 5.0, pitch: 0.5, yaw: 0.25 };
     }
     return undefined;
   }
