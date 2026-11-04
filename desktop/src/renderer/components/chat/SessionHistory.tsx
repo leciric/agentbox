@@ -57,7 +57,6 @@ function closedSessionAgent(s: T.LeadSession): T.Agent {
 // started on where it left off (daemon seedSession).
 export function SessionHistory({
   project,
-  initialReading,
   onBack,
   onReopened,
   onContinued,
