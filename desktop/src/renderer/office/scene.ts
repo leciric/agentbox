@@ -653,7 +653,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const fig = mascot(ref, ai, { lead });
     void hue;
     disp.push(() => fig.dispose());
-    fig.group.position.set(rx, lead ? -0.06 : 0, cz + 0.1);
+    // Scaled up, so seated on the seat from below.
+    fig.group.position.set(rx, lead ? -0.29 : -0.22, cz + 0.1);
     g.add(fig.group);
 
     // Its beacon and bubble above it, its name tag, and a ring and a beam of
@@ -1117,7 +1118,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x - 0.15, y: 1.25, z: d.z - 0.1, dist: 4.8, pitch: 0.6, yaw: -0.18 };
+      if (d) return { x: d.x - 0.15, y: 1.05, z: d.z - 0.15, dist: 4.4, pitch: 0.52, yaw: -0.18 };
     }
     return undefined;
   }

@@ -162,7 +162,7 @@ function clawd(k: Kit): Build {
   const orange = k.m(toon('#d97757'));
   const shade = k.m(toon('#c4673f'));
   const body = new THREE.Group();
-  const cube = new THREE.BoxGeometry(V * 0.97, V * 0.97, V * 0.97);
+  const cube = new THREE.BoxGeometry(V, V, V);
   const W = 9;
   const H = 6;
   const D = 5;
@@ -496,7 +496,8 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
     mesh.castShadow = !o.userData.ink && !(mesh.material instanceof THREE.MeshBasicMaterial);
     mesh.receiveShadow = false;
   });
-  if (opts.lead) g.scale.setScalar(1.25);
+  // Bigger than life: they're who you came to see.
+  g.scale.setScalar(opts.lead ? 1.6 : 1.45);
 
   const cur = restPose();
   const T = restPose();
@@ -584,8 +585,11 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
         }
       }
       if (looking && lookAt) {
-        T.yaw = Math.max(-0.9, Math.min(0.9, Math.atan2(lookAt.x, lookAt.z)));
-        T.lookX = Math.max(-1, Math.min(1, T.yaw));
+        // A turn of the body towards you, the eyes doing the rest, so its
+        // face stays to the camera.
+        const toward = Math.atan2(lookAt.x, lookAt.z);
+        T.yaw = Math.max(-0.4, Math.min(0.4, toward * 0.5));
+        T.lookX = Math.max(-1, Math.min(1, toward));
         T.lean = Math.min(T.lean, -0.04);
       }
       if (motion && t0 > blinkAt) blinkAt = t0 + 2.2 + r() * 3.5;
