@@ -249,11 +249,14 @@ func goalNudge(g api.AgentGoal, missing []string) string {
 // blockGoal stops driving a goal that can't be met without the user, and
 // tells them: it is the agent asking.
 func (s *Server) blockGoal(ctx context.Context, a state.Agent, g api.AgentGoal) {
-	g.Status, g.UpdatedAt = api.GoalBlocked, time.Now()
-	s.saveGoal(ctx, a, g, api.GoalBlocked)
 	note := "Goal blocked: " + g.LastUnmet
+	// The agent is asking before its goal reads blocked: whoever sees the
+	// goal blocked (the app, a test) sees it asking too, not the outcome of
+	// the turn before.
 	s.markToldWaiting(a, false)
 	s.setOutcome(a, api.AgentOutcomeAsking, note)
+	g.Status, g.UpdatedAt = api.GoalBlocked, time.Now()
+	s.saveGoal(ctx, a, g, api.GoalBlocked)
 	s.record(ctx, api.AgentEvent{
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
 		Kind: api.AgentAsking, Outcome: api.AgentOutcomeAsking, Summary: note, At: time.Now(),
