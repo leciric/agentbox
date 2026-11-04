@@ -2651,104 +2651,6 @@
     "height": 900
   },
   {
-    "id": "window-verbs-wide-ask-dark",
-    "description": "The prototype navigation at 1920×1080. Ask: the project lead's chat, the leads' sidebar beside the verb bar — dark",
-    "query": "app=project&verbs=1&theme=dark",
-    "width": 1920,
-    "height": 1080
-  },
-  {
-    "id": "window-verbs-wide-watch-dark",
-    "description": "The prototype navigation at 1920×1080. Watch: a project's agents and every agent's state and the machine's load — dark",
-    "query": "app=watch&verbs=1&theme=dark",
-    "width": 1920,
-    "height": 1080
-  },
-  {
-    "id": "window-verbs-wide-watch-agent-dark",
-    "description": "The prototype navigation at 1920×1080. Watch: agent-41's machine, its Desktop — dark",
-    "query": "app=watch:agent-41&verbs=1&theme=dark",
-    "width": 1920,
-    "height": 1080
-  },
-  {
-    "id": "window-verbs-wide-review-dark",
-    "description": "The prototype navigation at 1920×1080. Review: To review, the Work page on what waits — dark",
-    "query": "app=review&verbs=1&theme=dark",
-    "width": 1920,
-    "height": 1080
-  },
-  {
-    "id": "window-verbs-wide-review-pulls-dark",
-    "description": "The prototype navigation at 1920×1080. Review: the project's pull requests — dark",
-    "query": "app=review:pulls&verbs=1&theme=dark",
-    "width": 1920,
-    "height": 1080
-  },
-  {
-    "id": "window-verbs-wide-review-proof-dark",
-    "description": "The prototype navigation at 1920×1080. Review: Proof, every screenshot and recording — dark",
-    "query": "app=review:proof&verbs=1&theme=dark",
-    "width": 1920,
-    "height": 1080
-  },
-  {
-    "id": "window-verbs-wide-settings-dark",
-    "description": "The prototype navigation at 1920×1080. Settings, the verb bar's foot — dark",
-    "query": "app=settings&verbs=1&theme=dark",
-    "width": 1920,
-    "height": 1080
-  },
-  {
-    "id": "window-verbs-small-ask-dark",
-    "description": "The prototype navigation at 800×600. Ask: the project lead's chat, the leads' sidebar beside the verb bar — dark",
-    "query": "app=project&verbs=1&theme=dark",
-    "width": 800,
-    "height": 600
-  },
-  {
-    "id": "window-verbs-small-watch-dark",
-    "description": "The prototype navigation at 800×600. Watch: a project's agents and every agent's state and the machine's load — dark",
-    "query": "app=watch&verbs=1&theme=dark",
-    "width": 800,
-    "height": 600
-  },
-  {
-    "id": "window-verbs-small-watch-agent-dark",
-    "description": "The prototype navigation at 800×600. Watch: agent-41's machine, its Desktop — dark",
-    "query": "app=watch:agent-41&verbs=1&theme=dark",
-    "width": 800,
-    "height": 600
-  },
-  {
-    "id": "window-verbs-small-review-dark",
-    "description": "The prototype navigation at 800×600. Review: To review, the Work page on what waits — dark",
-    "query": "app=review&verbs=1&theme=dark",
-    "width": 800,
-    "height": 600
-  },
-  {
-    "id": "window-verbs-small-review-pulls-dark",
-    "description": "The prototype navigation at 800×600. Review: the project's pull requests — dark",
-    "query": "app=review:pulls&verbs=1&theme=dark",
-    "width": 800,
-    "height": 600
-  },
-  {
-    "id": "window-verbs-small-review-proof-dark",
-    "description": "The prototype navigation at 800×600. Review: Proof, every screenshot and recording — dark",
-    "query": "app=review:proof&verbs=1&theme=dark",
-    "width": 800,
-    "height": 600
-  },
-  {
-    "id": "window-verbs-small-settings-dark",
-    "description": "The prototype navigation at 800×600. Settings, the verb bar's foot — dark",
-    "query": "app=settings&verbs=1&theme=dark",
-    "width": 800,
-    "height": 600
-  },
-  {
     "id": "tabs-idle-agent",
     "description": "agent-99, its panel on Terminal, with nothing in its contextual views: the switch without them, and its + — dark",
     "query": "app=agent-99&panel=terminal:agent-99&tabs=idle&theme=dark",
@@ -2777,44 +2679,16 @@
     "height": 900
   },
   {
-    "id": "sidebar-verbs-on-light",
-    "description": "The v2 sidebar with Home, Watch, Review and New task (flag on) — light",
-    "query": "app=watch&v2=1&verbs=1&theme=light",
-    "width": 1280,
-    "height": 800
-  },
-  {
-    "id": "sidebar-verbs-on-dark",
-    "description": "The v2 sidebar with Home, Watch, Review and New task (flag on) — dark",
-    "query": "app=watch&v2=1&verbs=1&theme=dark",
-    "width": 1280,
-    "height": 800
-  },
-  {
-    "id": "sidebar-verbs-off-light",
-    "description": "The v2 sidebar with Home, Watch, Review and New task (flag off) — light",
-    "query": "app=watch&v2=1&verbs=0&theme=light",
-    "width": 1280,
-    "height": 800
-  },
-  {
-    "id": "sidebar-verbs-off-dark",
-    "description": "The v2 sidebar with Home, Watch, Review and New task (flag off) — dark",
-    "query": "app=watch&v2=1&verbs=0&theme=dark",
-    "width": 1280,
-    "height": 800
-  },
-  {
     "id": "window-small-v2-home-chat-dark",
     "description": "UI v2 at 800×600 on Home's chat: the title and subtitle with the Chat, Status and Memory tabs beside them, wrapping below when narrow — dark",
-    "query": "app=homeChat&verbs=1&theme=dark",
+    "query": "app=homeChat&theme=dark",
     "width": 800,
     "height": 600
   },
   {
     "id": "window-narrow-v2-home-chat-dark",
     "description": "UI v2 at 480×800 on Home's chat: the title and subtitle with the Chat, Status and Memory tabs beside them, wrapping below when narrow — dark",
-    "query": "app=homeChat&verbs=1&theme=dark",
+    "query": "app=homeChat&theme=dark",
     "width": 480,
     "height": 800
   },

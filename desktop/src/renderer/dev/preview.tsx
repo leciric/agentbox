@@ -249,10 +249,6 @@
 //                           agents with no snapshots, pages, emulator, media or Hatch pages; busy,
 //                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
-//   &verbs=1                with ?app=, the prototype navigation, Ask, Watch and Review
-//                           (lib/uiVerbs.ts); ?app=watch opens Watch, ?app=watch:agent-41
-//                           that agent's machine, ?app=review Review, ?app=review:pulls
-//                           and ?app=review:proof its other tabs
 //   &tour=welcome           with ?app=, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
@@ -373,7 +369,6 @@ import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { seedIssues } from './issues';
-import { setUiVerbs } from '../lib/uiVerbs';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -725,7 +720,7 @@ if (artifacts) {
   seedPages(queryClient);
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
-if (pulls || appView === 'pulls' || appView?.startsWith('review')) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
+if (pulls || appView === 'pulls') queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (past || appView === 'work') seedPastAgents(queryClient);
 if (home) {
   const at = new Date().toISOString();
@@ -749,7 +744,6 @@ if (tabsScenario === 'idle') queryClient.setQueryData(['pages', PROJECT], { conn
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
 if (appView === 'issues') seedIssues(queryClient);
-setUiVerbs(params.get('verbs') === '1');
 // No tour plays over a scenario unless &tour= asks for one.
 {
   const tour = params.get('tour');
@@ -1672,8 +1666,6 @@ if (phoneMode === 'frame') {
     : appView === 'recap' ? { kind: 'recap' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
-    : appView === 'watch' || appView.startsWith('watch:') ? { kind: 'watch', ref: appView.startsWith('watch:') ? `${PROJECT}/${appView.slice(6)}` : undefined }
-    : appView === 'review' || appView.startsWith('review:') ? { kind: 'review', tab: appView === 'review:pulls' ? 'pulls' : appView === 'review:proof' ? 'proof' : 'work' }
     : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
   createRoot(document.getElementById('root')!).render(

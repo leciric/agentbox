@@ -49,9 +49,7 @@ export function homeAgentFrom(info: T.ProjectChat, topic?: string): T.Agent {
 // its own, { kind: 'home' }, which the app opens on; the chat is homeChat.
 export type HomeTabs = { status: ReactNode; onStatus: boolean; onTab: (status: boolean) => void };
 
-// bare is the prototype navigation's (lib/uiVerbs.ts) Home: the chat alone,
-// its Memory being in Settings.
-export function HomeChatPanel({ home, bare }: { home?: HomeTabs; bare?: boolean }) {
+export function HomeChatPanel({ home }: { home?: HomeTabs }) {
   const t = useT();
   // The session shown, for the status and menu beside the tabs: the same
   // query SessionChatPanel makes for it.
@@ -94,12 +92,10 @@ export function HomeChatPanel({ home, bare }: { home?: HomeTabs; bare?: boolean 
                 {t('chat.home.tab.status')}
               </TabsTrigger>
             )}
-            {!bare && (
-              <TabsTrigger value="memory" data-home-tab="memory">
-                <Brain />
-                {t('chat.home.tab.memory')}
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="memory" data-home-tab="memory">
+              <Brain />
+              {t('chat.home.tab.memory')}
+            </TabsTrigger>
           </TabsList>
           {info && (
             <div className="flex shrink-0 items-center gap-2">
