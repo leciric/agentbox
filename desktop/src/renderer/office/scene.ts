@@ -173,7 +173,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   // Markers over the canvas for the desks that need you: from far off a name
   // tag is a smudge, and these are what you'd look for. Each walks you there.
   const markerLayer = document.createElement('div');
-  markerLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden';
+  markerLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;transition:opacity .15s';
   host.appendChild(markerLayer);
   const markers = new Map<string, HTMLButtonElement>();
   // Each area's label from far off, a map's: a click walks to its front desk.
@@ -281,6 +281,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   // What the close-up looks at, kept while it eases out.
   let focusRef: string | undefined;
   let focusAt: { x: number; z: number } | undefined;
+  let settledFor = 0;
+  let chipsShown = true;
   let stillFor = 0;
 
   // Input.
@@ -493,7 +495,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // The laptop before the robot, its lid's back glowing in its state's colour.
     const glowMat = new THREE.MeshStandardMaterial({ color: '#60a5fa', emissive: '#60a5fa', emissiveIntensity: 0.6 });
     disp.push(() => glowMat.dispose());
-    const lx = lead ? -0.55 : -0.32;
+    const lx = lead ? -0.55 : -0.48;
     g.add(mesh(geo.box, mats.laptop, lx, top + 0.01, -0.12, 0.42, 0.02, 0.28));
     const lid = new THREE.Group();
     lid.position.set(lx, top + 0.02, -0.02);
@@ -508,9 +510,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const screenMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
     disp.push(() => screenMat.dispose());
     const mon = new THREE.Group();
-    mon.position.set(lead ? 0.45 : 0.3, top, lead ? 0.1 : 0.05);
+    mon.position.set(lead ? 0.45 : 0.36, top, lead ? 0.1 : 0.05);
     mon.rotation.y = -0.12;
-    const mw = lead ? 0.86 : 0.9;
+    const mw = lead ? 0.86 : 0.82;
     const mh = mw * (320 / 512);
     mon.add(mesh(geo.box, mats.monitorFrame, 0, 0.06 + mh / 2 + 0.06, 0, mw + 0.05, mh + 0.05, 0.035));
     mon.add(mesh(geo.plane, screenMat, 0, 0.06 + mh / 2 + 0.06, 0.019, mw, mh, 1, false));
@@ -520,7 +522,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // The robot, on its chair.
     const fig = robot(hue, [...ref].reduce((a, c) => a + c.charCodeAt(0), 0));
     disp.push(() => fig.dispose());
-    fig.group.position.set(lead ? 0 : -0.32, 0, cz + 0.02);
+    fig.group.position.set(lead ? 0 : -0.48, 0, cz + 0.02);
     if (lead) fig.group.scale.setScalar(1.12);
     g.add(fig.group);
 
@@ -1069,6 +1071,16 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       w.mat.depthWrite = w.mat.opacity > 0.9;
     }
     const after = eased.tx + eased.tz + eased.dist + eased.pitch + eased.yaw;
+    // The chips over the canvas show only once the camera has settled: one
+    // sliding under the pointer would send a click somewhere else.
+    const moving = Math.abs(after - before) > 2e-3;
+    settledFor = moving ? 0 : settledFor + dt;
+    const show = settledFor > 0.12;
+    if (show !== chipsShown) {
+      chipsShown = show;
+      markerLayer.style.opacity = show ? '1' : '0';
+      markerLayer.style.visibility = show ? 'visible' : 'hidden';
+    }
     return Math.abs(after - before) > 1e-4 || cam.followK !== followTarget || cam.closeK !== closeTarget;
   }
 
