@@ -71,7 +71,7 @@ const AREA_PAD = 0.8; // the rug's margin around its desks
 const LEAD_DEPTH = 2.7; // the counter's strip at the front of an area
 const AISLE = 1.8; // between areas
 const BACK_AISLE = 3.8; // before the board
-const LOBBY = 4.2;
+const LOBBY = 3.2;
 const WALL_PAD = 1.6;
 const MAX_ROW_W = 22; // areas wrap onto a new row past this, at least
 const MIN_ROOM_W = 16;
@@ -187,7 +187,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   obstacles.push(planter);
   const rack = { x: roomW - 0.55, z: lobby.z1 - 0.7 };
   // The lounge: two armchairs and a low table on a rug, by the left wall.
-  const lounge: Box = { x0: 0.6, z0: lobby.z0 + 1.2, x1: Math.min(4.2, roomW * 0.3), z1: lobby.z1 - 0.5 };
+  const lounge: Box = { x0: 0.6, z0: lobby.z0 + 0.9, x1: Math.min(4.2, roomW * 0.3), z1: lobby.z1 - 0.3 };
   obstacles.push({ x0: lounge.x0 + 0.3, z0: lounge.z0 + 0.5, x1: lounge.x1 - 0.3, z1: lounge.z1 - 0.6 });
   // A café in the work area's spare floor, right of the areas, when wide enough.
   const areasRight = areas.reduce((m, a) => Math.max(m, a.rug.x1), 0);

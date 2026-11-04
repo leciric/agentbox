@@ -91,7 +91,8 @@ function sharedMaterials() {
     chairs: ['#e9b44c', '#4aa3a2', '#e07a5f', '#8fb39a', '#7c8bd6'].map((c) => std(c, { roughness: 0.75 })),
     deskTop: phys('#efe6d8', { roughness: 0.45, clearcoat: 0.2 }),
     deskLeg: std('#2d333f', { metalness: 0.6, roughness: 0.35 }),
-    metal: std('#3d3a38', { metalness: 0.3, roughness: 0.45 }),
+    // Light, warm frames, as the toy furniture's.
+    metal: std('#d8c7b0', { metalness: 0.1, roughness: 0.55 }),
     plastic: phys('#1f2430', { roughness: 0.35, clearcoat: 0.5 }),
     fabric: std('#3a4763', { roughness: 0.92 }),
     alu: phys('#d3d7de', { metalness: 0.75, roughness: 0.28 }),
@@ -1102,7 +1103,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const tx = W / 2;
     const tz = D / 2 + 0.6;
     // The slab's underside and the walls' tops, all of the diorama.
-    const corners = [-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].flatMap((z) => [-0.45, 2.6].map((y) => new THREE.Vector3(x, y, z))));
+    const corners = [-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].flatMap((z) => [-0.45, 3.4].map((y) => new THREE.Vector3(x, y, z))));
     const v = new THREE.Vector3();
     const shiftAt = (d: number) => d * tan * aspect * cover;
     const fits = (d: number) => {
@@ -1331,7 +1332,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // Every character wears its name tag, as in a real office; up close
         // only the loud ones.
         // From the overview only the ones that need you; nearer, everyone's.
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || (cam.closeK < 0.3 && cam.followK > 0.4));
+        // The overview shows the pods' pills and counts and the bubbles over
+        // heads; the tags come as you come in.
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && cam.followK > (loud ? 0.2 : 0.4) && (loud || cam.closeK < 0.3);
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         marker.style.display = onScreen ? 'flex' : 'none';
         if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: Math.min(canvas.clientHeight - 70, ((1 - tp.y) / 2) * canvas.clientHeight), loud });
