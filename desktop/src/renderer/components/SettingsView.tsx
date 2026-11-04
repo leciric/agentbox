@@ -107,6 +107,7 @@ import { setGroupIdle, useGroupIdle } from "../lib/groupIdle";
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
 import { setUiVerbs, useUiVerbs } from "../lib/uiVerbs";
+import { setUiOffice, useUiOffice } from "../lib/uiOffice";
 import { JobsView } from "./JobsView";
 import { startTour, verbsTour } from "../lib/tours";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
@@ -877,6 +878,7 @@ function InstalledSettings({
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const topBarDetailed = useTopBarDetailed();
   const uiVerbs = useUiVerbs();
+  const uiOffice = useUiOffice();
   const reviewing = useReviewing();
   const groupIdle = useGroupIdle();
   const pageStack = usePageStackMode();
@@ -1004,6 +1006,13 @@ function InstalledSettings({
               keywords: t("settings.entry.verbs.keywords"),
               modified: uiVerbs,
               render: () => <VerbsSetting />,
+            },
+            {
+              id: "office",
+              label: t("settings.entry.office.label"),
+              keywords: t("settings.entry.office.keywords"),
+              modified: uiOffice,
+              render: () => <OfficeSetting />,
             },
             // The sidebar keeps only Settings and Past agents at its foot, so
             // which AgentBox this window drives is chosen here.
@@ -2508,6 +2517,18 @@ function VerbsSetting() {
           }}
         />
       }
+    />
+  );
+}
+
+function OfficeSetting() {
+  const t = useT();
+  const on = useUiOffice();
+  return (
+    <SettingRow
+      label={t("settings.entry.office.label")}
+      description={t("settings.office.description")}
+      control={<Switch data-office-setting aria-label={t("settings.entry.office.label")} checked={on} onCheckedChange={setUiOffice} />}
     />
   );
 }

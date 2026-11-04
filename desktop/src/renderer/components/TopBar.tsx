@@ -93,6 +93,9 @@ export function TopBar({
     case 'review':
       crumbs.push({ label: t('verbs.review') });
       break;
+    case 'office':
+      crumbs.push({ label: t('office.title') });
+      break;
     case 'work':
       if (view.project) crumbs.push({ label: projectLabel(view.project, projects.data), view: { kind: 'project', project: view.project } });
       crumbs.push({ label: t('work.title') });

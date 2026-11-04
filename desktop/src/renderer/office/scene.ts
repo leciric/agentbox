@@ -1,0 +1,1076 @@
+// The Office in three.js: the room layout.ts lays out, a desk and a robot for
+// every agent, each project's lead at its counter, the wall board, and you.
+// The React view (OfficeView) owns the data and the words and calls apply();
+// this owns the canvas, the camera and the input: keys and the mouse walk you,
+// a click on a desk walks you to it, a click on the desk you're at opens it.
+//
+// It renders only while it's worth it: every frame while you move or anything
+// eases, a few frames a second for the robots' idle life once you've let go,
+// nothing while the window is hidden, and with reduced motion only when
+// something changed.
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { robot, walker as makeWalker, type Figure } from './figures.ts';
+import { COUNTER, DESK, SEAT, layout as layOut, nearest, spotOf, walkable, type Box, type Layout } from './layout.ts';
+import type { DeskTone, LeadTone, OfficeModel } from './model.ts';
+import { canvasTexture, drawBoard, drawBubble, drawScreen, drawSign, drawTag, paintSky, planks, toneColor, type BoardScreen, type Screen } from './textures.ts';
+import { path, pathLength, slide, turn, type P } from './walk.ts';
+
+// pathLengthFrom is a route's length after its first point.
+const pathLengthFrom = (route: readonly P[]) => (route.length > 1 ? pathLength(route[0], route.slice(1)) : 0);
+
+export type SceneInput = {
+  model: OfficeModel;
+  // Each desk's monitor, by agent ref, and each lead's (project/lead).
+  screens: ReadonlyMap<string, Screen>;
+  board: BoardScreen;
+  you: string;
+};
+
+export type OfficeSceneOptions = {
+  reducedMotion: boolean;
+  // What you're standing at: a desk's ref, project/lead, 'board', or nothing.
+  onNear(ref: string | undefined): void;
+  // What the pointer is over, for the cursor and the hint.
+  onHover(ref: string | undefined): void;
+  // A click on what you're standing at, or E: open it.
+  onActivate(ref: string): void;
+  // You moved for the first time (the controls hint can go).
+  onMoved(): void;
+};
+
+export type OfficeScene = {
+  apply(input: SceneInput): void;
+  walkTo(ref: string): void;
+  overview(): void;
+  setReducedMotion(on: boolean): void;
+  dispose(): void;
+};
+
+const RADIUS = 0.3;
+const SPEED = 3.4; // metres a second, walking
+const FOV = 38;
+
+const leadAsDesk = (t: LeadTone): DeskTone => (t === 'needs' ? 'needs' : t === 'working' ? 'working' : 'idle');
+const std = (color: THREE.ColorRepresentation, o: Partial<THREE.MeshStandardMaterialParameters> = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, ...o });
+
+// Materials every desk shares, made once.
+function sharedMaterials() {
+  return {
+    deskTop: std('#e8dcc8', { roughness: 0.5 }),
+    deskLeg: std('#3a3f4b', { metalness: 0.4, roughness: 0.4 }),
+    chair: std('#2b3242'),
+    chairSeat: std('#3b4458'),
+    laptop: std('#c7ccd6', { metalness: 0.6, roughness: 0.3 }),
+    monitorFrame: std('#1b2029', { roughness: 0.35 }),
+    pole: std('#9aa3b2', { metalness: 0.6, roughness: 0.3 }),
+    pot: std('#c96f4a'),
+    leaf: std('#3f8f55', { roughness: 0.8 }),
+    leafLight: std('#5fb36b', { roughness: 0.8 }),
+    mug: std('#f8fafc'),
+    hit: new THREE.MeshBasicMaterial({ visible: false }),
+  };
+}
+type Mats = ReturnType<typeof sharedMaterials>;
+
+const geo = {
+  box: new THREE.BoxGeometry(1, 1, 1),
+  cyl: new THREE.CylinderGeometry(1, 1, 1, 20),
+  sphere: new THREE.SphereGeometry(1, 18, 12),
+  plane: new THREE.PlaneGeometry(1, 1),
+  octa: new THREE.OctahedronGeometry(0.11),
+  ring: new THREE.RingGeometry(0.85, 1, 48),
+  beam: new THREE.CylinderGeometry(0.75, 0.95, 5, 32, 1, true),
+  roundTop: new RoundedBoxGeometry(1, 1, 1, 3, 0.04),
+};
+
+function mesh(g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1, shadow = true): THREE.Mesh {
+  const o = new THREE.Mesh(g, m);
+  o.position.set(x, y, z);
+  o.scale.set(sx, sy, sz);
+  o.castShadow = shadow;
+  o.receiveShadow = true;
+  return o;
+}
+
+// plant is a potted plant, leaves in a loose bunch.
+function plant(m: Mats, x: number, z: number, seed: number): THREE.Group {
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  g.add(mesh(geo.cyl, m.pot, 0, 0.22, 0, 0.2, 0.44, 0.2));
+  for (let i = 0; i < 7; i++) {
+    const a = i * 2.4 + seed;
+    const r = i === 0 ? 0 : 0.16;
+    const leaf = mesh(geo.sphere, i % 2 ? m.leaf : m.leafLight, Math.cos(a) * r, 0.62 + (i % 3) * 0.16, Math.sin(a) * r, 0.17, 0.32, 0.17);
+    leaf.rotation.set(Math.sin(a) * 0.5, 0, Math.cos(a) * 0.5);
+    g.add(leaf);
+  }
+  return g;
+}
+
+// Sprite is a canvas on a card that always faces the camera.
+function sprite(w: number, h: number, scale: number): { sprite: THREE.Sprite; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture } {
+  const { tex, ctx } = canvasTexture(w, h);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  s.scale.set(scale, (scale * h) / w, 1);
+  return { sprite: s, ctx, tex };
+}
+
+type DeskObj = {
+  ref: string;
+  root: THREE.Group;
+  figure: Figure;
+  screen: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; data?: Screen; mat: THREE.MeshBasicMaterial };
+  tag: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string };
+  bubble: { sprite: THREE.Sprite; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string };
+  beacon: THREE.Mesh;
+  ring: THREE.Mesh;
+  beam: THREE.Mesh;
+  flag: THREE.Group;
+  flagMat: THREE.MeshStandardMaterial;
+  glowMat: THREE.MeshStandardMaterial;
+  tone: DeskTone;
+  hit: THREE.Mesh;
+  dispose: (() => void)[];
+};
+
+const bubbleOf: Partial<Record<DeskTone, [string, string]>> = {
+  needs: ['!', '#fbbf24'],
+  error: ['×', '#f87171'],
+  finished: ['✓', '#34d399'],
+  stopped: ['z', '#94a3b8'],
+};
+
+export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): OfficeScene {
+  let motion = !opts.reducedMotion;
+  let disposed = false;
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const canvas = renderer.domElement;
+  canvas.style.display = 'block';
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.touchAction = 'none';
+  canvas.tabIndex = 0;
+  canvas.setAttribute('data-office-canvas', '');
+  host.appendChild(canvas);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 200);
+  const hemi = new THREE.HemisphereLight('#e0ecff', '#8a6a4c', 1.0);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight('#fff3e0', 1.8);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.bias = -0.0005;
+  sun.shadow.normalBias = 0.02;
+  scene.add(sun, sun.target);
+  const fill = new THREE.AmbientLight('#ffffff', 0.25);
+  scene.add(fill);
+
+  const mats = sharedMaterials();
+  const floorTex = planks();
+  const sky = canvasTexture(512, 256);
+  let skyHour = -1;
+
+  // What a layout builds: the room, its furniture and the desks.
+  let room = new THREE.Group();
+  scene.add(room);
+  let roomDispose: (() => void)[] = [];
+  let lay: Layout = layOut({ areas: [] });
+  let layKey = '';
+  let boxes: Box[] = [];
+  let bounds: Box = lay.room;
+  const desks = new Map<string, DeskObj>();
+  const hits: THREE.Object3D[] = [];
+  let board: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string } | undefined;
+  let sideWalls: { mat: THREE.MeshStandardMaterial; side: 'left' | 'right' }[] = [];
+
+  // You.
+  const me = makeWalker();
+  scene.add(me.group);
+  const meRing = mesh(geo.ring, new THREE.MeshBasicMaterial({ color: '#a78bfa', transparent: true, opacity: 0.8, side: THREE.DoubleSide }), 0, 0.02, 0, 0.42, 0.42, 0.42, false);
+  meRing.rotation.x = -Math.PI / 2;
+  scene.add(meRing);
+  const meTag = sprite(256, 80, 0.62);
+  meTag.sprite.position.y = 2.0;
+  me.group.add(meTag.sprite);
+  let youLabel = '';
+  const pos: P = { x: 0, z: 0 };
+  let facing = Math.PI;
+  let speed = 0;
+  let route: P[] = [];
+  let routeGoal: string | undefined;
+  let placed = false;
+  let moved = false;
+
+  // The camera: an overview of the whole room to start, then following you;
+  // closer, lower, when you stop at a desk.
+  const cam = { yaw: 0, followK: 0, dist: 11, closeK: 0 };
+  const eased = { tx: 0, ty: 0, tz: 0, dist: 20, pitch: 0.9, yaw: 0, init: false };
+  let near: string | undefined;
+  let stillFor = 0;
+
+  // Input.
+  const keys = new Set<string>();
+  let hover: string | undefined;
+  let pointer: { x: number; y: number; id: number; dragged: boolean; button: number } | undefined;
+  const ndc = new THREE.Vector2();
+  let hoverDirty = false;
+  const ray = new THREE.Raycaster();
+  const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  let lastInput = performance.now();
+  let dirty = true;
+  const poke = () => {
+    lastInput = performance.now();
+    dirty = true;
+    wake();
+  };
+
+  function build(input: SceneInput) {
+    for (const d of roomDispose) d();
+    roomDispose = [];
+    scene.remove(room);
+    for (const d of desks.values()) for (const f of d.dispose) f();
+    desks.clear();
+    hits.length = 0;
+    room = new THREE.Group();
+    scene.add(room);
+    const own = <T extends { dispose(): void }>(x: T) => (roomDispose.push(() => x.dispose()), x);
+    const l = lay;
+    const W = l.room.x1;
+    const D = l.room.z1;
+
+    // The floor, its planks a metre and a bit wide.
+    const tex = floorTex.clone();
+    tex.repeat.set(W / 4, D / 4);
+    tex.needsUpdate = true;
+    own(tex);
+    const floor = mesh(own(new THREE.PlaneGeometry(W, D)), own(std('#ffffff', { map: tex, roughness: 0.75 })), W / 2, 0, D / 2, 1, 1, 1, false);
+    floor.rotation.x = -Math.PI / 2;
+    floor.userData.floor = true;
+    room.add(floor);
+
+    // Walls: the back one, and the sides, which fade when the camera's behind them.
+    const wallMat = own(std('#efe8dc', { roughness: 0.9 }));
+    const H = 3.2;
+    room.add(mesh(geo.box, wallMat, W / 2, H / 2, -0.1, W + 0.4, H, 0.2, false));
+    sideWalls = [];
+    for (const side of ['left', 'right'] as const) {
+      const m = own(std('#e9e1d3', { roughness: 0.9, transparent: true }));
+      sideWalls.push({ mat: m, side });
+      const w = mesh(geo.box, m, side === 'left' ? -0.1 : W + 0.1, H / 2, D / 2, 0.2, H, D + 0.4, false);
+      room.add(w);
+    }
+    const base = own(std('#8b7355'));
+    room.add(mesh(geo.box, base, W / 2, 0.06, 0.01, W, 0.12, 0.04, false));
+
+    // Windows, with the sky at this hour.
+    const skyMat = own(new THREE.MeshBasicMaterial({ map: sky.tex }));
+    const frame = own(std('#ffffff', { roughness: 0.4 }));
+    for (const win of l.windows) {
+      const g = new THREE.Group();
+      const h = 1.5;
+      if (win.side === 'back') g.position.set(win.at, 1.75, 0.005);
+      else {
+        g.position.set(win.side === 'left' ? 0.005 : W - 0.005, 1.75, win.at);
+        g.rotation.y = win.side === 'left' ? Math.PI / 2 : -Math.PI / 2;
+      }
+      g.add(mesh(geo.plane, skyMat, 0, 0, 0, win.w, h, 1, false));
+      g.add(mesh(geo.box, frame, 0, h / 2, 0.02, win.w + 0.12, 0.08, 0.06, false));
+      g.add(mesh(geo.box, frame, 0, -h / 2, 0.04, win.w + 0.2, 0.08, 0.14, false));
+      g.add(mesh(geo.box, frame, -win.w / 2, 0, 0.02, 0.07, h, 0.06, false));
+      g.add(mesh(geo.box, frame, win.w / 2, 0, 0.02, 0.07, h, 0.06, false));
+      g.add(mesh(geo.box, frame, 0, 0, 0.02, 0.05, h, 0.05, false));
+      room.add(g);
+    }
+
+    // The board, on the back wall.
+    {
+      const bw = l.board.w;
+      const bh = Math.min(3.0, bw * 0.48);
+      const pxW = 1024;
+      const pxH = Math.round((pxW * bh) / bw);
+      const { tex: btex, ctx } = canvasTexture(pxW, pxH);
+      own(btex);
+      board = { ctx, tex: btex, key: '' };
+      const g = new THREE.Group();
+      g.position.set(l.board.x, 0.35 + bh / 2 + 0.25, 0.04);
+      g.add(mesh(geo.box, own(std('#5b4636', { roughness: 0.6 })), 0, 0, 0, bw + 0.24, bh + 0.24, 0.08, false));
+      const face = mesh(geo.plane, own(new THREE.MeshBasicMaterial({ map: btex, toneMapped: false })), 0, 0, 0.045, bw, bh, 1, false);
+      g.add(face);
+      room.add(g);
+      // A ledge below it, with markers.
+      room.add(mesh(geo.box, own(std('#5b4636')), l.board.x, 0.5, 0.15, bw * 0.7, 0.05, 0.22));
+      const hit = mesh(geo.box, mats.hit, l.board.x, 1.5, 0.3, bw, 3, 0.6, false);
+      hit.userData.ref = 'board';
+      room.add(hit);
+      hits.push(hit);
+    }
+
+    // Each area: its rug, its counter with the lead and the project's sign.
+    for (let i = 0; i < l.areas.length; i++) {
+      const place = l.areas[i];
+      const area = input.model.areas[i];
+      const r = place.rug;
+      const rugEdge = own(std(new THREE.Color().setHSL(area.hue / 360, 0.35, 0.45), { roughness: 0.95 }));
+      const rugMat = own(std(new THREE.Color().setHSL(area.hue / 360, 0.28, 0.3), { roughness: 0.95 }));
+      const rw = r.x1 - r.x0;
+      const rd = r.z1 - r.z0;
+      const edge = mesh(geo.box, rugEdge, (r.x0 + r.x1) / 2, 0.006, (r.z0 + r.z1) / 2, rw, 0.012, rd, false);
+      const inner = mesh(geo.box, rugMat, (r.x0 + r.x1) / 2, 0.009, (r.z0 + r.z1) / 2, rw - 0.24, 0.014, rd - 0.24, false);
+      room.add(edge, inner);
+
+      // The counter: a long desk with a front in the project's colour.
+      const { x: lx, z: lz } = place.lead;
+      const counterFront = own(std(new THREE.Color().setHSL(area.hue / 360, 0.45, 0.42)));
+      room.add(mesh(geo.roundTop, mats.deskTop, lx, 1.0, lz, COUNTER.w + 0.1, 0.06, COUNTER.d + 0.1));
+      room.add(mesh(geo.box, counterFront, lx, 0.5, lz + 0.05, COUNTER.w, 0.96, COUNTER.d - 0.1));
+      // The sign, on two posts over the counter.
+      const sign = sprite(1024, 200, 3.0);
+      own(sign.tex);
+      drawSign(sign.ctx, area.label, area.hue);
+      sign.tex.needsUpdate = true;
+      const signMesh = mesh(geo.plane, own(new THREE.MeshBasicMaterial({ map: sign.tex, transparent: true, toneMapped: false })), lx, 2.35, lz - 1.25, 3.0, 0.586, 1, false);
+      room.add(signMesh);
+      room.add(mesh(geo.cyl, mats.pole, lx - 1.35, 1.2, lz - 1.27, 0.025, 2.4, 0.025), mesh(geo.cyl, mats.pole, lx + 1.35, 1.2, lz - 1.27, 0.025, 2.4, 0.025));
+      addDesk(input, `${area.project}/lead`, lx, lz, area.hue, true);
+      for (const d of place.desks) addDesk(input, d.id, d.x, d.z, area.hue, false);
+    }
+    for (const [i, p] of l.plants.entries()) room.add(plant(mats, p.x, p.z, i));
+
+    // The lobby: a sofa facing the room, a coffee table, a water cooler and a lamp.
+    {
+      const s = l.sofa;
+      const sx = (s.x0 + s.x1) / 2;
+      const sz = (s.z0 + s.z1) / 2;
+      const fabric = own(std('#2f7d7a', { roughness: 0.95 }));
+      const cushion = own(std('#3a9692', { roughness: 0.95 }));
+      room.add(mesh(geo.roundTop, fabric, sx, 0.25, sz, 2.6, 0.4, 0.95));
+      room.add(mesh(geo.roundTop, cushion, sx - 0.62, 0.5, sz - 0.05, 1.18, 0.16, 0.75), mesh(geo.roundTop, cushion, sx + 0.62, 0.5, sz - 0.05, 1.18, 0.16, 0.75));
+      room.add(mesh(geo.roundTop, fabric, sx, 0.75, sz + 0.38, 2.6, 0.7, 0.22));
+      room.add(mesh(geo.roundTop, fabric, sx - 1.25, 0.55, sz, 0.18, 0.5, 0.95), mesh(geo.roundTop, fabric, sx + 1.25, 0.55, sz, 0.18, 0.5, 0.95));
+      const tz = s.z0 - 1.25 + 0.475;
+      room.add(mesh(geo.roundTop, mats.deskTop, sx, 0.42, tz, 1.3, 0.06, 0.7));
+      for (const [dx, dz] of [[-0.55, -0.25], [0.55, -0.25], [-0.55, 0.25], [0.55, 0.25]]) room.add(mesh(geo.cyl, mats.deskLeg, sx + dx, 0.2, tz + dz, 0.025, 0.4, 0.025));
+      room.add(mesh(geo.cyl, mats.mug, sx + 0.3, 0.5, tz + 0.05, 0.05, 0.1, 0.05), mesh(geo.cyl, mats.mug, sx - 0.2, 0.5, tz - 0.1, 0.05, 0.1, 0.05));
+      // Water cooler.
+      const cz = l.lobby.z0 + 1.2;
+      room.add(mesh(geo.box, own(std('#e5e7eb')), 0.6, 0.5, cz, 0.4, 1.0, 0.4));
+      room.add(mesh(geo.cyl, own(std('#7dd3fc', { transparent: true, opacity: 0.7, roughness: 0.1 })), 0.6, 1.22, cz, 0.15, 0.45, 0.15));
+      // A floor lamp by the sofa, warm.
+      room.add(mesh(geo.cyl, mats.deskLeg, sx + 1.75, 0.8, sz, 0.02, 1.6, 0.02));
+      lampShade = mesh(geo.cyl, own(std('#fde7c2', { emissive: '#ffcf8a', emissiveIntensity: 0.6 })), sx + 1.75, 1.65, sz, 0.22, 0.3, 0.22);
+      room.add(lampShade);
+    }
+
+    // The sun's shadow covers the room.
+    const half = Math.max(W, D) / 2 + 2;
+    sun.shadow.camera.left = -half;
+    sun.shadow.camera.right = half;
+    sun.shadow.camera.top = half;
+    sun.shadow.camera.bottom = -half;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 80;
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.target.position.set(W / 2, 0, D / 2);
+    lighting(true);
+    boxes = walkable(l, RADIUS);
+    bounds = { x0: l.room.x0 + RADIUS, z0: l.room.z0 + RADIUS, x1: l.room.x1 - RADIUS, z1: l.room.z1 - RADIUS };
+  }
+  let lampShade: THREE.Mesh | undefined;
+
+  // addDesk puts an agent's desk at (x, z): the desk, its chair, the laptop
+  // and the monitor facing you, the robot, its beacon, bubble, name tag and
+  // pull request flag. A lead's is the counter, built above: here it gets
+  // the robot and the rest.
+  function addDesk(input: SceneInput, ref: string, x: number, z: number, hue: number, lead: boolean) {
+    const disp: (() => void)[] = [];
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    room.add(g);
+    if (!lead) {
+      g.add(mesh(geo.roundTop, mats.deskTop, 0, DESK.h, 0, DESK.w, 0.05, DESK.d));
+      for (const [dx, dz] of [[-0.68, -0.32], [0.68, -0.32], [-0.68, 0.32], [0.68, 0.32]]) g.add(mesh(geo.box, mats.deskLeg, dx, DESK.h / 2, dz, 0.05, DESK.h, 0.05));
+      // A mug, a plant or nothing, by desk.
+      const n = [...ref].reduce((a, c) => a + c.charCodeAt(0), 0);
+      if (n % 3 === 0) g.add(mesh(geo.cyl, mats.mug, -0.6, DESK.h + 0.07, 0.15, 0.04, 0.1, 0.04));
+      else if (n % 3 === 1) {
+        const p = plant(mats, -0.62, 0.15, n);
+        p.scale.setScalar(0.35);
+        p.position.y = DESK.h;
+        g.add(p);
+      }
+    }
+    // The chair, behind.
+    const cz = lead ? -0.75 : -SEAT;
+    g.add(mesh(geo.roundTop, mats.chairSeat, 0, 0.45, cz, 0.5, 0.08, 0.5));
+    g.add(mesh(geo.roundTop, mats.chair, 0, 0.78, cz - 0.24, 0.48, 0.55, 0.07));
+    g.add(mesh(geo.cyl, mats.deskLeg, 0, 0.22, cz, 0.03, 0.44, 0.03));
+
+    const top = lead ? 1.03 : DESK.h + 0.025;
+    // The laptop before the robot, its lid's back glowing in its state's colour.
+    const glowMat = new THREE.MeshStandardMaterial({ color: '#60a5fa', emissive: '#60a5fa', emissiveIntensity: 0.6 });
+    disp.push(() => glowMat.dispose());
+    const lx = lead ? -0.55 : -0.18;
+    g.add(mesh(geo.box, mats.laptop, lx, top + 0.01, -0.12, 0.42, 0.02, 0.28));
+    const lid = new THREE.Group();
+    lid.position.set(lx, top + 0.02, -0.02);
+    lid.rotation.x = -0.35;
+    lid.add(mesh(geo.box, mats.laptop, 0, 0.14, 0, 0.42, 0.28, 0.015));
+    lid.add(mesh(geo.box, glowMat, 0, 0.14, 0.009, 0.08, 0.08, 0.002, false));
+    g.add(lid);
+
+    // The monitor on the desk's front corner, turned to you.
+    const { tex, ctx } = canvasTexture(512, 320);
+    disp.push(() => tex.dispose());
+    const screenMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
+    disp.push(() => screenMat.dispose());
+    const mon = new THREE.Group();
+    mon.position.set(lead ? 0.45 : 0.36, top, lead ? 0.1 : 0.05);
+    mon.rotation.y = -0.12;
+    const mw = lead ? 0.86 : 0.74;
+    const mh = mw * (320 / 512);
+    mon.add(mesh(geo.box, mats.monitorFrame, 0, 0.06 + mh / 2 + 0.06, 0, mw + 0.05, mh + 0.05, 0.035));
+    mon.add(mesh(geo.plane, screenMat, 0, 0.06 + mh / 2 + 0.06, 0.019, mw, mh, 1, false));
+    mon.add(mesh(geo.box, mats.monitorFrame, 0, 0.06, -0.02, 0.05, 0.12, 0.05), mesh(geo.box, mats.monitorFrame, 0, 0.005, -0.02, 0.24, 0.01, 0.16));
+    g.add(mon);
+
+    // The robot, on its chair.
+    const fig = robot(hue, [...ref].reduce((a, c) => a + c.charCodeAt(0), 0));
+    disp.push(() => fig.dispose());
+    fig.group.position.set(lead ? 0 : -0.12, 0, cz + 0.02);
+    if (lead) fig.group.scale.setScalar(1.12);
+    g.add(fig.group);
+
+    // Its beacon and bubble above it, its name tag, and a ring and a beam of
+    // light when it needs you.
+    const beaconMat = new THREE.MeshStandardMaterial({ color: '#60a5fa', emissive: '#60a5fa', emissiveIntensity: 1.4 });
+    disp.push(() => beaconMat.dispose());
+    const beacon = mesh(geo.octa, beaconMat, fig.group.position.x, 1.95, cz, 1, 1, 1, false);
+    g.add(beacon);
+    const bubble = sprite(128, 150, 0.5);
+    disp.push(() => bubble.tex.dispose(), () => bubble.sprite.material.dispose());
+    bubble.sprite.position.set(fig.group.position.x + 0.3, 2.05, cz);
+    g.add(bubble.sprite);
+    const tag = sprite(640, 96, 1.9);
+    disp.push(() => tag.tex.dispose(), () => tag.sprite.material.dispose());
+    tag.sprite.position.set(0, lead ? 1.82 : 1.62, cz + 0.1);
+    tag.sprite.renderOrder = 2;
+    g.add(tag.sprite);
+    const ringMat = new THREE.MeshBasicMaterial({ color: '#fbbf24', transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
+    disp.push(() => ringMat.dispose());
+    const ring = mesh(geo.ring, ringMat, 0, 0.025, -0.1, 1.15, 1.15, 1.15, false);
+    ring.rotation.x = -Math.PI / 2;
+    g.add(ring);
+    const beamMat = new THREE.MeshBasicMaterial({ color: '#fbbf24', transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+    disp.push(() => beamMat.dispose());
+    const beam = mesh(geo.beam, beamMat, 0, 2.5, -0.15, 1, 1, 1, false);
+    g.add(beam);
+
+    // The pull request's flag, at the desk's back corner.
+    const flag = new THREE.Group();
+    const flagMat = new THREE.MeshStandardMaterial({ color: '#34d399', side: THREE.DoubleSide });
+    disp.push(() => flagMat.dispose());
+    flag.position.set(lead ? 1.05 : 0.7, top, -0.3);
+    flag.add(mesh(geo.cyl, mats.pole, 0, 0.25, 0, 0.008, 0.5, 0.008));
+    const cloth = mesh(geo.plane, flagMat, 0.1, 0.42, 0, 0.2, 0.13, 1);
+    flag.add(cloth);
+    g.add(flag);
+
+    // What a click picks: the desk and the robot, as one box.
+    const hit = mesh(geo.box, mats.hit, 0, 0.9, lead ? -0.3 : -0.25, lead ? COUNTER.w : 1.7, 1.8, 1.7, false);
+    hit.userData.ref = ref;
+    g.add(hit);
+    hits.push(hit);
+
+    const obj: DeskObj = {
+      ref,
+      root: g,
+      figure: fig,
+      screen: { ctx, tex, key: '', mat: screenMat },
+      tag: { ctx: tag.ctx, tex: tag.tex, key: '' },
+      bubble: { sprite: bubble.sprite, ctx: bubble.ctx, tex: bubble.tex, key: '' },
+      beacon,
+      ring,
+      beam,
+      flag,
+      flagMat,
+      glowMat,
+      tone: 'idle',
+      hit,
+      dispose: disp,
+    };
+    desks.set(ref, obj);
+    update(obj, input);
+  }
+
+  // update brings a desk up to date with the model: its tone, its monitor,
+  // its name tag, its bubble, its flag.
+  function update(d: DeskObj, input: SceneInput) {
+    const isLead = d.ref.endsWith('/lead');
+    const project = d.ref.split('/')[0];
+    const area = input.model.areas.find((a) => a.project === project);
+    const desk = isLead ? undefined : area?.desks.find((x) => x.id === d.ref);
+    const tone: DeskTone = isLead ? leadAsDesk(area?.lead.tone ?? 'idle') : (desk?.tone ?? 'idle');
+    d.tone = tone;
+    const color = toneColor[tone];
+    (d.beacon.material as THREE.MeshStandardMaterial).color.set(color);
+    (d.beacon.material as THREE.MeshStandardMaterial).emissive.set(color);
+    d.beacon.visible = tone !== 'stopped';
+    d.glowMat.color.set(color);
+    d.glowMat.emissive.set(color);
+    d.glowMat.emissiveIntensity = tone === 'stopped' ? 0 : 0.8;
+    const loud = tone === 'needs';
+    d.ring.visible = loud || tone === 'error';
+    (d.ring.material as THREE.MeshBasicMaterial).color.set(color);
+    d.beam.visible = loud;
+
+    const screen = input.screens.get(d.ref);
+    const sKey = JSON.stringify(screen ?? null);
+    if (screen && sKey !== d.screen.key) {
+      d.screen.key = sKey;
+      d.screen.data = screen;
+      drawScreen(d.screen.ctx, screen);
+      d.screen.tex.needsUpdate = true;
+    }
+    const title = isLead ? (area?.label ?? project) : (desk?.title ?? d.ref);
+    const tagKey = `${title}\n${color}`;
+    if (tagKey !== d.tag.key) {
+      d.tag.key = tagKey;
+      drawTag(d.tag.ctx, title, color);
+      d.tag.tex.needsUpdate = true;
+    }
+    const b = bubbleOf[tone];
+    d.bubble.sprite.visible = !!b;
+    if (b && d.bubble.key !== tone) {
+      d.bubble.key = tone;
+      drawBubble(d.bubble.ctx, b[0], b[1]);
+      d.bubble.tex.needsUpdate = true;
+    }
+    const pr = desk?.pr;
+    d.flag.visible = !!pr && pr.state !== 'closed';
+    if (pr) d.flagMat.color.set(pr.checks === 'failing' ? '#ef4444' : pr.state === 'merged' ? '#a78bfa' : pr.state === 'draft' ? '#9ca3af' : '#22c55e');
+  }
+
+  // lighting follows the clock: daylight through the windows by day, a warm
+  // lamp-lit room at night.
+  function lighting(force = false) {
+    const now = new Date();
+    const hour = now.getHours() + now.getMinutes() / 60;
+    const h = Math.floor(hour * 4) / 4;
+    if (!force && h === skyHour) return;
+    skyHour = h;
+    paintSky(sky.ctx, hour);
+    sky.tex.needsUpdate = true;
+    const night = hour < 6 || hour >= 20;
+    const dusk = !night && (hour < 8 || hour >= 17.5);
+    const W = lay.room.x1;
+    const D = lay.room.z1;
+    // The sun comes in from the left in the morning, the right in the afternoon.
+    const side = hour < 13 ? -1 : 1;
+    sun.position.set(W / 2 + side * W * 0.6, 14, D / 2 - D * 0.5);
+    if (night) {
+      hemi.color.set('#c7d2fe');
+      hemi.groundColor.set('#4b3a2e');
+      hemi.intensity = 0.75;
+      sun.color.set('#ffd9a8');
+      sun.intensity = 0.9;
+      fill.intensity = 0.35;
+      scene.background = new THREE.Color('#141a2a');
+    } else if (dusk) {
+      hemi.color.set('#ffe2c4');
+      hemi.groundColor.set('#7a5a44');
+      hemi.intensity = 0.95;
+      sun.color.set('#ffb27a');
+      sun.intensity = 1.5;
+      fill.intensity = 0.3;
+      scene.background = new THREE.Color('#2a2236');
+    } else {
+      hemi.color.set('#e0ecff');
+      hemi.groundColor.set('#8a6a4c');
+      hemi.intensity = 1.05;
+      sun.color.set('#fff3e0');
+      sun.intensity = 1.9;
+      fill.intensity = 0.25;
+      scene.background = new THREE.Color('#1c2333');
+    }
+    if (lampShade) (lampShade.material as THREE.MeshStandardMaterial).emissiveIntensity = night || dusk ? 1.6 : 0.4;
+  }
+
+  function apply(input: SceneInput) {
+    const key = input.model.areas.map((a) => `${a.project}:${a.label}:${a.hue}:${a.desks.map((d) => d.id).join(',')}`).join('|');
+    if (key !== layKey) {
+      layKey = key;
+      lay = layOut(input.model);
+      build(input);
+      if (!placed) {
+        pos.x = lay.spawn.x;
+        pos.z = lay.spawn.z;
+        facing = lay.spawn.face;
+        placed = true;
+      } else {
+        // Where you stood may be a desk now: step to the nearest free floor.
+        const route0 = path(boxes, bounds, pos, pos);
+        if (route0.length) Object.assign(pos, route0[route0.length - 1]);
+        if (routeGoal) walkTo(routeGoal);
+      }
+    } else for (const d of desks.values()) update(d, input);
+    if (input.you !== youLabel) {
+      youLabel = input.you;
+      drawTag(meTag.ctx, youLabel, '#a78bfa');
+      meTag.tex.needsUpdate = true;
+    }
+    const bKey = JSON.stringify(input.board);
+    if (board && bKey !== board.key) {
+      board.key = bKey;
+      drawBoard(board.ctx, input.board);
+      board.tex.needsUpdate = true;
+    }
+    poke();
+  }
+
+  function walkTo(ref: string) {
+    const spot = spotOf(lay, ref);
+    if (!spot) return;
+    route = path(boxes, bounds, pos, spot);
+    routeGoal = ref;
+    followTarget = 1;
+    started();
+    poke();
+  }
+
+  function walkToPoint(p: P) {
+    route = path(boxes, bounds, pos, p);
+    routeGoal = undefined;
+    followTarget = 1;
+    started();
+    poke();
+  }
+
+  function started() {
+    if (moved) return;
+    moved = true;
+    opts.onMoved();
+  }
+
+  let followTarget = 0;
+  function overview() {
+    followTarget = 0;
+    poke();
+  }
+
+  // The frame.
+  let raf = 0;
+  let last = performance.now();
+  let clock = 0;
+  let running = false;
+  let lastRender = 0;
+  function wake() {
+    if (running || document.hidden || disposed) return;
+    running = true;
+    last = performance.now();
+    raf = requestAnimationFrame(frame);
+  }
+
+  function frame(now: number) {
+    if (disposed) return;
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    clock += dt;
+    const idleFor = now - lastInput;
+    const busy = step(dt);
+    // While nothing moves: a few frames a second for the robots' life, or
+    // none at all with reduced motion.
+    const lively = busy || idleFor < 4000;
+    const interval = lively ? 0 : motion ? 1000 / 8 : Infinity;
+    if (dirty || now - lastRender >= interval) {
+      dirty = false;
+      lastRender = now;
+      render(now);
+    }
+    if (!lively && !motion && !dirty) {
+      running = false;
+      return;
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  // step moves you and the camera; true while either is still moving.
+  function step(dt: number): boolean {
+    let moving = false;
+    // The keys walk you, relative to where the camera looks.
+    let kx = 0;
+    let kz = 0;
+    if (keys.has('w') || keys.has('arrowup')) kz -= 1;
+    if (keys.has('s') || keys.has('arrowdown')) kz += 1;
+    if (keys.has('a') || keys.has('arrowleft')) kx -= 1;
+    if (keys.has('d') || keys.has('arrowright')) kx += 1;
+    let vx = 0;
+    let vz = 0;
+    if (kx || kz) {
+      route = [];
+      routeGoal = undefined;
+      followTarget = 1;
+      started();
+      const len = Math.hypot(kx, kz);
+      const c = Math.cos(eased.yaw);
+      const s = Math.sin(eased.yaw);
+      vx = ((kx * c + kz * s) / len) * SPEED;
+      vz = ((-kx * s + kz * c) / len) * SPEED;
+    } else if (route.length) {
+      const goal = route[0];
+      const dx = goal.x - pos.x;
+      const dz = goal.z - pos.z;
+      const dist = Math.hypot(dx, dz);
+      // A long walk is a jog, so a desk across the room is a moment away.
+      const left = dist + pathLengthFrom(route);
+      const pace = Math.min(9, Math.max(SPEED, left / 1.4));
+      const stepLen = pace * dt;
+      if (dist <= stepLen) {
+        pos.x = goal.x;
+        pos.z = goal.z;
+        route.shift();
+        if (!route.length && routeGoal) {
+          const spot = spotOf(lay, routeGoal);
+          if (spot) facing = motion ? facing : spot.face;
+        }
+      } else {
+        vx = (dx / dist) * pace;
+        vz = (dz / dist) * pace;
+      }
+    }
+    if (vx || vz) {
+      const next = kx || kz ? slide(boxes, bounds, pos, { x: vx * dt, z: vz * dt }) : { x: pos.x + vx * dt, z: pos.z + vz * dt };
+      const moved1 = Math.hypot(next.x - pos.x, next.z - pos.z);
+      pos.x = next.x;
+      pos.z = next.z;
+      speed = moved1 / Math.max(dt, 1e-3);
+      facing = turn(facing, Math.atan2(vx, vz), motion ? dt * 12 : Math.PI);
+      moving = true;
+      stillFor = 0;
+    } else {
+      speed = 0;
+      stillFor += dt;
+      // Arrived: turn to face what you walked to.
+      if (routeGoal) {
+        const spot = spotOf(lay, routeGoal);
+        if (spot) {
+          const f = turn(facing, spot.face, motion ? dt * 8 : Math.PI);
+          if (Math.abs(f - facing) > 1e-3) moving = true;
+          facing = f;
+        }
+      }
+    }
+    me.group.position.set(pos.x, me.group.position.y, pos.z);
+    me.group.rotation.y = facing;
+    me.stride(speed, clock, motion);
+    meRing.position.set(pos.x, 0.02, pos.z);
+
+    // What you're at, once you've stopped.
+    const at = stillFor > 0.15 ? nearest(lay, pos) : undefined;
+    if (at !== near) {
+      near = at;
+      opts.onNear(near);
+      dirty = true;
+    }
+    return camStep(dt) || moving;
+  }
+
+  // fitDistance is how far back the overview stands for the whole room, its
+  // floor and the tops of its walls, to be in view: found by trying, since a
+  // tilted view of a box has no neat formula. Kept until the room or the
+  // window's shape changes.
+  const fitProbe = new THREE.PerspectiveCamera(FOV, 1, 0.1, 400);
+  let fitCache = { key: '', dist: 20 };
+  function fitDistance(W: number, D: number, aspect: number, pitch: number): number {
+    const key = `${W.toFixed(2)}:${D.toFixed(2)}:${aspect.toFixed(3)}`;
+    if (fitCache.key === key) return fitCache.dist;
+    fitProbe.aspect = aspect;
+    fitProbe.updateProjectionMatrix();
+    const tx = W / 2;
+    const tz = D / 2 + 0.6;
+    const corners = [0, W].flatMap((x) => [0, D].flatMap((z) => [0, 2.2].map((y) => new THREE.Vector3(x, y, z))));
+    const v = new THREE.Vector3();
+    const fits = (d: number) => {
+      fitProbe.position.set(tx, Math.sin(pitch) * d, tz + Math.cos(pitch) * d);
+      fitProbe.lookAt(tx, 0, tz);
+      fitProbe.updateMatrixWorld();
+      return corners.every((c) => {
+        v.copy(c).project(fitProbe);
+        return Math.abs(v.x) < 0.94 && v.y < 0.86 && v.y > -0.8 && v.z < 1;
+      });
+    };
+    let lo = 4;
+    let hi = 200;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) hi = mid;
+      else lo = mid;
+    }
+    fitCache = { key, dist: hi };
+    return hi;
+  }
+
+  // camStep eases the camera to where it should be; true while it's easing.
+  function camStep(dt: number): boolean {
+    const W = lay.room.x1;
+    const D = lay.room.z1;
+    const aspect = camera.aspect || 1;
+    const k = motion ? 1 - Math.exp(-dt * 5) : 1;
+    cam.followK += (followTarget - cam.followK) * k;
+    if (Math.abs(followTarget - cam.followK) < 1e-3) cam.followK = followTarget;
+    const closeTarget = near && near !== 'board' && stillFor > 0.4 ? 1 : near === 'board' && stillFor > 0.4 ? 0.6 : 0;
+    cam.closeK += (closeTarget - cam.closeK) * (motion ? 1 - Math.exp(-dt * 3) : 1);
+    if (Math.abs(closeTarget - cam.closeK) < 1e-3) cam.closeK = closeTarget;
+
+    // The overview fits the room, from the front and above.
+    const oPitch = 0.92;
+    const oDist = fitDistance(W, D, aspect, oPitch);
+    // Following: behind you, looking down at you; close up at a desk, lower
+    // and nearer, the monitor and the robot in view.
+    const fPitch = 0.78 - cam.closeK * 0.32;
+    const fDist = cam.dist * (1 - cam.closeK * 0.5);
+    const spot = near ? spotOf(lay, near) : undefined;
+    const ftx = pos.x;
+    const ftz = spot && cam.closeK > 0 ? pos.z - 0.9 * cam.closeK : pos.z;
+    const fty = 0.9;
+    const f = cam.followK;
+    const tx = W / 2 + (ftx - W / 2) * f;
+    const tz = D / 2 + 0.6 + (ftz - D / 2 - 0.6) * f;
+    const ty = fty * f;
+    const dist = oDist + (fDist - oDist) * f;
+    const pitch = oPitch + (fPitch - oPitch) * f;
+    const yaw = cam.yaw;
+    const before = eased.tx + eased.tz + eased.dist + eased.pitch + eased.yaw;
+    if (!eased.init) {
+      Object.assign(eased, { tx, ty, tz, dist, pitch, yaw, init: true });
+    } else {
+      const e = motion ? 1 - Math.exp(-dt * 6) : 1;
+      eased.tx += (tx - eased.tx) * e;
+      eased.ty += (ty - eased.ty) * e;
+      eased.tz += (tz - eased.tz) * e;
+      eased.dist += (dist - eased.dist) * e;
+      eased.pitch += (pitch - eased.pitch) * e;
+      eased.yaw += (yaw - eased.yaw) * (motion ? 1 - Math.exp(-dt * 10) : 1);
+    }
+    const cp = Math.cos(eased.pitch);
+    camera.position.set(eased.tx + Math.sin(eased.yaw) * cp * eased.dist, eased.ty + Math.sin(eased.pitch) * eased.dist, eased.tz + Math.cos(eased.yaw) * cp * eased.dist);
+    camera.lookAt(eased.tx, eased.ty, eased.tz);
+    // A side wall the camera is behind fades away.
+    for (const w of sideWalls) {
+      const behind = w.side === 'left' ? camera.position.x < 0.5 : camera.position.x > W - 0.5;
+      const o = behind ? 0.08 : 1;
+      w.mat.opacity += (o - w.mat.opacity) * (motion ? 0.2 : 1);
+      w.mat.depthWrite = w.mat.opacity > 0.9;
+    }
+    const after = eased.tx + eased.tz + eased.dist + eased.pitch + eased.yaw;
+    return Math.abs(after - before) > 1e-4 || cam.followK !== followTarget || cam.closeK !== closeTarget;
+  }
+
+  function render(now: number) {
+    const t = now / 1000;
+    lighting();
+    for (const d of desks.values()) {
+      d.figure.pose(d.tone, t, motion);
+      const b = d.beacon;
+      b.rotation.y = motion ? t * (d.tone === 'working' ? 2.2 : 0.8) : 0.6;
+      b.position.y = 1.95 + (motion ? Math.sin(t * 2 + b.position.x) * 0.05 : 0);
+      const s = d.bubble.sprite;
+      s.position.y = 2.05 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.18 : 0);
+      if (d.ring.visible) {
+        const p = motion ? (t * 0.8) % 1 : 0.5;
+        d.ring.scale.setScalar(0.9 + p * 0.5);
+        (d.ring.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - p);
+      }
+      if (d.beam.visible) (d.beam.material as THREE.MeshBasicMaterial).opacity = 0.09 + (motion ? Math.sin(t * 3) * 0.035 : 0);
+      if (d.flag.visible && motion) d.flag.children[1].rotation.y = Math.sin(t * 3 + b.position.x) * 0.25;
+      // The monitor you're at blinks its cursor.
+      if (d.ref === near && d.screen.data && d.tone === 'working') {
+        const blink = Math.floor(t * 2);
+        if (blink !== (d.screen as { blink?: number }).blink) {
+          (d.screen as { blink?: number }).blink = blink;
+          drawScreen(d.screen.ctx, d.screen.data, t);
+          d.screen.tex.needsUpdate = true;
+        }
+      }
+      // Hovered: lifted a little.
+      d.root.position.y = d.ref === hover ? 0.02 : 0;
+    }
+    const ringO = 0.55 + (motion ? Math.sin(t * 2.5) * 0.25 : 0.2);
+    (meRing.material as THREE.MeshBasicMaterial).opacity = ringO;
+    renderer.render(scene, camera);
+  }
+
+  // Sizes the canvas to its box.
+  function resize() {
+    const w = Math.max(1, host.clientWidth);
+    const h = Math.max(1, host.clientHeight);
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    poke();
+  }
+  const ro = new ResizeObserver(resize);
+  ro.observe(host);
+  resize();
+
+  function pick(clientX: number, clientY: number): { ref?: string; floor?: P } {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(hits, false)[0];
+    if (hit) return { ref: hit.object.userData.ref as string };
+    const p = new THREE.Vector3();
+    if (ray.ray.intersectPlane(floorPlane, p)) return { floor: { x: p.x, z: p.z } };
+    return {};
+  }
+
+  const onPointerDown = (e: PointerEvent) => {
+    canvas.focus({ preventScroll: true });
+    pointer = { x: e.clientX, y: e.clientY, id: e.pointerId, dragged: false, button: e.button };
+    canvas.setPointerCapture(e.pointerId);
+    poke();
+  };
+  const onPointerMove = (e: PointerEvent) => {
+    if (pointer && pointer.id === e.pointerId) {
+      const dx = e.clientX - pointer.x;
+      if (!pointer.dragged && Math.hypot(dx, e.clientY - pointer.y) > 5) pointer.dragged = true;
+      if (pointer.dragged) {
+        // Dragging turns the room, within limits.
+        cam.yaw = Math.max(-1.0, Math.min(1.0, cam.yaw - e.movementX * 0.006));
+        canvas.style.cursor = 'grabbing';
+        poke();
+        return;
+      }
+    }
+    hoverDirty = true;
+    hoverAt = { x: e.clientX, y: e.clientY };
+    if (!pendingHover) {
+      pendingHover = true;
+      requestAnimationFrame(() => {
+        pendingHover = false;
+        if (!hoverDirty || !hoverAt) return;
+        hoverDirty = false;
+        const { ref } = pick(hoverAt.x, hoverAt.y);
+        canvas.style.cursor = ref ? 'pointer' : 'default';
+        if (ref !== hover) {
+          hover = ref;
+          opts.onHover(ref);
+          poke();
+        }
+      });
+    }
+  };
+  let hoverAt: { x: number; y: number } | undefined;
+  let pendingHover = false;
+  const onPointerUp = (e: PointerEvent) => {
+    if (!pointer || pointer.id !== e.pointerId) return;
+    const p = pointer;
+    pointer = undefined;
+    canvas.style.cursor = hover ? 'pointer' : 'default';
+    if (p.dragged || p.button !== 0) return;
+    const { ref, floor } = pick(e.clientX, e.clientY);
+    if (ref) {
+      if (ref === near && !route.length) opts.onActivate(ref);
+      else walkTo(ref);
+    } else if (floor) walkToPoint(floor);
+  };
+  const onPointerLeave = () => {
+    if (hover) {
+      hover = undefined;
+      opts.onHover(undefined);
+      poke();
+    }
+  };
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const f = Math.exp(e.deltaY * 0.0012);
+    if (followTarget === 0 && e.deltaY < 0) {
+      // Zooming in from the overview goes to you.
+      followTarget = 1;
+      cam.dist = 11;
+    } else cam.dist = Math.max(4.5, Math.min(18, cam.dist * f));
+    if (followTarget === 1 && cam.dist >= 18 && e.deltaY > 0) followTarget = 0;
+    poke();
+  };
+  const editable = (el: Element | null) => !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable || el.closest('[role="dialog"]') !== null);
+  const walkKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || editable(document.activeElement) || document.querySelector('[role="dialog"]')) return;
+    const k = e.key.toLowerCase();
+    if (walkKeys.has(k)) {
+      // Arrows walk only while the office has focus, so they still scroll
+      // and move through lists elsewhere.
+      if (k.startsWith('arrow') && document.activeElement !== canvas && document.activeElement !== document.body) return;
+      keys.add(k);
+      e.preventDefault();
+      poke();
+    } else if ((k === 'e' || k === 'enter') && near && !e.repeat) {
+      if (k === 'enter' && document.activeElement !== canvas) return;
+      e.preventDefault();
+      opts.onActivate(near);
+    }
+  };
+  const onKeyUp = (e: KeyboardEvent) => {
+    keys.delete(e.key.toLowerCase());
+    poke();
+  };
+  const onBlur = () => keys.clear();
+  const onVisibility = () => {
+    if (document.hidden) {
+      cancelAnimationFrame(raf);
+      running = false;
+    } else poke();
+  };
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointerleave', onPointerLeave);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onBlur);
+  document.addEventListener('visibilitychange', onVisibility);
+  // The sky moves on with the clock, even while you're away.
+  const tick = window.setInterval(() => {
+    const before = skyHour;
+    lighting();
+    if (skyHour !== before) poke();
+  }, 60_000);
+
+  return {
+    apply,
+    walkTo,
+    overview,
+    setReducedMotion(on) {
+      motion = !on;
+      poke();
+    },
+    dispose() {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      window.clearInterval(tick);
+      ro.disconnect();
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onVisibility);
+      for (const d of roomDispose) d();
+      for (const d of desks.values()) for (const f of d.dispose) f();
+      me.dispose();
+      floorTex.dispose();
+      sky.tex.dispose();
+      for (const m of Object.values(mats)) m.dispose();
+      renderer.dispose();
+      canvas.remove();
+    },
+  };
+}

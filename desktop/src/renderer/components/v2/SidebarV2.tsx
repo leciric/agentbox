@@ -22,7 +22,7 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlarmClock, Briefcase, Check, ClipboardCheck, MonitorPlay, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, Armchair, Briefcase, Check, ClipboardCheck, MonitorPlay, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -41,6 +41,7 @@ import { arrange, hide, pinsAfterHide, sections, unhide, type Slot } from '../..
 import { drop as dropOn, listEnd, sectionsAside, stepTarget, type DropTarget, type SidebarList } from '../../lib/sidebar';
 import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
+import { useUiOffice } from '../../lib/uiOffice';
 import { useUiVerbs, verbOf } from '../../lib/uiVerbs';
 import { useGrace } from '../../lib/grace';
 import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, type Attention } from '../../lib/attention';
@@ -89,6 +90,7 @@ const countKeys: { st: AgentSt; key: MessageKey }[] = [
 export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: View; onSelect: (view: View) => void; onAddProject: () => void; onNewAgent: (project: string) => void }) {
   const t = useT();
   const verbs = useUiVerbs();
+  const office = useUiOffice();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const activity = useQuery({ queryKey: ['projectActivity'], queryFn: api.projectActivity, refetchInterval: 60_000 });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
@@ -583,13 +585,17 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} badge={verbs ? badges.ask : undefined} />
         {verbs ? (
           // Home has its row; Watch, Review and New task share the next one.
-          <div className="mb-1 grid grid-cols-3 gap-1" data-v2-verbs>
+          <div className={cn('mb-1 grid gap-1', office ? 'grid-cols-4' : 'grid-cols-3')} data-v2-verbs>
             <VerbTile verb="watch" icon={MonitorPlay} label={t('verbs.watch')} hint={t('verbs.watch.hint')} active={on === 'watch'} badge={badges.watch} onClick={() => onSelect({ kind: 'watch' })} />
             <VerbTile verb="review" icon={ClipboardCheck} label={t('verbs.review')} hint={t('verbs.review.hint')} active={on === 'review'} badge={badges.review} onClick={() => onSelect({ kind: 'review' })} />
+            {office && <VerbTile verb="office" icon={Armchair} label={t('office.title')} hint={t('office.hint.nav')} active={view.kind === 'office'} onClick={() => onSelect({ kind: 'office' })} />}
             <VerbTile verb="new-task" icon={SquarePen} label={t('v2.sidebar.newTask')} hint={`${t('v2.sidebar.newTask')} (${shortcut('N')})`} onClick={openNewTask} />
           </div>
         ) : (
-          <NewTaskRow />
+          <>
+            <NewTaskRow />
+            {office && <OfficeRow active={view.kind === 'office'} needs={counts.all.needs} onClick={() => onSelect({ kind: 'office' })} />}
+          </>
         )}
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />
         {projects.data?.length === 0 && (
@@ -909,6 +915,23 @@ function VerbTile({ verb, icon: Icon, label, hint, active, badge, onClick }: { v
         )}
       </button>
     </Tip>
+  );
+}
+
+// OfficeRow opens the Office (lib/uiOffice.ts), with how many need you.
+function OfficeRow({ active, needs, onClick }: { active: boolean; needs: number; onClick: () => void }) {
+  const t = useT();
+  return (
+    <Lead active={active} onClick={onClick} data={{ 'data-v2-office': '' }}>
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-strong text-secondary">
+        <Armchair className="size-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-title">{t('office.title')}</span>
+        <span className="block truncate text-[11.5px] text-subtle">{t('office.hint.nav')}</span>
+      </span>
+      {needs > 0 && <CountBadge badge={{ count: needs, tone: 'bg-amber-400 text-black' }} verb="office" />}
+    </Lead>
   );
 }
 

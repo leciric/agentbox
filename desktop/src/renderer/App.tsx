@@ -84,6 +84,7 @@ import { RecapView } from "./components/RecapView";
 import type { WorkFilter } from "./lib/work";
 import { asVerbView, useUiVerbs } from "./lib/uiVerbs";
 import { WatchView } from "./components/verbs/WatchView";
+import { OfficeView } from "./components/office/OfficeView";
 import { ReviewView } from "./components/verbs/ReviewView";
 
 export type View =
@@ -107,7 +108,9 @@ export type View =
   // (ref, at place), or a project's agents.
   | { kind: "watch"; ref?: string; place?: WatchPlace; project?: string }
   // And its Review: what waits for a verdict, pull requests and proof.
-  | { kind: "review"; tab?: ReviewTab; project?: string; filter?: WorkFilter };
+  | { kind: "review"; tab?: ReviewTab; project?: string; filter?: WorkFilter }
+  // The Office (lib/uiOffice.ts): a 3D room with a desk for every agent.
+  | { kind: "office" };
 
 export type WatchPlace = "browser" | "terminal" | "android";
 export type ReviewTab = "work" | "pulls" | "proof";
@@ -751,6 +754,7 @@ export function App({ initial }: { initial?: View } = {}) {
                     onNewAgent={setNewAgentProject}
                   />
                 )}
+                {view.kind === "office" && <OfficeView onSelect={select} />}
                 {view.kind === "review" && <ReviewView tab={view.tab} project={view.project} filter={view.filter} onSelect={select} />}
                 {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
                 {view.kind === "media" && <MediaView heading onSelect={select} />}

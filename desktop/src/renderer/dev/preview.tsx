@@ -250,6 +250,9 @@
 //                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
 //   &verbs=1                with ?app=, the prototype navigation, Ask, Watch and Review
+//   ?app=office             the Office (components/office), with Storefront's and
+//                           Quill's agents too (dev/office.ts); &office=1 with
+//                           any ?app= puts it in the sidebar
 //                           (lib/uiVerbs.ts); ?app=watch opens Watch, ?app=watch:agent-41
 //                           that agent's machine, ?app=review Review, ?app=review:pulls
 //                           and ?app=review:proof its other tabs
@@ -374,6 +377,8 @@ import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { seedIssues } from './issues';
 import { setUiVerbs } from '../lib/uiVerbs';
+import { setUiOffice } from '../lib/uiOffice';
+import { seedOffice } from './office';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -750,6 +755,8 @@ if (tabsScenario === 'idle') queryClient.setQueryData(['pages', PROJECT], { conn
 if (appView) seedTimelines();
 if (appView === 'issues') seedIssues(queryClient);
 setUiVerbs(params.get('verbs') === '1');
+// &office=1: the Office in the sidebar (lib/uiOffice.ts); ?app=office opens it.
+setUiOffice(params.get('office') === '1' || appView === 'office');
 // No tour plays over a scenario unless &tour= asks for one.
 {
   const tour = params.get('tour');
@@ -759,6 +766,8 @@ setUiVerbs(params.get('verbs') === '1');
 if (appView) {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  // ?app=office: more projects' agents, at their desks (dev/office.ts).
+  if (appView === 'office') seedOffice(queryClient);
   // &ios=…, after seedV2's projects: the project is an iOS one.
   if (iosScenario) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, ios: true } : p)));
   setGroupIdle(params.get('groupidle') === '1');
@@ -1673,6 +1682,7 @@ if (phoneMode === 'frame') {
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
     : appView === 'watch' || appView.startsWith('watch:') ? { kind: 'watch', ref: appView.startsWith('watch:') ? `${PROJECT}/${appView.slice(6)}` : undefined }
+    : appView === 'office' ? { kind: 'office' }
     : appView === 'review' || appView.startsWith('review:') ? { kind: 'review', tab: appView === 'review:pulls' ? 'pulls' : appView === 'review:proof' ? 'proof' : 'work' }
     : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
