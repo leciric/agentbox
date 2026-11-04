@@ -69,13 +69,14 @@ export function HomeView({
               <Skeleton className="mt-2 h-3.5 w-64" />
             )}
           </div>
-          <div className="ml-auto flex flex-wrap gap-2">
+          <div className="ml-auto flex flex-wrap justify-end gap-2">
             {filter}
-            <Button onClick={onAddProject}>
+            {/* New agent is what Home is mostly for; a project is added once. */}
+            <Button variant="ghost" onClick={onAddProject}>
               <FolderPlus />
               {t('shell.home.addProject')}
             </Button>
-            <Button variant="ghost" onClick={onNewAgent}>
+            <Button variant="primary" onClick={onNewAgent}>
               <Plus />
               {t('shell.home.newAgent')}
             </Button>
@@ -109,9 +110,9 @@ export function HomeView({
             <Stat
               label={t('shell.home.hostMemory')}
               value={host?.memTotal ? humanBytes(host.memUsed) : '—'}
-              detail={host ? (host.memTotal ? t('shell.home.ofSize', { size: humanBytes(host.memTotal) }) : t('common.unknown')) : ''}
+              detail={host ? (host.memTotal ? t('shell.home.ofSize', { size: humanBytes(host.memTotal) }) : t('shell.home.notMeasured')) : ''}
               percent={host?.memTotal ? meterPercent(host.memUsed, host.memTotal) : undefined}
-              meter={!!host}
+              meter={!!host?.memTotal}
               note={pressure && <Stalled percent={pressure.memoryFull} on="memory" />}
             />
             <Stat
@@ -129,12 +130,16 @@ export function HomeView({
                 )
               }
             />
-            <Stat
-              label={t('shell.home.pool')}
-              value={host?.poolTotal ? humanBytes(host.poolUsed) : '—'}
-              detail={host?.poolTotal ? t('shell.home.ofSize', { size: humanBytes(host.poolTotal) }) : ''}
-              percent={host?.poolTotal ? meterPercent(host.poolUsed, host.poolTotal) : undefined}
-            />
+            {/* A pool whose size the host can't measure has nothing to show
+                but a dash: its tile goes, once the host has answered. */}
+            {(!host || !!host.poolTotal) && (
+              <Stat
+                label={t('shell.home.pool')}
+                value={host?.poolTotal ? humanBytes(host.poolUsed) : '—'}
+                detail={host?.poolTotal ? t('shell.home.ofSize', { size: humanBytes(host.poolTotal) }) : ''}
+                percent={host?.poolTotal ? meterPercent(host.poolUsed, host.poolTotal) : undefined}
+              />
+            )}
           </div>
         </Panel>
 
