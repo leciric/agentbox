@@ -89,6 +89,7 @@ export const api = {
   projectChat: (name: string, session?: string) =>
     call<unknown>('GET', session ? `${project(name)}/sessions/${encodeURIComponent(session)}/lead` : `${project(name)}/lead`).then(P.projectChat),
   leadSessions: (name: string) => call<unknown>('GET', `${project(name)}/sessions`).then(P.leadSessions),
+  sessionOutput: (name: string, session: string) => call<unknown>('GET', `${project(name)}/sessions/${encodeURIComponent(session)}/output`).then(P.sessionOutput),
   newLeadSession: (name: string, req: T.NewLeadSessionRequest = {}) => call<T.LeadSession>('POST', `${project(name)}/sessions`, req satisfies T.NewLeadSessionRequest),
   chat: (ref: string, page: ChatPage = {}) => {
     const q = new URLSearchParams();

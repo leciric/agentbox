@@ -21,6 +21,7 @@ import { agentStatus, avatarMood, isWaiting, leadMood, leadStatus, liveStatus, w
 import { AgentPermissionCard, PermissionCard, QuestionCard } from './cards.tsx';
 import { Composer } from './Composer.tsx';
 import { SessionBar } from './SessionBar.tsx';
+import { SessionOutput } from './SessionOutput.tsx';
 import { Markdown } from './Markdown.tsx';
 import { timelineRows, type Row } from './timeline.ts';
 import { loadOlder, useThread } from './useThread.ts';
@@ -93,6 +94,7 @@ export function ChatScreen() {
       {lead && sessions.data && (
         <SessionBar sessions={list} current={shown?.id} canAdd={can(session, 'chat')} onChoose={setChosen} onAdd={() => openSession.mutate()} />
       )}
+      {lead && !home && shown && <SessionOutput project={project} session={shown.id} />}
       {lead && sessions.data && !shown ? (
         <Text style={styles.empty}>{t('sessions.none')}</Text>
       ) : missing ? (

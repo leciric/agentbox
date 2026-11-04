@@ -77,13 +77,16 @@ export function apply(queryClient: QueryClient, type: string, data: unknown): vo
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
       break;
     case T.EventLeadSessions:
+    case T.EventSessionsSettled:
       void queryClient.invalidateQueries({ queryKey: scoped('leadSessions', data) });
+      void queryClient.invalidateQueries({ queryKey: scoped('sessionOutput', data) });
       break;
     case T.EventQuestion:
       void queryClient.invalidateQueries({ queryKey: scoped('questions', data) });
       break;
     case T.EventPulls:
       void queryClient.invalidateQueries({ queryKey: scoped('pulls', data) });
+      void queryClient.invalidateQueries({ queryKey: scoped('sessionOutput', data) });
       void queryClient.invalidateQueries({ queryKey: ['review'] });
       break;
     case T.EventReview:
