@@ -311,7 +311,12 @@ Stopping a recording edits it, in the agent and with no model: the camera
 zooms in on where it is clicked and backs out between chapters, each note made
 meanwhile is a caption on it, numbered like 2/5, and it opens on a title card.
 The original stays beside it: agentbox media save --raw copies it out.
---no-edit keeps the recording as it was recorded.`,
+--no-edit keeps the recording as it was recorded.
+
+An Android recording isn't edited: it is the emulator's screen as it was, with
+only a ripple where each tap lands and a dot following a finger held down or
+dragged, drawn as it records, whether the tap came from adb shell input or the
+app's Android tab.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := optionalRef(args)

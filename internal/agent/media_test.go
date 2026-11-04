@@ -455,13 +455,18 @@ esac`))
 }
 
 // A stopped recording is edited in the agent and kept edited, its original
-// beside it; one recorded with --no-edit is kept as it was.
+// beside it; one recorded with --no-edit is kept as it was, and so is one of
+// the phone, which has its taps drawn on as it records and nothing else.
 func TestStopRecordingKeepsTheEditAndItsOriginal(t *testing.T) {
 	calls := filepath.Join(t.TempDir(), "calls")
 	t.Setenv("CALLS", calls)
-	for _, noEdit := range []bool{false, true} {
+	for _, c := range []struct {
+		target string
+		noEdit bool
+	}{{"display", false}, {"display", true}, {"android", false}} {
+		noEdit := c.noEdit || c.target == "android"
 		_ = os.Remove(calls)
-		t.Setenv("STATE", fmt.Sprintf(`{"name":"flow","target":"display","noEdit":%v}`, noEdit))
+		t.Setenv("STATE", fmt.Sprintf(`{"name":"flow","target":%q,"noEdit":%v}`, c.target, c.noEdit))
 		f := setup(t, fakeIncus(t, `echo "$*" >>"$CALLS"
 case "$1" in
   list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running"}]' ;;
@@ -479,7 +484,7 @@ esac`))
 		log, _ := os.ReadFile(calls)
 		if noEdit {
 			if string(kept) != "frames\n" || meta.Raw != "" || strings.Contains(string(log), "desktop edit") {
-				t.Errorf("--no-edit kept %q, raw %q; calls:\n%s", kept, meta.Raw, log)
+				t.Errorf("%+v kept %q, raw %q; calls:\n%s", c, kept, meta.Raw, log)
 			}
 			continue
 		}

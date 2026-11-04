@@ -669,7 +669,9 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	}
 	// The edit is made in the agent, beside the recording, and kept in its
 	// place, the recording beside it as its original. One that fails leaves
-	// the recording as it was.
+	// the recording as it was. A phone's isn't edited: it is its screen as
+	// it was, with only its taps drawn on as it recorded
+	// (devicestream.Touches).
 	edited := ""
 	if !st.NoEdit && meta.Target != "android" {
 		began := time.Now()
