@@ -62,6 +62,10 @@ type LeadSession struct {
 	// ClosedAt is when the session was closed, into the chat's history; zero
 	// while it is open.
 	ClosedAt time.Time
+	// Parent is the session this one was forked or continued from, and
+	// ParentItem, for a fork, the chat item of Parent's it was cut at; ""
+	// for a session opened afresh. The parent may since have been deleted.
+	Parent, ParentItem string
 }
 
 // Closed reports whether the session is in the chat's history.
@@ -332,7 +336,7 @@ func (s *Store) ColorLeadSessions(ctx context.Context, project string) error {
 }
 
 // leadSessionColumns is what scanLeadSession reads.
-const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at, color`
+const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at, color, parent, parent_item`
 
 // LeadSessions lists a project's open sessions, oldest first.
 func (s *Store) LeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
@@ -362,6 +366,20 @@ func (s *Store) leadSessions(ctx context.Context, query, project string) ([]Lead
 	return out, rows.Err()
 }
 
+// SetLeadSessionParent records the session id was forked (at item) or
+// continued (item "") from.
+func (s *Store) SetLeadSessionParent(ctx context.Context, project, id, parent, item string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE lead_sessions SET parent = ?, parent_item = ? WHERE project = ? AND id = ?`, parent, item, project, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("session %s of %s: %w", id, project, ErrNotFound)
+	}
+	return nil
+}
+
 // LeadSession is one session of a project's chat, open or closed.
 func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSession, error) {
 	row := s.db.QueryRowContext(ctx,
@@ -376,7 +394,7 @@ func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSessio
 func scanLeadSession(row interface{ Scan(...any) error }) (LeadSession, error) {
 	var ls LeadSession
 	var created, closed int64
-	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed, &ls.Color); err != nil {
+	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed, &ls.Color, &ls.Parent, &ls.ParentItem); err != nil {
 		return LeadSession{}, err
 	}
 	ls.CreatedAt = time.UnixMilli(created)

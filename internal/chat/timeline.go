@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
@@ -96,6 +98,42 @@ func (m *Manager) UpTo(a state.Agent, turn string) ([]api.ChatItem, error) {
 	out := make([]api.ChatItem, 0, end)
 	for _, it := range c.items[:end] {
 		out = append(out, clone(*it))
+	}
+	return out, nil
+}
+
+// Through returns copies of the conversation's items up to and including
+// the item id, for a session forked there: no item streams any more, a
+// permission still waiting, which the copy can't answer, is left out, and a
+// turn still running ends where the copy does.
+func (m *Manager) Through(a state.Agent, id string) ([]api.ChatItem, error) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return nil, err
+	}
+	defer c.mu.Unlock()
+	end := slices.IndexFunc(c.items, func(it *api.ChatItem) bool { return it.ID == id })
+	if end < 0 {
+		return nil, fmt.Errorf("%s's conversation has no message %s: %w", a.Ref(), id, state.ErrNotFound)
+	}
+	out := make([]api.ChatItem, 0, end+1)
+	for _, it := range c.items[:end+1] {
+		if it.Permission != nil && it.Permission.Outcome == "" {
+			continue
+		}
+		cp := clone(*it)
+		cp.Streaming = false
+		out = append(out, cp)
+	}
+	// Cut inside a turn still running: in the copy, that turn ends at the cut,
+	// rather than reading as one AgentBox stopped.
+	for i := len(out) - 1; i >= 0; i-- {
+		if out[i].Kind == "user" {
+			if out[i].Result == nil {
+				out[i].Result = &api.ChatTurnResult{State: "cancelled", StopReason: "forked", EndedAt: m.now()}
+			}
+			break
+		}
 	}
 	return out, nil
 }
@@ -268,6 +306,16 @@ func copyFile(from, to string) error {
 // handoffBudget the first turn — usually the task — stays, and the turns after
 // it give way to the latest.
 func Handoff(items []*api.ChatItem, intro string) string {
+	return HandoffWithin(items, intro, handoffBudget)
+}
+
+// HandoffWithin is Handoff spending at most budget bytes (a token is about
+// four, memory.EstimateTokens). Messages AgentBox wrote the lead (Hidden)
+// are told as AgentBox's, and what the user told an agent from the composer
+// is kept. A context transfer the conversation itself began with, a session
+// continued from one that was continued in turn, comes first, cut to a
+// quarter of the budget: it is the oldest, and what gives way first.
+func HandoffWithin(items []*api.ChatItem, intro string, budget int) string {
 	type turn struct {
 		user    *api.ChatItem
 		asides  []string
@@ -276,16 +324,22 @@ func Handoff(items []*api.ChatItem, intro string) string {
 		subwork int
 	}
 	var turns []*turn
+	var earlier string
 	for _, it := range items {
 		if it.Kind == "user" {
 			turns = append(turns, &turn{user: it})
 			continue
 		}
 		if len(turns) == 0 {
+			if it.Kind == "notice" && it.Handoff != "" && earlier == "" {
+				earlier = it.Handoff
+			}
 			continue
 		}
 		t := turns[len(turns)-1]
 		switch {
+		case it.Kind == "notice" && it.To != "" && strings.TrimSpace(it.Text) != "":
+			t.asides = append(t.asides, "(to "+it.To+") "+it.Text)
 		case it.Parent != "":
 			t.subwork++
 		case it.Kind == "aside":
@@ -302,6 +356,8 @@ func Handoff(items []*api.ChatItem, intro string) string {
 		if t.user.Woken {
 			// Nobody wrote it: the session started it, when background work ended.
 			fmt.Fprintf(&b, "### Turn %d\n\nNo message: background work you had left running ended (%s), and you carried on by yourself.\n", i+1, headText(strings.ReplaceAll(cmp(strings.TrimSpace(t.user.Text), "a background task"), "\n", ", "), 1000))
+		} else if t.user.Hidden {
+			fmt.Fprintf(&b, "### Turn %d\n\nAgentBox, not the user: %s\n", i+1, headText(strings.TrimSpace(t.user.Text), 2000))
 		} else {
 			fmt.Fprintf(&b, "### Turn %d\n\nUser: %s\n", i+1, headText(strings.TrimSpace(t.user.Text), 4000))
 		}
@@ -322,13 +378,22 @@ func Handoff(items []*api.ChatItem, intro string) string {
 	header := "[AgentBox: context transfer] " + intro + "\n\n" +
 		"This is the conversation so far, written out because this session didn't take part in it. " +
 		"Carry on from its end: the message after this one is the user's next.\n\n"
+	if earlier != "" {
+		// Past its own intro and its "this is the conversation so far".
+		_, body, _ := strings.Cut(earlier, "\n\n")
+		if _, rest, ok := strings.Cut(body, "\n\n"); ok {
+			body = rest
+		}
+		header += "### Before this conversation\n\nIt began with a context transfer of its own, from an earlier session:\n\n" +
+			headText(body, budget/4) + "\n\n"
+	}
 	size := len(header)
 	for _, b := range blocks {
 		size += len(b) + 1
 	}
-	if size > handoffBudget && len(blocks) > 2 {
+	if size > budget && len(blocks) > 2 {
 		// The first turn, then as many of the latest as fit.
-		room := handoffBudget - len(header) - len(blocks[0]) - 100
+		room := budget - len(header) - len(blocks[0]) - 100
 		from := len(blocks)
 		for from > 1 && room-len(blocks[from-1]) > 0 {
 			from--
@@ -342,7 +407,20 @@ func Handoff(items []*api.ChatItem, intro string) string {
 			blocks = append([]string{blocks[0], left}, blocks[from:]...)
 		}
 	}
-	return header + strings.Join(blocks, "\n")
+	out := header + strings.Join(blocks, "\n")
+	if len(out) > budget {
+		// Still too long: a few turns of very long messages. The start, which
+		// says what this is and holds the first turn, and as much of the end,
+		// the latest, as fits.
+		const cut = "\n\n(… left out for length …)\n\n"
+		head := headText(out, budget/4)
+		tail := out[len(out)-(budget-len(head)-len(cut)):]
+		for tail != "" && !utf8.RuneStart(tail[0]) {
+			tail = tail[1:]
+		}
+		out = head + cut + tail
+	}
+	return out
 }
 
 // Activity says what a run of tool calls did, the way the app's collapsed

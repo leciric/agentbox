@@ -3012,12 +3012,26 @@ export interface LeadSession {
   agentsWorking?: number;
   seenAt?: string;
   unread?: boolean;
+  parent?: LeadSessionParent;
+}
+
+export interface LeadSessionParent {
+  session: string;
+  item?: string;
+  topic?: string;
+  closed?: boolean;
+}
+
+export interface LeadSessionFork {
+  session: string;
+  item: string;
 }
 
 export interface NewLeadSessionRequest {
   topic?: string;
   from?: string;
   continueFrom?: string;
+  forkFrom?: LeadSessionFork;
 }
 
 export interface LeadSessionPatch {

@@ -1544,6 +1544,13 @@ var migrations = []string{
 		PRIMARY KEY (project, agent)
 	)`,
 
+	// A session forked from another (POST /v1/projects/{p}/sessions with
+	// forkFrom) or continued from one: the session it came from, and for a
+	// fork the message of that one's it was cut at. Kept as ids, not a key:
+	// the parent can be deleted, and the child says so.
+	`ALTER TABLE lead_sessions ADD COLUMN parent TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE lead_sessions ADD COLUMN parent_item TEXT NOT NULL DEFAULT ''`,
+
 	// When each chat session was last on screen, in any window or on the
 	// phone, for its unread mark (sessionseen.go). Kept apart from
 	// lead_sessions: a Home session has no row there.
