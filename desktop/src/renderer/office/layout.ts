@@ -120,9 +120,9 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
         obstacles.push(box(dx, dz, DESK.w, DESK.d));
         // The chair, under the robot, which sits left of centre.
         obstacles.push(box(dx - 0.48, dz - SEAT, 0.62, 0.62));
-        // You stand to the left: the monitor is on the right, and the close-up sees
-        // both of you and it.
-        return { id: d.id, x: dx, z: dz, spot: { x: dx - 0.6, z: dz + STAND, face: Math.PI } };
+        // You stand beside the desk, at the robot's end, as you'd stop by a
+        // colleague's: the close-up sees the two of you and its monitor.
+        return { id: d.id, x: dx, z: dz, spot: { x: dx - 1.17, z: dz + 0.45, face: Math.PI / 2 } };
       });
       // The counter sits at the area's front, its lead behind it facing you.
       const lz = z + depth - LEAD_DEPTH / 2 - 0.1;

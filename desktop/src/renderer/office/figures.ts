@@ -322,7 +322,7 @@ export function robot(ref: string, accent: THREE.ColorRepresentation, opts: { le
     mesh.castShadow = !glow && mesh !== screen;
     mesh.receiveShadow = !glow;
   });
-  if (opts.lead) g.scale.setScalar(1.1);
+  if (opts.lead) g.scale.setScalar(1.22);
 
   const cur = restPose();
   const T = restPose();

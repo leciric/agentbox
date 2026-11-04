@@ -626,10 +626,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const screenMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
     disp.push(() => screenMat.dispose());
     const mon = new THREE.Group();
-    mon.position.set(lead ? 0.45 : 0.3, top, lead ? 0.1 : 0.05);
+    mon.position.set(lead ? 0.45 : 0.4, top, lead ? 0.1 : 0.05);
     mon.rotation.y = -0.12;
     g.add(mon);
-    const mw = lead ? 0.86 : 0.92;
+    const mw = lead ? 0.86 : 0.8;
     const mh = mw * (320 / 512);
     const my = 0.07 + mh / 2 + 0.06;
     put(mon, mesh(geo.roundThin, mats.bezel, 0, my, 0, mw + 0.05, mh + 0.05, 0.035));
@@ -651,6 +651,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const fig = robot(ref, new THREE.Color().setHSL(hue / 360, 0.55, 0.55), { lead });
     disp.push(() => fig.dispose());
     fig.group.position.set(rx, 0, cz + 0.08);
+    // Bigger than life, sat down on the seat.
+    if (!lead) fig.group.scale.setScalar(1.12);
+    fig.group.position.y = lead ? -0.1 : -0.055;
     g.add(fig.group);
 
     // Its beacon and bubble above it, its name tag, and a ring and a beam of
@@ -1110,7 +1113,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x + 0.15, y: 1.05, z: d.z + 0.1, dist: 5.0, pitch: 0.66, yaw: 0.3 };
+      if (d) return { x: d.x - 0.25, y: 1.0, z: d.z + 0.05, dist: 4.6, pitch: 0.58, yaw: 0.12 };
     }
     return undefined;
   }
@@ -1266,9 +1269,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const b = d.beacon;
       b.visible = !inWay && d.tone !== 'stopped';
       b.rotation.y = motion ? t * (d.tone === 'working' ? 2.2 : 0.8) : 0.6;
-      b.position.y = 1.95 + (motion ? Math.sin(t * 2 + b.position.x) * 0.05 : 0);
+      const lift = d.ref.endsWith('/lead') ? 0.3 : 0.12;
+      b.position.y = 1.95 + lift + (motion ? Math.sin(t * 2 + b.position.x) * 0.05 : 0);
       const s = d.bubble.sprite;
-      s.position.y = 2.05 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.18 : 0);
+      s.position.y = 2.05 + lift + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.18 : 0);
       if (d.ring.visible) {
         const p = motion ? (t * 0.8) % 1 : 0.5;
         d.ring.scale.setScalar(0.9 + p * 0.5);
@@ -1319,7 +1323,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // You fade while you look at a monitor, so you never stand in front of it.
     // At a counter you'd stand in front of its monitor: you all but fade. At
     // a desk you stand aside, half seen through, so you hide nothing.
-    me.fade(1 - cam.closeK * (focusRef?.endsWith('/lead') ? 0.82 : 0.4));
+    me.fade(focusRef?.endsWith('/lead') ? 1 - cam.closeK * 0.82 : 1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
