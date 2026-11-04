@@ -239,11 +239,9 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       if (!reduced) for (const r of rows.slice(Number(from) || 0)) r.animate([{ backgroundColor: 'rgba(251,191,36,.4)', boxShadow: 'inset 0 0 0 2px rgba(245,158,11,.9)' }, { backgroundColor: 'rgba(251,191,36,.25)', boxShadow: 'inset 0 0 0 2px rgba(245,158,11,.7)', offset: 0.7 }, { backgroundColor: 'rgba(251,191,36,0)', boxShadow: 'inset 0 0 0 2px rgba(245,158,11,0)' }], { duration: 2600, easing: 'ease-out' });
       return;
     }
-    // Who needs you: walk there, as everywhere else, its card up with the
-    // question and E to open it. What waits for review: its review.
-    const desk = deskOf(office.model, ref);
-    if (desk && office.model.board.review.some((i) => i.ref === ref) && desk.pr) openPr(desk);
-    else walkTo(ref);
+    // Walk there, as everywhere else: its card up, with the question, E to
+    // open its chat and its pull request a button away.
+    walkTo(ref);
   };
 
   // Next walks to the next one that needs you, after the one you're at: a
@@ -352,9 +350,14 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   // Escape, or a press on the room, folds it away.
   useEffect(() => {
     if (!listShown) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setListChoice(false);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // First, and taken: the Escape that folds the list doesn't step back too.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      setListChoice(false);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [listShown]);
   useEffect(() => {
     if (!listOpen) {
@@ -533,14 +536,13 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           <ListCard title={t('office.board.review')} accent="text-emerald-600" list="review">
             {review.length === 0 && <Empty>{t('office.board.reviewEmpty')}</Empty>}
             {review.map((i) => {
-              const desk = deskOf(office.model, i.ref);
               return (
                 <WalkRow
                   key={i.ref}
                   item={i}
                   sub={i.pr ? `#${i.pr.number} · ${t(`office.pr.${i.pr.state}`)}${i.pr.checks === 'failing' ? ` · ${t('office.checks.failing')}` : ''}` : toneLabel(i.tone)}
-                  label={t('office.review', { title: i.title })}
-                  onClick={() => (desk?.pr ? openPr(desk) : activate.current(i.ref))}
+                  label={t('office.walkTo', { title: i.title })}
+                  onClick={() => walkTo(i.ref)}
                 />
               );
             })}

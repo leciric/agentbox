@@ -17,7 +17,7 @@ export const PALETTE = {
   wallEdge: '#e7c9a4',
   slab: '#e2b27f',
   slabDark: '#c39262',
-  terrazzo: '#f7eee2',
+  terrazzo: '#f3e1cb',
   wood: '#e2b27c',
   frame: '#2f4a3a',
   brick: '#b8664a',
@@ -46,11 +46,11 @@ function terrazzo(): THREE.CanvasTexture {
   let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   // Few chips, soft: a calm floor, not a speckled one.
-  const chips = ['#e9b48f', '#dfa088', '#b7cfaa', '#d6c9b6', '#f1d29e', '#c9bcb0'];
-  for (let i = 0; i < 650; i++) {
+  const chips = ['#e3a27a', '#d98c70', '#a9c79a', '#cdb9a2', '#eec58c', '#bfae9f'];
+  for (let i = 0; i < 850; i++) {
     ctx.fillStyle = chips[Math.floor(rnd() * chips.length)];
-    ctx.globalAlpha = 0.5 + rnd() * 0.3;
-    const r = 1 + rnd() * 2.6;
+    ctx.globalAlpha = 0.55 + rnd() * 0.35;
+    const r = 1.2 + rnd() * 2.8;
     ctx.beginPath();
     ctx.ellipse(rnd() * 512, rnd() * 512, r, r * (0.6 + rnd() * 0.5), rnd() * 3, 0, Math.PI * 2);
     ctx.fill();

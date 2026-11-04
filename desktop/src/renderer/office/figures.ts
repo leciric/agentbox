@@ -176,6 +176,50 @@ function gradient(g: THREE.BufferGeometry, size: number, ramp: Ramp = LOGO) {
   return g;
 }
 
+// piping is a white frame on a rounded box's edges (w by h by d, its
+// corners of radius r): twelve straight runs, along the middles of the
+// rounded edges, joined round each corner by arcs over its curve, as the
+// logo's line-art cube is drawn in one stroke. Merged: one draw.
+function piping(w: number, h: number, d: number, r: number, t: number): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const cx = w / 2 - r;
+  const cy = h / 2 - r;
+  const cz = d / 2 - r;
+  const m = r * Math.SQRT1_2;
+  const run = (len: number, axis: 'x' | 'y' | 'z', x: number, y: number, z: number) => {
+    const g = new THREE.CylinderGeometry(t, t, len, 8, 1, true);
+    if (axis === 'x') g.rotateZ(Math.PI / 2);
+    if (axis === 'z') g.rotateX(Math.PI / 2);
+    g.translate(x, y, z);
+    parts.push(g);
+  };
+  for (const sy of [-1, 1]) for (const sz of [-1, 1]) run(2 * cx, 'x', 0, sy * (cy + m), sz * (cz + m));
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) run(2 * cy, 'y', sx * (cx + m), 0, sz * (cz + m));
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) run(2 * cz, 'z', sx * (cx + m), sy * (cy + m), 0);
+  const dir = new THREE.Vector3();
+  for (const sx of [-1, 1])
+    for (const sy of [-1, 1])
+      for (const sz of [-1, 1]) {
+        const c = new THREE.Vector3(sx * cx, sy * cy, sz * cz);
+        const diag = new THREE.Vector3(sx, sy, sz).normalize();
+        const ends = [new THREE.Vector3(0, sy, sz), new THREE.Vector3(sx, 0, sz), new THREE.Vector3(sx, sy, 0)].map((v) => v.normalize());
+        for (const e of ends) {
+          const pts: THREE.Vector3[] = [];
+          for (let i = 0; i <= 4; i++) {
+            dir.copy(e).lerp(diag, i / 4).normalize();
+            pts.push(c.clone().addScaledVector(dir, r));
+          }
+          parts.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 6, t, 6, false));
+        }
+        const knot = new THREE.SphereGeometry(t, 8, 6);
+        knot.translate(c.x + diag.x * r, c.y + diag.y * r, c.z + diag.z * r);
+        parts.push(knot);
+      }
+  const out = mergeGeometries(parts, false)!;
+  for (const g of parts) g.dispose();
+  return out;
+}
+
 // boxie is the AgentBox character, chibi: a head as big as the rest of it,
 // the logo's cube rounded off, in its gradient with white piping along the
 // edges, a face screen with big eyes; a tiny body in the agent's colour with
@@ -202,23 +246,10 @@ function boxie(k: Kit): Build {
   // (R below is this bevel.)
   const head = at(new THREE.Mesh(headG, k.m(toon('#ffffff', { vertexColors: true, roughness: 0.35 }))), 0, 0.34 + S * 0.46, 0);
   body.add(head);
-  // White piping along its edges, as the logo's line art.
+  // White piping along its edges, as the logo's line art: one unbroken
+  // frame round the rounded cube.
   const pipe = k.m(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 }));
-  // On the rounded edges themselves: a bevel of r puts its middle r(1 - 1/√2) in.
-  const R = 0.16;
-  const inset = R * (1 - Math.SQRT1_2);
-  const hw = S / 2 - inset;
-  const hh = (S * 0.92) / 2 - inset;
-  const hd = (S * 0.9) / 2 - inset;
-  const edge = (len: number, x: number, y: number, z: number, axis: 'x' | 'y' | 'z') => {
-    const e = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.026, len, 4, 8), pipe), x, y, z);
-    if (axis === 'x') e.rotation.z = Math.PI / 2;
-    if (axis === 'z') e.rotation.x = Math.PI / 2;
-    head.add(e);
-  };
-  for (const y of [-hh, hh]) for (const z of [-hd, hd]) edge(S - 2 * R, 0, y, z, 'x');
-  for (const x of [-hw, hw]) for (const z of [-hd, hd]) edge(S * 0.92 - 2 * R, x, 0, z, 'y');
-  for (const x of [-hw, hw]) for (const y of [-hh, hh]) edge(S * 0.9 - 2 * R, x, y, 0, 'z');
+  head.add(new THREE.Mesh(piping(S, S * 0.92, S * 0.9, 0.16, 0.026), pipe));
   // The face: a dark, glossy screen on the front.
   const screen = at(new THREE.Mesh(new RoundedBoxGeometry(S * 0.82, S * 0.64, 0.03, 4, 0.07), k.m(new THREE.MeshStandardMaterial({ color: '#1a1530', roughness: 0.2, metalness: 0.1, emissive: '#221a44', emissiveIntensity: 0.4 }))), 0, -0.01, S * 0.45);
   head.add(screen);

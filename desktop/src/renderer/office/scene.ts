@@ -569,8 +569,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // Each pod its own pastel, near its project's colour: pods read apart.
         const shade = [0, 38, -38, 76, -76, 19, -19][pi % 7];
         const hh = ((area.hue + shade + 360) % 360) / 360;
-        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.62, pi % 2 ? 0.68 : 0.73), { roughness: 0.95 }));
-        const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.52, 0.58), { roughness: 0.95 }));
+        // Saturated, as a toy's rugs: the pods read as coloured islands.
+        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.68, pi % 2 ? 0.6 : 0.65), { roughness: 0.95 }));
+        const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.55, 0.5), { roughness: 0.95 }));
         const pw = pod.x1 - pod.x0;
         const pd = pod.z1 - pod.z0;
         room.add(mesh(own(rug(pw, pd, 0.5, 0.02)), rugEdge, (pod.x0 + pod.x1) / 2, 0, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
@@ -1187,14 +1188,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const free = Math.max(0.5, 1 - 390 / Math.max(1, canvas.clientWidth));
       const pitch = 0.4;
       // Wide enough for you, standing at its left end, too.
-      const dist = Math.max((lay.board.w + 0.5) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.7 * 2 * tan));
+      const dist = Math.max((lay.board.w + 1.8) / (free * 2 * tan * aspect), ((bh + 0.9) * Math.cos(pitch)) / (0.7 * 2 * tan));
       const vw = 2 * dist * tan * aspect;
       return { x: lay.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 13.5, pitch: 0.64, yaw: 0.4 }, aspect);
+      // From the far side from where you stand, so you never stand in the way.
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 13.5, pitch: 0.64, yaw: d.side < 0 ? 0.42 : -0.42 }, aspect);
     }
     return undefined;
   }
@@ -1379,6 +1381,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const crowded = desks.size > 16;
     // Where the agents' heads are on screen, which the projects' pills keep off.
     const heads: { x: number; y: number }[] = [];
+    {
+      const yv = new THREE.Vector3(pos.x, 0.8, pos.z).project(camera);
+      heads.push({ x: ((yv.x + 1) / 2) * canvas.clientWidth, y: ((1 - yv.y) / 2) * canvas.clientHeight });
+    }
     // In a close-up: where on screen the agent you're at and you are, and how
     // far the camera is from it, for what's in the way (below).
     let lookAt: { dist: number; spots: { x: number; y: number }[] } | undefined;
@@ -1432,7 +1438,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       }
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (d.root.position.distanceTo(camera.position) < 4.2 || ahead);
       d.root.visible = !(inWay && ahead);
-      d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone];
+      d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone] && !(cam.closeK > 0.3 && d.ref !== focusRef && far < 8);
       const b = d.beacon;
       b.visible = false;
       b.rotation.y = motion ? t * (d.tone === 'working' ? 2.2 : 0.8) : 0.6;
@@ -1443,7 +1449,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // overview; over the grown figures' heads.
       // Only the loud ones (needs you, failed) grow: the overview shows those.
       const loudTone = d.tone === 'needs' || d.tone === 'error';
-      const grow = Math.min(d.tone === 'needs' ? 3.6 : loudTone ? 2.6 : crowded ? 1 : 1.7, Math.max(1, (far - 8) / 12));
+      const grow = Math.min(d.tone === 'needs' ? (crowded ? 4.6 : 3.6) : loudTone ? 2.6 : crowded ? 1 : 1.7, Math.max(1, (far - 8) / 12));
       // A crowd's quiet bubbles show as you come in: from afar they'd bury the loud ones.
       if (crowded && !loudTone && far > 30) s.visible = false;
       const sb = (s.userData.base as THREE.Vector2 | undefined) ?? (s.userData.base = new THREE.Vector2(s.scale.x, s.scale.y));
@@ -1577,7 +1583,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // big one's as you come near.
     const few = !crowded;
     // Small from afar, as name tags are; wider as you come in to read them.
-    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '150px' : '170px';
+    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '118px' : '170px';
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
@@ -1599,10 +1605,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // Quiet ones only near enough to read, so a mid view isn't a wall of tags.
         // From the overview a small team's loud ones only, a crowd's none (its
         // bubbles say it); coming in, the loud ones, then everyone's near you.
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud ? few || cam.followK > 0.2 : cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && dist < 17));
+        // From the overview a small team's all and a crowd's loud ones, as
+        // name tags in a room; coming in, everyone's near you.
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || few || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (few || dist < 17)));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
-        const my = Math.min(canvas.clientHeight - 70, ((1 - tp.y) / 2) * canvas.clientHeight);
+        const my = Math.min(canvas.clientHeight - 110, ((1 - tp.y) / 2) * canvas.clientHeight);
         const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 120 && my > face.y - 70 && my < face.y + 150);
         const show = onScreen && !underCard;
         marker.style.display = show ? 'flex' : 'none';
@@ -1640,9 +1648,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const folded = new Map<HTMLElement, number>();
     const placed: { x0: number; x1: number; y: number }[] = taken.flatMap((r) => {
       // As the anchors of chips that would cover it (a chip's box runs from
-      // 31px above its anchor to 7 above), a row every 20px.
+      // 7px below its anchor to 31 below), a row every 20px.
       const rows: { x0: number; x1: number; y: number }[] = [];
-      for (let y = r.y1 + 31; y > r.y0 + 7; y -= 20) rows.push({ x0: r.x0, x1: r.x1, y });
+      for (let y = r.y1 - 7; y > r.y0 - 31; y -= 20) rows.push({ x0: r.x0, x1: r.x1, y });
       return rows;
     });
     // A chip with no room of its own folds into the one in its way, as a
@@ -1695,7 +1703,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const y = m.y + off[1];
       placed.push({ x0: x - w / 2, x1: x + w / 2, y });
       chips.push({ x0: x - w / 2, x1: x + w / 2, y, el: m.el, loud: m.loud });
-      m.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -130%)`;
+      // Under its desk, as a name tag hangs: never over a face or a bubble.
+      m.el.style.transform = `translate(${x}px, ${y}px) translate(-50%, 30%)`;
     }
     for (const c of chips) {
       const n = folded.get(c.el) ?? 0;
@@ -1705,6 +1714,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     }
     const ringO = 0.55 + (motion ? Math.sin(t * 2.5) * 0.25 : 0.2);
     (meRing.material as THREE.MeshBasicMaterial).opacity = ringO;
+    // From afar your ring grows, so you're found at a glance.
+    meRing.scale.setScalar(0.42 * Math.min(3, Math.max(1, (camera.position.distanceTo(me.group.position) - 10) / 12)));
     aoCam.copy(camera);
     aoCam.layers.set(0);
     composer.render();
@@ -1938,7 +1949,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   };
   const onKeyDown = (e: KeyboardEvent) => {
     if (!attached) return;
-    if (e.ctrlKey || e.metaKey || e.altKey || editable(document.activeElement) || dialogAtKey || document.querySelector('[role="dialog"]')) return;
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || editable(document.activeElement) || dialogAtKey || document.querySelector('[role="dialog"]')) return;
     const k = e.key.toLowerCase();
     if (walkKeys.has(k)) {
       // Arrows walk only while the office has focus, so they still scroll

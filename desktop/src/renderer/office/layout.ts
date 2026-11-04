@@ -180,9 +180,9 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     const below = last ? roomD - 0.5 : z + depth + AISLE / 2;
     // Centred across the work side.
     let x = WALL_PAD + (innerW - rowW(row)) / 2;
-    if (x - AISLE / 2 - 1.0 > 2) free.push({ x0: 1.0, z0: z, x1: x - AISLE / 2, z1: z + depth });
+    if (x - AISLE / 2 - 1.0 > 2) free.push({ x0: 1.0, z0: z, x1: x - AISLE / 2, z1: z + depth, low: true });
     const end = x + rowW(row);
-    if (WALL_PAD + innerW + 0.6 - (end + AISLE / 2) > 2) free.push({ x0: end + AISLE / 2, z0: z, x1: WALL_PAD + innerW + 0.6, z1: z + depth });
+    if (WALL_PAD + innerW + 0.6 - (end + AISLE / 2) > 2) free.push({ x0: end + AISLE / 2, z0: z, x1: WALL_PAD + innerW + 0.6, z1: z + depth, low: true });
     for (const col of row) {
       const cw = colW(col);
       let cz = z;
@@ -201,7 +201,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     z += depth + AISLE;
   }
   // Below the last row, when the room is deeper than its areas.
-  if (rows.length === 0) free.push({ x0: 1.0, z0: BACK_AISLE + 0.6, x1: WALL_PAD + innerW + 0.6, z1: roomD - 0.5 });
+  if (rows.length === 0) free.push({ x0: 1.0, z0: BACK_AISLE + 0.6, x1: WALL_PAD + innerW + 0.6, z1: roomD - 0.5, low: true });
   function placeArea(i: number, a: Pick<OfficeModel, 'areas'>['areas'][number], s: (typeof sizes)[number], rug: Box) {
     const z = rug.z0;
     const depth = rug.z1 - rug.z0;
@@ -451,9 +451,9 @@ const NOOK: Theme = [
   ['plants', 1.65, -0.55],
 ];
 const GARDEN: Theme = [
-  ['plants', -1.55, -0.45],
-  ['logo', 0.35, 0.1],
-  ['plants', 1.95, 0.5],
+  ['plants', -1.6, -0.45],
+  ['logo', 0.3, 0.1],
+  ['plants', 2.1, 0.5],
 ];
 const READING: Theme = [
   ['aquarium', -1.25, -0.75],
