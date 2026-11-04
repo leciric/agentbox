@@ -79,6 +79,13 @@ export function seedOffice(queryClient: QueryClient, opts: { typical?: boolean }
     const m = method === 'GET' && /^\/v1\/projects\/([^/]+)\/fleet$/.exec(path);
     if (m && fleets[decodeURIComponent(m[1])]) return json(fleets[decodeURIComponent(m[1])]);
     if (method === 'GET' && /^\/v1\/projects\/(storefront|quill)\/questions$/.test(path)) return json([]);
+    // Their pull requests' details, as the daemon gives them: the Office's
+    // board and cards open them.
+    const pull = method === 'GET' && /^\/v1\/projects\/(storefront|quill)\/pulls\/(\d+)(\/files)?$/.exec(path);
+    if (pull) {
+      const row = fleets[pull[1]]?.agents.map((x) => x.pr).find((x) => x?.number === Number(pull[2]));
+      if (row) return json(pull[3] ? ({ files: [], truncated: false } satisfies T.PullRequestFiles) : ({ ...row, body: 'What it changes, and how it was checked.', changedFiles: 0, checkRuns: [] } satisfies T.PullRequestDetail));
+    }
     if (opts.typical && method === 'GET' && path === '/v1/agents') {
       const r = (await inner(method, path, body)) as { status: number; body: string; contentType: string };
       return { ...r, body: JSON.stringify(kept([...(JSON.parse(r.body) as T.Agent[]), ...agents.filter((a) => !r.body.includes(`"${a.ref}"`))])) };

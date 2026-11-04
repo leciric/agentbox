@@ -1298,7 +1298,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     let closeTarget = near && stillFor > 0.15 && !held && !turned ? 1 : 0;
     if (!closeTarget && routeGoal && route.length) {
       const rem = Math.hypot(route[0].x - pos.x, route[0].z - pos.z) + pathLengthFrom(route);
-      if (rem < 3.5) closeTarget = 1 - rem / 3.5;
+      if (rem < 8) closeTarget = 1 - rem / 8;
     }
     if (closeTarget > 0) focusRef = near ?? routeGoal;
     cam.closeK += (closeTarget - cam.closeK) * (motion ? 1 - Math.exp(-dt * 4.8) : 1);
@@ -1497,13 +1497,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // kept while it moves.
       const zr = place.rug;
       const zw = zr.x1 - zr.x0;
+      // Before it first, then at its sides, inside it last.
       const spots: [number, number][] = [
+        [(zr.x0 + zr.x1) / 2, zr.z1 + 0.75],
+        [zr.x0 + Math.min(2.6, zw / 2), zr.z1 + 0.75],
+        [zr.x1 - Math.min(2.6, zw / 2), zr.z1 + 0.75],
+        [zr.x0 - 0.5, (zr.z0 + zr.z1) / 2],
+        [zr.x1 + 0.5, (zr.z0 + zr.z1) / 2],
         [zr.x0 + Math.min(2.6, zw / 2), zr.z1 - 0.45],
         [zr.x1 - Math.min(2.6, zw / 2), zr.z1 - 0.45],
-        [zr.x0 + Math.min(2.6, zw / 2), zr.z1 + 0.75],
-        [(zr.x0 + zr.x1) / 2, zr.z1 + 0.75],
-        [zr.x0 + Math.min(2.6, zw / 2), zr.z0 + 0.3],
-        [zr.x1 - Math.min(2.6, zw / 2), zr.z1 + 0.75],
       ];
       const w0 = chip.offsetWidth || 140;
       const h0 = chip.offsetHeight || 30;
@@ -1519,7 +1521,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
           const off = ap.z >= 1 || Math.abs(ap.x) > 0.95 || py < 100 || py > canvas.clientHeight - 96;
           const covers = heads.filter((hd) => Math.abs(hd.x - px) < w0 / 2 + 14 && Math.abs(hd.y - py) < h0 / 2 + 22).length;
           const clash = taken.some((r) => px + w0 / 2 > r.x0 && px - w0 / 2 < r.x1 && py + h0 / 2 > r.y0 && py - h0 / 2 < r.y1) ? 5 : 0;
-          const n = (off ? 100 : 0) + covers + clash + si * 0.01;
+          const n = (off ? 100 : 0) + covers + clash + si * 0.3;
           if (n < bestN) {
             bestN = n;
             best = si;
@@ -1575,7 +1577,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // big one's as you come near.
     const few = !crowded;
     // Small from afar, as name tags are; wider as you come in to read them.
-    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '136px' : '170px';
+    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '150px' : '170px';
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
@@ -1595,7 +1597,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // The overview shows the pods' pills and counts and the bubbles over
         // heads; the tags come as you come in.
         // Quiet ones only near enough to read, so a mid view isn't a wall of tags.
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (few || loud || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (few || dist < 17)));
+        // From the overview a small team's loud ones only, a crowd's none (its
+        // bubbles say it); coming in, the loud ones, then everyone's near you.
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud ? few || cam.followK > 0.2 : cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && dist < 17));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 70, ((1 - tp.y) / 2) * canvas.clientHeight);
@@ -1608,7 +1612,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // You, from far off: a chip in your colour over your head, or under your
     // feet when a label is there. Placed first: the desks' chips keep clear of it.
     meTag.sprite.getWorldPosition(tp);
-    const meFar = tp.distanceTo(camera.position) > 15 && cam.closeK < 0.3;
+    const meFar = tp.distanceTo(camera.position) > 15 && cam.closeK < 0.3 && cam.followK < 0.3;
     tp.project(camera);
     meMarker.style.display = meFar && tp.z < 1 ? 'block' : 'none';
     if (meFar) {
@@ -1620,6 +1624,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       meMarker.style.transform = `translate(${mx}px, ${my}px) translate(-50%, ${under ? '140%' : '-110%'})`;
       taken.push(under ? { x0: over.x0, x1: over.x1, y0: my + 30, y1: my + 52 } : over);
       meTag.sprite.visible = false;
+    } else if (tp.z < 1) {
+      // Near, you have no chip, but the others' keep off your head.
+      const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
+      const my = ((1 - tp.y) / 2) * canvas.clientHeight;
+      taken.push({ x0: mx - 40, x1: mx + 40, y0: my - 30, y1: my + 70 });
     }
     // The desks' chips stack clear of the labels and of each other, the
     // nearest (lowest on screen) where it belongs. Their stacking is worked
@@ -1840,6 +1849,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // While the camera is still gliding, a click on the room waits (what was
     // under it a moment ago isn't what will be), but a board row is a row.
     if (settledFor < 0.15 && !route.length) return;
+    // Walking somewhere by name, or gliding into a close-up, a desk or a
+    // board note under the pointer now isn't where it will be: wait.
+    if ((ref || row) && ((route.length && routeGoal) || (cam.closeK > 0.05 && cam.closeK < 0.95))) return;
     // A row on the board opens what it's about, from wherever you see it.
     if (row && (near === 'board' || !row.startsWith('more:'))) opts.onBoardRow(row);
     else if (ref) {

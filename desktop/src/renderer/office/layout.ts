@@ -72,8 +72,8 @@ const POD = 2;
 const POD_SPAN = 2 * DESK.w + 2.4;
 // Pod to pod across a row, and row to row; every other row is staggered by
 // half a pod, so the pods read as islands rather than a classroom's rows.
-const POD_PX = 4.6;
-const POD_PZ = 2.9;
+const POD_PX = 5.0;
+const POD_PZ = 3.2;
 const STAGGER = POD_PX / 2;
 const FIRST = 1.5; // from an area's back to its first pods' desks
 const AREA_PAD = 0.5; // the area's margin around its pods
@@ -83,7 +83,8 @@ const BACK_AISLE = 3.4; // before the board
 const FRONT = 1.0; // floor before the front areas
 const WALL_PAD = 1.6;
 const PLANTER = 0.5;
-const WOOD_W = 9.2; // the wood-floored side, the commons
+// The wood-floored side, the commons: about a third of the work's width.
+const woodOf = (workW: number) => Math.min(9.2, Math.max(7.4, workW * 0.36));
 const MIN_ROOM_D = 13;
 const MIN_WORK_W = 11;
 // The room is about twice as wide as it's deep, as a diorama seen from its
@@ -142,7 +143,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     const workW = innerW + WALL_PAD * 2;
     const deep = rows.reduce((sum, r) => sum + rowD(r), 0) + AISLE * Math.max(0, rows.length - 1);
     const D = Math.max(MIN_ROOM_D, BACK_AISLE + deep + FRONT);
-    return { innerW, workW, W: workW + PLANTER + WOOD_W, D };
+    return { innerW, workW, W: workW + PLANTER + woodOf(workW), D };
   };
   // The row width whose room comes closest to the aspect with the least bare
   // floor between the areas, the narrower of two as good.
@@ -266,7 +267,11 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     const turned = Math.abs(Math.sin(rot)) > 0.5;
     obstacles.push(box(x, z, turned ? d : w, turned ? w : d));
   };
-  const lounge: Box = { x0: wx + 0.8, z0: 0.5, x1: wx + 4.6, z1: 4.6 };
+  const [kw, kd] = footOf('kitchen');
+  const [fw, fd] = footOf('fridge');
+  // A fridge beside the kitchen when the lounge keeps room for its sofa.
+  const fridge = roomW - fw - 0.2 - kw - 0.3 - (wx + 0.8) >= 3.2;
+  const lounge: Box = { x0: wx + 0.8, z0: 0.5, x1: Math.min(wx + 4.6, roomW - kw - 0.4 - (fridge ? fw + 0.1 : 0)), z1: 4.6 };
   // The sectional along the brick wall, facing the room, its chaise on the
   // left; a low table before it.
   const sofa: Box = { x0: lounge.x0 + 0.3, z0: lounge.z0 + 0.1, x1: lounge.x1 - 0.3, z1: lounge.z0 + 1.05 };
@@ -274,24 +279,22 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   obstacles.push(box((sofa.x0 + sofa.x1) / 2 + 0.4, lounge.z0 + 2.35, 1.5, 0.75));
   // The kitchen: a counter and a fridge against the back wall, an island
   // before them with three stools.
-  const [kw, kd] = footOf('kitchen');
-  const [fw, fd] = footOf('fridge');
-  const kx = roomW - fw - 0.1 - kw / 2;
-  prop('fridge', roomW - fw / 2 - 0.05, fd / 2 + 0.02);
+  const kx = roomW - (fridge ? fw + 0.1 : 0) - 0.05 - kw / 2;
+  if (fridge) prop('fridge', roomW - fw / 2 - 0.05, fd / 2 + 0.02);
   prop('kitchen', kx, kd / 2 + 0.02);
-  prop('island', kx + 0.3, kd + 0.9 + footOf('island')[1] / 2);
+  prop('island', Math.min(kx + 0.3, roomW - footOf('island')[0] / 2 - 0.05), kd + 0.9 + footOf('island')[1] / 2);
   // Ping-pong past the lounge, arcade cabinets beside it, against the edge.
   const zp = Math.max(lounge.z1 + 2.6, roomD * 0.42);
-  prop('pingpong', wx + 4.6, zp);
+  prop('pingpong', Math.min(wx + 4.6, roomW - 1.15 - footOf('pingpong')[0] / 2), zp);
   prop('arcade', roomW - 0.6, zp - 0.5, -Math.PI / 2);
   prop('arcade', roomW - 0.6, zp + 0.45, -Math.PI / 2);
   // Bean bags round a little table, at the front.
   const zb = Math.min(roomD - 2.0, zp + 3.8);
   prop('beanbags', wx + 2.7, zb);
-  prop('whiteboard', wx + 6.9, zb);
+  prop('whiteboard', roomW - 1.3, zb);
   if (roomD > 18) {
     prop('tree', roomW - 0.7, (zp + zb) / 2 + 0.8);
-    prop('standing', wx + 6.3, zp + 2.0 + (zb - zp - 3.8) / 2);
+    prop('standing', roomW - 2.6, zp + 2.0 + (zb - zp - 3.8) / 2);
   }
   // The meeting room, in the back left corner, behind glass.
   const meeting: Box = { x0: 0, z0: 0, x1: Math.min(6, workW * 0.3), z1: BACK_AISLE - 0.4 };
@@ -339,7 +342,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   const moss = { at: window.at + winW / 2 + 0.4 + mossW / 2, w: mossW };
   for (let lz = moss.at + mossW / 2 + 1.6; lz + 1.25 < shelf.z0 - 1.8; lz += 3.2) prop('lockers', footOf('lockers')[1] / 2 + 0.02, lz, Math.PI / 2);
   // The brick wall behind the lounge, its sign over the sofa.
-  const brick = { at: (lounge.x0 + lounge.x1) / 2, w: 3.6 };
+  const brick = { at: (lounge.x0 + lounge.x1) / 2, w: Math.min(3.6, lounge.x1 - lounge.x0) };
   // The commons' front, when the room is deep.
   if (roomD - 0.9 - (zb + 1.6) > 2.6) free.push({ x0: wx + 0.4, z0: zb + 1.6, x1: roomW - 0.5, z1: roomD - 0.9 });
   // The work's bare floor, furnished: islands of trees, standing tables,

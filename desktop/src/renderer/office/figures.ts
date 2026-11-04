@@ -55,10 +55,10 @@ export type Accessory = (typeof ACCESSORIES)[number] | 'headset';
 // variant, when given, is the agent's place in the room: then no two agents
 // wear the same thing in the same colour until sixty-four of them do.
 // The logo's gradient, its hue turned by these many degrees, for an agent's
-// head: from sky blue to pink about the logo's violet, so every head is still
+// head: round much of the wheel from the logo's violet, so every head is still
 // the logo's cube and yet they read apart across the room. (Leads keep the
 // logo's own.)
-export const HEAD_SHIFTS = [35, -35, 70, -62, 17, -17, 52, -48];
+export const HEAD_SHIFTS = [-110, 55, -45, 125, -78, 22, 90, -15];
 
 export function accentOf(ref: string, variant?: number): { color: string; accessory: Accessory; tint: number; shift: number } {
   const r = rng(hash(ref));
