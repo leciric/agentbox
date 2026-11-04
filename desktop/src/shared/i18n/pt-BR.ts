@@ -4634,6 +4634,7 @@ export const ptBR: Messages = {
   'work.verdict.reviewed': 'Revisado',
   'work.verdict.dismissed': 'Dispensado',
   'work.verdict.changes': 'Mudanças pedidas',
+  'work.outcome.tip': 'O que o agente disse do próprio trabalho no relatório',
   'work.outcome.done': 'Concluído',
   'work.outcome.partial': 'Parcial',
   'work.outcome.blocked': 'Bloqueado',

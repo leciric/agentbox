@@ -70,7 +70,7 @@ function scroller(el: HTMLElement): HTMLElement | null {
 export function MediaSearch({ value, onChange, className }: { value: string; onChange: (value: string) => void; className?: string }) {
   const t = useT();
   return (
-    <div className={cn('relative flex w-56 min-w-0 max-w-full items-center', className)}>
+    <div className={cn('relative flex w-64 min-w-0 max-w-full items-center', className)}>
       <Search className="pointer-events-none absolute left-2.5 size-3.5 text-subtle" />
       <Input
         type="search"

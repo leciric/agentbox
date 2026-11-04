@@ -4633,6 +4633,7 @@ export const enUS = {
   'work.verdict.reviewed': 'Reviewed',
   'work.verdict.dismissed': 'Dismissed',
   'work.verdict.changes': 'Changes requested',
+  'work.outcome.tip': 'What the agent said of its work in its report',
   'work.outcome.done': 'Done',
   'work.outcome.partial': 'Partial',
   'work.outcome.blocked': 'Blocked',
