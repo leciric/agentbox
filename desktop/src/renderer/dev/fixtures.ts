@@ -15,7 +15,7 @@ import { inScope, type MediaScope } from '../lib/mediaPages';
 import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 import { pastRequest } from './pastAgents';
 import { recapRequest } from './recap';
-import { SESSION_COLORS } from '../lib/sessions';
+import { SESSION_COLORS, sessionsSettled } from '../lib/sessions';
 
 export const PROJECT = 'agentbox';
 
@@ -2699,8 +2699,87 @@ function devSessions(project: string): T.LeadSession[] {
 // project's chat to an agent joins as the daemon's notice would.
 let seeded: QueryClient | undefined;
 
+// closedByProject is the preview's chat histories, which closing, settling
+// and reopening move sessions into and out of.
+const closedByProject = new Map<string, T.LeadSession[]>();
+
+// devOutput is what each of the incident project's sessions made, for its
+// header (chat/SessionHeader.tsx): onboarding-copy's work is all in, so it is
+// the one ?settle=demo settles.
+function devOutput(project: string, id: string): T.SessionOutput {
+  const pr = (number: number, state: string, checks: string, title: string): T.PullRequest => ({ number, title, state, checks, url: `https://github.com/acme/web/pull/${number}` });
+  const live = (name: string, title: string, working: boolean, p?: T.PullRequest): T.SessionAgent => ({ ref: `${project}/${name}`, name, title, branch: `agentbox/${name}`, working, pr: p });
+  const retired = (name: string, title: string, p: T.PullRequest): T.SessionAgent => ({ ref: `${project}/${name}`, name, title, branch: `agentbox/${name}`, archived: true, pr: p });
+  const byId: Record<string, T.SessionAgent[]> = {
+    main: [live('agent-99', 'PR agent', true, pr(412, 'open', 'passing', 'Show the PR agent’s work')), live('agent-96', 'Fix the agent rail overflowing on wide text', true, pr(398, 'open', 'pending', 'Wrap the rail')), live('agent-39', 'Paginate the reminders page', false, pr(377, 'merged', 'passing', 'Paginate reminders'))],
+    'prod-login-500s': [live('agent-12', 'Add a "New project" button to the Sidebar', true, pr(405, 'open', 'failing', 'Fix the session cookie')), live('agent-98', 'Question agent', false), retired('agent-41', 'Find the 500s', pr(401, 'merged', 'passing', 'Log the login 500s'))],
+    'onboarding-copy': [live('agent-97', 'Long path agent', false, pr(390, 'merged', 'passing', 'Rewrite the welcome copy')), live('agent-38', 'Migrate the reminders table', false, pr(389, 'closed', '', 'Migrate reminders'))],
+  };
+  return { project, session: id, agents: project === PROJECT ? (byId[id] ?? []) : [] };
+}
+
+const devDiff = (name: string) => `diff --git a/src/${name}.ts b/src/${name}.ts
+--- a/src/${name}.ts
++++ b/src/${name}.ts
+@@ -1,4 +1,6 @@
+ export function handler(req: Request) {
+-  return legacy(req);
++  // ${name}: read the session from its cookie first
++  const session = readCookie(req, 'session');
++  return session ? fresh(req, session) : legacy(req);
+ }
+`;
+
+// settleDemo, with ?settle=demo, settles onboarding-copy a few seconds in, as
+// the daemon's sweep would (daemon/sessionsettle.go), toast and all.
+export function settleDemo(queryClient: QueryClient): void {
+  if (new URLSearchParams(location.search).get('settle') !== 'demo') return;
+  setTimeout(() => {
+    const open = devSessions(PROJECT);
+    const s = open.find((x) => x.id === 'onboarding-copy');
+    if (!s) return;
+    const settled: T.LeadSession = { ...s, closedAt: new Date().toISOString(), settled: true, chat: 'off' };
+    sessionsByProject.set(PROJECT, open.filter((x) => x.id !== s.id));
+    closedByProject.set(PROJECT, [settled, ...(closedByProject.get(PROJECT) ?? [])]);
+    void queryClient.invalidateQueries({ queryKey: ['leadSessions', PROJECT] });
+    sessionsSettled({ project: PROJECT, sessions: [settled] });
+  }, 4000);
+}
+
 function sessionsRequest(method: string, path: string, body: unknown) {
   const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
+  const history = /^\/v1\/projects\/([^/]+)\/sessions\?closed=true$/.exec(path);
+  if (history && method === 'GET') return json(closedByProject.get(decodeURIComponent(history[1])) ?? []);
+  const output = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/output$/.exec(path);
+  if (output && method === 'GET') return json(devOutput(decodeURIComponent(output[1]), decodeURIComponent(output[2])));
+  const diff = /^\/v1\/(?:archived-)?agents\/[^/]+\/([^/]+)\/diff$/.exec(path);
+  if (diff && method === 'GET') return { status: 200, body: devDiff(decodeURIComponent(diff[1])), contentType: 'text/plain' };
+  const act = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/(snooze|close|reopen)$/.exec(path);
+  if (act && method === 'POST') {
+    const [project, id, verb] = [decodeURIComponent(act[1]), decodeURIComponent(act[2]), act[3]];
+    const open = devSessions(project);
+    const closed = closedByProject.get(project) ?? [];
+    if (verb === 'reopen') {
+      const s = closed.find((x) => x.id === id);
+      if (!s) return { status: 409, body: JSON.stringify({ error: 'open' }), contentType: 'application/json' };
+      const back: T.LeadSession = { ...s, closedAt: undefined, settled: undefined };
+      closedByProject.set(project, closed.filter((x) => x.id !== id));
+      sessionsByProject.set(project, [...open, back]);
+      return json(back);
+    }
+    const s = open.find((x) => x.id === id);
+    if (!s) return { status: 409, body: JSON.stringify({ error: 'closed' }), contentType: 'application/json' };
+    if (verb === 'close') {
+      const gone: T.LeadSession = { ...s, closedAt: new Date().toISOString(), snoozedUntil: undefined };
+      sessionsByProject.set(project, open.filter((x) => x.id !== id));
+      closedByProject.set(project, [gone, ...closed]);
+      return json(gone);
+    }
+    const until = (body as T.LeadSessionSnooze).until;
+    const next: T.LeadSession = { ...s, snoozedUntil: until };
+    sessionsByProject.set(project, open.map((x) => (x.id === id ? next : x)));
+    return json(next);
+  }
   const list = /^\/v1\/projects\/([^/]+)\/sessions$/.exec(path);
   if (list && method === 'GET') return json(devSessions(decodeURIComponent(list[1])));
   if (list && method === 'POST') {

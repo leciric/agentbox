@@ -29,7 +29,7 @@ export function useSessionOutput(project: string, session: string | undefined) {
 
 // wakeTime is when a snoozed session comes back, short: "Thu 09:00".
 export function wakeTime(iso: string): string {
-  return new Intl.DateTimeFormat(language(), { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+  return new Intl.DateTimeFormat(language(), { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
 }
 
 // SessionHeader is the strip above a session's chat that ties it to what it

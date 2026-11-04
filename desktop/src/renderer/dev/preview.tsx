@@ -318,6 +318,7 @@ import { createRoot } from 'react-dom/client';
 import type { ConnectionState, HostSetupStatus } from '../../preload';
 import type * as T from '../../shared/api';
 import { Toasts } from '../components/Toasts';
+import { SettledToasts } from '../components/chat/SettledToasts';
 import type { View } from '../App';
 import { HomeView } from '../components/HomeView';
 import { DefaultContextWindow, DefaultModel } from '../components/NewAgentDefaults';
@@ -350,7 +351,7 @@ import { api } from '../lib/api';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -865,6 +866,9 @@ if (params.get('cache') === 'due') {
   chooseSession(PROJECT, 'prod-login-500s');
 }
 if (params.get('olddaemon') === '1') seedStaleDaemon();
+// ?settle=demo: the Onboarding copy session, its work all in, settles into
+// History a few seconds in, with its Undo toast.
+if (appView) settleDemo(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
 const macVZ = params.get('mac'); // 'brew' | 'driver' | 'manual' | 'nodriver' | 'ready' | null
 if (macVZ) seedMacVZ(queryClient, macVZ);
@@ -1671,6 +1675,7 @@ if (phoneMode === 'frame') {
       <TooltipProvider delayDuration={250}>
         <App initial={initial} />
         <Toasts />
+        <SettledToasts />
         {params.get('pip') === '1' && <PipFinish />}
         {params.has('click') && <ClickOnLoad selectors={params.getAll('click')} />}
       </TooltipProvider>
