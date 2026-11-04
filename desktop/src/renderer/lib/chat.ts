@@ -392,6 +392,7 @@ export type Row =
   | { type: 'note'; key: string; item: T.ChatItem }
   | { type: 'subagent'; key: string; item: T.ChatItem; children: T.ChatItem[] }
   | { type: 'compaction'; key: string; item: T.ChatItem }
+  | { type: 'goal'; key: string; item: T.ChatItem }
   | { type: 'credential'; key: string; item: T.ChatItem }
   | { type: 'changes'; key: string; files: ChangedFile[] }
   | { type: 'turn'; key: string; checkpoint: T.Checkpoint };
@@ -441,7 +442,8 @@ export function agentPermissionState(p: T.ChatPermission): AgentPermissionState 
 export const isWork = (it: T.ChatItem) => it.kind === 'tool' || it.kind === 'thought' || (it.kind === 'permission' && !!it.permission?.outcome);
 // A compaction's card ([D73]) reads like a notice: it marks where the session
 // changed, so a settled turn's fold never hides it.
-const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error' || it.kind === 'compaction';
+// So does a goal's row (agent goals, components/GoalChip.tsx).
+const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error' || it.kind === 'compaction' || it.kind === 'goal';
 const isAside = (it: T.ChatItem) => it.kind === 'aside';
 
 // isCredentialRequest is the agent calling request_credential (D95), or
@@ -582,6 +584,10 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
       }
       if (it.kind === 'compaction') {
         rows.push({ type: 'compaction', key: it.id, item: it });
+        continue;
+      }
+      if (it.kind === 'goal' && it.goal) {
+        rows.push({ type: 'goal', key: it.id, item: it });
         continue;
       }
       rows.push(it.kind === 'assistant' ? { type: 'assistant', key: it.id, item: it, final: settled && it === final } : { type: 'note', key: it.id, item: it });

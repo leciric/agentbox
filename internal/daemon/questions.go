@@ -495,6 +495,11 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 		return
 	}
 	s.markToldWaiting(a, false)
+	// A goal the daemon drives sends the agent back while its checks fail,
+	// or stops it blocked, rather than reporting a finish (goals.go).
+	if s.goalAfterTurn(ctx, a, end) {
+		return
+	}
 	closing := closingWords(end.LastMessage)
 	pr := s.prFor(ctx, a)
 	changes := changesOf(a, prBase(pr)...)

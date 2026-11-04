@@ -62,6 +62,7 @@ export const catalog: CatalogSetting[] = [
   { section: 'experimental', group: 'settings.group.experimental-tests.title', id: 'block-full-suite', label: 'settings.entry.block-full-suite.label', keywords: 'settings.entry.block-full-suite.keywords' },
   { section: 'experimental', group: 'settings.group.experimental-memory.title', id: 'idle-reclaim', label: 'settings.idleReclaim.label', keywords: 'settings.entry.idle-reclaim.keywords' },
   { section: 'experimental', group: 'settings.group.experimental-memory.title', id: 'agent-freeze', label: 'settings.entry.agent-freeze.label', keywords: 'settings.entry.agent-freeze.keywords' },
+  { section: 'experimental', group: 'settings.group.experimental-agents.title', id: 'agent-goals', label: 'settings.entry.agent-goals.label', keywords: 'settings.entry.agent-goals.keywords' },
   // Accounts' rows are Setup's checks, one per AI tool and GitHub.
   { section: 'accounts', group: 'settings.group.ai.title', id: 'claude', label: 'settings.setup.title.claude', keywords: 'settings.setup.desc.claude' },
   { section: 'accounts', group: 'settings.group.ai.title', id: 'codex', label: 'settings.setup.title.codex', keywords: 'settings.setup.desc.codex' },

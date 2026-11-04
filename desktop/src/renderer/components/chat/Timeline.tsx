@@ -24,6 +24,7 @@ import { latestFinishes } from '../../lib/finished';
 import { latestGroupNotes } from '../../lib/groups';
 import { isLeadRef } from '../../lib/pages';
 import { ScheduledRunChip } from './ScheduledRunChip';
+import { GoalRow } from '../GoalChip';
 import { ProjectMessageCard } from './ProjectMessageCard';
 import { SentImages } from './Images';
 import { SentPicks } from './PickChip';
@@ -61,7 +62,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
           row.type === 'turn' ? (
             <TurnMarker key={row.key} agent={agent} checkpoint={row.checkpoint} latest={row.checkpoint.number === latest} onOpenAgent={onOpenAgent} />
           ) : (
-            <TimelineRow key={row.key} row={row} chatRef={agent.ref} root={agent.worktree} finishes={finishes} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} />
+            <TimelineRow key={row.key} row={row} chatRef={agent.ref} ai={agent.ai} root={agent.worktree} finishes={finishes} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} />
           ),
         )}
       </div>
@@ -70,7 +71,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
 }
 
 const TimelineRow = memo(
-  function TimelineRow({ row, chatRef, root, finishes, starting, onToggleTurn }: { row: Row; chatRef: string; root: string; finishes: Map<string, string>; starting?: string; onToggleTurn: (turn: string) => void }) {
+  function TimelineRow({ row, chatRef, ai, root, finishes, starting, onToggleTurn }: { row: Row; chatRef: string; ai?: string; root: string; finishes: Map<string, string>; starting?: string; onToggleTurn: (turn: string) => void }) {
     const t = useT();
     switch (row.type) {
       case 'user':
@@ -96,6 +97,8 @@ const TimelineRow = memo(
         return <SubagentCard item={row.item} children={row.children} root={root} />;
       case 'compaction':
         return <CompactionCard item={row.item} />;
+      case 'goal':
+        return <GoalRow item={row.item} ai={ai} />;
       case 'credential':
         return <ChatCredentialCard agentRef={chatRef} />;
       case 'fold':
@@ -224,6 +227,7 @@ function sameRow(a: Row, b: Row): boolean {
     case 'woken':
     case 'note':
     case 'compaction':
+    case 'goal':
     case 'credential':
       return a.item === (b as typeof a).item;
     case 'assistant':
