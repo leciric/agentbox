@@ -174,6 +174,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   markerLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden';
   host.appendChild(markerLayer);
   const markers = new Map<string, HTMLButtonElement>();
+  // And you, from far off.
+  const meMarker = document.createElement('div');
+  meMarker.style.cssText =
+    'position:absolute;left:0;top:0;display:none;padding:2px 8px;border-radius:999px;background:#7c3aed;color:#fff;font:700 11.5px/1.25 var(--font-sans,system-ui),sans-serif;box-shadow:0 0 0 3px rgba(167,139,250,.35),0 4px 14px rgba(0,0,0,.4);pointer-events:none;will-change:transform';
+  markerLayer.appendChild(meMarker);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 200);
@@ -589,7 +594,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         marker.type = 'button';
         marker.dataset.officeMarker = d.ref;
         marker.style.cssText =
-          'position:absolute;left:0;top:0;pointer-events:auto;display:flex;align-items:center;gap:6px;max-width:180px;padding:3px 10px 3px 7px;border-radius:999px;background:rgba(10,14,24,.9);color:#fff;font:600 12px/1.25 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer;will-change:transform';
+          'position:absolute;left:0;top:0;pointer-events:auto;display:flex;align-items:center;gap:6px;max-width:150px;padding:2px 9px 2px 6px;border-radius:999px;background:rgba(10,14,24,.9);color:#fff;font:600 11.5px/1.25 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer;will-change:transform';
         const dot = document.createElement('span');
         dot.style.cssText = 'flex:none;width:8px;height:8px;border-radius:50%';
         const label = document.createElement('span');
@@ -676,6 +681,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         const back = path(boxes, bounds, pos, pos);
         if (back.length) Object.assign(pos, back[back.length - 1]);
         stillFor = 1;
+        // Back where you were, close up already: no fade in from afar.
+        focusRef = nearest(lay, pos);
+        if (focusRef) cam.closeK = 1;
       } else if (!placed) {
         pos.x = lay.spawn.x;
         pos.z = lay.spawn.z;
@@ -690,6 +698,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     } else for (const d of desks.values()) update(d, input);
     if (input.you !== youLabel) {
       youLabel = input.you;
+      meMarker.textContent = youLabel;
       drawTag(meTag.ctx, youLabel, '#a78bfa');
       meTag.tex.needsUpdate = true;
     }
@@ -886,7 +895,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x + 0.25, y: 1.0, z: d.z - 0.05, dist: 3.3, pitch: 0.55, yaw: 0.34 };
+      if (d) return { x: d.x + 0.25, y: 1.0, z: d.z - 0.05, dist: 3.9, pitch: 0.55, yaw: 0.34 };
     }
     return undefined;
   }
@@ -939,7 +948,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const W = lay.room.x1;
     const D = lay.room.z1;
     const aspect = camera.aspect || 1;
-    const k = motion ? 1 - Math.exp(-dt * 5) : 1;
+    // From the overview down to following you is a long way: taken gently.
+    const k = motion ? 1 - Math.exp(-dt * 2.6) : 1;
     cam.followK += (followTarget - cam.followK) * k;
     if (Math.abs(followTarget - cam.followK) < 1e-3) cam.followK = followTarget;
     // Close up at what you're at, and gliding into it over a walk's last
@@ -1067,6 +1077,15 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const w = Math.min(2.1, Math.max(0.8, dist * 0.085));
       tag.scale.set(w, (w * 96) / 640, 1);
     }
+    // You, from far off: a chip like theirs, in your colour.
+    meTag.sprite.getWorldPosition(tp);
+    const meFar = tp.distanceTo(camera.position) > 15;
+    tp.project(camera);
+    meMarker.style.display = meFar && tp.z < 1 ? 'block' : 'none';
+    if (meFar) {
+      meMarker.style.transform = `translate(${((tp.x + 1) / 2) * canvas.clientWidth}px, ${((1 - tp.y) / 2) * canvas.clientHeight}px) translate(-50%, -110%)`;
+      meTag.sprite.visible = false;
+    }
     // Markers that would overlap stack upwards instead, the nearest (lowest
     // on screen) where it belongs.
     shown.sort((a, b) => b.y - a.y);
@@ -1077,8 +1096,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const x0 = m.x - w / 2;
       const x1 = m.x + w / 2;
       const clash = (y: number) => placed.some((p) => x0 < p.x1 + 4 && x1 > p.x0 - 4 && Math.abs(p.y - y) < h);
-      // One step up at most; past that it's a tower, and the list has it.
-      const y = !clash(m.y) ? m.y : !clash(m.y - h) ? m.y - h : undefined;
+      // Up to two steps up; past that it's a tower, and the list has it.
+      const y = [m.y, m.y - h, m.y - 2 * h].find((y) => !clash(y));
       if (y === undefined) {
         m.el.style.display = 'none';
         continue;

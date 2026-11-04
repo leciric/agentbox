@@ -394,8 +394,10 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       {/* The controls, until you've moved; after that a line. */}
       {status === 'ready' && !empty && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3">
-          {hoverText && <div className="rounded-lg bg-slate-950/85 px-2.5 py-1 text-[12.5px] text-white shadow-lg backdrop-blur-md" data-office-hover>{hoverText}</div>}
-          {hint ? (
+          {/* One bar: what a click on what's under the pointer does, or else the controls. */}
+          {hoverText && !hint ? (
+            <div className="rounded-lg bg-slate-950/85 px-3 py-1 text-[12.5px] font-medium text-white shadow-lg backdrop-blur-md" data-office-hover>{hoverText}</div>
+          ) : hint ? (
             <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-5 gap-y-1.5 rounded-xl border border-violet-300/30 bg-slate-950/90 px-4 py-2.5 text-[13px] font-medium text-white shadow-xl ring-1 ring-violet-400/20 backdrop-blur-md" data-office-hint>
               <span className="flex items-center gap-1.5"><Mouse className="size-3.5 text-violet-300" />{t('office.hint.click')}</span>
               <span className="flex items-center gap-1.5"><Keyboard className="size-3.5 text-violet-300" />{t('office.hint.keys')}</span>
