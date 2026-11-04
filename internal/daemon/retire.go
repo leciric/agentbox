@@ -185,10 +185,12 @@ func (s *Server) retireOne(ctx context.Context, m *agent.Manager, a state.Agent,
 		s.chat.Stop(a.Ref(), "the agent was retired")
 		err = m.Pause(ctx, a)
 	case api.RetireStop:
-		s.chat.Stop(a.Ref(), "the agent was retired")
-		err = s.stopAgent(ctx, m, a)
-		if err == nil {
-			s.markRetired(a.Ref(), true)
+		// Marked before it stops, not after: a message nobody asked for,
+		// waiting on the stop (tellUnlessRetired), must find it retired.
+		s.markRetired(a.Ref(), true)
+		err = s.stopAgent(ctx, m, a, "the agent was retired")
+		if err != nil {
+			s.markRetired(a.Ref(), false)
 		}
 	case api.RetireDestroy:
 		// Force discards the worktree, which the caller has already agreed to;

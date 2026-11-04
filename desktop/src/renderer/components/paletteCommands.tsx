@@ -60,7 +60,6 @@ import { catalog, sectionTitles } from '../lib/settingsCatalog';
 import { setSheetOpen } from '../lib/shortcuts';
 import type { AgentPlaceName } from '../lib/tabs';
 import { startTour, welcomeTour } from '../lib/tours';
-import { useUiVerbs } from '../lib/uiVerbs';
 import { errorMessage } from '../lib/utils';
 import { phoneGroups } from './PhoneSettings';
 import { projectSettingGroups } from './ProjectSettings';
@@ -133,7 +132,6 @@ const savedToast = (item: T.MediaItem) => toast(tNow('agent.media.saved', { name
 // usePaletteCommands is every action that can run here, and every setting.
 export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient): PaletteCommand[] {
   const t = useT();
-  const verbs = useUiVerbs();
   const dnd = useDnd();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -283,7 +281,7 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
   const sectionName = (id: string) => (sectionTitles[id] ? t(sectionTitles[id]) : id);
   const settings: PaletteSetting[] = [
     ...catalog
-      .filter((s) => (!s.verbs || verbs) && (s.section !== 'phone' || local))
+      .filter((s) => s.section !== 'phone' || local)
       .map(
         (s): PaletteSetting => ({
           id: `setting:${s.section}:${s.id}`,

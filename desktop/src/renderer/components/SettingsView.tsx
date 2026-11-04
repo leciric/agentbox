@@ -106,10 +106,7 @@ import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs
 import { setGroupIdle, useGroupIdle } from "../lib/groupIdle";
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
-import { setUiVerbs, useUiVerbs } from "../lib/uiVerbs";
 import { setUiOffice, useUiOffice } from "../lib/uiOffice";
-import { JobsView } from "./JobsView";
-import { startTour, verbsTour } from "../lib/tours";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
 import { VMMigrate } from "./VMMigrate";
@@ -877,7 +874,6 @@ function InstalledSettings({
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const topBarDetailed = useTopBarDetailed();
-  const uiVerbs = useUiVerbs();
   const uiOffice = useUiOffice();
   const reviewing = useReviewing();
   const groupIdle = useGroupIdle();
@@ -999,13 +995,6 @@ function InstalledSettings({
               keywords: t("settings.entry.group-idle.keywords"),
               modified: groupIdle,
               render: () => <GroupIdleSetting />,
-            },
-            {
-              id: "verbs",
-              label: t("settings.entry.verbs.label"),
-              keywords: t("settings.entry.verbs.keywords"),
-              modified: uiVerbs,
-              render: () => <VerbsSetting />,
             },
             {
               id: "office",
@@ -1889,33 +1878,6 @@ function InstalledSettings({
         },
       ],
     },
-    // The prototype navigation (lib/uiVerbs.ts) has no Jobs page: they're here.
-    ...(uiVerbs
-      ? [
-          {
-            id: "jobs",
-            title: t("shell.nav.jobs"),
-            description: t("settings.section.jobs.description"),
-            scope: "installation" as const,
-            nav: t("settings.nav.machine"),
-            groups: [
-              {
-                id: "jobs",
-                title: t("shell.nav.jobs"),
-                cards: true,
-                entries: [
-                  {
-                    id: "jobs",
-                    label: t("shell.nav.jobs"),
-                    keywords: t("settings.entry.jobs.keywords"),
-                    render: () => <div className="h-[32rem]"><JobsView /></div>,
-                  },
-                ],
-              },
-            ],
-          },
-        ]
-      : []),
     ...(projects.data ?? []).map(projectSection),
   ];
 
@@ -2495,32 +2457,8 @@ function TopBarDetailedSetting() {
   );
 }
 
-// GroupIdleSetting is whether v2's sidebar groups idle projects at the bottom
-// and sorts by activity (lib/groupIdle.ts), applied at once.
-// VerbsSetting turns on the prototype navigation, Ask, Watch and Review
-// (lib/uiVerbs.ts).
-function VerbsSetting() {
-  const t = useT();
-  const on = useUiVerbs();
-  return (
-    <SettingRow
-      label={t("settings.entry.verbs.label")}
-      description={t("settings.verbs.description")}
-      control={
-        <Switch
-          data-verbs-setting
-          aria-label={t("settings.entry.verbs.label")}
-          checked={on}
-          onCheckedChange={(v) => {
-            setUiVerbs(v);
-            if (v) startTour(verbsTour.id);
-          }}
-        />
-      }
-    />
-  );
-}
-
+// OfficeSetting turns on the Office, a 3D room with a desk for every agent
+// (lib/uiOffice.ts).
 function OfficeSetting() {
   const t = useT();
   const on = useUiOffice();
@@ -2533,6 +2471,8 @@ function OfficeSetting() {
   );
 }
 
+// GroupIdleSetting is whether v2's sidebar groups idle projects at the bottom
+// and sorts by activity (lib/groupIdle.ts), applied at once.
 function GroupIdleSetting() {
   const t = useT();
   const on = useGroupIdle();

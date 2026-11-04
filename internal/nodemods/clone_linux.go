@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -42,6 +43,12 @@ func cloneFile(src, dst string, info fs.FileInfo) error {
 		return err
 	}
 	return os.Chtimes(dst, info.ModTime(), info.ModTime())
+}
+
+// linkTime gives the symlink path itself mod as its modification time.
+func linkTime(path string, mod time.Time) error {
+	tv := unix.NsecToTimeval(mod.UnixNano())
+	return unix.Lutimes(path, []unix.Timeval{tv, tv})
 }
 
 func inode(info fs.FileInfo) ([2]uint64, bool) {

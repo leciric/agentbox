@@ -26,6 +26,8 @@ import (
 //
 // What an agent installed is kept when it's destroyed, keyed by its lockfile
 // (keepNodeModules), and the next agent with that lockfile starts with it.
+// A stopped agent's are released to those snapshots (releaseNodeModules) and
+// copied back when it starts (nodeModulesSources).
 
 // nodeModulesDevice is the prefix of the disk devices that mount them.
 const nodeModulesDevice = "node-modules-"
@@ -130,10 +132,14 @@ func (m *Manager) nodeModulesDirs(a state.Agent) []string {
 	return dirs
 }
 
-// nodeModulesSources makes again the directories a's node_modules devices
-// mount, before its machine starts: Incus won't start one whose disk's
-// source is missing, and an empty node_modules is only an install away.
+// nodeModulesSources gives a back the node_modules it released when it
+// stopped, and makes again the directories its node_modules devices mount,
+// before its machine starts: Incus won't start one whose disk's source is
+// missing, and an empty node_modules is only an install away.
 func (m *Manager) nodeModulesSources(ctx context.Context, a state.Agent) {
+	if meta, ok := m.nodeModulesMeta(a); ok {
+		m.NodeModules.Restore(a.Instance, a.Project, nodeModulesInstalls(a.Worktree, meta))
+	}
 	devices, err := m.Incus.Devices(ctx, a.Instance)
 	if err != nil {
 		return
@@ -227,6 +233,24 @@ func (m *Manager) handBackNodeModules(ctx context.Context, a state.Agent) {
 	if _, err := m.Incus.Exec(ctx, a.Instance, args...); err != nil {
 		m.logf("Handing %s's node_modules back: %v", a.Ref(), err)
 	}
+}
+
+// holdNodeModules keeps a's node_modules to its caller until the returned func
+// is called: a stop releasing them, or a start giving them back and booting.
+func (m *Manager) holdNodeModules(a state.Agent) func() {
+	if m.NodeModules == nil {
+		return func() {}
+	}
+	return m.NodeModules.Hold(a.Instance)
+}
+
+// releaseNodeModules frees a's node_modules once its machine is stopped,
+// keeping them as its project's snapshots.
+func (m *Manager) releaseNodeModules(a state.Agent, installs []nodemods.Install) {
+	if m.NodeModules == nil || len(installs) == 0 {
+		return
+	}
+	m.NodeModules.Release(a.Instance, a.Project, installs)
 }
 
 // keepNodeModules keeps what a installed as its project's snapshots, once its

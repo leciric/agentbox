@@ -84,15 +84,6 @@ export function TopBar({
     case 'group':
       crumbs.push({ label: t('group.crumb') });
       break;
-    case 'watch': {
-      const agent = view.ref ? agents.data?.find((a) => a.ref === view.ref) : undefined;
-      crumbs.push({ label: t('verbs.watch'), view: view.ref ? { kind: 'watch', project: view.ref.split('/')[0] } : undefined });
-      if (view.ref) crumbs.push({ label: agent?.title || view.ref.split('/')[1], mono: !agent?.title });
-      break;
-    }
-    case 'review':
-      crumbs.push({ label: t('verbs.review') });
-      break;
     case 'office':
       crumbs.push({ label: t('office.title') });
       break;

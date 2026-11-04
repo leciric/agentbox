@@ -82,10 +82,7 @@ import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
 import { WorkPage } from "./components/WorkView";
 import { RecapView } from "./components/RecapView";
 import type { WorkFilter } from "./lib/work";
-import { asVerbView, useUiVerbs } from "./lib/uiVerbs";
-import { WatchView } from "./components/verbs/WatchView";
 import { OfficeView } from "./components/office/OfficeView";
-import { ReviewView } from "./components/verbs/ReviewView";
 
 export type View =
   | { kind: "home" }
@@ -105,23 +102,13 @@ export type View =
   | { kind: "pastAgents"; ref: string }
   // A group of agents given one task, side by side (components/groups).
   | { kind: "group"; id: string }
-  // The prototype navigation's (lib/uiVerbs.ts) Watch: an agent's machine
-  // (ref, at place), or a project's agents.
-  | { kind: "watch"; ref?: string; place?: WatchPlace; project?: string }
-  // And its Review: what waits for a verdict, pull requests and proof.
-  | { kind: "review"; tab?: ReviewTab; project?: string; filter?: WorkFilter }
   // The Office (lib/uiOffice.ts): a 3D room with a desk for every agent.
   | { kind: "office" };
-
-export type WatchPlace = "browser" | "terminal" | "android";
-export type ReviewTab = "work" | "pulls" | "proof";
 
 // initial is the view the app opens on: Home, except in the dev preview
 // (dev/preview.tsx's ?app=), which opens it where a scenario points.
 export function App({ initial }: { initial?: View } = {}) {
   const t = useT();
-  // The prototype navigation, Ask, Watch and Review (lib/uiVerbs.ts).
-  const verbs = useUiVerbs();
   const [view, setView] = useState<View>(initial ?? { kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   // "clone" opens the dialog on its Clone from link tab.
@@ -231,11 +218,6 @@ export function App({ initial }: { initial?: View } = {}) {
   );
 
   const select = (next: View) => {
-    // Places the prototype navigation moved open where they are now.
-    if (verbs) {
-      if (next.kind === "jobs") return openSettingsSection("jobs");
-      next = asVerbView(next);
-    }
     setSettingsLink(undefined);
     // An agent's page has no tabs: the ones that were become the right
     // panel's, targeted at the agent, and the page stays on its chat.
@@ -724,40 +706,22 @@ export function App({ initial }: { initial?: View } = {}) {
                     tab (home), which was Overview. */}
                 {(view.kind === "homeChat" || view.kind === "home") && (
                   <HomeChatPanel
-                    // With the prototype navigation Home is its chat: its
-                    // Status is Watch's, its Memory in Settings.
-                    bare={verbs}
-                    home={
-                      !verbs
-                        ? {
-                            onStatus: view.kind === "home",
-                            onTab: (status) => select({ kind: status ? "home" : "homeChat" }),
-                            status: (
-                              <HomeStatusV2
-                                onSelect={select}
-                                onAddProject={() => setAddingProject(true)}
-                                onCloneProject={() => setAddingProject("clone")}
-                                onNewAgent={() => setNewAgentProject("")}
-                              />
-                            ),
-                          }
-                        : undefined
-                    }
+                    home={{
+                      onStatus: view.kind === "home",
+                      onTab: (status) => select({ kind: status ? "home" : "homeChat" }),
+                      status: (
+                        <HomeStatusV2
+                          onSelect={select}
+                          onAddProject={() => setAddingProject(true)}
+                          onCloneProject={() => setAddingProject("clone")}
+                          onNewAgent={() => setNewAgentProject("")}
+                        />
+                      ),
+                    }}
                   />
                 )}
                 {view.kind === "jobs" && <JobsView />}
-                {view.kind === "watch" && (
-                  <WatchView
-                    agentRef={view.ref}
-                    place={view.place}
-                    project={view.project}
-                    onSelect={select}
-                    onAddProject={() => setAddingProject(true)}
-                    onNewAgent={setNewAgentProject}
-                  />
-                )}
                 {view.kind === "office" && <OfficeView onSelect={select} />}
-                {view.kind === "review" && <ReviewView tab={view.tab} project={view.project} filter={view.filter} onSelect={select} />}
                 {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
                 {view.kind === "media" && <MediaView heading onSelect={select} />}
                 {view.kind === "work" && <WorkPage project={view.project} filter={view.filter} onSelect={select} />}
