@@ -1523,6 +1523,13 @@ var migrations = []string{
 		failed_at   INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (project, number)
 	)`,
+
+	// A session forked from another (POST /v1/projects/{p}/sessions with
+	// forkFrom) or continued from one: the session it came from, and for a
+	// fork the message of that one's it was cut at. Kept as ids, not a key:
+	// the parent can be deleted, and the child says so.
+	`ALTER TABLE lead_sessions ADD COLUMN parent TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE lead_sessions ADD COLUMN parent_item TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

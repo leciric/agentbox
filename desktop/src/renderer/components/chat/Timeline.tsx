@@ -28,6 +28,7 @@ import { ProjectMessageCard } from './ProjectMessageCard';
 import { SentImages } from './Images';
 import { SentPicks } from './PickChip';
 import { Markdown } from './Markdown';
+import { MessageMenu } from './MessageMenu';
 import { TurnMarker } from './TurnMarker';
 import { ChatRefContext } from './chatRef';
 import { SubagentCard, WorkGroup } from './Work';
@@ -73,22 +74,33 @@ const TimelineRow = memo(
   function TimelineRow({ row, chatRef, root, finishes, starting, onToggleTurn }: { row: Row; chatRef: string; root: string; finishes: Map<string, string>; starting?: string; onToggleTurn: (turn: string) => void }) {
     const t = useT();
     switch (row.type) {
-      case 'user':
-        return (
+      case 'user': {
+        const message = (
           <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id}>
             <UserMessage item={row.item} chatRef={chatRef} />
             {row.item.delivery === failed ? <NotSent item={row.item} /> : (row.item.kind === 'aside' || isSending(row.item) || row.item.delivery === 'starting') && <Delivered item={row.item} />}
             {!isSending(row.item) && <Meta item={row.item} className="justify-end pr-1" />}
           </div>
         );
+        // Not yet sent, it has no id the daemon knows to fork at.
+        return isSending(row.item) || row.item.delivery === failed ? (
+          message
+        ) : (
+          <MessageMenu chatRef={chatRef} item={row.item}>
+            {message}
+          </MessageMenu>
+        );
+      }
       case 'assistant':
         return (
-          <div className={cn('group min-w-0 px-1', row.final ? 'pb-4' : 'pb-2.5')} data-chat-item="assistant" data-chat-id={row.item.id}>
-            <div data-chat-text>
-              <Markdown rich text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
+          <MessageMenu chatRef={chatRef} item={row.item}>
+            <div className={cn('group min-w-0 px-1', row.final ? 'pb-4' : 'pb-2.5')} data-chat-item="assistant" data-chat-id={row.item.id}>
+              <div data-chat-text>
+                <Markdown rich text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
+              </div>
+              {row.final && <Meta item={row.item} className="mt-1.5" />}
             </div>
-            {row.final && <Meta item={row.item} className="mt-1.5" />}
-          </div>
+          </MessageMenu>
         );
       case 'work':
         return <WorkGroup items={row.items} live={row.live} root={root} />;

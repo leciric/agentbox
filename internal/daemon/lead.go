@@ -48,13 +48,19 @@ func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 	if err != nil {
 		return state.Agent{}, err
 	}
+	return s.sessionLeadOf(r.Context(), project, ls)
+}
+
+// sessionLeadOf is the lead of session ls, as its record has it, or as one
+// is built for a session never written to, which has none.
+func (s *Server) sessionLeadOf(ctx context.Context, project string, ls state.LeadSession) (state.Agent, error) {
 	if project == state.HomeProject {
 		// No row to find: a Home session's lead is built whole.
 		a := s.manager(nil).HomeSession(ls.ID)
 		a.Title = ls.Topic
 		return a, nil
 	}
-	a, err := s.manager(nil).LeadSession(r.Context(), project, ls.ID)
+	a, err := s.manager(nil).LeadSession(ctx, project, ls.ID)
 	if err == nil {
 		return a, nil
 	}

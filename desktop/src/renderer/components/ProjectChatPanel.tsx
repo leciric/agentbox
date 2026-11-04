@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { History, MessagesSquare, Plus } from 'lucide-react';
+import { GitFork, History, MessagesSquare, Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import { api, sessionOfRef } from '../lib/api';
 import { chatLoadRetry, forgetThread, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
-import { useChatOpenAt } from '../lib/reveal';
+import { requestReveal, useChatOpenAt } from '../lib/reveal';
 import { afterClose, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, useChosenSession, withSession } from '../lib/sessions';
 import { requestSessionFocus } from '../lib/newTask';
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
@@ -123,6 +123,8 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   );
   const closed = useClosedSessions(project);
   const [history, setHistory] = useState(false);
+  // The closed session the history opens on, when a fork's link went there.
+  const [historyAt, setHistoryAt] = useState<string>();
   const chat = useQuery({
     queryKey: ['projectChat', project, current?.id],
     queryFn: () => api.projectChat(project, current!.id),
@@ -229,7 +231,11 @@ export function SessionChatPanel({ project, card, children }: { project: string;
     return box(
       <SessionHistory
         project={project}
-        onBack={() => setHistory(false)}
+        reading={historyAt}
+        onBack={() => {
+          setHistory(false);
+          setHistoryAt(undefined);
+        }}
         onReopened={(s) => {
           setHistory(false);
           showSession(project, s);
@@ -290,6 +296,21 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   return (
     <div className="flex h-full min-h-0 flex-col" data-session-color={color}>
       {tabs}
+      {current.parent && (
+        <SessionParent
+          parent={current.parent}
+          onOpen={(parent) => {
+            const open = list.find((x) => x.id === parent.session);
+            if (open) {
+              showSession(project, open);
+              if (parent.item) requestReveal({ chat: { project, item: parent.item } });
+              return;
+            }
+            setHistoryAt(parent.session);
+            setHistory(true);
+          }}
+        />
+      )}
       <div className="-mt-px flex min-h-0 flex-1 flex-col">
         {box(
           ready ? (
@@ -299,6 +320,26 @@ export function SessionChatPanel({ project, card, children }: { project: string;
           ),
         )}
       </div>
+    </div>
+  );
+}
+
+// SessionParent is the line under the tabs of a session forked or continued
+// from another: a link to that one, at the message it was forked at, or in
+// the history when it is closed; plain words once it has been deleted.
+function SessionParent({ parent, onOpen }: { parent: T.LeadSessionParent; onOpen: (parent: T.LeadSessionParent) => void }) {
+  const t = useT();
+  const forked = !!parent.item;
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 px-3 pb-1.5 text-caption text-subtle" data-session-parent={parent.session}>
+      <GitFork className="size-3.5 shrink-0" />
+      {parent.topic ? (
+        <button className="min-w-0 truncate rounded-sm underline-offset-2 transition-colors hover:text-tertiary hover:underline" title={t('sessions.parentHint')} onClick={() => onOpen(parent)}>
+          {t(forked ? 'sessions.forkedFrom' : 'sessions.continuedFrom', { topic: parent.topic })}
+        </button>
+      ) : (
+        <span className="min-w-0 truncate">{t(forked ? 'sessions.forkedFromGone' : 'sessions.continuedFromGone')}</span>
+      )}
     </div>
   );
 }
