@@ -45,7 +45,9 @@ function rng(seed: number) {
 }
 
 // The accents, bright against every mascot's own colours.
-export const ACCENTS = ['#ff5d8f', '#3dd6c4', '#ffd23f', '#7b6cff', '#5ec2ff', '#ff8a3d', '#9be564', '#f15bb5'];
+// Soft, toy-like, and apart from each other at a glance: each one a Boxie's
+// head and body, so they read apart from across the room.
+export const ACCENTS = ['#ff7aa2', '#45cbb8', '#ffc94d', '#8b7cf6', '#5aaef0', '#ff9150', '#86c95e', '#e077c6'];
 const ACCESSORIES = ['beanie', 'headphones', 'bow', 'cap', 'scarf', 'crown', 'sprout', 'none'] as const;
 export type Accessory = (typeof ACCESSORIES)[number] | 'headset';
 
@@ -117,14 +119,28 @@ type Build = {
   hover: number;
 };
 
-type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number; accent: string };
+type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number; accent: string; logo?: boolean };
 
-// The logo's colours: violet to indigo, white lines.
-const LOGO = { light: new THREE.Color('#a78bfa'), mid: new THREE.Color('#7c3aed'), dark: new THREE.Color('#4f46e5') };
+type Ramp = { light: THREE.Color; mid: THREE.Color; dark: THREE.Color };
+// The logo's colours: violet to indigo, white lines. The leads wear them.
+const LOGO: Ramp = { light: new THREE.Color('#a78bfa'), mid: new THREE.Color('#7c3aed'), dark: new THREE.Color('#4f46e5') };
 
-// gradient paints a geometry's vertex colours from the logo's violet at its
-// top left to its indigo at the bottom right.
-function gradient(g: THREE.BufferGeometry, size: number) {
+// rampOf is the logo's gradient in an agent's accent: lighter at the top
+// left, turning a little towards blue and deeper at the bottom right, as
+// the logo's violet turns indigo.
+export function rampOf(accent: string): Ramp {
+  const hsl = { h: 0, s: 0, l: 0 };
+  new THREE.Color(accent).getHSL(hsl);
+  const light = new THREE.Color().setHSL(hsl.h + 0.01, Math.min(1, hsl.s * 0.95), Math.min(0.86, hsl.l + 0.14));
+  const mid = new THREE.Color(accent);
+  const dark = new THREE.Color().setHSL(hsl.h + 0.05, Math.min(1, hsl.s * 0.9), Math.max(0.3, hsl.l - 0.16));
+  return { light, mid, dark };
+}
+
+// gradient paints a geometry's vertex colours from the ramp's light at its
+// top left to its dark at the bottom right.
+function gradient(g: THREE.BufferGeometry, size: number, ramp: Ramp = LOGO) {
+  const LOGO = ramp;
   const pos = g.attributes.position;
   const col = new Float32Array(pos.count * 3);
   const c = new THREE.Color();
@@ -144,7 +160,9 @@ function gradient(g: THREE.BufferGeometry, size: number) {
 // stubby arms and legs. Seated, facing +z; its origin on the seat.
 function boxie(k: Kit): Build {
   const body = new THREE.Group();
-  const coat = k.m(toon(k.accent, { roughness: 0.55 }));
+  const ramp = k.logo ? LOGO : rampOf(k.accent);
+  // The body a shade under the head, all one colour, as a toy is.
+  const coat = k.m(toon(k.logo ? '#8b5cf6' : ramp.mid.clone().lerp(ramp.dark, 0.35), { roughness: 0.55 }));
   const shoe = k.m(toon('#ffffff', { roughness: 0.4 }));
   // The body: a soft little bean, legs sticking forward off the seat.
   const torso = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.12, 8, 18), coat), 0, 0.22, 0);
@@ -158,7 +176,7 @@ function boxie(k: Kit): Build {
   }
   // The head: the logo's cube, rounded.
   const S = 0.46;
-  const headG = gradient(new RoundedBoxGeometry(S, S * 0.92, S * 0.9, 8, 0.16), S);
+  const headG = gradient(new RoundedBoxGeometry(S, S * 0.92, S * 0.9, 8, 0.16), S, ramp);
   // (R below is this bevel.)
   const head = at(new THREE.Mesh(headG, k.m(toon('#ffffff', { vertexColors: true, roughness: 0.35 }))), 0, 0.34 + S * 0.46, 0);
   body.add(head);
@@ -362,9 +380,10 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
   const acc = accentOf(ref, opts.variant);
   const r = rng(hash(`${ref}:life`));
   const mats: THREE.Material[] = [];
-  const kit: Kit = { m: (x) => (mats.push(x), x), tint: acc.tint, accent: acc.color };
+  const kit: Kit = { m: (x) => (mats.push(x), x), tint: acc.tint, accent: acc.color, logo: !!opts.lead };
   const b = boxie(kit);
-  wear(kit, b, opts.lead ? 'headset' : acc.accessory, acc.color);
+  // What it wears stands out against it: another of the accents.
+  wear(kit, b, opts.lead ? 'headset' : acc.accessory, ACCENTS[(ACCENTS.indexOf(acc.color) + 3) % ACCENTS.length]);
   // Its AI tool's badge, on its chest: what tells a Claude Code agent from a Codex one.
   const badge = at(new THREE.Mesh(new THREE.CircleGeometry(0.045, 24), kit.m(new THREE.MeshStandardMaterial({ map: badgeTexture(tool), roughness: 0.4 }))), ...(b.body.userData.chest as THREE.Vector3).toArray());
   badge.rotation.x = -0.15;

@@ -10,11 +10,16 @@
 // something changed.
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { bake, hash, mascot, walker as makeWalker, type Figure } from './figures.ts';
+import { player } from './kenney.ts';
 import { COUNTER, DESK, SEAT, layout as layOut, nearest, spotOf, walkable, type Box, type Layout } from './layout.ts';
 import type { DeskTone, LeadTone, OfficeModel } from './model.ts';
-import { diorama } from './decor.ts';
+import { diorama, wallHeight } from './decor.ts';
 import { canvasTexture, drawBoard, type BoardRow, drawBubble, drawScreen, drawTag, toneColor, type BoardScreen, type Screen } from './textures.ts';
 import { path, pathLength, slide, turn, type P } from './walk.ts';
 
@@ -75,10 +80,10 @@ let lastVisit: { pos: P; facing: number; follow: number; yaw: number; dist: numb
 
 const RADIUS = 0.3;
 const SPEED = 3.4; // metres a second, walking
-const FOV = 30;
+const FOV = 24;
 // The overview's 3/4 view: from the front right, over the open corner.
-const HOME_YAW = 0.62;
-const OVERVIEW_PITCH = 0.68;
+const HOME_YAW = 0.76;
+const OVERVIEW_PITCH = 0.62;
 
 const leadAsDesk = (t: LeadTone): DeskTone => (t === 'needs' ? 'needs' : t === 'working' ? 'working' : 'idle');
 const std = (color: THREE.ColorRepresentation, o: Partial<THREE.MeshStandardMaterialParameters> = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, ...o });
@@ -319,7 +324,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.bias = -0.0005;
   // Soft-edged shadows, as daylight through a big window gives.
-  sun.shadow.radius = 5;
+  sun.shadow.radius = 8;
   sun.shadow.normalBias = 0.02;
   scene.add(sun, sun.target);
   const fill = new THREE.AmbientLight('#ffffff', 0.25);
@@ -339,6 +344,19 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
 
   const mats = sharedMaterials();
 
+  // Soft ambient occlusion: the darkening where things meet, under the
+  // chairs, in the room's corners, between the desks, which is most of what
+  // makes the room read as a toy diorama. A pass over the frames that are
+  // drawn anyway, so idle costs what it did. Multisampled, as the canvas was.
+  const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+  composer.addPass(new RenderPass(scene, camera));
+  const ao = new GTAOPass(scene, camera, 1, 1);
+  ao.updateGtaoMaterial({ radius: 0.55, distanceExponent: 1.4, thickness: 1.2, scale: 1.1, samples: 12 });
+  ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+  ao.blendIntensity = 0.85;
+  composer.addPass(ao);
+  composer.addPass(new OutputPass());
+
   // What a layout builds: the room, its furniture and the desks.
   let room = new THREE.Group();
   scene.add(room);
@@ -354,7 +372,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   let sideWalls: { mat: THREE.MeshStandardMaterial; side: 'left' | 'right' }[] = [];
 
   // You.
-  const me = makeWalker();
+  const me = player(makeWalker(), () => poke());
   scene.add(me.group);
   const meRing = mesh(geo.ring, new THREE.MeshBasicMaterial({ color: '#a78bfa', transparent: true, opacity: 0.8, side: THREE.DoubleSide }), 0, 0.02, 0, 0.42, 0.42, 0.42, false);
   meRing.rotation.x = -Math.PI / 2;
@@ -377,8 +395,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // The wheel's one scale, 0 (the overview) to 1 (close behind you): the
   // first half comes down from the overview, the second half closer.
   let zoomZ = 0;
-  const FOLLOW_FAR = 13;
-  const FOLLOW_NEAR = 6.5;
+  const FOLLOW_FAR = 19;
+  const FOLLOW_NEAR = 10.5;
   const zoomTo = (z: number) => {
     zoomZ = Math.max(0, Math.min(1, z));
     followTarget = Math.min(1, zoomZ * 2);
@@ -495,23 +513,6 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       for (const d of place.desks) addDesk(input, d.id, d.x, d.z, area.hue, false);
     }
     for (const [i, p] of l.plants.entries()) room.add(plant(mats, p.x, p.z, i));
-
-    // The lobby: a sofa facing the room and a coffee table.
-    {
-      const s = l.sofa;
-      const sx = (s.x0 + s.x1) / 2;
-      const sz = (s.z0 + s.z1) / 2;
-      const fabric = own(std('#9cb89a', { roughness: 0.95 }));
-      const cushion = own(std('#b3cbb0', { roughness: 0.95 }));
-      room.add(mesh(geo.roundSoft, fabric, sx, 0.25, sz, 2.6, 0.4, 0.95));
-      room.add(mesh(geo.roundSoft, cushion, sx - 0.62, 0.5, sz - 0.05, 1.18, 0.16, 0.75), mesh(geo.roundSoft, cushion, sx + 0.62, 0.5, sz - 0.05, 1.18, 0.16, 0.75));
-      room.add(mesh(geo.roundSoft, fabric, sx, 0.75, sz + 0.38, 2.6, 0.7, 0.22));
-      room.add(mesh(geo.roundSoft, fabric, sx - 1.25, 0.55, sz, 0.2, 0.5, 0.95), mesh(geo.roundSoft, fabric, sx + 1.25, 0.55, sz, 0.2, 0.5, 0.95));
-      const tz = s.z0 - 1.25 + 0.475;
-      room.add(mesh(geo.roundTop, mats.oak, sx, 0.42, tz, 1.3, 0.06, 0.7));
-      for (const [dx, dz] of [[-0.55, -0.25], [0.55, -0.25], [-0.55, 0.25], [0.55, 0.25]]) room.add(mesh(geo.cyl, mats.metal, sx + dx, 0.2, tz + dz, 0.025, 0.4, 0.025));
-      room.add(mesh(geo.mug, mats.ceramic, sx + 0.3, 0.45, tz + 0.05), mesh(geo.mug, mats.ceramic, sx - 0.2, 0.45, tz - 0.1));
-    }
 
     // The sun's shadow covers the room.
     const half = Math.max(W, D) / 2 + 2;
@@ -825,11 +826,13 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     sun.position.set(W / 2 + W * 0.45, 16, D / 2 + D * 0.55);
     hemi.color.set('#fff6ea');
     hemi.groundColor.set('#e8cfae');
-    hemi.intensity = 1.35;
-    sun.color.set('#fff0dc');
-    sun.intensity = 2.1;
-    fill.intensity = 0.15;
-    scene.environmentIntensity = 0.35;
+    // Warm and low in contrast: much sky, a gentle sun, light shadows.
+    hemi.intensity = 1.7;
+    sun.color.set('#ffe9cf');
+    sun.intensity = 1.55;
+    sun.shadow.intensity = 0.62;
+    fill.intensity = 0.2;
+    scene.environmentIntensity = 0.3;
     scene.background = null;
   }
 
@@ -1076,11 +1079,22 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       return { x: lay.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
-      if (ref === `${a.project}/lead`) return { x: a.lead.x - 0.4, y: 1.35, z: a.lead.z - 0.2, dist: 4.8, pitch: 0.45, yaw: 0.25 };
+      if (ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.25, z: a.lead.z - 0.2, dist: 8.2, pitch: 0.5, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x - 0.2, y: 1.1, z: d.z - 0.3, dist: 6.2, pitch: 0.58, yaw: 0.35 };
+      if (d) return aside({ x: d.x - 0.3, y: 1.0, z: d.z - 0.3, dist: 9, pitch: 0.6, yaw: 0.4 }, aspect);
     }
     return undefined;
+  }
+
+  // aside moves a close-up's centre right, so what it looks at sits in the
+  // middle of the part of the view the desk's card (bottom right) leaves.
+  const CARD = 336 + 24;
+  function aside(f: { x: number; y: number; z: number; dist: number; pitch: number; yaw: number }, aspect: number) {
+    const w = Math.max(1, canvas.clientWidth);
+    const cover = Math.min(0.5, CARD / w);
+    const vw = 2 * f.dist * Math.tan(THREE.MathUtils.degToRad(FOV / 2)) * aspect;
+    const shift = (vw * cover) / 2;
+    return { ...f, x: f.x + Math.cos(f.yaw) * shift, z: f.z - Math.sin(f.yaw) * shift };
   }
 
   // fitDistance is how far back the overview stands for the whole room, its
@@ -1088,42 +1102,71 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // tilted view of a box has no neat formula. Kept until the room or the
   // window's shape changes.
   const fitProbe = new THREE.PerspectiveCamera(FOV, 1, 0.1, 400);
-  let fitCache = { key: '', dist: 20, shift: 0 };
+  let fitCache = { key: '', dist: 20, x: 0, z: 0 };
   let inset = 0;
-  function fitDistance(W: number, D: number, aspect: number, pitch: number): { dist: number; shift: number } {
-    const key = `${W.toFixed(2)}:${D.toFixed(2)}:${aspect.toFixed(3)}:${inset}:${HOME_YAW}`;
+  function fitDistance(W: number, D: number, aspect: number, pitch: number): { dist: number; x: number; z: number } {
+    const H = wallHeight(lay);
+    const key = `${W.toFixed(2)}:${D.toFixed(2)}:${H}:${aspect.toFixed(3)}:${inset}:${HOME_YAW}`;
     if (fitCache.key === key) return fitCache;
-    const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-    // The share of the width the overlay covers, which the target moves left
-    // by half of, so the room sits in the middle of what's left.
+    // The share of the width the overlay covers: the room sits in the middle
+    // of what's left.
     const cover = Math.min(0.45, inset / Math.max(1, canvas.clientWidth));
-    const left = -0.94 + 2 * cover;
+    // The window the diorama fills, in clip space: under the top bar's
+    // buttons, over the hint's line, clear of the overlay.
+    const win = { x0: -0.95 + 2 * cover, x1: 0.97, y0: -0.9, y1: 0.83 };
     fitProbe.aspect = aspect;
     fitProbe.updateProjectionMatrix();
-    const tx = W / 2;
-    const tz = D / 2 + 0.6;
-    // The slab's underside and the walls' tops, all of the diorama.
-    const corners = [-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].flatMap((z) => [-0.45, 3.4].map((y) => new THREE.Vector3(x, y, z))));
+    // The diorama's outline: the slab's underside, the walls' tops where
+    // there are walls (back and left), the floor's open corner.
+    const corners = [
+      ...[-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].map((z) => new THREE.Vector3(x, -0.45, z))),
+      new THREE.Vector3(-0.3, H, -0.3),
+      new THREE.Vector3(W + 0.1, H, -0.3),
+      new THREE.Vector3(-0.3, H, D + 0.1),
+    ];
     const v = new THREE.Vector3();
-    const shiftAt = (d: number) => d * tan * aspect * cover;
-    const fits = (d: number) => {
-      const sx = tx - shiftAt(d);
-      fitProbe.position.set(sx + Math.sin(HOME_YAW) * Math.cos(pitch) * d, Math.sin(pitch) * d, tz + Math.cos(HOME_YAW) * Math.cos(pitch) * d);
-      fitProbe.lookAt(sx, 0, tz);
+    const right = new THREE.Vector3(Math.cos(HOME_YAW), 0, -Math.sin(HOME_YAW));
+    const back = new THREE.Vector3(-Math.sin(HOME_YAW), 0, -Math.cos(HOME_YAW));
+    const bounds = (t: THREE.Vector3, d: number) => {
+      fitProbe.position.set(t.x + Math.sin(HOME_YAW) * Math.cos(pitch) * d, Math.sin(pitch) * d, t.z + Math.cos(HOME_YAW) * Math.cos(pitch) * d);
+      fitProbe.lookAt(t);
       fitProbe.updateMatrixWorld();
-      return corners.every((c) => {
+      const b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity, behind: false };
+      for (const c of corners) {
         v.copy(c).project(fitProbe);
-        return v.x > left && v.x < 0.97 && v.y < 0.84 && v.y > -0.93 && v.z < 1;
-      });
+        if (v.z >= 1) b.behind = true;
+        b.x0 = Math.min(b.x0, v.x);
+        b.x1 = Math.max(b.x1, v.x);
+        b.y0 = Math.min(b.y0, v.y);
+        b.y1 = Math.max(b.y1, v.y);
+      }
+      return b;
     };
-    let lo = 4;
-    let hi = 200;
-    for (let i = 0; i < 24; i++) {
-      const mid = (lo + hi) / 2;
-      if (fits(mid)) hi = mid;
-      else lo = mid;
+    // Closer while the outline fits the window's size; then the outline is
+    // centred in the window, by moving where the camera looks, and again.
+    const t = new THREE.Vector3(W / 2, 0, D / 2);
+    let dist = 20;
+    const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    for (let round = 0; round < 3; round++) {
+      let lo = 3;
+      let hi = 300;
+      for (let i = 0; i < 26; i++) {
+        const mid = (lo + hi) / 2;
+        const b = bounds(t, mid);
+        if (!b.behind && b.x1 - b.x0 < win.x1 - win.x0 && b.y1 - b.y0 < win.y1 - win.y0) hi = mid;
+        else lo = mid;
+      }
+      dist = hi;
+      const b = bounds(t, dist);
+      const dx = (b.x0 + b.x1) / 2 - (win.x0 + win.x1) / 2;
+      const dy = (b.y0 + b.y1) / 2 - (win.y0 + win.y1) / 2;
+      // Clip space to the floor: a unit across is half the view's width
+      // there; up the screen is back across the floor, foreshortened.
+      const vh = dist * tan;
+      t.addScaledVector(right, dx * vh * aspect);
+      t.addScaledVector(back, (dy * vh) / Math.max(0.2, Math.sin(pitch)));
     }
-    fitCache = { key, dist: hi, shift: shiftAt(hi) };
+    fitCache = { key, dist, x: t.x, z: t.z };
     return fitCache;
   }
 
@@ -1150,7 +1193,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
 
     // The overview fits the room, from the front and above.
     const oPitch = OVERVIEW_PITCH;
-    const { dist: oDist, shift: oShift } = fitDistance(W, D, aspect, oPitch);
+    const { dist: oDist, x: oX, z: oZ } = fitDistance(W, D, aspect, oPitch);
     // Following: behind you, looking down at you; close up at a desk, lower
     // and nearer, the monitor and the robot in view.
     // Close up, the camera looks past your shoulder at the monitor, from the
@@ -1164,8 +1207,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // Following you, or the spot the wheel zoomed in on.
     const fx = zoomFocus ? zoomFocus.x : pos.x;
     const fz = zoomFocus ? zoomFocus.z : pos.z;
-    let tx = W / 2 - oShift + (fx - W / 2 + oShift) * f;
-    let tz = D / 2 + 0.6 + (fz - D / 2 - 0.6) * f;
+    let tx = oX + (fx - oX) * f;
+    let tz = oZ + (fz - oZ) * f;
     let ty = 0.9 * f;
     let dist = oDist + (fDist - oDist) * f;
     let pitch = oPitch + (fPitch - oPitch) * f;
@@ -1431,7 +1474,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     }
     const ringO = 0.55 + (motion ? Math.sin(t * 2.5) * 0.25 : 0.2);
     (meRing.material as THREE.MeshBasicMaterial).opacity = ringO;
-    renderer.render(scene, camera);
+    composer.render();
   }
 
   // Sizes the canvas to its box.
@@ -1439,6 +1482,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const w = Math.max(1, host.clientWidth);
     const h = Math.max(1, host.clientHeight);
     renderer.setSize(w, h, false);
+    composer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     poke();
@@ -1609,7 +1653,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const before = { x: eased.tx, z: eased.tz, d: eased.dist };
         const z1 = Math.max(0, Math.min(1, zoomZ - n * 0.07));
         const f1 = Math.min(1, z1 * 2);
-        const { dist: oDist, shift } = fitDistance(W, D, camera.aspect || 1, OVERVIEW_PITCH);
+        const { dist: oDist, x: cx, z: cz } = fitDistance(W, D, camera.aspect || 1, OVERVIEW_PITCH);
         const fd1 = z1 <= 0.5 ? FOLLOW_FAR : FOLLOW_FAR - (z1 - 0.5) * 2 * (FOLLOW_FAR - FOLLOW_NEAR);
         const d1 = oDist + (fd1 - oDist) * f1;
         const k = d1 / Math.max(0.01, before.d);
@@ -1617,8 +1661,6 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const tx = under.x + (before.x - under.x) * k;
         const tz = under.z + (before.z - under.z) * k;
         // ...and the focus that, blended with the overview's centre, gives it.
-        const cx = W / 2 - shift;
-        const cz = D / 2 + 0.6;
         if (f1 > 0.02) zoomFocus = { x: Math.min(W, Math.max(0, cx + (tx - cx) / f1)), z: Math.min(D, Math.max(0, cz + (tz - cz) / f1)) };
       }
       zoomTo(zoomZ - n * 0.07);
@@ -1736,6 +1778,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       for (const m of Object.values(mats)) (Array.isArray(m) ? m : [m]).forEach((x) => x.dispose());
       env.dispose();
       pmrem.dispose();
+      ao.dispose();
+      composer.dispose();
       renderer.dispose();
       canvas.remove();
     },
