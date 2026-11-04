@@ -85,7 +85,7 @@ test('the board lists who needs you, then what waits for review', () => {
   const m = officeModel(
     inputs({
       rows: [row(asking, 'needs'), row(broken, 'error'), row(done, 'review'), row(prOpen, 'done'), row(busy, 'working')],
-      questions: new Map([['web', [{ id: 'q1', project: 'web', agent: 'agent-1', ref: 'web/agent-1', question: 'Paginate?', status: 'pending', createdAt: '' }]]]),
+      questions: new Map([['web', [{ id: 'q1', project: 'web', agent: 'agent-1', ref: 'web/agent-1', question: 'Paginate?', status: 'escalated', createdAt: '' }, { id: 'q2', project: 'web', agent: 'agent-2', ref: 'web/agent-2', question: 'For the lead only', status: 'pending', createdAt: '' }]]]),
       fleets: new Map([['web', { project: 'web', agents: [{ ref: 'web/agent-4', pr: pr({ number: 9 }), changes: { files: 2, insertions: 10, deletions: 1, dirty: false } }, { ref: 'web/agent-5', pr: pr({ number: 10 }) }] } as unknown as T.Fleet]]),
       review: [{ project: 'web', agent: 'agent-3', ref: 'web/agent-3', pr: pr({ number: 8, checks: 'failing' }), finishedAt: '', fingerprint: '' }],
       leads: new Map([['web', { chat: 'waiting' }]]),

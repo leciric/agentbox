@@ -94,7 +94,8 @@ export type View =
   | { kind: "media" }
   | { kind: "settings" }
   | { kind: "project"; project: string; tab?: ProjectPlaceName }
-  | { kind: "agent"; ref: string; tab?: AgentPlaceName }
+  // from: "office" when opened from the Office, whose way back is to it.
+  | { kind: "agent"; ref: string; tab?: AgentPlaceName; from?: "office" }
   // Everything agents did, live and past, of every project or project's,
   // opened on filter (components/WorkView).
   | { kind: "work"; project?: string; filter?: WorkFilter }
@@ -397,7 +398,8 @@ export function App({ initial }: { initial?: View } = {}) {
         if (cycleRegion(event.shiftKey)) event.preventDefault();
       } else if (viewRef.current.kind === "agent" && isBackToLeadShortcut(event, onMac)) {
         event.preventDefault();
-        selectRef.current({ kind: "project", project: viewRef.current.ref.split("/")[0] });
+        const v = viewRef.current;
+        selectRef.current(v.from === "office" ? { kind: "office" } : { kind: "project", project: v.ref.split("/")[0] });
       }
     };
     window.addEventListener("keydown", onKey, true);

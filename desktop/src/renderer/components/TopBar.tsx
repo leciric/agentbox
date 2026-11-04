@@ -129,11 +129,11 @@ export function TopBar({
       <nav className="flex min-w-32 grow basis-0 items-center gap-1.5 text-ui" aria-label={t('shell.top.breadcrumb')}>
         {/* In an agent's chat, the way back to its lead's: ←, Alt+← (App), or the project's name. */}
         {crumbProject && view.kind === 'agent' && (
-          <Tip label={`${t('v2.header.backToLead')} (${backToLeadKeys})`}>
+          <Tip label={`${view.from === 'office' ? t('office.back') : t('v2.header.backToLead')} (${backToLeadKeys})`}>
             <button
               type="button"
-              aria-label={t('v2.header.backToLead')}
-              onClick={() => onSelect({ kind: 'project', project: crumbProject.name })}
+              aria-label={view.from === 'office' ? t('office.back') : t('v2.header.backToLead')}
+              onClick={() => onSelect(view.from === 'office' ? { kind: 'office' } : { kind: 'project', project: crumbProject.name })}
               className="-ml-1 shrink-0 rounded-md p-1 text-muted transition hover:bg-surface-raised hover:text-primary"
               data-back-to-lead
             >

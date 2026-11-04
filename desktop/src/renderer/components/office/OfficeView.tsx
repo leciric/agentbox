@@ -171,7 +171,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     const col = (items: BoardItem[], head: string, empty: string) => ({
       head: `${head} · ${items.length}`,
       empty,
-      items: items.slice(0, 12).map((i) => ({ title: i.title, sub: subOf(i), tone: i.tone })),
+      items: items.slice(0, 12).map((i) => ({ ref: i.ref, title: i.title, sub: subOf(i), tone: i.tone })),
     });
     const label = (project: string) => office.model.areas.find((a) => a.project === project)?.label ?? project;
     const subOf = (i: BoardItem) =>
@@ -200,7 +200,16 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   activate.current = (ref: string) => {
     if (ref === 'board') return;
     if (ref.endsWith('/lead')) onSelect({ kind: 'project', project: ref.split('/')[0], tab: 'chat' });
-    else onSelect({ kind: 'agent', ref, tab: 'chat' });
+    else onSelect({ kind: 'agent', ref, tab: 'chat', from: 'office' });
+  };
+
+  // A row on the board: who needs you opens their chat, what waits for
+  // review opens its review or pull request.
+  const boardRow = useRef<(ref: string) => void>(() => {});
+  boardRow.current = (ref: string) => {
+    const desk = deskOf(office.model, ref);
+    if (desk && office.model.board.review.some((i) => i.ref === ref) && desk.pr) openPr(desk);
+    else activate.current(ref);
   };
 
   // Next walks to the next one that needs you, after the one you're at: a
@@ -229,6 +238,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             onHover: setHover,
             onActivate: (ref) => activate.current(ref),
             onNext: () => next.current(),
+            onBoardRow: (ref) => boardRow.current(ref),
             onMoved: () => {
               setHint(false);
               try {
@@ -376,7 +386,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           project={office.model.areas.find((a) => a.project === nearDesk.project)?.label ?? nearDesk.project}
           facts={[nearDesk.branch, [nearAgent.ai, modelOf(nearThread)].filter(Boolean).join(' · ')]}
           activity={nearThread ? agentChatStatus(nearAgent, nearThread).text : undefined}
-          question={nearDesk.question}
+          question={nearDesk.question ?? (nearDesk.tone === 'needs' && nearThread ? agentChatStatus(nearAgent, nearThread).text : undefined)}
           last={nearDesk.question ? undefined : lastMessage(nearThread)}
           pr={nearDesk.pr ? prLine(nearDesk.pr).text : undefined}
           prTone={nearDesk.pr?.checks === 'failing' ? 'bad' : 'ok'}

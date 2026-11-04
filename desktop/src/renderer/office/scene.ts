@@ -13,7 +13,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { robot, walker as makeWalker, type Figure } from './figures.ts';
 import { COUNTER, DESK, SEAT, layout as layOut, nearest, spotOf, walkable, type Box, type Layout } from './layout.ts';
 import type { DeskTone, LeadTone, OfficeModel } from './model.ts';
-import { canvasTexture, drawBoard, drawBubble, drawScreen, drawSign, drawTag, paintSky, planks, toneColor, type BoardScreen, type Screen } from './textures.ts';
+import { canvasTexture, drawBoard, type BoardRow, drawBubble, drawScreen, drawSign, drawTag, paintSky, planks, toneColor, type BoardScreen, type Screen } from './textures.ts';
 import { path, pathLength, slide, turn, type P } from './walk.ts';
 
 // pathLengthFrom is a route's length after its first point.
@@ -41,6 +41,8 @@ export type OfficeSceneOptions = {
   onMoved(): void;
   // N: on to the next desk that needs you.
   onNext(): void;
+  // A click on a row of the board, standing at it: the desk it's about.
+  onBoardRow(ref: string): void;
   // A marker's name for screen readers: "Walk to {title}".
   markerLabel(title: string): string;
 };
@@ -254,7 +256,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   const desks = new Map<string, DeskObj>();
   const hits: THREE.Object3D[] = [];
   const signs: THREE.Group[] = [];
-  let board: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string } | undefined;
+  let board: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; face?: THREE.Mesh; rows: BoardRow[] } | undefined;
   let sideWalls: { mat: THREE.MeshStandardMaterial; side: 'left' | 'right' }[] = [];
 
   // You.
@@ -374,12 +376,13 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const pxH = Math.round((pxW * bh) / bw);
       const { tex: btex, ctx } = canvasTexture(pxW, pxH);
       own(btex);
-      board = { ctx, tex: btex, key: '' };
+      board = { ctx, tex: btex, key: '', rows: [] };
       const g = new THREE.Group();
       g.position.set(l.board.x, 0.45 + bh / 2, 0.04);
       g.add(mesh(geo.box, own(std('#5b4636', { roughness: 0.6 })), 0, 0, 0, bw + 0.24, bh + 0.24, 0.08, false));
       const face = mesh(geo.plane, own(new THREE.MeshBasicMaterial({ map: btex, toneMapped: false })), 0, 0, 0.045, bw, bh, 1, false);
       g.add(face);
+      board.face = face;
       room.add(g);
       // A ledge below it, with markers.
       room.add(mesh(geo.box, own(std('#5b4636')), l.board.x, 0.3, 0.15, bw * 0.7, 0.05, 0.22));
@@ -630,7 +633,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       d.bubble.tex.needsUpdate = true;
     }
     // Its marker, while it needs you.
-    const loudNow = tone === 'needs';
+    const loudNow = tone === 'needs' || tone === 'error';
     let marker = markers.get(d.ref);
     if (loudNow) {
       if (!marker) {
@@ -759,7 +762,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const bKey = JSON.stringify(input.board);
     if (board && bKey !== board.key) {
       board.key = bKey;
-      drawBoard(board.ctx, input.board);
+      board.rows = drawBoard(board.ctx, input.board);
       board.tex.needsUpdate = true;
     }
     poke();
@@ -797,6 +800,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let held = false;
   function overview() {
     followTarget = 0;
+    cam.yaw = 0;
     held = true;
     poke();
   }
@@ -1154,7 +1158,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // You fade while you look at a monitor, so you never stand in front of it.
     // At a counter you'd stand in front of its monitor: you all but fade. At
     // a desk you stand aside, half seen through, so you hide nothing.
-    me.fade(1 - cam.closeK * (focusRef?.endsWith('/lead') ? 0.85 : 0.5));
+    me.fade(1 - cam.closeK * (focusRef?.endsWith('/lead') ? 0.85 : 0.68));
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1199,7 +1203,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       let dy = chipDy.get(m.el) ?? 0;
       if (restack || !chipDy.has(m.el)) {
         const clash = (y: number) => placed.some((p) => x0 < p.x1 + 4 && x1 > p.x0 - 4 && Math.abs(p.y - y) < h);
-        dy = [0, -h, h, -2 * h, 2 * h].find((d) => !clash(m.y + d)) ?? 0;
+        dy = [0, -h, h, -2 * h, 2 * h, -3 * h, 3 * h].find((d) => !clash(m.y + d)) ?? 0;
         chipDy.set(m.el, dy);
       }
       placed.push({ x0, x1, y: m.y + dy });
@@ -1240,11 +1244,22 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   ro.observe(host);
   resize();
 
-  function pick(clientX: number, clientY: number): { ref?: string; floor?: P } {
+  function pick(clientX: number, clientY: number): { ref?: string; row?: string; floor?: P } {
     const r = canvas.getBoundingClientRect();
     ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     const hit = ray.intersectObjects(hits, false)[0];
+    if (hit && hit.object.userData.ref === 'board' && board?.face) {
+      // A row on the board itself: what it's about.
+      const f = ray.intersectObject(board.face, false)[0];
+      if (f?.uv) {
+        const { width: W, height: H } = board.ctx.canvas;
+        const px = f.uv.x * W;
+        const py = (1 - f.uv.y) * H;
+        const row = board.rows.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
+        if (row) return { ref: 'board', row: row.ref };
+      }
+    }
     if (hit) return { ref: hit.object.userData.ref as string };
     const p = new THREE.Vector3();
     if (ray.ray.intersectPlane(floorPlane, p)) return { floor: { x: p.x, z: p.z } };
@@ -1295,8 +1310,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     pointer = undefined;
     canvas.style.cursor = hover ? 'pointer' : 'default';
     if (p.dragged || p.button !== 0) return;
-    const { ref, floor } = pick(e.clientX, e.clientY);
-    if (ref) {
+    const { ref, row, floor } = pick(e.clientX, e.clientY);
+    // At the board, a row opens what it's about; from afar it walks you there.
+    if (row && near === 'board') opts.onBoardRow(row);
+    else if (ref) {
       if (ref === near && !route.length) opts.onActivate(ref);
       else walkTo(ref);
     } else if (floor) walkToPoint(floor);
@@ -1338,6 +1355,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       keys.add(k);
       e.preventDefault();
       poke();
+    } else if (k === 'escape' && (near || followTarget > 0) && !e.repeat) {
+      // Escape stands back: out of the close-up, to the overview.
+      overview();
     } else if (k === 'n' && !e.repeat) {
       e.preventDefault();
       opts.onNext();

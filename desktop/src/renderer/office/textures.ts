@@ -27,7 +27,9 @@ export type Screen = {
 };
 
 // A column lists what fits; the rest is "+n", the board's list has them all.
-export type BoardColumn = { head: string; empty: string; items: { title: string; sub: string; tone: DeskTone }[] };
+export type BoardColumn = { head: string; empty: string; items: { ref: string; title: string; sub: string; tone: DeskTone }[] };
+// Where drawBoard put each row, in the canvas's pixels, for a click on it.
+export type BoardRow = { ref: string; x: number; y: number; w: number; h: number };
 export type BoardScreen = { title: string; needs: BoardColumn; review: BoardColumn };
 
 const lineColor: Record<LineTone, string> = {
@@ -127,7 +129,8 @@ export function drawScreen(ctx: CanvasRenderingContext2D, s: Screen, t = 0) {
 
 // drawBoard paints the wall board: what needs you on the left, what waits for
 // your review on the right, as sticky notes on cork.
-export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen) {
+export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen): BoardRow[] {
+  const rows: BoardRow[] = [];
   const { width: W, height: H } = ctx.canvas;
   ctx.fillStyle = '#1a2233';
   ctx.fillRect(0, 0, W, H);
@@ -159,6 +162,7 @@ export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen) {
     const fits = Math.max(1, Math.floor((H - y - 10) / (rowH + 8)));
     const shown = c.items.length > fits ? fits - 1 : fits;
     for (const it of c.items.slice(0, shown)) {
+      rows.push({ ref: it.ref, x, y, w: colW, h: rowH });
       ctx.fillStyle = '#0f172a';
       roundRect(ctx, x, y, colW, rowH, 14);
       ctx.fill();
@@ -181,6 +185,7 @@ export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen) {
   };
   column(b.needs, 30, toneColor.needs);
   column(b.review, 60 + colW, toneColor.finished);
+  return rows;
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

@@ -135,7 +135,9 @@ export function officeModel(inp: OfficeInputs): OfficeModel {
   const reviewByRef = new Map(inp.review.map((r) => [r.ref, r]));
   const asks = new Map<string, string>();
   for (const list of inp.questions.values())
-    for (const q of list ?? []) if (q.status === 'pending' && !asks.has(q.ref)) asks.set(q.ref, q.question);
+    // The ones waiting on you, as the sidebar counts them (agentStatus.ts's
+    // isAsking): a credential, or a question the lead passed on.
+    for (const q of list ?? []) if ((q.status === 'escalated' || (q.status === 'pending' && !!q.kind)) && !asks.has(q.ref)) asks.set(q.ref, q.question);
 
   const rowsBy = new Map<string, Row[]>();
   for (const r of inp.rows) {
