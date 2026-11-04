@@ -48,7 +48,6 @@ export const SEAT = 0.72; // the chair's distance behind the desk's centre
 export const PITCH_X = 2.5; // desk to desk across a row
 export const PITCH_Z = 2.9; // row to row
 export const COUNTER = { w: 2.4, d: 0.7 };
-const STAND = 1.3; // from the desk's centre to where you stand
 const AREA_PAD = 0.8; // the rug's margin around its desks
 const LEAD_DEPTH = 2.7; // the counter's strip at the front of an area
 const AISLE = 1.8; // between areas
