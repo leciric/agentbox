@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -168,10 +169,23 @@ func TestToolGoalsChangeNothingWhileOff(t *testing.T) {
 	}
 }
 
-func TestShowGoalUpdatesTheRowForACheck(t *testing.T) {
+func TestShowGoalRows(t *testing.T) {
 	t.Parallel()
 	store := openStore(t)
 	m, _ := newManager(t, store, newFakeTool(answerHello))
+	rows := func() []string {
+		t.Helper()
+		th, err := m.Thread(testAgent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, it := range th.Items {
+			out = append(out, it.Text)
+		}
+		return out
+	}
+	// AgentBox's: a row at every check, the set row kept.
 	g := api.AgentGoal{Objective: "ci green", Source: api.GoalSourceAgentBox, Status: api.GoalActive, Budget: 3}
 	if _, err := m.ShowGoal(testAgent, g, "set"); err != nil {
 		t.Fatal(err)
@@ -180,21 +194,21 @@ func TestShowGoalUpdatesTheRowForACheck(t *testing.T) {
 	if _, err := m.ShowGoal(testAgent, g, "checked"); err != nil {
 		t.Fatal(err)
 	}
-	th, err := m.Thread(testAgent)
-	if err != nil {
+	if got := rows(); len(got) != 2 || got[0] != "Goal set: ci green" || got[1] != "Goal not met yet: checks still running" {
+		t.Fatalf("rows = %q", got)
+	}
+	// The tool's: its checks update the check row, never the set row.
+	tg := api.AgentGoal{Objective: "ship", Source: api.GoalSourceTool, Status: api.GoalActive}
+	if _, err := m.ShowGoal(testAgent, tg, "set"); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(th.Items); n != 1 {
-		t.Fatalf("%d items, want the one goal row updated: %v", n, kinds(th))
+	for i := 1; i <= 3; i++ {
+		tg.Checked, tg.LastUnmet = i, fmt.Sprintf("try %d", i)
+		if _, err := m.ShowGoal(testAgent, tg, "checked"); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if it := th.Items[0]; it.Goal.Continuations != 1 || it.Text != "Goal not met yet: checks still running" {
-		t.Errorf("row = %+v %+v", it, it.Goal)
-	}
-	g.Status = api.GoalMet
-	if _, err := m.ShowGoal(testAgent, g, "met"); err != nil {
-		t.Fatal(err)
-	}
-	if th, _ = m.Thread(testAgent); len(th.Items) != 2 {
-		t.Errorf("met is a row of its own: %v", kinds(th))
+	if got := rows(); len(got) != 4 || got[2] != "Goal set: ship" || got[3] != "Goal not met yet: try 3" {
+		t.Fatalf("rows = %q", got)
 	}
 }

@@ -146,20 +146,25 @@ func (c *conversation) setToolGoal(g api.AgentGoal, event string) {
 	}
 }
 
-// showGoal adds the goal row for event, or, for a check that changes
-// nothing but the count, updates the row the goal already has. Caller holds
-// c.mu.
+// showGoal adds the goal row for event. A goal AgentBox drives gets a row at
+// each check, where the agent was sent back (the hidden prompt that did it is
+// the model's); the tool's own goal, whose check can report many times inside
+// one turn, updates the check row it already has. Caller holds c.mu.
 func (c *conversation) showGoal(g api.AgentGoal, event string) *api.ChatItem {
-	if event == "checked" {
+	if event == "checked" && g.Source == api.GoalSourceTool {
 		for i := len(c.items) - 1; i >= 0; i-- {
 			it := c.items[i]
-			if it.Kind == "goal" && it.Goal != nil && it.Goal.Objective == g.Objective && it.Goal.Status == api.GoalActive {
+			if it.Kind != "goal" || it.Goal == nil {
+				continue
+			}
+			if it.Goal.Objective == g.Objective && it.Goal.Status == api.GoalActive && it.Goal.Checked > 0 {
 				it.Goal = &g
 				it.Text = goalText(g, event)
 				c.touch(it)
 				c.flush(true)
 				return it
 			}
+			break
 		}
 	}
 	c.closeOpen()

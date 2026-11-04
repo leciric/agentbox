@@ -228,7 +228,9 @@ func (s *Server) goalAfterTurn(ctx context.Context, a state.Agent, end chat.Turn
 	g.Continuations++
 	s.saveGoal(ctx, a, g, "checked")
 	s.setOutcome(a, "", "")
-	if err := s.chat.Notice(a, goalNudge(g, missing), chat.NoticeOptions{Act: true}); err != nil {
+	// Hidden: the goal row just added says what is missing in the app's
+	// words; the prose is for the model.
+	if err := s.chat.Notice(a, goalNudge(g, missing), chat.NoticeOptions{Act: true, Hidden: true}); err != nil {
 		s.logf("%s: sending it back to its goal: %v", a.Ref(), err)
 		return false
 	}
@@ -360,4 +362,3 @@ func (s *Server) goalCommand(ctx context.Context, a state.Agent, command string)
 	}
 	return false, fmt.Sprintf("failed: %v", err)
 }
-

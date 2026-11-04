@@ -330,7 +330,7 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running', leadSession: 'main' }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready', leadSession: 'onboarding-copy' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting', leadSession: 'prod-login-500s' }),
-    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running', leadSession: 'main' }),
+    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running', leadSession: 'main', goal: agent99Goal() }),
     // Its turn ended on a CI watch it left running in the background: awaiting,
     // not idle, and kept out of Finished until the watch ends and it reports.
     agent({ ref: `${PROJECT}/agent-41`, title: 'Watch CI on the release branch', chat: 'ready', background: ['Watch CI run 42'], interface: 'chat' }),
@@ -339,7 +339,15 @@ export function buildFixtures(): FixtureData {
     // finished with a pull request, one is carried on after a restart.
     agent({ ref: `${PROJECT}/agent-37`, title: 'Landing page', ai: 'codex', chat: 'ready', outcome: 'asking', outcomeNote: 'What do you want me to do next: launch, change, or stop?' }),
     agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', leadSession: 'onboarding-copy', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
-    agent({ ref: `${PROJECT}/agent-39`, title: 'Paginate the reminders page', chat: 'ready', outcome: 'done', leadSession: 'main' }),
+    agent({
+      ref: `${PROJECT}/agent-39`,
+      title: 'Paginate the reminders page',
+      chat: 'ready',
+      outcome: 'done',
+      leadSession: 'main',
+      // Claude Code's own /goal (agent goals), met.
+      goal: { objective: 'The reminders page paginates at 50 and its tests pass', source: 'tool', status: 'met', checked: 2, updatedAt: new Date().toISOString() },
+    }),
     // Idle reclaim holds their memory (T.Agent.reclaimed): one's dev server
     // and browser frozen in swap, one's machine stopped after it finished.
     agent({ ref: `${PROJECT}/agent-35`, title: 'Dark mode for settings', chat: 'ready', outcome: 'idle', reclaimed: 'frozen' }),
@@ -1073,7 +1081,30 @@ export function leadChat(): T.ChatThread {
 
 // agent99Chat is agent-99's session as its info card reads it (model, effort,
 // context): nothing it says, since only session.options is read there.
+// agent99Goal is a goal AgentBox drives (agent goals), sent back twice so far:
+// its pull request is open, its CI isn't green yet.
+export function agent99Goal(status: string = 'active'): T.AgentGoal {
+  return {
+    objective: 'PR #78 is open and its CI is green',
+    source: 'agentbox',
+    status,
+    checks: [
+      { kind: 'pr_open', met: true, detail: '#78 is open' },
+      { kind: 'ci_green', met: false, detail: "#78's checks failed (`gh pr checks 78`)" },
+      { kind: 'command', command: 'npm --prefix desktop run typecheck', met: true, detail: 'exited 0' },
+    ],
+    checked: 2,
+    lastUnmet: "every CI check on your pull request passed (ci_green): #78's checks failed (`gh pr checks 78`)",
+    budget: 10,
+    continuations: 2,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function agent99Chat(): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago * 60_000).toISOString();
+  const goal = agent99Goal();
+  const fresh: T.AgentGoal = { ...goal, checks: goal.checks!.map((c) => ({ kind: c.kind, command: c.command })), checked: 0, continuations: 0, lastUnmet: undefined };
   return {
     agent: `${PROJECT}/agent-99`,
     seq: 1,
@@ -1088,7 +1119,14 @@ export function agent99Chat(): T.ChatThread {
       contextUsed: 84_000,
       contextSize: 200_000,
     },
-    items: [],
+    items: [
+      { id: 'g1', turn: '', kind: 'goal', text: `Goal set: ${goal.objective}`, goal: fresh, createdAt: at(30), updatedAt: at(30) },
+      { id: 'u1', turn: 'u1', kind: 'user', text: 'Open a PR that fixes the flaky settings test, and get its CI green.', result: { state: 'completed', endedAt: at(21) }, createdAt: at(30), updatedAt: at(21) },
+      { id: 'a1', turn: 'u1', kind: 'assistant', text: 'Opened #78 with the fix. CI is running.', createdAt: at(21), updatedAt: at(21) },
+      { id: 'g2', turn: 'u1', kind: 'goal', text: `Goal not met yet: ${goal.lastUnmet}`, goal, createdAt: at(20), updatedAt: at(4) },
+      { id: 'u2', turn: 'u2', kind: 'user', hidden: true, text: "[AgentBox: your goal isn't met yet…]", createdAt: at(4), updatedAt: at(4) },
+      { id: 'a2', turn: 'u2', kind: 'assistant', text: 'The e2e job fails on a timezone assumption; fixing it now.', streaming: true, createdAt: at(3), updatedAt: at(1) },
+    ],
   };
 }
 
