@@ -19,16 +19,20 @@ import (
 // has looked at an agent's work and wants its pull request merged once its
 // checks pass, without coming back for it. The daemon keeps the mark
 // (state.MergeWhenGreen) and the pull request watch (prwatch.go), which reads
-// the pull request's checks and mergeability anyway, acts on it: green, it
-// merges as the review's Merge does (mergePR), with the method the user had
-// picked there; red, conflicting, moved on to commits the user never saw, or
-// refused by GitHub, it gives the mark up and says why on the item, which
-// goes back to the review. It is the daemon's and not GitHub's auto-merge,
-// which a repository has to allow and which merges whatever lands after.
+// the pull request's checks and mergeability anyway, acts on it: green and
+// mergeable, it merges as the review's Merge does (mergePR), with the method
+// the user had picked there. Red checks, a conflict and new commits don't
+// give it up: the watch tells the agent to fix them, as for any pull request,
+// and the fix is new commits, which the user resolved in advance. The item
+// stays out of the review meanwhile, saying what it waits on (mergeGreen).
+// It goes back to the review, with why, only when the pull request is
+// closed, GitHub refuses the merge for a reason no fix changes, nobody is left
+// to fix it, or it stays unmergeable past the limits. It is the daemon's and
+// not GitHub's auto-merge, which a repository has to allow.
 //
 // The mark records the verdict "reviewed" as Mark reviewed does, but leaves
-// the agent's machine up: an agent whose checks fail can still be told to
-// fix them, and the merge frees it (afterMerge) as any other merge does.
+// the agent's machine up for those fixes, and the merge frees it
+// (afterMerge) as any other merge does.
 
 // mergeWhenGreen is POST /v1/projects/{project}/pulls/{number}/merge-when-green.
 func (s *Server) mergeWhenGreen(w http.ResponseWriter, r *http.Request) error {
@@ -178,53 +182,174 @@ func (s *Server) pendingMerges(ctx context.Context, project string) []state.Merg
 	return out
 }
 
+// The limits past which a pull request that can't be merged is given up and
+// goes back to the review: unmergeable (failing, conflicting or a draft) for
+// mergeGiveUpAfter since first seen so (or refused by GitHub for now), or mergeFixRounds fixes pushed that
+// came out red or conflicting again, whichever comes first.
+var (
+	mergeGiveUpAfter = 72 * time.Hour
+	mergeFixRounds   = 5
+)
+
 // mergeGreen acts on the marks of a project's pull requests from what one
-// look of the watch read of them: merges those that are green and gives up
-// on those that can't be. It answers whether one still waits on something
-// GitHub is working out (checks running, mergeability unknown), for the
-// watch's pace.
+// look of the watch read of them. A mark stays armed through red checks,
+// conflicts and new commits: the watch tells the agent to fix them
+// (prBroken), and the first green, mergeable head is merged. It is given up,
+// back to the review with why, only when the pull request was closed, GitHub
+// refuses the merge for a reason no fix changes, nobody is left to fix it, or
+// it stayed unmergeable past the limits. It answers whether one still waits on
+// something GitHub is working out (checks running, mergeability unknown), for
+// the watch's pace.
 func (s *Server) mergeGreen(ctx context.Context, p state.Project, client github.Client, repo github.Repo, marks []state.MergeWhenGreen, read map[int]github.WatchedPR) (waiting bool) {
+	now := s.prWatch.now()
 	for _, m := range marks {
 		pr, ok := read[m.Number]
 		if !ok {
 			continue // not read this time: the next look
 		}
-		why := ""
+		wait := m.MergeWait
+		wait.Detail = ""
 		switch {
-		case pr.State != "open":
-			// Merged by somebody, or closed: nothing left to do, and the
-			// watch or the cleanup frees the agent as for any other.
+		case pr.State == "merged":
+			// Merged by somebody: nothing left to do, and the watch or the
+			// cleanup frees the agent as for any other.
 			if err := s.store.ForgetMergeWhenGreen(ctx, p.Name, m.Number); err != nil {
 				s.logf("merge when green in %s: %v", p.Name, err)
 			}
 			s.events.publish(api.EventReview, p.Name)
 			continue
-		case pr.HeadSHA != m.HeadSHA:
-			why = fmt.Sprintf("new commits were pushed (%s) after it was resolved", shortSHA(pr.HeadSHA))
+		case pr.State != "open":
+			s.giveUpMerge(ctx, p, m, pr, "the pull request was closed")
+			continue
 		case pr.Draft:
-			why = "it was turned back into a draft"
+			wait.Waiting = api.MergeWaitDraft
 		case pr.Mergeable == "conflicting":
-			why = fmt.Sprintf("it conflicts with %s", pr.BaseBranch)
+			wait.Waiting = api.MergeWaitConflict
+			wait.Detail = pr.BaseBranch
 		case pr.Checks == "failing":
-			why = "its checks failed"
-			if names := failingNames(pr); names != "" {
-				why += " (" + names + ")"
-			}
+			wait.Waiting = api.MergeWaitFailing
+			wait.Detail = failingNames(pr)
 		case pr.Checks == "pending" || pr.Mergeable == "unknown":
 			waiting = true
-			continue
+			wait.Waiting = api.MergeWaitChecks
 		default:
-			if _, err := s.mergePR(github.InBackground(ctx, "merge"), p, client, repo, m.Number, github.MergeMethod(m.Method)); err != nil {
-				why = "GitHub refused the merge: " + strings.TrimSpace(err.Error())
-				break
+			_, err := s.mergePR(github.InBackground(ctx, "merge"), p, client, repo, m.Number, github.MergeMethod(m.Method))
+			if err == nil {
+				s.logf("%s: #%d merged (%s), its checks green", p.Name, m.Number, m.Method)
+				s.events.publish(api.EventReview, p.Name)
+				continue
 			}
-			s.logf("%s: #%d merged (%s), its checks green", p.Name, m.Number, m.Method)
-			s.events.publish(api.EventReview, p.Name)
+			why := strings.TrimSpace(err.Error())
+			if !mergeRefusedForNow(err) {
+				s.giveUpMerge(ctx, p, m, pr, "GitHub refused the merge: "+why)
+				continue
+			}
+			s.logf("%s: #%d not merged yet, trying again: %s", p.Name, m.Number, why)
+			wait.Waiting, wait.Detail = api.MergeWaitRetry, why
+		}
+		if why := s.mergeTrouble(ctx, p, m, pr, &wait, now); why != "" {
+			s.giveUpMerge(ctx, p, m, pr, why)
 			continue
 		}
-		s.giveUpMerge(ctx, p, m, pr, why)
+		if wait != m.MergeWait {
+			if err := s.store.SetMergeWait(ctx, p.Name, m.Number, wait); err != nil {
+				s.logf("merge when green in %s: %v", p.Name, err)
+			}
+			s.events.publish(api.EventReview, p.Name)
+		}
 	}
 	return waiting
+}
+
+// mergeTrouble counts an unmergeable look against the limits, into wait, and
+// answers why to give the mark up, or "" to keep waiting.
+func (s *Server) mergeTrouble(ctx context.Context, p state.Project, m state.MergeWhenGreen, pr github.WatchedPR, wait *state.MergeWait, now time.Time) string {
+	what := ""
+	switch wait.Waiting {
+	case api.MergeWaitFailing:
+		what = "its checks failing"
+	case api.MergeWaitConflict:
+		what = "conflicting with " + pr.BaseBranch
+	case api.MergeWaitDraft:
+		what = "a draft"
+	case api.MergeWaitRetry:
+		what = "refused by GitHub (" + wait.Detail + ")"
+	default:
+		return ""
+	}
+	if wait.TroubleSince.IsZero() {
+		wait.TroubleSince = now
+	}
+	// A red or conflicting head is the agent's to fix: one more of them is
+	// one more round, and with its agent gone nobody is left to.
+	if fix := wait.Waiting == api.MergeWaitFailing || wait.Waiting == api.MergeWaitConflict; fix {
+		if pr.HeadSHA != wait.BadHead {
+			wait.BadHeads++
+			wait.BadHead = pr.HeadSHA
+		}
+		if !s.mergeFixable(ctx, p, m) {
+			return fmt.Sprintf("its agent is gone, so nobody can fix it (%s)", what)
+		}
+	}
+	if rounds := wait.BadHeads - 1; rounds >= mergeFixRounds {
+		return fmt.Sprintf("still %s after %d fixes", what, rounds)
+	}
+	if now.Sub(wait.TroubleSince) >= mergeGiveUpAfter {
+		return fmt.Sprintf("still %s after %s", what, humanHours(mergeGiveUpAfter))
+	}
+	return ""
+}
+
+// mergeFixable is whether the agent whose work the mark is still lives to be
+// told to fix it.
+func (s *Server) mergeFixable(ctx context.Context, p state.Project, m state.MergeWhenGreen) bool {
+	if m.Agent == "" {
+		return false
+	}
+	a, err := s.store.Agent(ctx, p.Name, m.Agent)
+	if errors.Is(err, state.ErrNotFound) {
+		return false
+	}
+	return err != nil || a.Status != state.AgentDestroying // unread is not gone
+}
+
+// mergeRefusedForNow is whether GitHub's refusal of a merge is one the next
+// look can get past: the branch moved under it, its mergeability or a
+// required check isn't worked out yet, GitHub or the network failing, the
+// rate limit. These still count against the time limit (mergeTrouble). A missing approving review, branch protection or rulesets, and
+// no access are for good: no fix of the agent's changes them.
+func mergeRefusedForNow(err error) bool {
+	var limited *github.RateLimitError
+	if errors.As(err, &limited) {
+		return true
+	}
+	if errors.Is(err, github.ErrNoAccess) || errors.Is(err, github.ErrBadToken) {
+		return false
+	}
+	var refused *github.StatusError
+	if !errors.As(err, &refused) {
+		return true // not GitHub's answer: the network, a timeout
+	}
+	if refused.Code == http.StatusConflict || refused.Code >= 500 {
+		return true
+	}
+	msg := strings.ToLower(refused.Message)
+	for _, now := range []string{"was modified", "not mergeable", "merge conflict", "status check", "in progress"} {
+		if strings.Contains(msg, now) {
+			return true
+		}
+	}
+	return false
+}
+
+func humanHours(d time.Duration) string {
+	if d >= 24*time.Hour && d%(24*time.Hour) == 0 {
+		if n := int(d / (24 * time.Hour)); n != 1 {
+			return fmt.Sprintf("%d days", n)
+		}
+		return "a day"
+	}
+	return d.String()
 }
 
 // giveUpMerge clears a mark that can't be merged, keeping why for the item,
@@ -277,6 +402,9 @@ func markItem(item *api.ReviewItem, marks map[int]state.MergeWhenGreen) {
 
 func mergeWhenGreenToAPI(m state.MergeWhenGreen) *api.MergeWhenGreen {
 	out := &api.MergeWhenGreen{Number: m.Number, Method: m.Method, At: m.At, Error: m.Error}
+	if m.Pending() {
+		out.Waiting, out.Detail, out.FixRounds = m.Waiting, m.Detail, max(m.BadHeads-1, 0)
+	}
 	if !m.FailedAt.IsZero() {
 		at := m.FailedAt
 		out.FailedAt = &at

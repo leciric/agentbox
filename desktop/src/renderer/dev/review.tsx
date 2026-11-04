@@ -514,7 +514,7 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
   if (green && method === 'POST') {
     const number = Number(green[1]);
     const req = body as T.MergeWhenGreenRequest;
-    const mark: T.MergeWhenGreen = { number, method: req.method, at: new Date().toISOString() };
+    const mark: T.MergeWhenGreen = { number, method: req.method, at: new Date().toISOString(), waiting: 'checks' };
     const item = waiting.find((i) => i.agent === req.agent);
     waiting = waiting.filter((i) => i.agent !== req.agent);
     if (item) decided = [{ ...item, verdict: 'reviewed', reviewedAt: mark.at, mergeWhenGreen: mark }, ...decided];

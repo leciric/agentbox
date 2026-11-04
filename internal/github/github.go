@@ -211,11 +211,22 @@ func apiErrorOf(path string, res *http.Response, data []byte) error {
 		}
 		return fmt.Errorf("%w: %s (%s) — check agentbox auth github", ErrNoAccess, path, res.Status)
 	case body.Message != "":
-		return fmt.Errorf("GitHub %s for %s: %s", res.Status, path, body.Message)
+		return &StatusError{Code: res.StatusCode, Message: body.Message, err: fmt.Errorf("GitHub %s for %s: %s", res.Status, path, body.Message)}
 	default:
-		return fmt.Errorf("GitHub %s for %s", res.Status, path)
+		return &StatusError{Code: res.StatusCode, err: fmt.Errorf("GitHub %s for %s", res.Status, path)}
 	}
 }
+
+// StatusError is any other answer GitHub refused with: its status and its
+// own message, for a caller that acts on why (a merge refused for now, or
+// for good).
+type StatusError struct {
+	Code    int
+	Message string
+	err     error
+}
+
+func (e *StatusError) Error() string { return e.err.Error() }
 
 // refusal is a 403 or 404 with GitHub's own reason, kept apart so a caller
 // whose read just worked can say the reason without "can't see it".

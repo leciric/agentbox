@@ -1575,6 +1575,18 @@ var migrations = []string{
 	`ALTER TABLE lead_sessions ADD COLUMN settled INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE archived_agents ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE projects ADD COLUMN settle_hours INTEGER NOT NULL DEFAULT 0`,
+
+	// A mark to merge when green stays armed through red checks, conflicts
+	// and new commits (mergewhengreen.go): waiting is what it waits on now
+	// (checks, failing, conflict, draft, retry) and detail what says more
+	// (the failing checks, GitHub's message); trouble_since is when it was
+	// first seen unmergeable and bad_heads how many heads were, bad_head the
+	// last, which the give-up limits count.
+	`ALTER TABLE pr_merge_when_green ADD COLUMN waiting TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pr_merge_when_green ADD COLUMN detail TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pr_merge_when_green ADD COLUMN trouble_since INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE pr_merge_when_green ADD COLUMN bad_heads INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE pr_merge_when_green ADD COLUMN bad_head TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
