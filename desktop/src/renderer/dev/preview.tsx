@@ -36,6 +36,9 @@
 //                           needing you, working, finishing and failing every
 //                           few seconds, as the daemon's status events say
 //                           (dev/fixtures.ts' liveSessionSteps); use ?app=project
+//   ?homeAsk=1              the Home chat asked the project's lead something
+//                           and got its answer: cards in both chats (with
+//                           &home=1 for the Home chat's side)
 //   ?chat=lead              the project's chat, with the credential requests
 //                           its agents are waiting on at its end
 //   ?vm=create|lima|vz      a Mac's first screen in the middle: the VM to set up,
@@ -351,7 +354,7 @@ import { api } from '../lib/api';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, homeAskChats, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, settleDemo, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -733,6 +736,12 @@ if (home) {
     memory('g2', 'Commit style', 'Use conventional commits, and write PR titles for someone reading the changelog.', PROJECT),
     memory('g3', 'Answer in Portuguese', 'Reply in Brazilian Portuguese when I write to you in it.', ''),
   ]);
+}
+if (params.get('homeAsk') === '1') {
+  const { lead, home: homeItems } = homeAskChats();
+  for (const [ref, items] of [[`${PROJECT}/lead`, lead], ['_home/lead', homeItems]] as const) {
+    queryClient.setQueryData<T.ChatThread>(['chat', ref], (thread) => thread && { ...thread, items: [...thread.items, ...items] });
+  }
 }
 if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
