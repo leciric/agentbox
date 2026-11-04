@@ -107,19 +107,19 @@ export function drawScreen(ctx: CanvasRenderingContext2D, s: Screen, t = 0) {
   // A working agent's cursor blinks in the bar.
   if (s.tone === 'working' && Math.floor(t * 2) % 2 === 0) ctx.fillRect(W - 40, 16, 16, 24);
   ctx.fillStyle = '#f8fafc';
-  ctx.font = `700 34px ${SANS}`;
-  const title = wrap(ctx, s.title, W - 44, 2);
-  title.forEach((l, i) => ctx.fillText(l, 22, 100 + i * 40));
-  let y = 100 + title.length * 40 + 14;
+  ctx.font = `700 38px ${SANS}`;
+  const title = wrap(ctx, s.title, W - 40, 2);
+  title.forEach((l, i) => ctx.fillText(l, 20, 102 + i * 44));
+  let y = 102 + title.length * 44 + 12;
   for (const line of s.lines) {
     if (y > H - 16) break;
     const tone = line.tone ?? 'plain';
     ctx.fillStyle = lineColor[tone];
-    ctx.font = tone === 'code' ? `500 24px ${MONO}` : `500 26px ${SANS}`;
-    for (const l of wrap(ctx, line.text, W - 44, tone === 'plain' || tone === 'warn' ? 3 : 1)) {
-      if (y > H - 16) break;
-      ctx.fillText(l, 22, y);
-      y += 32;
+    ctx.font = tone === 'code' ? `500 26px ${MONO}` : `600 29px ${SANS}`;
+    for (const l of wrap(ctx, line.text, W - 40, tone === 'plain' || tone === 'warn' ? 3 : 1)) {
+      if (y > H - 12) break;
+      ctx.fillText(l, 20, y);
+      y += 35;
     }
     y += 4;
   }

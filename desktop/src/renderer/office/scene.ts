@@ -276,6 +276,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let near: string | undefined;
   // What the close-up looks at, kept while it eases out.
   let focusRef: string | undefined;
+  let focusAt: { x: number; z: number } | undefined;
   let stillFor = 0;
 
   // Input.
@@ -488,7 +489,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // The laptop before the robot, its lid's back glowing in its state's colour.
     const glowMat = new THREE.MeshStandardMaterial({ color: '#60a5fa', emissive: '#60a5fa', emissiveIntensity: 0.6 });
     disp.push(() => glowMat.dispose());
-    const lx = lead ? -0.55 : -0.18;
+    const lx = lead ? -0.55 : -0.32;
     g.add(mesh(geo.box, mats.laptop, lx, top + 0.01, -0.12, 0.42, 0.02, 0.28));
     const lid = new THREE.Group();
     lid.position.set(lx, top + 0.02, -0.02);
@@ -503,9 +504,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const screenMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
     disp.push(() => screenMat.dispose());
     const mon = new THREE.Group();
-    mon.position.set(lead ? 0.45 : 0.36, top, lead ? 0.1 : 0.05);
+    mon.position.set(lead ? 0.45 : 0.3, top, lead ? 0.1 : 0.05);
     mon.rotation.y = -0.12;
-    const mw = lead ? 0.86 : 0.74;
+    const mw = lead ? 0.86 : 0.9;
     const mh = mw * (320 / 512);
     mon.add(mesh(geo.box, mats.monitorFrame, 0, 0.06 + mh / 2 + 0.06, 0, mw + 0.05, mh + 0.05, 0.035));
     mon.add(mesh(geo.plane, screenMat, 0, 0.06 + mh / 2 + 0.06, 0.019, mw, mh, 1, false));
@@ -515,7 +516,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // The robot, on its chair.
     const fig = robot(hue, [...ref].reduce((a, c) => a + c.charCodeAt(0), 0));
     disp.push(() => fig.dispose());
-    fig.group.position.set(lead ? 0 : -0.12, 0, cz + 0.02);
+    fig.group.position.set(lead ? 0 : -0.32, 0, cz + 0.02);
     if (lead) fig.group.scale.setScalar(1.12);
     g.add(fig.group);
 
@@ -932,14 +933,15 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const bh = Math.min(2.6, lay.board.w * 0.52);
       const free = Math.max(0.45, 1 - 380 / Math.max(1, canvas.clientWidth));
       const pitch = 0.4;
-      const dist = Math.max((lay.board.w + 0.5) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.85 * 2 * tan));
+      // Wide enough for you, standing at its left end, too.
+      const dist = Math.max((lay.board.w + 1.6) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.85 * 2 * tan));
       const vw = 2 * dist * tan * aspect;
-      return { x: lay.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
+      return { x: lay.board.x - 0.55 + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x - 0.1, y: 1.05, z: d.z + 0.15, dist: 5.0, pitch: 0.5, yaw: 0.25 };
+      if (d) return { x: d.x - 0.1, y: 1.05, z: d.z + 0.15, dist: 5.0, pitch: 0.62, yaw: 0.25 };
     }
     return undefined;
   }
@@ -1016,6 +1018,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // right so you don't stand in the way.
     const c = cam.closeK;
     const focus = focusRef ? focusOf(focusRef, aspect) : undefined;
+    focusAt = focus;
     const fPitch = 0.78;
     const fDist = cam.dist;
     const f = cam.followK;
@@ -1037,7 +1040,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     if (!eased.init) {
       Object.assign(eased, { tx, ty, tz, dist, pitch, yaw, init: true });
     } else {
-      const e = motion ? 1 - Math.exp(-dt * 6) : 1;
+      const e = motion ? 1 - Math.exp(-dt * 3.6) : 1;
       eased.tx += (tx - eased.tx) * e;
       eased.ty += (ty - eased.ty) * e;
       eased.tz += (tz - eased.tz) * e;
@@ -1066,7 +1069,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       d.figure.pose(d.tone, t, motion);
       // Up close, what floats over the desks beside the camera would be in
       // the way of the one you're looking at.
-      const inWay = cam.closeK > 0.3 && d.ref !== focusRef && d.root.position.distanceTo(camera.position) < 4.2;
+      // So does the row in front of the desk you're at: it sits between you
+      // and the camera.
+      const p0 = d.root.position;
+      const ahead = !!focusAt && focusRef !== 'board' && p0.z > focusAt.z + 1 && p0.z - focusAt.z < 4.5 && Math.abs(p0.x - focusAt.x) < 3.2;
+      const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (p0.distanceTo(camera.position) < 4.2 || ahead);
+      d.figure.group.visible = !(inWay && ahead);
       d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone];
       const b = d.beacon;
       b.visible = !inWay && d.tone !== 'stopped';
@@ -1142,7 +1150,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         marker.style.display = onScreen ? 'flex' : 'none';
         if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight });
       }
-      tag.visible = !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && !(marker && far) && dist < 18 && !(cam.closeK > 0.3 && d.root.position.distanceTo(camera.position) < 4.2);
+      tag.visible = !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && !(marker && far) && dist < 18 && !(cam.closeK > 0.3 && d.root.position.distanceTo(camera.position) < 4.2) && d.figure.group.visible;
       const w = Math.min(2.1, Math.max(0.8, dist * 0.085));
       tag.scale.set(w, (w * 96) / 640, 1);
     }
