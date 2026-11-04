@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import { api, sessionOfRef } from '../lib/api';
-import { chatLoadRetry, forgetThread, loadErrorMessage } from '../lib/chat';
+import { chatReadyRetry, forgetThread, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { afterClose, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, useChosenSession, withSession } from '../lib/sessions';
@@ -111,7 +111,9 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
 export function SessionChatPanel({ project, card, children }: { project: string; card?: boolean; children: (info: T.ProjectChat, current: T.LeadSession) => ReactNode }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const sessions = useLeadSessions(project);
+  // A project just added can be asked about before the daemon has it: wait
+  // for it rather than say the chat is unavailable (chatReadyRetry).
+  const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project), ...chatReadyRetry });
   const chosen = useChosenSession(project);
   const list = sessions.data ?? [];
   const current = pickSession(list, chosen);
@@ -127,7 +129,7 @@ export function SessionChatPanel({ project, card, children }: { project: string;
     queryKey: ['projectChat', project, current?.id],
     queryFn: () => api.projectChat(project, current!.id),
     enabled: !!current,
-    ...chatLoadRetry,
+    ...chatReadyRetry,
   });
   const info = chat.data;
 

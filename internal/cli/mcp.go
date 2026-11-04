@@ -254,12 +254,43 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 			", Settings → Models' default, which is also the most you may use: pass any window from " +
 			state.FormatContextWindow(state.MinContextWindow) + " up to " + defaultWindow + ", and a longer one is refused.")
 	}
-	return params, auto, readyTools{openCode: openCode, cursor: cursorReady, gemini: geminiReady}
+	return params, auto, readyTools{openCode: openCode, cursor: cursorReady, gemini: geminiReady, goals: err == nil && settings.AgentGoals}
 }
 
 // readyTools says which AI tools besides Claude Code an agent could run right
-// now, so create_agent offers only those.
-type readyTools struct{ openCode, cursor, gemini bool }
+// now, so create_agent offers only those, and whether agent goals are on
+// (Settings → Experimental), so it offers a goal only then.
+type readyTools struct{ openCode, cursor, gemini, goals bool }
+
+// goalParams are create_agent's goal, offered while agent goals are on.
+func goalParams() map[string]any {
+	return map[string]any{
+		"goal": str("what done looks like, when AgentBox should hold it to that: after each turn it runs goal_checks and sends " +
+			"the agent back with what is missing until they pass; you hear when it is met, or blocked"),
+		"goal_checks": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+			"description": "with goal: \"pr_open\", \"ci_green\" (its pull request's checks all passed), or a shell command that must exit 0 in its worktree"},
+		"goal_budget": map[string]any{"type": "integer", "description": "with goal: the most times it is sent back, 10 by default"},
+	}
+}
+
+// goalSpec is create_agent's goal arguments as the API takes them; nil
+// without a goal.
+func goalSpec(goal string, checks []string, budget int) *api.GoalSpec {
+	if strings.TrimSpace(goal) == "" {
+		return nil
+	}
+	spec := &api.GoalSpec{Objective: goal, Budget: budget}
+	for _, c := range checks {
+		switch c = strings.TrimSpace(c); c {
+		case "":
+		case api.GoalCheckPROpen, api.GoalCheckCIGreen:
+			spec.Checks = append(spec.Checks, api.GoalCheck{Kind: c})
+		default:
+			spec.Checks = append(spec.Checks, api.GoalCheck{Kind: api.GoalCheckCommand, Command: c})
+		}
+	}
+	return spec
+}
 
 // cursorMenu names Cursor's models for the lead, each with the effort levels
 // it takes, like "claude-opus-5-5 (effort: low, high)".
@@ -417,6 +448,10 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	if leadPicksModel {
 		startsOn = "Choose its model (see model); effort and permissions default to what new agents start on here."
 	}
+	var goals map[string]any
+	if ready.goals {
+		goals = goalParams()
+	}
 	agent := str("its name, like agent-03; agent-03@vps on the machine vps")
 	machine := str("another machine (list_resources machines)")
 	// Each account left out is yours when the agent runs the tool you run,
@@ -468,7 +503,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"directly: what to do, what done looks like, what to leave alone. With issue, the task is that GitHub issue and its " +
 				"pull request closes it. " +
 				startsOn + runsTool,
-			Schema: object(nil, merge(merge(map[string]any{
+			Schema: object(nil, merge(merge(merge(map[string]any{
 				"title": str("a short name for the sidebar, like \"Reminders page\"; required without issue"),
 				"task":  str("what to do, directly: usually a few lines; required without issue, added after it with one"),
 				"issue": map[string]any{"type": "integer", "description": "an open issue's number (list_resources issues)"},
@@ -482,9 +517,12 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"connectors": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
 					"description": "which connectors (list_resources connectors) it gets, like [\"notion\"]; [] for none, all when left out. Each costs it context every turn"},
 				"machine": machine,
-			}, accounts), settings)),
+			}, accounts), settings), goals)),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
+					Goal                          string
+					GoalChecks                    []string `json:"goal_checks"`
+					GoalBudget                    int      `json:"goal_budget"`
 					Title, Task, From, AI, Branch string
 					Issue                         int
 					ClaudeAccount                 string            `json:"claude_account"`
@@ -542,6 +580,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					OpenCodeAccounts: in.OpenCodeAccounts,
 					FinishNotice:     notify,
 					Connectors:       in.Connectors,
+					Goal:             goalSpec(in.Goal, in.GoalChecks, in.GoalBudget),
 				})
 				if err != nil {
 					return "", err
