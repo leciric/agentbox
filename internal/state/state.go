@@ -1524,6 +1524,26 @@ var migrations = []string{
 		PRIMARY KEY (project, number)
 	)`,
 
+	// Agents' goals (Settings → Experimental, agent goals): one per agent,
+	// either its AI tool's own /goal as its chat reported it (source
+	// "tool"), or the one create_agent gave it, whose checks (a JSON list
+	// of api.GoalCheck) the daemon runs after each turn, sending the agent
+	// back at most budget times. Gone with the agent when it is archived.
+	`CREATE TABLE agent_goals (
+		project       TEXT NOT NULL,
+		agent         TEXT NOT NULL,
+		objective     TEXT NOT NULL,
+		source        TEXT NOT NULL,
+		status        TEXT NOT NULL,
+		checks        TEXT NOT NULL DEFAULT '[]',
+		checked       INTEGER NOT NULL DEFAULT 0,
+		last_unmet    TEXT NOT NULL DEFAULT '',
+		budget        INTEGER NOT NULL DEFAULT 0,
+		continuations INTEGER NOT NULL DEFAULT 0,
+		updated_at    INTEGER NOT NULL,
+		PRIMARY KEY (project, agent)
+	)`,
+
 	// A session forked from another (POST /v1/projects/{p}/sessions with
 	// forkFrom) or continued from one: the session it came from, and for a
 	// fork the message of that one's it was cut at. Kept as ids, not a key:
@@ -2273,6 +2293,7 @@ var projectOwned = []string{
 	"agent_groups",
 	"pr_watches",
 	"pr_merge_when_green",
+	"agent_goals",
 	"peer_agents",
 	"remote_agents",
 	"lead_sessions",

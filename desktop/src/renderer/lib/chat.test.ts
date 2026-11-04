@@ -23,6 +23,8 @@ import {
   isWork,
   retryLoad,
   retryLoadDelay,
+  chatReadyRetry,
+  retryChatReady,
   loadErrorMessage,
   fetchThread,
   forgetThread,
@@ -216,6 +218,16 @@ test('timelineRows turns a settled turn with tool calls into a fold and a work r
   const rows = timelineRows(thread([user, call, assistant]), new Set());
   const kinds = rows.map((r) => r.type);
   assert.deepEqual(kinds, ['user', 'fold', 'assistant']);
+});
+
+test('timelineRows keeps a goal row out of a settled turn\'s fold', () => {
+  const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const goal = { objective: 'CI green', source: 'agentbox', status: 'active', checked: 0, updatedAt: '' } as T.AgentGoal;
+  const set = item({ kind: 'goal', turn: user.id, goal });
+  const call = item({ kind: 'tool', turn: user.id, tool: tool({ status: 'completed' }) });
+  const met = item({ kind: 'goal', turn: user.id, goal: { ...goal, status: 'met' } });
+  const rows = timelineRows(thread([user, set, call, item({ kind: 'assistant', turn: user.id }), met]), new Set());
+  assert.deepEqual(rows.map((r) => r.type), ['user', 'fold', 'goal', 'assistant', 'goal']);
 });
 
 test('timelineRows says a turn stopped before it did anything was stopped', () => {
@@ -780,4 +792,15 @@ test('the first message of a session that reuses a deleted one\'s id is in the c
     timelineRows(shown, new Set()).filter((r) => r.type === 'user' || r.type === 'assistant').map((r) => r.key),
     ['u1', 'a1'],
   );
+});
+
+test('a project chat waits for a project that is not there yet, and for the connection, but not for other errors', () => {
+  assert.equal(retryChatReady(0, { status: 404 }), true);
+  assert.equal(retryChatReady(0, { status: 503 }), true);
+  assert.equal(retryChatReady(5, { status: 0 }), true);
+  assert.equal(retryChatReady(6, { status: 404 }), false);
+  assert.equal(retryChatReady(0, { status: 400 }), false);
+  const interval = chatReadyRetry.refetchInterval;
+  assert.equal(interval({ state: { status: 'error' } }), 5_000);
+  assert.equal(interval({ state: { status: 'success' } }), false);
 });

@@ -633,6 +633,12 @@ type Settings struct {
 	// review: the daemon merges a pull request the user resolved once its
 	// checks pass. Off unless turned on.
 	MergeWhenGreen bool `json:"mergeWhenGreen"`
+	// AgentGoals is the experimental agent goals (AgentGoal): the AI tool's
+	// own /goal shown as the agent's goal, and create_agent's goal, whose
+	// checks the daemon verifies after each turn, sending the agent back
+	// until they pass or its budget runs out. Off unless turned on; while off
+	// nothing about agents or their chats changes.
+	AgentGoals bool `json:"agentGoals"`
 	// AgentFreeze is the experimental memory governor: under memory
 	// pressure whole agents' machines are frozen, newest first, never the
 	// oldest working one, and thaw oldest first; a new machine starts once
@@ -841,6 +847,8 @@ type UpdateSettingsRequest struct {
 	PRWatch *bool `json:"prWatch,omitempty"`
 	// MergeWhenGreen turns "Resolved — merge when CI is green" on or off.
 	MergeWhenGreen *bool `json:"mergeWhenGreen,omitempty"`
+	// AgentGoals turns the experimental agent goals on or off.
+	AgentGoals *bool `json:"agentGoals,omitempty"`
 	// AgentFreeze turns the experimental memory governor on or off.
 	AgentFreeze *bool `json:"agentFreeze,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
@@ -995,9 +1003,13 @@ type Agent struct {
 	// "frozen" when what it left running is frozen and pushed out to swap,
 	// "stopped" when its machine was stopped after it finished. Absent
 	// otherwise.
-	Reclaimed string    `json:"reclaimed,omitempty"`
-	IP        string    `json:"ip"`
-	CreatedAt time.Time `json:"createdAt"`
+	Reclaimed string `json:"reclaimed,omitempty"`
+	// Goal is what it works towards, while agent goals are on
+	// (Settings.AgentGoals): absent for an agent with none, and whenever
+	// they are off.
+	Goal      *AgentGoal `json:"goal,omitempty"`
+	IP        string     `json:"ip"`
+	CreatedAt time.Time  `json:"createdAt"`
 }
 
 // ArchivedAgent is a past agent: one whose machine was removed, by the user or
@@ -1133,6 +1145,10 @@ type CreateAgentRequest struct {
 	// agent and this is ignored. Empty defers to the project, which for
 	// "lead" means the same as "chat".
 	FinishNotice string `json:"finishNotice,omitempty"`
+	// Goal is what the agent works towards, with checks the daemon verifies
+	// after each of its turns (AgentGoal). Refused while agent goals are off
+	// (Settings.AgentGoals).
+	Goal *GoalSpec `json:"goal,omitempty"`
 	// Queue and Size are accepted for the callers that still send them,
 	// and do nothing: every agent starts at once, and the VM's memory
 	// pressure, not a size, decides when its heavy commands run.

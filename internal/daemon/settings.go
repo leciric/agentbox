@@ -450,6 +450,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.AgentGoals != nil {
+		if err := s.setGoalsFlag(r.Context(), *req.AgentGoals); err != nil {
+			return err
+		}
+	}
 	if req.ClaudeCodeAutoUpdate != nil {
 		if err := s.setToolAutoUpdate(r.Context(), claudeAutoUpdate, *req.ClaudeCodeAutoUpdate); err != nil {
 			return err
@@ -692,6 +697,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	agentGoals, err := s.store.Flag(r.Context(), state.SettingAgentGoals)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	compactWindow, err := s.store.ClaudeCompactWindow(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -814,6 +823,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		PRWatch:              prWatch,
 		MergeWhenGreen:       mergeWhenGreen,
 		AgentFreeze:          agentFreeze,
+		AgentGoals:           agentGoals,
 		MediaRetention:       mediaRetention,
 		Language:             language,
 		Timezone:             timezone,
