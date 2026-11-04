@@ -42,7 +42,7 @@ export type OfficeSceneOptions = {
   // N: on to the next desk that needs you.
   onNext(): void;
   // A chip's "+n": show the list of who needs you.
-  onMore(): void;
+  onMore(refs: string[]): void;
   // A click on a row of the board, standing at it: the desk it's about.
   onBoardRow(ref: string): void;
   // The "+n" button's name for screen readers.
@@ -283,7 +283,17 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
 
   // The camera: an overview of the whole room to start, then following you;
   // closer, lower, when you stop at a desk.
-  const cam = { yaw: 0, followK: 0, dist: 11, closeK: 0 };
+  const cam = { yaw: 0, followK: 0, dist: 13, closeK: 0 };
+  // The wheel's one scale, 0 (the overview) to 1 (close behind you): the
+  // first half comes down from the overview, the second half closer.
+  let zoomZ = 0;
+  const FOLLOW_FAR = 13;
+  const FOLLOW_NEAR = 6.5;
+  const zoomTo = (z: number) => {
+    zoomZ = Math.max(0, Math.min(1, z));
+    followTarget = Math.min(1, zoomZ * 2);
+    cam.dist = zoomZ <= 0.5 ? FOLLOW_FAR : FOLLOW_FAR - (zoomZ - 0.5) * 2 * (FOLLOW_FAR - FOLLOW_NEAR);
+  };
   const eased = { tx: 0, ty: 0, tz: 0, dist: 20, pitch: 0.9, yaw: 0, init: false };
   let near: string | undefined;
   // What the close-up looks at, kept while it eases out.
@@ -663,10 +673,13 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         more.dataset.officeMore = '';
         more.style.cssText =
           'pointer-events:auto;display:none;padding:2px 7px;border-radius:999px;background:rgba(10,14,24,.9);border:1px solid rgba(255,255,255,.25);color:#fff;font:700 11px/1.25 var(--font-sans,system-ui),sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer';
+        // The "+n" opens the list of this chip's desk and the ones folded into it.
+        const host = marker;
         more.addEventListener('pointerdown', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          opts.onMore();
+          const inside = [...markers].filter(([, el]) => el !== host && el.style.display === 'none' && chipInto.get(el) === host).map(([r]) => r);
+          opts.onMore([ref, ...inside]);
         });
         marker.append(walk, more);
         const ref = d.ref;
@@ -749,10 +762,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       if (!placed && lastVisit) {
         Object.assign(pos, lastVisit.pos);
         facing = lastVisit.facing;
-        followTarget = lastVisit.follow;
+        zoomTo(lastVisit.follow / 2);
         cam.followK = lastVisit.follow;
         cam.yaw = lastVisit.yaw;
         cam.dist = lastVisit.dist;
+        zoomZ = lastVisit.follow < 1 ? lastVisit.follow / 2 : 0.5 + ((FOLLOW_FAR - lastVisit.dist) / (FOLLOW_FAR - FOLLOW_NEAR)) * 0.5;
         moved = true;
         placed = true;
         const back = path(boxes, bounds, pos, pos);
@@ -794,7 +808,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     if (!spot) return;
     route = path(boxes, bounds, pos, spot);
     routeGoal = ref;
-    followTarget = 1;
+    zoomTo(Math.max(zoomZ, 0.5));
     started();
     poke();
   }
@@ -804,7 +818,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     routeGoal = undefined;
     // From the overview a click on the floor comes halfway down, not all the
     // way behind you.
-    if (followTarget === 0) followTarget = 0.55;
+    if (zoomZ === 0) zoomTo(0.28);
     started();
     poke();
   }
@@ -822,7 +836,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   // all, until you move again.
   let held = false;
   function overview() {
-    followTarget = 0;
+    zoomTo(0);
     cam.yaw = 0;
     held = true;
     poke();
@@ -894,7 +908,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     if (kx || kz) {
       route = [];
       routeGoal = undefined;
-      followTarget = 1;
+      if (zoomZ < 0.5) zoomTo(0.5);
       started();
       const len = Math.hypot(kx, kz);
       const c = Math.cos(eased.yaw);
@@ -972,7 +986,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const free = Math.max(0.42, 1 - 410 / Math.max(1, canvas.clientWidth));
       const pitch = 0.4;
       // Wide enough for you, standing at its left end, too.
-      const dist = Math.max((lay.board.w + 1.6) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.85 * 2 * tan));
+      const dist = Math.max((lay.board.w + 1.6) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.7 * 2 * tan));
       const vw = 2 * dist * tan * aspect;
       return { x: lay.board.x - 0.55 + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
     }
@@ -1199,7 +1213,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const far = dist > 15;
       if (marker) {
         tp.project(camera);
-        const onScreen = far && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05;
+        const onScreen = far && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         marker.style.display = onScreen ? 'flex' : 'none';
         if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight });
       }
@@ -1279,8 +1293,14 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const my = ((1 - tp.y) / 2) * canvas.clientHeight;
       const mw = meMarker.offsetWidth || 44;
       const over = { x0: mx - mw / 2, x1: mx + mw / 2, y0: my - 40, y1: my - 18 };
-      const hits = (r: { x0: number; x1: number; y0: number; y1: number }) => over.x0 < r.x1 && over.x1 > r.x0 && over.y0 < r.y1 && over.y1 > r.y0;
-      const under = taken.some(hits) || placed.some((p) => hits({ x0: p.x0, x1: p.x1, y0: p.y - 31, y1: p.y - 7 }));
+      const busyAt = (dy: number) => {
+        const o = { x0: over.x0, x1: over.x1, y0: over.y0 + dy, y1: over.y1 + dy };
+        const hit2 = (r: { x0: number; x1: number; y0: number; y1: number }) => o.x0 < r.x1 && o.x1 > r.x0 && o.y0 < r.y1 && o.y1 > r.y0;
+        return taken.some(hit2) || placed.some((p) => hit2({ x0: p.x0, x1: p.x1, y0: p.y - 31, y1: p.y - 7 }));
+      };
+      const under = busyAt(0);
+      // Neither over your head nor under your feet: your figure says it alone.
+      if (under && busyAt(58)) meMarker.style.display = 'none';
       meMarker.style.transform = `translate(${mx}px, ${my}px) translate(-50%, ${under ? '140%' : '-110%'})`;
       meTag.sprite.visible = false;
     }
@@ -1397,14 +1417,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // trackpad's little deltas are parts of one.
     const d = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
     const n = Math.max(-3, Math.min(3, Math.abs(d) >= 50 ? Math.sign(d) * Math.max(1, Math.abs(d) / 120) : d / 100));
-    if (n < 0) {
-      if (followTarget < 1) followTarget = Math.min(1, followTarget - 0.25 * n);
-      else cam.dist = Math.max(6.5, cam.dist * Math.pow(0.88, -n));
-    } else if (followTarget >= 1 && cam.dist < 11) cam.dist = Math.min(11, cam.dist / Math.pow(0.88, n));
-    else {
-      followTarget = Math.max(0, followTarget - 0.25 * n);
-      cam.dist = 11;
-    }
+    // At a desk, a turn of the wheel outwards stands back from it.
+    if (cam.closeK > 0.5 && n > 0) {
+      held = true;
+      zoomTo(0.5);
+    } else zoomTo(zoomZ - n * 0.125);
     poke();
   };
   const editable = (el: Element | null) => !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable || el.closest('[role="dialog"]') !== null);
