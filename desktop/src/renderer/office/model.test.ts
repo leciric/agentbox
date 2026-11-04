@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
 import type { AgentSt, Row } from '../lib/leadFirst.ts';
-import { deskOf, deskTone, hueOf, leadTone, officeModel, prLook, readable, type OfficeInputs } from './model.ts';
+import { deskOf, deskTone, hueOf, leadTone, officeModel, plain, prLook, readable, type OfficeInputs } from './model.ts';
 
 const agent = (ref: string, over: Partial<T.Agent> = {}): T.Agent =>
   ({ ref, project: ref.split('/')[0], name: ref.split('/')[1], title: `Task ${ref}`, branch: `agentbox/${ref.split('/')[1]}`, ai: 'claude', state: 'running', createdAt: '2026-11-01T10:00:00Z', ...over }) as T.Agent;
@@ -123,4 +123,10 @@ test('a question asked in JSON reads as its fields', () => {
   assert.equal(readable('{"state":"running","limit":3}'), 'state: running · limit: 3');
   assert.equal(readable('["a", 2]'), 'a · 2');
   assert.equal(readable('{not json'), '{not json');
+});
+
+test('chat markdown reads as plain text on a card', () => {
+  assert.equal(plain('agent-12 finished the **New project** button: PR #318 is green'), 'agent-12 finished the New project button: PR #318 is green');
+  assert.equal(plain('`git push -u origin x` fails, see [the log](https://x.y/z)'), 'git push -u origin x fails, see the log');
+  assert.equal(plain('## Done\n- one *small* thing\n- snake_case_name stays'), 'Done one small thing snake_case_name stays');
 });

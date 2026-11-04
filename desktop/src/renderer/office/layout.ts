@@ -11,10 +11,12 @@ export type Spot = { x: number; z: number; face: number };
 
 export type DeskPlace = {
   id: string;
-  // The desk's centre. The agent sits behind it (at z - SEAT) facing you, its
-  // laptop before it; the monitor on the desk's front corner faces you too.
+  // The desk's centre. The agent sits behind it (at z - SEAT) facing the
+  // room, at its outer end (side: -1 the left, 1 the right): two desks make
+  // a pod, a bench pushed together, its agents at either end.
   x: number;
   z: number;
+  side: -1 | 1;
   // Where you stand to look at its monitor, across the desk from the agent.
   spot: Spot;
 };
@@ -64,22 +66,24 @@ export type Layout = {
 
 export const DESK = { w: 1.5, d: 0.75, h: 0.74 };
 export const SEAT = 0.72; // the chair's distance behind the desk's centre
-export const PITCH_X = 2.5; // desk to desk across a row
-export const PITCH_Z = 2.5; // row to row
 export const COUNTER = { w: 2.4, d: 0.7 };
-const POD = 4;
-const POD_W = 2 * PITCH_X;
-const POD_D = 2 * PITCH_Z;
-const POD_GAP_X = 1.6;
-const POD_GAP_Z = 1.0;
-const AREA_PAD = 0.8; // the rug's margin around its desks
+const POD = 2;
+// A pod's width: its bench of two desks, and room at either end to stand.
+const POD_SPAN = 2 * DESK.w + 2.2;
+// Pod to pod across a row, and row to row; every other row is staggered by
+// half a pod, so the pods read as islands rather than a classroom's rows.
+const POD_PX = 4.7;
+const POD_PZ = 2.9;
+const STAGGER = POD_PX / 2;
+const FIRST = 1.5; // from an area's back to its first pods' desks
+const AREA_PAD = 0.5; // the area's margin around its pods
 const LEAD_DEPTH = 2.7; // the counter's strip at the front of an area
 const AISLE = 1.8; // between areas
-const BACK_AISLE = 3.8; // before the board
+const BACK_AISLE = 3.4; // before the board
 const FRONT = 1.4; // floor before the front areas
 const WALL_PAD = 1.6;
 const PLANTER = 0.5;
-const WOOD_W = 10; // the wood-floored side, the commons
+const WOOD_W = 9.5; // the wood-floored side, the commons
 const MIN_ROOM_D = 13;
 const MIN_WORK_W = 13;
 // The room is about twice as wide as it's deep, as a diorama seen from its
@@ -108,9 +112,9 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     const pods = Math.ceil(a.desks.length / POD);
     const cols = columns(pods);
     const rows = Math.ceil(pods / cols);
-    const inner = cols * POD_W + Math.max(0, cols - 1) * POD_GAP_X;
+    const inner = POD_SPAN + Math.max(0, cols - 1) * POD_PX + (rows > 1 ? STAGGER : 0);
     const w = Math.max(inner, COUNTER.w + 1.2) + AREA_PAD * 2;
-    const d = rows * POD_D + Math.max(0, rows - 1) * POD_GAP_Z + LEAD_DEPTH + AREA_PAD;
+    const d = AREA_PAD + FIRST + Math.max(0, rows - 1) * POD_PZ + 1.0 + LEAD_DEPTH;
     return { cols, rows, w, d, inner };
   });
   // Rows of columns of areas: an area stacks under the one before it when
@@ -165,8 +169,9 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   const areas: AreaPlace[] = Array.from({ length: model.areas.length });
   const obstacles: Box[] = [];
   const plants: { x: number; z: number }[] = [];
-  // Floor no area uses, which the room furnishes (fill, below).
-  const free: Box[] = [];
+  // Floor no area uses, which the room furnishes (fill, below). Low says
+  // it's before an area, where the close-ups look across it: nothing tall.
+  const free: (Box & { low?: boolean })[] = [];
   let z = BACK_AISLE;
   for (const [r, row] of rows.entries()) {
     const depth = rowD(row);
@@ -189,7 +194,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
         placeArea(i, a, s, rug);
         cz += ad + AISLE;
       }
-      if (below - (z + colD(col) + AISLE / 2) > 1.9) free.push({ x0: x - 0.2, z0: z + colD(col) + AISLE / 2, x1: x + cw + 0.2, z1: below });
+      if (below - (z + colD(col) + AISLE / 2) > 1.9) free.push({ x0: x - 0.2, z0: z + colD(col) + AISLE / 2, x1: x + cw + 0.2, z1: below, low: true });
       x += cw + AISLE;
     }
     z += depth + AISLE;
@@ -201,30 +206,26 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     const depth = rug.z1 - rug.z0;
     const cx = (rug.x0 + rug.x1) / 2;
     const pods: Box[] = [];
-    const podX = (p: number) => cx - s.inner / 2 + (p % s.cols) * (POD_W + POD_GAP_X) + POD_W / 2;
-    const podZ = (p: number) => z + AREA_PAD + 1.1 + Math.floor(p / s.cols) * (POD_D + POD_GAP_Z);
+    const podX = (p: number) => cx - s.inner / 2 + POD_SPAN / 2 + (p % s.cols) * POD_PX + (Math.floor(p / s.cols) % 2 ? STAGGER : 0);
+    const podZ = (p: number) => z + AREA_PAD + FIRST + Math.floor(p / s.cols) * POD_PZ;
     for (let p = 0; p * POD < a.desks.length; p++) {
       const n = Math.min(POD, a.desks.length - p * POD);
       const px = podX(p);
       const pz = podZ(p);
-      // The rug runs from its first desk to its last, a margin round them.
-      const left = px - PITCH_X / 2;
-      const right = n > 1 ? px + PITCH_X / 2 : left;
-      const back = pz;
-      const front = pz + (n > 2 ? PITCH_Z : 0);
-      pods.push({ x0: left - 1.0, z0: back - 1.3, x1: right + 1.0, z1: front + 1.15 });
+      // The rug under its bench and chairs, and where you stand at its ends.
+      pods.push({ x0: px - POD_SPAN / 2 + 0.3, z0: pz - 1.45, x1: n > 1 ? px + POD_SPAN / 2 - 0.3 : px + 0.6, z1: pz + 0.95 });
     }
     const desks: DeskPlace[] = a.desks.map((d, k) => {
       const p = Math.floor(k / POD);
-      const j = k % POD;
-      const dx = podX(p) + ((j % 2) - 0.5) * PITCH_X;
-      const dz = podZ(p) + Math.floor(j / 2) * PITCH_Z;
+      const side = k % POD ? 1 : -1;
+      const dx = podX(p) + side * (DESK.w / 2);
+      const dz = podZ(p);
       obstacles.push(box(dx, dz, DESK.w, DESK.d));
-      // The chair, under the robot, which sits left of centre.
-      obstacles.push(box(dx - 0.48, dz - SEAT, 0.62, 0.62));
-      // You stand beside the desk, at the agent's end, as you'd stop by a
+      // The chair, under the agent, at the bench's outer end.
+      obstacles.push(box(dx + side * 0.48, dz - SEAT, 0.62, 0.62));
+      // You stand at the bench's end, beside the agent, as you'd stop by a
       // colleague's, turned half to the room: the close-up sees your face too.
-      return { id: d.id, x: dx, z: dz, spot: { x: dx - 1.4, z: dz + 0.05, face: Math.PI / 3 } };
+      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.25, z: dz + 0.1, face: side < 0 ? Math.PI / 3 : -Math.PI / 3 } };
     });
     // The counter sits at the area's front, its lead behind it facing you.
     const lz = z + depth - LEAD_DEPTH / 2 - 0.1;
@@ -236,7 +237,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
         { x0: rug.x0 + 0.8, x1: cx - COUNTER.w / 2 - 2.4 },
         { x0: cx + COUNTER.w / 2 + 0.9, x1: rug.x1 - 0.8 },
       ];
-      for (const sd of sides) if (sd.x1 - sd.x0 > 2.4) free.push({ x0: sd.x0, z0: podsFront + 0.3, x1: sd.x1, z1: rug.z1 - 0.15 });
+      for (const sd of sides) if (sd.x1 - sd.x0 > 2.4) free.push({ x0: sd.x0, z0: podsFront + 0.3, x1: sd.x1, z1: rug.z1 - 0.15, low: true });
     }
     obstacles.push(box(cx, lz, COUNTER.w, COUNTER.d));
     obstacles.push(box(cx, lz - 0.75, 0.7, 0.6));
@@ -352,8 +353,9 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     const cd = d / rowsN;
     for (let r = 0; r < rowsN; r++)
       for (let c = 0; c < cols; c++) {
-        for (let t = 0; t < ISLANDS.length; t++) {
-          const kind = ISLANDS[(n + t) % ISLANDS.length];
+        const kinds = f.low ? LOW : ISLANDS;
+        for (let t = 0; t < kinds.length; t++) {
+          const kind = kinds[(n + t) % kinds.length];
           const [fw, fd] = footOf(kind);
           if (fw > cw - 0.8 || fd > cd - 0.8) continue;
           prop(kind, f.x0 + (c + 0.5) * cw, f.z0 + (r + 0.5) * cd);
@@ -415,6 +417,8 @@ export const FOOT: Record<PropKind, [number, number]> = {
 export const PROP_SCALE = 1.25;
 export const footOf = (k: PropKind): [number, number] => [FOOT[k][0] * PROP_SCALE, FOOT[k][1] * PROP_SCALE];
 const ISLANDS: PropKind[] = ['tree', 'standing', 'aquarium', 'booth', 'plants', 'beanbags', 'vending', 'logo', 'printer', 'shelf', 'tree', 'whiteboard'];
+// What may stand before an area: nothing taller than a desk's monitor.
+const LOW: PropKind[] = ['standing', 'aquarium', 'plants', 'beanbags', 'logo', 'shelf', 'printer'];
 
 // spotOf is where you stand to look at a desk, a lead's counter or the board.
 export function spotOf(l: Layout, ref: string): Spot | undefined {

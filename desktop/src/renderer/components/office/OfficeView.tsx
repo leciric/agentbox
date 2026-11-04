@@ -3,7 +3,7 @@
 // its data, read from the queries the rest of the app keeps live, and the
 // overlay around the canvas: who needs you, the desk you're at, the controls.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, ChevronDown, ClipboardList, ChevronUp, Eye, GitPullRequest, Keyboard, LoaderCircle, MessageSquare, Mouse, Scan, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, ClipboardList, ChevronUp, Eye, Flag, GitPullRequest, Keyboard, LoaderCircle, MessageSquare, Mouse, Scan, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -15,7 +15,7 @@ import { useReviewHead } from '../../lib/inboxPages';
 import { useReviewing } from '../../lib/reviewAlert';
 import { useAgentCounts } from '../../lib/useAgentCounts';
 import { cn } from '../../lib/utils';
-import { deskOf, leadRef, officeModel, readable, type BoardItem, type DeskModel, type DeskTone, type OfficeModel, type PrLook } from '../../office/model';
+import { deskOf, leadRef, officeModel, plain, readable, type BoardItem, type DeskModel, type DeskTone, type OfficeModel, type PrLook } from '../../office/model';
 import type { OfficeScene } from '../../office/scene';
 import type { BoardScreen, Screen } from '../../office/textures';
 import { PullRequestModal } from '../PullRequestModal';
@@ -95,6 +95,15 @@ function lastMessage(thread: T.ChatThread | undefined): string | undefined {
   }
   return undefined;
 }
+
+// The legend's entries: the bubbles' glyphs and colours (scene.ts's bubbleOf).
+const LEGEND = [
+  ['!', '#f59e0b', 'office.legend.needs'],
+  ['', '#60a5fa', 'office.legend.working'],
+  ['✓', '#10b981', 'office.legend.finished'],
+  ['×', '#ef4444', 'office.legend.error'],
+  ['z', '#94a3b8', 'office.legend.stopped'],
+] as const;
 
 export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const t = useT();
@@ -215,10 +224,16 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const boardRow = useRef<(ref: string) => void>(() => {});
   boardRow.current = (ref: string) => {
     // The board's "+n": the full list, in the panel beside it.
+    // It goes to the first row the board had no room for, lit up a moment.
     if (ref.startsWith('more:')) {
-      const card = document.querySelector<HTMLElement>(`[data-office-board-list="${ref.slice(5)}"]`);
-      card?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
-      card?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+      const [, list, from] = ref.split(':');
+      const card = document.querySelector<HTMLElement>(`[data-office-board-list="${list}"]`);
+      const rows = card ? [...card.querySelectorAll<HTMLElement>('button')] : [];
+      const first = rows[Number(from) || 0] ?? rows[0];
+      if (!first) return;
+      first.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
+      first.focus({ preventScroll: true });
+      if (!reduced) for (const r of rows.slice(Number(from) || 0)) r.animate([{ backgroundColor: 'rgba(251,191,36,.35)' }, { backgroundColor: 'rgba(251,191,36,0)' }], { duration: 1400, easing: 'ease-out' });
       return;
     }
     const desk = deskOf(office.model, ref);
@@ -451,7 +466,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           project={office.model.areas.find((a) => a.project === nearDesk.project)?.label ?? nearDesk.project}
           facts={[nearDesk.branch, [nearAgent.ai, modelOf(nearThread)].filter(Boolean).join(' · ')]}
           activity={nearThread ? agentChatStatus(nearAgent, nearThread).text : undefined}
-          question={nearDesk.question ? readable(nearDesk.question) : nearDesk.tone === 'needs' || nearDesk.tone === 'error' ? agentChatStatus(nearAgent, nearThread).text : undefined}
+          question={nearDesk.question ? plain(readable(nearDesk.question)) : nearDesk.tone === 'needs' || nearDesk.tone === 'error' ? agentChatStatus(nearAgent, nearThread).text : undefined}
           last={nearDesk.question ? undefined : lastMessage(nearThread)}
           pr={nearDesk.pr ? prLine(nearDesk.pr).text : undefined}
           prTone={nearDesk.pr?.checks === 'failing' ? 'bad' : 'ok'}
@@ -477,7 +492,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           title={t('office.lead.title', { project: nearArea.label })}
           project={t('office.lead.agents', { count: nearArea.desks.length })}
           facts={[]}
-          last={nearArea.lead.line}
+          last={nearArea.lead.line ? plain(nearArea.lead.line) : nearArea.lead.line}
         >
           <Button size="sm" className="bg-violet-600 text-white shadow-sm hover:bg-violet-500" onClick={() => activate.current(leadRef(nearArea.project))} data-office-open>
             <MessageSquare className="size-3.5" />
@@ -516,6 +531,19 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       {/* The controls, until you've moved; after that a line. */}
       {status === 'ready' && !empty && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3">
+          {/* What the bubbles over the agents and the flags on their desks mean. */}
+          <div className="flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-full bg-white/80 px-3 py-1 text-[11.5px] text-slate-600 shadow-sm backdrop-blur-md" data-office-legend>
+            {LEGEND.map(([glyph, color, key]) => (
+              <span key={key} className="flex items-center gap-1">
+                <span className="grid size-4 place-items-center rounded-full text-[10px] font-bold leading-none text-white" style={{ background: color }}>{glyph}</span>
+                {t(key)}
+              </span>
+            ))}
+            <span className="flex items-center gap-1">
+              <Flag className="size-3.5 text-emerald-500" />
+              {t('office.legend.pr')}
+            </span>
+          </div>
           {/* One bar: what a click on what's under the pointer does, or else the controls. */}
           {hoverText && !hint ? (
             <div className="rounded-lg bg-white/90 px-3 py-1 text-[12.5px] font-medium text-slate-900 shadow-lg backdrop-blur-md" data-office-hover>{hoverText}</div>

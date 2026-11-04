@@ -188,7 +188,7 @@ export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen): BoardR
     }
     if (c.items.length > shown) {
       // The "+n" is a row too: a click on it goes to the full list.
-      rows.push({ ref: `more:${c === b.needs ? 'needs' : 'review'}`, x, y, w: 120, h: 44 });
+      rows.push({ ref: `more:${c === b.needs ? 'needs' : 'review'}:${shown}`, x, y, w: 120, h: 44 });
       ctx.fillStyle = '#4a4f58';
       ctx.font = `700 26px ${SANS}`;
       ctx.fillText(`+${c.items.length - shown}`, x + 8, y + 30);

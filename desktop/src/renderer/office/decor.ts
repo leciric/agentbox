@@ -12,12 +12,12 @@ import type { Box, Layout } from './layout.ts';
 import { furnish } from './props.ts';
 
 export const PALETTE = {
-  wall: '#efcfa5',
-  wallTop: '#f7e2c4',
-  wallEdge: '#e2b98a',
-  slab: '#e6b77f',
-  slabDark: '#c99862',
-  terrazzo: '#f4e4cf',
+  wall: '#f2dcc0',
+  wallTop: '#faeedd',
+  wallEdge: '#e7c9a4',
+  slab: '#ebc597',
+  slabDark: '#d2a87a',
+  terrazzo: '#f7eee2',
   wood: '#e2b27c',
   frame: '#2f4a3a',
   brick: '#b8664a',
@@ -45,11 +45,12 @@ function terrazzo(): THREE.CanvasTexture {
   ctx.fillRect(0, 0, 512, 512);
   let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const chips = ['#e8a273', '#d97b5a', '#9fbf8f', '#c9b8a0', '#f0c27a', '#b9a89a'];
-  for (let i = 0; i < 900; i++) {
+  // Few chips, soft: a calm floor, not a speckled one.
+  const chips = ['#e9b48f', '#dfa088', '#b7cfaa', '#d6c9b6', '#f1d29e', '#c9bcb0'];
+  for (let i = 0; i < 420; i++) {
     ctx.fillStyle = chips[Math.floor(rnd() * chips.length)];
-    ctx.globalAlpha = 0.55 + rnd() * 0.4;
-    const r = 1 + rnd() * 3.2;
+    ctx.globalAlpha = 0.35 + rnd() * 0.3;
+    const r = 1 + rnd() * 2.6;
     ctx.beginPath();
     ctx.ellipse(rnd() * 512, rnd() * 512, r, r * (0.6 + rnd() * 0.5), rnd() * 3, 0, Math.PI * 2);
     ctx.fill();
@@ -70,15 +71,15 @@ function planks(): THREE.CanvasTexture {
     let x = -rnd() * 240;
     while (x < 512) {
       const w = 220 + rnd() * 200;
-      ctx.fillStyle = `hsl(${31 + rnd() * 5} ${46 + rnd() * 8}% ${63 + rnd() * 6}%)`;
+      ctx.fillStyle = `hsl(${31 + rnd() * 4} ${40 + rnd() * 6}% ${69 + rnd() * 5}%)`;
       ctx.fillRect(x, r * h, w, h);
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
       ctx.fillRect(x, r * h, w, 3);
-      ctx.fillStyle = 'rgba(120,60,20,0.25)';
+      ctx.fillStyle = 'rgba(120,60,20,0.16)';
       ctx.fillRect(x, r * h, 2, h);
       x += w;
     }
-    ctx.fillStyle = 'rgba(120,60,20,0.3)';
+    ctx.fillStyle = 'rgba(120,60,20,0.2)';
     ctx.fillRect(0, r * h, 512, 1.5);
   }
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;

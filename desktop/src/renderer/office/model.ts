@@ -169,7 +169,9 @@ export function officeModel(inp: OfficeInputs): OfficeModel {
         branch: a.branch,
         ai: a.ai,
         tone,
-        pr: prLook(f?.pr ?? reviewByRef.get(a.ref)?.pr),
+        // The review queue's pull request first: it's the one a click on the
+        // board opens.
+        pr: prLook(reviewByRef.get(a.ref)?.pr ?? f?.pr),
         changes: f?.changes && (f.changes.files > 0 || f.changes.insertions > 0) ? { files: f.changes.files, insertions: f.changes.insertions, deletions: f.changes.deletions } : undefined,
         question,
         lastActive: f?.lastActive,
@@ -221,4 +223,18 @@ export function readable(text: string): string {
     // Not JSON after all: as it is.
   }
   return text;
+}
+
+// plain is a chat's markdown as one line of text: emphasis, code marks,
+// links and headings' marks gone, their words kept.
+export function plain(text: string): string {
+  return text
+    .replace(/```[a-z]*\n?/gi, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/(^|[\s(])[*_]([^*_\s][^*_]*?)[*_](?=[\s).,!?:;]|$)/g, '$1$2')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^\s{0,3}(#{1,6}|[-*+]|\d+\.)\s+/gm, '')
+    .replace(/\s*\n+\s*/g, ' ')
+    .trim();
 }
