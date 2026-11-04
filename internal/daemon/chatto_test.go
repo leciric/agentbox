@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"testing"
-	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
@@ -11,8 +10,7 @@ import (
 
 // A message written in a project's chat to one of its agents goes to that
 // agent's chat, and the chat keeps a notice the lead reads at its next turn
-// without one being started; another session's agent is refused until the
-// user says to send it anyway.
+// without one being started; another session's agent is sent to like any other.
 func TestAMessageToAnAgentFromTheLeadsChat(t *testing.T) {
 	t.Parallel()
 	w := newWakeTest(t)
@@ -49,16 +47,8 @@ func TestAMessageToAnAgentFromTheLeadsChat(t *testing.T) {
 		t.Errorf("the lead's session = %+v; want no turn running", lead.Session)
 	}
 
-	// agent-02 is the Prod session's: refused, until sent anyway.
-	_, err = w.client.SendChatMessage(ctx, main, api.ChatMessageRequest{Text: "Look at the settings page.", To: "agent-02"})
-	if !api.HasReason(err, api.ErrorOtherSession) {
-		t.Fatalf("a message to another session's agent = %v; want it refused with %s", err, api.ErrorOtherSession)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if w.tool.got("Look at the settings page.") {
-		t.Error("a refused message reached agent-02")
-	}
-	if _, err := w.client.SendChatMessage(ctx, main, api.ChatMessageRequest{Text: "Look at the settings page.", To: "agent-02", AnySession: true}); err != nil {
+	// agent-02 is the Prod session's: it goes without asking.
+	if _, err := w.client.SendChatMessage(ctx, main, api.ChatMessageRequest{Text: "Look at the settings page.", To: "agent-02"}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the message to reach agent-02", func() bool { return w.tool.got("Look at the settings page.") })

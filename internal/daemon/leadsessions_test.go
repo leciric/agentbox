@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,9 +166,9 @@ func TestAProjectWithNoSessionOpensOneForAnEvent(t *testing.T) {
 	}
 }
 
-// A session's lead telling another session's agent waits for the user's yes;
-// its own, and nobody's, it tells freely.
-func TestTellingAnotherSessionsAgentAsks(t *testing.T) {
+// A session's lead tells any of the project's agents directly, another
+// session's included, with no card for the user to answer.
+func TestTellingAnotherSessionsAgentNeedsNoApproval(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -178,35 +180,19 @@ func TestTellingAnotherSessionsAgentAsks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mine := addAgent(t, d, repo, "hello-stack", "agent-01", "Mine")
-	theirs := addAgent(t, d, repo, "hello-stack", "agent-02", "Theirs")
-	if err := d.srv.store.SetAgentSession(ctx, "hello-stack", "agent-01", prod.ID); err != nil {
-		t.Fatal(err)
-	}
+	addAgent(t, d, repo, "hello-stack", "agent-02", "Theirs")
 	if err := d.srv.store.SetAgentSession(ctx, "hello-stack", "agent-02", state.MigratedSession); err != nil {
 		t.Fatal(err)
 	}
-	mine.CreatedBySession, theirs.CreatedBySession = prod.ID, state.MigratedSession
-	var asked []string
-	answer := false
-	d.srv.approve = func(ctx context.Context, project string, req api.ChatPermission) (bool, error) {
-		asked = append(asked, leadSessionOf(ctx)+": "+req.Title)
-		return answer, nil
+	d.srv.approve = func(context.Context, string, api.ChatPermission) (bool, error) {
+		t.Error("telling another session's agent asked the user")
+		return false, nil
 	}
-	in := withLeadSession(ctx, prod.ID)
-	if err := d.srv.crossSession(in, prod.ID, mine, "Tell"); err != nil || len(asked) != 0 {
-		t.Errorf("its own agent: %v, asked %q", err, asked)
-	}
-	if err := d.srv.crossSession(in, prod.ID, state.Agent{Project: "hello-stack", Name: "agent-09"}, "Tell"); err != nil || len(asked) != 0 {
-		t.Errorf("nobody's agent: %v, asked %q", err, asked)
-	}
-	err = d.srv.crossSession(in, prod.ID, theirs, "Tell")
-	if !errors.Is(err, errRefused) || len(asked) != 1 || !strings.HasPrefix(asked[0], prod.ID+": Tell agent-02") || !strings.Contains(asked[0], `"Chat"`) {
-		t.Errorf("another session's agent, refused: %v, asked %q", err, asked)
-	}
-	answer = true
-	if err := d.srv.crossSession(in, prod.ID, theirs, "Retire"); err != nil || len(asked) != 2 {
-		t.Errorf("another session's agent, approved: %v, asked %q", err, asked)
+	req := httptest.NewRequest("POST", "/v1/project/agents/agent-02/chat/messages", strings.NewReader(`{"text":"Look at the settings page."}`))
+	rec := httptest.NewRecorder()
+	d.srv.leadRoutes("hello-stack", prod.ID).ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Errorf("tell_agent(another session's agent) = %d %s; want it sent", rec.Code, rec.Body)
 	}
 }
 

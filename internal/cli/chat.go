@@ -26,7 +26,6 @@ func newChatCmd(a *app) *cobra.Command {
 		set     []string
 		session string
 		to      string
-		anyOne  bool
 		home    bool
 	)
 	cmd := &cobra.Command{
@@ -50,8 +49,7 @@ Name an agent, like pawly/agent-01, for that agent's AI tool inside its machine.
 
 --to sends a message written to a project's chat to one of its agents instead,
 as the app's To: chip does: the agent's chat takes it, and the project's chat
-keeps a line the lead reads at its next turn, starting none. An agent another
-session made asks first (--any-session doesn't).
+keeps a line the lead reads at its next turn, starting none.
 
 Without a message, chat prints the conversation. With one, it sends the message
 and follows the reply until the turn ends. Ctrl-C stops following while the turn
@@ -88,7 +86,7 @@ chat asks you here if this is a terminal; otherwise, answer in the app.`,
 				if message == "" {
 					return errors.New("--to needs a message to send")
 				}
-				return sendTo(cmd, c, ref, to, message, anyOne)
+				return sendTo(cmd, c, ref, to, message)
 			}
 			if stop {
 				if _, err := c.CancelChat(ctx, ref); err != nil {
@@ -135,29 +133,14 @@ chat asks you here if this is a terminal; otherwise, answer in the app.`,
 	f.StringArrayVar(&set, "set", nil, "change a setting of the session, like model=haiku (repeat for more)")
 	f.StringVar(&session, "session", "", "the session of the project's chat, by id (agentbox chat session list)")
 	f.StringVar(&to, "to", "", "send the message to this agent of the project, like agent-31, telling the lead without a turn")
-	f.BoolVar(&anyOne, "any-session", false, "with --to, send to another session's agent without asking")
 	f.BoolVar(&home, "home", false, "the Home chat, across every project, in place of a project")
 	cmd.AddCommand(newChatSessionCmd(a))
 	return cmd
 }
 
-// sendTo sends message, written to the project chat ref, to its agent to, and
-// asks before sending to another session's agent.
-func sendTo(cmd *cobra.Command, c *api.Client, ref, to, message string, anySession bool) error {
-	req := api.ChatMessageRequest{Text: message, To: to, AnySession: anySession}
-	_, err := c.SendChatMessage(cmd.Context(), ref, req)
-	if api.HasReason(err, api.ErrorOtherSession) {
-		f, ok := cmd.InOrStdin().(*os.File)
-		if !ok || !term.IsTerminal(int(f.Fd())) {
-			return fmt.Errorf("%w (--any-session sends it)", err)
-		}
-		yes, askErr := confirmPrompt(cmd, err.Error())
-		if askErr != nil || !yes {
-			return askErr
-		}
-		req.AnySession = true
-		_, err = c.SendChatMessage(cmd.Context(), ref, req)
-	}
+// sendTo sends message, written to the project chat ref, to its agent to.
+func sendTo(cmd *cobra.Command, c *api.Client, ref, to, message string) error {
+	_, err := c.SendChatMessage(cmd.Context(), ref, api.ChatMessageRequest{Text: message, To: to})
 	if err != nil {
 		return err
 	}

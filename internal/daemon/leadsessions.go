@@ -33,10 +33,9 @@ import (
 //     oldest open one (firstLead), made the same way when there is none: a
 //     thread between two projects stays in one conversation, wherever the
 //     user is chatting.
-//   - A lead may read every agent, and acts on its own and on nobody's freely.
-//     Telling or retiring another session's agent waits for the user's yes on
-//     a card in its chat (crossSession); handing an agent over is the user's,
-//     from the app or `agentbox chat session hand`.
+//   - A lead may read, tell and retire any of the project's agents directly,
+//     whichever session made it; handing an agent over is the user's, from
+//     the app or `agentbox chat session hand`.
 
 // leadSessionKey carries the session a lead socket's request came in on, for
 // what is given a context rather than the request (approveInChat).
@@ -610,29 +609,6 @@ func (s *Server) handOver(w http.ResponseWriter, r *http.Request) error {
 	s.sessionsChanged(r.Context(), project)
 	s.refreshAgents(r.Context())
 	w.WriteHeader(http.StatusNoContent)
-	return nil
-}
-
-// crossSession waits for the user's yes before a lead acts on another
-// session's agent: a card in the asking session's chat. Its own agents, and
-// those nobody owns, it acts on freely.
-func (s *Server) crossSession(ctx context.Context, from string, a state.Agent, what string) error {
-	topic, other := s.otherSession(ctx, from, a)
-	if !other {
-		return nil
-	}
-	ok, err := s.approve(ctx, a.Project, api.ChatPermission{
-		Approval: "session",
-		Title:    fmt.Sprintf("%s %s, which the %q session made", what, a.Name, topic),
-		Detail: fmt.Sprintf("%s belongs to another session of this chat, which follows its work. Approve to let this "+
-			"session act on it once; to move it here for good, hand it over from its menu in the rail.", a.Name),
-	})
-	if err != nil {
-		return fmt.Errorf("asking the user to approve it: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("%w: %s is the %q session's agent, and was left alone. Leave it to that session", errRefused, a.Name, topic)
-	}
 	return nil
 }
 

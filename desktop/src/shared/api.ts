@@ -2898,7 +2898,6 @@ export interface ChatMessageRequest {
   images?: ChatImageUpload[];
   files?: ChatFileUpload[];
   to?: string;
-  anySession?: boolean;
 }
 
 export interface ChatImage {
@@ -3903,7 +3902,6 @@ export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
 export const ErrorFolderExists = "folder-exists";
 export const ErrorBadRepoURL = "bad-repo-url";
-export const ErrorOtherSession = "other-session";
 export const ErrorPassphraseNeeded = "passphrase-needed";
 export const ErrorWrongPassphrase = "wrong-passphrase";
 export const ErrorNewerExport = "newer-export";
