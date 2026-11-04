@@ -4911,6 +4911,7 @@ export const enUS = {
   'office.clickToOpen': 'Click or press E to open {title}',
   'office.fold': 'Fold the list',
   'office.next': 'Next who needs you',
+  'office.nextOf': '{at} of {count}',
   'office.clickToWalk': 'Click to walk to {title}',
   'office.hint.click': 'Click a desk or the floor to walk there',
   'office.hint.keys': 'WASD or arrows to walk · E to open · N for the next who needs you',

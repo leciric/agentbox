@@ -280,6 +280,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     <Button size="sm" variant="secondary" onClick={() => next.current()} data-office-next>
       <ArrowRight className="size-3.5" />
       {t('office.next')}
+      {needs.length > 1 && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: Math.max(1, needs.findIndex((i) => i.ref === near) + 1), count: needs.length })}</span>}
       <kbd className="ml-1 rounded bg-black/20 px-1 font-mono text-[10.5px]">N</kbd>
     </Button>
   );

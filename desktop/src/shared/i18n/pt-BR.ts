@@ -4912,6 +4912,7 @@ export const ptBR: Messages = {
   'office.clickToOpen': 'Clique ou aperte E para abrir {title}',
   'office.fold': 'Recolher a lista',
   'office.next': 'Próximo que precisa de você',
+  'office.nextOf': '{at} de {count}',
   'office.clickToWalk': 'Clique para ir até {title}',
   'office.hint.click': 'Clique numa mesa ou no chão para ir até lá',
   'office.hint.keys': 'WASD ou setas para andar · E para abrir · N para o próximo que precisa de você',

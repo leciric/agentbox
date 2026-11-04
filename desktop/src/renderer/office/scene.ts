@@ -508,9 +508,9 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const screenMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
     disp.push(() => screenMat.dispose());
     const mon = new THREE.Group();
-    mon.position.set(lead ? 0.45 : 0.36, top, lead ? 0.1 : 0.05);
+    mon.position.set(lead ? 0.45 : 0.3, top, lead ? 0.1 : 0.05);
     mon.rotation.y = -0.12;
-    const mw = lead ? 0.86 : 0.82;
+    const mw = lead ? 0.86 : 0.92;
     const mh = mw * (320 / 512);
     mon.add(mesh(geo.box, mats.monitorFrame, 0, 0.06 + mh / 2 + 0.06, 0, mw + 0.05, mh + 0.05, 0.035));
     mon.add(mesh(geo.plane, screenMat, 0, 0.06 + mh / 2 + 0.06, 0.019, mw, mh, 1, false));
@@ -951,7 +951,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x + 0.1, y: 1.05, z: d.z + 0.1, dist: 5.0, pitch: 0.62, yaw: 0.3 };
+      if (d) return { x: d.x + 0.15, y: 1.05, z: d.z + 0.1, dist: 4.3, pitch: 0.62, yaw: 0.3 };
     }
     return undefined;
   }
