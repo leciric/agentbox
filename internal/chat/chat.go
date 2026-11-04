@@ -1966,7 +1966,7 @@ func (c *conversation) run(ad *adapter) {
 	if waitErr != nil {
 		msg += " (" + waitErr.Error() + ")"
 	}
-	if line := lastLine(ad.proc.Stderr()); line != "" {
+	if line := failureLine(ad.proc.Stderr()); line != "" {
 		msg += ": " + line
 	}
 	c.session.Detail, c.session.Error = "", msg
@@ -2035,7 +2035,7 @@ func (c *conversation) connect(ad *adapter) error {
 		case errors.As(err, &rpcErr) && rpcErr.Code == acp.CodeAuthRequired:
 			return fmt.Errorf("%s has no login in this agent: %w (add one with agentbox auth %s)", tool, err, a.AI)
 		case errors.Is(err, acp.ErrClosed):
-			if line := lastLine(proc.Stderr()); line != "" {
+			if line := failureLine(proc.Stderr()); line != "" {
 				return fmt.Errorf("%w: %s%s", err, line, hint(proc.Stderr()))
 			}
 		}

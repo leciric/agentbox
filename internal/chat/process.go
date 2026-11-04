@@ -142,6 +142,38 @@ func lastLine(s string) string {
 	return line
 }
 
+// failureLine is the line of a failed adapter's stderr that says what went
+// wrong: usually its last line, but a version manager ends its error with a
+// line that only says how to get more ("mise ERROR Run with --verbose or
+// MISE_VERBOSE=1 for more information"), and the line that names the failure
+// comes before it.
+func failureLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	var last string
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || moreInfo(line) {
+			continue
+		}
+		if last == "" {
+			last = line
+		}
+		// mise's own error, which may be followed by advice on how to fix it.
+		if strings.HasPrefix(line, "mise ERROR") {
+			return lastLine(line)
+		}
+	}
+	if last == "" {
+		return lastLine(s)
+	}
+	return lastLine(last)
+}
+
+// moreInfo is a line that only points at more output.
+func moreInfo(line string) bool {
+	return strings.Contains(line, "Run with --verbose") || strings.Contains(line, "MISE_VERBOSE=1")
+}
+
 // Remote is an adapter running somewhere StartCommand can't reach as a local
 // process: in an agent's machine, through Incus' API (incus.Proc).
 type Remote interface {

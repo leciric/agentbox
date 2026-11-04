@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,8 +28,34 @@ const hostInstallTimeout = 15 * time.Minute
 
 // hostTools are the paths the lead's adapter runs with.
 type hostTools struct {
-	Adapter string // claude-agent-acp, resolved past any shim
+	Adapter string // claude-agent-acp: AgentBox's own, or a real one from the PATH
+	Node    string // the real node it runs with, never a version manager's shim
 	Bin     string // directories holding the tools, prepended to PATH
+}
+
+// command is what starts the adapter. A Node script is handed to node by
+// path rather than left to its `#!/usr/bin/env node`, which picks whichever
+// node comes first on the PATH, and on a machine with mise that is a shim:
+// mise itself, which under the lead's private HOME can't see the user's
+// ~/.tool-versions or ~/.mise.toml and fails with "mise ERROR".
+func (t hostTools) command() (string, []string) {
+	if t.Node != "" && nodeScript(t.Adapter) {
+		return t.Node, []string{t.Adapter}
+	}
+	return t.Adapter, nil
+}
+
+// nodeScript reports whether path is a script whose #! line runs node.
+func nodeScript(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 128)
+	n, _ := f.Read(head)
+	line, _, _ := strings.Cut(string(head[:n]), "\n")
+	return strings.HasPrefix(line, "#!") && strings.Contains(line, "node")
 }
 
 // toolsHome is a HOME for the installers, so Claude Code's own installer puts
@@ -58,24 +85,38 @@ func (m *Manager) hostTools(ctx context.Context, status func(detail string)) (ho
 	if err != nil {
 		return hostTools{}, err
 	}
-	bin := []string{filepath.Dir(claude), filepath.Dir(adapter)}
+	// The adapter is a Node script, so it needs a node that runs without a
+	// version manager: the machine's own resolved past any shim, else
+	// AgentBox's. It goes on the PATH ahead of the daemon's too, for whatever
+	// the adapter starts with `node` or `npx`.
+	nodeBin, err := m.ensureNode(ctx, status)
+	if err != nil {
+		return hostTools{}, err
+	}
+	bin := []string{filepath.Dir(claude), nodeBin, filepath.Dir(adapter)}
 	// The chat works without gh, so a failed install costs the lead only gh.
 	if gh, err := m.ensureGH(ctx, status); err != nil {
 		m.logf("The project chat starts without the GitHub CLI: %v", err)
 	} else {
 		bin = append(bin, filepath.Dir(gh))
 	}
-	// The adapter is a Node script, so node has to be findable too, and node is
-	// usually a shim as well.
-	if node := onPath("node"); node != "" {
-		bin = append(bin, filepath.Dir(node))
-	}
-	if own := filepath.Join(m.nodeDir(), "bin"); usable(filepath.Join(own, "node")) {
-		bin = append(bin, own)
-	}
-	out := hostTools{Adapter: adapter, Bin: strings.Join(unique(bin), string(os.PathListSeparator))}
-	m.logf("The project chat runs %s, with %s on its PATH", out.Adapter, out.Bin)
+	out := hostTools{Adapter: adapter, Node: filepath.Join(nodeBin, "node"), Bin: strings.Join(unique(bin), string(os.PathListSeparator))}
+	m.logf("The project chat runs %s with %s, with %s on its PATH", out.Adapter, out.Node, out.Bin)
 	return out, nil
+}
+
+// withoutShims is a PATH with every version manager's shim directory taken
+// out. The lead inherits the daemon's PATH, and a shim there would be found
+// before the real tool by anything the adapter starts, then fail for want of
+// the user's HOME.
+func withoutShims(path string) string {
+	var keep []string
+	for _, dir := range filepath.SplitList(path) {
+		if dir != "" && !isShim(filepath.Join(dir, "x")) {
+			keep = append(keep, dir)
+		}
+	}
+	return strings.Join(keep, string(os.PathListSeparator))
 }
 
 // deshim turns a version manager's shim into the real executable. A shim is the
@@ -86,8 +127,8 @@ func deshim(path string) string {
 	if !isShim(path) {
 		return path
 	}
-	mise, err := exec.LookPath("mise")
-	if err != nil {
+	mise := findMise(path)
+	if mise == "" {
 		return ""
 	}
 	out, err := exec.Command(mise, "which", filepath.Base(path)).Output()
@@ -98,6 +139,19 @@ func deshim(path string) string {
 		return ""
 	}
 	return real
+}
+
+// findMise is the mise that answers for a shim: the PATH's, else the one the
+// shim links to. A desktop launcher can start the daemon with the shims on its
+// PATH but not mise itself, and mise's shims are symlinks to it.
+func findMise(shim string) string {
+	if mise, err := exec.LookPath("mise"); err == nil {
+		return mise
+	}
+	if real, err := filepath.EvalSymlinks(shim); err == nil && strings.TrimSuffix(filepath.Base(real), ".exe") == "mise" && usable(real) {
+		return real
+	}
+	return ""
 }
 
 func isShim(path string) bool {
@@ -172,9 +226,16 @@ func (m *Manager) ensureNode(ctx context.Context, status func(string)) (string, 
 	if usable(filepath.Join(own, "npm")) && usable(filepath.Join(own, "node")) {
 		return own, nil
 	}
+	// The machine's own, when node and npm are side by side, resolved past any
+	// shim: callers run <dir>/node and <dir>/npm.
 	if npm := onPath("npm"); npm != "" {
-		if node := onPath("node"); node != "" {
-			return filepath.Dir(npm), nil
+		if dir := filepath.Dir(npm); usable(filepath.Join(dir, "node")) && !isShim(filepath.Join(dir, "node")) {
+			return dir, nil
+		}
+	}
+	if node := onPath("node"); node != "" {
+		if dir := filepath.Dir(node); usable(filepath.Join(dir, "npm")) {
+			return dir, nil
 		}
 	}
 	status("Installing Node, once for this machine")
@@ -183,7 +244,8 @@ func (m *Manager) ensureNode(ctx context.Context, status func(string)) (string, 
 	}
 	// One tarball, extracted with its top directory stripped, so node and npm
 	// land in <tools>/node/bin.
-	url := fmt.Sprintf("https://nodejs.org/dist/%[1]s/node-%[1]s-linux-%[2]s.tar.xz", NodeVersion, nodeArch())
+	dist := cmp.Or(m.nodeDist, "https://nodejs.org/dist")
+	url := fmt.Sprintf("%[3]s/%[1]s/node-%[1]s-linux-%[2]s.tar.xz", NodeVersion, nodeArch(), dist)
 	script := fmt.Sprintf("set -e\ncurl -fsSL %s | tar -xJ --strip-components=1 -C %s", shellQuote(url), shellQuote(m.nodeDir()))
 	cmd := exec.CommandContext(ctx, "bash", "-c", script)
 	cmd.Env = m.installEnv()
@@ -218,7 +280,7 @@ func (m *Manager) ensureAdapter(ctx context.Context, status func(string)) (strin
 	if usable(own) && installed == pinnedVersion(adapter.Package) {
 		return own, nil
 	}
-	if path := onPath(adapter.Command); path != "" && installed == "" {
+	if path := pathAdapter(); path != "" && installed == "" {
 		return path, nil
 	}
 	nodeBin, err := m.ensureNode(ctx, status)
@@ -248,6 +310,18 @@ func (m *Manager) ensureAdapter(ctx context.Context, status func(string)) (strin
 		return "", fmt.Errorf("installing %s: it reported success but %s isn't there: %s", pkg, own, tail(out.String()))
 	}
 	return own, nil
+}
+
+// pathAdapter is the user's own claude-agent-acp, when the PATH has a real
+// one. One the PATH reaches only through a shim is passed over for AgentBox's
+// own: mise's answer for it depends on configuration under the user's HOME and
+// the directory it is asked from, which the lead's chat doesn't share.
+func pathAdapter() string {
+	path, err := exec.LookPath(ChatAdapters["claude"].Command)
+	if err != nil || isShim(path) {
+		return ""
+	}
+	return path
 }
 
 // adapterVersion is the version of the adapter installed in AgentBox's own

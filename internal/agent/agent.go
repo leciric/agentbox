@@ -321,6 +321,9 @@ type Manager struct {
 	// ghReleases, when set, is where the lead's GitHub CLI is downloaded from
 	// instead of GitHub's releases (hostgh.go). Tests point it at a server.
 	ghReleases string
+	// nodeDist, when set, is where the lead's Node is downloaded from
+	// instead of nodejs.org/dist, for tests.
+	nodeDist string
 
 	// RecheckAgentAPI runs Start's background recheck of a freshly booted
 	// agent's in-agent API socket (goRecheckAgentAPI); nil, the default, runs

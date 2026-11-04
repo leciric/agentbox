@@ -111,7 +111,9 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 	// exception is toolEnv, without which the tools can't find themselves.
 	env := []string{
 		"HOME=" + home,
-		"PATH=" + strings.Join(append(bin, os.Getenv("PATH")), string(os.PathListSeparator)),
+		// The daemon's PATH after the tools', without its shim directories:
+		// a shim needs the HOME the lead doesn't have.
+		"PATH=" + strings.Join(append(bin, withoutShims(os.Getenv("PATH"))), string(os.PathListSeparator)),
 		"LANG=C.UTF-8",
 	}
 	env = append(env, toolEnv()...)
