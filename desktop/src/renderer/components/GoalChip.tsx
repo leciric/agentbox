@@ -81,7 +81,11 @@ function GoalFacts({ goal, ai }: { goal: T.AgentGoal; ai?: string }) {
         </ul>
       )}
       <p className="opacity-70">{facts.join(' · ')}</p>
-      {goal.lastUnmet && goal.status !== 'met' && <p className="break-words opacity-80">{t('goal.lastUnmet', { why: goal.lastUnmet })}</p>}
+      {/* What is missing, when the checks above don't already say: a tool's
+          own check's reason, or why it is blocked. */}
+      {goal.lastUnmet && goal.status !== 'met' && (goal.status === 'blocked' || !(goal.checks ?? []).length) && (
+        <p className="break-words opacity-80">{t('goal.lastUnmet', { why: goal.lastUnmet })}</p>
+      )}
     </>
   );
 }

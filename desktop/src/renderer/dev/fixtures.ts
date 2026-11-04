@@ -330,7 +330,7 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running', leadSession: 'main' }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready', leadSession: 'onboarding-copy' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting', leadSession: 'prod-login-500s' }),
-    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running', leadSession: 'main', goal: agent99Goal() }),
+    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running', leadSession: 'main', interface: 'chat', goal: agent99Goal() }),
     // Its turn ended on a CI watch it left running in the background: awaiting,
     // not idle, and kept out of Finished until the watch ends and it reports.
     agent({ ref: `${PROJECT}/agent-41`, title: 'Watch CI on the release branch', chat: 'ready', background: ['Watch CI run 42'], interface: 'chat' }),
