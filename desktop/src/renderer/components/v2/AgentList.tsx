@@ -318,25 +318,37 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
   );
   return (
     <AgentContextMenu agent={agent} pr={pr} active={active} onSelect={onOpen}>
-      <button
+      {/* The row's button lies over it rather than around it: its PR chip and
+          goal are controls of their own, raised above the button, not nested
+          in it, which a screen reader takes as one control. */}
+      <div
         ref={watch}
-        type="button"
-        onClick={(e) => {
-          if (e.button !== 0 || e.ctrlKey) return;
-          onOpen({ kind: 'agent', ref: agent.ref });
-        }}
-        aria-current={active ? 'true' : undefined}
-        className={cn('group flex w-full min-w-0 items-start gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
+        className={cn('group relative flex w-full min-w-0 items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
         data-list-agent={agent.ref}
         data-list-st={st}
         data-list-live={live || undefined}
       >
+        <button
+          type="button"
+          onClick={(e) => {
+            if (e.button !== 0 || e.ctrlKey) return;
+            onOpen({ kind: 'agent', ref: agent.ref });
+          }}
+          aria-current={active ? 'true' : undefined}
+          aria-label={`${title}: ${reason}`}
+          title={tip}
+          className="absolute inset-0 z-0 rounded-lg outline-none"
+        />
         {screen === 'desktop' ? <SlotPreview preview={<LiveDesktop agent={agent} />}>{monitor}</SlotPreview> : monitor}
-        <span className="flex min-w-0 flex-1 flex-col self-stretch" title={tip}>
+        <span className="flex min-w-0 flex-1 flex-col self-stretch">
           <span className="flex min-w-0 items-center gap-1.5 leading-[18px]">
             <span className={cn('min-w-0 flex-1 truncate text-[13px] font-medium', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[12px]')}>{title}</span>
             <FrozenBadge agent={agent} />
-            {agent.goal && <GoalChip goal={agent.goal} ai={agent.ai} compact />}
+            {agent.goal && (
+              <span className="relative z-10 flex">
+                <GoalChip goal={agent.goal} ai={agent.ai} compact />
+              </span>
+            )}
             {number && (
               <span className="shrink-0 text-[12px] tabular-nums text-faint" data-list-number>
                 #{number}
@@ -353,7 +365,11 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
             <span className="min-w-0 truncate">{reason}</span>
           </span>
           <span className="mt-1 flex min-w-0 items-center gap-1.5 overflow-x-clip whitespace-nowrap text-[11px] leading-4 text-faint empty:hidden" data-list-meta>
-            {pr && <PrChip pr={pr} dataAttr="data-list-pr" />}
+            {pr && (
+              <span className="relative z-10 flex">
+                <PrChip pr={pr} dataAttr="data-list-pr" />
+              </span>
+            )}
             {load && (
               <span className={cn('shrink-0 rounded font-mono tabular-nums', heavy(load, hostMemory) ? 'bg-amber-400/15 px-1 font-medium text-amber-300' : 'text-secondary')} data-list-usage data-list-heavy={heavy(load, hostMemory) || undefined}>
                 {[load.cpu !== undefined && `${Math.round(load.cpu)}%`, load.memory && memShort(load.memory)].filter(Boolean).join(' · ')}
@@ -372,7 +388,7 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
             {model && <span className="shrink-0">{model}</span>}
           </span>
         </span>
-      </button>
+      </div>
     </AgentContextMenu>
   );
 }

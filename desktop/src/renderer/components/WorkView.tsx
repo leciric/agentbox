@@ -148,13 +148,14 @@ function WorkList({
   return (
     <div className="grid min-w-0 gap-3" data-work={project ?? ''} data-work-filter={filter}>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <div role="tablist" aria-label={t('work.filters')} className="flex min-w-0 flex-wrap items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5 text-ui" data-work-filters>
+        {/* Filters of one list, not tabs with panels of their own: a group of
+            toggle buttons, the one on pressed. */}
+        <div role="group" aria-label={t('work.filters')} className="flex min-w-0 flex-wrap items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5 text-ui" data-work-filters>
           {workFilters.map((f) => (
             <button
               key={f || 'all'}
               type="button"
-              role="tab"
-              aria-selected={filter === f}
+              aria-pressed={filter === f}
               onClick={() => setFilter(f)}
               className={cn('inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 font-medium transition', filter === f ? 'bg-surface-strong text-title' : 'text-subtle hover:text-primary')}
               data-work-filter-tab={f || 'all'}
@@ -244,7 +245,8 @@ function WorkRow({ work: w, status, depth = 0, stackedOn, projectName, onOpen }:
             )}
             {w.status === 'reviewed' && <span className="shrink-0 text-caption text-subtle">{t(i.verdict === 'changes' ? 'work.verdict.changes' : i.verdict === 'dismissed' ? 'work.verdict.dismissed' : 'work.verdict.reviewed')}</span>}
             <MergeWhenGreenBadge mark={i.mergeWhenGreen} />
-            <OutcomeBadge outcome={outcome} />
+            {/* "In progress" with no report yet only repeats the state beside it. */}
+            {!(outcome === 'working' && (status === 'working' || status === 'needs' || status === 'error')) && <OutcomeBadge outcome={outcome} />}
           </span>
           <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-subtle">
             {projectName && <span className="max-w-[40%] shrink-0 truncate">{projectName}</span>}
