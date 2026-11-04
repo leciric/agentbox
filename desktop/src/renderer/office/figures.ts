@@ -51,15 +51,16 @@ const ACCESSORIES = ['beanie', 'headphones', 'bow', 'cap', 'scarf', 'crown', 'sp
 export type Accessory = (typeof ACCESSORIES)[number] | 'headset';
 
 // accentOf is an agent's accent, from its ref: a colour and a thing to wear.
-// variant, when given, is the agent's place among those of its tool: then no
-// two of them in a row of eight wear the same thing in the same colour.
+// variant, when given, is the agent's place in the room: then no two agents
+// wear the same thing in the same colour until sixty-four of them do.
 export function accentOf(ref: string, variant?: number): { color: string; accessory: Accessory; tint: number } {
   const r = rng(hash(ref));
   const a = r();
   const c = r();
   const tint = r() * 2 - 1;
   if (variant === undefined) return { color: ACCENTS[Math.floor(c * ACCENTS.length)], accessory: ACCESSORIES[Math.floor(a * ACCESSORIES.length)], tint };
-  return { color: ACCENTS[(variant * 3) % ACCENTS.length], accessory: ACCESSORIES[variant % ACCESSORIES.length], tint };
+  // Sixty-four pairings of a thing and a colour before any repeats.
+  return { color: ACCENTS[(Math.floor(variant / ACCESSORIES.length) + variant * 3) % ACCENTS.length], accessory: ACCESSORIES[variant % ACCESSORIES.length], tint };
 }
 
 // The toon ramp: four flat steps of light.
@@ -325,17 +326,20 @@ function cloud(k: Kit): Build {
   const puff = new THREE.Mesh(merged, white);
   body.add(puff);
   ink(puff, 0.016);
-  const face = at(new THREE.Group(), 0, 0.4, 0.2);
+  const face = at(new THREE.Group(), 0, 0.43, 0.2);
   body.add(face);
   // The prompt, below the eyes.
   const glyph = k.m(new THREE.MeshBasicMaterial({ color: '#1d2433' }));
-  const prompt = at(new THREE.Group(), 0, -0.075, 0.005);
+  // Bold, on a little dark screen, so it reads from across the room.
+  const prompt = at(new THREE.Group(), 0, -0.085, 0.01);
+  prompt.add(at(new THREE.Mesh(new RoundedBoxGeometry(0.15, 0.075, 0.012, 2, 0.015), glyph), 0, 0, -0.004));
+  const fg = k.m(new THREE.MeshBasicMaterial({ color: '#7ef0a8' }));
   for (const s of [1, -1]) {
-    const bar = at(new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.011, 0.01), glyph), -0.03, s * 0.011, 0);
+    const bar = at(new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.014, 0.01), fg), -0.035, s * 0.012, 0.004);
     bar.rotation.z = -s * 0.65;
     prompt.add(bar);
   }
-  prompt.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.011, 0.01), glyph), 0.03, -0.02, 0));
+  prompt.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.014, 0.01), fg), 0.025, -0.02, 0.004));
   face.add(prompt);
   const arms = [-1, 1].map((sx) => {
     const p = at(new THREE.Group(), sx * 0.27, 0.3, 0.03);
@@ -479,7 +483,11 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
   const mats: THREE.Material[] = [];
   const kit: Kit = { m: (x) => (mats.push(x), x), tint: acc.tint };
   const b = builders[tool](kit);
-  wear(kit, b, opts.lead ? 'headset' : acc.accessory, acc.color);
+  // The sparkle's top point and the cloud's prompt stay clear: they wear a
+  // bow or a scarf rather than anything on top.
+  const onTop = acc.accessory === 'beanie' || acc.accessory === 'cap' || acc.accessory === 'crown' || acc.accessory === 'sprout' || acc.accessory === 'headphones';
+  const worn: Accessory = opts.lead ? 'headset' : (tool === 'gemini' || tool === 'codex') && onTop ? (hash(ref) % 2 ? 'bow' : 'scarf') : acc.accessory;
+  wear(kit, b, worn, acc.color);
   const eyes = makeEyes(kit, b);
   // A blush, for when it's pleased or waving.
   const cheekM = kit.m(new THREE.MeshBasicMaterial({ color: '#ff7fa8', transparent: true, opacity: 0.6, depthWrite: false }));
@@ -583,8 +591,8 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
           break;
         }
         case 'stopped': {
-          T.lean = 0.3;
-          T.roll = 0.12;
+          T.lean = 0.1;
+          T.roll = 0.1;
           T.squash = 0.97 + Math.sin(t * 0.8) * 0.02;
           T.laz = -0.1;
           T.raz = 0.1;

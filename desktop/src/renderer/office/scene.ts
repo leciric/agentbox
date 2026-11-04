@@ -368,6 +368,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   // What the close-up looks at, kept while it eases out.
   let focusRef: string | undefined;
   let focusAt: { x: number; z: number } | undefined;
+  // Where the wheel zoomed in, until you walk.
+  let zoomFocus: P | undefined;
   let settledFor = 0;
   let chipsShown = true;
   let lastRestack = '';
@@ -566,10 +568,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let variants = new Map<string, number>();
   function variantOf(ref: string, ai: string | undefined): number {
     if (!variants.has(ref)) {
-      const tool = ai || 'claude';
-      const n = [...variants.keys()].filter((k) => variantTool.get(k) === tool).length;
-      variants.set(ref, n);
-      variantTool.set(ref, tool);
+      variants.set(ref, variants.size);
+      variantTool.set(ref, ai || 'claude');
     }
     return variants.get(ref)!;
   }
@@ -965,6 +965,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
 
   function started() {
     held = false;
+    zoomFocus = undefined;
     if (moved) return;
     moved = true;
     mePulse?.cancel();
@@ -1217,8 +1218,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const fPitch = 0.78;
     const fDist = cam.dist;
     const f = cam.followK;
-    let tx = W / 2 - oShift + (pos.x - W / 2 + oShift) * f;
-    let tz = D / 2 + 0.6 + (pos.z - D / 2 - 0.6) * f;
+    // Following you, or the spot the wheel zoomed in on.
+    const fx = zoomFocus ? zoomFocus.x : pos.x;
+    const fz = zoomFocus ? zoomFocus.z : pos.z;
+    let tx = W / 2 - oShift + (fx - W / 2 + oShift) * f;
+    let tz = D / 2 + 0.6 + (fz - D / 2 - 0.6) * f;
     let ty = 0.9 * f;
     let dist = oDist + (fDist - oDist) * f;
     let pitch = oPitch + (fPitch - oPitch) * f;
@@ -1346,7 +1350,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // You fade while you look at a monitor, so you never stand in front of it.
     // At a counter you'd stand in front of its monitor: you all but fade. At
     // a desk you stand aside, half seen through, so you hide nothing.
-    me.fade(focusRef?.endsWith('/lead') ? 1 - cam.closeK * 0.82 : 1);
+    // At a desk, half seen through: there, but never in the way.
+    me.fade(1 - cam.closeK * (focusRef?.endsWith('/lead') ? 0.82 : 0.45));
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1583,7 +1588,17 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     if (cam.closeK > 0.5 && n > 0) {
       held = true;
       zoomTo(0.5);
-    } else zoomTo(zoomZ - n * 0.125);
+    } else {
+      // Zooming in looks at what's under the pointer; out, it lets go.
+      if (n < 0 && cam.closeK < 0.5) {
+        const { floor, ref } = pick(e.clientX, e.clientY);
+        const s = ref ? spotOf(lay, ref) : undefined;
+        const p = s ?? floor;
+        if (p) zoomFocus = { x: Math.min(lay.room.x1, Math.max(0, p.x)), z: Math.min(lay.room.z1, Math.max(0, p.z)) };
+      }
+      zoomTo(zoomZ - n * 0.125);
+      if (zoomZ === 0) zoomFocus = undefined;
+    }
     poke();
   };
   const editable = (el: Element | null) => !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable || el.closest('[role="dialog"]') !== null);
