@@ -22,14 +22,17 @@ import (
 //
 //   - A notice about an agent goes to the session that made it (tellOwnerOf):
 //     its finish, stall and failure, its questions, its pull request.
-//   - One about no agent, or about an agent nobody owns — a schedule, another
-//     project's lead, the user's Home chat, CI on main, an agent the user made
-//     or whose session was closed or deleted — goes to the open session most
-//     recently active
+//   - One about no agent, or about an agent nobody owns — a schedule, the
+//     user's Home chat, CI on main, an agent the user made or whose session
+//     was closed or deleted — goes to the open session most recently active
 //     (tellSessionOf with no session). A project with no session at all gets
 //     one, titled after the notice, when the notice starts a turn; one that
 //     only waits to be read has nobody to read it, and is dropped, as it was
 //     before a project's chat had been used.
+//   - Another project's lead always writes to the project's main session, its
+//     oldest open one (firstLead), made the same way when there is none: a
+//     thread between two projects stays in one conversation, wherever the
+//     user is chatting.
 //   - A lead may read every agent, and acts on its own and on nobody's freely.
 //     Telling or retiring another session's agent waits for the user's yes on
 //     a card in its chat (crossSession); handing an agent over is the user's,
@@ -106,7 +109,21 @@ func (s *Server) sessionLead(ctx context.Context, project, session string) (stat
 // most recently active, or, with open a project with no session at all, a new
 // one titled topic. Without open, a project with none is state.ErrNotFound.
 func (s *Server) eventLead(ctx context.Context, project, topic string, open bool) (state.Agent, error) {
-	ls, err := s.store.LastActiveLeadSession(ctx, project)
+	return s.pickedLead(ctx, project, topic, open, s.store.LastActiveLeadSession)
+}
+
+// firstLead is the lead of the project's main session, its oldest open one
+// (state.FirstLeadSession), or, with open a project with no session at all,
+// of a new one titled topic. Another project's lead writes there: unlike
+// eventLead's, it doesn't move with whichever session the user last wrote in.
+func (s *Server) firstLead(ctx context.Context, project, topic string, open bool) (state.Agent, error) {
+	return s.pickedLead(ctx, project, topic, open, s.store.FirstLeadSession)
+}
+
+// pickedLead is eventLead and firstLead, with the open session pick chooses.
+func (s *Server) pickedLead(ctx context.Context, project, topic string, open bool,
+	pick func(context.Context, string) (state.LeadSession, error)) (state.Agent, error) {
+	ls, err := pick(ctx, project)
 	if errors.Is(err, state.ErrNotFound) {
 		// A lead from before sessions that the migration didn't see is the
 		// session it would have made.

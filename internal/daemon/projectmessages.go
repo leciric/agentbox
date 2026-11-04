@@ -298,12 +298,17 @@ func (s *Server) deliverProjectMessage(ctx context.Context, t state.ProjectThrea
 		project, other, direction string
 	}{{from, to, api.ProjectMessageOut}, {to, from, api.ProjectMessageIn}} {
 		// The sender's own session shows what it sent; the one it went to
-		// is the session most recently active, which the notice wakes.
-		session, topic := leadSessionOf(ctx), "From "+side.other+": "+t.Topic
+		// is its project's main session (firstLead), which the notice
+		// wakes, whichever session the user has selected or last wrote in,
+		// so a thread stays in one conversation and is answered from it.
+		topic := "From " + side.other + ": " + t.Topic
+		var lead state.Agent
+		var err error
 		if side.project == to {
-			session = ""
+			lead, err = s.firstLead(ctx, to, topic, true)
+		} else {
+			lead, err = s.leadOf(ctx, from, leadSessionOf(ctx), topic, false)
 		}
-		lead, err := s.leadOf(ctx, side.project, session, topic, side.project == to)
 		if err != nil {
 			s.logf("%s's chat: showing a message with %s: %v", side.project, side.other, err)
 		} else {
@@ -323,7 +328,7 @@ func (s *Server) deliverProjectMessage(ctx context.Context, t state.ProjectThrea
 		}, "")
 	}
 	s.logf("%s's lead → %s's lead (thread %s, %s, hop %d)", from, to, t.ID, kind, m.Hop)
-	if lead, err := s.leadOf(ctx, to, "", "From "+from+": "+t.Topic, true); err == nil {
+	if lead, err := s.firstLead(ctx, to, "From "+from+": "+t.Topic, true); err == nil {
 		s.tellSession(ctx, to, lead.Session(), projectNotice(t, m, kind), true)
 	}
 }

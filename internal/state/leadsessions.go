@@ -31,7 +31,8 @@ import (
 // schedules, the repository and the agents. What isn't is the conversation,
 // what it is working on (memory.WorkingMemory.Sessions), and the agents it
 // made (Agent.CreatedBySession), whose notices go back to it. Notices nobody
-// owns go to the session most recently active (LastActiveLeadSession).
+// owns go to the session most recently active (LastActiveLeadSession), and
+// another project's lead's to the oldest open one (FirstLeadSession).
 
 // MigratedSession is the id of the session every project chatted with before
 // sessions got: that chat, whose lead is the row named LeadName. It is an
@@ -454,6 +455,21 @@ func (s *Store) LastActiveLeadSession(ctx context.Context, project string) (Lead
 		return LeadSession{}, fmt.Errorf("%s's chat has no session: %w", project, ErrNotFound)
 	}
 	return best, nil
+}
+
+// FirstLeadSession is the project's oldest open session, its main one: where
+// another project's lead writes (the daemon's projectmessages.go), so a
+// thread between two projects stays in one conversation whichever session
+// the user is in. ErrNotFound when it has none open.
+func (s *Store) FirstLeadSession(ctx context.Context, project string) (LeadSession, error) {
+	sessions, err := s.LeadSessions(ctx, project)
+	if err != nil {
+		return LeadSession{}, err
+	}
+	if len(sessions) == 0 {
+		return LeadSession{}, fmt.Errorf("%s's chat has no session: %w", project, ErrNotFound)
+	}
+	return sessions[0], nil
 }
 
 // RenameLeadSession changes a session's topic, the user's: nothing names it

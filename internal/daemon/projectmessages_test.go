@@ -197,6 +197,89 @@ func TestLeadsMessageEachOther(t *testing.T) {
 	}
 }
 
+// What another project's lead sends lands in the project's main session, the
+// oldest open one, even when another session is the one the user is chatting
+// in and spoke last; a project with no session opens one, and later messages
+// keep to it.
+func TestProjectMessagesGoToTheMainSession(t *testing.T) {
+	t.Parallel()
+	d, _ := twoProjects(t)
+	ctx := context.Background()
+	if err := d.srv.serveLeadAPI("web"); err != nil {
+		t.Fatal(err)
+	}
+	web := api.NewClient(d.srv.leadSocketPath("web"))
+	prod, err := d.client.NewLeadSession(ctx, "api", "Prod: login 500s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prodLead, err := d.srv.sessionLead(ctx, "api", prod.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saidLast(t, d, prodLead, "Looking at the cookie.")
+	if ls, err := d.srv.store.LastActiveLeadSession(ctx, "api"); err != nil || ls.ID != prod.ID {
+		t.Fatalf("LastActiveLeadSession() = %+v, %v; want prod, which spoke last", ls, err)
+	}
+
+	for _, text := range []string{"Which date format does /v1/events return?", "And /v1/users?"} {
+		if _, err := web.MessageProject(ctx, api.ProjectMessageRequest{Project: "api", Message: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, "api's main session to be told", func() bool { return len(hiddenNotices(t, d, "api")) == 2 })
+	if cards := projectCards(t, d, "api"); len(cards) != 2 {
+		t.Errorf("api's main session shows %d cards, want 2", len(cards))
+	}
+	if got := strings.Join(noticesOf(t, d, prodLead), "\n"); strings.Contains(got, "project-message") {
+		t.Errorf("the session the user was chatting in was told:\n%s", got)
+	}
+	if th, err := d.srv.chat.Thread(prodLead); err == nil {
+		for _, it := range th.Items {
+			if it.ProjectMessage != nil {
+				t.Errorf("the prod session shows a project message: %+v", it)
+			}
+		}
+	}
+
+	// With every session gone one is opened for the message, and the next
+	// goes there too, though a newer session has spoken since.
+	for _, session := range []string{state.MigratedSession, prod.ID} {
+		if err := d.client.DeleteLeadSession(ctx, "api", session); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := web.MessageProject(ctx, api.ProjectMessageRequest{Project: "api", Message: "Still there?"}); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := d.client.LeadSessions(ctx, "api")
+	if err != nil || len(opened) != 1 || !strings.HasPrefix(opened[0].Topic, "From web") {
+		t.Fatalf("LeadSessions() = %+v, %v; want one opened for the message", opened, err)
+	}
+	inbox, err := d.srv.sessionLead(ctx, "api", opened[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	later, err := d.client.NewLeadSession(ctx, "api", "Later")
+	if err != nil {
+		t.Fatal(err)
+	}
+	laterLead, err := d.srv.sessionLead(ctx, "api", later.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saidLast(t, d, laterLead, "On it.")
+	if _, err := web.MessageProject(ctx, api.ProjectMessageRequest{Project: "api", Message: "One more."}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the opened session to hear both", func() bool {
+		return strings.Count(strings.Join(noticesOf(t, d, inbox), "\n"), "<project-message") == 2
+	})
+	if got := strings.Join(noticesOf(t, d, laterLead), "\n"); strings.Contains(got, "project-message") {
+		t.Errorf("the newer session was told:\n%s", got)
+	}
+}
+
 // A user who refuses the first message stops it: nothing is stored, shown or
 // sent, and the lead is told not to ask again.
 func TestTheFirstMessageWaitsForTheUser(t *testing.T) {
