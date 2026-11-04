@@ -2,8 +2,10 @@
 // lead conversation of its own on one topic, as many as the user opens, none
 // once they've all been closed. The chat shows one at a time, its tabs above
 // it and the sidebar listing them under the project; which one this computer
-// last had open is kept here, in localStorage, per project, and so is when
-// each was last seen, for its unread dot.
+// last had open is kept here, in localStorage, per project. When each was last
+// seen, for its unread dot, is the daemon's (LeadSession.seenAt), so every
+// window and the phone agree: this window tells it (markSessionSeen), and
+// holds what it saw until the daemon's list says so too.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api';
 
@@ -12,7 +14,6 @@ import type * as T from '../../shared/api';
 const sessionRef = (project: string, session: string) => `${project}/${session === 'main' ? 'lead' : `lead.${session}`}`;
 
 const currentKey = 'agentbox.sessions.current';
-const seenKey = 'agentbox.sessions.seen';
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
 
@@ -43,7 +44,9 @@ function writeMap(key: string, value: Record<string, string>, s = storage()): vo
 }
 
 let current = readMap(currentKey);
-let seen = readMap(seenKey);
+// seenHere is when this window last showed each session, by ref.
+let seenHere: Record<string, string> = {};
+let sendSeen: ((project: string, session: string, at: string) => void) | undefined;
 const listeners = new Set<() => void>();
 const notify = () => {
   for (const l of listeners) l();
@@ -122,13 +125,60 @@ export function sessionColor(sessions: readonly T.LeadSession[], s: T.LeadSessio
   return sessions.length >= 2 && s?.color ? s.color : undefined;
 }
 
-// isUnread says a session has a message newer than when it was last seen.
-// One never seen counts from when it was opened, so a new session isn't
-// unread for being new.
-export function isUnread(s: T.LeadSession, seenAt: string | undefined): boolean {
+// isUnread says a session has a message newer than when it was last seen,
+// anywhere (seenAt, the daemon's) or here (seenHere). One never seen counts
+// from when it was opened, so a new session isn't unread for being new.
+export function isUnread(s: T.LeadSession, seenHere?: string): boolean {
   if (!s.last) return false;
-  const since = new Date(seenAt ?? s.createdAt).getTime();
+  const times = [s.seenAt, seenHere].filter((x): x is string => !!x).map((x) => new Date(x).getTime());
+  const since = times.length ? Math.max(...times) : new Date(s.createdAt).getTime();
   return new Date(s.last.at).getTime() > since;
+}
+
+export type SessionStatus = 'needsYou' | 'failed' | 'working' | 'idle';
+
+// sessionStatus is where a session stands (LeadSession.status, the daemon's
+// daemon/sessionstatus.go): something waits on you in it, its chat stopped
+// or stalled, its lead works, or none of these. A daemon too old to say is
+// read from its chat's state.
+export function sessionStatus(s: T.LeadSession): SessionStatus {
+  const known: readonly string[] = ['needsYou', 'failed', 'working', 'idle'] satisfies SessionStatus[];
+  if (s.status && known.includes(s.status)) return s.status as SessionStatus;
+  if (s.chat === 'waiting') return 'needsYou';
+  if (s.chat === 'error') return 'failed';
+  return isWorking(s) ? 'working' : 'idle';
+}
+
+// needsYouCount is how many things wait on you in s; at least 1 when an old
+// daemon only says its chat waits.
+export const needsYouCount = (s: T.LeadSession): number => (sessionStatus(s) === 'needsYou' ? Math.max(1, s.needsYou ?? 0) : 0);
+
+export interface SessionAlert {
+  // needsYou: a permission request now waits in it (a question notifies on
+  // its own); failed: its chat stopped or stalled; done: its lead's turn
+  // ended with none of its agents still working.
+  kind: 'needsYou' | 'failed' | 'done';
+  session: T.LeadSession;
+}
+
+// sessionAlerts is what changed between two lists of a project's sessions that
+// is worth a notice. A session in only one of them is none: it was just
+// opened, closed or first read.
+export function sessionAlerts(prev: readonly T.LeadSession[] | undefined, next: readonly T.LeadSession[]): SessionAlert[] {
+  if (!prev) return [];
+  const before = new Map(prev.map((s) => [s.id, s]));
+  const out: SessionAlert[] = [];
+  for (const s of next) {
+    const p = before.get(s.id);
+    if (!p) continue;
+    const was = sessionStatus(p);
+    const now = sessionStatus(s);
+    const asks = (x: T.LeadSession) => needsYouCount(x) - (x.questions ?? 0);
+    if (asks(s) > asks(p)) out.push({ kind: 'needsYou', session: s });
+    else if (now === 'failed' && was !== 'failed') out.push({ kind: 'failed', session: s });
+    else if (was === 'working' && now === 'idle' && !s.agentsWorking) out.push({ kind: 'done', session: s });
+  }
+  return out;
 }
 
 // topicFrom is a new session's topic made from the message it starts with: its
@@ -163,21 +213,47 @@ export function chooseSession(project: string, session: string): void {
   markSessionSeen(project, session);
 }
 
-// useSeenAt is when each session was last seen, by ref.
+// useSeenAt is when this window last showed each session, by ref.
 export function useSeenAt(): Record<string, string> {
-  return useSyncExternalStore(subscribe, () => seen);
+  return useSyncExternalStore(subscribe, () => seenHere);
 }
 
-// markSessionSeen records that a session's chat was on screen now.
-export function markSessionSeen(project: string, session: string, at = new Date()): void {
-  seen = { ...seen, [sessionRef(project, session)]: at.toISOString() };
-  writeMap(seenKey, seen);
-  notify();
+// sendSeenWith is how markSessionSeen tells the daemon (api.seeLeadSession),
+// which App sets.
+export function sendSeenWith(fn: (project: string, session: string, at: string) => void): void {
+  sendSeen = fn;
 }
+
+// markSessionSeen records that a session's chat was on screen now, here and
+// in the daemon, for every other window and the phone.
+export function markSessionSeen(project: string, session: string, at = new Date()): void {
+  const iso = at.toISOString();
+  seenHere = { ...seenHere, [sessionRef(project, session)]: iso };
+  notify();
+  sendSeen?.(project, session, iso);
+}
+
+// shownSessions counts, by ref, the chats on screen showing each session.
+const shownSessions = new Map<string, number>();
+
+// showingSession says a session's chat is on screen until the returned
+// function is called: a notice about it then waits for the window to be in
+// the background.
+export function showingSession(project: string, session: string): () => void {
+  const ref = sessionRef(project, session);
+  shownSessions.set(ref, (shownSessions.get(ref) ?? 0) + 1);
+  return () => {
+    const n = (shownSessions.get(ref) ?? 1) - 1;
+    if (n > 0) shownSessions.set(ref, n);
+    else shownSessions.delete(ref);
+  };
+}
+
+export const isSessionShown = (project: string, session: string): boolean => shownSessions.has(sessionRef(project, session));
 
 // For the tests: start over from what s holds.
 export function resetSessionsForTest(s: Store): void {
   current = readMap(currentKey, s);
-  seen = readMap(seenKey, s);
+  seenHere = {};
   notify();
 }

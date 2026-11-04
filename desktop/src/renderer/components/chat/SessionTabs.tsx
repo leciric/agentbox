@@ -1,16 +1,18 @@
-import { History, LoaderCircle, Plus, X } from 'lucide-react';
+import { History, Plus, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { useT } from '../../lib/i18n';
-import { isUnread, isWorking, sessionColor, useSeenAt } from '../../lib/sessions';
+import { isUnread, sessionColor, sessionStatus, useSeenAt } from '../../lib/sessions';
+import { SessionStatusMark } from './SessionStatusMark';
 import { keysHint, sessionKeys } from '../../lib/shortcuts';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Tip } from '../ui/tooltip';
 
-// SessionTabs is the row above a project's chat: one tab per session, with a
-// spinner while its lead works and a dot when it has said something since you
-// last looked; each is a folder tab on the box of the chat below it, in its
+// SessionTabs is the row above a project's chat: one tab per session, with
+// where it stands before its name (SessionStatusMark: what waits on you, a
+// stop, a spinner while its lead works, or a dot when it has said something
+// since you last looked, here or on the phone); each is a folder tab on the box of the chat below it, in its
 // colour (sessionColor) once there are several, the box and the bracket of the
 // agents it made having the same; + opens a new one at once, untitled until its first turn
 // names it (ProjectChatPanel). A tab's ×, and its shortcut
@@ -67,6 +69,7 @@ export function SessionTabs({
             aria-selected={on}
             tabIndex={on ? 0 : -1}
             data-session={s.id}
+            data-session-state={sessionStatus(s)}
             data-session-color={color}
             onClick={() => onChoose(s.id)}
             onDoubleClick={() => setRenaming(s.id)}
@@ -80,11 +83,7 @@ export function SessionTabs({
               on ? 'border-b-0 bg-ink text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
             )}
           >
-            {isWorking(s) ? (
-              <LoaderCircle aria-label={t('sessions.working')} className="size-3 shrink-0 animate-spin text-brand-300" />
-            ) : unread ? (
-              <span aria-label={t('sessions.unread')} className="size-1.5 shrink-0 rounded-full bg-brand-400" />
-            ) : null}
+            <SessionStatusMark session={s} unread={unread} />
             <span className="min-w-0 truncate">{s.topic}</span>
             {s.agents > 0 && <span className="shrink-0 text-caption tabular-nums text-faint">{s.agents}</span>}
             <Tip label={on ? `${t('sessions.close')} · ${keysHint(sessionKeys.close)}` : t('sessions.close')}>

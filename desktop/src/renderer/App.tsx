@@ -56,6 +56,9 @@ import { StaleDaemonNotice, useStaleDaemon } from "./components/StaleDaemonNotic
 import { api, isProjectChat } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
+import { useSessionAlerts } from "./lib/useSessionAlerts";
+import { chooseSession } from "./lib/sessions";
+import { HomeProject } from "../shared/api";
 import { launchArrival, tourFirst, tourState } from "./lib/tours";
 import { agentPanelKind } from "./lib/tabs";
 import { onList, openAgentChat, openPanelOn, usePanel } from "./lib/rightPanel";
@@ -545,6 +548,13 @@ export function App({ initial }: { initial?: View } = {}) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.data]);
+
+  // Tell you about a chat session you aren't looking at, and count what
+  // waits on you on the dock icon (lib/useSessionAlerts.ts).
+  useSessionAlerts((project, session) => {
+    chooseSession(project, session);
+    select(project === HomeProject ? { kind: "homeChat" } : { kind: "project", project, tab: "chat" });
+  });
 
   // Tell you when an agent newly lands in Ready to review: the chime and the
   // "new" marks are the hook's (lib/useReadyAlerts.ts); the OS notification,

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { afterClose, byActivity, isUnread, isWorking, neighbour, openSession, pickSession, SESSION_COLORS, sessionColor, topicFrom, withSession } from './sessions.ts';
+import { afterClose, byActivity, isUnread, isWorking, needsYouCount, neighbour, openSession, pickSession, SESSION_COLORS, sessionAlerts, sessionColor, sessionStatus, topicFrom, withSession } from './sessions.ts';
 
 const session = (id: string, activeAt: string, over: Partial<T.LeadSession> = {}): T.LeadSession => ({
   project: 'web',
@@ -94,6 +94,9 @@ test('a session is unread when it said something after it was last seen', () => 
   assert.ok(!isUnread(said, '2026-10-29T09:30:00Z'));
   assert.ok(isUnread(said, undefined), 'never seen counts from when it was opened');
   assert.ok(!isUnread(prod, undefined), 'nothing said, nothing unread');
+  const seenOnThePhone = { ...said, seenAt: '2026-10-29T09:30:00Z' };
+  assert.ok(!isUnread(seenOnThePhone, undefined), 'seen anywhere is read here');
+  assert.ok(!isUnread({ ...said, seenAt: '2026-10-29T08:00:00Z' }, '2026-10-29T09:30:00Z'), 'seen here since the daemon last said');
   assert.ok(isWorking(session('x', '', { chat: 'running' })));
   assert.ok(!isWorking(session('x', '', { chat: 'ready' })));
 });
@@ -120,4 +123,36 @@ test('every session colour has its look in styles.css', () => {
     assert.match(css, new RegExp(`\\[data-session-color="${c}"\\] \\{ --session: var\\(--ab-session-${c}\\); \\}`), c);
     assert.equal(css.match(new RegExp(`--ab-session-${c}: #`, 'g'))?.length, 2, `${c} in the dark and light themes`);
   }
+});
+
+test('a session stands where the daemon says, or where its chat is for an older one', () => {
+  assert.equal(sessionStatus(session('x', '', { status: 'needsYou', needsYou: 2, chat: 'running' })), 'needsYou');
+  assert.equal(sessionStatus(session('x', '', { status: 'idle', chat: 'running' })), 'idle', "the daemon's word wins");
+  assert.equal(sessionStatus(session('x', '', { chat: 'waiting' })), 'needsYou');
+  assert.equal(sessionStatus(session('x', '', { chat: 'error' })), 'failed');
+  assert.equal(sessionStatus(session('x', '', { chat: 'running' })), 'working');
+  assert.equal(sessionStatus(session('x', '', { chat: 'ready' })), 'idle');
+  assert.equal(needsYouCount(session('x', '', { status: 'needsYou', needsYou: 3 })), 3);
+  assert.equal(needsYouCount(session('x', '', { chat: 'waiting' })), 1, 'an old daemon says only that it waits');
+  assert.equal(needsYouCount(session('x', '', { status: 'working', needsYou: 0 })), 0);
+});
+
+test('a session tells you when a permission waits in it, it stops, or its turn ends with its agents done', () => {
+  const at = (over: Partial<T.LeadSession>) => session('prod', '', over);
+  const kinds = (prev: T.LeadSession[] | undefined, next: T.LeadSession[]) => sessionAlerts(prev, next).map((a) => `${a.session.id}:${a.kind}`);
+  assert.deepEqual(kinds(undefined, [at({ status: 'needsYou', needsYou: 1 })]), [], 'the first list read is no change');
+  assert.deepEqual(kinds([at({ status: 'working' })], [at({ status: 'needsYou', needsYou: 1 })]), ['prod:needsYou']);
+  assert.deepEqual(kinds([at({ status: 'needsYou', needsYou: 1 })], [at({ status: 'needsYou', needsYou: 2 })]), ['prod:needsYou'], 'another one waits');
+  assert.deepEqual(kinds([at({ status: 'needsYou', needsYou: 2 })], [at({ status: 'needsYou', needsYou: 1 })]), [], 'one was answered');
+  assert.deepEqual(
+    kinds([at({ status: 'working' })], [at({ status: 'needsYou', needsYou: 1, questions: 1 })]),
+    [],
+    'a question notifies on its own',
+  );
+  assert.deepEqual(kinds([at({ status: 'working' })], [at({ status: 'failed' })]), ['prod:failed']);
+  assert.deepEqual(kinds([at({ status: 'failed' })], [at({ status: 'failed' })]), []);
+  assert.deepEqual(kinds([at({ status: 'working' })], [at({ status: 'idle' })]), ['prod:done']);
+  assert.deepEqual(kinds([at({ status: 'working' })], [at({ status: 'idle', agentsWorking: 1 })]), [], 'its agents still work');
+  assert.deepEqual(kinds([at({ status: 'idle' })], [at({ status: 'idle', unread: true })]), []);
+  assert.deepEqual(kinds([main], [main, at({ status: 'needsYou', needsYou: 1 })]), [], 'a session just opened');
 });

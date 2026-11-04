@@ -131,6 +131,7 @@ func (s *Server) standSessions(ctx context.Context, project string, open []state
 			continue
 		}
 		row.Status, row.NeedsYou = sessionStanding(s.chat.Attention(row.Ref), asks[row.ID])
+		row.Questions = asks[row.ID]
 		row.AgentsWorking = working[row.ID]
 		if at, ok := seen[row.ID]; ok {
 			row.SeenAt = &at

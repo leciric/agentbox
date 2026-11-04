@@ -544,6 +544,10 @@ type LeadSession struct {
 	// SessionNeedsYou: its own permission requests, the agents' it shows,
 	// and its agents' questions passed on to the user.
 	NeedsYou int `json:"needsYou,omitempty"`
+	// Questions is how many of NeedsYou are its agents' questions, which
+	// notify on their own (EventNotification); the rest are permission
+	// requests, which a notice about the session is for.
+	Questions int `json:"questions,omitempty"`
 	// AgentsWorking is how many of its agents are in a turn.
 	AgentsWorking int `json:"agentsWorking,omitempty"`
 	// SeenAt is when it was last on screen, in any window or on the phone

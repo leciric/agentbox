@@ -4,7 +4,7 @@ import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { ConnectionState } from '../../preload';
 import * as T from '../../shared/api.ts';
-import { api, sessionOfRef, sessionRef } from './api.ts';
+import { api, sessionOfRef, sessionRef, untitledTopic } from './api.ts';
 import { questionsKey, withQuestion } from './inboxPages.ts';
 import { applyMediaEvent, setMediaUnseen } from './mediaPages.ts';
 import { pastAgentsKey } from './pastAgents.ts';
@@ -17,6 +17,12 @@ import { changesFiles, refreshFiles } from './files.ts';
 const listeners = new Set<() => void>();
 const mediaListeners = new Set<(item: T.MediaItem) => void>();
 const notificationListeners = new Set<(n: T.Notification) => void>();
+type SessionStatusListener = (project: string, prev: T.LeadSession[] | undefined, next: T.LeadSession[]) => void;
+const sessionStatusListeners = new Set<SessionStatusListener>();
+// pushedSessions is the sessions list each project's last status event
+// carried: what the next one is compared with for notices, since the cached
+// list may have been read again in between, already changed.
+const pushedSessions = new Map<string, T.LeadSession[]>();
 const logs = new Map<string, string[]>();
 const noLines: string[] = [];
 let connection: ConnectionState = { state: 'connecting' };
@@ -56,6 +62,15 @@ export function onMedia(fn: (item: T.MediaItem) => void): () => void {
 }
 
 // onNotification calls fn for every notification as the daemon makes it.
+// onSessionStatus calls fn whenever the daemon says where a project's chat
+// sessions stand (EventLeadSessionStatus), with the list it said before.
+export function onSessionStatus(fn: SessionStatusListener): () => void {
+  sessionStatusListeners.add(fn);
+  return () => {
+    sessionStatusListeners.delete(fn);
+  };
+}
+
 export function onNotification(fn: (n: T.Notification) => void): () => void {
   notificationListeners.add(fn);
   return () => {
@@ -122,6 +137,18 @@ export function connectEvents(queryClient: QueryClient): void {
         const change = event.data as T.LeadSessionsChange;
         void queryClient.invalidateQueries({ queryKey: ['leadSessions', change.project] });
         void queryClient.invalidateQueries({ queryKey: ['fleet', change.project] });
+        break;
+      }
+      case T.EventLeadSessionStatus: {
+        // Where each session stands moved: its tab, its sidebar row and the
+        // badge read the list, which is the daemon's whole open list.
+        const change = event.data as T.LeadSessionStatusChange;
+        const next = change.sessions.map(untitledTopic);
+        const key = ['leadSessions', change.project];
+        const prev = pushedSessions.get(change.project) ?? queryClient.getQueryData<T.LeadSession[]>(key);
+        pushedSessions.set(change.project, next);
+        queryClient.setQueryData(key, next);
+        for (const fn of sessionStatusListeners) fn(change.project, prev, next);
         break;
       }
       case T.EventAgentEvent: {

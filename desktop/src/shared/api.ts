@@ -2977,6 +2977,7 @@ export interface LeadSession {
   closedAt?: string;
   status?: string;
   needsYou?: number;
+  questions?: number;
   agentsWorking?: number;
   seenAt?: string;
   unread?: boolean;

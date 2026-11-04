@@ -2616,6 +2616,7 @@ export function installDevBridge(): void {
     keepAwake: async () => {},
     tray: { settings: async () => ({ keepRunning: false }), set: async (next: { keepRunning?: boolean }) => ({ keepRunning: false, ...next }), reviewing: () => {}, onOpen: () => () => {} },
     onNotificationClick: () => () => {},
+    badge: () => {},
     copyText: () => {},
     readText: async () => '',
     copyImage: () => {},
