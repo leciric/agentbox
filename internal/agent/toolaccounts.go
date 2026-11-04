@@ -25,8 +25,8 @@ import (
 // tool, OpenCode's one per provider. Only the agent's own tool's is set on a
 // resolved one.
 type Logins struct {
-	Claude, Codex, Cursor, Gemini string
-	OpenCode                      state.AccountMap
+	Claude, Codex, Cursor, Gemini, Copilot string
+	OpenCode                               state.AccountMap
 }
 
 // The files each tool reads its login from, under the agent's (or the lead's)
@@ -44,7 +44,7 @@ const (
 // job fail after it has already answered that the agent is on its way (see
 // createAgentFrom).
 func (m *Manager) CheckLogin(ai string, p state.Project, want Logins) (Logins, error) {
-	for tool, named := range map[string]bool{"claude": want.Claude != "", "codex": want.Codex != "", "cursor": want.Cursor != "", "gemini": want.Gemini != "", "opencode": len(want.OpenCode.Clean()) > 0} {
+	for tool, named := range map[string]bool{"claude": want.Claude != "", "codex": want.Codex != "", "cursor": want.Cursor != "", "gemini": want.Gemini != "", "copilot": want.Copilot != "", "opencode": len(want.OpenCode.Clean()) > 0} {
 		if named && tool != ai {
 			return Logins{}, fmt.Errorf("a %s account only applies to agents that run %s, and this one runs %s", ChatAdapters[tool].Tool, ChatAdapters[tool].Tool, ai)
 		}
@@ -53,8 +53,8 @@ func (m *Manager) CheckLogin(ai string, p state.Project, want Logins) (Logins, e
 	case "claude":
 		account, err := m.ClaudeAccountFor(p, want.Claude)
 		return Logins{Claude: account}, err
-	case "codex", "cursor", "gemini":
-		named := map[string]string{"codex": want.Codex, "cursor": want.Cursor, "gemini": want.Gemini}[ai]
+	case "codex", "cursor", "gemini", "copilot":
+		named := map[string]string{"codex": want.Codex, "cursor": want.Cursor, "gemini": want.Gemini, "copilot": want.Copilot}[ai]
 		account, err := m.toolAccountFor(ai, cmpOr(named, projectToolAccount(p, ai)))
 		if err != nil {
 			return Logins{}, err
@@ -68,7 +68,7 @@ func (m *Manager) CheckLogin(ai string, p state.Project, want Logins) (Logins, e
 }
 
 // LoginsFor is Logins with one account, for a tool with one login per agent:
-// Codex, Cursor or Gemini CLI.
+// Codex, Cursor, Gemini CLI or Copilot.
 func LoginsFor(tool, account string) Logins {
 	switch tool {
 	case "codex":
@@ -77,6 +77,8 @@ func LoginsFor(tool, account string) Logins {
 		return Logins{Cursor: account}
 	case "gemini":
 		return Logins{Gemini: account}
+	case "copilot":
+		return Logins{Copilot: account}
 	}
 	return Logins{}
 }
@@ -91,6 +93,8 @@ func projectToolAccount(p state.Project, tool string) string {
 		return p.CursorAccount
 	case "gemini":
 		return p.GeminiAccount
+	case "copilot":
+		return p.CopilotAccount
 	}
 	return ""
 }
@@ -117,6 +121,8 @@ func (m *Manager) toolAccountFor(tool, name string) (string, error) {
 		return "", errors.New("agents have no Codex login: run agentbox auth codex (or use --ai none)")
 	case "gemini":
 		return "", errors.New("agents aren't signed in to Gemini CLI: run agentbox auth gemini, or add a Gemini API key under Settings → Accounts (or use --ai claude)")
+	case "copilot":
+		return "", errors.New("agents aren't signed in to GitHub Copilot CLI: run agentbox auth copilot, or add a GitHub token with Copilot access under Settings → Accounts (or use --ai claude)")
 	}
 	return "", errors.New("agents aren't signed in to Cursor: run agentbox auth cursor, or sign in under Settings → Accounts (or use --ai claude)")
 }
@@ -189,6 +195,13 @@ func loginFiles(tool string, auth []byte) map[string][]byte {
 		}
 		return geminiLoginFiles(login)
 	}
+	if tool == "copilot" {
+		login, ok := credentials.ParseCopilotLogin(auth)
+		if !ok {
+			return nil
+		}
+		return copilotLoginFiles(login)
+	}
 	return map[string][]byte{toolAuthFile(tool): auth}
 }
 
@@ -200,6 +213,8 @@ func toolAuthFile(tool string) string {
 		return openCodeAuthFile
 	case "gemini":
 		return geminiOAuthFile
+	case "copilot":
+		return copilotTokenFile
 	}
 	return cursorAuthFile
 }
@@ -418,7 +433,7 @@ func (m *Manager) toolLoginFile(p state.Project, a state.Agent, tool string) ([]
 	}
 }
 
-// agentToolAccount is the Codex, Cursor or Gemini CLI account an agent holds.
+// agentToolAccount is the Codex, Cursor, Gemini CLI or Copilot account an agent holds.
 func agentToolAccount(a state.Agent, tool string) string {
 	switch tool {
 	case "codex":
@@ -427,6 +442,8 @@ func agentToolAccount(a state.Agent, tool string) string {
 		return a.CursorAccount
 	case "gemini":
 		return a.GeminiAccount
+	case "copilot":
+		return a.CopilotAccount
 	}
 	return ""
 }
@@ -452,7 +469,7 @@ func (m *Manager) LeadLogins(ctx context.Context, a state.Agent) (Logins, error)
 
 func (m *Manager) leadLogins(p state.Project, tool string, choice LeadChoice) (Logins, error) {
 	switch tool {
-	case "codex", "cursor", "gemini":
+	case "codex", "cursor", "gemini", "copilot":
 		if chosen := choice.ToolAccounts[tool]; chosen != "" {
 			logins, err := m.CheckLogin(tool, p, LoginsFor(tool, chosen))
 			if err == nil {
@@ -475,7 +492,7 @@ func (m *Manager) writeLeadLogin(ctx context.Context, a state.Agent, home string
 	if err != nil {
 		return err
 	}
-	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount = logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini
+	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount, a.CopilotAccount = logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini, logins.Copilot
 	if a.AI == "opencode" && version == opencode.V2 {
 		// OpenCode 2 keeps credentials in a database of its own, not in the
 		// auth.json OpenCode 1 read: its own import is how the lead gets them.
@@ -532,7 +549,7 @@ func (m *Manager) writeLeadLogin(ctx context.Context, a state.Agent, home string
 	if a.IsHome() || a.Status == "" {
 		return nil
 	}
-	if err := m.Store.SetAgentToolAccounts(ctx, a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount); err != nil && !errors.Is(err, state.ErrNotFound) {
+	if err := m.Store.SetAgentToolAccounts(ctx, a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount, a.CopilotAccount); err != nil && !errors.Is(err, state.ErrNotFound) {
 		return err
 	}
 	return nil
@@ -566,7 +583,7 @@ func (m *Manager) SetAccount(ctx context.Context, a state.Agent, want Logins) (s
 		return a, errors.New("a project's chat chooses its account in its composer")
 	}
 	if a.AI == "claude" {
-		if want.Codex != "" || want.Cursor != "" || want.Gemini != "" || len(want.OpenCode.Clean()) > 0 {
+		if want.Codex != "" || want.Cursor != "" || want.Gemini != "" || want.Copilot != "" || len(want.OpenCode.Clean()) > 0 {
 			return a, fmt.Errorf("%s runs Claude Code: name a Claude Code account", a.Ref())
 		}
 		return m.SetClaudeAccount(ctx, a, want.Claude)
@@ -587,7 +604,7 @@ func (m *Manager) SetAccount(ctx context.Context, a state.Agent, want Logins) (s
 	if err != nil {
 		return a, err
 	}
-	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount = logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini
+	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount, a.CopilotAccount = logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini, logins.Copilot
 	inst, err := m.Incus.Instance(ctx, a.Instance)
 	if err != nil {
 		return a, err
@@ -620,7 +637,7 @@ func (m *Manager) SetAccount(ctx context.Context, a state.Agent, want Logins) (s
 			return a, err
 		}
 	}
-	if err := m.Store.SetAgentToolAccounts(ctx, a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount); err != nil {
+	if err := m.Store.SetAgentToolAccounts(ctx, a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount, a.CopilotAccount); err != nil {
 		return a, err
 	}
 	return a, nil

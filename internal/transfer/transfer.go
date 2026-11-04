@@ -60,9 +60,10 @@ const (
 	LoginOpenCode = credentials.ToolOpenCode
 	LoginCursor   = credentials.ToolCursor
 	LoginGemini   = credentials.ToolGemini
+	LoginCopilot  = credentials.ToolCopilot
 )
 
-var Logins = []string{LoginGitHub, LoginClaude, LoginCodex, LoginOpenCode, LoginCursor, LoginGemini}
+var Logins = []string{LoginGitHub, LoginClaude, LoginCodex, LoginOpenCode, LoginCursor, LoginGemini, LoginCopilot}
 
 // ProjectEntryID and LoginEntryID are the stable IDs of entries.
 func ProjectEntryID(project, kind string) string { return "project/" + project + "/" + kind }

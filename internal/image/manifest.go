@@ -115,6 +115,13 @@ var Downloads = []Download{
 		MB:      100,
 	},
 	{
+		// Measured on 2026-11-04: mise's install of 1.0.102 (189 MB, its
+		// platform binary most of it).
+		Name:    "GitHub Copilot CLI",
+		Purpose: "GitHub's Copilot CLI, for agents created with --ai copilot. It is its own ACP adapter.",
+		MB:      189,
+	},
+	{
 		Name:    "Codex CLI",
 		Purpose: "OpenAI's Codex, for agents created with --ai codex.",
 		MB:      141,

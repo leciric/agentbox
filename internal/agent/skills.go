@@ -13,7 +13,8 @@ import (
 
 // Skills are delivered like secrets: written whole into the agent's HOME
 // whenever what it gets changes, and when it starts. Claude Code, Codex,
-// OpenCode, Cursor and Gemini CLI (which reads ~/.agents/skills too) all
+// OpenCode, Cursor, Gemini CLI and GitHub Copilot CLI (which read
+// ~/.agents/skills too) all
 // watch or rescan their skill folders, so a running
 // agent picks a change up without a restart, let alone a rebuild.
 

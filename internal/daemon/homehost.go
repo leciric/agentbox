@@ -121,6 +121,9 @@ func (s *Server) launchHome(ctx context.Context, m *agent.Manager, a state.Agent
 	case a.AI == "gemini" && !host.Login && !s.homeGeminiKey(a):
 		return nil, s.homePlaced(a.Ref(), "vm:login:gemini",
 			"Gemini CLI isn't signed in on your computer (run gemini once and sign in), so the Home chat runs in AgentBox's VM.")
+	case a.AI == "copilot" && !host.Login && !s.manager(nil).Creds.HasCopilotLogin(a.CopilotAccount):
+		return nil, s.homePlaced(a.Ref(), "vm:login:copilot",
+			"GitHub Copilot CLI isn't signed in on your computer (copilot login), so the Home chat runs in AgentBox's VM.")
 	}
 	spec, err := m.HostHomeSpec(ctx, a, info)
 	if err != nil {

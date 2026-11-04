@@ -28,12 +28,12 @@ import (
 func newAuthCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Log agents in to Claude Code, Codex, OpenCode, Cursor and Gemini CLI",
+		Short: "Log agents in to Claude Code, Codex, OpenCode, Cursor, Gemini CLI and GitHub Copilot CLI",
 		Long: `Agents use AgentBox's own logins, never your host's ~/.claude, ~/.codex,
 ~/.local/share/opencode or ~/.cursor. Sharing those directories would let an
 agent change your host configuration.`,
 	}
-	cmd.AddCommand(newAuthClaudeCmd(a), newAuthCodexCmd(a), newAuthOpenCodeCmd(a), newAuthCursorCmd(a), newAuthGeminiCmd(a), newAuthGitHubCmd(a), newAuthStatusCmd(a))
+	cmd.AddCommand(newAuthClaudeCmd(a), newAuthCodexCmd(a), newAuthOpenCodeCmd(a), newAuthCursorCmd(a), newAuthGeminiCmd(a), newAuthCopilotCmd(a), newAuthGitHubCmd(a), newAuthStatusCmd(a))
 	return cmd
 }
 
@@ -482,11 +482,15 @@ func newAuthStatusCmd(a *app) *cobra.Command {
 				_, _ = fmt.Fprintf(w, "  %s\t%s\n", acc.Name, claudeAccountStatus(acc, checked[acc.Name]))
 			}
 			for _, tool := range credentials.AccountTools {
+				name := credentials.ToolName(tool)
+				if tool == credentials.ToolCopilot {
+					name = "Copilot CLI" // as wide as the others
+				}
 				if len(tools[tool]) == 0 {
-					_, _ = fmt.Fprintf(w, "%s\tnot configured (run: agentbox auth %s)\n", credentials.ToolName(tool), tool)
+					_, _ = fmt.Fprintf(w, "%s\tnot configured (run: agentbox auth %s)\n", name, tool)
 					continue
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%d account(s)\n", credentials.ToolName(tool), len(tools[tool]))
+				_, _ = fmt.Fprintf(w, "%s\t%d account(s)\n", name, len(tools[tool]))
 				for _, acc := range tools[tool] {
 					_, _ = fmt.Fprintf(w, "  %s\t%s\n", toolAccountLabel(acc), toolAccountStatus(acc))
 				}

@@ -15,6 +15,7 @@ export interface Project {
   openCodeAccounts: Record<string, string>;
   cursorAccount: string;
   geminiAccount: string;
+  copilotAccount: string;
   autonomy: string;
   agentModel: string;
   agentTool: string;
@@ -77,6 +78,7 @@ export interface AddProjectRequest {
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
   geminiAccount?: string;
+  copilotAccount?: string;
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
@@ -92,6 +94,7 @@ export interface CloneProjectRequest {
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
   geminiAccount?: string;
+  copilotAccount?: string;
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
@@ -106,6 +109,7 @@ export interface UpdateProjectRequest {
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
   geminiAccount?: string;
+  copilotAccount?: string;
   moveClaudeAgents?: boolean;
   moveGitHubAgents?: boolean;
   autonomy?: string;
@@ -195,6 +199,9 @@ export interface Settings {
   geminiModelChoices: ChatOptionChoice[];
   geminiReady: boolean;
   defaultGeminiModel: string;
+  copilotModelChoices: ChatOptionChoice[];
+  copilotReady: boolean;
+  defaultCopilotModel: string;
   lastAgentPick: AgentPick;
   firstRun: boolean;
   resumeAfterLimit: boolean;
@@ -274,6 +281,7 @@ export interface UpdateSettingsRequest {
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
   defaultGeminiModel?: string;
+  defaultCopilotModel?: string;
   lastAgentPick?: AgentPick;
   firstRunDone?: boolean;
   openCodeVersion?: string;
@@ -340,6 +348,7 @@ export interface Agent {
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
   geminiAccount?: string;
+  copilotAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
@@ -475,6 +484,7 @@ export interface CreateAgentRequest {
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
   geminiAccount?: string;
+  copilotAccount?: string;
   githubAccount?: string;
   noEnv?: boolean;
   clean?: boolean;
@@ -833,11 +843,14 @@ export interface AuthStatus {
   cursorEmail?: string;
   gemini: boolean;
   geminiEmail?: string;
+  copilot: boolean;
+  copilotUser?: string;
   claudeAccounts: ClaudeAccount[];
   codexAccounts: ToolAccount[];
   openCodeAccounts: ToolAccount[];
   cursorAccounts: ToolAccount[];
   geminiAccounts: ToolAccount[];
+  copilotAccounts: ToolAccount[];
   github: boolean;
   githubAccounts: GitHubAccount[];
   githubUser?: string;
@@ -2088,6 +2101,7 @@ export interface FleetAgent {
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
   geminiAccount?: string;
+  copilotAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
@@ -3747,6 +3761,7 @@ export interface FanOutVariant {
   openCodeAccounts?: Record<string, string>;
   cursorAccount?: string;
   geminiAccount?: string;
+  copilotAccount?: string;
 }
 
 export interface FanOutResult {
@@ -4041,6 +4056,7 @@ export const ClaudeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
 export const CodexCredentialVariables = "OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL CODEX_HOME";
 export const OpenCodeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL OPENROUTER_API_KEY GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY GROQ_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MISTRAL_API_KEY OPENCODE_API_KEY";
 export const GeminiCredentialVariables = "GEMINI_API_KEY GOOGLE_API_KEY GOOGLE_GENAI_USE_VERTEXAI GOOGLE_GENAI_USE_GCA GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_ACCESS_TOKEN GOOGLE_GEMINI_BASE_URL GEMINI_CLI_HOME";
+export const CopilotCredentialVariables = "COPILOT_GITHUB_TOKEN COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY COPILOT_PROVIDER_API_KEY_COMMAND COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_WIRE_API COPILOT_GH_HOST COPILOT_HOME COPILOT_OFFLINE";
 export const ConnectorOAuth = "oauth";
 export const ConnectorSecret = "secret";
 export const ConnectorNone = "none";

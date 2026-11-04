@@ -118,9 +118,19 @@ func (t TokenCount) Spent() Spent {
 	return withoutCachedInput(s, t.TotalTokens)
 }
 
-// Spent reads ACP's usage field the same way as TokenCount.Spent.
+// Spent reads ACP's usage field the same way as TokenCount.Spent. Thinking is
+// billed as output by every vendor, and an adapter may count it inside
+// outputTokens or beside it in thoughtTokens: the total says which, as it
+// does for the cache reads, and thinking counted beside is added to the
+// output. Without a total that adds up either way, the output is taken as it
+// is.
 func (u Usage) Spent() Spent {
 	s := Spent{Input: u.InputTokens, Output: u.OutputTokens, CacheRead: u.CachedReadTokens, CacheWrite: u.CachedWriteTokens}
+	if t := u.ThoughtTokens; t > 0 && u.TotalTokens > 0 {
+		if raw := s.Total(); u.TotalTokens == raw+t || (s.CacheRead > 0 && u.TotalTokens == raw-s.CacheRead+t) {
+			s.Output += t
+		}
+	}
 	return withoutCachedInput(s, u.TotalTokens)
 }
 

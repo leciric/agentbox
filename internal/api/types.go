@@ -76,6 +76,7 @@ type Project struct {
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts"`
 	CursorAccount    string            `json:"cursorAccount"`
 	GeminiAccount    string            `json:"geminiAccount"`
+	CopilotAccount   string            `json:"copilotAccount"`
 	// Autonomy is how much this project's chat does on its own: "ask" (propose
 	// and wait for you) or "on" (act, within a budget of turns).
 	Autonomy string `json:"autonomy"`
@@ -344,6 +345,7 @@ type UpdateProjectRequest struct {
 	OpenCodeAccounts *map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    *string            `json:"cursorAccount,omitempty"`
 	GeminiAccount    *string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   *string            `json:"copilotAccount,omitempty"`
 	// MoveClaudeAgents, alongside ClaudeAccount, also moves the project's
 	// agents still on the account it replaces to the new one; ignored without
 	// ClaudeAccount, and when there's nothing on the old account to move.
@@ -424,6 +426,7 @@ type AddProjectRequest struct {
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
 	GeminiAccount    string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   string            `json:"copilotAccount,omitempty"`
 	// CopyToLinux, in WSL, makes a Path on a Windows drive a clone of it in
 	// ~/src/<name> on the distro's own disk, and adds that clone instead of
 	// refusing the path (D91). Elsewhere it changes nothing.
@@ -565,6 +568,12 @@ type Settings struct {
 	// DefaultGeminiModel is what new Gemini CLI agents start on; "" is its
 	// Auto.
 	DefaultGeminiModel string `json:"defaultGeminiModel"`
+	// CopilotModelChoices, CopilotReady and DefaultCopilotModel are the same
+	// for GitHub Copilot CLI, which each machine installs itself; "" is
+	// Copilot's own default model.
+	CopilotModelChoices []ChatOptionChoice `json:"copilotModelChoices"`
+	CopilotReady        bool               `json:"copilotReady"`
+	DefaultCopilotModel string             `json:"defaultCopilotModel"`
 	// LastAgentPick is the tool, model and effort last picked in the app's
 	// New agent dialog, which it opens on next time in a project that names
 	// no tool of its own; empty before the first pick.
@@ -809,6 +818,9 @@ type UpdateSettingsRequest struct {
 	// DefaultGeminiModel is what new Gemini CLI agents start on, in Gemini
 	// CLI's own ids; "" goes back to its Auto.
 	DefaultGeminiModel *string `json:"defaultGeminiModel,omitempty"`
+	// DefaultCopilotModel is the same for GitHub Copilot CLI; "" goes back to
+	// Copilot's own default.
+	DefaultCopilotModel *string `json:"defaultCopilotModel,omitempty"`
 	// LastAgentPick remembers what the New agent dialog just created an agent
 	// with (Settings.LastAgentPick).
 	LastAgentPick *AgentPick `json:"lastAgentPick,omitempty"`
@@ -958,6 +970,7 @@ type Agent struct {
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
 	GeminiAccount    string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   string            `json:"copilotAccount,omitempty"`
 	// GitHubAccount is the GitHub account whose token the agent holds; empty
 	// means it has none.
 	GitHubAccount string `json:"githubAccount"`
@@ -1135,6 +1148,7 @@ type CreateAgentRequest struct {
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
 	GeminiAccount    string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   string            `json:"copilotAccount,omitempty"`
 	// GitHubAccount overrides the project's GitHub account for this agent.
 	GitHubAccount string `json:"githubAccount,omitempty"`
 	NoEnv         bool   `json:"noEnv,omitempty"`
@@ -1706,16 +1720,23 @@ type AuthStatus struct {
 	CursorEmail string `json:"cursorEmail,omitempty"`
 	// Gemini is true when agents have a Gemini CLI login, a Google sign-in or
 	// a Gemini API key; GeminiEmail is whose Google account, for a sign-in.
-	Gemini         bool            `json:"gemini"`
-	GeminiEmail    string          `json:"geminiEmail,omitempty"`
+	Gemini      bool   `json:"gemini"`
+	GeminiEmail string `json:"geminiEmail,omitempty"`
+	// Copilot is true when agents have a GitHub Copilot CLI login, a GitHub
+	// token with Copilot access; CopilotUser is whose GitHub account, when
+	// known.
+	Copilot        bool            `json:"copilot"`
+	CopilotUser    string          `json:"copilotUser,omitempty"`
 	ClaudeAccounts []ClaudeAccount `json:"claudeAccounts"`
-	// CodexAccounts, OpenCodeAccounts, CursorAccounts and GeminiAccounts are
-	// the stored logins for the other tools; Codex, OpenCode, Cursor and
-	// Gemini say there is a default one agents can use.
+	// CodexAccounts, OpenCodeAccounts, CursorAccounts, GeminiAccounts and
+	// CopilotAccounts are the stored logins for the other tools; Codex,
+	// OpenCode, Cursor, Gemini and Copilot say there is a default one agents
+	// can use.
 	CodexAccounts    []ToolAccount `json:"codexAccounts"`
 	OpenCodeAccounts []ToolAccount `json:"openCodeAccounts"`
 	CursorAccounts   []ToolAccount `json:"cursorAccounts"`
 	GeminiAccounts   []ToolAccount `json:"geminiAccounts"`
+	CopilotAccounts  []ToolAccount `json:"copilotAccounts"`
 	// GitHub is true when at least one GitHub account is stored.
 	GitHub         bool            `json:"github"`
 	GitHubAccounts []GitHubAccount `json:"githubAccounts"`
@@ -1764,10 +1785,10 @@ type GitHubTokenRequest struct {
 	Account string `json:"account,omitempty"`
 }
 
-// ToolAccount is one stored Codex, OpenCode, Cursor or Gemini CLI login
+// ToolAccount is one stored Codex, OpenCode, Cursor, Gemini CLI or Copilot login
 // agents can be given.
 type ToolAccount struct {
-	Tool string `json:"tool"` // codex, opencode, cursor or gemini
+	Tool string `json:"tool"` // codex, opencode, cursor, gemini or copilot
 	// Provider is the OpenCode provider it signs in to ("anthropic"); empty
 	// for Codex and Cursor.
 	Provider string `json:"provider,omitempty"`
@@ -1777,7 +1798,8 @@ type ToolAccount struct {
 	Default bool      `json:"default"`
 	SavedAt time.Time `json:"savedAt"`
 	// Kind is how it signs in: apikey, chatgpt (Codex), google (Gemini CLI),
-	// oauth or wellknown (OpenCode's), empty when its file doesn't say.
+	// token (Copilot's GitHub token), oauth or wellknown (OpenCode's), empty
+	// when its file doesn't say. Email is a GitHub login for Copilot.
 	Kind string `json:"kind,omitempty"`
 	// Email is whose account it is, when its file says.
 	Email string `json:"email,omitempty"`
@@ -3849,6 +3871,7 @@ const (
 	FeatureAgentCreateOpenCode = "agent.create.opencode"
 	FeatureAgentCreateCursor   = "agent.create.cursor"
 	FeatureAgentCreateGemini   = "agent.create.gemini"
+	FeatureAgentCreateCopilot  = "agent.create.copilot"
 	FeatureAgentCreateByLead   = "agent.create.by_lead"
 	FeatureAgentDestroy        = "agent.destroy"
 	FeatureAgentRetire         = "agent.retire"
@@ -3865,6 +3888,7 @@ const (
 	FeatureLeadTurnOpenCode    = "lead.turn.opencode"
 	FeatureLeadTurnCursor      = "lead.turn.cursor"
 	FeatureLeadTurnGemini      = "lead.turn.gemini"
+	FeatureLeadTurnCopilot     = "lead.turn.copilot"
 	FeatureAgentCreateModel    = "agent.create.model"
 	FeatureAgentCreateEffort   = "agent.create.effort"
 	FeatureAgentCreateContext  = "agent.create.context"

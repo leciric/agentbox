@@ -143,3 +143,27 @@ func TestGeminiCLISpent(t *testing.T) {
 		t.Errorf("codex-acp's counters = %+v, %v", codex, err)
 	}
 }
+
+// TestSpentAddsThinkingCountedBesideTheOutput: ACP's usage field has
+// thoughtTokens beside outputTokens, and an adapter (GitHub Copilot CLI's
+// camelCase usage among them) may count thinking there rather than inside
+// the output. The total says which.
+func TestSpentAddsThinkingCountedBesideTheOutput(t *testing.T) {
+	var beside Usage
+	if err := json.Unmarshal([]byte(`{"inputTokens":1000,"outputTokens":200,"thoughtTokens":300,"cachedReadTokens":4000,"cachedWriteTokens":0,"totalTokens":5500}`), &beside); err != nil {
+		t.Fatal(err)
+	}
+	if got := beside.Spent(); got != (Spent{Input: 1000, Output: 500, CacheRead: 4000}) {
+		t.Errorf("thinking beside = %+v", got)
+	}
+	// Input holding the cache reads, and thinking beside the output.
+	both := Usage{InputTokens: 5000, OutputTokens: 200, ThoughtTokens: 300, CachedReadTokens: 4000, TotalTokens: 5500}
+	if got := both.Spent(); got != (Spent{Input: 1000, Output: 500, CacheRead: 4000}) {
+		t.Errorf("cache inside input, thinking beside = %+v", got)
+	}
+	// Thinking already inside the output: the total doesn't count it again.
+	inside := Usage{InputTokens: 1000, OutputTokens: 500, ThoughtTokens: 300, CachedReadTokens: 4000, TotalTokens: 5500}
+	if got := inside.Spent(); got != (Spent{Input: 1000, Output: 500, CacheRead: 4000}) {
+		t.Errorf("thinking inside = %+v", got)
+	}
+}

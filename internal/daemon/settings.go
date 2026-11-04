@@ -96,9 +96,15 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	// Gemini CLI's is stored as chosen too, for the same reason.
+	// Gemini CLI's is stored as chosen too, for the same reason, and so is
+	// Copilot's.
 	if req.DefaultGeminiModel != nil {
 		if err := s.store.SetSetting(r.Context(), state.SettingDefaultGeminiModel, strings.TrimSpace(*req.DefaultGeminiModel)); err != nil {
+			return err
+		}
+	}
+	if req.DefaultCopilotModel != nil {
+		if err := s.store.SetSetting(r.Context(), state.SettingDefaultCopilotModel, strings.TrimSpace(*req.DefaultCopilotModel)); err != nil {
 			return err
 		}
 	}
@@ -629,6 +635,19 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	// Copilot's the same way, asked of Copilot on this machine.
+	copilotModels, err := s.rememberedMenu(r, state.SettingCopilotModelChoices)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	copilotReady := s.manager(nil).CopilotReady()
+	if copilotReady && len(copilotModels) == 0 {
+		s.refreshCopilotModels(false)
+	}
+	copilotModel, err := s.store.Setting(r.Context(), state.SettingDefaultCopilotModel)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	var lastPick api.AgentPick
 	if raw, err := s.store.Setting(r.Context(), state.SettingLastAgentPick); err != nil {
 		return api.Settings{}, err
@@ -805,6 +824,9 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		GeminiModelChoices:  geminiModels,
 		GeminiReady:         geminiReady,
 		DefaultGeminiModel:  geminiModel,
+		CopilotModelChoices: copilotModels,
+		CopilotReady:        copilotReady,
+		DefaultCopilotModel: copilotModel,
 		LastAgentPick:       lastPick,
 		FirstRun:            firstRun,
 

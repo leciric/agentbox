@@ -265,6 +265,8 @@ func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model str
 		return m.prepareAgentCursorSettings(ctx, a)
 	case "gemini":
 		return m.prepareAgentGeminiSettings(ctx, a)
+	case "copilot":
+		return m.prepareAgentCopilotSettings(ctx, a)
 	default:
 		return nil
 	}

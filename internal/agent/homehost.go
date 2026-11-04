@@ -74,6 +74,13 @@ func (m *Manager) HostHomeSpec(ctx context.Context, a state.Agent, info homehost
 		if login, ok := m.Creds.GeminiLogin(a.GeminiAccount); ok && login.APIKey != "" {
 			spec.LoginEnv = []string{"GEMINI_API_KEY=" + login.APIKey}
 		}
+	case "copilot":
+		// It reads AGENTS.md from its working directory, and asks before
+		// each tool call in its default mode. Without a login of its own on
+		// the computer, it runs on AgentBox's account's token.
+		if login, ok := m.Creds.CopilotLogin(a.CopilotAccount); ok {
+			spec.LoginEnv = []string{"COPILOT_GITHUB_TOKEN=" + login.Token}
+		}
 	default:
 		return homehost.Spec{}, fmt.Errorf("%s runs only in AgentBox's VM", ChatAdapters[a.AI].Tool)
 	}
