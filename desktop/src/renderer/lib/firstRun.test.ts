@@ -70,7 +70,8 @@ test('a search keeps the repositories with every word, in GitHub\'s order', () =
 });
 
 test('the first run offers every AI tool, Claude Code first', () => {
-  assert.deepEqual(firstRunTools, ['claude', 'codex', 'opencode', 'cursor', 'gemini']);
+  assert.deepEqual(firstRunTools, ['claude', 'codex', 'opencode', 'cursor', 'gemini', 'copilot']);
+  assert.ok(isFirstRunTool('copilot'));
   assert.ok(isFirstRunTool('gemini'));
   assert.ok(!isFirstRunTool('aider'));
 });
