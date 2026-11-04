@@ -411,6 +411,28 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   const meRing = mesh(geo.ring, new THREE.MeshBasicMaterial({ color: '#a78bfa', transparent: true, opacity: 0.8, side: THREE.DoubleSide }), 0, 0.02, 0, 0.42, 0.42, 0.42, false);
   meRing.rotation.x = -Math.PI / 2;
   scene.add(meRing);
+  // Over the agent whose card is up: a bobbing white arrow, so which of a
+  // pod's two it's about is never a guess.
+  const atMark = sprite(96, 96, 0.42);
+  {
+    const c = atMark.ctx;
+    c.clearRect(0, 0, 96, 96);
+    c.fillStyle = '#ffffff';
+    c.strokeStyle = '#7c3aed';
+    c.lineWidth = 8;
+    c.lineJoin = 'round';
+    c.beginPath();
+    c.moveTo(18, 26);
+    c.lineTo(78, 26);
+    c.lineTo(48, 74);
+    c.closePath();
+    c.stroke();
+    c.fill();
+    atMark.tex.needsUpdate = true;
+  }
+  atMark.sprite.visible = false;
+  atMark.sprite.renderOrder = 4;
+  scene.add(atMark.sprite);
   const meTag = sprite(256, 80, 0.62);
   meTag.sprite.position.y = 1.55;
   me.group.add(meTag.sprite);
@@ -526,13 +548,22 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const area = input.model.areas[i];
       const r = place.rug;
       // Each pod's soft pastel rug, in the project's colour, corners rounded.
+      // The project's zone: a soft floor of its colour under all of it.
+      {
+        const zr = place.rug;
+        const zh = area.hue / 360;
+        const zoneMat = own(std(new THREE.Color().setHSL(zh, 0.4, 0.9), { roughness: 0.95 }));
+        const zoneEdge = own(std(new THREE.Color().setHSL(zh, 0.35, 0.8), { roughness: 0.95 }));
+        room.add(mesh(own(rug(zr.x1 - zr.x0, zr.z1 - zr.z0, 0.9, 0.008)), zoneEdge, (zr.x0 + zr.x1) / 2, 0, (zr.z0 + zr.z1) / 2, 1, 1, 1, false));
+        room.add(mesh(own(rug(zr.x1 - zr.x0 - 0.24, zr.z1 - zr.z0 - 0.24, 0.8, 0.01)), zoneMat, (zr.x0 + zr.x1) / 2, 0, (zr.z0 + zr.z1) / 2, 1, 1, 1, false));
+      }
       for (const [pi, pod] of place.pods.entries()) {
         // Each pod a shade of its project's colour, so pods read apart.
         // Each pod its own pastel, near its project's colour: pods read apart.
         const shade = [0, 38, -38, 76, -76, 19, -19][pi % 7];
         const hh = ((area.hue + shade + 360) % 360) / 360;
-        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.55, pi % 2 ? 0.8 : 0.84), { roughness: 0.95 }));
-        const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.5, 0.7), { roughness: 0.95 }));
+        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.6, pi % 2 ? 0.73 : 0.78), { roughness: 0.95 }));
+        const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.5, 0.64), { roughness: 0.95 }));
         const pw = pod.x1 - pod.x0;
         const pd = pod.z1 - pod.z0;
         room.add(mesh(own(rug(pw, pd, 0.5, 0.02)), rugEdge, (pod.x0 + pod.x1) / 2, 0, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
@@ -1160,15 +1191,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // The share of the width the overlay covers: the room sits in the middle
     // of what's left.
     const cover = Math.min(0.45, inset / Math.max(1, canvas.clientWidth));
-    // The window the diorama fills, in clip space: under the top bar's
-    // buttons, over the hint's line, clear of the overlay.
-    const win = { x0: -0.95 + 2 * cover, x1: 0.97, y0: -0.9, y1: 0.83 };
+    // The window the diorama fills, in clip space: nearly all of it, the
+    // top bar's and the legend's clear parts over its corners and edges.
+    const win = { x0: -0.98 + 2 * cover, x1: 0.99, y0: -0.97, y1: 0.9 };
     fitProbe.aspect = aspect;
     fitProbe.updateProjectionMatrix();
     // The diorama's outline: the slab's underside, the walls' tops where
     // there are walls (back and left), the floor's open corner.
     const corners = [
-      ...[-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].map((z) => new THREE.Vector3(x, -0.45, z))),
+      ...[-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].map((z) => new THREE.Vector3(x, -0.72, z))),
       new THREE.Vector3(-0.3, H, -0.3),
       new THREE.Vector3(W + 0.1, H, -0.3),
       new THREE.Vector3(-0.3, H, D + 0.1),
@@ -1226,7 +1257,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const aspect = camera.aspect || 1;
     // From the overview down to following you is a long way: taken gently.
     // Standing back is quicker than coming down to you.
-    const k = motion ? 1 - Math.exp(-dt * (followTarget < cam.followK ? 4.5 : 2.6)) : 1;
+    const k = motion ? 1 - Math.exp(-dt * (followTarget < cam.followK ? 6.5 : 4.2)) : 1;
     cam.followK += (followTarget - cam.followK) * k;
     if (Math.abs(followTarget - cam.followK) < 1e-3) cam.followK = followTarget;
     // Close up at what you're at, and gliding into it over a walk's last
@@ -1237,7 +1268,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (rem < 3.5) closeTarget = 1 - rem / 3.5;
     }
     if (closeTarget > 0) focusRef = near ?? routeGoal;
-    cam.closeK += (closeTarget - cam.closeK) * (motion ? 1 - Math.exp(-dt * 3) : 1);
+    cam.closeK += (closeTarget - cam.closeK) * (motion ? 1 - Math.exp(-dt * 4.8) : 1);
     if (Math.abs(closeTarget - cam.closeK) < 1e-3) cam.closeK = closeTarget;
 
     // The overview fits the room, from the front and above.
@@ -1275,7 +1306,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       Object.assign(eased, { tx, ty, tz, dist, pitch, yaw, init: true });
     } else {
       // Standing back for the overview settles quickly; following you, gently.
-      const e = motion ? 1 - Math.exp(-dt * (held ? 7 : 3.6)) : 1;
+      const e = motion ? 1 - Math.exp(-dt * (held ? 9 : 6)) : 1;
       eased.tx += (tx - eased.tx) * e;
       eased.ty += (ty - eased.ty) * e;
       eased.tz += (tz - eased.tz) * e;
@@ -1312,6 +1343,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   function render(now: number) {
     const t = now / 1000;
     lighting();
+    let markHere = false;
     for (const d of desks.values()) {
       // Where you are, from the robot: near enough, it turns to look at you.
       const fx = d.root.position.x + d.figure.group.position.x;
@@ -1323,7 +1355,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const fg = d.figure.group;
       const base = (fg.userData.base as number | undefined) ?? (fg.userData.base = fg.scale.x);
       const far = fg.getWorldPosition(figPos).distanceTo(camera.position);
-      const k = base * (1 + Math.min(0.65, Math.max(0, (far - 12) / 36)));
+      // Not while the camera follows you: grown, they'd hide you.
+      const k = base * (1 + Math.min(0.65, Math.max(0, (far - 12) / 36)) * (1 - cam.followK));
       fg.scale.setScalar(k);
       fg.position.y = 0.49 * (1 - k);
       // Up close, what floats over the desks beside the camera would be in
@@ -1343,10 +1376,18 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const s = d.bubble.sprite;
       // From far off the bubbles grow, so who needs you shows from the
       // overview; over the grown figures' heads.
-      const grow = Math.min(3.4, Math.max(1, (far - 8) / 12));
+      // Only the loud ones (needs you, failed) grow: the overview shows those.
+      const loudTone = d.tone === 'needs' || d.tone === 'error';
+      const grow = loudTone ? Math.min(d.tone === 'needs' ? 3.6 : 2.6, Math.max(1, (far - 8) / 12)) : 1;
+      if (!loudTone && far > 30) s.visible = false;
       const sb = (s.userData.base as THREE.Vector2 | undefined) ?? (s.userData.base = new THREE.Vector2(s.scale.x, s.scale.y));
       s.scale.set(sb.x * grow, sb.y * grow, 1);
       s.position.y = 1.95 + lift * 0.5 + (k / base - 1) * 1.25 + (grow - 1) * 0.2 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 * grow : 0);
+      if (d.ref === near) {
+        atMark.sprite.visible = cam.closeK > 0.2 || cam.followK > 0.3;
+        atMark.sprite.position.set(fx, s.position.y + (bubbleOf[d.tone] && s.visible ? 0.42 * grow : 0) + 0.05 + (motion ? Math.abs(Math.sin(t * 3)) * 0.08 : 0), fz);
+        markHere = true;
+      }
       // The desk you're at wears a soft white ring; a loud one keeps its own.
       const chosen = d.ref === near && !(d.tone === 'needs' || d.tone === 'error');
       d.ring.visible = chosen || d.tone === 'needs' || d.tone === 'error';
@@ -1373,6 +1414,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // Hovered: lifted a little.
       d.root.position.y = d.ref === hover ? 0.02 : 0;
     }
+    if (!markHere) atMark.sprite.visible = false;
     // Signs give way to the camera, and to the board's close-up over them.
     for (const sg of signs) sg.visible = !(focusRef === 'board' && cam.closeK > 0.2) && sg.position.distanceTo(camera.position) > (cam.closeK > 0.3 ? 7 : 3.5);
     // From far off, each area's label floats over its sign. What the labels
@@ -1384,12 +1426,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (!chip) continue;
       const sg = signs[i];
       void sg;
-      // In the aisle before the area, clear of its counter.
-      ap.set(place.lead.x, 0.05, place.rug.z1 + 0.85);
+      // Just out from its zone's front left corner, a name plate: clear of
+      // its agents' heads and its counter, and plainly its own.
+      ap.set(place.rug.x0 + 1.3, 0.05, place.rug.z1 + 0.45);
       const far = cam.closeK < 0.3;
       ap.project(camera);
       // Not under the top bar, whose 4.5rem it would hide beneath.
-      const on = far && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1 && ((1 - ap.y) / 2) * canvas.clientHeight > 100;
+      // Nor over the legend and the hint along the bottom.
+      const ay = ((1 - ap.y) / 2) * canvas.clientHeight;
+      const on = far && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1 && ay > 100 && ay < canvas.clientHeight - 96;
       chip.style.display = on ? 'flex' : 'none';
       if (on) {
         const cx = ((ap.x + 1) / 2) * canvas.clientWidth;
@@ -1676,7 +1721,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const { ref, row, floor } = p.aim;
     // While the camera is still gliding, a click on the room waits (what was
     // under it a moment ago isn't what will be), but a board row is a row.
-    if (settledFor < 0.15 && !route.length && !row) return;
+    if (settledFor < 0.15 && !route.length) return;
     // A row on the board opens what it's about, from wherever you see it.
     if (row && (near === 'board' || !row.startsWith('more:'))) opts.onBoardRow(row);
     else if (ref) {

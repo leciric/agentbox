@@ -119,7 +119,7 @@ export function TopBar({
       )}
       <nav className="flex min-w-32 grow basis-0 items-center gap-1.5 text-ui" aria-label={t('shell.top.breadcrumb')}>
         {/* In an agent's chat, the way back to its lead's: ←, Alt+← (App), or the project's name. */}
-        {crumbProject && view.kind === 'agent' && (
+        {crumbProject && (view.kind === 'agent' || (view.kind === 'project' && view.from === 'office')) && (
           <Tip label={`${view.from === 'office' ? t('office.back') : t('v2.header.backToLead')} (${backToLeadKeys})`}>
             <button
               type="button"
@@ -133,7 +133,7 @@ export function TopBar({
           </Tip>
         )}
         {/* Opened from the Office: it heads the breadcrumb, as where ← goes. */}
-        {crumbProject && view.kind === 'agent' && view.from === 'office' && (
+        {crumbProject && (view.kind === 'agent' || view.kind === 'project') && view.from === 'office' && (
           <span className="flex shrink-0 items-center gap-1.5">
             <button className="-mx-1 rounded-md px-1 text-muted transition hover:bg-surface-raised hover:text-primary" onClick={() => onSelect({ kind: 'office' })} data-crumb-office>
               {t('office.title')}

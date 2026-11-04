@@ -69,23 +69,23 @@ export const SEAT = 0.72; // the chair's distance behind the desk's centre
 export const COUNTER = { w: 2.4, d: 0.7 };
 const POD = 2;
 // A pod's width: its bench of two desks, and room at either end to stand.
-const POD_SPAN = 2 * DESK.w + 2.2;
+const POD_SPAN = 2 * DESK.w + 2.4;
 // Pod to pod across a row, and row to row; every other row is staggered by
 // half a pod, so the pods read as islands rather than a classroom's rows.
-const POD_PX = 4.7;
+const POD_PX = 4.6;
 const POD_PZ = 2.9;
 const STAGGER = POD_PX / 2;
 const FIRST = 1.5; // from an area's back to its first pods' desks
 const AREA_PAD = 0.5; // the area's margin around its pods
-const LEAD_DEPTH = 2.7; // the counter's strip at the front of an area
-const AISLE = 1.8; // between areas
+const LEAD_DEPTH = 2.3; // the counter's strip at the front of an area
+const AISLE = 2.0; // between areas
 const BACK_AISLE = 3.4; // before the board
-const FRONT = 1.4; // floor before the front areas
+const FRONT = 1.0; // floor before the front areas
 const WALL_PAD = 1.6;
 const PLANTER = 0.5;
-const WOOD_W = 9.5; // the wood-floored side, the commons
+const WOOD_W = 9.2; // the wood-floored side, the commons
 const MIN_ROOM_D = 13;
-const MIN_WORK_W = 13;
+const MIN_WORK_W = 11;
 // The room is about twice as wide as it's deep, as a diorama seen from its
 // open corner: areas wrap onto a new row at whatever width comes closest.
 const ASPECT = 2.2;
@@ -213,7 +213,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
       const px = podX(p);
       const pz = podZ(p);
       // The rug under its bench and chairs, and where you stand at its ends.
-      pods.push({ x0: px - POD_SPAN / 2 + 0.3, z0: pz - 1.45, x1: n > 1 ? px + POD_SPAN / 2 - 0.3 : px + 0.6, z1: pz + 0.95 });
+      pods.push({ x0: px - 1.95, z0: pz - 1.35, x1: n > 1 ? px + 1.95 : px + 0.45, z1: pz + 0.75 });
     }
     const desks: DeskPlace[] = a.desks.map((d, k) => {
       const p = Math.floor(k / POD);
@@ -225,7 +225,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
       obstacles.push(box(dx + side * 0.48, dz - SEAT, 0.62, 0.62));
       // You stand at the bench's end, beside the agent, as you'd stop by a
       // colleague's, turned half to the room: the close-up sees your face too.
-      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.25, z: dz + 0.1, face: side < 0 ? Math.PI / 3 : -Math.PI / 3 } };
+      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.35, z: dz + 0.1, face: side < 0 ? Math.PI / 3 : -Math.PI / 3 } };
     });
     // The counter sits at the area's front, its lead behind it facing you.
     const lz = z + depth - LEAD_DEPTH / 2 - 0.1;
@@ -260,11 +260,13 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   const props: Prop[] = [];
   const prop = (kind: PropKind, x: number, z: number, rot = 0) => {
     props.push({ kind, x, z, rot });
+    // A mat is floor: walked over.
+    if (kind === 'mat') return;
     const [w, d] = footOf(kind);
     const turned = Math.abs(Math.sin(rot)) > 0.5;
     obstacles.push(box(x, z, turned ? d : w, turned ? w : d));
   };
-  const lounge: Box = { x0: wx + 0.8, z0: 0.5, x1: wx + 5.6, z1: 4.6 };
+  const lounge: Box = { x0: wx + 0.8, z0: 0.5, x1: wx + 4.6, z1: 4.6 };
   // The sectional along the brick wall, facing the room, its chaise on the
   // left; a low table before it.
   const sofa: Box = { x0: lounge.x0 + 0.3, z0: lounge.z0 + 0.1, x1: lounge.x1 - 0.3, z1: lounge.z0 + 1.05 };
@@ -293,7 +295,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   prop('rack', roomW - 1.3, roomD - 0.7);
   if (roomD > 18) {
     prop('tree', roomW - 0.7, (zp + zb) / 2 + 0.8);
-    prop('standing', wx + 7.2, zp + 2.0 + (zb - zp - 3.8) / 2);
+    prop('standing', wx + 6.3, zp + 2.0 + (zb - zp - 3.8) / 2);
   }
   // The meeting room, in the back left corner, behind glass.
   const meeting: Box = { x0: 0, z0: 0, x1: Math.min(6, workW * 0.3), z1: BACK_AISLE - 0.4 };
@@ -344,9 +346,27 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   // a printer and water cooler, a phone booth, bean bags, low shelves, a
   // rolling whiteboard, each on a cell of its own with room to pass.
   let n = 0;
+  let themed = 0;
   for (const f of free) {
     const w = f.x1 - f.x0;
     const d = f.z1 - f.z0;
+    // Room for a corner of its own: a few things together on a mat.
+    if (w >= 5.8 && d >= 3.2) {
+      const themes = f.low ? LOW_THEMES : THEMES;
+      const cols = Math.floor(w / 5.8);
+      const rowsN = Math.max(1, Math.floor(d / 3.4));
+      const cw = w / cols;
+      const cd = d / rowsN;
+      for (let r = 0; r < rowsN; r++)
+        for (let c = 0; c < cols; c++) {
+          const cx = f.x0 + (c + 0.5) * cw;
+          const cz = f.z0 + (r + 0.5) * cd;
+          prop('mat', cx, cz);
+          for (const [kind, dx, dz] of themes[themed % themes.length]) prop(kind, cx + dx, cz + dz);
+          themed++;
+        }
+      continue;
+    }
     const cols = Math.max(1, Math.floor(w / 3.1));
     const rowsN = Math.max(1, Math.round(d / 2.6));
     const cw = w / cols;
@@ -391,7 +411,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
 
 // The things the room is furnished with, besides desks: their footprints,
 // across (x) and deep (z) when not turned; turned a quarter, they swap.
-export type PropKind = 'tree' | 'standing' | 'printer' | 'shelf' | 'booth' | 'beanbags' | 'whiteboard' | 'lockers' | 'kitchen' | 'fridge' | 'island' | 'pingpong' | 'arcade' | 'rack' | 'plants' | 'aquarium' | 'vending' | 'logo';
+export type PropKind = 'tree' | 'standing' | 'printer' | 'shelf' | 'booth' | 'beanbags' | 'whiteboard' | 'lockers' | 'kitchen' | 'fridge' | 'island' | 'pingpong' | 'arcade' | 'rack' | 'plants' | 'aquarium' | 'vending' | 'logo' | 'mat';
 export type Prop = { kind: PropKind; x: number; z: number; rot: number };
 export const FOOT: Record<PropKind, [number, number]> = {
   tree: [0.9, 0.9],
@@ -412,6 +432,7 @@ export const FOOT: Record<PropKind, [number, number]> = {
   aquarium: [1.5, 0.55],
   vending: [0.95, 0.8],
   logo: [1.1, 1.1],
+  mat: [4.3, 2.4],
 };
 // Props are a little bigger than life, as a toy's furniture is.
 export const PROP_SCALE = 1.25;
@@ -419,6 +440,35 @@ export const footOf = (k: PropKind): [number, number] => [FOOT[k][0] * PROP_SCAL
 const ISLANDS: PropKind[] = ['tree', 'standing', 'aquarium', 'booth', 'plants', 'beanbags', 'vending', 'logo', 'printer', 'shelf', 'tree', 'whiteboard'];
 // What may stand before an area: nothing taller than a desk's monitor.
 const LOW: PropKind[] = ['standing', 'aquarium', 'plants', 'beanbags', 'logo', 'shelf', 'printer'];
+// Corners of a few things together, on a mat, each within 5.4 by 3: where
+// each stands from the mat's middle. (Sizes are FOOT's, PROP_SCALE larger.)
+type Theme = [PropKind, number, number][];
+const NOOK: Theme = [
+  ['beanbags', -0.95, 0],
+  ['plants', 1.65, -0.55],
+];
+const GARDEN: Theme = [
+  ['plants', -1.55, -0.45],
+  ['logo', 0.35, 0.1],
+  ['plants', 1.95, 0.5],
+];
+const READING: Theme = [
+  ['aquarium', -1.25, -0.75],
+  ['standing', 1.25, 0.35],
+  ['plants', -1.2, 0.6],
+];
+const COFFEE: Theme = [
+  ['vending', -1.95, -0.45],
+  ['standing', 0, 0.15],
+  ['tree', 1.95, -0.3],
+];
+const FOCUS: Theme = [
+  ['booth', -1.15, 0],
+  ['booth', 0.65, 0],
+  ['tree', 2.25, 0.2],
+];
+const THEMES: Theme[] = [COFFEE, NOOK, FOCUS, GARDEN, READING];
+const LOW_THEMES: Theme[] = [NOOK, GARDEN, READING];
 
 // spotOf is where you stand to look at a desk, a lead's counter or the board.
 export function spotOf(l: Layout, ref: string): Spot | undefined {

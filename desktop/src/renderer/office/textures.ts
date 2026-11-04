@@ -27,7 +27,7 @@ export type Screen = {
 };
 
 // A column lists what fits; the rest is "+n", the board's list has them all.
-export type BoardColumn = { head: string; empty: string; items: { ref: string; title: string; sub: string; tone: DeskTone }[] };
+export type BoardColumn = { head: string; empty: string; items: { ref: string; title: string; sub: string; tone: DeskTone; failing?: boolean }[] };
 // Where drawBoard put each row, in the canvas's pixels, for a click on it.
 export type BoardRow = { ref: string; x: number; y: number; w: number; h: number };
 export type BoardScreen = { title: string; needs: BoardColumn; review: BoardColumn };
@@ -174,7 +174,7 @@ export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen): BoardR
       ctx.fillStyle = note;
       roundRect(ctx, -colW / 2, -rowH / 2, colW, rowH, 8);
       ctx.fill();
-      ctx.fillStyle = it.tone === 'error' ? '#e0675f' : edge;
+      ctx.fillStyle = it.tone === 'error' || it.failing ? '#e0675f' : edge;
       roundRect(ctx, -colW / 2, -rowH / 2, 8, rowH, 4);
       ctx.fill();
       ctx.restore();

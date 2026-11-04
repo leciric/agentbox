@@ -252,6 +252,8 @@
 //   ?app=office             the Office (components/office), with Storefront's and
 //                           Quill's agents too (dev/office.ts); &office=1 with
 //                           any ?app= puts it, and them, in the sidebar
+//   &fleet=typical          with the Office, six of the fixture project's agents
+//                           rather than all: a team of the usual size
 //   &tour=welcome           with ?app=, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
@@ -761,7 +763,7 @@ if (appView) {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
   // ?app=office: more projects' agents, at their desks (dev/office.ts).
-  if (appView === 'office' || params.get('office') === '1') seedOffice(queryClient);
+  if (appView === 'office' || params.get('office') === '1') seedOffice(queryClient, { typical: params.get('fleet') === 'typical' });
   // The other projects' chats, empty rather than failing.
   stubProjectChats();
   // &ios=…, after seedV2's projects: the project is an iOS one.

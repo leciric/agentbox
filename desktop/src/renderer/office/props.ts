@@ -21,6 +21,25 @@ export type Kit = {
 
 const rbox = (w: number, h: number, d: number, r = 0.04) => new RoundedBoxGeometry(w, h, d, 3, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3));
 
+// flatRug is a rounded rectangle lying on the floor, h thick.
+function flatRug(w: number, d: number, r: number, h: number): THREE.BufferGeometry {
+  const s = new THREE.Shape();
+  const rr = Math.min(r, w / 2, d / 2);
+  s.moveTo(-w / 2 + rr, -d / 2);
+  s.lineTo(w / 2 - rr, -d / 2);
+  s.quadraticCurveTo(w / 2, -d / 2, w / 2, -d / 2 + rr);
+  s.lineTo(w / 2, d / 2 - rr);
+  s.quadraticCurveTo(w / 2, d / 2, w / 2 - rr, d / 2);
+  s.lineTo(-w / 2 + rr, d / 2);
+  s.quadraticCurveTo(-w / 2, d / 2, -w / 2, d / 2 - rr);
+  s.lineTo(-w / 2, -d / 2 + rr);
+  s.quadraticCurveTo(-w / 2, -d / 2, -w / 2 + rr, -d / 2);
+  const g = new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false, curveSegments: 6 });
+  g.rotateX(Math.PI / 2);
+  g.translate(0, h, 0);
+  return g;
+}
+
 function canvasTex(k: Kit, w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = w;
@@ -145,7 +164,7 @@ const BUILD: Record<Prop['kind'], (put: Put, k: Kit, t: Tex, i: number) => void>
   },
   // Bean bags round a little table, on a round rug.
   beanbags(put, k, _t, i) {
-    put(cyl(1.1, 1.1, 0.02, 40), k.m('#f0d9bf', { roughness: 0.95 }), 0, 0.012, 0);
+    put(cyl(1.1, 1.1, 0.02, 40), k.m('#f0d9bf', { roughness: 0.95 }), 0, 0.032, 0);
     const cols = ['#ffc94d', '#ff7aa2', '#45cbb8'];
     for (let j = 0; j < 3; j++) {
       const a = (j / 3) * Math.PI * 2 + 0.5;
@@ -298,6 +317,18 @@ const BUILD: Record<Prop['kind'], (put: Put, k: Kit, t: Tex, i: number) => void>
     put(rbox(0.8, 0.5, 0.8, 0.06), k.m(CREAM, { roughness: 0.5 }), 0, 0.25, 0);
     const cube = put(rbox(0.6, 0.6, 0.6, 0.12), k.m('#ffffff', { map: t.logo, roughness: 0.35 }), 0, 0.95, 0, [0.35, 0.65, 0.2]);
     void cube;
+  },
+  // A soft mat under a corner's things, in one of the room's pastels.
+  mat(put, k, _t, i) {
+    const cols = [
+      ['#f3dcc6', '#e6c3a3'],
+      ['#dcebd8', '#bfd8ba'],
+      ['#e6e0f3', '#cdc3e6'],
+      ['#f6e3c4', '#e8c99b'],
+      ['#d9ebef', '#b9d6de'],
+    ][i % 5];
+    put(flatRug(4.3, 2.4, 0.9, 0.016), k.m(cols[1], { roughness: 0.95 }), 0, 0, 0);
+    put(flatRug(4.1, 2.2, 0.8, 0.02), k.m(cols[0], { roughness: 0.95 }), 0, 0, 0);
   },
   // A server rack, its lights green and blue.
   rack(put, k) {

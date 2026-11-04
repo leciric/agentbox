@@ -90,8 +90,8 @@ export type View =
   | { kind: "jobs" }
   | { kind: "media" }
   | { kind: "settings" }
-  | { kind: "project"; project: string; tab?: ProjectPlaceName }
   // from: "office" when opened from the Office, whose way back is to it.
+  | { kind: "project"; project: string; tab?: ProjectPlaceName; from?: "office" }
   | { kind: "agent"; ref: string; tab?: AgentPlaceName; from?: "office" }
   // Everything agents did, live and past, of every project or project's,
   // opened on filter (components/WorkView).
@@ -382,6 +382,10 @@ export function App({ initial }: { initial?: View } = {}) {
         event.preventDefault();
         const v = viewRef.current;
         selectRef.current(v.from === "office" ? { kind: "office" } : { kind: "project", project: v.ref.split("/")[0] });
+      } else if (viewRef.current.kind === "project" && viewRef.current.from === "office" && isBackToLeadShortcut(event, onMac)) {
+        // A lead's chat opened from the Office goes back to it, too.
+        event.preventDefault();
+        selectRef.current({ kind: "office" });
       }
     };
     window.addEventListener("keydown", onKey, true);

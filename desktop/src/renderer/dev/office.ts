@@ -10,7 +10,10 @@ import { addDevAgent, buildFixtures, PROJECT } from './fixtures';
 const min = 60_000;
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
-export function seedOffice(queryClient: QueryClient): void {
+// typical (&fleet=typical) keeps six of the fixture project's agents, for a
+// team of about the size most have: the room as it usually is, rather than
+// the crowded fixture.
+export function seedOffice(queryClient: QueryClient, opts: { typical?: boolean } = {}): void {
   const base = buildFixtures().agents[0];
   const make = (project: string, name: string, title: string, over: Partial<T.Agent>, age: number): T.Agent => ({
     ...base,
@@ -36,6 +39,9 @@ export function seedOffice(queryClient: QueryClient): void {
   ];
   for (const a of agents) addDevAgent(a);
   queryClient.setQueryData<T.Agent[]>(['agents'], (all) => [...(all ?? []), ...agents]);
+  const keep = new Set((queryClient.getQueryData<T.Agent[]>(['agents']) ?? []).filter((a) => a.project === PROJECT).slice(0, 6).map((a) => a.ref));
+  const kept = (all: T.Agent[]) => (opts.typical ? all.filter((a) => a.project !== PROJECT || keep.has(a.ref)) : all);
+  queryClient.setQueryData<T.Agent[]>(['agents'], (all) => kept(all ?? []));
   const pr = (number: number, title: string, over: Partial<T.PullRequest> = {}): T.PullRequest => ({ number, title, state: 'OPEN', checks: 'passing', url: `https://github.com/example/storefront/pull/${number}`, ...over });
   const fleetAgent = (a: T.Agent, extra: Partial<T.FleetAgent>): T.FleetAgent => ({ ...a, changes: { files: 0, insertions: 0, deletions: 0, dirty: false }, media: 0, retire: { safe: false }, ...extra });
   // The fixture project's fleet too: the dev bridge has no answer for it, so
@@ -73,6 +79,10 @@ export function seedOffice(queryClient: QueryClient): void {
     const m = method === 'GET' && /^\/v1\/projects\/([^/]+)\/fleet$/.exec(path);
     if (m && fleets[decodeURIComponent(m[1])]) return json(fleets[decodeURIComponent(m[1])]);
     if (method === 'GET' && /^\/v1\/projects\/(storefront|quill)\/questions$/.test(path)) return json([]);
+    if (opts.typical && method === 'GET' && path === '/v1/agents') {
+      const r = (await inner(method, path, body)) as { status: number; body: string; contentType: string };
+      return { ...r, body: JSON.stringify(kept([...(JSON.parse(r.body) as T.Agent[]), ...agents.filter((a) => !r.body.includes(`"${a.ref}"`))])) };
+    }
     return inner(method, path, body);
   };
 }

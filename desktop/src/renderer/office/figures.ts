@@ -189,7 +189,7 @@ function boxie(k: Kit): Build {
   const hh = (S * 0.92) / 2 - inset;
   const hd = (S * 0.9) / 2 - inset;
   const edge = (len: number, x: number, y: number, z: number, axis: 'x' | 'y' | 'z') => {
-    const e = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.011, len, 4, 8), pipe), x, y, z);
+    const e = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.019, len, 4, 8), pipe), x, y, z);
     if (axis === 'x') e.rotation.z = Math.PI / 2;
     if (axis === 'z') e.rotation.x = Math.PI / 2;
     head.add(e);
@@ -198,7 +198,7 @@ function boxie(k: Kit): Build {
   for (const x of [-hw, hw]) for (const z of [-hd, hd]) edge(S * 0.92 - 2 * R, x, 0, z, 'y');
   for (const x of [-hw, hw]) for (const y of [-hh, hh]) edge(S * 0.9 - 2 * R, x, y, 0, 'z');
   // The face: a dark, glossy screen on the front.
-  const screen = at(new THREE.Mesh(new RoundedBoxGeometry(S * 0.78, S * 0.6, 0.03, 4, 0.06), k.m(new THREE.MeshStandardMaterial({ color: '#1a1530', roughness: 0.2, metalness: 0.1, emissive: '#221a44', emissiveIntensity: 0.4 }))), 0, -0.01, S * 0.45);
+  const screen = at(new THREE.Mesh(new RoundedBoxGeometry(S * 0.82, S * 0.64, 0.03, 4, 0.07), k.m(new THREE.MeshStandardMaterial({ color: '#1a1530', roughness: 0.2, metalness: 0.1, emissive: '#221a44', emissiveIntensity: 0.4 }))), 0, -0.01, S * 0.45);
   head.add(screen);
   const face = at(new THREE.Group(), 0, -0.005, S * 0.45 + 0.017);
   head.add(face);
@@ -212,7 +212,7 @@ function boxie(k: Kit): Build {
   }) as [THREE.Group, THREE.Group];
   // The status light and the hats sit on the head; its tool's badge on its chest.
   body.userData.chest = new THREE.Vector3(0.06, 0.24, 0.14);
-  return { body, face, arms, eyes: 'screen', eyeGap: 0.075, eyeSize: 0.046, height: 0.34 + S * 0.92 + 0.02, hover: 0 };
+  return { body, face, arms, eyes: 'screen', eyeGap: 0.088, eyeSize: 0.062, height: 0.34 + S * 0.92 + 0.02, hover: 0 };
 }
 
 // The badge's look for each tool: a colour and a glyph.
@@ -421,7 +421,8 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
     mesh.receiveShadow = false;
   });
   // Bigger than life: they're who you came to see.
-  g.scale.setScalar(opts.lead ? 1.5 : 1.38);
+  // Big for their desks, as a toy's people are.
+  g.scale.setScalar(opts.lead ? 1.72 : 1.6);
 
   const cur = restPose();
   const T = restPose();

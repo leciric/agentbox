@@ -127,6 +127,9 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const [listChoice, setListChoice] = useState<boolean | null>(null);
   // A chip's "+n" opens the list on just its group; null is everyone.
   const [listOnly, setListOnly] = useState<string[] | null>(null);
+  // Which list the summary's counts opened: who needs you, who's working,
+  // what waits for review.
+  const [listKind, setListKind] = useState<'needs' | 'working' | 'review'>('needs');
   // Where a "+n more" was pressed: its list opens there.
   const [listAt, setListAt] = useState<{ x: number; y: number } | null>(null);
   const [wide, setWide] = useState(true);
@@ -187,11 +190,11 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     const col = (items: BoardItem[], head: string, empty: string) => ({
       head: `${head} · ${items.length}`,
       empty,
-      items: items.slice(0, 12).map((i) => ({ ref: i.ref, title: i.title, sub: subOf(i), tone: i.tone })),
+      items: items.slice(0, 12).map((i) => ({ ref: i.ref, title: i.title, sub: subOf(i), tone: i.tone, failing: i.pr?.checks === 'failing' })),
     });
     const label = (project: string) => office.model.areas.find((a) => a.project === project)?.label ?? project;
     const subOf = (i: BoardItem) =>
-      i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${label(i.project)} · ${i.text}` : i.pr ? `${label(i.project)} · #${i.pr.number} ${t(`office.pr.${i.pr.state}`)}` : label(i.project);
+      i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${label(i.project)} · ${i.text}` : i.pr ? `${label(i.project)} · #${i.pr.number} ${t(`office.pr.${i.pr.state}`)}${i.pr.checks === 'failing' ? ` · ${t('office.checks.failing')}` : ''}` : label(i.project);
     return {
       title: t('office.board.title'),
       needs: col(office.model.board.needs, t('office.board.needs'), t('office.board.needsEmpty')),
@@ -215,7 +218,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const activate = useRef<(ref: string) => void>(() => {});
   activate.current = (ref: string) => {
     if (ref === 'board') return;
-    if (ref.endsWith('/lead')) onSelect({ kind: 'project', project: ref.split('/')[0], tab: 'chat' });
+    if (ref.endsWith('/lead')) onSelect({ kind: 'project', project: ref.split('/')[0], tab: 'chat', from: 'office' });
     else onSelect({ kind: 'agent', ref, tab: 'chat', from: 'office' });
   };
 
@@ -236,9 +239,11 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       if (!reduced) for (const r of rows.slice(Number(from) || 0)) r.animate([{ backgroundColor: 'rgba(251,191,36,.35)' }, { backgroundColor: 'rgba(251,191,36,0)' }], { duration: 1400, easing: 'ease-out' });
       return;
     }
+    // Who needs you: walk there, as everywhere else, its card up with the
+    // question and E to open it. What waits for review: its review.
     const desk = deskOf(office.model, ref);
     if (desk && office.model.board.review.some((i) => i.ref === ref) && desk.pr) openPr(desk);
-    else activate.current(ref);
+    else walkTo(ref);
   };
 
   // Next walks to the next one that needs you, after the one you're at: a
@@ -342,7 +347,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">N</kbd>
     </Button>
   );
-  const listShown = listOpen && needs.length > 0 && near !== 'board';
+  const listShown = listOpen && (listKind === 'needs' ? needs.length : listKind === 'review' ? review.length : working) > 0 && near !== 'board';
   // Escape, or a press on the room, folds it away.
   useEffect(() => {
     if (!listShown) return;
@@ -354,9 +359,18 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     if (!listOpen) {
       setListOnly(null);
       setListAt(null);
+      setListKind('needs');
     }
   }, [listOpen]);
-  const listed = listOnly ? needs.filter((i) => listOnly.includes(i.ref)) : needs;
+  const workingItems: BoardItem[] = office.model.areas.flatMap((a) => a.desks.filter((d) => d.tone === 'working').map((d) => ({ ref: d.id, project: a.project, title: d.title, tone: d.tone, pr: d.pr })));
+  const listed = listOnly ? needs.filter((i) => listOnly.includes(i.ref)) : listKind === 'working' ? workingItems : listKind === 'review' ? review : needs;
+  const areaLabel = (project: string) => office.model.areas.find((a) => a.project === project)?.label ?? project;
+  const openList = (kind: 'needs' | 'working' | 'review') => {
+    setListOnly(null);
+    setListAt(null);
+    setListChoice(kind === listKind ? !listOpen : true);
+    setListKind(kind);
+  };
   const hoverTitle = hover ? titleOf(office.model, hover, t('office.board.title')) : undefined;
   const hoverText = hoverTitle ? (hover === near && hover !== 'board' ? t('office.clickToOpen', { title: hoverTitle }) : hover === near ? undefined : t('office.clickToWalk', { title: hoverTitle })) : undefined;
 
@@ -393,19 +407,19 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             <button
               type="button"
               className="-my-1 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1 font-medium text-amber-800 ring-1 ring-amber-300/30 transition hover:bg-amber-400/10"
-              onClick={() => setListChoice(!listOpen)}
-              aria-expanded={listOpen}
+              onClick={() => openList('needs')}
+              aria-expanded={listOpen && listKind === 'needs'}
               data-office-unfold
             >
               <span className="size-2 animate-pulse rounded-full bg-amber-400" />
               {t('office.count.needs', { count: needs.length })}
-              {listOpen ? <ChevronUp className="size-3.5 text-amber-700/70" /> : <ChevronDown className="size-3.5 text-amber-700/70" />}
+              {listOpen && listKind === 'needs' ? <ChevronUp className="size-3.5 text-amber-700/70" /> : <ChevronDown className="size-3.5 text-amber-700/70" />}
             </button>
           ) : (
             <Count dot="bg-amber-400" n={needs.length} label={t('office.count.needs', { count: needs.length })} />
           )}
-          <Count dot="bg-sky-400" n={working} label={t('office.count.working', { count: working })} />
-          <Count dot="bg-emerald-400" n={review.length} label={t('office.count.review', { count: review.length })} />
+          <Count dot="bg-sky-400" n={working} label={t('office.count.working', { count: working })} onClick={working > 0 && near !== 'board' ? () => openList('working') : undefined} open={listOpen && listKind === 'working'} />
+          <Count dot="bg-emerald-400" n={review.length} label={t('office.count.review', { count: review.length })} onClick={review.length > 0 && near !== 'board' ? () => openList('review') : undefined} open={listOpen && listKind === 'review'} />
         </div>
         <span className="flex-1" />
         {near !== 'board' && (
@@ -438,9 +452,14 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           style={listOnly && listAt ? { left: `min(${Math.round(listAt.x)}px, calc(100% - 17rem))`, top: `min(${Math.round(listAt.y)}px, calc(100% - 12rem))` } : undefined}
           data-office-needs="open"
         >
-          <ListCard title={listOnly ? t('office.here', { count: listed.length }) : t('office.board.needs')} accent="text-amber-600" onFold={() => setListChoice(false)} foldLabel={t('office.fold')}>
+          <ListCard
+            title={listOnly ? t('office.here', { count: listed.length }) : listKind === 'working' ? t('office.list.working') : listKind === 'review' ? t('office.board.review') : t('office.board.needs')}
+            accent={listKind === 'working' && !listOnly ? 'text-sky-600' : listKind === 'review' && !listOnly ? 'text-emerald-600' : 'text-amber-600'}
+            onFold={() => setListChoice(false)}
+            foldLabel={t('office.fold')}
+          >
             {listed.map((i) => (
-              <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => {
+              <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ?? (i.pr ? `${areaLabel(i.project)} · #${i.pr.number}` : areaLabel(i.project))} label={t('office.walkTo', { title: i.title })} onClick={() => {
                 setListChoice(false);
                 walkTo(i.ref);
               }} />
@@ -507,7 +526,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           <ListCard title={t('office.board.needs')} accent="text-amber-600" list="needs">
             {needs.length === 0 && <Empty>{t('office.board.needsEmpty')}</Empty>}
             {needs.map((i) => (
-              <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.open', { title: i.title })} onClick={() => activate.current(i.ref)} />
+              <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => walkTo(i.ref)} />
             ))}
           </ListCard>
           <ListCard title={t('office.board.review')} accent="text-emerald-600" list="review">
@@ -531,7 +550,8 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       {/* The controls, until you've moved; after that a line. */}
       {status === 'ready' && !empty && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3">
-          {/* What the bubbles over the agents and the flags on their desks mean. */}
+          {/* What the bubbles over the agents and the flags on their desks mean; not while a card's up, which it would crowd. */}
+          {!nearDesk && !nearArea && near !== 'board' && (
           <div className="flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-full bg-white/80 px-3 py-1 text-[11.5px] text-slate-600 shadow-sm backdrop-blur-md" data-office-legend>
             {LEGEND.map(([glyph, color, key]) => (
               <span key={key} className="flex items-center gap-1">
@@ -544,6 +564,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
               {t('office.legend.pr')}
             </span>
           </div>
+          )}
           {/* One bar: what a click on what's under the pointer does, or else the controls. */}
           {hoverText && !hint ? (
             <div className="rounded-lg bg-white/90 px-3 py-1 text-[12.5px] font-medium text-slate-900 shadow-lg backdrop-blur-md" data-office-hover>{hoverText}</div>
@@ -594,13 +615,22 @@ function titleOf(model: OfficeModel, ref: string, board: string): string | undef
   return deskOf(model, ref)?.title;
 }
 
-function Count({ dot, n, label }: { dot: string; n: number; label: string }) {
-  return (
-    <span className={cn('flex items-center gap-1.5 whitespace-nowrap', n === 0 && 'opacity-50')}>
+function Count({ dot, n, label, onClick, open }: { dot: string; n: number; label: string; onClick?: () => void; open?: boolean }) {
+  const inner = (
+    <>
       <span className={cn('size-2 rounded-full', dot, n > 0 && dot === 'bg-amber-400' && 'animate-pulse')} />
       {label}
-    </span>
+    </>
   );
+  // With a list to show, a button that opens it.
+  if (onClick)
+    return (
+      <button type="button" className="-my-1 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1 transition hover:bg-black/5" onClick={onClick} aria-expanded={!!open}>
+        {inner}
+        {open ? <ChevronUp className="size-3.5 opacity-60" /> : <ChevronDown className="size-3.5 opacity-60" />}
+      </button>
+    );
+  return <span className={cn('flex items-center gap-1.5 whitespace-nowrap', n === 0 && 'opacity-50')}>{inner}</span>;
 }
 
 function ListCard({ title, accent, children, onFold, foldLabel, list }: { title: string; accent: string; children: ReactNode; onFold?: () => void; foldLabel?: string; list?: string }) {

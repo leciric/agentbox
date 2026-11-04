@@ -64,15 +64,18 @@ test('the room is furnished, and nothing stands on anything else', () => {
   for (const n of [[30, 4, 2], [3], [8, 4, 2], [1, 1, 1, 1, 1, 1], []]) {
     const l = layout({ areas: n.map((k, i) => area(`p${i}`, k)) });
     assert.ok(l.props.length >= 8, `${n}: ${l.props.length} things`);
-    const feet = l.props.map(footprint);
+    // Mats are floor, walked over: what's on them mustn't overlap but may sit on one.
+    const solid = l.props.filter((p) => p.kind !== 'mat');
+    const feet = solid.map(footprint);
     for (const [i, f] of feet.entries()) {
-      assert.ok(within(l.room, f), `${n}: ${l.props[i].kind} is in the room`);
+      assert.ok(within(l.room, f), `${n}: ${solid[i].kind} is in the room`);
+      assert.ok(!overlaps(f, l.sofa), `${n}: ${solid[i].kind} is clear of the sofa`);
       for (const a of l.areas) {
-        for (const pod of a.pods) assert.ok(!overlaps(f, pod), `${n}: ${l.props[i].kind} is off ${a.project}'s pods`);
+        for (const pod of a.pods) assert.ok(!overlaps(f, pod), `${n}: ${solid[i].kind} is off ${a.project}'s pods`);
         const counter = { x0: a.lead.x - COUNTER.w / 2, z0: a.lead.z - 1.2, x1: a.lead.x + COUNTER.w / 2, z1: a.lead.z + COUNTER.d / 2 };
-        assert.ok(!overlaps(f, counter), `${n}: ${l.props[i].kind} is clear of ${a.project}'s counter`);
+        assert.ok(!overlaps(f, counter), `${n}: ${solid[i].kind} is clear of ${a.project}'s counter`);
       }
-      for (let j = i + 1; j < feet.length; j++) assert.ok(!overlaps(f, feet[j]), `${n}: ${l.props[i].kind} and ${l.props[j].kind}`);
+      for (let j = i + 1; j < feet.length; j++) assert.ok(!overlaps(f, feet[j]), `${n}: ${solid[i].kind} and ${solid[j].kind}`);
     }
   }
 });

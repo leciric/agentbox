@@ -15,8 +15,8 @@ export const PALETTE = {
   wall: '#f2dcc0',
   wallTop: '#faeedd',
   wallEdge: '#e7c9a4',
-  slab: '#ebc597',
-  slabDark: '#d2a87a',
+  slab: '#e2b27f',
+  slabDark: '#c39262',
   terrazzo: '#f7eee2',
   wood: '#e2b27c',
   frame: '#2f4a3a',
@@ -47,9 +47,9 @@ function terrazzo(): THREE.CanvasTexture {
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   // Few chips, soft: a calm floor, not a speckled one.
   const chips = ['#e9b48f', '#dfa088', '#b7cfaa', '#d6c9b6', '#f1d29e', '#c9bcb0'];
-  for (let i = 0; i < 420; i++) {
+  for (let i = 0; i < 650; i++) {
     ctx.fillStyle = chips[Math.floor(rnd() * chips.length)];
-    ctx.globalAlpha = 0.35 + rnd() * 0.3;
+    ctx.globalAlpha = 0.5 + rnd() * 0.3;
     const r = 1 + rnd() * 2.6;
     ctx.beginPath();
     ctx.ellipse(rnd() * 512, rnd() * 512, r, r * (0.6 + rnd() * 0.5), rnd() * 3, 0, Math.PI * 2);
@@ -186,7 +186,7 @@ export function diorama(l: Layout, sign: string): Diorama {
   };
   const W = l.room.x1;
   const D = l.room.z1;
-  const T = 0.42; // the slab's thickness
+  const T = 0.62; // the slab's thickness
   const WALL = wallHeight(l);
   const WT = 0.22; // walls' thickness
 
@@ -232,7 +232,7 @@ export function diorama(l: Layout, sign: string): Diorama {
   // The meeting room, in the back left corner: glass on two sides, a round
   // table and chairs.
   const mr = l.meeting;
-  const glass = keep(new THREE.MeshStandardMaterial({ color: PALETTE.glass, transparent: true, opacity: 0.28, roughness: 0.1, depthWrite: false }));
+  const glass = keep(new THREE.MeshStandardMaterial({ color: '#bfe1ee', transparent: true, opacity: 0.42, roughness: 0.08, metalness: 0.1, depthWrite: false }));
   const gw = mr.x1 - mr.x0;
   const gd = mr.z1 - mr.z0;
   const glassFront = new THREE.Mesh(keep(new THREE.PlaneGeometry(gw, 2.2)), glass);
