@@ -153,7 +153,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     obstacles.push(box(p.x, p.z, 0.6, 0.6));
   }
   // The board's ledge and the bookshelves beside the sofa.
-  const boardW = Math.min(6.4, roomW - 6);
+  const boardW = Math.min(5.2, roomW - 6);
   obstacles.push(box(cx, 0.2, boardW, 0.4));
   const windows: Layout['windows'] = [];
   const side = (roomW - boardW) / 2;

@@ -113,10 +113,14 @@ export function robot(hue: number, seed: number): Figure {
       switch (tone) {
         case 'working': {
           // Typing: the hands on the laptop, tapping.
-          l.rotation.set(-1.15 + Math.sin(t * 14) * 0.12, 0, 0.1);
-          r.rotation.set(-1.15 + Math.sin(t * 14 + 1.7) * 0.12, 0, -0.1);
-          head.rotation.x = 0.18 + Math.sin(t * 1.3) * 0.04;
-          head.rotation.y = Math.sin(t * 0.7) * 0.12;
+          // Typing: hands tapping, a nod with the rhythm, a glance about now and
+          // then, the antenna flickering as it thinks.
+          l.rotation.set(-1.1 + Math.sin(t * 14) * 0.2, 0, 0.1);
+          r.rotation.set(-1.1 + Math.sin(t * 14 + 1.7) * 0.2, 0, -0.1);
+          head.rotation.x = 0.16 + Math.abs(Math.sin(t * 2.6)) * 0.1;
+          head.rotation.y = Math.sin(t * 0.6) * 0.25;
+          body.rotation.z = Math.sin(t * 1.3) * 0.04;
+          tip.emissiveIntensity = motion ? 0.9 + Math.abs(Math.sin(t * 9)) * 1.2 : 1.3;
           break;
         }
         case 'needs': {

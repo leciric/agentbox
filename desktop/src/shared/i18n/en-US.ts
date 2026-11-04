@@ -4878,7 +4878,6 @@ export const enUS = {
   'office.board.review': 'Ready for review',
   'office.board.needsEmpty': 'Nobody is waiting on you.',
   'office.board.reviewEmpty': 'Nothing waits for your review.',
-  'office.board.more': '{count, plural, one {and # more} other {and # more}}',
   'office.board.leadWaiting': 'The project chat waits for your permission',
   'office.toBoard': 'Walk to the board',
   'office.walkTo': 'Walk to {title}',

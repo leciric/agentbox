@@ -4879,7 +4879,6 @@ export const ptBR: Messages = {
   'office.board.review': 'Prontos para revisar',
   'office.board.needsEmpty': 'Ninguém está esperando por você.',
   'office.board.reviewEmpty': 'Nada esperando sua revisão.',
-  'office.board.more': '{count, plural, one {e mais #} other {e mais #}}',
   'office.board.leadWaiting': 'O chat do projeto espera sua permissão',
   'office.toBoard': 'Ir até o quadro',
   'office.walkTo': 'Ir até {title}',

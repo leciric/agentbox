@@ -117,7 +117,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   useEffect(() => {
     const el = host.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setWide(el.clientWidth >= 1000));
+    const ro = new ResizeObserver(() => setWide(el.clientWidth >= 1200));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -169,8 +169,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     const col = (items: BoardItem[], head: string, empty: string) => ({
       head: `${head} · ${items.length}`,
       empty,
-      items: items.slice(0, 5).map((i) => ({ title: i.title, sub: subOf(i), tone: i.tone })),
-      more: items.length > 5 ? t('office.board.more', { count: items.length - 5 }) : undefined,
+      items: items.slice(0, 12).map((i) => ({ title: i.title, sub: subOf(i), tone: i.tone })),
     });
     const label = (project: string) => office.model.areas.find((a) => a.project === project)?.label ?? project;
     const subOf = (i: BoardItem) =>
@@ -250,6 +249,9 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const nearDesk = nearAgent ? deskOf(office.model, nearAgent.ref) : undefined;
   const nearArea = near?.endsWith('/lead') ? office.model.areas.find((a) => leadRef(a.project) === near) : undefined;
   const listOpen = listChoice ?? (wide && !nearDesk && !nearArea);
+  // The overview frames the room beside the list while it's open.
+  const listShown = listOpen && needs.length > 0 && near !== 'board';
+  useEffect(() => scene.current?.setInset(listShown ? 280 : 0), [listShown, status]);
   const hoverTitle = hover ? titleOf(office.model, hover, t('office.board.title')) : undefined;
   const hoverText = hoverTitle ? (hover === near && hover !== 'board' ? t('office.clickToOpen', { title: hoverTitle }) : hover === near ? undefined : t('office.clickToWalk', { title: hoverTitle })) : undefined;
 

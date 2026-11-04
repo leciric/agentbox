@@ -46,6 +46,9 @@ export type OfficeScene = {
   walkTo(ref: string): void;
   overview(): void;
   setReducedMotion(on: boolean): void;
+  // How much of the canvas's left edge an overlay covers, in CSS pixels: the
+  // overview frames the room in the rest.
+  setInset(left: number): void;
   dispose(): void;
 };
 
@@ -310,20 +313,20 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     // The board, on the back wall.
     {
       const bw = l.board.w;
-      const bh = Math.min(3.0, bw * 0.48);
+      const bh = Math.min(2.6, bw * 0.52);
       const pxW = 1024;
       const pxH = Math.round((pxW * bh) / bw);
       const { tex: btex, ctx } = canvasTexture(pxW, pxH);
       own(btex);
       board = { ctx, tex: btex, key: '' };
       const g = new THREE.Group();
-      g.position.set(l.board.x, 0.35 + bh / 2 + 0.25, 0.04);
+      g.position.set(l.board.x, 0.45 + bh / 2, 0.04);
       g.add(mesh(geo.box, own(std('#5b4636', { roughness: 0.6 })), 0, 0, 0, bw + 0.24, bh + 0.24, 0.08, false));
       const face = mesh(geo.plane, own(new THREE.MeshBasicMaterial({ map: btex, toneMapped: false })), 0, 0, 0.045, bw, bh, 1, false);
       g.add(face);
       room.add(g);
       // A ledge below it, with markers.
-      room.add(mesh(geo.box, own(std('#5b4636')), l.board.x, 0.5, 0.15, bw * 0.7, 0.05, 0.22));
+      room.add(mesh(geo.box, own(std('#5b4636')), l.board.x, 0.3, 0.15, bw * 0.7, 0.05, 0.22));
       const hit = mesh(geo.box, mats.hit, l.board.x, 1.5, 0.3, bw, 3, 0.6, false);
       hit.userData.ref = 'board';
       room.add(hit);
@@ -571,7 +574,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       d.bubble.tex.needsUpdate = true;
     }
     // Its marker, while it needs you.
-    const loudNow = tone === 'needs' || tone === 'error';
+    const loudNow = tone === 'needs';
     let marker = markers.get(d.ref);
     if (loudNow) {
       if (!marker) {
@@ -579,7 +582,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         marker.type = 'button';
         marker.dataset.officeMarker = d.ref;
         marker.style.cssText =
-          'position:absolute;left:0;top:0;pointer-events:auto;display:flex;align-items:center;gap:6px;max-width:230px;padding:3px 10px 3px 7px;border-radius:999px;background:rgba(10,14,24,.9);color:#fff;font:600 12px/1.25 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer;will-change:transform';
+          'position:absolute;left:0;top:0;pointer-events:auto;display:flex;align-items:center;gap:6px;max-width:180px;padding:3px 10px 3px 7px;border-radius:999px;background:rgba(10,14,24,.9);color:#fff;font:600 12px/1.25 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer;will-change:transform';
         const dot = document.createElement('span');
         dot.style.cssText = 'flex:none;width:8px;height:8px;border-radius:50%';
         const label = document.createElement('span');
@@ -860,12 +863,12 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       // From high over the first row, so no desk is in the way, the whole
       // board in the part of the view the board's list (on the right) leaves.
       const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-      const bh = Math.min(3.0, lay.board.w * 0.48);
-      const free = Math.max(0.45, 1 - 330 / Math.max(1, canvas.clientWidth));
-      const pitch = 0.5;
+      const bh = Math.min(2.6, lay.board.w * 0.52);
+      const free = Math.max(0.45, 1 - 380 / Math.max(1, canvas.clientWidth));
+      const pitch = 0.4;
       const dist = Math.max((lay.board.w + 0.5) / (free * 2 * tan * aspect), ((bh + 0.5) * Math.cos(pitch)) / (0.85 * 2 * tan));
       const vw = 2 * dist * tan * aspect;
-      return { x: lay.board.x + (vw * (1 - free)) / 2, y: 0.6 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
+      return { x: lay.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
@@ -880,23 +883,31 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   // tilted view of a box has no neat formula. Kept until the room or the
   // window's shape changes.
   const fitProbe = new THREE.PerspectiveCamera(FOV, 1, 0.1, 400);
-  let fitCache = { key: '', dist: 20 };
-  function fitDistance(W: number, D: number, aspect: number, pitch: number): number {
-    const key = `${W.toFixed(2)}:${D.toFixed(2)}:${aspect.toFixed(3)}`;
-    if (fitCache.key === key) return fitCache.dist;
+  let fitCache = { key: '', dist: 20, shift: 0 };
+  let inset = 0;
+  function fitDistance(W: number, D: number, aspect: number, pitch: number): { dist: number; shift: number } {
+    const key = `${W.toFixed(2)}:${D.toFixed(2)}:${aspect.toFixed(3)}:${inset}`;
+    if (fitCache.key === key) return fitCache;
+    const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    // The share of the width the overlay covers, which the target moves left
+    // by half of, so the room sits in the middle of what's left.
+    const cover = Math.min(0.45, inset / Math.max(1, canvas.clientWidth));
+    const left = -0.94 + 2 * cover;
     fitProbe.aspect = aspect;
     fitProbe.updateProjectionMatrix();
     const tx = W / 2;
     const tz = D / 2 + 0.6;
     const corners = [0, W].flatMap((x) => [0, D].flatMap((z) => [0, 2.2].map((y) => new THREE.Vector3(x, y, z))));
     const v = new THREE.Vector3();
+    const shiftAt = (d: number) => d * tan * aspect * cover;
     const fits = (d: number) => {
-      fitProbe.position.set(tx, Math.sin(pitch) * d, tz + Math.cos(pitch) * d);
-      fitProbe.lookAt(tx, 0, tz);
+      const sx = tx - shiftAt(d);
+      fitProbe.position.set(sx, Math.sin(pitch) * d, tz + Math.cos(pitch) * d);
+      fitProbe.lookAt(sx, 0, tz);
       fitProbe.updateMatrixWorld();
       return corners.every((c) => {
         v.copy(c).project(fitProbe);
-        return Math.abs(v.x) < 0.94 && v.y < 0.86 && v.y > -0.8 && v.z < 1;
+        return v.x > left && v.x < 0.94 && v.y < 0.86 && v.y > -0.8 && v.z < 1;
       });
     };
     let lo = 4;
@@ -906,8 +917,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       if (fits(mid)) hi = mid;
       else lo = mid;
     }
-    fitCache = { key, dist: hi };
-    return hi;
+    fitCache = { key, dist: hi, shift: shiftAt(hi) };
+    return fitCache;
   }
 
   // camStep eases the camera to where it should be; true while it's easing.
@@ -931,7 +942,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
 
     // The overview fits the room, from the front and above.
     const oPitch = 0.92;
-    const oDist = fitDistance(W, D, aspect, oPitch);
+    const { dist: oDist, shift: oShift } = fitDistance(W, D, aspect, oPitch);
     // Following: behind you, looking down at you; close up at a desk, lower
     // and nearer, the monitor and the robot in view.
     // Close up, the camera looks past your shoulder at the monitor, from the
@@ -941,7 +952,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const fPitch = 0.78;
     const fDist = cam.dist;
     const f = cam.followK;
-    let tx = W / 2 + (pos.x - W / 2) * f;
+    let tx = W / 2 - oShift + (pos.x - W / 2 + oShift) * f;
     let tz = D / 2 + 0.6 + (pos.z - D / 2 - 0.6) * f;
     let ty = 0.9 * f;
     let dist = oDist + (fDist - oDist) * f;
@@ -1146,15 +1157,19 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       poke();
     }
   };
+  // The wheel zooms in steps from the overview down to following you, and
+  // then closer; a trackpad's small deltas make small steps.
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    const f = Math.exp(e.deltaY * 0.0012);
-    if (followTarget === 0 && e.deltaY < 0) {
-      // Zooming in from the overview goes to you.
-      followTarget = 1;
+    const n = Math.max(-3, Math.min(3, e.deltaY / 100));
+    if (n < 0) {
+      if (followTarget < 1) followTarget = Math.min(1, followTarget - 0.2 * n);
+      else cam.dist = Math.max(5, cam.dist * Math.pow(0.9, -n));
+    } else if (followTarget >= 1 && cam.dist < 11) cam.dist = Math.min(11, cam.dist / Math.pow(0.9, n));
+    else {
+      followTarget = Math.max(0, followTarget - 0.2 * n);
       cam.dist = 11;
-    } else cam.dist = Math.max(4.5, Math.min(18, cam.dist * f));
-    if (followTarget === 1 && cam.dist >= 18 && e.deltaY > 0) followTarget = 0;
+    }
     poke();
   };
   const editable = (el: Element | null) => !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable || el.closest('[role="dialog"]') !== null);
@@ -1211,6 +1226,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     overview,
     setReducedMotion(on) {
       motion = !on;
+      poke();
+    },
+    setInset(left) {
+      inset = left;
+      fitCache.key = '';
       poke();
     },
     dispose() {

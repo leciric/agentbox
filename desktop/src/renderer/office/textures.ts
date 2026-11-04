@@ -26,7 +26,8 @@ export type Screen = {
   lines: { text: string; tone?: LineTone }[];
 };
 
-export type BoardColumn = { head: string; empty: string; items: { title: string; sub: string; tone: DeskTone }[]; more?: string };
+// A column lists what fits; the rest is "+n", the board's list has them all.
+export type BoardColumn = { head: string; empty: string; items: { title: string; sub: string; tone: DeskTone }[] };
 export type BoardScreen = { title: string; needs: BoardColumn; review: BoardColumn };
 
 const lineColor: Record<LineTone, string> = {
@@ -131,20 +132,20 @@ export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen) {
   ctx.fillStyle = '#1a2233';
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#f8fafc';
-  ctx.font = `700 46px ${SANS}`;
+  ctx.font = `700 40px ${SANS}`;
   ctx.textAlign = 'center';
-  ctx.fillText(b.title, W / 2, 66);
+  ctx.fillText(b.title, W / 2, 52);
   ctx.textAlign = 'left';
   const colW = (W - 90) / 2;
   const column = (c: BoardColumn, x: number, accent: string) => {
     ctx.fillStyle = accent;
     ctx.beginPath();
-    ctx.arc(x + 14, 122, 12, 0, Math.PI * 2);
+    ctx.arc(x + 14, 96, 11, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#e2e8f0';
-    ctx.font = `700 34px ${SANS}`;
-    ctx.fillText(fit(ctx, c.head, colW - 40), x + 38, 134);
-    let y = 160;
+    ctx.font = `700 30px ${SANS}`;
+    ctx.fillText(fit(ctx, c.head, colW - 40), x + 36, 106);
+    let y = 126;
     if (c.items.length === 0) {
       ctx.fillStyle = '#64748b';
       ctx.font = `500 28px ${SANS}`;
@@ -154,25 +155,28 @@ export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen) {
       }
       return;
     }
-    for (const it of c.items.slice(0, 5)) {
+    const rowH = 66;
+    const fits = Math.max(1, Math.floor((H - y - 10) / (rowH + 8)));
+    const shown = c.items.length > fits ? fits - 1 : fits;
+    for (const it of c.items.slice(0, shown)) {
       ctx.fillStyle = '#0f172a';
-      roundRect(ctx, x, y, colW, 88, 14);
+      roundRect(ctx, x, y, colW, rowH, 14);
       ctx.fill();
       ctx.fillStyle = toneColor[it.tone];
-      roundRect(ctx, x, y, 10, 88, 5);
+      roundRect(ctx, x, y, 10, rowH, 5);
       ctx.fill();
       ctx.fillStyle = '#f1f5f9';
-      ctx.font = `600 29px ${SANS}`;
-      ctx.fillText(fit(ctx, it.title, colW - 40), x + 26, y + 38);
+      ctx.font = `600 26px ${SANS}`;
+      ctx.fillText(fit(ctx, it.title, colW - 40), x + 24, y + 29);
       ctx.fillStyle = '#94a3b8';
-      ctx.font = `500 23px ${SANS}`;
-      ctx.fillText(fit(ctx, it.sub, colW - 40), x + 26, y + 70);
-      y += 100;
+      ctx.font = `500 20px ${SANS}`;
+      ctx.fillText(fit(ctx, it.sub, colW - 40), x + 24, y + 55);
+      y += rowH + 8;
     }
-    if (c.more) {
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = `600 24px ${SANS}`;
-      ctx.fillText(c.more, x + 4, y + 26);
+    if (c.items.length > shown) {
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = `700 28px ${SANS}`;
+      ctx.fillText(`+${c.items.length - shown}`, x + 8, y + 30);
     }
   };
   column(b.needs, 30, toneColor.needs);
