@@ -147,7 +147,7 @@ function boxie(k: Kit): Build {
   const coat = k.m(toon(k.accent, { roughness: 0.55 }));
   const shoe = k.m(toon('#ffffff', { roughness: 0.4 }));
   // The body: a soft little bean, legs sticking forward off the seat.
-  const torso = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.1, 8, 18), coat), 0, 0.2, 0);
+  const torso = at(new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.12, 8, 18), coat), 0, 0.22, 0);
   torso.scale.set(1.05, 1, 0.9);
   body.add(torso);
   for (const sx of [-1, 1]) {
@@ -158,14 +158,14 @@ function boxie(k: Kit): Build {
   }
   // The head: the logo's cube, rounded.
   const S = 0.46;
-  const headG = gradient(new RoundedBoxGeometry(S, S * 0.92, S * 0.9, 6, 0.12), S);
+  const headG = gradient(new RoundedBoxGeometry(S, S * 0.92, S * 0.9, 8, 0.16), S);
   // (R below is this bevel.)
   const head = at(new THREE.Mesh(headG, k.m(toon('#ffffff', { vertexColors: true, roughness: 0.35 }))), 0, 0.34 + S * 0.46, 0);
   body.add(head);
   // White piping along its edges, as the logo's line art.
   const pipe = k.m(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 }));
   // On the rounded edges themselves: a bevel of r puts its middle r(1 - 1/√2) in.
-  const R = 0.12;
+  const R = 0.16;
   const inset = R * (1 - Math.SQRT1_2);
   const hw = S / 2 - inset;
   const hh = (S * 0.92) / 2 - inset;

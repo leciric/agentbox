@@ -471,13 +471,16 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const place = l.areas[i];
       const area = input.model.areas[i];
       const r = place.rug;
-      // A soft pastel rug in the project's colour, its corners rounded.
-      const rugMat = own(std(new THREE.Color().setHSL(area.hue / 360, 0.5, 0.78), { roughness: 0.95 }));
-      const rugEdge = own(std(new THREE.Color().setHSL(area.hue / 360, 0.45, 0.68), { roughness: 0.95 }));
-      const rw = r.x1 - r.x0;
-      const rd = r.z1 - r.z0;
-      room.add(mesh(own(new RoundedBoxGeometry(rw, 0.02, rd, 2, 0.009)), rugEdge, (r.x0 + r.x1) / 2, 0.01, (r.z0 + r.z1) / 2, 1, 1, 1, false));
-      room.add(mesh(own(new RoundedBoxGeometry(rw - 0.2, 0.022, rd - 0.2, 2, 0.01)), rugMat, (r.x0 + r.x1) / 2, 0.012, (r.z0 + r.z1) / 2, 1, 1, 1, false));
+      // Each pod's soft pastel rug, in the project's colour, corners rounded.
+      const rugMat = own(std(new THREE.Color().setHSL(area.hue / 360, 0.5, 0.8), { roughness: 0.95 }));
+      const rugEdge = own(std(new THREE.Color().setHSL(area.hue / 360, 0.45, 0.7), { roughness: 0.95 }));
+      for (const pod of place.pods) {
+        const pw = pod.x1 - pod.x0;
+        const pd = pod.z1 - pod.z0;
+        room.add(mesh(own(new RoundedBoxGeometry(pw, 0.02, pd, 2, 0.009)), rugEdge, (pod.x0 + pod.x1) / 2, 0.01, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
+        room.add(mesh(own(new RoundedBoxGeometry(pw - 0.18, 0.022, pd - 0.18, 2, 0.01)), rugMat, (pod.x0 + pod.x1) / 2, 0.012, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
+      }
+      void r;
 
       // The lead's counter: a rounded wooden front desk, its front in the
       // project's colour.
@@ -646,7 +649,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     g.add(beacon);
     const bubble = sprite(128, 150, 0.4);
     disp.push(() => bubble.tex.dispose(), () => bubble.sprite.material.dispose());
-    bubble.sprite.position.set(fig.group.position.x + 0.25, 2.05, cz + 0.1);
+    bubble.sprite.position.set(fig.group.position.x, 2.05, cz + 0.05);
     g.add(bubble.sprite);
     const tag = sprite(640, 96, 1.9);
     disp.push(() => tag.tex.dispose(), () => tag.sprite.material.dispose());
@@ -1072,7 +1075,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x - 0.4, y: 1.35, z: a.lead.z - 0.2, dist: 4.8, pitch: 0.45, yaw: 0.25 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x + 0.15, y: 1.25, z: d.z - 0.2, dist: 4.6, pitch: 0.5, yaw: 0.3 };
+      if (d) return { x: d.x - 0.2, y: 1.1, z: d.z - 0.3, dist: 6.2, pitch: 0.58, yaw: 0.35 };
     }
     return undefined;
   }
@@ -1097,7 +1100,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const tx = W / 2;
     const tz = D / 2 + 0.6;
     // The slab's underside and the walls' tops, all of the diorama.
-    const corners = [-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].flatMap((z) => [-0.45, 3.6].map((y) => new THREE.Vector3(x, y, z))));
+    const corners = [-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].flatMap((z) => [-0.45, 4.4].map((y) => new THREE.Vector3(x, y, z))));
     const v = new THREE.Vector3();
     const shiftAt = (d: number) => d * tan * aspect * cover;
     const fits = (d: number) => {
@@ -1319,7 +1322,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         tp.project(camera);
         // Every character wears its name tag, as in a real office; up close
         // only the loud ones.
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || cam.closeK < 0.3);
+        // From the overview only the ones that need you; nearer, everyone's.
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || (cam.closeK < 0.3 && cam.followK > 0.4));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         marker.style.display = onScreen ? 'flex' : 'none';
         if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: Math.min(canvas.clientHeight - 70, ((1 - tp.y) / 2) * canvas.clientHeight), loud });

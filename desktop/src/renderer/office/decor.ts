@@ -128,7 +128,7 @@ export function diorama(l: Layout, sign: string): Diorama {
   const W = l.room.x1;
   const D = l.room.z1;
   const T = 0.42; // the slab's thickness
-  const WALL = 3.6;
+  const WALL = 4.4;
   const WT = 0.22; // walls' thickness
 
   // The slab, lit on its edges, darker below.

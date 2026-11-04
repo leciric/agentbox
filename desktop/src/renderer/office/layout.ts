@@ -25,6 +25,8 @@ export type AreaPlace = {
   // The lead's counter, its centre, and where you stand before it.
   lead: { x: number; z: number; spot: Spot };
   desks: DeskPlace[];
+  // Its pods' rugs: a pod is up to four desks, two by two.
+  pods: Box[];
   // The area's sign, hung over its back edge.
   sign: { x: number; z: number };
 };
@@ -60,6 +62,11 @@ export const SEAT = 0.72; // the chair's distance behind the desk's centre
 export const PITCH_X = 2.5; // desk to desk across a row
 export const PITCH_Z = 2.9; // row to row
 export const COUNTER = { w: 2.4, d: 0.7 };
+const POD = 4;
+const POD_W = 2 * PITCH_X;
+const POD_D = 2 * PITCH_Z;
+const POD_GAP_X = 1.6;
+const POD_GAP_Z = 1.0;
 const AREA_PAD = 0.8; // the rug's margin around its desks
 const LEAD_DEPTH = 2.7; // the counter's strip at the front of an area
 const AISLE = 1.8; // between areas
@@ -83,12 +90,16 @@ const box = (x: number, z: number, w: number, d: number): Box => ({ x0: x - w / 
 // in its project comes or goes.
 export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   // Each area's size, then rows of areas, left to right.
+  // Desks sit in pods of up to four, two by two, with floor between the
+  // pods; an area is a squarish block of its pods, its lead at the front.
   const sizes = model.areas.map((a) => {
-    const cols = columns(a.desks.length);
-    const rows = Math.ceil(a.desks.length / cols);
-    const w = Math.max(cols * PITCH_X, COUNTER.w + 1.2) + AREA_PAD * 2;
-    const d = rows * PITCH_Z + LEAD_DEPTH + AREA_PAD;
-    return { cols, rows, w, d };
+    const pods = Math.ceil(a.desks.length / POD);
+    const cols = columns(pods);
+    const rows = Math.ceil(pods / cols);
+    const inner = cols * POD_W + Math.max(0, cols - 1) * POD_GAP_X;
+    const w = Math.max(inner, COUNTER.w + 1.2) + AREA_PAD * 2;
+    const d = rows * POD_D + Math.max(0, rows - 1) * POD_GAP_Z + LEAD_DEPTH + AREA_PAD;
+    return { cols, rows, w, d, inner };
   });
   // Rows wrap at a width that keeps the room wider than deep, never narrower
   // than its widest area.
@@ -121,13 +132,25 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
       const a = model.areas[i];
       const rug: Box = { x0: x, z0: z, x1: x + s.w, z1: z + depth };
       const cx = x + s.w / 2;
+      const pods: Box[] = [];
+      const podX = (p: number) => cx - s.inner / 2 + (p % s.cols) * (POD_W + POD_GAP_X) + POD_W / 2;
+      const podZ = (p: number) => z + AREA_PAD + 1.1 + Math.floor(p / s.cols) * (POD_D + POD_GAP_Z);
+      for (let p = 0; p * POD < a.desks.length; p++) {
+        const n = Math.min(POD, a.desks.length - p * POD);
+        const px = podX(p);
+        const pz = podZ(p);
+        // The rug runs from its first desk to its last, a margin round them.
+        const left = px - PITCH_X / 2;
+        const right = n > 1 ? px + PITCH_X / 2 : left;
+        const back = pz;
+        const front = pz + (n > 2 ? PITCH_Z : 0);
+        pods.push({ x0: left - 1.0, z0: back - 1.3, x1: right + 1.0, z1: front + 1.15 });
+      }
       const desks: DeskPlace[] = a.desks.map((d, k) => {
-        const col = k % s.cols;
-        const row = Math.floor(k / s.cols);
-        // The last row's desks are centred under the ones above.
-        const inRow = row === s.rows - 1 ? a.desks.length - row * s.cols : s.cols;
-        const dx = cx + (col - (inRow - 1) / 2) * PITCH_X;
-        const dz = z + AREA_PAD + 1.1 + row * PITCH_Z;
+        const p = Math.floor(k / POD);
+        const j = k % POD;
+        const dx = podX(p) + ((j % 2) - 0.5) * PITCH_X;
+        const dz = podZ(p) + Math.floor(j / 2) * PITCH_Z;
         obstacles.push(box(dx, dz, DESK.w, DESK.d));
         // The chair, under the robot, which sits left of centre.
         obstacles.push(box(dx - 0.48, dz - SEAT, 0.62, 0.62));
@@ -139,7 +162,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
       const lz = z + depth - LEAD_DEPTH / 2 - 0.1;
       obstacles.push(box(cx, lz, COUNTER.w, COUNTER.d));
       obstacles.push(box(cx, lz - 0.75, 0.7, 0.6));
-      areas[i] = { project: a.project, rug, lead: { x: cx, z: lz, spot: { x: cx - 1.65, z: lz + 0.55, face: Math.PI / 2 } }, desks, sign: { x: cx, z } };
+      areas[i] = { project: a.project, rug, pods, lead: { x: cx, z: lz, spot: { x: cx - 1.65, z: lz + 0.55, face: Math.PI / 2 } }, desks, sign: { x: cx, z } };
       // The sign's posts, at the rug's back edge.
       obstacles.push(box(cx - 1.35, z + 0.13, 0.12, 0.12), box(cx + 1.35, z + 0.13, 0.12, 0.12));
       plants.push({ x: rug.x0 + 0.35, z: rug.z1 - 0.35 }, { x: rug.x1 - 0.35, z: rug.z1 - 0.35 });
