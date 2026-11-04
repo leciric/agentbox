@@ -103,6 +103,8 @@ export function connectEvents(queryClient: QueryClient): void {
         if (sessionOfRef(chat.agent) && (chat.session || (chat.item && (chat.item.kind === 'user' || chat.item.kind === 'assistant')))) {
           void queryClient.invalidateQueries({ queryKey: ['leadSessions', chat.agent.split('/')[0]] });
         }
+        // An agent's goal moved (agent goals): its row and header show it.
+        if (chat.item?.kind === 'goal') void queryClient.invalidateQueries({ queryKey: ['agents'] });
         // A tool call that finished may have changed files the tree shows.
         if (chat.item && changesFiles(chat.item)) refreshFiles(queryClient, chat.agent, api.fileStatus);
         // A page published on Hatch joins the project's pages.

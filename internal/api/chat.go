@@ -152,7 +152,7 @@ type ChatItem struct {
 	ID string `json:"id"`
 	// Turn is the ID of the user message whose turn this item belongs to.
 	Turn string `json:"turn"`
-	Kind string `json:"kind"` // user, aside, assistant, thought, tool, plan, permission, subagent, compaction, notice or error
+	Kind string `json:"kind"` // user, aside, assistant, thought, tool, plan, permission, subagent, compaction, goal, notice or error
 	Text string `json:"text,omitempty"`
 	// Images, on a user message or an aside, are the pictures sent with it.
 	Images []ChatImage `json:"images,omitempty"`
@@ -189,6 +189,10 @@ type ChatItem struct {
 	// Compaction is set on a compaction's card (D73): the conversation being
 	// saved to the project's memory and carried on in a fresh session.
 	Compaction *ChatCompaction `json:"compaction,omitempty"`
+	// Goal is set on a goal row (kind goal, while agent goals are on): the
+	// agent's goal as it stood when it was set, checked, met, blocked or
+	// cleared. Text says what happened, in AgentBox's words.
+	Goal *AgentGoal `json:"goal,omitempty"`
 	// Handoff, on the notice a rollback or a fork leaves, is what the fresh
 	// session is told of the conversation before it: a context transfer the
 	// app lets you read, not a prompt hidden from you.

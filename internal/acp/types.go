@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // The subset of the protocol AgentBox uses, from ACP's schema (version 1).
@@ -414,7 +415,53 @@ type SessionUpdate struct {
 		Origin *struct {
 			Kind string `json:"kind"`
 		} `json:"_claude/origin,omitempty"`
+		// Goal rides on a session_info_update from codex-acp: the thread's
+		// goal (GoalSnapshot), or null once it is cleared.
+		Goal json.RawMessage `json:"goal,omitempty"`
+		// JetBrains carries claude-agent-acp's goal, which it sends only to
+		// a client that declares _meta.jetbrains.air, as AgentBox does: the
+		// session's /goal, or null once it is cleared.
+		JetBrains struct {
+			Air struct {
+				Goal json.RawMessage `json:"goal,omitempty"`
+			} `json:"air"`
+		} `json:"jetbrains"`
 	} `json:"_meta"`
+}
+
+// GoalSnapshot is a session's goal as an adapter reports it on a
+// session_info_update: claude-agent-acp's (goal-extension.js) and codex-acp's
+// (ThreadGoalSnapshot) share the fields AgentBox reads. Status is "active"
+// from Claude Code, whose goal is cleared once its check finds it met; Codex
+// says "active", "paused", "blocked", "complete" or "limited".
+type GoalSnapshot struct {
+	Objective string `json:"objective"`
+	Status    string `json:"status"`
+	// Iterations and LastReason are Claude Code's: how many times its check
+	// found the goal not yet met, and why it said so the last time.
+	Iterations int    `json:"iterations,omitempty"`
+	LastReason string `json:"lastReason,omitempty"`
+}
+
+// Goal is the goal a session_info_update reports: ok is false when it says
+// nothing of one, and snap is nil when it says the goal was cleared.
+func (u SessionUpdate) Goal() (snap *GoalSnapshot, ok bool) {
+	raw := u.Meta.JetBrains.Air.Goal
+	if len(raw) == 0 {
+		raw = u.Meta.Goal
+	}
+	if u.SessionUpdate != "session_info_update" || len(raw) == 0 {
+		return nil, false
+	}
+	if string(raw) == "null" {
+		return nil, true
+	}
+	var g GoalSnapshot
+	if json.Unmarshal(raw, &g) != nil || strings.TrimSpace(g.Objective) == "" {
+		return nil, false
+	}
+	g.Objective = strings.TrimSpace(g.Objective)
+	return &g, true
 }
 
 // Text returns the text of a message chunk.

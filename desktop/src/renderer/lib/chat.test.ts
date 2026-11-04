@@ -218,6 +218,16 @@ test('timelineRows turns a settled turn with tool calls into a fold and a work r
   assert.deepEqual(kinds, ['user', 'fold', 'assistant']);
 });
 
+test('timelineRows keeps a goal row out of a settled turn\'s fold', () => {
+  const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const goal = { objective: 'CI green', source: 'agentbox', status: 'active', checked: 0, updatedAt: '' } as T.AgentGoal;
+  const set = item({ kind: 'goal', turn: user.id, goal });
+  const call = item({ kind: 'tool', turn: user.id, tool: tool({ status: 'completed' }) });
+  const met = item({ kind: 'goal', turn: user.id, goal: { ...goal, status: 'met' } });
+  const rows = timelineRows(thread([user, set, call, item({ kind: 'assistant', turn: user.id }), met]), new Set());
+  assert.deepEqual(rows.map((r) => r.type), ['user', 'fold', 'goal', 'assistant', 'goal']);
+});
+
 test('timelineRows says a turn stopped before it did anything was stopped', () => {
   const user = item({ kind: 'user', result: { state: 'cancelled', endedAt: '2026-01-01T00:00:05Z' } as T.ChatTurnResult });
   const rows = timelineRows(thread([user]), new Set());
