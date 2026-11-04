@@ -531,6 +531,9 @@ func messageProjectTool(ctx context.Context, c *api.Client) mcp.Tool {
 			if err != nil {
 				return "", err
 			}
+			if t.Project == api.HomeProject {
+				return fmt.Sprintf("Answered the Home chat (thread %s): the user reads it there.", t.ID), nil
+			}
 			return fmt.Sprintf("Replied to %s's lead (thread %s, %d messages).", t.Project, t.ID, t.Messages), nil
 		}},
 		action{"settle", func(raw json.RawMessage) (string, error) {

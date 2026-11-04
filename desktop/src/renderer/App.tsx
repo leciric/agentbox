@@ -267,7 +267,8 @@ export function App({ initial }: { initial?: View } = {}) {
   // A link from a chat to another project's, on a message between their leads.
   useEffect(() => {
     const open = (e: Event) => {
-      setView({ kind: "project", project: (e as CustomEvent<string>).detail });
+      const project = (e as CustomEvent<string>).detail;
+      setView(project === HomeProject ? { kind: "homeChat" } : { kind: "project", project });
       setNavOpen(false);
     };
     window.addEventListener(openProjectEvent, open);

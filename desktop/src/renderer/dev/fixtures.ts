@@ -1081,6 +1081,28 @@ export function leadChat(): T.ChatThread {
   };
 }
 
+// homeAskChats is the Home chat asking this project's lead something with
+// tell_lead, and the lead's answer, as each chat shows them: the question and
+// its answer are cards on both sides (a thread from T.HomeProject).
+export function homeAskChats(): { lead: T.ChatItem[]; home: T.ChatItem[] } {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  const question = 'Is the fix for the login 500s deployed yet? The user wants to tell the support team.';
+  const answer = 'Not yet: agent-12’s PR #81 is green and waiting for review. Once merged it deploys in about 10 minutes.';
+  const card = (id: string, project: string, direction: string, kind: string, hop: number, text: string, ago: number): T.ChatItem => ({
+    id,
+    turn: id,
+    kind: 'notice',
+    text,
+    projectMessage: { project, direction, thread: 'th-home-1', kind, expectsReply: hop === 0, hop },
+    createdAt: at(ago),
+    updatedAt: at(ago),
+  });
+  return {
+    lead: [card('hq1', '_home', 'in', 'sent', 0, question, 60_000), card('hq2', '_home', 'out', 'reply', 1, answer, 30_000)],
+    home: [card('hh1', PROJECT, 'out', 'sent', 0, question, 60_000), card('hh2', PROJECT, 'in', 'reply', 1, answer, 30_000)],
+  };
+}
+
 // agent99Chat is agent-99's session as its info card reads it (model, effort,
 // context): nothing it says, since only session.options is read there.
 // agent99Goal is a goal AgentBox drives (agent goals), sent back twice so far:

@@ -177,20 +177,23 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Name: "tell_lead",
 			Description: "Pass something to a project's own chat, its lead, which wakes and acts on it: the usual way " +
 				"to get work done in a project, since its lead knows it, briefs its agents and follows them. The " +
-				"user sees the message in that project's chat too.",
+				"user sees the message in that project's chat too. Its lead answers once, when it has the answer " +
+				"or the work is done, and the answer comes into this chat by itself and wakes it.",
 			Schema: object([]string{"project", "message"}, map[string]any{
 				"project": project,
-				"message": str("what the user wants done or known, in their terms"),
+				"message": str("what the user wants done or known, in their terms; up to 4000 characters"),
 			}),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct{ Project, Message string }
 				if err := decode(args, &in); err != nil {
 					return "", err
 				}
-				if err := c.HomeTellLead(ctx, in.Project, in.Message); err != nil {
+				t, err := c.HomeTellLead(ctx, in.Project, in.Message)
+				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Told %s's chat; it is working on it.", in.Project), nil
+				return fmt.Sprintf("Asked %s's lead (thread %s). Its answer will arrive in this chat by itself: "+
+					"carry on meanwhile, and don't check for it.", in.Project, t.ID), nil
 			},
 		},
 		{

@@ -1592,6 +1592,12 @@ var migrations = []string{
 	`ALTER TABLE pr_merge_when_green ADD COLUMN trouble_since INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE pr_merge_when_green ADD COLUMN bad_heads INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE pr_merge_when_green ADD COLUMN bad_head TEXT NOT NULL DEFAULT ''`,
+	// A question from the Home chat to a project's lead is a thread too
+	// (daemon/homeapi.go): project_session is the Home chat's session that
+	// asked, which the answer wakes, and peer_session the lead's session that
+	// was asked, which answers. Threads between two leads leave both empty.
+	`ALTER TABLE project_threads ADD COLUMN project_session TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE project_threads ADD COLUMN peer_session TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
