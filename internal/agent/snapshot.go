@@ -162,8 +162,11 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		if err := m.setStartShare(ctx, a.Instance); err != nil {
 			return err
 		}
+		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
-		if err := m.Incus.Start(ctx, a.Instance); err != nil {
+		err := m.Incus.Start(ctx, a.Instance)
+		release()
+		if err != nil {
 			return err
 		}
 	}

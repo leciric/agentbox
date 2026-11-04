@@ -2,12 +2,15 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/nodemods"
@@ -126,6 +129,52 @@ esac`))
 	}
 	if !store.HasSnapshot(a.Project, nodemods.Key(g, lock, "")) {
 		t.Error("Destroy didn't keep the install")
+	}
+}
+
+// Stop frees what the agent installed, as its project's snapshot, and the
+// next start gives it back.
+func TestStopReleasesTheInstallAndStartGivesItBack(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  stop) exit 0 ;;
+esac`))
+	a := destroyFixture(t, f)
+	store := &nodemods.Store{Dir: t.TempDir()}
+	f.m.NodeModules = store
+	g := nodemods.Group{Lockfile: "package-lock.json", Dirs: []string{"."}}
+	lock := []byte(`{"lockfileVersion":3}`)
+	lockfile := filepath.Join(a.Worktree, "package-lock.json")
+	if err := os.WriteFile(lockfile, lock, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(lockfile, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(store.MountDir(a.Instance, "."), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.AgentFile(a.Instance, "installs.json"), []byte(`{"groups":[{"lockfile":"package-lock.json","dirs":["."]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(store.MountDir(a.Instance, "."), ".package-lock.json")
+	if err := os.WriteFile(marker, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.m.Stop(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	if !store.HasSnapshot(a.Project, nodemods.Key(g, lock, "")) {
+		t.Fatal("Stop didn't keep the install as a snapshot")
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the install is still in the agent after Stop: %v", err)
+	}
+
+	f.m.NodeModulesSources(context.Background(), a)
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("starting didn't give the install back: %v", err)
 	}
 }
 

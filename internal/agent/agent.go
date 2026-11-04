@@ -2149,8 +2149,11 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		if err := m.admit(ctx, a); err != nil {
 			return inst, err
 		}
+		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
-		if err := m.Incus.Start(ctx, a.Instance); err != nil {
+		err := m.Incus.Start(ctx, a.Instance)
+		release()
+		if err != nil {
 			return inst, err
 		}
 		booted = true
@@ -2226,6 +2229,9 @@ func (m *Manager) admit(ctx context.Context, a state.Agent) error {
 }
 
 func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
+	defer m.holdNodeModules(a)()
+	// Read while it runs, for its Node.js ABI.
+	installs := m.nodeModulesInstalls(ctx, a, true)
 	if err := m.Incus.StopWithin(ctx, a.Instance, 30*time.Second); err != nil {
 		if err := m.Incus.ForceStop(ctx, a.Instance); err != nil {
 			return err
@@ -2235,6 +2241,7 @@ func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 	if err := m.Store.SetStoppedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
 		m.logf("recording when %s was stopped: %v", a.Ref(), err)
 	}
+	m.releaseNodeModules(a, installs)
 	return nil
 }
 
