@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
@@ -15,14 +14,6 @@ import (
 // notice of it, which the lead reads at its next turn without one being
 // started for it (chat.Manager.Told). A lead that is kept in sync this way
 // spends nothing until somebody writes to it.
-
-// errOtherSession refuses a message to another session's agent until the
-// user says to send it anyway (api.ErrorOtherSession).
-type errOtherSession struct{ agent, topic string }
-
-func (e errOtherSession) Error() string {
-	return fmt.Sprintf("%s belongs to the %q session: send anyway?", e.agent, e.topic)
-}
 
 // sendToAgent sends a message written in lead's chat to the agent it names,
 // and gives back the notice the chat keeps of it.
