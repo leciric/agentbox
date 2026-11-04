@@ -119,8 +119,9 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
         const dz = z + AREA_PAD + 1.1 + row * PITCH_Z;
         obstacles.push(box(dx, dz, DESK.w, DESK.d));
         obstacles.push(box(dx, dz - SEAT, 0.62, 0.62));
-        // You stand a little left of centre: the monitor is on the right.
-        return { id: d.id, x: dx, z: dz, spot: { x: dx - 0.3, z: dz + STAND, face: Math.PI } };
+        // You stand to the left: the monitor is on the right, and the close-up sees
+        // both of you and it.
+        return { id: d.id, x: dx, z: dz, spot: { x: dx - 0.6, z: dz + STAND, face: Math.PI } };
       });
       // The counter sits at the area's front, its lead behind it facing you.
       const lz = z + depth - LEAD_DEPTH / 2 - 0.1;

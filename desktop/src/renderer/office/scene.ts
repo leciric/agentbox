@@ -722,7 +722,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         stillFor = 1;
         // Back where you were, close up already: no fade in from afar.
         focusRef = nearest(lay, pos);
-        if (focusRef) cam.closeK = 1;
+        if (focusRef === 'board') {
+          focusRef = undefined;
+          held = true;
+        } else if (focusRef) cam.closeK = 1;
       } else if (!placed) {
         pos.x = lay.spawn.x;
         pos.z = lay.spawn.z;
@@ -936,7 +939,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x + 0.25, y: 1.0, z: d.z - 0.05, dist: 3.9, pitch: 0.55, yaw: 0.34 };
+      if (d) return { x: d.x - 0.05, y: 1.0, z: d.z + 0.1, dist: 4.4, pitch: 0.52, yaw: 0.25 };
     }
     return undefined;
   }
@@ -1094,22 +1097,33 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     }
     // Signs give way to the camera, and to the board's close-up over them.
     for (const sg of signs) sg.visible = !(focusRef === 'board' && cam.closeK > 0.2) && sg.position.distanceTo(camera.position) > 3.5;
-    // From far off, each area's label floats over its sign.
+    // From far off, each area's label floats over its sign. What the labels
+    // and your chip take, the desks' chips keep clear of.
+    const taken: { x0: number; x1: number; y0: number; y1: number }[] = [];
     const ap = new THREE.Vector3();
     for (const [i, place] of lay.areas.entries()) {
       const chip = areaChips.get(place.project);
       if (!chip) continue;
       const sg = signs[i];
-      ap.set(sg ? sg.position.x : place.lead.x, 2.9, sg ? sg.position.z : place.rug.z0);
+      ap.set(sg ? sg.position.x : place.lead.x, 3.4, sg ? sg.position.z : place.rug.z0);
       const far = ap.distanceTo(camera.position) > 15;
       ap.project(camera);
       const on = far && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
       chip.style.display = on ? 'flex' : 'none';
-      if (on) chip.style.transform = `translate(${((ap.x + 1) / 2) * canvas.clientWidth}px, ${((1 - ap.y) / 2) * canvas.clientHeight}px) translate(-50%, -100%)`;
+      if (on) {
+        const cx = ((ap.x + 1) / 2) * canvas.clientWidth;
+        const cy = ((1 - ap.y) / 2) * canvas.clientHeight;
+        chip.style.transform = `translate(${cx}px, ${cy}px) translate(-50%, -100%)`;
+        const w = chip.offsetWidth || 140;
+        const h = chip.offsetHeight || 38;
+        taken.push({ x0: cx - w / 2, x1: cx + w / 2, y0: cy - h, y1: cy });
+      }
       if (sg && on) sg.visible = false;
     }
     // You fade while you look at a monitor, so you never stand in front of it.
-    me.fade(1 - cam.closeK * 0.85);
+    // At a counter you'd stand in front of its monitor: you fade there. At a
+    // desk you stand aside, in view.
+    me.fade(focusRef?.endsWith('/lead') ? 1 - cam.closeK * 0.85 : 1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1138,21 +1152,34 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     tp.project(camera);
     meMarker.style.display = meFar && tp.z < 1 ? 'block' : 'none';
     if (meFar) {
-      meMarker.style.transform = `translate(${((tp.x + 1) / 2) * canvas.clientWidth}px, ${((1 - tp.y) / 2) * canvas.clientHeight}px) translate(-50%, -110%)`;
+      const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
+      const my = ((1 - tp.y) / 2) * canvas.clientHeight;
+      const mw = meMarker.offsetWidth || 44;
+      // Over your head, or under your feet when a label is there.
+      const over = { x0: mx - mw / 2, x1: mx + mw / 2, y0: my - 40, y1: my - 18 };
+      const under = taken.some((r) => over.x0 < r.x1 && over.x1 > r.x0 && over.y0 < r.y1 && over.y1 > r.y0);
+      meMarker.style.transform = `translate(${mx}px, ${my}px) translate(-50%, ${under ? '140%' : '-110%'})`;
+      taken.push(under ? { x0: over.x0, x1: over.x1, y0: my + 30, y1: my + 52 } : over);
       meTag.sprite.visible = false;
     }
     // Markers that would overlap stack upwards instead, the nearest (lowest
     // on screen) where it belongs.
     shown.sort((a, b) => b.y - a.y);
-    const placed: { x0: number; x1: number; y: number }[] = [];
+    const placed: { x0: number; x1: number; y: number }[] = taken.flatMap((r) => {
+      // As the anchors of chips that would cover it (a chip's box runs from
+      // 31px above its anchor to 7 above), a row every 20px.
+      const rows: { x0: number; x1: number; y: number }[] = [];
+      for (let y = r.y1 + 31; y > r.y0 + 7; y -= 20) rows.push({ x0: r.x0, x1: r.x1, y });
+      return rows;
+    });
     for (const m of shown) {
       const w = m.el.offsetWidth || 120;
       const h = 24;
       const x0 = m.x - w / 2;
       const x1 = m.x + w / 2;
       const clash = (y: number) => placed.some((p) => x0 < p.x1 + 4 && x1 > p.x0 - 4 && Math.abs(p.y - y) < h);
-      // Up to two steps up; past that it's a tower, and the list has it.
-      const y = [m.y, m.y - h, m.y - 2 * h].find((y) => !clash(y));
+      // Up to two steps up or down; past that it's a tower, and the list has it.
+      const y = [m.y, m.y - h, m.y + h, m.y - 2 * h, m.y + 2 * h].find((y) => !clash(y));
       if (y === undefined) {
         m.el.style.display = 'none';
         continue;
@@ -1326,7 +1353,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       poke();
     },
     dispose() {
-      lastVisit = { pos: { ...pos }, facing, follow: followTarget, yaw: cam.yaw, dist: cam.dist };
+      // Coming back to the board is coming back to the room: the overview.
+      lastVisit = near === 'board' ? { pos: { ...pos }, facing, follow: 0, yaw: 0, dist: 11 } : { pos: { ...pos }, facing, follow: followTarget, yaw: cam.yaw, dist: cam.dist };
       disposed = true;
       cancelAnimationFrame(raf);
       window.clearTimeout(nap);
