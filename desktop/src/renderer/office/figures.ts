@@ -506,8 +506,9 @@ export function robot(ref: string, accent: THREE.ColorRepresentation, opts: { le
 export type Walker = Figure & { stride(speed: number, t: number, motion: boolean): void; fade(opacity: number): void };
 
 export function walker(): Walker {
-  const hoodie = std('#7c5cf0', { roughness: 0.8 });
-  const hoodieDark = std('#5b3fd0', { roughness: 0.85 });
+  // Soft fleece: a sheen at grazing angles, so the hoodie reads as cloth.
+  const hoodie = new THREE.MeshPhysicalMaterial({ color: '#7c5cf0', roughness: 0.75, sheen: 1, sheenColor: new THREE.Color('#c9b8ff'), sheenRoughness: 0.5 });
+  const hoodieDark = new THREE.MeshPhysicalMaterial({ color: '#5b3fd0', roughness: 0.8, sheen: 1, sheenColor: new THREE.Color('#a993ff'), sheenRoughness: 0.5 });
   const pants = std('#26324a', { roughness: 0.8 });
   const skin = phys('#f3c7a5', { roughness: 0.55, clearcoat: 0.1 });
   const hair = std('#3a2a22', { roughness: 0.7 });

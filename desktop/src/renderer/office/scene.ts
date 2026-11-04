@@ -370,6 +370,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
   let focusAt: { x: number; z: number } | undefined;
   let settledFor = 0;
   let chipsShown = true;
+  let lastRestack = '';
   // Each chip's offset from its desk, or null when it has no room.
   const chipDy = new WeakMap<HTMLElement, [number, number] | null>();
   const chipInto = new WeakMap<HTMLElement, HTMLDivElement>();
@@ -626,10 +627,10 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const screenMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
     disp.push(() => screenMat.dispose());
     const mon = new THREE.Group();
-    mon.position.set(lead ? 0.45 : 0.4, top, lead ? 0.1 : 0.05);
+    mon.position.set(lead ? 0.45 : 0.42, top, lead ? 0.1 : 0.05);
     mon.rotation.y = -0.12;
     g.add(mon);
-    const mw = lead ? 0.86 : 0.8;
+    const mw = lead ? 0.86 : 0.76;
     const mh = mw * (320 / 512);
     const my = 0.07 + mh / 2 + 0.06;
     put(mon, mesh(geo.roundThin, mats.bezel, 0, my, 0, mw + 0.05, mh + 0.05, 0.035));
@@ -692,7 +693,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     g.add(flag);
 
     // What a click picks: the desk and the robot, as one box.
-    const hit = mesh(geo.box, mats.hit, 0, 0.75, lead ? -0.3 : -0.3, lead ? COUNTER.w : 1.5, 1.5, 1.45, false);
+    // Tight round the desk and its robot, so the floor beside it is floor.
+    const hit = mesh(geo.box, mats.hit, lead ? 0 : -0.1, 0.7, lead ? -0.3 : -0.25, lead ? COUNTER.w : 1.5, 1.4, lead ? 1.45 : 1.25, false);
     hit.userData.ref = ref;
     g.add(hit);
     hits.push(hit);
@@ -1043,7 +1045,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const dist = Math.hypot(dx, dz);
       // A long walk is a jog, so a desk across the room is a moment away.
       const left = dist + pathLengthFrom(route);
-      const pace = Math.min(16, Math.max(SPEED, left / 0.8));
+      // A walk you asked for by name (a chip, N, the list) is quick.
+      const pace = Math.min(18, Math.max(routeGoal ? 6 : SPEED, left / 0.6));
       const stepLen = pace * dt;
       if (dist <= stepLen) {
         pos.x = goal.x;
@@ -1087,7 +1090,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
 
     // What you're at, once you've stopped.
     // Standing back for the overview, you're at nothing.
-    const at = stillFor > 0.15 && !held ? nearest(lay, pos) : undefined;
+    // Walking to a desk by name, its card is already up on the way.
+    const at = held ? undefined : stillFor > 0.15 ? nearest(lay, pos) : routeGoal && route.length ? routeGoal : undefined;
     if (at !== near) {
       near = at;
       opts.onNear(near);
@@ -1114,7 +1118,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     for (const a of lay.areas) {
       if (ref === `${a.project}/lead`) return { x: a.lead.x + 0.3, y: 1.3, z: a.lead.z, dist: 3.9, pitch: 0.42, yaw: 0.32 };
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return { x: d.x - 0.2, y: 1.3, z: d.z - 0.1, dist: 4.9, pitch: 0.55, yaw: 0.2 };
+      if (d) return { x: d.x - 0.15, y: 1.25, z: d.z - 0.1, dist: 4.8, pitch: 0.6, yaw: -0.18 };
     }
     return undefined;
   }
@@ -1281,7 +1285,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       }
       // The beams stand down while you read the board over them.
       d.beam.visible = d.tone === 'needs' && !(focusRef === 'board' && cam.closeK > 0.2);
-      if (d.beam.visible) (d.beam.material as THREE.MeshBasicMaterial).opacity = 0.09 + (motion ? Math.sin(t * 3) * 0.035 : 0);
+      if (d.beam.visible) (d.beam.material as THREE.MeshBasicMaterial).opacity = 0.045 + (motion ? Math.sin(t * 3) * 0.015 : 0);
       if (d.flag.visible && motion) d.flag.children[1].rotation.y = Math.sin(t * 3 + b.position.x) * 0.25;
       // The monitor you're at blinks its cursor.
       if (d.ref === near && d.screen.data && d.tone === 'working') {
@@ -1365,7 +1369,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     });
     // A chip with no room of its own folds into the one in its way, as a
     // "+n" on it: N, or the list, still gets you to each.
-    const restack = chipsShown;
+    // Laid out once each time the camera comes to rest (or what's shown
+    // changes), then held: a chip never trades places under the pointer.
+    const restackKey = chipsShown ? `${eased.tx.toFixed(1)}:${eased.tz.toFixed(1)}:${eased.dist.toFixed(1)}:${eased.yaw.toFixed(2)}:${shown.map((m) => m.el.dataset.officeMarker).join(',')}` : lastRestack;
+    const restack = restackKey !== lastRestack;
+    lastRestack = restackKey;
     const chips: { x0: number; x1: number; y: number; el: HTMLDivElement; loud: boolean }[] = [];
     for (const m of shown) {
       // With room for a "+n" it may get, so it doesn't grow into a neighbour.
