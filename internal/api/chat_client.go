@@ -130,6 +130,13 @@ func (c *Client) ReopenLeadSession(ctx context.Context, project, session string)
 	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/reopen", nil, &out)
 }
 
+// SeeLeadSession says a session of a project's chat is on screen now, which
+// every window and the phone then show read.
+func (c *Client) SeeLeadSession(ctx context.Context, project, session string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session)+"/seen", SeeLeadSessionRequest{}, &out)
+}
+
 // SnoozeLeadSession hides a session from the tabs until until, or with the
 // zero time brings it back now.
 func (c *Client) SnoozeLeadSession(ctx context.Context, project, session string, until time.Time) (LeadSession, error) {

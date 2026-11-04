@@ -67,7 +67,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, Cont
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 import { GroupChips } from '../groups/GroupChip';
-import { chooseSession, chosenSession, isUnread, isWorking, openSession, snoozedOf, useSeenAt } from '../../lib/sessions';
+import { chooseSession, chosenSession, isUnread, isWorking, openSession, sessionStatus, snoozedOf, useSeenAt } from '../../lib/sessions';
 import { wakeTime } from '../chat/SessionHeader';
 
 const stLabel: Record<AgentSt, MessageKey> = {
@@ -1018,7 +1018,8 @@ function ProjectLead({
   const name = projectLabel(project);
   const active = (view.kind === 'project' && view.project === project.name) || (view.kind === 'agent' && view.ref.startsWith(`${project.name}/`));
   const sessionUnread = !active && sessions.some((s) => isUnread(s, seen[s.ref]));
-  const needs = attention.level === 'needs';
+  // A permission request waiting in one of its sessions needs you too.
+  const needs = attention.level === 'needs' || sessions.some((s) => sessionStatus(s) === 'needsYou');
   const dot = attention.level === 'finished' || sessionUnread;
   // Working marks the row only when nothing louder does.
   const leadRunning = chat.data?.chat === 'running' || sessionWorking;

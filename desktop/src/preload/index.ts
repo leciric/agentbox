@@ -388,6 +388,8 @@ const bridge = {
   // onNotificationClick gets its ID when it's clicked.
   notify: (notice: { id: string; title: string; body: string }): Promise<boolean> => ipcRenderer.invoke('notify:show', notice),
   onNotificationClick: (fn: (id: string) => void) => listen('notify:click', fn),
+  // The count on the dock or launcher icon: what waits on you (main/notify.ts).
+  badge: (count: number) => ipcRenderer.send('notify:badge', count),
   // The passphrase a Chromium browser seals its cookies with, read from the
   // host's keyring (main/browserkeys.ts) for a browser-cookie import, since
   // the daemon in the VM can't reach the keyring. '' when there's none to

@@ -7,7 +7,7 @@ import { api, sessionOfRef } from '../lib/api';
 import { chatReadyRetry, forgetThread, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { requestReveal, useChatOpenAt } from '../lib/reveal';
-import { afterClose, awake, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, snoozedOf, useChosenSession, withSession } from '../lib/sessions';
+import { afterClose, awake, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, showingSession, snoozedOf, useChosenSession, withSession } from '../lib/sessions';
 import { requestSessionFocus } from '../lib/newTask';
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
 import { cn, errorMessage } from '../lib/utils';
@@ -218,6 +218,7 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   useEffect(() => {
     if (shownId) markSessionSeen(project, shownId);
   }, [project, shownId, shownLast]);
+  useEffect(() => (shownId ? showingSession(project, shownId) : undefined), [project, shownId]);
 
   // The sessions' keys (lib/shortcuts.ts), while this chat is on screen.
   const keys = useRef({ list, current, history, open: add.mutate, close: close.mutate });

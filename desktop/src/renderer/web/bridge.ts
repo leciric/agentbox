@@ -315,6 +315,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     return true;
   },
   onNotificationClick: (fn) => listen(noticeClickListeners, fn),
+  // A browser tab has no dock icon to count on.
+  badge: () => {},
   copyText: (text) => void navigator.clipboard?.writeText(text),
   readText: () => navigator.clipboard?.readText() ?? Promise.resolve(''),
   copyImage: (png) => void navigator.clipboard?.write([new ClipboardItem({ 'image/png': new Blob([png as BlobPart], { type: 'image/png' }) })]).catch(() => {}),

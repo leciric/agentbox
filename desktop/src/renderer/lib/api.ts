@@ -110,7 +110,7 @@ export const sessionOfRef = (ref: string): string | undefined => {
 
 // untitledTopic shows an untitled session's placeholder topic in the app's
 // language.
-const untitledTopic = (s: T.LeadSession): T.LeadSession => (s.untitled ? { ...s, topic: t('sessions.untitled') } : s);
+export const untitledTopic = (s: T.LeadSession): T.LeadSession => (s.untitled ? { ...s, topic: t('sessions.untitled') } : s);
 
 // sessionRef is the ref a session's lead, and its chat, are known by.
 export const sessionRef = (project: string, session: string) => `${project}/${session === 'main' ? T.LeadName : `${T.LeadName}.${session}`}`;
@@ -590,6 +590,9 @@ export const api = {
     call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/close`).then(untitledTopic),
   reopenLeadSession: (name: string, session: string) =>
     call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/reopen`).then(untitledTopic),
+  // The session was on screen at at: every window and the phone show it read.
+  seeLeadSession: (name: string, session: string, at?: string) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/seen`, { at } satisfies T.SeeLeadSessionRequest).then(untitledTopic),
   deleteLeadSession: (name: string, session: string) => call<void>('DELETE', `${project(name)}/sessions/${encodeURIComponent(session)}`),
   // snoozeLeadSession hides an open session from the tabs until a time, or
   // with none brings it back now; it comes back early when one of its agents

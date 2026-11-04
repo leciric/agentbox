@@ -36,7 +36,7 @@ import { registerBrowserCookies } from './browsercookies';
 import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
-import { showNotice, type OSNotice } from './notify';
+import { setBadge, showNotice, type OSNotice } from './notify';
 import { openChatFile } from './chatfiles';
 import { pageThumb } from './pagethumbs';
 import { registerRender } from './renders';
@@ -412,6 +412,7 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
 ipcMain.handle('pageThumb:get', (_event, path: string, key: string) => pageThumb(path, key));
 ipcMain.handle('render:register', (_event, html: string, network: boolean) => registerRender(String(html), !!network));
 ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));
+ipcMain.on('notify:badge', (_event, count: number) => setBadge(win, typeof count === 'number' ? count : 0));
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());
 // A PNG the renderer drew (the weekly recap's share card): onto the clipboard,

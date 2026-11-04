@@ -32,6 +32,10 @@
 //                           a "Publish a page" button to watch one arrive;
 //                           ?pages=agent-12 that agent's chat, its own; with
 //                           ?media=project|all|agent, that Media view's Pages tab
+//   ?sessionStatus=live     the chat's sessions start quiet, then move through
+//                           needing you, working, finishing and failing every
+//                           few seconds, as the daemon's status events say
+//                           (dev/fixtures.ts' liveSessionSteps); use ?app=project
 //   ?chat=lead              the project's chat, with the credential requests
 //                           its agents are waiting on at its end
 //   ?vm=create|lima|vz      a Mac's first screen in the middle: the VM to set up,
@@ -1660,6 +1664,8 @@ if (phoneMode === 'frame') {
   const { App } = await import('../App');
   // Last, over the chat any scenario above seeded.
   if (params.get('thread') === 'rich') queryClient.setQueryData(['chat', `${PROJECT}/lead`], richChat());
+  // ?sessionStatus=live: the dev bridge's status events reach the app.
+  if (params.get('sessionStatus') === 'live') connectEvents(queryClient);
   const initial: View =
     appView === 'home' ? { kind: 'home' }
     : appView === 'work' ? { kind: 'work' }

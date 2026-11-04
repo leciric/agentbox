@@ -58,11 +58,23 @@ export function projectChat(v: unknown): T.ProjectChat {
   return { ...(o as unknown as T.ProjectChat), project: str(o.project), ref: str(o.ref), started: o.started === true && keyed(o, 'ref'), chat: str(o.chat) };
 }
 
-// leadSessions is a project's chat sessions, each with its id and ref.
+// leadSessions is a project's chat sessions, each with its id and ref, and
+// where it stands (daemon/sessionstatus.go).
 export function leadSessions(v: unknown): T.LeadSession[] {
   return list(v, (o) =>
     keyed(o, 'id') && keyed(o, 'ref')
-      ? { ...(o as unknown as T.LeadSession), topic: str(o.topic), chat: str(o.chat), agents: num(o.agents), activeAt: str(o.activeAt), createdAt: str(o.createdAt) }
+      ? {
+          ...(o as unknown as T.LeadSession),
+          topic: str(o.topic),
+          chat: str(o.chat),
+          agents: num(o.agents),
+          activeAt: str(o.activeAt),
+          createdAt: str(o.createdAt),
+          status: str(o.status),
+          needsYou: num(o.needsYou),
+          agentsWorking: num(o.agentsWorking),
+          unread: o.unread === true,
+        }
       : undefined,
   );
 }
@@ -84,6 +96,14 @@ export function sessionOutput(v: unknown): T.SessionAgent[] {
         }
       : undefined,
   );
+}
+
+// leadSessionStatus is an EventLeadSessionStatus: a project's open sessions as
+// they stand now; undefined for one that names no project.
+export function leadSessionStatus(v: unknown): { project: string; sessions: T.LeadSession[] } | undefined {
+  const o = isObj(v) ? v : {};
+  const project = str(o.project);
+  return project ? { project, sessions: leadSessions(o.sessions) } : undefined;
 }
 
 export function question(o: Obj): T.Question | undefined {

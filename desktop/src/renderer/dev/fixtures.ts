@@ -2605,7 +2605,10 @@ export function installDevBridge(): void {
     },
     connection: async () => ({ state: 'connected' }),
     onConnection: () => () => {},
-    onEvent: () => () => {},
+    onEvent: (fn: (event: unknown) => void) => {
+      devEventListeners.add(fn);
+      return () => devEventListeners.delete(fn);
+    },
     staleDaemon: async () => devState.staleDaemon ?? null,
     onStaleDaemon: () => () => {},
     restartStaleDaemon: async () => {},
@@ -2657,6 +2660,7 @@ export function installDevBridge(): void {
     keepAwake: async () => {},
     tray: { settings: async () => ({ keepRunning: false }), set: async (next: { keepRunning?: boolean }) => ({ keepRunning: false, ...next }), reviewing: () => {}, onOpen: () => () => {} },
     onNotificationClick: () => () => {},
+    badge: () => {},
     copyText: () => {},
     readText: async () => '',
     copyImage: () => {},
@@ -2722,16 +2726,54 @@ function devSessions(project: string): T.LeadSession[] {
     list =
       project === PROJECT
         ? [
-            { project, id: 'main', ref: `${project}/lead`, topic: 'Chat', color: 'lilac', chat: 'running', agents: 3, createdAt: at(86_400_000), activeAt: at(60_000) },
-            { project, id: 'prod-login-500s', ref: `${project}/lead.prod-login-500s`, topic: 'Prod: login 500s', color: 'peach', chat: 'ready', agents: 2, createdAt: at(3_600_000), activeAt: at(120_000), last: { kind: 'assistant', text: 'agent-41 found it: the session cookie.', at: at(120_000) } },
-            { project, id: 'onboarding-copy', ref: `${project}/lead.onboarding-copy`, topic: 'Onboarding copy', color: 'mint', chat: 'ready', agents: 2, createdAt: at(1_800_000), activeAt: at(900_000) },
+            { project, id: 'main', ref: `${project}/lead`, topic: 'Chat', color: 'lilac', chat: 'running', status: 'working', agents: 3, createdAt: at(86_400_000), activeAt: at(60_000) },
+            { project, id: 'prod-login-500s', ref: `${project}/lead.prod-login-500s`, topic: 'Prod: login 500s', color: 'peach', chat: 'ready', status: 'needsYou', needsYou: 2, agents: 2, createdAt: at(3_600_000), activeAt: at(120_000), last: { kind: 'assistant', text: 'agent-41 found it: the session cookie.', at: at(120_000) } },
+            { project, id: 'onboarding-copy', ref: `${project}/lead.onboarding-copy`, topic: 'Onboarding copy', color: 'mint', chat: 'ready', status: 'idle', agents: 2, createdAt: at(1_800_000), activeAt: at(900_000), last: { kind: 'assistant', text: 'Drafted the three welcome screens.', at: at(900_000) } },
           ]
         : [{ project, id: 'main', ref: `${project}/lead`, topic: 'Chat', color: 'sky', chat: 'ready', agents: 0, createdAt: at(3_600_000), activeAt: at(3_600_000) }];
     // ?sessions=1: the project has only the one open, which shows no colour.
     if (new URLSearchParams(location.search).get('sessions') === '1') list = list.slice(0, 1);
+    // ?sessionStatus=live: every session starts quiet, then moves through
+    // liveSessionSteps as the daemon's status events would say.
+    if (project === PROJECT && new URLSearchParams(location.search).get('sessionStatus') === 'live') {
+      list = list.map((s) => ({ ...s, status: s.id === 'main' ? 'working' : 'idle', needsYou: 0, chat: s.id === 'main' ? 'running' : 'ready', last: undefined }));
+      startLiveSessions(project);
+    }
     sessionsByProject.set(project, list);
   }
   return list;
+}
+
+// The dev bridge's event stream: what devEmit sends goes through the app's own
+// handling (lib/events.ts), as the daemon's events do.
+const devEventListeners = new Set<(event: unknown) => void>();
+function devEmit(type: string, data: unknown): void {
+  for (const fn of devEventListeners) fn({ type, time: new Date().toISOString(), data });
+}
+
+// liveSessionSteps is ?sessionStatus=live's script, a step every 5 seconds:
+// a permission waits in a session you aren't on (toast), another, the main
+// session's turn ends with its agents done (toast), one stops on an error,
+// and the waiting is answered.
+const liveSessionSteps: { id: string; set: Partial<T.LeadSession> }[] = [
+  { id: 'prod-login-500s', set: { status: 'needsYou', needsYou: 1 } },
+  { id: 'onboarding-copy', set: { status: 'working', chat: 'running' } },
+  { id: 'prod-login-500s', set: { needsYou: 2 } },
+  { id: 'main', set: { status: 'idle', chat: 'ready', agentsWorking: 0 } },
+  { id: 'onboarding-copy', set: { status: 'failed', chat: 'error' } },
+  { id: 'prod-login-500s', set: { status: 'idle', needsYou: 0, last: { kind: 'assistant', text: 'Allowed: agent-41 pushed the fix.', at: '' } } },
+];
+function startLiveSessions(project: string): void {
+  let step = 0;
+  const timer = setInterval(() => {
+    const next = liveSessionSteps[step++];
+    if (!next) return clearInterval(timer);
+    const now = new Date().toISOString();
+    const set = next.set.last ? { ...next.set, last: { ...next.set.last, at: now } } : next.set;
+    const list = devSessions(project).map((s) => (s.id === next.id ? { ...s, ...set } : s));
+    sessionsByProject.set(project, list);
+    devEmit('lead.session.status', { project, sessions: list } satisfies T.LeadSessionStatusChange);
+  }, 5000);
 }
 
 // seeded is the preview's query client, which a message sent from the
@@ -2834,6 +2876,14 @@ function sessionsRequest(method: string, path: string, body: unknown) {
     const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic: topic || 'New session', untitled: !topic, color, chat: 'starting', agents: 0, createdAt: now, activeAt: now };
     sessionsByProject.set(project, [...devSessions(project), s]);
     return json(s);
+  }
+  const seen = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/seen$/.exec(path);
+  if (seen && method === 'POST') {
+    const [project, id] = [decodeURIComponent(seen[1]), decodeURIComponent(seen[2])];
+    const at = (body as T.SeeLeadSessionRequest | undefined)?.at ?? new Date().toISOString();
+    const list = devSessions(project).map((s) => (s.id === id ? { ...s, seenAt: at, unread: false } : s));
+    sessionsByProject.set(project, list);
+    return json(list.find((s) => s.id === id) ?? {});
   }
   const lead = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/lead$/.exec(path);
   if (lead && method === 'GET') {

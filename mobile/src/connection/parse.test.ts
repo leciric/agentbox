@@ -131,3 +131,13 @@ test('a session output keeps the agents that have a ref, and pull requests with 
   assert.equal(got[1].pr, undefined);
   assert.deepEqual(P.sessionOutput(null), []);
 });
+
+test('a session status event carries the project and its sessions as they stand', () => {
+  const change = P.leadSessionStatus({ project: 'web', sessions: [{ id: 'prod', ref: 'web/lead.prod', status: 'needsYou', needsYou: 2, unread: 'yes' }, { id: 'broken' }] });
+  assert.equal(change?.project, 'web');
+  assert.equal(change?.sessions.length, 1, 'a session with no ref is dropped');
+  assert.equal(change?.sessions[0].status, 'needsYou');
+  assert.equal(change?.sessions[0].needsYou, 2);
+  assert.equal(change?.sessions[0].unread, false, 'only true is unread');
+  assert.equal(P.leadSessionStatus({ sessions: [] }), undefined);
+});
