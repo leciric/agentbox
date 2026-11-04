@@ -199,7 +199,11 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         sub.style.cssText = 'font-weight:500;font-size:11px;color:#cbd5e1';
         chip.append(name, sub);
         const ref = `${area.project}/lead`;
-        chip.addEventListener('click', () => walkTo(ref));
+        chip.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          walkTo(ref);
+        });
         markerLayer.prepend(chip);
         areaChips.set(area.project, chip);
       }
@@ -641,7 +645,13 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         label.style.cssText = 'overflow:hidden;text-overflow:ellipsis';
         marker.append(dot, label);
         const ref = d.ref;
-        marker.addEventListener('click', () => walkTo(ref));
+        // On press, not click: the camera may still be easing, and a chip that
+        // moved before the release would lose the click to the floor.
+        marker.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          walkTo(ref);
+        });
         markerLayer.appendChild(marker);
         markers.set(d.ref, marker);
       }
@@ -1074,7 +1084,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       const p0 = d.root.position;
       const ahead = !!focusAt && focusRef !== 'board' && p0.z > focusAt.z + 1 && p0.z - focusAt.z < 4.5 && Math.abs(p0.x - focusAt.x) < 3.2;
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (p0.distanceTo(camera.position) < 4.2 || ahead);
-      d.figure.group.visible = !(inWay && ahead);
+      d.root.visible = !(inWay && ahead);
       d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone];
       const b = d.beacon;
       b.visible = !inWay && d.tone !== 'stopped';
@@ -1150,7 +1160,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         marker.style.display = onScreen ? 'flex' : 'none';
         if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight });
       }
-      tag.visible = !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && !(marker && far) && dist < 18 && !(cam.closeK > 0.3 && d.root.position.distanceTo(camera.position) < 4.2) && d.figure.group.visible;
+      tag.visible = !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && !(marker && far) && dist < 18 && !(cam.closeK > 0.3 && d.root.position.distanceTo(camera.position) < 4.2) && d.root.visible;
       const w = Math.min(2.1, Math.max(0.8, dist * 0.085));
       tag.scale.set(w, (w * 96) / 640, 1);
     }

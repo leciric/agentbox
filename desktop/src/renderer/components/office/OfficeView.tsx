@@ -121,7 +121,9 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  useEffect(() => setListChoice(null), [near]);
+  useEffect(() => {
+    if (near) setListChoice(null);
+  }, [near]);
   const office = useOffice();
   const openReview = useOpenReview();
 
