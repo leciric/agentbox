@@ -973,6 +973,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/sessions", s.listSessions)
 	h("POST /v1/projects/{project}/sessions", s.newSession)
 	h("PATCH /v1/projects/{project}/sessions/{session}", s.renameSession)
+	h("PUT /v1/projects/{project}/sessions/order", s.orderSessions)
 	h("DELETE /v1/projects/{project}/sessions/{session}", s.deleteSession)
 	h("POST /v1/projects/{project}/sessions/{session}/close", s.closeSession)
 	h("POST /v1/projects/{project}/sessions/{session}/reopen", s.reopenSession)

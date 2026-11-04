@@ -6,10 +6,10 @@ import * as T from '../../shared/api';
 import { api, sessionOfRef } from '../lib/api';
 import { chatReadyRetry, forgetThread, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
-import { requestReveal, useChatOpenAt } from '../lib/reveal';
-import { afterClose, awake, chooseSession, markSessionSeen, neighbour, pickSession, sessionColor, showingSession, snoozedOf, useChosenSession, withSession } from '../lib/sessions';
+import { inSession, pendingReveal, requestReveal, useChatOpenAt, useReveal, type Reveal } from '../lib/reveal';
+import { afterClose, awake, chooseSession, markSessionSeen, moveTab, neighbour, pickSession, sessionColor, showingSession, snoozedOf, sortTabs, useChosenSession, withSession } from '../lib/sessions';
 import { requestSessionFocus } from '../lib/newTask';
-import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
+import { keysHint, sessionJump, sessionKeys, sessionShortcut } from '../lib/shortcuts';
 import { cn, errorMessage } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
 import { SessionHeader } from './chat/SessionHeader';
@@ -95,7 +95,7 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
           agent={leadAgentFrom(project, info, current.topic)}
           starting={false}
           onStart={() => {}}
-          openAt={openAt}
+          openAt={inSession(openAt, current.id)}
           aboveComposer={<ReviewCount project={project.name} variant="banner" />}
         />
       )}
@@ -129,8 +129,12 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   );
   const closed = useClosedSessions(project);
   const [history, setHistory] = useState(false);
-  // The closed session the history opens on, when a fork's link went there.
+  // The closed session the history opens on: one a search found.
   const [historyAt, setHistoryAt] = useState<string>();
+  const openHistory = (at?: string) => {
+    setHistoryAt(at);
+    setHistory(true);
+  };
   const chat = useQuery({
     queryKey: ['projectChat', project, current?.id],
     queryFn: () => api.projectChat(project, current!.id),
@@ -211,6 +215,47 @@ export function SessionChatPanel({ project, card, children }: { project: string;
     onSuccess: refresh,
     onError: (err) => toast.error(errorMessage(err)),
   });
+  // Pins and the tabs' order are kept by the daemon, for every computer and
+  // the phone; the tabs move at once and the answer settles them.
+  const reorder = (next: T.LeadSession[]) => {
+    queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project], next);
+    api
+      .orderLeadSessions(
+        project,
+        next.map((s) => s.id),
+      )
+      .then((list) => queryClient.setQueryData(['leadSessions', project], list))
+      .catch((err) => {
+        refresh();
+        toast.error(errorMessage(err));
+      });
+  };
+  const pin = useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => api.pinLeadSession(project, id, pinned),
+    onMutate: ({ id, pinned }) => {
+      queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project], (had) => had && sortTabs(had.map((s) => (s.id === id ? { ...s, pinned } : s))));
+    },
+    onSettled: refresh,
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  // A session a search found (lib/reveal.ts, lib/search.ts): shown among the
+  // tabs while it is open, or read in the history once closed. Each request
+  // is followed once, so the tabs read again don't pull you back to it.
+  const reveal = useReveal();
+  const followed = useRef<Reveal | null>(null);
+  useEffect(() => {
+    const target = reveal?.session;
+    if (!target || target.project !== project || !sessions.data || followed.current === reveal || pendingReveal() !== reveal) return;
+    followed.current = reveal;
+    const open = sessions.data.find((s) => s.id === target.id);
+    if (open) {
+      setHistory(false);
+      chooseSession(project, open.id);
+    } else {
+      openHistory(target.id);
+    }
+  }, [reveal, project, sessions.data]);
 
   // What is on screen is seen: now, and whenever it says more.
   const shownId = current?.id;
@@ -223,6 +268,22 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   // The sessions' keys (lib/shortcuts.ts), while this chat is on screen.
   const keys = useRef({ list, current, history, open: add.mutate, close: close.mutate });
   keys.current = { list, current, history, open: add.mutate, close: close.mutate };
+  // Mod+1…9: the Nth tab, as a browser's.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const n = sessionJump(event);
+      if (n === undefined) return;
+      const { list, history } = keys.current;
+      event.preventDefault();
+      event.stopPropagation();
+      const to = list[n - 1];
+      if (!to) return;
+      if (history) setHistory(false);
+      showSession(project, to);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [project]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const command = sessionShortcut(event);
@@ -256,6 +317,7 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   if (history) {
     return box(
       <SessionHistory
+        key={historyAt}
         project={project}
         reading={historyAt}
         onBack={() => {
@@ -286,8 +348,10 @@ export function SessionChatPanel({ project, card, children }: { project: string;
       }}
       onAdd={() => add.mutate(current?.id)}
       onClose={(id) => close.mutate(id)}
-      onHistory={() => setHistory(true)}
+      onHistory={() => openHistory()}
       onRename={(id, topic) => rename.mutate({ id, topic })}
+      onPin={(id, pinned) => pin.mutate({ id, pinned })}
+      onMove={(id, to) => reorder(moveTab(list, id, to))}
     />
   );
 
@@ -306,7 +370,7 @@ export function SessionChatPanel({ project, card, children }: { project: string;
                 {t('sessions.new')}
               </Button>
               {closedCount > 0 && (
-                <Button variant="secondary" onClick={() => setHistory(true)} data-session-history-open>
+                <Button variant="secondary" onClick={() => openHistory()} data-session-history-open>
                   <History className="size-4" />
                   {t('sessions.historyCount', { count: closedCount })}
                 </Button>

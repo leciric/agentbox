@@ -6,6 +6,7 @@ import "time"
 // order the app shows them.
 const (
 	SearchProjects   = "projects"
+	SearchSessions   = "sessions" // a chat's sessions, open or closed, by topic, what was said, and the agents each made
 	SearchAgents     = "agents"
 	SearchChats      = "chats" // messages in a project's or an agent's chat
 	SearchMemories   = "memories"
@@ -59,8 +60,15 @@ type SearchHit struct {
 	At    *time.Time `json:"at,omitempty"`
 	URL   string     `json:"url,omitempty"` // a pull request's, on GitHub
 	// Archived marks a message in a past agent's chat, found only when the
-	// search asked for them (archived=true); it opens in Past agents.
+	// search asked for them (archived=true); it opens in Past agents. On a
+	// session, it is closed: in its chat's history, where it opens read-only.
 	Archived bool `json:"archived,omitempty"`
+	// Session is the session of Project's chat (LeadSession.ID) a session
+	// is, or a message of a lead's chat was said in; empty for anything else.
+	Session string `json:"session,omitempty"`
+	// Item is the message of a session that matched best, which it opens
+	// at; empty when only its topic or its agents matched.
+	Item string `json:"item,omitempty"`
 
 	// The thing itself, for the kinds whose place in the app lists only some
 	// of them (the newest events, a filtered list), so the app can show it

@@ -107,6 +107,21 @@ export function neighbour(sessions: readonly T.LeadSession[], id: string | undef
   return sessions[(i + step + sessions.length) % sessions.length];
 }
 
+// sortTabs is the open sessions in their tabs' order, as the daemon sorts them
+// (state.SortTabs): the pinned first, each group in the order it had.
+export const sortTabs = (sessions: readonly T.LeadSession[]): T.LeadSession[] => [...sessions].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+
+// moveTab is the tabs with id dragged to index to (of the tabs as they were),
+// kept on its side of the pinned ones: a pinned tab dropped among the others
+// goes last of the pinned, an unpinned one dropped among them first after.
+export function moveTab(sessions: readonly T.LeadSession[], id: string, to: number): T.LeadSession[] {
+  const from = sessions.findIndex((s) => s.id === id);
+  if (from < 0) return [...sessions];
+  const rest = sessions.filter((s) => s.id !== id);
+  const at = Math.max(0, Math.min(from < to ? to - 1 : to, rest.length));
+  return sortTabs([...rest.slice(0, at), sessions[from], ...rest.slice(at)]);
+}
+
 // afterClose is the session to show once id is closed: the one beside it.
 export function afterClose(sessions: readonly T.LeadSession[], id: string): T.LeadSession | undefined {
   const i = sessions.findIndex((s) => s.id === id);

@@ -3017,6 +3017,7 @@ export interface LeadSession {
   settled?: boolean;
   snoozedUntil?: string;
   parent?: LeadSessionParent;
+  pinned?: boolean;
 }
 
 export interface LeadSessionParent {
@@ -3039,7 +3040,8 @@ export interface NewLeadSessionRequest {
 }
 
 export interface LeadSessionPatch {
-  topic: string;
+  topic?: string;
+  pinned?: boolean;
 }
 
 export interface AgentSessionRequest {
@@ -3139,6 +3141,10 @@ export interface LeadAccount {
   project: boolean;
   agents: number;
   limit?: ClaudeLimit;
+}
+
+export interface LeadSessionOrder {
+  ids: string[];
 }
 
 export interface MemoryEvent {
@@ -3672,6 +3678,8 @@ export interface SearchHit {
   at?: string;
   url?: string;
   archived?: boolean;
+  session?: string;
+  item?: string;
   memory?: Memory;
   event?: MemoryEvent;
   report?: AgentReport;
@@ -4085,6 +4093,7 @@ export const ContextForTool = "tool";
 export const ConsolidationMechanical = "mechanical";
 export const ConsolidationDistill = "distill";
 export const SearchProjects = "projects";
+export const SearchSessions = "sessions";
 export const SearchAgents = "agents";
 export const SearchChats = "chats";
 export const SearchMemories = "memories";

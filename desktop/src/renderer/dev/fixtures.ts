@@ -1344,6 +1344,18 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['leadSessions', PROJECT], devSessions(PROJECT));
   queryClient.setQueryData(['projectChat', PROJECT, 'main'], { project: PROJECT, session: 'main', ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
   queryClient.setQueryData(['projectChat', PROJECT, 'prod-login-500s'], { project: PROJECT, session: 'prod-login-500s', ref: `${PROJECT}/lead.prod-login-500s`, started: true, chat: 'ready' } satisfies T.ProjectChat);
+  // The closed session's conversation, read in History.
+  {
+    const ref = `${PROJECT}/lead.release-notes`;
+    const at = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    const said = (id: string, kind: T.ChatItem['kind'], text: string): T.ChatItem => ({ id, turn: 't1', kind, text, createdAt: at, updatedAt: at });
+    queryClient.setQueryData(['chat', ref], {
+      ...leadChat(),
+      agent: ref,
+      session: { ...leadChat().session, state: 'off' },
+      items: [said('rn-1', 'user', 'Draft the release notes for v0.17.'), said('rn-2', 'assistant', 'The changelog leads with the session cookie fix.')],
+    } satisfies T.ChatThread);
+  }
   queryClient.setQueryData(['projects'], data.projects);
   queryClient.setQueryData(['sections'], data.sections);
   queryClient.setQueryData(['jobs'], []);
@@ -2510,10 +2522,13 @@ export function installDevBridge(): void {
           .filter((a) => has(a.title, a.name))
           .slice(0, 5)
           .map((a): T.SearchHit => ({ id: a.ref, title: a.title || a.name, project: a.project, agent: a.name }));
+        const scope = new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('project');
+        const sessions = devSessionHits(q, scope);
         const results: T.SearchResults = {
           query: q,
           groups: [
-            { kind: 'projects', hits: projects, total: projects.length },
+            { kind: 'projects', hits: scope ? [] : projects, total: scope ? 0 : projects.length },
+            { kind: 'sessions', hits: sessions, total: sessions.length },
             { kind: 'agents', hits: agents, total: agents.length },
           ],
         };
@@ -2783,6 +2798,10 @@ let seeded: QueryClient | undefined;
 // closedByProject is the preview's chat histories, which closing, settling
 // and reopening move sessions into and out of.
 const closedByProject = new Map<string, T.LeadSession[]>();
+const closedOf = (project: string): T.LeadSession[] => {
+  if (!closedByProject.has(project)) closedByProject.set(project, seedClosed(project));
+  return closedByProject.get(project) ?? [];
+};
 
 // devOutput is what each of the incident project's sessions made, for its
 // header (chat/SessionHeader.tsx): onboarding-copy's work is all in, so it is
@@ -2821,16 +2840,44 @@ export function settleDemo(queryClient: QueryClient): void {
     if (!s) return;
     const settled: T.LeadSession = { ...s, closedAt: new Date().toISOString(), settled: true, chat: 'off' };
     sessionsByProject.set(PROJECT, open.filter((x) => x.id !== s.id));
-    closedByProject.set(PROJECT, [settled, ...(closedByProject.get(PROJECT) ?? [])]);
+    closedByProject.set(PROJECT, [settled, ...(closedOf(PROJECT))]);
     void queryClient.invalidateQueries({ queryKey: ['leadSessions', PROJECT] });
     sessionsSettled({ project: PROJECT, sessions: [settled] });
   }, 4000);
 }
 
+// The fixtures' project's history: one closed session.
+const seedClosed = (project: string): T.LeadSession[] => {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  return project === PROJECT
+    ? [{ project, id: 'release-notes', ref: `${project}/lead.release-notes`, topic: 'Release notes for v0.17', color: 'sky', chat: 'off', agents: 1, createdAt: at(5 * 86_400_000), activeAt: at(3 * 86_400_000), closedAt: at(3 * 86_400_000), last: { kind: 'assistant', text: 'The changelog leads with the session cookie fix.', at: at(3 * 86_400_000) } }]
+    : [];
+};
+
+// What each fixture session said, for the search palette's sessions group.
+const devSaid: Record<string, string> = {
+  main: 'Ask agent-12 to retry the flaky upload test',
+  'prod-login-500s': 'agent-41 found it: the session cookie expires before the redirect.',
+  'onboarding-copy': 'The welcome screen should mention the cookie banner once.',
+  'release-notes': 'The changelog leads with the session cookie fix.',
+};
+
+// devSessionHits is the sessions group of a search: by topic or by what was
+// said, open and closed, the fixtures' project's only.
+function devSessionHits(q: string, scope: string | null): T.SearchHit[] {
+  if (!q || (scope && scope !== PROJECT)) return [];
+  return [...devSessions(PROJECT), ...closedOf(PROJECT)].flatMap((s): T.SearchHit[] => {
+    const said = devSaid[s.id] ?? '';
+    const byTopic = s.topic.toLowerCase().includes(q);
+    if (!byTopic && !said.toLowerCase().includes(q)) return [];
+    return [{ id: s.id, title: s.topic, detail: said || undefined, project: PROJECT, session: s.id, archived: !!s.closedAt || undefined, at: s.activeAt }];
+  });
+}
+
 function sessionsRequest(method: string, path: string, body: unknown) {
   const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
   const history = /^\/v1\/projects\/([^/]+)\/sessions\?closed=true$/.exec(path);
-  if (history && method === 'GET') return json(closedByProject.get(decodeURIComponent(history[1])) ?? []);
+  if (history && method === 'GET') return json(closedOf(decodeURIComponent(history[1])));
   const output = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/output$/.exec(path);
   if (output && method === 'GET') return json(devOutput(decodeURIComponent(output[1]), decodeURIComponent(output[2])));
   const diff = /^\/v1\/(?:archived-)?agents\/[^/]+\/([^/]+)\/diff$/.exec(path);
@@ -2839,7 +2886,7 @@ function sessionsRequest(method: string, path: string, body: unknown) {
   if (act && method === 'POST') {
     const [project, id, verb] = [decodeURIComponent(act[1]), decodeURIComponent(act[2]), act[3]];
     const open = devSessions(project);
-    const closed = closedByProject.get(project) ?? [];
+    const closed = closedOf(project);
     if (verb === 'reopen') {
       const s = closed.find((x) => x.id === id);
       if (!s) return { status: 409, body: JSON.stringify({ error: 'open' }), contentType: 'application/json' };
@@ -2860,6 +2907,24 @@ function sessionsRequest(method: string, path: string, body: unknown) {
     const next: T.LeadSession = { ...s, snoozedUntil: until };
     sessionsByProject.set(project, open.map((x) => (x.id === id ? next : x)));
     return json(next);
+  }
+  const tabsOrder = (list: T.LeadSession[]) => [...list].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+  const order = /^\/v1\/projects\/([^/]+)\/sessions\/order$/.exec(path);
+  if (order && method === 'PUT') {
+    const project = decodeURIComponent(order[1]);
+    const ids = (body as T.LeadSessionOrder).ids;
+    const had = devSessions(project);
+    const next = tabsOrder([...ids.flatMap((id) => had.filter((x) => x.id === id)), ...had.filter((x) => !ids.includes(x.id))]);
+    sessionsByProject.set(project, next);
+    return json(next);
+  }
+  const one = /^\/v1\/projects\/([^/]+)\/sessions\/([^/?]+)$/.exec(path);
+  if (one && method === 'PATCH') {
+    const [project, id] = [decodeURIComponent(one[1]), decodeURIComponent(one[2])];
+    const { topic, pinned } = body as T.LeadSessionPatch;
+    const next = tabsOrder(devSessions(project).map((x) => (x.id === id ? { ...x, ...(topic ? { topic, untitled: false } : {}), ...(pinned !== undefined ? { pinned } : {}) } : x)));
+    sessionsByProject.set(project, next);
+    return json(next.find((x) => x.id === id));
   }
   const list = /^\/v1\/projects\/([^/]+)\/sessions$/.exec(path);
   if (list && method === 'GET') return json(devSessions(decodeURIComponent(list[1])));

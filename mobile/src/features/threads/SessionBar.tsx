@@ -4,8 +4,9 @@
 // or stalled, a spinner while its lead works, a dot when it said something
 // you haven't seen here or on the desktop), and
 // + to open a new one at once, untitled until its first turn names it. The
-// same sessions as the desktop's tabs (internal/state/leadsessions.go).
-import { Plus, TriangleAlert } from 'lucide-react-native';
+// same sessions as the desktop's tabs (internal/state/leadsessions.go), in
+// their order, the pinned first, which only the desktop changes.
+import { Pin, Plus, TriangleAlert } from 'lucide-react-native';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type * as T from '../../shared/api.ts';
 import { useT } from '../../lib/i18n.tsx';
@@ -62,6 +63,7 @@ function StatusMark({ session: s, unread }: { session: T.LeadSession; unread: bo
   if (status === 'failed') return <TriangleAlert accessibilityLabel={t('sessions.failed')} size={13} color={colors.rose} />;
   if (status === 'working') return <ActivityIndicator size="small" color={colors.brand300} style={styles.spin} />;
   if (unread) return <View accessibilityLabel={t('sessions.unread')} style={styles.dot} />;
+  if (s.pinned) return <Pin size={12} color={colors.muted} accessibilityLabel={t('sessions.pinned')} />;
   return null;
 }
 
