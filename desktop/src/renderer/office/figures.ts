@@ -58,7 +58,7 @@ export type Accessory = (typeof ACCESSORIES)[number] | 'headset';
 // head: round much of the wheel from the logo's violet, so every head is still
 // the logo's cube and yet they read apart across the room. (Leads keep the
 // logo's own.)
-export const HEAD_SHIFTS = [-110, 55, -45, 125, -78, 22, 90, -15];
+export const HEAD_SHIFTS = [-112, 68, -37, 133, -67, 28, 153, -87];
 
 export function accentOf(ref: string, variant?: number): { color: string; accessory: Accessory; tint: number; shift: number } {
   const r = rng(hash(ref));
@@ -249,7 +249,7 @@ function boxie(k: Kit): Build {
   // White piping along its edges, as the logo's line art: one unbroken
   // frame round the rounded cube.
   const pipe = k.m(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 }));
-  head.add(new THREE.Mesh(piping(S, S * 0.92, S * 0.9, 0.16, 0.026), pipe));
+  head.add(new THREE.Mesh(piping(S, S * 0.92, S * 0.9, 0.16, 0.032), pipe));
   // The face: a dark, glossy screen on the front.
   const screen = at(new THREE.Mesh(new RoundedBoxGeometry(S * 0.82, S * 0.64, 0.03, 4, 0.07), k.m(new THREE.MeshStandardMaterial({ color: '#1a1530', roughness: 0.2, metalness: 0.1, emissive: '#221a44', emissiveIntensity: 0.4 }))), 0, -0.01, S * 0.45);
   head.add(screen);

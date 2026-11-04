@@ -766,7 +766,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const tag = sprite(640, 96, 1.9);
     disp.push(() => tag.tex.dispose(), () => tag.sprite.material.dispose());
     // At the desk's front edge, under the agent's face rather than over it.
-    tag.sprite.position.set(lead ? 0 : rx * 0.6, lead ? 0.45 : 0.25, lead ? 0.55 : DESK.d / 2 + 0.25);
+    tag.sprite.position.set(rx, 0.45, cz);
     tag.sprite.renderOrder = 2;
     g.add(tag.sprite);
     const ringMat = new THREE.MeshBasicMaterial({ color: '#fbbf24', transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
@@ -1196,7 +1196,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
       // From the far side from where you stand, so you never stand in the way.
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 13.5, pitch: 0.64, yaw: d.side < 0 ? 0.42 : -0.42 }, aspect);
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 13.5, pitch: 0.8, yaw: d.side < 0 ? 0.42 : -0.42 }, aspect);
     }
     return undefined;
   }
@@ -1363,7 +1363,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // sliding under the pointer would send a click somewhere else.
     // Moving is moving visibly, not the easing's last hair.
     // As a speed, so it means the same at any frame rate.
-    const moving = Math.abs(after - before) / Math.max(dt, 1e-3) > 0.6;
+    const moving = Math.abs(after - before) / Math.max(dt, 1e-3) > 0.2;
     settledFor = moving ? 0 : settledFor + dt;
     const show = settledFor > 0.12;
     if (show !== chipsShown) {
@@ -1428,7 +1428,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // Any desk nearer the camera than the one you're at, on screen over it
       // or you, steps out of the way.
       let ahead = false;
-      if (lookAt && d.ref !== focusRef) {
+      // (A lead stays: its counter is there either way, and takes clicks.)
+      if (lookAt && d.ref !== focusRef && !d.ref.endsWith('/lead')) {
         figPos.y += 1.0;
         const nearer = figPos.distanceTo(camera.position) < lookAt.dist - 0.8;
         figPos.project(camera);
@@ -1538,7 +1539,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       }
       const [px0, pz0] = spots[pick0?.at ?? 0];
       ap.set(px0, 0.05, pz0);
-      const far = cam.closeK < 0.3;
+      const far = cam.closeK < 0.3 && cam.followK < 0.5;
       ap.project(camera);
       // Not under the top bar, whose 4.5rem it would hide beneath.
       // Nor over the legend and the hint along the bottom.
@@ -1583,7 +1584,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // big one's as you come near.
     const few = !crowded;
     // Small from afar, as name tags are; wider as you come in to read them.
-    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '118px' : '170px';
+    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '104px' : '170px';
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
@@ -1859,7 +1860,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const { ref, row, floor } = p.aim;
     // While the camera is still gliding, a click on the room waits (what was
     // under it a moment ago isn't what will be), but a board row is a row.
-    if (settledFor < 0.15 && !route.length) return;
+    if (settledFor < (ref || row ? 0.3 : 0.15) && !route.length) return;
     // Walking somewhere by name, or gliding into a close-up, a desk or a
     // board note under the pointer now isn't where it will be: wait.
     if ((ref || row) && ((route.length && routeGoal) || (cam.closeK > 0.05 && cam.closeK < 0.95))) return;
@@ -2021,8 +2022,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       attached = true;
       ro.observe(host);
       resize();
-      // The new page hears where you are, as the old one had.
+      // The new page hears where you are, as the old one had, and the keys
+      // are the room's again.
       opts.onNear(near);
+      requestAnimationFrame(() => attached && canvas.focus({ preventScroll: true }));
       poke();
     },
     detach() {

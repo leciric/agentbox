@@ -453,7 +453,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       {listOpen && needs.length > 0 && near !== 'board' && (
         <div
           className="pointer-events-auto absolute left-3 top-16 z-10 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col items-start gap-2 overflow-y-auto"
-          style={listOnly && listAt ? { left: `min(${Math.round(listAt.x)}px, calc(100% - 17rem))`, top: `min(${Math.round(listAt.y)}px, calc(100% - 12rem))` } : undefined}
+          style={listOnly && listAt ? { left: `min(${Math.round(listAt.x)}px, calc(100% - 17rem))`, top: `max(4.5rem, min(${Math.round(listAt.y)}px, calc(100% - 12rem)))` } : undefined}
           data-office-needs="open"
         >
           <ListCard
