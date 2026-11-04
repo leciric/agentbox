@@ -260,7 +260,7 @@ function IssueRow({ issue, handing, onHand, onOpenAgent }: { issue: T.Issue; han
         <span className="ml-auto text-faint">{issue.updatedAt && timeAgo(issue.updatedAt)}</span>
         {!handedNow(issue) && (
           <Tip label={t('issues.handTip', { number: issue.number })}>
-            <Button size="sm" variant="ghost" disabled={handing} onClick={onHand} data-issue-hand={issue.number}>
+            <Button size="sm" variant="secondary" disabled={handing} onClick={onHand} data-issue-hand={issue.number}>
               {handing ? <LoaderCircle className="size-3.5 animate-spin" /> : <Bot className="size-3.5" />}
               {h ? t('issues.handAgain') : t('issues.hand')}
             </Button>

@@ -587,7 +587,7 @@ function PullRequestRow({
         {canMerge && (
           <span className="flex min-w-0 items-center gap-2">
             {mergeBlocked && <MergeBlocked reason={mergeBlocked} />}
-            <Button size="sm" variant="ghost" disabled={mergeRunning || !!mergeBlocked} title={mergeBlocked} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
+            <Button size="sm" variant="secondary" disabled={mergeRunning || !!mergeBlocked} title={mergeBlocked} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
               {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
               {t('memory.pulls.merge')}
             </Button>
