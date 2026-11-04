@@ -297,8 +297,7 @@ type Server struct {
 	// leadPermissions carries agents' permission requests to their leads'
 	// chats (leadpermissions.go).
 	leadPermissions leadPermissions
-	// sessionStatus pushes where each chat session stands (sessionstatus.go).
-	sessionStatus sessionStatusWatch
+	sessionStatus   sessionStatusWatch // pushes where each chat session stands (sessionstatus.go)
 	baseSyncErrs    map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image           imageWork         // what the daemon is doing to the base image (imagetools.go)
 	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)

@@ -832,6 +832,13 @@
     "height": 1400
   },
   {
+    "id": "session-status",
+    "description": "The project's chat sessions where each stands: the main one working, one needing you twice, one with an unread line",
+    "query": "app=project&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
     "id": "nightly-v2-sidebar-dark",
     "description": "A nightly build: the sidebar's starry header and Nightly badge, on the project's lead — dark",
     "query": "app=project&nightly=1&theme=dark",

@@ -32,6 +32,10 @@
 //                           a "Publish a page" button to watch one arrive;
 //                           ?pages=agent-12 that agent's chat, its own; with
 //                           ?media=project|all|agent, that Media view's Pages tab
+//   ?sessionStatus=live     the chat's sessions start quiet, then move through
+//                           needing you, working, finishing and failing every
+//                           few seconds, as the daemon's status events say
+//                           (dev/fixtures.ts' liveSessionSteps); use ?app=project
 //   ?chat=lead              the project's chat, with the credential requests
 //                           its agents are waiting on at its end
 //   ?vm=create|lima|vz      a Mac's first screen in the middle: the VM to set up,
