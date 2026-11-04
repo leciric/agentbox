@@ -21,6 +21,26 @@ export function retryLoad(failures: number, err: unknown): boolean {
 export const retryLoadDelay = (failures: number) => Math.min(500 * 2 ** failures, 4000);
 export const chatLoadRetry = { retry: retryLoad, retryDelay: retryLoadDelay };
 
+// A project's chat — its sessions, and the session shown — can be asked about
+// before the daemon has it ready: the app opens a project the moment adding it
+// answers, while its other queries (the sidebar's, the panel's) are already on
+// their way, and a project the daemon doesn't have yet is a 404. That isn't
+// the chat being unavailable, only not there yet, so a not-found is waited
+// for like a dropped connection, a little longer; and what still fails is
+// asked again every few seconds rather than kept until the project is opened
+// again, which was the only way out of "The chat is unavailable.".
+const readyAttempts = 6;
+export function retryChatReady(failures: number, err: unknown): boolean {
+  const status = (err as { status?: number } | undefined)?.status;
+  return failures < readyAttempts && (status === 404 || status === 503 || status === 0);
+}
+export const chatReadyRetryEvery = 5_000;
+export const chatReadyRetry = {
+  retry: retryChatReady,
+  retryDelay: retryLoadDelay,
+  refetchInterval: (query: { state: { status: string } }) => (query.state.status === 'error' ? chatReadyRetryEvery : false),
+} as const;
+
 // loadErrorMessage is what a chat that couldn't load says: a readable line for
 // a daemon that couldn't be reached, instead of the errno it came with.
 export function loadErrorMessage(err: unknown, fallback: string): string {
@@ -372,6 +392,7 @@ export type Row =
   | { type: 'note'; key: string; item: T.ChatItem }
   | { type: 'subagent'; key: string; item: T.ChatItem; children: T.ChatItem[] }
   | { type: 'compaction'; key: string; item: T.ChatItem }
+  | { type: 'goal'; key: string; item: T.ChatItem }
   | { type: 'credential'; key: string; item: T.ChatItem }
   | { type: 'changes'; key: string; files: ChangedFile[] }
   | { type: 'turn'; key: string; checkpoint: T.Checkpoint };
@@ -421,7 +442,8 @@ export function agentPermissionState(p: T.ChatPermission): AgentPermissionState 
 export const isWork = (it: T.ChatItem) => it.kind === 'tool' || it.kind === 'thought' || (it.kind === 'permission' && !!it.permission?.outcome);
 // A compaction's card ([D73]) reads like a notice: it marks where the session
 // changed, so a settled turn's fold never hides it.
-const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error' || it.kind === 'compaction';
+// So does a goal's row (agent goals, components/GoalChip.tsx).
+const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error' || it.kind === 'compaction' || it.kind === 'goal';
 const isAside = (it: T.ChatItem) => it.kind === 'aside';
 
 // isCredentialRequest is the agent calling request_credential (D95), or
@@ -562,6 +584,10 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
       }
       if (it.kind === 'compaction') {
         rows.push({ type: 'compaction', key: it.id, item: it });
+        continue;
+      }
+      if (it.kind === 'goal' && it.goal) {
+        rows.push({ type: 'goal', key: it.id, item: it });
         continue;
       }
       rows.push(it.kind === 'assistant' ? { type: 'assistant', key: it.id, item: it, final: settled && it === final } : { type: 'note', key: it.id, item: it });

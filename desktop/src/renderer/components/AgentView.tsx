@@ -59,6 +59,7 @@ import { Tabs, TabsContent } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 import { PanelButton } from './v2/PanelButton';
 import { AgentMachineBar } from './v2/AgentMachineBar';
+import { GoalChip } from './GoalChip';
 
 // An agent's Settings tab: what it says about the agent's machine, code and AI
 // tool (OverviewTab), and the secrets and connectors only it gets.
@@ -254,6 +255,7 @@ export function AgentView({
                 {agent.branch}
               </Chip>
             )}
+            {agent.goal && <GoalChip goal={agent.goal} ai={agent.ai} className="max-w-72 px-2 py-0.5" />}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 self-center">

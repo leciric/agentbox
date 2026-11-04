@@ -35,6 +35,13 @@
     "height": 900
   },
   {
+    "id": "goal-agent-dark",
+    "description": "agent-99 open in the whole app, with a goal AgentBox drives: its chip on the row and header, and its goal rows in the chat (set, then not met yet after two continuations) — dark",
+    "query": "app=agent-99&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
     "id": "mac-vm-setup-dark",
     "description": "A Mac's first screen: AgentBox's Linux VM to set up — dark, xl width",
     "query": "vm=create&theme=dark",

@@ -39,6 +39,7 @@ import { PrChip } from '../PrChip';
 import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
 import { Tip } from '../ui/tooltip';
+import { GoalChip } from '../GoalChip';
 import { FrozenBadge } from '../FrozenBadge';
 import { monitorScreen, typingPace } from '../../../shared/monitor';
 import { AgentMonitor } from './AgentMonitor';
@@ -335,6 +336,7 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
           <span className="flex min-w-0 items-center gap-1.5 leading-[18px]">
             <span className={cn('min-w-0 flex-1 truncate text-[13px] font-medium', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[12px]')}>{title}</span>
             <FrozenBadge agent={agent} />
+            {agent.goal && <GoalChip goal={agent.goal} ai={agent.ai} compact />}
             {number && (
               <span className="shrink-0 text-[12px] tabular-nums text-faint" data-list-number>
                 #{number}

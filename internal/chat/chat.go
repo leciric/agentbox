@@ -145,6 +145,16 @@ type Manager struct {
 	// (idle.go). applies is false for a chat that never sleeps; after 0 is
 	// sleeping turned off for now. Off the conversation's lock.
 	IdleStop func(a state.Agent) (after time.Duration, applies bool)
+	// GoalsOn, when set, says whether agent goals are on (Settings →
+	// Experimental, goal.go). Called under the conversation's lock: it must
+	// answer from memory.
+	GoalsOn func() bool
+	// GoalOf is an agent's goal as the daemon keeps it, read once when its
+	// chat first needs it. Called under the conversation's lock.
+	GoalOf func(a state.Agent) (api.AgentGoal, bool)
+	// GoalChanged is told when the agent's AI tool reports its own goal set,
+	// checked, met, blocked or cleared (source "tool"). Off the lock.
+	GoalChanged func(a state.Agent, g api.AgentGoal)
 	// StayUp, when set, keeps an idle chat's AI tool running a while longer
 	// because something is about to wake it: a schedule due soon. Off the
 	// conversation's lock.
@@ -1453,6 +1463,12 @@ type conversation struct {
 	gone     bool     // the agent was destroyed: nothing more is stored
 	// desktopAt is when the AI tool last used the agent's desktop (desktop.go).
 	desktopAt time.Time
+	// goal is the AI tool's own goal as this chat last knew it (goal.go),
+	// read from the daemon once (goalRead); goalEcho is the message id of the
+	// tool's "Goal set" line being left out for the goal row.
+	goal     *api.AgentGoal
+	goalRead bool
+	echoID   string
 	// queued holds notices that arrived mid-turn, or during a rollover;
 	// finishTurn and rollover deliver them.
 	queued []queuedNotice
@@ -2576,6 +2592,7 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 			c.add("notice", t.id).Text = note
 		}
 	}
+	c.goalTurnEnded(t, result.State == "completed")
 	if c.adapter != nil && err == nil && !t.cancelled && (res.StopReason == "cancelled" || len(open) > 0) {
 		c.adapter.cutAt = time.Now()
 	}
@@ -2841,6 +2858,9 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		c.capture.WriteString(u.Text())
 		return
 	}
+	if snap, ok := u.Goal(); ok && !h.ad.replaying && !c.agent.IsLead() && c.m.goalsOn() {
+		c.toolGoal(snap)
+	}
 	if c.wakes(h.ad, u) {
 		c.wake(h.ad)
 	}
@@ -2853,6 +2873,15 @@ func (h handler) Notify(method string, params json.RawMessage) {
 			// Gemini CLI answers session/set_mode with this chunk, meant
 			// for its own interface; the composer already shows the mode.
 			return
+		}
+		if u.MessageID != "" && u.MessageID == c.echoID {
+			return
+		}
+		if c.open == nil || c.open.Kind != "assistant" || (u.MessageID != "" && u.MessageID != c.openMessage) {
+			if c.goalEcho(u.Text()) {
+				c.echoID = cmp(u.MessageID, "-")
+				return
+			}
 		}
 		c.appendText("assistant", u.MessageID, u.Text())
 	case "agent_thought_chunk":

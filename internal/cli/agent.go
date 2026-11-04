@@ -188,6 +188,9 @@ func newCreateCmd(a *app) *cobra.Command {
 	var (
 		autonomous, queue     bool
 		model, effort, window string
+		goal                  string
+		goalChecks            []string
+		goalBudget            int
 	)
 	cmd := &cobra.Command{
 		Use:   "create <project>",
@@ -205,6 +208,10 @@ func newCreateCmd(a *app) *cobra.Command {
 			}
 			if f.Changed("context-window") {
 				req.ContextWindow = &window
+			}
+			req.Goal = goalSpec(goal, goalChecks, goalBudget)
+			if req.Goal == nil && (len(goalChecks) > 0 || goalBudget != 0) {
+				return errors.New("--goal-check and --goal-budget go with --goal")
 			}
 			c, err := a.client(cmd)
 			if err != nil {
@@ -250,6 +257,9 @@ func newCreateCmd(a *app) *cobra.Command {
 	_ = f.MarkHidden("queue")
 	_ = f.MarkHidden("size")
 	f.StringVar(&req.Task, "task", "", "its first message, sent once it's ready: what to do")
+	f.StringVar(&goal, "goal", "", "experimental (Settings → Experimental): what done looks like; after each turn AgentBox runs the --goal-check checks and sends the agent back until they pass")
+	f.StringArrayVar(&goalChecks, "goal-check", nil, "with --goal: pr_open, ci_green (its pull request's checks all passed), or a shell command that must exit 0 in its worktree; repeat it for several")
+	f.IntVar(&goalBudget, "goal-budget", 0, "with --goal: the most times the agent is sent back (default 10)")
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
 	f.BoolVar(&req.Clean, "clean", false, "start from the base image even if the project has a saved base")
 	f.BoolVar(&req.CatchUp, "catch-up", false, "bring the machine up to the current base image's packages and agent tools before its task: how a project base is refreshed")
