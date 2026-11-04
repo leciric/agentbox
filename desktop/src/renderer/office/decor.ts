@@ -420,13 +420,13 @@ export function diorama(l: Layout, sign: string): Diorama {
     face.position.set(x, 2.45, 0.06);
     g.add(face);
   }
-  // A clock over the board.
+  // A clock over the meeting room.
   {
-    const cx = l.board.x;
-    put(keep(new THREE.CylinderGeometry(0.32, 0.32, 0.06, 32)), m('#ffffff', { roughness: 0.4 }), cx, 3.15, 0.04, [Math.PI / 2, 0, 0]);
-    put(keep(new THREE.TorusGeometry(0.32, 0.03, 8, 32)), m('#2f4a3a', { roughness: 0.5 }), cx, 3.15, 0.06);
-    put(rbox(0.03, 0.2, 0.01, 0.005), m('#1f2a3a'), cx, 3.23, 0.08);
-    put(rbox(0.15, 0.03, 0.01, 0.005), m('#1f2a3a'), cx + 0.07, 3.15, 0.08);
+    const cx = (l.meeting.x0 + l.meeting.x1) / 2;
+    put(keep(new THREE.CylinderGeometry(0.32, 0.32, 0.06, 32)), m('#ffffff', { roughness: 0.4 }), cx, 2.95, 0.04, [Math.PI / 2, 0, 0]);
+    put(keep(new THREE.TorusGeometry(0.32, 0.03, 8, 32)), m('#2f4a3a', { roughness: 0.5 }), cx, 2.95, 0.06);
+    put(rbox(0.03, 0.2, 0.01, 0.005), m('#1f2a3a'), cx, 3.03, 0.08);
+    put(rbox(0.15, 0.03, 0.01, 0.005), m('#1f2a3a'), cx + 0.07, 2.95, 0.08);
   }
   // The meeting room's screen, a chart on it.
   {

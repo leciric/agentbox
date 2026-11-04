@@ -85,6 +85,15 @@ const FOV = 24;
 const HOME_YAW = 0.76;
 const OVERVIEW_PITCH = 0.62;
 
+// The layer of what's see-through, which ambient occlusion leaves out.
+const SEE = 1;
+function seeThrough(root: THREE.Object3D) {
+  root.traverse((o) => {
+    const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    if ((o as THREE.Sprite).isSprite || (mat && !Array.isArray(mat) && mat.transparent)) o.layers.set(SEE);
+  });
+}
+
 const leadAsDesk = (t: LeadTone): DeskTone => (t === 'needs' ? 'needs' : t === 'working' ? 'working' : 'idle');
 const std = (color: THREE.ColorRepresentation, o: Partial<THREE.MeshStandardMaterialParameters> = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, ...o });
 
@@ -350,10 +359,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // drawn anyway, so idle costs what it did. Multisampled, as the canvas was.
   const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
   composer.addPass(new RenderPass(scene, camera));
-  const ao = new GTAOPass(scene, camera, 1, 1);
-  ao.updateGtaoMaterial({ radius: 0.55, distanceExponent: 1.4, thickness: 1.2, scale: 1.1, samples: 12 });
+  // What's see-through (labels, bubbles, rings, glass, contact shadows) is
+  // on a layer of its own that the occlusion pass's camera doesn't see: it
+  // would take each for a solid quad and darken a square round it.
+  camera.layers.enable(SEE);
+  const aoCam = new THREE.PerspectiveCamera();
+  const ao = new GTAOPass(scene, aoCam, 1, 1);
+  ao.updateGtaoMaterial({ radius: 0.8, distanceExponent: 1.6, thickness: 1.4, scale: 1.2, samples: 12 });
   ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
-  ao.blendIntensity = 0.85;
+  ao.blendIntensity = 1;
   composer.addPass(ao);
   composer.addPass(new OutputPass());
 
@@ -425,6 +439,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   const ndc = new THREE.Vector2();
   let hoverDirty = false;
   const ray = new THREE.Raycaster();
+  ray.layers.enable(SEE);
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   let lastInput = performance.now();
@@ -525,6 +540,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     sun.shadow.camera.updateProjectionMatrix();
     sun.target.position.set(W / 2, 0, D / 2);
     lighting(true);
+    seeThrough(scene);
     boxes = walkable(l, RADIUS);
     bounds = { x0: l.room.x0 + RADIUS, z0: l.room.z0 + RADIUS, x1: l.room.x1 - RADIUS, z1: l.room.z1 - RADIUS };
   }
@@ -1079,9 +1095,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       return { x: lay.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
-      if (ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.25, z: a.lead.z - 0.2, dist: 8.2, pitch: 0.5, yaw: 0.3 }, aspect);
+      if (ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
-      if (d) return aside({ x: d.x - 0.3, y: 1.0, z: d.z - 0.3, dist: 9, pitch: 0.6, yaw: 0.4 }, aspect);
+      if (d) return aside({ x: d.x - 0.3, y: 0.9, z: d.z - 0.3, dist: 13.5, pitch: 0.64, yaw: 0.4 }, aspect);
     }
     return undefined;
   }
@@ -1282,7 +1298,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // So does the row in front of the desk you're at: it sits between you
       // and the camera.
       const p0 = d.root.position;
-      const ahead = !!focusAt && focusRef !== 'board' && p0.z > focusAt.z + 1 && p0.z - focusAt.z < 4.5 && Math.abs(p0.x - focusAt.x) < 3.2;
+      const ahead = !!focusAt && focusRef !== 'board' && p0.z > focusAt.z + 1 && p0.z - focusAt.z < 2.2 && Math.abs(p0.x - focusAt.x) < 3.2;
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (p0.distanceTo(camera.position) < 4.2 || ahead);
       d.root.visible = !(inWay && ahead);
       d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone];
@@ -1474,6 +1490,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     }
     const ringO = 0.55 + (motion ? Math.sin(t * 2.5) * 0.25 : 0.2);
     (meRing.material as THREE.MeshBasicMaterial).opacity = ringO;
+    aoCam.copy(camera);
+    aoCam.layers.set(0);
     composer.render();
   }
 
