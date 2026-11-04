@@ -101,3 +101,24 @@ test('a pulls event refetches the tab, and the fleet only when something moved',
   await settle();
   assert.equal(stale('fleet'), true);
 });
+
+// A project just added announces itself once its chat has its first session:
+// a session list read before that, empty or not found, is read again.
+test('a project announced reads its chat sessions again', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  connectEvents(client);
+  let fetches = 0;
+  const observer = new QueryObserver(client, { queryKey: ['leadSessions', 'fresh'], queryFn: async () => (++fetches === 1 ? [] : [{ id: 'main' }]) });
+  const unsubscribe = observer.subscribe(() => {});
+  await settle();
+  assert.deepEqual(observer.getCurrentResult().data, []);
+  emit({ type: 'project', data: { name: 'fresh' } satisfies T.ProjectChange });
+  await settle();
+  await settle();
+  assert.deepEqual(observer.getCurrentResult().data, [{ id: 'main' }]);
+  emit({ type: 'project', data: { name: 'fresh', removed: true } satisfies T.ProjectChange });
+  await settle();
+  assert.equal(fetches, 2, 'a project removed reads nothing again');
+  unsubscribe();
+  client.clear();
+});

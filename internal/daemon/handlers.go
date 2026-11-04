@@ -1215,6 +1215,13 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 			return fail(err)
 		}
 	}
+	if req.Goal, err = s.checkGoal(req.Goal); err != nil {
+		return fail(err)
+	}
+	if req.Goal != nil && strings.TrimSpace(req.Task) == "" && req.Issue == 0 {
+		// The goal is what it is to do.
+		req.Task = req.Goal.Objective
+	}
 	// Every agent starts at once: Queue and Size are accepted and do
 	// nothing (CreateAgentRequest). The VM's memory pressure holds back
 	// heavy commands, not agents (pressure.go).
@@ -1366,7 +1373,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 		task := strings.TrimSpace(req.Task)
 		// Before the task, which is why the agent was made from the base: a
 		// catch-up changes the machine the task then checks and saves.
-		send := task
+		send := s.startGoal(ctx, a, req.Goal, task)
 		if req.CatchUp {
 			what, err := s.manager(log).CatchUp(ctx, a)
 			if err != nil {

@@ -116,6 +116,7 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 		`DELETE FROM agent_events WHERE project = ? AND agent = ?`,
 		`DELETE FROM checkpoints WHERE project = ? AND agent = ?`,
 		`DELETE FROM running_turns WHERE project = ? AND agent = ?`,
+		`DELETE FROM agent_goals WHERE project = ? AND agent = ?`,
 		// The session lived in its machine, which is gone: nothing resumes it.
 		`UPDATE chats SET session_id = '', handoff = '' WHERE project = ? AND agent = ?`,
 	} {

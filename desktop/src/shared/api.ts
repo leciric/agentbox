@@ -212,6 +212,7 @@ export interface Settings {
   errorReports: boolean;
   prWatch: boolean;
   mergeWhenGreen: boolean;
+  agentGoals: boolean;
   agentFreeze: boolean;
   mediaRetention: string;
   language: string;
@@ -291,6 +292,7 @@ export interface UpdateSettingsRequest {
   errorReports?: boolean;
   prWatch?: boolean;
   mergeWhenGreen?: boolean;
+  agentGoals?: boolean;
   agentFreeze?: boolean;
   mediaRetention?: string;
   language?: string;
@@ -352,6 +354,7 @@ export interface Agent {
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
+  goal?: AgentGoal;
   ip: string;
   createdAt: string;
 }
@@ -477,6 +480,7 @@ export interface CreateAgentRequest {
   clean?: boolean;
   catchUp?: boolean;
   finishNotice?: string;
+  goal?: GoalSpec;
   queue?: boolean;
   size?: string;
   connectors?: string[];
@@ -2095,6 +2099,7 @@ export interface FleetAgent {
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
+  goal?: AgentGoal;
   ip: string;
   createdAt: string;
   sessionTopic?: string;
@@ -2710,6 +2715,7 @@ export interface ChatItem {
   result?: ChatTurnResult;
   subagent?: ChatSubagent;
   compaction?: ChatCompaction;
+  goal?: AgentGoal;
   handoff?: string;
   projectMessage?: ChatProjectMessage;
   scheduledRun?: ChatScheduledRun;
@@ -2783,6 +2789,31 @@ export interface ChatCompaction {
   state: string;
   waiting?: number;
   error?: string;
+}
+
+export interface AgentGoal {
+  objective: string;
+  source: string;
+  status: string;
+  checks?: GoalCheck[];
+  checked: number;
+  lastUnmet?: string;
+  budget?: number;
+  continuations?: number;
+  updatedAt: string;
+}
+
+export interface GoalSpec {
+  objective: string;
+  checks?: GoalCheck[];
+  budget?: number;
+}
+
+export interface GoalCheck {
+  kind: string;
+  command?: string;
+  met?: boolean;
+  detail?: string;
 }
 
 export interface ChatProjectMessage {

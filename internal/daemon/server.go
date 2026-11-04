@@ -275,6 +275,9 @@ type Server struct {
 	// refreshing and refreshAgain are refreshAgentsBehind's: one listing
 	// runs at a time, and another follows when one was asked for meanwhile.
 	refreshing, refreshAgain atomic.Bool
+	// goalsOn is Settings → Experimental's agent goals switch, in memory
+	// (goals.go): package chat asks it under a conversation's lock.
+	goalsOn atomic.Bool
 	// scheduleKick wakes the scheduled tasks' runner (schedules.go).
 	scheduleKick chan struct{}
 	// archivedPRChecked is when each past agent's open pull request was last
@@ -540,9 +543,13 @@ func New(cfg Config) (*Server, error) {
 		PermissionChanged: s.agentPermission,
 		IdleStop:          s.leadSleepAfter,
 		StayUp:            s.leadDueSoon,
+		GoalsOn:           s.goalsEnabled,
+		GoalOf:            s.chatGoalOf,
+		GoalChanged:       s.goalFromTool,
 		Version:           Version,
 		ImageDir:          cfg.Paths.ChatImages,
 	}
+	s.loadGoalsFlag(context.Background())
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
 	s.disk = s.newDiskWatch()
