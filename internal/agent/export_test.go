@@ -27,3 +27,8 @@ func (m *Manager) EnsureNodeModules(ctx context.Context, a state.Agent) { m.ensu
 func (m *Manager) KeepNodeModules(a state.Agent) {
 	m.keepNodeModules(a, m.nodeModulesInstalls(context.Background(), a, false))
 }
+
+// NodeModulesSources is what Start does with a's node_modules before it boots.
+func (m *Manager) NodeModulesSources(ctx context.Context, a state.Agent) {
+	m.nodeModulesSources(ctx, a)
+}
