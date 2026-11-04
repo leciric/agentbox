@@ -412,9 +412,6 @@ func (s *Server) leadTellAgent(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	if err := s.crossSession(r.Context(), sessionFrom(r), a, "Tell"); err != nil {
-		return err
-	}
 	s.leadAsked(a)
 	t, err := s.tellAgent(r.Context(), a, req.Text)
 	if err != nil {
@@ -518,8 +515,8 @@ func (s *Server) leadCopyFromHost(w http.ResponseWriter, r *http.Request) error 
 }
 
 // leadRetire is retire for a session's lead: the agents it names that another
-// session made wait for the user's yes (crossSession), and one that names
-// none retires only its own and nobody's.
+// session made are retired directly like its own, and one that names none
+// retires only its own and nobody's.
 func (s *Server) leadRetire(w http.ResponseWriter, r *http.Request) error {
 	var req api.RetireRequest
 	if err := readJSON(r, &req); err != nil {
@@ -542,11 +539,6 @@ func (s *Server) leadRetire(w http.ResponseWriter, r *http.Request) error {
 					req.Agents = append(req.Agents, a.Name)
 				}
 				continue
-			}
-			if !req.DryRun {
-				if err := s.crossSession(r.Context(), session, a, "Retire"); err != nil {
-					return err
-				}
 			}
 			req.Agents = append(req.Agents, a.Name)
 		}

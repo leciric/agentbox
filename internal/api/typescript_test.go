@@ -74,7 +74,7 @@ var tsConstants = [][2]string{
 	{"DoctorOK", DoctorOK}, {"DoctorWarn", DoctorWarn}, {"DoctorFail", DoctorFail}, {"DoctorAILogin", DoctorAILogin},
 	{"SetupOK", SetupOK}, {"SetupMissing", SetupMissing}, {"SetupOutdated", SetupOutdated}, {"SetupOptional", SetupOptional}, {"SetupUpdating", SetupUpdating}, {"SetupBuilding", SetupBuilding},
 	{"ImageBuildIdle", ImageBuildIdle}, {"ImageBuilding", ImageBuilding}, {"ImageBuildFailed", ImageBuildFailed},
-	{"InAgentSocket", InAgentSocket}, {"ErrorFolderNotEmpty", ErrorFolderNotEmpty}, {"ErrorFolderExists", ErrorFolderExists}, {"ErrorBadRepoURL", ErrorBadRepoURL}, {"ErrorOtherSession", ErrorOtherSession},
+	{"InAgentSocket", InAgentSocket}, {"ErrorFolderNotEmpty", ErrorFolderNotEmpty}, {"ErrorFolderExists", ErrorFolderExists}, {"ErrorBadRepoURL", ErrorBadRepoURL},
 	{"ErrorPassphraseNeeded", ErrorPassphraseNeeded}, {"ErrorWrongPassphrase", ErrorWrongPassphrase}, {"ErrorNewerExport", ErrorNewerExport},
 	{"DefaultLanguage", DefaultLanguage},
 	{"PRStateOpen", PRStateOpen}, {"PRStateMerged", PRStateMerged}, {"PRStateClosed", PRStateClosed}, {"PRStateNone", PRStateNone},

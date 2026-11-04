@@ -22,18 +22,20 @@ import (
 //
 //   - A notice about an agent goes to the session that made it (tellOwnerOf):
 //     its finish, stall and failure, its questions, its pull request.
-//   - One about no agent, or about an agent nobody owns — a schedule, another
-//     project's lead, the user's Home chat, CI on main, an agent the user made
-//     or whose session was closed or deleted — goes to the open session most
-//     recently active
+//   - One about no agent, or about an agent nobody owns — a schedule, the
+//     user's Home chat, CI on main, an agent the user made or whose session
+//     was closed or deleted — goes to the open session most recently active
 //     (tellSessionOf with no session). A project with no session at all gets
 //     one, titled after the notice, when the notice starts a turn; one that
 //     only waits to be read has nobody to read it, and is dropped, as it was
 //     before a project's chat had been used.
-//   - A lead may read every agent, and acts on its own and on nobody's freely.
-//     Telling or retiring another session's agent waits for the user's yes on
-//     a card in its chat (crossSession); handing an agent over is the user's,
-//     from the app or `agentbox chat session hand`.
+//   - Another project's lead always writes to the project's main session, its
+//     oldest open one (firstLead), made the same way when there is none: a
+//     thread between two projects stays in one conversation, wherever the
+//     user is chatting.
+//   - A lead may read, tell and retire any of the project's agents directly,
+//     whichever session made it; handing an agent over is the user's, from
+//     the app or `agentbox chat session hand`.
 
 // leadSessionKey carries the session a lead socket's request came in on, for
 // what is given a context rather than the request (approveInChat).
@@ -106,7 +108,21 @@ func (s *Server) sessionLead(ctx context.Context, project, session string) (stat
 // most recently active, or, with open a project with no session at all, a new
 // one titled topic. Without open, a project with none is state.ErrNotFound.
 func (s *Server) eventLead(ctx context.Context, project, topic string, open bool) (state.Agent, error) {
-	ls, err := s.store.LastActiveLeadSession(ctx, project)
+	return s.pickedLead(ctx, project, topic, open, s.store.LastActiveLeadSession)
+}
+
+// firstLead is the lead of the project's main session, its oldest open one
+// (state.FirstLeadSession), or, with open a project with no session at all,
+// of a new one titled topic. Another project's lead writes there: unlike
+// eventLead's, it doesn't move with whichever session the user last wrote in.
+func (s *Server) firstLead(ctx context.Context, project, topic string, open bool) (state.Agent, error) {
+	return s.pickedLead(ctx, project, topic, open, s.store.FirstLeadSession)
+}
+
+// pickedLead is eventLead and firstLead, with the open session pick chooses.
+func (s *Server) pickedLead(ctx context.Context, project, topic string, open bool,
+	pick func(context.Context, string) (state.LeadSession, error)) (state.Agent, error) {
+	ls, err := pick(ctx, project)
 	if errors.Is(err, state.ErrNotFound) {
 		// A lead from before sessions that the migration didn't see is the
 		// session it would have made.
@@ -593,29 +609,6 @@ func (s *Server) handOver(w http.ResponseWriter, r *http.Request) error {
 	s.sessionsChanged(r.Context(), project)
 	s.refreshAgents(r.Context())
 	w.WriteHeader(http.StatusNoContent)
-	return nil
-}
-
-// crossSession waits for the user's yes before a lead acts on another
-// session's agent: a card in the asking session's chat. Its own agents, and
-// those nobody owns, it acts on freely.
-func (s *Server) crossSession(ctx context.Context, from string, a state.Agent, what string) error {
-	topic, other := s.otherSession(ctx, from, a)
-	if !other {
-		return nil
-	}
-	ok, err := s.approve(ctx, a.Project, api.ChatPermission{
-		Approval: "session",
-		Title:    fmt.Sprintf("%s %s, which the %q session made", what, a.Name, topic),
-		Detail: fmt.Sprintf("%s belongs to another session of this chat, which follows its work. Approve to let this "+
-			"session act on it once; to move it here for good, hand it over from its menu in the rail.", a.Name),
-	})
-	if err != nil {
-		return fmt.Errorf("asking the user to approve it: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("%w: %s is the %q session's agent, and was left alone. Leave it to that session", errRefused, a.Name, topic)
-	}
 	return nil
 }
 

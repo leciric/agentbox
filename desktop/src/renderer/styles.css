@@ -1545,7 +1545,7 @@ html[data-blurred] .ab-monitor * {
    deeper on light so a thin line reads on both.
    [data-session-color] sets --session from it; a name this app doesn't know
    leaves it unset, and nothing framed. .session-line colours an element's
-   border with it: the box of the session's chat, its tab on top of the box
+   border with it: the session's tab
    (a tab not shown is half as strong, .session-line-quiet); the agents it
    made are headed by its dot in the right-hand panel (v2/AgentList). over the
    content, taking no room, so showing it moves nothing. The three oldest

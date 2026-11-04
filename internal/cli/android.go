@@ -193,7 +193,7 @@ func newAndroidRecordStartCmd(a *app) *cobra.Command {
 	var limit time.Duration
 	cmd := &cobra.Command{
 		Use:   "start [agent]",
-		Short: "Start recording the emulator's screen",
+		Short: "Start recording the emulator's screen, with a ripple where each tap lands",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := optionalRef(args)

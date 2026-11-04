@@ -107,7 +107,7 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
 // chat with none open, and its history of closed sessions (SessionHistory),
 // in the chat's place while it is open. children draws the session shown,
 // once its chat has answered. card draws the box the chat is in (a project's
-// has no other), which is in the session's colour once there are several.
+// has no other). It takes no session colour: that is on the tabs.
 export function SessionChatPanel({ project, card, children }: { project: string; card?: boolean; children: (info: T.ProjectChat, current: T.LeadSession) => ReactNode }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -117,7 +117,7 @@ export function SessionChatPanel({ project, card, children }: { project: string;
   const current = pickSession(list, chosen);
   const color = sessionColor(list, current);
   const box = (content: ReactNode) => (
-    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border', color ? 'session-line' : card ? 'border-line' : 'border-transparent')} data-session-color={color}>
+    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border', card ? 'border-line' : 'border-transparent')}>
       {content}
     </div>
   );

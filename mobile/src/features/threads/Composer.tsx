@@ -17,7 +17,7 @@ import { api } from '../../connection/api.ts';
 import { can, useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
 import { colors } from '../../ui/theme.ts';
-import { atTarget, liveTarget, otherSession, targetsOf } from '../../shared/messageTarget.ts';
+import { atTarget, liveTarget, targetsOf } from '../../shared/messageTarget.ts';
 import type * as T from '../../shared/api.ts';
 import { chatKey } from './thread.ts';
 
@@ -51,7 +51,7 @@ export function Composer({ chatRef, name, running, start, lead }: { chatRef: str
   const at = lead ? atTarget(text, [...choices.own, ...choices.others].map((a) => a.name)) : undefined;
   const sendTo = at?.to ?? target;
   const send = useMutation({
-    mutationFn: async ({ message, to }: { message: string; to?: { to: string; anySession?: boolean }; once?: boolean }) => {
+    mutationFn: async ({ message, to }: { message: string; to?: { to: string }; once?: boolean }) => {
       if (to) return api.sendMessage(chatRef, message, to);
       // A lead that never ran starts with its first message.
       if (start) await start();
@@ -68,12 +68,7 @@ export function Composer({ chatRef, name, running, start, lead }: { chatRef: str
     if (!sendTo) return send.mutate({ message: text.trim() });
     const message = at ? at.text : text.trim();
     if (!message) return;
-    const other = otherSession(choices.others.find((a) => a.name === sendTo), lead?.session, lead?.sessions ?? []);
-    if (!other) return send.mutate({ message, to: { to: sendTo }, once: !!at });
-    Alert.alert(t('chat.target.otherSession', { name: sendTo, topic: other.topic }), undefined, [
-      { text: t('common.cancel'), style: 'cancel' },
-      { text: t('chat.target.sendAnyway'), onPress: () => send.mutate({ message, to: { to: sendTo, anySession: true }, once: !!at }) },
-    ]);
+    send.mutate({ message, to: { to: sendTo }, once: !!at });
   };
   const option = (agent: T.Agent | undefined) => {
     const on = (agent?.name ?? undefined) === sendTo;

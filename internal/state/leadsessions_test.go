@@ -81,6 +81,34 @@ func TestLastActiveLeadSession(t *testing.T) {
 	}
 }
 
+// The first session is the oldest open one, whichever spoke last, and the next
+// oldest once it is closed.
+func TestFirstLeadSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := openStore(t)
+	addProject(t, st, "web")
+	if _, err := st.FirstLeadSession(ctx, "web"); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("with no session: %v", err)
+	}
+	now := time.Now()
+	first, _ := st.AddLeadSession(ctx, "web", "First", now.Add(-time.Hour))
+	second, _ := st.AddLeadSession(ctx, "web", "Second", now.Add(-time.Minute))
+	item, _ := json.Marshal(map[string]any{"id": "a1", "kind": "assistant", "createdAt": now, "updatedAt": now})
+	if err := st.SaveChatItems(ctx, "web", state.LeadSessionName(second.ID), []state.ChatItem{{ID: "a1", Position: 0, Data: item}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.FirstLeadSession(ctx, "web"); err != nil || got.ID != first.ID {
+		t.Errorf("FirstLeadSession() = %+v, %v; want the oldest, though the other spoke last", got, err)
+	}
+	if err := st.CloseLeadSession(ctx, "web", first.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.FirstLeadSession(ctx, "web"); err != nil || got.ID != second.ID {
+		t.Errorf("with the first closed = %+v, %v; want the next oldest", got, err)
+	}
+}
+
 // Deleting a session takes its lead and its conversation, and leaves the
 // agents it made to nobody; handing one over moves it.
 func TestDeletingASessionLeavesItsAgentsToNobody(t *testing.T) {

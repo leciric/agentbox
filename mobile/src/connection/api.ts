@@ -100,8 +100,8 @@ export const api = {
   },
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
   // to sends a message written in a project's chat to one of its agents
-  // (desktop/src/shared/messageTarget.ts); anySession to another session's.
-  sendMessage: (ref: string, text: string, to?: { to: string; anySession?: boolean }) => call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, ...to } satisfies T.ChatMessageRequest),
+  // (desktop/src/shared/messageTarget.ts).
+  sendMessage: (ref: string, text: string, to?: { to: string }) => call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, ...to } satisfies T.ChatMessageRequest),
   cancelChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/cancel`),
   answerPermission: (ref: string, item: string, optionId: string) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/permissions/${encodeURIComponent(item)}`, { optionId } satisfies T.ChatAnswerRequest),

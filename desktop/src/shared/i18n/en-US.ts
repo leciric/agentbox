@@ -4260,8 +4260,6 @@ export const enUS = {
   'chat.target.others': 'Other agents',
   'chat.target.tip': 'Who this message goes to. {next} next, {previous} previous, {lead} in an empty composer goes back to the lead, and "@agent-31 " at the start sends one message to that agent.',
   'chat.target.toldTip': 'Sent to {name}’s chat. The lead reads it at its next turn. Click to write to {name} again.',
-  'chat.target.otherSession': '{name} belongs to “{topic}”. Send anyway?',
-  'chat.target.sendAnyway': 'Send anyway',
   'chat.target.sendTo': 'Send to {name}',
   'chat.composer.placeholderTo': 'Message {name}…',
   'chat.composer.nothingAttached': 'Nothing was attached',

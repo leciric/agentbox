@@ -355,8 +355,8 @@ export const api = {
     call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query, ...(kinds.length ? { kinds: kinds.join(',') } : {}) })}`),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
   // to sends a message written in a project's chat to one of its agents
-  // instead (shared/messageTarget.ts); anySession to another session's.
-  sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[], to?: { to: string; anySession?: boolean }) =>
+  // instead (shared/messageTarget.ts).
+  sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[], to?: { to: string }) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images, files: files?.length ? files : undefined, ...to } satisfies T.ChatMessageRequest),
   chatImageUrl: (ref: string, id: string) => window.agentbox.chatImageUrl(`${chatBase(ref)}/images/${encodeURIComponent(id)}`),
   // openChatFile opens a file sent in a chat with the system's default app:
