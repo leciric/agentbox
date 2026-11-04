@@ -334,7 +334,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     <div className="relative h-full min-h-0 w-full overflow-hidden bg-[#1c2333]" data-office>
       <div ref={host} className="absolute inset-0" aria-label={t('office.canvas')} role="application" onPointerDownCapture={() => listShown && setListChoice(false)} />
 
-      {status === 'loading' && (
+      {(status === 'loading' || (status === 'ready' && !office.loaded)) && (
         <div className="absolute inset-0 flex items-center justify-center gap-2 text-[13px] text-slate-300">
           <LoaderCircle className="size-4 animate-spin" />
           {t('office.loading')}

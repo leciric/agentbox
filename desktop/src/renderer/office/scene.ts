@@ -914,7 +914,8 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
         stillFor = 1;
         // Back where you were, close up already: no fade in from afar.
         focusRef = nearest(lay, pos);
-        if (focusRef) cam.closeK = 1;
+        // Back from a chat a step out, gliding in to the desk again.
+        if (focusRef) cam.closeK = 0;
       } else if (!placed) {
         pos.x = lay.spawn.x;
         pos.z = lay.spawn.z;
@@ -1369,7 +1370,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       tag.visible = false;
       if (marker) {
         tp.project(camera);
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || (dist < 16 && cam.closeK < 0.3));
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || (dist < 10 && cam.closeK < 0.3));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         marker.style.display = onScreen ? 'flex' : 'none';
         if (onScreen) shown.push({ el: marker, x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight, loud });
@@ -1493,6 +1494,18 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
     const r = canvas.getBoundingClientRect();
     ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
+    // Standing at the board, its rows come first: the desks in front of it
+    // mustn't take a click meant for the board.
+    if (near === 'board' && board?.face) {
+      const f = ray.intersectObject(board.face, false)[0];
+      if (f?.uv) {
+        const { width: W, height: H } = board.ctx.canvas;
+        const px = f.uv.x * W;
+        const py = (1 - f.uv.y) * H;
+        const row = board.rows.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
+        return { ref: 'board', row: row?.ref };
+      }
+    }
     const hit = ray.intersectObjects(hits, false)[0];
     if (hit && hit.object.userData.ref === 'board' && board?.face) {
       // A row on the board itself: what it's about.
@@ -1590,7 +1603,7 @@ export function createOfficeScene(host: HTMLElement, opts: OfficeSceneOptions): 
       zoomTo(0.5);
     } else {
       // Zooming in looks at what's under the pointer; out, it lets go.
-      if (n < 0 && cam.closeK < 0.5) {
+      if (n < 0 && cam.closeK < 0.5 && !zoomFocus) {
         const { floor, ref } = pick(e.clientX, e.clientY);
         const s = ref ? spotOf(lay, ref) : undefined;
         const p = s ?? floor;

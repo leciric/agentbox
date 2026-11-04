@@ -162,6 +162,29 @@ type Build = {
 
 type Kit = { m: <T extends THREE.Material>(x: T) => T; tint: number };
 
+// clawdShells are Clawd's voxels as two merged geometries, the light ones and
+// the shaded ones: only its shell, a few darker the way pixel art is shaded,
+// and four legs. Made once for every Clawd.
+let clawdCache: { light: THREE.BufferGeometry; dark: THREE.BufferGeometry } | undefined;
+function clawdShells(V: number, W: number, H: number, D: number) {
+  if (clawdCache) return clawdCache;
+  const cube = new THREE.BoxGeometry(V, V, V);
+  const light: THREE.BufferGeometry[] = [];
+  const dark: THREE.BufferGeometry[] = [];
+  const put = (list: THREE.BufferGeometry[], x: number, y: number, z: number) => list.push(cube.clone().translate(x, y, z));
+  for (let x = 0; x < W; x++)
+    for (let y = 0; y < H; y++)
+      for (let z = 0; z < D; z++) {
+        if (x > 0 && x < W - 1 && y > 0 && y < H - 1 && z > 0 && z < D - 1) continue;
+        const shaded = y === 0 || (x + y * 3 + z * 7) % 11 === 0;
+        put(shaded ? dark : light, (x - (W - 1) / 2) * V, 0.13 + y * V, (z - (D - 1) / 2) * V);
+      }
+  for (const lx of [-3.5, -1.5, 1.5, 3.5]) for (const ly of [0, 1]) put(dark, lx * V, 0.13 - (ly + 1) * V, (D / 2 - 0.5) * V);
+  clawdCache = { light: mergeGeometries(light, false)!, dark: mergeGeometries(dark, false)! };
+  for (const g of [...light, ...dark, cube]) g.dispose();
+  return clawdCache;
+}
+
 // clawd: Claude Code's critter, in voxels: a wide orange block, two tall
 // black eyes, nubs for arms, four little legs.
 function clawd(k: Kit): Build {
@@ -171,30 +194,15 @@ function clawd(k: Kit): Build {
   const orange = k.m(toon(base));
   const shade = k.m(toon(base.clone().offsetHSL(0, 0, -0.08)));
   const body = new THREE.Group();
-  const cube = new THREE.BoxGeometry(V, V, V);
   const W = 10;
   const H = 5;
   const D = 5;
-  const parts: THREE.Mesh[] = [];
-  // Only the shell's voxels; a few a shade darker, the way pixel art is shaded.
-  for (let x = 0; x < W; x++)
-    for (let y = 0; y < H; y++)
-      for (let z = 0; z < D; z++) {
-        if (x > 0 && x < W - 1 && y > 0 && y < H - 1 && z > 0 && z < D - 1) continue;
-        const dark = y === 0 || (x + y * 3 + z * 7) % 11 === 0;
-        const v = at(new THREE.Mesh(cube, dark ? shade : orange), (x - (W - 1) / 2) * V, 0.13 + y * V, (z - (D - 1) / 2) * V);
-        body.add(v);
-        parts.push(v);
-      }
-  // Legs: four columns under it, two voxels tall.
-  for (const lx of [-3.5, -1.5, 1.5, 3.5])
-    for (const ly of [0, 1]) {
-      const v = at(new THREE.Mesh(cube, shade), lx * V, 0.13 - (ly + 1) * V, (D / 2 - 0.5) * V);
-      body.add(v);
-      parts.push(v);
-    }
-  bake(body, parts);
-  cube.dispose();
+  // The voxels, built once and shared: two merged shells, light and shade.
+  const shells = clawdShells(V, W, H, D);
+  const lightM = new THREE.Mesh(shells.light, orange);
+  const darkM = new THREE.Mesh(shells.dark, shade);
+  lightM.userData.shared = darkM.userData.shared = true;
+  body.add(lightM, darkM);
   // Ink round the block, as one simple hull.
   const hullBox = at(new THREE.Mesh(new RoundedBoxGeometry(W * V, H * V, D * V, 2, 0.01)), 0, 0.13 + ((H - 1) / 2) * V, 0);
   body.add(hullBox);
@@ -241,14 +249,14 @@ function cube(k: Kit): Build {
 function sparkle(k: Kit): Build {
   const body = new THREE.Group();
   const shape = new THREE.Shape();
-  const R = 0.32;
-  const inner = 0.07;
+  const R = 0.38;
+  const inner = 0.035;
   shape.moveTo(0, R);
   shape.quadraticCurveTo(inner, inner, R, 0);
   shape.quadraticCurveTo(inner, -inner, 0, -R);
   shape.quadraticCurveTo(-inner, -inner, -R, 0);
   shape.quadraticCurveTo(-inner, inner, 0, R);
-  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.08, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.035, bevelSegments: 4, curveSegments: 18 });
+  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.1, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.02, bevelSegments: 3, curveSegments: 20 });
   g.center();
   // The gradient, in vertex colours: blue at the top left to rose below.
   const pos = g.attributes.position;
@@ -264,10 +272,10 @@ function sparkle(k: Kit): Build {
     col.set([tmp.r, tmp.g, tmp.b], i * 3);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const star = at(new THREE.Mesh(g, k.m(toon('#ffffff', { vertexColors: true }))), 0, 0.42, 0);
+  const star = at(new THREE.Mesh(g, k.m(toon('#ffffff', { vertexColors: true }))), 0, 0.46, 0);
   body.add(star);
   ink(star, 0.016);
-  const face = at(new THREE.Group(), 0, 0.42, 0.095);
+  const face = at(new THREE.Group(), 0, 0.46, 0.105);
   body.add(face);
   const hand = k.m(toon('#7f86e8'));
   const arms = [-1, 1].map((sx) => {
@@ -278,7 +286,7 @@ function sparkle(k: Kit): Build {
     body.add(p);
     return p;
   }) as [THREE.Group, THREE.Group];
-  return { body, face, arms, eyes: 'big', eyeGap: 0.07, eyeSize: 0.045, height: 0.74, hover: 0.05 };
+  return { body, face, arms, eyes: 'big', eyeGap: 0.07, eyeSize: 0.045, height: 0.84, hover: 0.05 };
 }
 
 // block: OpenCode's mark, a square frame block with a dark face inside.
@@ -644,7 +652,7 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
       pip.scale.setScalar(tone === 'needs' && motion ? 1 + Math.abs(Math.sin(t0 * 6)) * 0.5 : 1);
     },
     dispose() {
-      g.traverse((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry.dispose());
+      g.traverse((o) => (o as THREE.Mesh).isMesh && !o.userData.shared && (o as THREE.Mesh).geometry.dispose());
       for (const x of mats) x.dispose();
     },
   };
