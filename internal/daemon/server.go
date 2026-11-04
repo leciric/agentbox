@@ -297,13 +297,16 @@ type Server struct {
 	// leadPermissions carries agents' permission requests to their leads'
 	// chats (leadpermissions.go).
 	leadPermissions leadPermissions
-	sessionStatus   sessionStatusWatch // pushes where each chat session stands (sessionstatus.go)
-	baseSyncErrs    map[string]string  // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
-	image           imageWork          // what the daemon is doing to the base image (imagetools.go)
-	imageWaiters    int                // jobs waiting for the base image to be built (imagebuild.go)
-	agentsOnImage   map[string]bool    // agents, by ref, being made once the base image is ready (imagebuild.go)
-	remote          *remote.Connector  // the connection to a hub, when this machine is an environment
-	lan             *lanState          // phones chatting from the local network or a tunnel (lan.go)
+
+	// sessionStatus pushes where each chat session stands (sessionstatus.go).
+	sessionStatus sessionStatusWatch
+
+	baseSyncErrs    map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
+	image           imageWork         // what the daemon is doing to the base image (imagetools.go)
+	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)
+	agentsOnImage   map[string]bool   // agents, by ref, being made once the base image is ready (imagebuild.go)
+	remote          *remote.Connector // the connection to a hub, when this machine is an environment
+	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	// firstImage is how fetchFirstImage checks the user mapping and starts
 	// the build: image.CheckHost and startImageBuild, unless a test says.
 	firstImage struct {
