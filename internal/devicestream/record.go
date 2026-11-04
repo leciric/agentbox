@@ -32,7 +32,9 @@ const recordFPS = 30
 // Record records the device's screen to an MP4 file until ctx ends or limit
 // passes, and finishes the file either way. The video keeps the size of the
 // first frame; a frame of another size (the device turned) is fitted into it.
-func Record(ctx context.Context, dev Device, file string, limit time.Duration) error {
+// The touches added to touches while it records are drawn on it (nil draws
+// none); nothing else is: the video is the screen as it was.
+func Record(ctx context.Context, dev Device, file string, limit time.Duration, touches *Touches) error {
 	screenCtx, stopScreen := context.WithCancel(context.WithoutCancel(ctx))
 	defer stopScreen()
 	var mu sync.Mutex
@@ -89,12 +91,20 @@ func Record(ctx context.Context, dev Device, file string, limit time.Duration) e
 	end := time.After(limit)
 	tick := time.NewTicker(time.Second / recordFPS)
 	defer tick.Stop()
-	var canvas []byte
+	var canvas, drawn []byte
 	for {
 		mu.Lock()
 		f := *latest
 		mu.Unlock()
-		if _, err := stdin.Write(Pixels(f, width, height, &canvas)); err != nil {
+		pixels := Pixels(f, width, height, &canvas)
+		if now := time.Now(); touches.Showing(now) {
+			// Drawn on a copy: the frame is the device's, and is sent
+			// again while the screen doesn't change.
+			drawn = append(drawn[:0], pixels...)
+			touches.Draw(drawn, width, height, now)
+			pixels = drawn
+		}
+		if _, err := stdin.Write(pixels); err != nil {
 			return finish(fmt.Errorf("ffmpeg: %w", err))
 		}
 		select {
