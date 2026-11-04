@@ -4870,6 +4870,7 @@ export const ptBR: Messages = {
   'office.openPr': 'PR #{number}',
   'office.openProjectChat': 'Abrir chat do projeto',
   'office.lead.title': 'Chat de {project}',
+  'office.lead.word': 'Líder',
   'office.lead.quiet': 'Nada dito ainda.',
   'office.lead.agents': '{count, plural, =0 {nenhum agente} one {# agente} other {# agentes}}',
   'office.lead.working': 'Pensando',

@@ -4869,6 +4869,7 @@ export const enUS = {
   'office.openPr': 'PR #{number}',
   'office.openProjectChat': 'Open project chat',
   'office.lead.title': '{project} chat',
+  'office.lead.word': 'Lead',
   'office.lead.quiet': 'Nothing said yet.',
   'office.lead.agents': '{count, plural, =0 {no agents} one {# agent} other {# agents}}',
   'office.lead.working': 'Thinking',

@@ -187,7 +187,8 @@ export function officeModel(inp: OfficeInputs): OfficeModel {
     if (lead.tone === 'needs') needs.push({ ref: leadRef(p.name), project: p.name, title: label, tone: 'needs' });
     for (const d of desks) {
       if (d.tone === 'needs' || d.tone === 'error') needs.push({ ref: d.id, project: p.name, title: d.title, text: d.question, tone: d.tone, pr: d.pr });
-      else if (d.tone === 'finished' || (d.pr && d.pr.state === 'open' && d.tone !== 'working')) review.push({ ref: d.id, project: p.name, title: d.title, tone: d.tone, pr: d.pr });
+      // Titled as the review queue has it, which a click on it opens.
+      else if (d.tone === 'finished' || (d.pr && d.pr.state === 'open' && d.tone !== 'working')) review.push({ ref: d.id, project: p.name, title: reviewByRef.get(d.id)?.title || d.title, tone: d.tone, pr: d.pr });
     }
   }
   needs.sort((a, b) => toneRank(a.tone) - toneRank(b.tone));

@@ -55,6 +55,8 @@ export type OfficeSceneOptions = {
   // The "+n" button's name for screen readers, and its words: "+2 more".
   moreLabel: string;
   moreLabelShort(n: number): string;
+  // The word on a lead's counter, over its project's name.
+  leadWord?: string;
   // A marker's name for screen readers: "Walk to {title}".
   markerLabel(title: string): string;
 };
@@ -256,6 +258,7 @@ type DeskObj = {
 
 const bubbleOf: Partial<Record<DeskTone, [string, string]>> = {
   needs: ['!', '#fbbf24'],
+  working: ['⋯', '#60a5fa'],
   error: ['×', '#f87171'],
   finished: ['✓', '#34d399'],
   stopped: ['z', '#94a3b8'],
@@ -431,7 +434,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     atMark.tex.needsUpdate = true;
   }
   atMark.sprite.visible = false;
-  atMark.sprite.renderOrder = 4;
+  atMark.sprite.material.depthTest = false;
+  atMark.sprite.renderOrder = 7;
   scene.add(atMark.sprite);
   const meTag = sprite(256, 80, 0.62);
   meTag.sprite.position.y = 1.55;
@@ -552,8 +556,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       {
         const zr = place.rug;
         const zh = area.hue / 360;
-        const zoneMat = own(std(new THREE.Color().setHSL(zh, 0.4, 0.9), { roughness: 0.95 }));
-        const zoneEdge = own(std(new THREE.Color().setHSL(zh, 0.35, 0.8), { roughness: 0.95 }));
+        const zoneMat = own(std(new THREE.Color().setHSL(zh, 0.45, 0.88), { roughness: 0.95 }));
+        const zoneEdge = own(std(new THREE.Color().setHSL(zh, 0.4, 0.76), { roughness: 0.95 }));
         room.add(mesh(own(rug(zr.x1 - zr.x0, zr.z1 - zr.z0, 0.9, 0.008)), zoneEdge, (zr.x0 + zr.x1) / 2, 0, (zr.z0 + zr.z1) / 2, 1, 1, 1, false));
         room.add(mesh(own(rug(zr.x1 - zr.x0 - 0.24, zr.z1 - zr.z0 - 0.24, 0.8, 0.01)), zoneMat, (zr.x0 + zr.x1) / 2, 0, (zr.z0 + zr.z1) / 2, 1, 1, 1, false));
       }
@@ -562,8 +566,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // Each pod its own pastel, near its project's colour: pods read apart.
         const shade = [0, 38, -38, 76, -76, 19, -19][pi % 7];
         const hh = ((area.hue + shade + 360) % 360) / 360;
-        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.6, pi % 2 ? 0.73 : 0.78), { roughness: 0.95 }));
-        const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.5, 0.64), { roughness: 0.95 }));
+        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.62, pi % 2 ? 0.68 : 0.73), { roughness: 0.95 }));
+        const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.52, 0.58), { roughness: 0.95 }));
         const pw = pod.x1 - pod.x0;
         const pd = pod.z1 - pod.z0;
         room.add(mesh(own(rug(pw, pd, 0.5, 0.02)), rugEdge, (pod.x0 + pod.x1) / 2, 0, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
@@ -577,6 +581,26 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const counterFront = own(std(new THREE.Color().setHSL(area.hue / 360, 0.5, 0.62), { roughness: 0.6 }));
       room.add(mesh(geo.roundTop, mats.oak, lx, 1.0, lz, COUNTER.w + 0.1, 0.07, COUNTER.d + 0.1));
       room.add(mesh(geo.roundSoft, counterFront, lx, 0.5, lz + 0.05, COUNTER.w, 0.96, COUNTER.d - 0.1));
+      // Its front says whose it is: the project's lead, its front desk.
+      {
+        const plate = canvasTexture(512, 160);
+        const c = plate.ctx;
+        c.clearRect(0, 0, 512, 160);
+        c.fillStyle = '#ffffff';
+        c.textAlign = 'center';
+        c.font = '700 26px "Inter Variable", Inter, system-ui, sans-serif';
+        c.globalAlpha = 0.85;
+        c.fillText((opts.leadWord ?? 'Lead').toUpperCase(), 256, 46);
+        c.globalAlpha = 1;
+        c.font = '800 64px "Inter Variable", Inter, system-ui, sans-serif';
+        let label = area.label;
+        while (c.measureText(label).width > 480 && label.length > 3) label = `${label.slice(0, -2)}…`;
+        c.fillText(label, 256, 118);
+        plate.tex.needsUpdate = true;
+        own(plate.tex);
+        const pm = own(new THREE.MeshBasicMaterial({ map: plate.tex, transparent: true, depthWrite: false }));
+        room.add(mesh(geo.plane, pm, lx, 0.52, lz + 0.05 + (COUNTER.d - 0.1) / 2 + 0.006, COUNTER.w * 0.86, COUNTER.w * 0.86 * (160 / 512), 1, false));
+      }
       addDesk(input, `${area.project}/lead`, lx, lz, area.hue, true);
       for (const d of place.desks) addDesk(input, d.id, d.x, d.z, area.hue, false, d.side);
     }
@@ -729,6 +753,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const bubble = sprite(128, 150, 0.4);
     disp.push(() => bubble.tex.dispose(), () => bubble.sprite.material.dispose());
     bubble.sprite.position.set(fig.group.position.x, 2.05, cz + 0.05);
+    // Over everything, glass included, and a click on it is a click on its desk.
+    bubble.sprite.material.depthTest = false;
+    bubble.sprite.renderOrder = 6;
+    bubble.sprite.userData.ref = ref;
+    hits.push(bubble.sprite);
     g.add(bubble.sprite);
     const tag = sprite(640, 96, 1.9);
     disp.push(() => tag.tex.dispose(), () => tag.sprite.material.dispose());
@@ -844,7 +873,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const walk = document.createElement('button');
         walk.type = 'button';
         walk.style.cssText =
-          'pointer-events:auto;display:flex;align-items:center;gap:5px;max-width:170px;padding:2px 8px 2px 6px;border-radius:7px;background:#fff;color:#2b2620;font:600 11px/1.3 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(40,30,20,.18);cursor:pointer';
+          'pointer-events:auto;display:flex;align-items:center;gap:5px;max-width:var(--tag-w,170px);padding:2px 8px 2px 6px;border-radius:7px;background:#fff;color:#2b2620;font:600 11px/1.3 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(40,30,20,.18);cursor:pointer';
         const dot = document.createElement('span');
         dot.style.cssText = 'flex:none;width:8px;height:8px;border-radius:50%';
         const label = document.createElement('span');
@@ -1003,6 +1032,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   function overview() {
     zoomTo(0);
     zoomFocus = undefined;
+    turned = false;
     cam.yaw = HOME_YAW;
     held = true;
     poke();
@@ -1193,7 +1223,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const cover = Math.min(0.45, inset / Math.max(1, canvas.clientWidth));
     // The window the diorama fills, in clip space: nearly all of it, the
     // top bar's and the legend's clear parts over its corners and edges.
-    const win = { x0: -0.98 + 2 * cover, x1: 0.99, y0: -0.97, y1: 0.9 };
+    const win = { x0: -0.98 + 2 * cover, x1: 0.99, y0: -0.86, y1: 0.9 };
     fitProbe.aspect = aspect;
     fitProbe.updateProjectionMatrix();
     // The diorama's outline: the slab's underside, the walls' tops where
@@ -1378,8 +1408,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // overview; over the grown figures' heads.
       // Only the loud ones (needs you, failed) grow: the overview shows those.
       const loudTone = d.tone === 'needs' || d.tone === 'error';
-      const grow = loudTone ? Math.min(d.tone === 'needs' ? 3.6 : 2.6, Math.max(1, (far - 8) / 12)) : 1;
-      if (!loudTone && far > 30) s.visible = false;
+      const grow = Math.min(d.tone === 'needs' ? 3.6 : loudTone ? 2.6 : 1.7, Math.max(1, (far - 8) / 12));
       const sb = (s.userData.base as THREE.Vector2 | undefined) ?? (s.userData.base = new THREE.Vector2(s.scale.x, s.scale.y));
       s.scale.set(sb.x * grow, sb.y * grow, 1);
       s.position.y = 1.95 + lift * 0.5 + (k / base - 1) * 1.25 + (grow - 1) * 0.2 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 * grow : 0);
@@ -1426,9 +1455,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (!chip) continue;
       const sg = signs[i];
       void sg;
-      // Just out from its zone's front left corner, a name plate: clear of
-      // its agents' heads and its counter, and plainly its own.
-      ap.set(place.rug.x0 + 1.3, 0.05, place.rug.z1 + 0.45);
+      // In its zone's front left corner, a name plate: clear of its agents'
+      // heads and its counter, and plainly its own.
+      ap.set(place.rug.x0 + 1.25, 0.05, place.rug.z1 - 0.45);
       const far = cam.closeK < 0.3;
       ap.project(camera);
       // Not under the top bar, whose 4.5rem it would hide beneath.
@@ -1461,6 +1490,21 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const r = cardEl.getBoundingClientRect();
       return { x0: r.left - cr.left - 60, x1: r.right - cr.left + 8, y0: r.top - cr.top - 8, y1: r.bottom - cr.top + 34 };
     })() : undefined;
+    // The face of the agent you're at, on screen: no one else's tag covers it.
+    const atDesk = near ? desks.get(near) : undefined;
+    let face: { x: number; y: number } | undefined;
+    if (atDesk && cam.closeK > 0.3) {
+      atDesk.figure.group.getWorldPosition(tp);
+      tp.y += 1.1;
+      tp.project(camera);
+      face = { x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight };
+    }
+    // A small team's tags show from anywhere, as name tags in a room do; a
+    // big one's as you come near.
+    const few = desks.size <= 16;
+    // Small from afar, as name tags are; wider as you come in to read them.
+    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '112px' : '170px';
+    if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
       tag.getWorldPosition(tp);
@@ -1479,11 +1523,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // The overview shows the pods' pills and counts and the bubbles over
         // heads; the tags come as you come in.
         // Quiet ones only near enough to read, so a mid view isn't a wall of tags.
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && cam.followK > (loud ? 0.2 : 0.4) && (loud || (cam.closeK < 0.3 && dist < 17));
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (few || cam.followK > (loud ? 0.2 : 0.4)) && (loud || (cam.closeK < 0.3 && (few || dist < 17)));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 70, ((1 - tp.y) / 2) * canvas.clientHeight);
-        const underCard = !!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1;
+        const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 120 && my > face.y - 70 && my < face.y + 150);
         const show = onScreen && !underCard;
         marker.style.display = show ? 'flex' : 'none';
         if (show) shown.push({ el: marker, x: mx, y: my, loud });
@@ -1492,7 +1536,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // You, from far off: a chip in your colour over your head, or under your
     // feet when a label is there. Placed first: the desks' chips keep clear of it.
     meTag.sprite.getWorldPosition(tp);
-    const meFar = tp.distanceTo(camera.position) > 15;
+    const meFar = tp.distanceTo(camera.position) > 15 && cam.closeK < 0.3;
     tp.project(camera);
     meMarker.style.display = meFar && tp.z < 1 ? 'block' : 'none';
     if (meFar) {
@@ -1615,7 +1659,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         return { ref: 'board', row: row?.ref };
       }
     }
-    const hit = ray.intersectObjects(hits, false)[0];
+    // Only what's shown: a hidden bubble or a desk stepped aside takes no click.
+    const shownUp = (o: THREE.Object3D | null): boolean => !o || (o.visible && shownUp(o.parent));
+    const hit = ray.intersectObjects(hits, false).find((h) => shownUp(h.object));
     if (hit && hit.object.userData.ref === 'board' && board?.face) {
       // A row on the board itself: what it's about.
       const f = ray.intersectObject(board.face, false)[0];

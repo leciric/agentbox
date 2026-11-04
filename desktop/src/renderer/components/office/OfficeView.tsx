@@ -236,7 +236,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       if (!first) return;
       first.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
       first.focus({ preventScroll: true });
-      if (!reduced) for (const r of rows.slice(Number(from) || 0)) r.animate([{ backgroundColor: 'rgba(251,191,36,.35)' }, { backgroundColor: 'rgba(251,191,36,0)' }], { duration: 1400, easing: 'ease-out' });
+      if (!reduced) for (const r of rows.slice(Number(from) || 0)) r.animate([{ backgroundColor: 'rgba(251,191,36,.4)', boxShadow: 'inset 0 0 0 2px rgba(245,158,11,.9)' }, { backgroundColor: 'rgba(251,191,36,.25)', boxShadow: 'inset 0 0 0 2px rgba(245,158,11,.7)', offset: 0.7 }, { backgroundColor: 'rgba(251,191,36,0)', boxShadow: 'inset 0 0 0 2px rgba(245,158,11,0)' }], { duration: 2600, easing: 'ease-out' });
       return;
     }
     // Who needs you: walk there, as everywhere else, its card up with the
@@ -277,6 +277,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             markerLabel: (title) => t('office.walkTo', { title }),
             moreLabel: t('office.showAll'),
             moreLabelShort: (n) => t('office.moreShort', { count: n }),
+            leadWord: t('office.lead.word'),
             onNear: setNear,
             onHover: setHover,
             onActivate: (ref) => activate.current(ref),
