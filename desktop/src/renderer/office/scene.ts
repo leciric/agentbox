@@ -87,7 +87,7 @@ const FOV = 24;
 const HOME_YAW = 0.76;
 const OVERVIEW_PITCH = 0.62;
 // Following you, the camera looks down this steeply.
-const FOLLOW_PITCH = 0.78;
+const FOLLOW_PITCH = 0.7;
 
 // rug is a flat rounded rectangle, w by d with corners of radius r, h thick,
 // lying on the floor.
@@ -1130,7 +1130,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // A long walk is a jog, so a desk across the room is a moment away.
       const left = dist + pathLengthFrom(route);
       // A walk you asked for by name (a chip, N, the list) is quick.
-      const pace = Math.min(18, Math.max(routeGoal ? 6 : SPEED, left / 0.6));
+      // To a desk by name, briskly: its card is what you came for.
+      const pace = Math.min(22, Math.max(routeGoal ? 9 : SPEED, left / (routeGoal ? 0.4 : 0.6)));
       const stepLen = pace * dt;
       if (dist <= stepLen) {
         pos.x = goal.x;
@@ -1421,7 +1422,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const base = (fg.userData.base as number | undefined) ?? (fg.userData.base = fg.scale.x);
       const far = fg.getWorldPosition(figPos).distanceTo(camera.position);
       // Not while the camera follows you: grown, they'd hide you.
-      const k = base * (1 + Math.min(0.65, Math.max(0, (far - 12) / 36)) * (1 - cam.followK));
+      const k = base * (1 + Math.min(crowded ? 0.65 : 0.9, Math.max(0, (far - 12) / 36)) * (1 - cam.followK));
       fg.scale.setScalar(k);
       fg.position.y = 0.49 * (1 - k);
       if (d.root.visible) {
@@ -1462,7 +1463,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (crowded && !loudTone && far > 30) s.visible = false;
       const sb = (s.userData.base as THREE.Vector2 | undefined) ?? (s.userData.base = new THREE.Vector2(s.scale.x, s.scale.y));
       s.scale.set(sb.x * grow, sb.y * grow, 1);
-      s.position.y = 1.95 + lift * 0.5 + (k / base - 1) * 1.25 + (grow - 1) * 0.2 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 * grow : 0);
+      // Clear of the head and whatever it wears.
+      s.position.y = 2.32 + lift * 0.5 + (k / base - 1) * 1.45 + (grow - 1) * 0.2 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 * grow : 0);
       if (d.ref === near) {
         atMark.sprite.visible = cam.closeK > 0.2 || cam.followK > 0.3;
         atMark.sprite.position.set(fx, s.position.y + (bubbleOf[d.tone] && s.visible ? 0.42 * grow : 0) + 0.05 + (motion ? Math.abs(Math.sin(t * 3)) * 0.08 : 0), fz);
@@ -1624,12 +1626,13 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // Quiet ones only near enough to read, so a mid view isn't a wall of tags.
         // From the overview a small team's loud ones only, a crowd's none (its
         // bubbles say it); coming in, the loud ones, then everyone's near you.
-        // From the overview the loud ones (who needs you, what failed); coming
-        // in, everyone's near you.
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && dist < 17));
+        // From the overview a small team's all, as name tags in a room, and a
+        // crowd's loud ones; coming in, everyone's near you. (They keep off
+        // faces, and a quiet one with no room steps out of the way.)
+        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || !crowded || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (!crowded || dist < 17)));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
-        const my = Math.min(canvas.clientHeight - 110, ((1 - tp.y) / 2) * canvas.clientHeight);
+        const my = Math.min(canvas.clientHeight - 130, ((1 - tp.y) / 2) * canvas.clientHeight);
         const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 120 && my > face.y - 70 && my < face.y + 150);
         const show = onScreen && !underCard;
         marker.style.display = show ? 'flex' : 'none';
@@ -1647,7 +1650,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const my = ((1 - tp.y) / 2) * canvas.clientHeight;
       const mw = meMarker.offsetWidth || 44;
       const over = { x0: mx - mw / 2, x1: mx + mw / 2, y0: my - 40, y1: my - 18 };
-      const under = taken.some((r) => over.x0 < r.x1 && over.x1 > r.x0 && over.y0 < r.y1 && over.y1 > r.y0);
+      const under = taken.some((r) => over.x0 < r.x1 && over.x1 > r.x0 && over.y0 < r.y1 && over.y1 > r.y0) || heads.slice(1).some((hd) => Math.abs(hd.x - mx) < mw / 2 + 16 && hd.y > over.y0 - 26 && hd.y < over.y1 + 12);
       meMarker.style.transform = `translate(${mx}px, ${my}px) translate(-50%, ${under ? '140%' : '-110%'})`;
       taken.push(under ? { x0: over.x0, x1: over.x1, y0: my + 30, y1: my + 52 } : over);
       meTag.sprite.visible = false;
@@ -1710,7 +1713,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // No room: folded into the chip in its way, if there's one nearby;
         // else it stays where it belongs.
         // The nearest loud chip takes it.
-        const near1 = chips.filter((c) => c.loud).sort((a, b) => Math.hypot((a.x0 + a.x1) / 2 - m.x, a.y - m.y) - Math.hypot((b.x0 + b.x1) / 2 - m.x, b.y - m.y))[0];
+        // Only one close by: a "+n" stands for its neighbours, not the room.
+        const near1 = chips
+          .filter((c) => c.loud && Math.hypot((c.x0 + c.x1) / 2 - m.x, c.y - m.y) < 110)
+          .sort((a, b) => Math.hypot((a.x0 + a.x1) / 2 - m.x, a.y - m.y) - Math.hypot((b.x0 + b.x1) / 2 - m.x, b.y - m.y))[0];
         const into = (restack ? undefined : chipInto.get(m.el)) ?? near1?.el;
         if (into) {
           chipInto.set(m.el, into);
