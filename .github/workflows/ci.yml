@@ -133,7 +133,7 @@ jobs:
           esac
           if ! $ok || [ ! -s "$files" ]; then
             echo "Can't tell what changed: running everything"
-            go=true desktop=true mobile=true hub=true vuln=true macos=true windows=true
+            go=true desktop=true mobile=true native=true hub=true vuln=true macos=true windows=true
           else
             sed 's/^/  /' "$files"
             # Lines of key=true|false.
@@ -145,7 +145,7 @@ jobs:
           if [ "$EVENT/$ACTION" = pull_request/labeled ] || { [ "$EVENT" = workflow_dispatch ] && [ -z "$PR" ]; }; then
             macos=true windows=true
           fi
-          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "hub=$hub" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
+          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "native=$native" "hub=$hub" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
 
   # The Go test suite, once, with coverage: scripts/check-coverage.sh fails
   # below the floor in .github/coverage-floor.txt. This includes
