@@ -135,8 +135,10 @@ version = "0.0.0"
 dependencies = [
  "agentbox-api",
  "agentbox-i18n",
+ "agentbox-office",
  "alacritty_terminal",
  "anyhow",
+ "async-channel",
  "base64 0.22.1",
  "chrono",
  "cpal",

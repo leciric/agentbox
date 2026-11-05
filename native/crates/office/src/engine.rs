@@ -328,10 +328,19 @@ fn run(rx: Receiver<In>, mut out: impl FnMut(Out), kept: std::sync::Arc<std::syn
         if let Ok(mut k) = kept.lock() {
             *k = Some(st.sim.visit());
         }
-        if !shown || in_flight || st.built.is_none() {
+        if in_flight && shown && st.built.is_some() {
+            // Waiting for the view to paint: the clock runs on, so walking
+            // keeps its pace however slowly frames come.
+            continue;
+        }
+        if !shown || st.built.is_none() {
             last = Instant::now();
             busy = false;
             continue;
+        }
+        // Coming back from rest: one short step, not the whole pause.
+        if !busy {
+            last = Instant::now() - Duration::from_millis(16);
         }
         let now = Instant::now();
         // As #668: a long pause (the first frame, a stall) is one 50 ms step.
