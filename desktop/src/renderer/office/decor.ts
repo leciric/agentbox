@@ -196,27 +196,33 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
   put(rbox(W + 0.5, T, D + 0.5, 0.08), slab, W / 2, -T / 2 - 0.001, D / 2);
   put(rbox(W + 0.3, 0.06, D + 0.3, 0.03), m(PALETTE.slabDark), W / 2, -T - 0.02, D / 2);
 
-  // The floors: terrazzo for the work, planks for the wood side.
-  const WX = l.wood.x0;
+  // The floors: terrazzo throughout, planks under each of the commons.
   // Each room's finish: warm, stone or mint terrazzo.
   const tz = keep(terrazzo(['#f3e1cb', '#ebe5dc', '#e2ece2'][l.finish]));
-  tz.repeat.set(WX / 3, D / 3);
-  const tzFloor = new THREE.Mesh(keep(new THREE.PlaneGeometry(WX, D)), m('#ffffff', { map: tz, roughness: 0.55 }));
+  tz.repeat.set(W / 3, D / 3);
+  const tzFloor = new THREE.Mesh(keep(new THREE.PlaneGeometry(W, D)), m('#ffffff', { map: tz, roughness: 0.55 }));
   tzFloor.rotation.x = -Math.PI / 2;
-  tzFloor.position.set(WX / 2, 0.001, D / 2);
+  tzFloor.position.set(W / 2, 0.001, D / 2);
   tzFloor.receiveShadow = true;
   tzFloor.userData.floor = true;
   g.add(tzFloor);
   const pk = keep(planks());
-  // The boards run along the room, towards the camera's corner.
-  pk.rotation = Math.PI / 2;
-  pk.repeat.set(D / 4, (W - WX) / 4);
-  const woodFloor = new THREE.Mesh(keep(new THREE.PlaneGeometry(W - WX, D)), m('#ffffff', { map: pk, roughness: 0.6 }));
-  woodFloor.rotation.x = -Math.PI / 2;
-  woodFloor.position.set((WX + W) / 2, 0.002, D / 2);
-  woodFloor.receiveShadow = true;
-  woodFloor.userData.floor = true;
-  g.add(woodFloor);
+  for (const [i, b] of l.woods.entries()) {
+    const bw = b.x1 - b.x0;
+    const bd = b.z1 - b.z0;
+    if (bw <= 0 || bd <= 0) continue;
+    const t = keep(pk.clone());
+    t.needsUpdate = true;
+    // The boards run along the room, towards the camera's corner.
+    t.rotation = Math.PI / 2;
+    t.repeat.set(bd / 4, bw / 4);
+    const wf = new THREE.Mesh(keep(new THREE.PlaneGeometry(bw, bd)), m('#ffffff', { map: t, roughness: 0.6 }));
+    wf.rotation.x = -Math.PI / 2;
+    wf.position.set(b.x0 + bw / 2, 0.002 + i * 0.0004, b.z0 + bd / 2);
+    wf.receiveShadow = true;
+    wf.userData.floor = true;
+    g.add(wf);
+  }
 
   // The two walls, back and left, with a lighter cap and a skirting.
   // Its walls a little of its project's colour, so rooms read apart.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { boardRef, columns, COUNTER, floorsOf, footOf, layout, nearest, ROOM_DESKS, roomAt, roomLayout, roomOf, spotOf, walkable, type Box, type Layout } from './layout.ts';
+import { boardRef, columns, COUNTER, FLOOR_LIFT, floorsOf, footOf, layout, nearest, ROOM_DESKS, roomAt, roomLayout, roomOf, spotOf, walkable, type Box, type Layout } from './layout.ts';
 import type { AreaModel } from './model.ts';
 import { blocked, path } from './walk.ts';
 
@@ -13,7 +13,7 @@ const area = (project: string, n: number): AreaModel => ({
 });
 
 const overlaps = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
-const within = (outer: Box, inner: Box) => inner.x0 >= outer.x0 && inner.x1 <= outer.x1 && inner.z0 >= outer.z0 && inner.z1 <= outer.z1;
+const within = (outer: Box, inner: Box) => inner.x0 >= outer.x0 - 1e-9 && inner.x1 <= outer.x1 + 1e-9 && inner.z0 >= outer.z0 - 1e-9 && inner.z1 <= outer.z1 + 1e-9;
 
 test('pods go a little wider than deep', () => {
   assert.deepEqual([0, 1, 2, 3, 4, 6, 8, 12, 18].map(columns), [1, 1, 2, 2, 2, 3, 3, 4, 5]);
@@ -37,8 +37,17 @@ test('each room is a diorama of its own, the campus about as wide as deep or wid
     const c = layout({ areas: n.map((k, i) => area(`p${i}`, k)) });
     const r = c.room.x1 / c.room.z1;
     assert.ok(r > 0.6 && r < 4.5, `${n}: ${r.toFixed(2)}`);
-    for (const room of c.rooms) assert.ok(within(c.room, room.box), `${room.key} is in the campus`);
-    for (let i = 0; i < c.rooms.length; i++) for (let j = i + 1; j < c.rooms.length; j++) assert.ok(!overlaps(c.rooms[i].box, c.rooms[j].box), `${c.rooms[i].key} and ${c.rooms[j].key}`);
+    // Shown on the campus, each building's floors on each other; walked in, no
+    // two rooms anywhere near.
+    const shown = (r: (typeof c.rooms)[number]) => ({ x0: r.box.x0 + r.shown.dx, z0: r.box.z0 + r.shown.dz, x1: r.box.x1 + r.shown.dx, z1: r.box.z1 + r.shown.dz });
+    for (const room of c.rooms) assert.ok(within(c.room, shown(room)), `${room.key} is in the campus`);
+    for (let i = 0; i < c.rooms.length; i++)
+      for (let j = i + 1; j < c.rooms.length; j++) {
+        assert.ok(!overlaps(c.rooms[i].box, c.rooms[j].box), `${c.rooms[i].key} and ${c.rooms[j].key}`);
+        if (c.rooms[i].project !== c.rooms[j].project) assert.ok(!overlaps(shown(c.rooms[i]), shown(c.rooms[j])), `${c.rooms[i].key} and ${c.rooms[j].key} shown`);
+      }
+    // A project's floors one over another.
+    for (const room of c.rooms) assert.equal(room.shown.dy, (room.floor - 1) * FLOOR_LIFT);
     // A room is small: about the target's, never the size of a whole office.
     for (const room of c.rooms) assert.ok(room.box.x1 - room.box.x0 < 32 && room.box.z1 - room.box.z0 < 18, `${room.key} is small`);
   }
@@ -48,7 +57,7 @@ test('an empty office is still a room with a board and a commons', () => {
   const c = layout({ areas: [] });
   assert.equal(c.areas.length, 0);
   assert.equal(c.rooms.length, 1);
-  assert.ok(c.rooms[0].box.x1 >= 16);
+  assert.ok(c.rooms[0].box.x1 >= 12);
   assert.ok(c.spawn.z > c.rooms[0].board.spot.z);
 });
 
@@ -91,8 +100,9 @@ test('every room is furnished, and nothing stands on anything else', () => {
   for (const name of ['p', 'storefront', 'quill', 'agentbox', 'x', 'yy'])
   for (const n of [12, 9, 8, 4, 2, 1, 0]) {
     const l = roomLayout({ areas: n ? [area(name, n)] : [] });
-    // A small team's room is small: a lounge and a corner.
-    assert.ok(l.props.length >= (n > 0 && n <= 4 ? 6 : 8), `${n}: ${l.props.length} things`);
+    // Every cell holds something; these are the things besides the pods, the
+    // counter, the meeting room and the lounge.
+    assert.ok(l.props.length >= (n ? 5 : 3), `${name} ${n}: ${l.props.length} things`);
     // Mats are floor, walked over: what's on them mustn't overlap but may sit on one.
     const solid = l.props.filter((p) => p.kind !== 'mat');
     const feet = solid.map(footprint);

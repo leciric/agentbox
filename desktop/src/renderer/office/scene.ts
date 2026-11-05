@@ -18,7 +18,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { bake, hash, mascot, walker as makeWalker, type Figure } from './figures.ts';
 import { loadKit, piece } from './furniture.ts';
 import { player } from './kenney.ts';
-import { boardRef, COUNTER, DESK, SEAT, layout as layOut, nearest, roomAt, roomOf, spotOf, walkable, type Box, type Campus } from './layout.ts';
+import { boardRef, COUNTER, DESK, FLOOR_LIFT, SEAT, layout as layOut, nearest, roomAt, roomOf, spotOf, walkable, type Box, type Campus } from './layout.ts';
 import type { DeskTone, LeadTone, OfficeModel } from './model.ts';
 import { diorama, wallHeight } from './decor.ts';
 import { canvasTexture, drawBoard, type BoardRow, drawBubble, drawScreen, drawTag, toneColor, type BoardScreen, type Screen } from './textures.ts';
@@ -665,19 +665,39 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       boards.set(boardRef(rm), b);
     }
 
-    // A project on floors: a plinth under them all, so the campus reads them
-    // as one place. (Over the campus only.)
+    // A project on floors: a building. A plinth under its first floor, its
+    // floors over it on posts, a glass lift up its side. (Over the campus only.)
     {
-      const groups = new Map<string, Box>();
-      for (const rm of l.rooms) {
-        if (rm.floors < 2) continue;
-        const b = groups.get(rm.project);
-        groups.set(rm.project, b ? { x0: Math.min(b.x0, rm.box.x0), z0: Math.min(b.z0, rm.box.z0), x1: Math.max(b.x1, rm.box.x1), z1: Math.max(b.z1, rm.box.z1) } : rm.box);
-      }
-      for (const [project, b] of groups) {
-        const hue = input.model.areas.find((a) => a.project === project)?.hue ?? 260;
-        const plinth = mesh(geo.roundTop, own(std(new THREE.Color().setHSL(hue / 360, 0.45, 0.66), { roughness: 0.9 })), (b.x0 + b.x1) / 2, -1.0, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 3.2, 0.2, b.z1 - b.z0 + 3.2);
-        addTo(-1, plinth);
+      const firsts = l.rooms.filter((rm) => rm.floors > 1 && rm.floor === 1);
+      const frame = own(std('#2f4a3a', { roughness: 0.5 }));
+      const shaft = own(new THREE.MeshStandardMaterial({ color: '#bfe1ee', transparent: true, opacity: 0.35, roughness: 0.1, depthWrite: false }));
+      for (const f of firsts) {
+        const hue = input.model.areas.find((a) => a.project === f.project)?.hue ?? 260;
+        const b = f.box;
+        addTo(-1, mesh(geo.roundTop, own(std(new THREE.Color().setHSL(hue / 360, 0.45, 0.66), { roughness: 0.9 })), (b.x0 + b.x1) / 2, -1.0, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 3.2, 0.2, b.z1 - b.z0 + 3.2));
+        const ups = l.rooms.filter((rm) => rm.project === f.project && rm.floor > 1);
+        const top = Math.max(...ups.map((rm) => rm.shown.dy));
+        for (const up of ups) {
+          const sb = { x0: up.box.x0 + up.shown.dx, z0: up.box.z0 + up.shown.dz, x1: up.box.x1 + up.shown.dx, z1: up.box.z1 + up.shown.dz };
+          const below = up.shown.dy - FLOOR_LIFT;
+          const h = FLOOR_LIFT - 0.75;
+          // Posts at its open corners, from the floor below to its slab.
+          for (const [px, pz] of [
+            [sb.x0 + 0.25, sb.z1 - 0.25],
+            [sb.x1 - 0.25, sb.z1 - 0.25],
+            [sb.x1 - 0.25, sb.z0 + 0.25],
+          ])
+            addTo(-1, mesh(geo.roundTop, frame, px, below + h / 2, pz, 0.22, h, 0.22));
+        }
+        // The lift, glass, beside the building, from its plinth to its top.
+        const lx = b.x1 + 1.1;
+        const lz = (b.z0 + b.z1) / 2;
+        const lh = top + 4.2;
+        const glassShaft = mesh(geo.box, shaft, lx, -0.9 + lh / 2, lz, 1.4, lh, 1.8, false);
+        glassShaft.renderOrder = 3;
+        addTo(-1, glassShaft);
+        for (const y of [0, ...ups.map((rm) => rm.shown.dy)]) addTo(-1, mesh(geo.roundTop, frame, lx, y - 0.05, lz, 1.5, 0.1, 1.9));
+        for (const dx of [-0.7, 0.7]) for (const dz of [-0.9, 0.9]) addTo(-1, mesh(geo.roundTop, frame, lx + dx, -0.9 + lh / 2, lz + dz, 0.08, lh, 0.08));
       }
     }
 
@@ -739,6 +759,20 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       return o;
     });
 
+    // Each room's slab, over the campus: a click on a floor stood on its
+    // building (not where you walk in it) goes into it.
+    for (const [ri, rm] of l.rooms.entries()) {
+      const b = rm.box;
+      const slab = mesh(geo.box, mats.hit, (b.x0 + b.x1) / 2, -0.2, (b.z0 + b.z1) / 2, b.x1 - b.x0, 0.9, b.z1 - b.z0, false);
+      slab.userData.ref = `room:${ri}`;
+      slab.userData.campusOnly = true;
+      addTo(ri, slab);
+      hits.push(slab);
+    }
+    // Where each thing is in its room, for moving its floor onto its
+    // building over the campus and back (showScope).
+    for (const c of room.children) c.userData.base = c.position.clone();
+    shownFor = undefined;
     lighting(true);
     showScope();
     seeThrough(scene);
@@ -1085,8 +1119,30 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // In a room's own view, only it; over the campus, all of them. (Desks and
   // plants are also set each frame, which steps them aside too.)
   const inScope = (o: THREE.Object3D) => scope === null || o.userData.room === undefined || o.userData.room === scope;
+  // The scope the rooms were last placed for.
+  let shownFor: number | null | undefined;
   function showScope() {
-    for (const c of room.children) c.visible = inScope(c);
+    for (const c of room.children) c.visible = inScope(c) && (!c.userData.campusOnly || scope === null);
+    // Over the campus a floor past the first stands on its building; in a
+    // room, it's where you walk. Moving it, the camera moves with it, so the
+    // glide in or out starts where it was on screen.
+    if (shownFor !== undefined && shownFor !== scope) {
+      const s = shownFor === null && scope !== null ? lay.rooms[scope]?.shown : shownFor !== null && scope === null ? lay.rooms[shownFor]?.shown : undefined;
+      const sign = shownFor === null ? -1 : 1;
+      if (s && eased.init) {
+        eased.tx += sign * s.dx;
+        eased.ty += sign * s.dy;
+        eased.tz += sign * s.dz;
+      }
+    }
+    shownFor = scope;
+    for (const c of room.children) {
+      const base = c.userData.base as THREE.Vector3 | undefined;
+      if (!base) continue;
+      const ri = c.userData.room as number | undefined;
+      const s = scope === null && ri !== undefined && ri >= 0 ? lay.rooms[ri]?.shown : undefined;
+      c.position.set(base.x + (s?.dx ?? 0), base.y + (s?.dy ?? 0), base.z + (s?.dz ?? 0));
+    }
   }
 
   // scopeBox is what the overview frames: the room's floor, or the campus's.
@@ -1529,12 +1585,14 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       return { x: rm.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: rm.oz + 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
-      if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 17, pitch: 0.62, yaw: 0.4 }, aspect);
+      // The angle you're at: a walk by name comes closer, it doesn't swing
+      // the room round.
+      if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 17, pitch: 0.7, yaw: cam.yaw }, aspect);
       const d = a.desks.find((x) => x.id === ref);
       // One angle for every desk, a little from the right as the room's view
       // is: N from desk to desk doesn't swing the room round. You stand at
       // the bench's end, beside the agent, clear of it either side.
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.95, yaw: 0.4 }, aspect);
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.85, yaw: cam.yaw }, aspect);
     }
     return undefined;
   }
@@ -1574,12 +1632,13 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // The diorama's outline: the slab's underside, the walls' tops where
     // there are walls (back and left), the floor's open corner.
     // Over the campus, every room's; else the room's.
-    const outlines = scope === null ? lay.rooms.map((r) => r.box) : [bx];
-    const corners = outlines.flatMap((b) => [
-      ...[b.x0 - 0.3, b.x1 + 0.3].flatMap((x) => [b.z0 - 0.3, b.z1 + 0.3].map((z) => new THREE.Vector3(x, -0.72, z))),
-      new THREE.Vector3(b.x0 - 0.3, H, b.z0 - 0.3),
-      new THREE.Vector3(b.x1 + 0.1, H, b.z0 - 0.3),
-      new THREE.Vector3(b.x0 - 0.3, H, b.z1 + 0.1),
+    // (Each floor where the campus shows it, on its building.)
+    const outlines = scope === null ? lay.rooms.map((r) => ({ b: { x0: r.box.x0 + r.shown.dx, z0: r.box.z0 + r.shown.dz, x1: r.box.x1 + r.shown.dx, z1: r.box.z1 + r.shown.dz }, y: r.shown.dy })) : [{ b: bx, y: 0 }];
+    const corners = outlines.flatMap(({ b, y }) => [
+      ...[b.x0 - 0.3, b.x1 + 0.3].flatMap((x) => [b.z0 - 0.3, b.z1 + 0.3].map((z) => new THREE.Vector3(x, y - 0.72, z))),
+      new THREE.Vector3(b.x0 - 0.3, y + H, b.z0 - 0.3),
+      new THREE.Vector3(b.x1 + 0.1, y + H, b.z0 - 0.3),
+      new THREE.Vector3(b.x0 - 0.3, y + H, b.z1 + 0.1),
     ]);
     const v = new THREE.Vector3();
     const right = new THREE.Vector3(Math.cos(yaw0), 0, -Math.sin(yaw0));
@@ -1882,7 +1941,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         }
       }
       // Hovered: lifted a little.
-      d.root.position.y = d.ref === hover ? 0.02 : 0;
+      // (On its floor's height over the campus, a hair up under the pointer.)
+      d.root.position.y = (scope === null ? (lay.rooms[d.room]?.shown.dy ?? 0) : 0) + (d.ref === hover ? 0.02 : 0);
     }
     if (!markHere) atMark.sprite.visible = false;
     // The potted plants step aside as the desks do.
@@ -1954,7 +2014,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (scope === null) {
         // Over the campus: at its room's front corner, the one nearest you,
         // its name plate, clear of the rooms behind.
-        ap.set(rm.box.x1 - Math.min(5, (rm.box.x1 - rm.box.x0) / 3), -0.4, rm.box.z1 + 1.0);
+        ap.set(rm.box.x1 - Math.min(5, (rm.box.x1 - rm.box.x0) / 3) + rm.shown.dx, -0.4 + rm.shown.dy, rm.box.z1 + 1.0 + rm.shown.dz);
         ap.project(camera);
         on = ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
       }
@@ -2287,7 +2347,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       canvas.style.cursor = ref && !(isBoard(ref) && ref === near && !row) ? 'pointer' : 'default';
       if (ref !== hover) {
         hover = ref;
-        opts.onHover(isBoard(ref) ? 'board' : ref);
+        // (A floor's slab over the campus says nothing of its own.)
+        const over = ref?.startsWith('room:') ? undefined : ref;
+        opts.onHover(isBoard(over) ? 'board' : over);
         poke();
       }
     });
@@ -2310,7 +2372,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // (A "!" over a room's agent goes to that agent: that's what it says.)
     if (scope === null) {
       if (ref && bubble) return walkTo(ref);
-      const ri = ref ? roomOf(lay, ref) : floor ? roomAt(lay, floor, 0.4) : undefined;
+      const ri = ref?.startsWith('room:') ? Number(ref.slice(5)) : ref ? roomOf(lay, ref) : floor ? roomAt(lay, floor, 0.4) : undefined;
       if (ri !== undefined) enter(ri);
       return;
     }
