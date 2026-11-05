@@ -316,7 +316,8 @@ pub fn hex(s: &str) -> [f32; 3] {
     [c(v >> 16 & 255), c(v >> 8 & 255), c(v & 255)]
 }
 
-/// hsl is three's Color.setHSL, h s l in 0..1, to linear.
+/// hsl is three's Color.setHSL, h s l in 0..1: three reads them in its
+/// working colour space, linear, so they stay as they are (unlike a hex).
 pub fn hsl(h: f32, s: f32, l: f32) -> [f32; 3] {
     let h = h.rem_euclid(1.);
     let q = if l <= 0.5 { l * (1. + s) } else { l + s - l * s };
@@ -333,8 +334,7 @@ pub fn hsl(h: f32, s: f32, l: f32) -> [f32; 3] {
             p
         }
     };
-    let srgb = [f(h + 1. / 3.), f(h), f(h - 1. / 3.)];
-    srgb.map(|c| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) })
+    [f(h + 1. / 3.), f(h), f(h - 1. / 3.)]
 }
 
 /// A material: a colour (linear), its opacity, a texture by its key in the
@@ -483,4 +483,11 @@ mod tests {
         let c = hsl(0., 1., 0.5);
         assert!((c[0] - 1.).abs() < 1e-5 && c[1].abs() < 1e-5);
     }
+}
+
+/// rbox_seg is three's RoundedBoxGeometry(w, h, d, segments, r) with its
+/// own number of segments per corner (figures.rs's heads use eight).
+pub fn rbox_seg(w: f32, h: f32, d: f32, segments: usize, r: f32) -> Geo {
+    let r = r.min(w / 2. - 1e-3).min(h / 2. - 1e-3).min(d / 2. - 1e-3).max(0.);
+    rbox_n(w, h, d, r, segments)
 }

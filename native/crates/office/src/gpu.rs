@@ -310,12 +310,25 @@ impl Gpu {
         self.textures.len() - 1
     }
 
+    /// replace_texture redraws a texture (a monitor's screen, the board):
+    /// in place when it's the same size, else as a new one under the same index.
+    pub fn replace_texture(&mut self, index: usize, w: u32, h: u32, rgba: &[u8]) {
+        let i = self.add_texture(w, h, rgba);
+        self.textures.swap(index, i);
+        self.textures.pop();
+    }
+
+    /// clear_meshes drops every mesh (a new campus is built).
+    pub fn clear_meshes(&mut self) {
+        self.meshes.clear();
+    }
+
     pub fn add_mesh(&mut self, m: &MeshData) -> MeshId {
         use wgpu::util::DeviceExt as _;
         let vertices = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&m.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         let indices = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,

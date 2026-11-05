@@ -39,7 +39,10 @@ struct VOut {
   o.clip = g.view_proj * world;
   o.normal = (m * vec4<f32>(v.normal, 0.0)).xyz;
   o.uv = v.uv;
-  o.color = v.color * v.tint;
+  // A copy's tint scales its opacity, keeping the glow mark (alpha + 2).
+  let glow = v.color.a > 1.5;
+  let a = select(v.color.a, v.color.a - 2.0, glow) * v.tint.a;
+  o.color = vec4<f32>(v.color.rgb * v.tint.rgb, a + select(0.0, 2.0, glow));
   return o;
 }
 

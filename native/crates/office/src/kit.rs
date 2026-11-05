@@ -3,6 +3,7 @@
 //! furniture pieces (#668's furniture.ts), loaded once.
 
 use crate::glb::{self, Image, Model};
+use crate::gpu::MeshData;
 use crate::mesh::hex;
 use glam::{Mat4, Vec3};
 use std::collections::HashMap;
@@ -98,10 +99,27 @@ pub struct Loaded {
     pub d: f32,
 }
 
+/// A mesh registered with the kit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MeshKey(pub usize);
+
+/// One thing to draw this frame: a mesh, where, and a tint (rgb times its
+/// colours, a its opacity).
+#[derive(Clone, Copy, Debug)]
+pub struct Draw {
+    pub mesh: MeshKey,
+    pub at: glam::Mat4,
+    pub tint: [f32; 4],
+}
+
 /// Kit is the scene's textures and pieces.
 #[derive(Default)]
 pub struct Kit {
     pub textures: Vec<Image>,
+    /// Textures redrawn since the renderer last took them (a monitor's screen, the board).
+    pub changed: Vec<usize>,
+    /// Meshes to draw by key (MeshKey): the renderer uploads each once.
+    pub meshes: Vec<MeshData>,
     named: HashMap<String, usize>,
     pieces: HashMap<Piece, Loaded>,
 }
@@ -141,6 +159,22 @@ impl Kit {
     pub fn add(&mut self, img: Image) -> usize {
         self.textures.push(img);
         self.textures.len() - 1
+    }
+
+    /// replace redraws a texture in place (same key), for the renderer to
+    /// upload again.
+    pub fn replace(&mut self, key: usize, img: Image) {
+        self.textures[key] = img;
+        if !self.changed.contains(&key) {
+            self.changed.push(key);
+        }
+    }
+
+    /// mesh registers a mesh to draw and returns its key; the renderer
+    /// uploads it the next frame. Draw it with (key, world matrix, tint).
+    pub fn mesh(&mut self, m: MeshData) -> MeshKey {
+        self.meshes.push(m);
+        MeshKey(self.meshes.len() - 1)
     }
 
     /// piece is one of Kenney's pieces, facing +z, or None (it stays hand-built).

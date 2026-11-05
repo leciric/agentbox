@@ -4,7 +4,12 @@
 //! shows its frames (crates/app/src/office).
 
 pub mod glb;
+pub mod canvas;
 pub mod gpu;
+pub mod kit;
+pub mod mesh;
+pub mod rig;
+pub mod sim;
 
 /// Kenney's models, bundled (CC0, assets/kenney/License.txt).
 pub mod assets {
@@ -16,3 +21,11 @@ pub mod assets {
         uri.ends_with("colormap.png").then_some(COLORMAP)
     }
 }
+
+pub mod decor;
+pub mod layout;
+pub mod props;
+pub mod model;
+pub mod walk;
+pub mod figures;
+pub mod player;
