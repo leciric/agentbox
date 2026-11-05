@@ -424,6 +424,53 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 ..Default::default()
             }],
         ),
+        // The stopped agents Settings → Agents would remove (agent.go's
+        // StoppedMachines): the real daemon needs Incus to say. The first
+        // two stopped agents lose nothing; the rest are kept.
+        (&Method::GET, ["v1", "stopped-machines"]) => {
+            let fleet = fake.fleet.lock().unwrap().clone();
+            let machines = fleet
+                .iter()
+                .filter(|a| a.state == "stopped")
+                .enumerate()
+                .map(|(i, a)| StoppedMachine {
+                    r#ref: a.r#ref.clone(),
+                    project: a.project.clone(),
+                    name: a.name.clone(),
+                    title: a.title.clone(),
+                    branch: a.branch.clone(),
+                    stopped_since: a.created_at.clone(),
+                    machine: Some((i as i64 + 1) * 1_300_000_000),
+                    remove: if i < 2 {
+                        "nothing lost".into()
+                    } else {
+                        String::new()
+                    },
+                    keep: if i < 2 {
+                        String::new()
+                    } else {
+                        "stopped recently".into()
+                    },
+                })
+                .collect();
+            json(StatusCode::OK, &StoppedMachines { days: 7, machines })
+        }
+        (&Method::POST, ["v1", "stopped-machines", "remove"]) => {
+            let body = req
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            let asked: RemoveStoppedRequest = serde_json::from_slice(&body).unwrap_or_default();
+            json(
+                StatusCode::OK,
+                &RemoveStoppedResult {
+                    removed: asked.agents,
+                    kept: Vec::new(),
+                },
+            )
+        }
         // Every agent, as GET /v1/agents lists them (a FleetAgent is an Agent and more).
         (&Method::GET, ["v1", "agents"]) => {
             json(StatusCode::OK, &fake.fleet.lock().unwrap().clone())

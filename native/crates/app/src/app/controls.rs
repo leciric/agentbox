@@ -8,7 +8,9 @@ use std::rc::Rc;
 use agentbox_i18n::t;
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::{h_flex, v_flex};
+use gpui_component::button::Button;
+use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
 use crate::theme;
 
@@ -103,8 +105,206 @@ fn segments(
         }))
 }
 
+/// Btn is how loud a button is: the one thing to do, one of several, or
+/// one that's barely there (Electron's primary, secondary and ghost).
+#[derive(Clone, Copy, PartialEq)]
+pub enum Btn {
+    Primary,
+    Secondary,
+    Ghost,
+}
+
+/// button is a labelled button in the app's palette.
+pub fn button(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    kind: Btn,
+    disabled: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    div()
+        .id(id)
+        .flex_none()
+        .px_3()
+        .py(px(5.))
+        .rounded_md()
+        .text_sm()
+        .font_weight(FontWeight::MEDIUM)
+        .map(|el| match kind {
+            Btn::Primary => el.bg(theme::accent()).text_color(gpui::white()),
+            Btn::Secondary => el
+                .bg(theme::raised())
+                .border_1()
+                .border_color(theme::border())
+                .text_color(theme::fg()),
+            Btn::Ghost => el.text_color(theme::muted()),
+        })
+        .when(disabled, |el| el.opacity(0.5))
+        .when(!disabled, |el| {
+            el.cursor_pointer()
+                .hover(move |s| match kind {
+                    Btn::Primary => s.opacity(0.9),
+                    _ => s.bg(theme::hover()).text_color(theme::fg()),
+                })
+                .on_click(on_click)
+        })
+        .child(label.into())
+        .into_any_element()
+}
+
+/// badge is a word in a pill beside a name: default, valid, optional.
+pub fn badge(text: impl Into<SharedString>, color: Hsla) -> AnyElement {
+    div()
+        .flex_none()
+        .px_1p5()
+        .rounded_full()
+        .bg(color.opacity(0.15))
+        .text_xs()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(color)
+        .child(text.into())
+        .into_any_element()
+}
+
+/// labeled is a form field: its name over its input.
+pub fn labeled(label: impl Into<SharedString>, input: impl IntoElement) -> AnyElement {
+    v_flex()
+        .flex_1()
+        .min_w(px(140.))
+        .gap_1()
+        .child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::muted())
+                .child(label.into()),
+        )
+        .child(input)
+        .into_any_element()
+}
+
+/// Choice is one entry of a select: what it saves, what it reads, and a
+/// line under it when it has one; group is the heading it sits under.
+#[derive(Clone, Default)]
+pub struct Choice {
+    pub value: SharedString,
+    pub label: String,
+    pub description: String,
+    pub group: String,
+    pub disabled: bool,
+}
+
+impl Choice {
+    pub fn new(value: impl Into<SharedString>, label: impl Into<String>) -> Self {
+        Self {
+            value: value.into(),
+            label: label.into(),
+            ..Default::default()
+        }
+    }
+    pub fn described(mut self, description: impl Into<String>) -> Self {
+        self.description = description.into();
+        self
+    }
+}
+
+/// select is a button reading the current choice that opens a menu of
+/// them all (ui/select.tsx, and the model's menu): for lists too long, or
+/// too wordy, for a segmented control. A choice no longer on offer keeps
+/// its place, as the caller adds it.
+pub fn select(
+    id: &str,
+    choices: Vec<Choice>,
+    current: &str,
+    disabled: bool,
+    on_pick: Pick<str>,
+) -> AnyElement {
+    select_at(id, choices, current, disabled, on_pick, Anchor::TopRight)
+}
+
+/// select_at is a select whose menu hangs from another corner: TopLeft
+/// for one under a setting, at the column's left.
+pub fn select_at(
+    id: &str,
+    choices: Vec<Choice>,
+    current: &str,
+    disabled: bool,
+    on_pick: Pick<str>,
+    anchor: Anchor,
+) -> AnyElement {
+    let label = choices
+        .iter()
+        .find(|c| c.value.as_ref() == current)
+        .map(|c| c.label.clone())
+        .unwrap_or_else(|| current.to_string());
+    let current = SharedString::from(current.to_string());
+    let choices = Rc::new(choices);
+    // Its own width, not its column's, as segmented's.
+    let button = Button::new(SharedString::from(format!("select-{id}")))
+        .outline()
+        .small()
+        .min_w(px(160.))
+        .max_w(px(280.))
+        .label(format!("{label}  ▾"))
+        .disabled(disabled)
+        .dropdown_menu_with_anchor(anchor, move |menu, _, _| {
+            let mut menu = menu
+                .min_w(px(240.))
+                .max_w(px(380.))
+                .max_h(px(420.))
+                .scrollable(true);
+            let mut group = String::new();
+            for c in choices.iter() {
+                if c.group != group {
+                    group = c.group.clone();
+                    menu = menu.separator();
+                    if !group.is_empty() {
+                        menu = menu.label(group.clone());
+                    }
+                }
+                // gpui-component's check is an icon, and this app ships no
+                // icon assets: the mark is text, in a column of its own.
+                let (name, about, on) =
+                    (c.label.clone(), c.description.clone(), c.value == current);
+                let item = PopupMenuItem::element(move |_, _| {
+                    h_flex()
+                        .items_start()
+                        .gap_2()
+                        .child(
+                            div()
+                                .w(px(12.))
+                                .flex_none()
+                                .text_sm()
+                                .text_color(theme::accent())
+                                .child(if on { "✓" } else { "" }),
+                        )
+                        .child(
+                            v_flex()
+                                .py_0p5()
+                                .child(div().text_sm().child(name.clone()))
+                                .when(!about.is_empty(), |el| {
+                                    el.child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme::muted())
+                                            .child(about.clone()),
+                                    )
+                                }),
+                        )
+                });
+                let (pick, value) = (on_pick.clone(), c.value.clone());
+                menu = menu.item(
+                    item.disabled(c.disabled)
+                        .on_click(move |_, window, cx| pick(&value, window, cx)),
+                );
+            }
+            menu
+        });
+    h_flex().child(button).into_any_element()
+}
+
 /// stepper is a number within bounds, moved by a step: − value +. Not used
-/// yet: the Resources section's disk floor and caches are its first.
+/// yet.
 #[allow(dead_code)]
 pub fn stepper(
     id: &str,
@@ -156,9 +356,15 @@ pub fn stepper(
 
 /// note is a line under a setting's control: why it's off, what's out.
 pub fn note(text: impl Into<SharedString>) -> AnyElement {
+    note_in(text, theme::muted())
+}
+
+/// note_in is a note in a colour of its own: a warning, an error, done.
+pub fn note_in(text: impl Into<SharedString>, color: Hsla) -> AnyElement {
     div()
         .text_xs()
-        .text_color(theme::muted())
+        .line_height(rems(1.25))
+        .text_color(color)
         .child(text.into())
         .into_any_element()
 }

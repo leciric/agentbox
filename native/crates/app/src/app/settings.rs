@@ -8,7 +8,10 @@
 //! GET /v1/update) except group-idle, which is how this window lists
 //! projects and so lives on this computer (crate::prefs). Sections this app
 //! doesn't draw yet are listed, and say so when opened.
-use std::collections::HashSet;
+mod accounts;
+mod defaults;
+
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use agentbox_api::client::Method;
@@ -36,7 +39,14 @@ pub struct SettingsPage {
     settings: Option<Settings>,
     theme: Option<Theme>,
     update: Option<UpdateStatus>,
+    /// fields are the page's text fields, by name: Accounts' forms and the
+    /// number fields of Models, Agents and Resources.
+    fields: HashMap<&'static str, Entity<InputState>>,
+    accounts: accounts::Accounts,
+    stopped: defaults::Stopped,
+    watching_claude_code: bool,
     _sub: Subscription,
+    _field_subs: Vec<Subscription>,
 }
 
 impl SettingsPage {
@@ -61,6 +71,39 @@ impl SettingsPage {
                 _ => {}
             },
         );
+        let mut fields = HashMap::new();
+        let mut field_subs = Vec::new();
+        let named = accounts::FIELDS.iter().map(|(n, p, m)| (*n, *p, *m)).chain(
+            defaults::FIELDS.iter().map(|n| {
+                let p = if n.ends_with("model-name") {
+                    "claude-fable-5-1"
+                } else {
+                    ""
+                };
+                (*n, p, false)
+            }),
+        );
+        for (name, placeholder, masked) in named {
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(accounts::placeholder(placeholder))
+                    .masked(masked)
+            });
+            let number = defaults::FIELDS.contains(&name);
+            field_subs.push(cx.subscribe_in(
+                &input,
+                window,
+                move |this, _, ev: &InputEvent, window, cx| match ev {
+                    InputEvent::PressEnter { .. } if number => this.commit_field(name, window, cx),
+                    InputEvent::Blur if number && !name.ends_with("model-name") => {
+                        this.commit_field(name, window, cx)
+                    }
+                    InputEvent::PressEnter { .. } => this.field_enter(name, window, cx),
+                    _ => {}
+                },
+            ));
+            fields.insert(name, input);
+        }
         Self {
             search,
             open: ESSENTIALS.into(),
@@ -69,7 +112,12 @@ impl SettingsPage {
             settings: None,
             theme: None,
             update: None,
+            fields,
+            accounts: accounts::Accounts::default(),
+            stopped: defaults::Stopped::default(),
+            watching_claude_code: false,
             _sub: sub,
+            _field_subs: field_subs,
         }
     }
 }
@@ -87,7 +135,32 @@ struct Entry {
 struct Group {
     id: &'static str,
     title: String,
+    description: String,
+    /// cards: each setting is a card of its own (Accounts' tools), not a
+    /// row of the group's one panel.
+    cards: bool,
     entries: Vec<Entry>,
+}
+
+impl Group {
+    /// with is this group holding other entries: a search's, Essentials'.
+    fn with(&self, entries: Vec<Entry>) -> Group {
+        Group {
+            id: self.id,
+            title: self.title.clone(),
+            description: self.description.clone(),
+            cards: self.cards,
+            entries,
+        }
+    }
+    fn described(mut self, key: &str) -> Group {
+        self.description = t(key);
+        self
+    }
+    fn cards(mut self) -> Group {
+        self.cards = true;
+        self
+    }
 }
 
 struct Section {
@@ -182,11 +255,7 @@ fn search(sections: &[Section], query: &str) -> Vec<Section> {
                 })
                 .collect();
             if !entries.is_empty() {
-                groups.push(Group {
-                    id: g.id,
-                    title: g.title.clone(),
-                    entries,
-                });
+                groups.push(g.with(entries));
             }
         }
         if !groups.is_empty() {
@@ -224,11 +293,7 @@ fn essentials(sections: &[Section]) -> Section {
                 })
                 .collect();
             if !entries.is_empty() {
-                groups.push(Group {
-                    id: g.id,
-                    title: g.title.clone(),
-                    entries,
-                });
+                groups.push(g.with(entries));
             }
         }
     }
@@ -273,6 +338,8 @@ fn group(id: &'static str, title: &str, entries: Vec<Entry>) -> Group {
     Group {
         id,
         title: t(title),
+        description: String::new(),
+        cards: false,
         entries,
     }
 }
@@ -371,7 +438,23 @@ impl AppView {
     pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.settings = true;
         self.load_settings_page(cx);
+        self.load_accounts(window, cx);
+        self.load_stopped(cx);
         self.translate_settings_search(window, cx);
+        // The number fields read the settings once they're in.
+        let client = self.client.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(s) = client.get::<Settings>("/v1/settings").await {
+                this.update_in(cx, |this, window, cx| {
+                    this.settings_page.settings = Some(s);
+                    this.sync_fields(window, cx);
+                    this.watch_claude_code(cx);
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
         cx.notify();
     }
 
@@ -381,6 +464,13 @@ impl AppView {
         self.settings_page.search.update(cx, |s, cx| {
             s.set_placeholder(t("settings.page.search"), window, cx)
         });
+        for (name, placeholder, _) in accounts::FIELDS {
+            if let Some(i) = self.settings_page.fields.get(name) {
+                i.update(cx, |i, cx| {
+                    i.set_placeholder(accounts::placeholder(placeholder), window, cx)
+                });
+            }
+        }
     }
 
     pub(super) fn close_settings(&mut self, cx: &mut Context<Self>) {
@@ -419,6 +509,7 @@ impl AppView {
                 if channel {
                     this.reload_update(cx);
                 }
+                this.watch_claude_code(cx);
                 cx.notify();
             })
             .ok();
@@ -621,13 +712,13 @@ impl AppView {
             section("notifications", None, Vec::new()),
             section("phone", None, Vec::new()),
             section("experimental", None, experimental),
-            section("accounts", ai, Vec::new()),
-            section("models", ai, Vec::new()),
-            section("agents", ai, Vec::new()),
+            section("accounts", ai, self.accounts_groups()),
+            section("models", ai, self.models_groups()),
+            section("agents", ai, self.agents_groups()),
             section("skills", ai, Vec::new()),
             section("connectors", ai, Vec::new()),
             section("memory", ai, Vec::new()),
-            section("resources", machine, Vec::new()),
+            section("resources", machine, self.resources_groups()),
             section("setup", machine, Vec::new()),
             section("transfer", machine, Vec::new()),
             section("diagnostics", machine, Vec::new()),
@@ -998,6 +1089,17 @@ impl AppView {
                 )
             })
             .children(s.groups.iter().map(|g| self.render_group(g, cx)))
+            // The lead keeps a preference like this with remember, and its
+            // brief has it search memory before every create_agent.
+            .when(s.id == "models", |el| {
+                el.child(
+                    div()
+                        .px_1()
+                        .text_xs()
+                        .text_color(theme::faint())
+                        .child(format!("💡 {}", t("settings.models.tip"))),
+                )
+            })
             .when(s.id == "general", |el| {
                 el.when_some(self.settings_page.update.as_ref(), |el, u| {
                     el.child(
@@ -1018,6 +1120,32 @@ impl AppView {
     }
 
     fn render_group(&self, g: &Group, cx: &mut Context<Self>) -> AnyElement {
+        let heading = v_flex()
+            .px_1()
+            .gap_0p5()
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::fg())
+                    .child(g.title.clone()),
+            )
+            .when(!g.description.is_empty(), |el| {
+                el.child(
+                    div()
+                        .text_xs()
+                        .text_color(theme::muted())
+                        .child(g.description.clone()),
+                )
+            });
+        if g.cards {
+            return v_flex()
+                .id(SharedString::from(format!("settings-group-{}", g.id)))
+                .gap_2p5()
+                .child(heading)
+                .children(g.entries.iter().map(|e| self.account_card(e, cx)))
+                .into_any_element();
+        }
         let mut rows = Vec::new();
         for (i, e) in g.entries.iter().enumerate() {
             rows.push(
@@ -1030,14 +1158,7 @@ impl AppView {
         v_flex()
             .id(SharedString::from(format!("settings-group-{}", g.id)))
             .gap_2p5()
-            .child(
-                div()
-                    .px_1()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::fg())
-                    .child(g.title.clone()),
-            )
+            .child(heading)
             .child(
                 v_flex()
                     .rounded_xl()
@@ -1196,25 +1317,29 @@ impl AppView {
 
     /// more_row is a Row with its "More" wired to the page's state.
     fn more_row(&self, e: &Entry, details: Option<String>, cx: &mut Context<Self>) -> Row {
-        let id = e.id;
         let mut row = Row::new(
-            SharedString::from(format!("setting-{id}")),
+            SharedString::from(format!("setting-{}", e.id)),
             e.label.clone(),
             e.description.clone(),
         );
         row.modified = e.modified;
         if details.is_some() {
             row.details = details;
-            row.more = self.settings_page.more.contains(id);
-            row.on_more = Some(Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                let more = &mut this.settings_page.more;
-                if !more.remove(id) {
-                    more.insert(id);
-                }
-                cx.notify();
-            })));
+            self.wire_more(&mut row, e.id, cx);
         }
         row
+    }
+
+    /// wire_more opens and closes a row's details from the page's state.
+    fn wire_more(&self, row: &mut Row, id: &'static str, cx: &mut Context<Self>) {
+        row.more = self.settings_page.more.contains(id);
+        row.on_more = Some(Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            let more = &mut this.settings_page.more;
+            if !more.remove(id) {
+                more.insert(id);
+            }
+            cx.notify();
+        })));
     }
 
     /// switch_row is a setting that's a switch over one field of Settings.
@@ -1573,7 +1698,10 @@ impl AppView {
                 }
                 row
             }
-            _ => self.more_row(e, None, cx),
+            _ => match self.defaults_row(e, cx) {
+                Some(row) => row,
+                None => self.more_row(e, None, cx),
+            },
         };
         row.render()
     }
@@ -1594,6 +1722,8 @@ mod tests {
             groups: vec![Group {
                 id: "appearance",
                 title: "Appearance".into(),
+                description: String::new(),
+                cards: false,
                 entries: vec![
                     Entry {
                         id: "appearance",

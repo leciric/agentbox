@@ -6,4 +6,5 @@ export const enUSNative = {
   'native.video.playAgain': 'Play again',
   'native.preview.source': 'Shown as source: no web view on this desktop',
   'native.settings.later': 'This app doesn\'t have these settings yet: change them in the AgentBox desktop app for now.',
+  'native.settings.openCodePage': 'Open that page',
 };
