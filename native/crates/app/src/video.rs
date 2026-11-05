@@ -37,6 +37,9 @@ pub struct VideoPlayer {
     marks: Vec<f64>,
     /// Where the bar was last drawn, so a click on it seeks.
     bar: Rc<Cell<Bounds<Pixels>>>,
+    /// The review's zoom (1 fits the frame) and the scroll its zoomed
+    /// pictures pan by, shared so a pair's halves pan together.
+    zoom: Option<(Rc<Cell<f32>>, ScrollHandle)>,
     _task: Option<Task<()>>,
 }
 
@@ -53,10 +56,16 @@ impl VideoPlayer {
             error: None,
             marks: Vec::new(),
             bar: Rc::default(),
+            zoom: None,
             _task: None,
         };
         this.play(cx);
         this
+    }
+
+    /// set_zoom has the frame follow a review's zoom and pan.
+    pub fn set_zoom(&mut self, zoom: Rc<Cell<f32>>, pan: ScrollHandle) {
+        self.zoom = Some((zoom, pan));
     }
 
     /// set_marks puts marks on the bar at these seconds.
@@ -269,7 +278,27 @@ impl Render for VideoPlayer {
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(cx)))
                     .when_some(self.frame.clone(), |el, f| {
-                        el.child(img(f).size_full().object_fit(ObjectFit::Contain))
+                        let picture = img(f).size_full().object_fit(ObjectFit::Contain);
+                        match self.zoom.as_ref().filter(|(z, _)| z.get() > 1.0001) {
+                            // Zoomed past fit: the frame scrolls to pan.
+                            Some((z, pan)) => el.child(
+                                div()
+                                    .id("video-zoom")
+                                    .size_full()
+                                    .overflow_scroll()
+                                    .track_scroll(pan)
+                                    .cursor_grab()
+                                    .map(|el| crate::viewers::drag_pans(el, pan))
+                                    .child(
+                                        div()
+                                            .flex_none()
+                                            .w(relative(z.get()))
+                                            .h(relative(z.get()))
+                                            .child(picture),
+                                    ),
+                            ),
+                            None => el.child(picture),
+                        }
                     }),
             )
             .child(

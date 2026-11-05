@@ -193,11 +193,17 @@ pub struct ReviewView {
     /// How far what's on stage is zoomed (1 fits it), and whether it's
     /// open large over the whole review.
     zoom: f32,
+    /// The zoom as the players read it, and the scroll every zoomed picture
+    /// pans by: a pair's halves, side by side, pan together.
+    zoom_shared: std::rc::Rc<std::cell::Cell<f32>>,
+    pan: ScrollHandle,
     expanded: bool,
     /// The agent's Hatch pages, part of its proof.
     pages: Option<Vec<agentbox_api::Artifact>>,
     pane: Option<Pane>,
     diff: Option<Result<Entity<DiffView>, String>>,
+    /// The diff's notes as Request changes lists them.
+    notes_list: Option<Entity<crate::diff::NotesList>>,
     /// The project's pull requests, for the methods its repository allows
     /// and whether its account may merge.
     pulls: Option<ProjectPullRequests>,
@@ -271,10 +277,13 @@ impl ReviewView {
                 .unwrap_or(false),
             differences: HashMap::new(),
             zoom: 1.,
+            zoom_shared: std::rc::Rc::new(std::cell::Cell::new(1.)),
+            pan: ScrollHandle::new(),
             expanded: false,
             pages: None,
             pane: None,
             diff: None,
+            notes_list: None,
             pulls: None,
             method: None,
             green: false,
@@ -311,12 +320,13 @@ impl ReviewView {
         self.players.clear();
         self.pane = None;
         self.diff = None;
+        self.notes_list = None;
         self.report_open = false;
         self.changing = false;
         self.error = None;
         self.armed = false;
         self.flipped = false;
-        self.zoom = 1.;
+        self.set_zoom_quiet(1.);
         self.expanded = false;
         self.pages = None;
         let i = &self.item.item;
@@ -451,8 +461,19 @@ impl ReviewView {
         .detach();
     }
 
+    /// set_zoom_quiet sets the zoom without a redraw (a new item on stage).
+    fn set_zoom_quiet(&mut self, zoom: f32) {
+        self.zoom = zoom;
+        self.zoom_shared.set(zoom);
+        self.pan.set_offset(point(px(0.), px(0.)));
+    }
+
     fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
         self.zoom = zoom.clamp(1., ZOOM_MAX);
+        self.zoom_shared.set(self.zoom);
+        if self.zoom <= 1.0001 {
+            self.pan.set_offset(point(px(0.), px(0.)));
+        }
         cx.notify();
     }
 
@@ -519,6 +540,7 @@ impl ReviewView {
                 let player = cx.new(|cx| {
                     let mut p = VideoPlayer::new(path, cx);
                     p.set_marks(marks, cx);
+                    p.set_zoom(self.zoom_shared.clone(), self.pan.clone());
                     p
                 });
                 self.players.insert(m.id.clone(), player);
@@ -589,6 +611,13 @@ impl ReviewView {
                     }
                     Err(e) => Err(e.to_string()),
                 });
+                this.notes_list = match &this.diff {
+                    Some(Ok(d)) if !this.item.past => {
+                        let d = d.clone();
+                        Some(cx.new(|cx| crate::diff::NotesList::new(d, cx)))
+                    }
+                    _ => None,
+                };
                 cx.notify();
             })
             .ok();
@@ -603,7 +632,7 @@ impl ReviewView {
         }
         self.at = (self.at as isize + by).rem_euclid(n as isize) as usize;
         self.flipped = false;
-        self.zoom = 1.;
+        self.set_zoom_quiet(1.);
         self.sync_players(cx);
         cx.notify();
     }
@@ -963,6 +992,10 @@ impl ReviewView {
             return;
         }
         self.changing = true;
+        // Its notes are the diff's: read them if the diff isn't yet.
+        if self.diff.is_none() {
+            self.load_diff(cx);
+        }
         let f = self.changes.read(cx).focus_handle(cx);
         f.focus(window, cx);
         cx.notify();
@@ -1620,6 +1653,9 @@ impl ReviewView {
             .id(SharedString::from(format!("zoom-{id}")))
             .size_full()
             .overflow_scroll()
+            .track_scroll(&self.pan)
+            .cursor_grab()
+            .map(|el| crate::viewers::drag_pans(el, &self.pan))
             .child(
                 div()
                     .flex_none()
@@ -2075,10 +2111,7 @@ impl ReviewView {
     /// zoom_controls are − the zoom · Fit + and Expand (StageBar,
     /// ZoomControls), for what can be zoomed.
     fn zoom_controls(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let zoomable = !matches!(
-            self.gallery.get(self.at),
-            None | Some(Shown::Page(_)) | Some(Shown::Recording(_))
-        ) && !matches!(self.gallery.get(self.at), Some(Shown::Pair(p)) if p.before.kind == "recording");
+        let zoomable = !matches!(self.gallery.get(self.at), None | Some(Shown::Page(_)));
         let mut out = Vec::new();
         if zoomable {
             out.push(controls::button(
@@ -2364,12 +2397,7 @@ impl ReviewView {
                 "review.changesTo",
                 &[("agent", (&self.item.item.agent).into())],
             )))
-            .when(self.drafts(cx) > 0, |el| {
-                el.child(div().text_xs().text_color(theme::starting()).child(tv(
-                    "review.notes.toSend",
-                    &[("count", self.drafts(cx).into())],
-                )))
-            })
+            .children(self.notes_list.clone())
             .child(Textarea::new(&self.changes))
             .child(
                 h_flex()

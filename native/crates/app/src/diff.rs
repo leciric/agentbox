@@ -17,14 +17,18 @@ use gpui_component::{h_flex, v_flex};
 use crate::{prefs, theme};
 
 mod notes;
+pub use notes::NotesList;
 
 /// OnAdd is a click on a row's + (its row, whether Shift was held).
 pub type OnAdd = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
+/// OnDrag is the pointer over a row while the button is held (true) or not.
+pub type OnDrag = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
 
 /// Hooks are what a table shows besides its lines: the + beside each line
 /// of code, the elements under rows, and the rows lit (line notes).
 pub struct Hooks {
     pub add: OnAdd,
+    pub drag: OnDrag,
     pub under: HashMap<usize, Vec<AnyElement>>,
     pub lit: Option<(usize, usize)>,
 }
@@ -661,9 +665,9 @@ pub fn table_with(
     hooks: Option<Hooks>,
 ) -> AnyElement {
     let id: ElementId = id.into();
-    let (add, mut under, lit) = match hooks {
-        Some(h) => (Some(h.add), h.under, h.lit),
-        None => (None, HashMap::new(), None),
+    let (add, drag, mut under, lit) = match hooks {
+        Some(h) => (Some(h.add), Some(h.drag), h.under, h.lit),
+        None => (None, None, HashMap::new(), None),
     };
     let num = |n: Option<u32>| {
         div()
@@ -716,12 +720,30 @@ pub fn table_with(
                 .tooltip(|w, cx| {
                     gpui_component::tooltip::Tooltip::new(t("review.notes.addHint")).build(w, cx)
                 })
-                .on_click(move |ev: &ClickEvent, window, cx| {
-                    add(row, ev.modifiers().shift, window, cx)
+                // Pressed, not clicked: a drag from here over more rows
+                // takes them in (OnDrag).
+                .on_mouse_down(MouseButton::Left, move |ev: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    add(row, ev.modifiers.shift, window, cx)
                 })
                 .child("+")
         });
         let line = h_flex()
+            .id(ElementId::NamedInteger("diff-row".into(), row as u64))
+            .when_some(drag.clone().filter(|_| code), |el, drag| {
+                let up = drag.clone();
+                el.on_mouse_move(move |ev: &MouseMoveEvent, window, cx| {
+                    drag(
+                        row,
+                        ev.pressed_button == Some(MouseButton::Left),
+                        window,
+                        cx,
+                    )
+                })
+                .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+                    up(row, false, window, cx)
+                })
+            })
             .bg(bg)
             .when(lit_row, |el| el.bg(theme::accent().opacity(0.18)))
             .when(add.is_some(), |el| {

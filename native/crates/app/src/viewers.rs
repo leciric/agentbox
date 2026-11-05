@@ -329,6 +329,30 @@ pub fn page_stage(project: &str, page: &agentbox_api::Artifact, shown: bool) -> 
         .into_any_element()
 }
 
+/// drag_pans has a drag move what a zoomed view shows, as the Electron
+/// review's (lib/zoom.ts panBy), through the scroll it pans by.
+pub fn drag_pans(el: Stateful<Div>, pan: &ScrollHandle) -> Stateful<Div> {
+    let from: std::rc::Rc<std::cell::Cell<Option<Point<Pixels>>>> = std::rc::Rc::default();
+    let (down, up) = (from.clone(), from.clone());
+    let pan = pan.clone();
+    el.on_mouse_down(MouseButton::Left, move |ev, _, _| {
+        down.set(Some(ev.position))
+    })
+    .on_mouse_up(MouseButton::Left, move |_, _, _| up.set(None))
+    .on_mouse_move(move |ev, window, _| {
+        let Some(at) = from.get() else { return };
+        if ev.pressed_button != Some(MouseButton::Left) {
+            from.set(None);
+            return;
+        }
+        let max = pan.max_offset();
+        let o = pan.offset() + (ev.position - at);
+        pan.set_offset(point(o.x.clamp(-max.x, px(0.)), o.y.clamp(-max.y, px(0.))));
+        from.set(Some(ev.position));
+        window.refresh();
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{is_number, parse_delimited};

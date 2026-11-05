@@ -11,7 +11,7 @@ use agentbox_api::{AddReviewNoteRequest, Client, EditReviewNoteRequest, ReviewNo
 use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::input::{InputEvent, Textarea, TextareaState};
 use gpui_component::{h_flex, v_flex};
 
 use super::{DiffLine, DiffView, LineKind};
@@ -119,7 +119,11 @@ pub struct Notes {
     /// The file and rows (anchor, end) a new note is written on.
     composing: Option<(String, usize, usize)>,
     editing: Option<i64>,
-    input: Option<(Entity<InputState>, Subscription)>,
+    input: Option<(Entity<TextareaState>, Subscription)>,
+    /// Set while a drag over the + gutter widens the range being noted.
+    dragging: bool,
+    /// Whether Request changes' list shows the notes sent before.
+    earlier_open: bool,
     saving: bool,
 }
 
@@ -133,6 +137,8 @@ impl DiffView {
             composing: None,
             editing: None,
             input: None,
+            dragging: false,
+            earlier_open: false,
             saving: false,
         });
         self.load_notes(cx);
@@ -189,13 +195,19 @@ impl DiffView {
 
     fn open_box(&mut self, initial: &str, window: &mut Window, cx: &mut Context<Self>) {
         let input = cx.new(|cx| {
-            InputState::new(window, cx)
+            TextareaState::new(window, cx)
+                .auto_grow(3, 12)
                 .placeholder(t("review.notes.placeholder"))
                 .default_value(initial.to_string())
         });
         input.update(cx, |s, cx| s.focus(window, cx));
         let sub = cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
-            if let InputEvent::PressEnter { .. } = ev {
+            // Ctrl or ⌘ with Enter saves it (Enter alone is a new line), as
+            // the Electron app's note box.
+            if let InputEvent::PressEnter {
+                secondary: true, ..
+            } = ev
+            {
                 this.save_note(window, cx);
             }
         });
@@ -220,10 +232,44 @@ impl DiffView {
             Some((p, _, end)) if shift && *p == path => *end = row,
             _ => {
                 n.composing = Some((path, row, row));
+                n.dragging = true;
                 self.open_box("", window, cx);
             }
         }
         cx.notify();
+    }
+
+    /// drag_note widens the range being noted to `row` while the button
+    /// that started it on the + is held (DiffNotes' drag over the gutter),
+    /// and ends the drag when it is let go.
+    fn drag_note(
+        &mut self,
+        path: &str,
+        row: usize,
+        held: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(n) = &mut self.notes else { return };
+        if !n.dragging {
+            return;
+        }
+        if !held {
+            // Let go: the box opens under the range.
+            n.dragging = false;
+            if let Some((input, _)) = &n.input {
+                input.update(cx, |s, cx| s.focus(window, cx));
+            }
+            cx.notify();
+            return;
+        }
+        if let Some((p, _, end)) = &mut n.composing
+            && p == path
+            && *end != row
+        {
+            *end = row;
+            cx.notify();
+        }
     }
 
     fn edit_note(&mut self, id: i64, window: &mut Window, cx: &mut Context<Self>) {
@@ -383,13 +429,18 @@ impl DiffView {
             me.update(cx, |this, cx| this.start_note(file, row, shift, window, cx))
                 .ok();
         });
+        let (me2, file2) = (cx.entity().downgrade(), path.to_string());
+        let drag: super::OnDrag = std::rc::Rc::new(move |row, held, window, cx| {
+            me2.update(cx, |this, cx| this.drag_note(&file2, row, held, window, cx))
+                .ok();
+        });
         let mut under: HashMap<usize, Vec<AnyElement>> = HashMap::new();
         for note in n.list.iter().filter(|x| x.path == path) {
             if let Some(row) = note_at(lines, note) {
                 let el = if n.editing == Some(note.id) {
                     self.note_box(where_label(&note.side, note.start, note.end), true, cx)
                 } else {
-                    self.note_card(note, cx)
+                    self.note_card(note, false, cx)
                 };
                 under.entry(row).or_default().push(el);
             }
@@ -403,12 +454,21 @@ impl DiffView {
             let label = note_range(path, lines, lo, hi)
                 .map(|r| where_label(&r.side, r.start, r.end))
                 .unwrap_or_default();
-            under
-                .entry(hi)
-                .or_default()
-                .push(self.note_box(label, false, cx));
+            // Not while a drag is still taking rows in: it would push the
+            // rows below away from the pointer.
+            if !n.dragging {
+                under
+                    .entry(hi)
+                    .or_default()
+                    .push(self.note_box(label, false, cx));
+            }
         }
-        Some(super::Hooks { add, under, lit })
+        Some(super::Hooks {
+            add,
+            drag,
+            under,
+            lit,
+        })
     }
 
     fn note_box(&self, title: String, editing: bool, cx: &mut Context<Self>) -> AnyElement {
@@ -429,7 +489,7 @@ impl DiffView {
             .bg(theme::panel())
             .font_family(cx.theme().font_family.clone())
             .child(div().text_xs().text_color(theme::muted()).child(title))
-            .children(input.map(|i| Input::new(&i)))
+            .children(input.map(|i| Textarea::new(&i)))
             .child(
                 h_flex()
                     .justify_end()
@@ -456,17 +516,35 @@ impl DiffView {
             .into_any_element()
     }
 
-    fn note_card(&self, note: &ReviewNote, cx: &mut Context<Self>) -> AnyElement {
+    /// note_card is one note; `in_list` is Request changes' list of them
+    /// (NotesList), with its file and the first line it is on.
+    fn note_card(&self, note: &ReviewNote, in_list: bool, cx: &mut Context<Self>) -> AnyElement {
         let (label, color) = match note.status.as_str() {
             "draft" => (t("review.notes.status.draft"), theme::starting()),
             "resolved" => (t("review.notes.status.resolved"), theme::running()),
             _ => (t("review.notes.status.pending"), theme::accent()),
         };
         let id = note.id;
+        let first = in_list
+            .then(|| {
+                note.code
+                    .lines()
+                    .find(|l| !l.trim().is_empty())
+                    .map(str::to_string)
+            })
+            .flatten();
+        let place = if in_list {
+            format!(
+                "{} · {}",
+                note.path,
+                where_label(&note.side, note.start, note.end)
+            )
+        } else {
+            where_label(&note.side, note.start, note.end)
+        };
         v_flex()
             .max_w(px(640.))
-            .my_1()
-            .ml(px(104.))
+            .when(!in_list, |el| el.my_1().ml(px(104.)))
             .gap_1()
             .px_2p5()
             .py_2()
@@ -481,12 +559,7 @@ impl DiffView {
                     .gap_2()
                     .text_xs()
                     .text_color(theme::muted())
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .child(where_label(&note.side, note.start, note.end)),
-                    )
+                    .child(div().min_w_0().truncate().child(place))
                     .child(controls::badge(label, color))
                     .child(div().flex_1())
                     .when(note.status == "draft", |el| {
@@ -533,6 +606,16 @@ impl DiffView {
                         cx.listener(move |this, _: &ClickEvent, _, cx| this.remove_note(id, cx)),
                     )),
             )
+            .when_some(first, |el, code| {
+                el.child(
+                    div()
+                        .truncate()
+                        .font_family(theme::mono())
+                        .text_xs()
+                        .text_color(theme::faint())
+                        .child(code),
+                )
+            })
             .child(
                 div()
                     .text_sm()
@@ -541,6 +624,114 @@ impl DiffView {
                     .child(note.body.clone()),
             )
             .into_any_element()
+    }
+
+    /// notes_list is the notes in Request changes (ReviewNotes NotesList):
+    /// the drafts that go with it, each editable in place, and those sent
+    /// before, folded.
+    fn notes_list(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let n = self.notes.as_ref()?;
+        if n.list.is_empty() {
+            return None;
+        }
+        let card = |note: &ReviewNote, cx: &mut Context<Self>| {
+            if n.editing == Some(note.id) {
+                self.note_box(
+                    format!(
+                        "{} · {}",
+                        note.path,
+                        where_label(&note.side, note.start, note.end)
+                    ),
+                    true,
+                    cx,
+                )
+            } else {
+                self.note_card(note, true, cx)
+            }
+        };
+        let draft: Vec<_> = n.list.iter().filter(|x| x.status == "draft").collect();
+        let earlier: Vec<_> = n.list.iter().filter(|x| x.status != "draft").collect();
+        let heading = |s: String| {
+            div()
+                .text_xs()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::faint())
+                .child(s.to_uppercase())
+        };
+        let mut out = v_flex()
+            .id("review-notes-list")
+            .max_h(px(320.))
+            .overflow_y_scroll()
+            .gap_2();
+        if !draft.is_empty() {
+            out = out.child(heading(tv(
+                "review.notes.toSend",
+                &[("count", draft.len().into())],
+            )));
+            for note in &draft {
+                out = out.child(card(note, cx));
+            }
+        }
+        if !earlier.is_empty() {
+            let pending = earlier.iter().filter(|x| x.status == "pending").count();
+            let resolved = earlier.iter().filter(|x| x.status == "resolved").count();
+            let counts = [
+                (pending > 0)
+                    .then(|| tv("review.notes.pendingCount", &[("count", pending.into())])),
+                (resolved > 0)
+                    .then(|| tv("review.notes.resolvedCount", &[("count", resolved.into())])),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(", ");
+            let open = n.earlier_open;
+            out = out.child(
+                h_flex()
+                    .id("review-notes-earlier")
+                    .gap_1()
+                    .cursor_pointer()
+                    .child(crate::icons::of(if open { "▾" } else { "▸" }))
+                    .child(heading(tv(
+                        "review.notes.earlier",
+                        &[("list", counts.into())],
+                    )))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        if let Some(n) = &mut this.notes {
+                            n.earlier_open = !n.earlier_open;
+                        }
+                        cx.notify();
+                    })),
+            );
+            if open {
+                for note in &earlier {
+                    out = out.child(card(note, cx));
+                }
+            }
+        }
+        Some(out.into_any_element())
+    }
+}
+
+/// NotesList shows a diff's notes where Request changes is written: the
+/// cards are the diff's own, so editing one there edits it here.
+pub struct NotesList {
+    diff: Entity<DiffView>,
+    _sub: Subscription,
+}
+
+impl NotesList {
+    pub fn new(diff: Entity<DiffView>, cx: &mut Context<Self>) -> Self {
+        let _sub = cx.observe(&diff, |_, _, cx| cx.notify());
+        Self { diff, _sub }
+    }
+}
+
+impl Render for NotesList {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.diff
+            .update(cx, |d, cx| d.notes_list(cx))
+            .unwrap_or_else(|| div().into_any_element())
     }
 }
 
