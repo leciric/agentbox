@@ -703,11 +703,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
           const h = FLOOR_LIFT - 0.75;
           // Posts at its open corners, from the floor below to its slab.
           for (const [px, pz] of [
-            [sb.x0 + 0.25, sb.z1 - 0.25],
-            [sb.x1 - 0.25, sb.z1 - 0.25],
-            [sb.x1 - 0.25, sb.z0 + 0.25],
+            [sb.x0 + 0.35, sb.z1 - 0.35],
+            [sb.x1 - 0.35, sb.z1 - 0.35],
+            [sb.x1 - 0.35, sb.z0 + 0.35],
           ])
-            addTo(-1, mesh(geo.roundTop, frame, px, below + h / 2, pz, 0.22, h, 0.22));
+            addTo(-1, mesh(geo.roundTop, frame, px, below + h / 2, pz, 0.42, h, 0.42));
         }
         // The lift, glass, beside the building, from its plinth to its top.
         // Against the building's left side, by its top floor's back: beside
@@ -2262,7 +2262,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // The board you're at: a button over each of its rows.
     // Its notes take clicks from near the glide's end: they follow the board
     // frame by frame, so a click lands on the note under it.
-    const atBoard = isBoard(near) && (cam.closeK > 0.85 || (cam.closeK > 0.6 && chipsShown)) ? boards.get(near) : undefined;
+    const atBoard = isBoard(near) && cam.closeK > 0.55 ? boards.get(near) : undefined;
     let usedRows = 0;
     if (atBoard?.face) {
       const { width: W, height: H } = atBoard.ctx.canvas;
@@ -2378,7 +2378,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
           turned = true;
           cam.yaw = eased.yaw;
         }
-        cam.yaw = Math.max(homeYaw() - 0.7, Math.min(homeYaw() + 0.5, cam.yaw - e.movementX * 0.0035));
+        // Over the campus a little either way: further, a building's floors
+        // would hide each other and its pills drift onto its neighbour.
+        const [lo, hi] = scope === null ? [0.35, 0.35] : [0.7, 0.5];
+        cam.yaw = Math.max(homeYaw() - lo, Math.min(homeYaw() + hi, cam.yaw - e.movementX * 0.0035));
         canvas.style.cursor = 'grabbing';
         poke();
         return;

@@ -238,21 +238,17 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       const dx = px + side * (DESK.w / 2);
       obstacles.push(box(dx, dz, DESK.w, DESK.d));
       // The chair and the agent on it: you walk round, not through.
-      obstacles.push(box(dx + side * 0.48, dz - SEAT, 1.2, 1.1));
+      obstacles.push(box(dx + side * 0.48, dz - SEAT, 1.45, 1.3));
       // You stand beside the agent, level with it, facing it, a good step
       // out: seen from the front, clear of it either side, never over it.
-      desks.push({ id: d.id, x: dx, z: dz, side: side as -1 | 1, spot: { x: Math.min(roomW - PAD_R - 0.1, Math.max(1.6, dx + side * 2.3)), z: dz - SEAT + 0.5, face: -side * 1.4 } });
+      desks.push({ id: d.id, x: dx, z: dz, side: side as -1 | 1, spot: { x: Math.min(roomW - PAD_R - 0.1, Math.max(1.6, dx + side * 2.3)), z: dz - SEAT + 0.05, face: -side * (Math.PI / 2) } });
     }
   }
-  // A potted plant at each pod's cell's front corner, one side or the other:
-  // a desk's own green; a front row's, a low planter along its front too.
+  // A front row's pod has a low planter along its front: green that a close-up
+  // looks over (no trees before a desk: they'd hide it).
   for (const [p, [c, r]] of podCells.entries()) {
     const cb = cellBox(c, r);
     if (r === ROWS - 1) prop('plants', (cb.x0 + cb.x1) / 2 + (p % 2 ? -0.8 : 0.8), cb.z1 - 0.35);
-    const x = p % 2 ? cb.x1 - 0.55 : cb.x0 + 0.55;
-    const z = cb.z1 - 0.45;
-    plants.push({ x, z });
-    obstacles.push(box(x, z, 0.55, 0.55));
   }
   // The lead's counter, its lead behind it facing the room, on a mat.
   let lead: AreaPlace['lead'];
@@ -307,7 +303,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     lounge = { x0: lx0, z0: back ? 0.5 : cb.z0 + 0.4, x1: lx0 + lw, z1: back ? cb.z0 + 1.6 : cb.z0 + 4.4 };
     sofa = { x0: lounge.x0 + 0.3, z0: lounge.z0 + 0.1, x1: lounge.x1 - 0.3, z1: lounge.z0 + 1.05 };
     obstacles.push(sofa, { x0: sofa.x0, z0: sofa.z1, x1: sofa.x0 + 0.95, z1: sofa.z1 + 1.2 });
-    obstacles.push(box((sofa.x0 + sofa.x1) / 2 + 0.4, lounge.z0 + 2.35, 1.5, 0.75));
+    obstacles.push(box((sofa.x0 + sofa.x1) / 2 + 0.4, lounge.z0 + 2.65, 1.5, 0.75));
     // The lamp, at the sofa's right end.
     obstacles.push(box(sofa.x1 + 0.3, sofa.z1 + 0.9, 0.45, 0.45));
     // (Clear of the spot at the pod next door.)
@@ -455,9 +451,15 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   // In open floor, not a pocket or a pod's front: clear well round, first.
   const spots = [...desks.map((d) => d.spot), ...(lead ? [lead.spot] : []), boardSpot];
   const offPods = (p: { x: number; z: number }) => pods.every((q) => p.x < q.x0 - 1.2 || p.x > q.x1 + 1.2 || p.z < q.z0 - 1.2 || p.z > q.z1 + 1.6);
-  for (const r of [1.3, 0.75])
+  // (Along the front first, before you're anywhere else.)
+  const leadOff = (p: { x: number; z: number }) => !lead || Math.hypot(p.x - lead.x, p.z - lead.z) > 3.2;
+  for (const [r, front] of [
+    [0.9, true],
+    [1.3, false],
+    [0.75, false],
+  ] as const)
     if (spawn.x === want.x && spawn.z === want.z) {
-      const at = around.find((p) => p.x > 0.8 && p.x < roomW - 0.8 && p.z > 0.8 && p.z < roomD - 0.8 && clearAt(p.x, p.z, r) && offPods(p) && spots.every((q) => Math.hypot(q.x - p.x, q.z - p.z) > 2.6));
+      const at = around.find((p) => (!front || p.z >= roomD - 2.3) && p.x > 0.8 && p.x < roomW - 0.8 && p.z > 0.8 && p.z < roomD - 0.7 && clearAt(p.x, p.z, r) && offPods(p) && leadOff(p) && spots.every((q) => Math.hypot(q.x - p.x, q.z - p.z) > 2.6));
       if (at) spawn = { x: at.x, z: at.z, face: -0.5 };
     }
 
@@ -519,10 +521,11 @@ export const FOOT: Record<PropKind, [number, number]> = {
 // Props are a little bigger than life, as a toy's furniture is.
 export const PROP_SCALE = 1.25;
 export const footOf = (k: PropKind): [number, number] => [FOOT[k][0] * PROP_SCALE, FOOT[k][1] * PROP_SCALE];
-const ISLANDS: PropKind[] = ['tree', 'standing', 'aquarium', 'booth', 'plants', 'beanbags', 'vending', 'logo', 'printer', 'shelf', 'tree', 'whiteboard'];
+// (No standing tables: from above they read as empty desks.)
+const ISLANDS: PropKind[] = ['tree', 'aquarium', 'booth', 'plants', 'beanbags', 'vending', 'logo', 'printer', 'shelf', 'tree', 'whiteboard'];
 // What may stand before an area: nothing taller than a desk's monitor, nor
 // leafy, so a close-up looks over it.
-const LOW: PropKind[] = ['standing', 'beanbags', 'shelf', 'printer'];
+const LOW: PropKind[] = ['beanbags', 'shelf', 'printer', 'plants'];
 // Corners of a few things together, on a mat, each within 5.4 by 3: where
 // each stands from the mat's middle. (Sizes are FOOT's, PROP_SCALE larger.)
 type Theme = [PropKind, number, number][];
@@ -537,12 +540,12 @@ const GARDEN: Theme = [
 ];
 const READING: Theme = [
   ['aquarium', -1.25, -0.75],
-  ['standing', 1.25, 0.35],
+  ['logo', 1.3, 0.3],
   ['plants', -1.2, 0.6],
 ];
 const COFFEE: Theme = [
   ['vending', -1.95, -0.45],
-  ['standing', 0, 0.15],
+  ['plants', 0, 0.3],
   ['tree', 1.95, -0.3],
 ];
 const FOCUS: Theme = [
@@ -556,7 +559,7 @@ const LOUNGE: Theme = [
 ];
 const STUDY: Theme = [
   ['shelf', -1.5, -0.85],
-  ['standing', -1.2, 0.55],
+  ['plants', -1.2, 0.6],
   ['printer', 1.6, -0.6],
 ];
 const THEMES: Theme[] = [COFFEE, NOOK, FOCUS, GARDEN, READING];
