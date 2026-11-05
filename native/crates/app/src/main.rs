@@ -23,6 +23,7 @@ mod terminal;
 mod theme;
 mod toasts;
 mod tray;
+mod update;
 #[cfg(feature = "video")]
 mod video;
 mod viewers;

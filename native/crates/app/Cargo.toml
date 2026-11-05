@@ -40,6 +40,9 @@ raw-window-handle = "0.6"
 alacritty_terminal = "0.26"
 vnc-rs = "0.6"
 agentbox-i18n.workspace = true
+# Updating the app in place (update.rs): the release's files over HTTPS, and
+# their SHA256 against the release's SHA256SUMS.
+sha2 = "0.10"
 humantime = "2"
 # A file the viewer shows as an image comes base64 in its JSON (FileContent.data).
 base64 = "0.22"
@@ -59,9 +62,17 @@ notify-rust = "4.18"
 cpal = { version = "0.16", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# rustls (pure Rust but ring) with Mozilla's roots on Linux, where there's
+# no one system TLS library; the system's own elsewhere (schannel,
+# Security.framework), which also cross-checks for Windows without a C
+# toolchain.
+ureq = { version = "~3.1", default-features = false, features = ["rustls"] }
 gtk = "0.18"
 # The launcher icon's count (Unity's LauncherEntry signal); notify-rust's zbus.
 zbus = "5"
 # The same WebKitGTK wry uses (pinned as wry pins it): pages drawn offscreen
 # for ```html preview where child webviews can't be made (Wayland).
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+ureq = { version = "~3.1", default-features = false, features = ["native-tls"] }

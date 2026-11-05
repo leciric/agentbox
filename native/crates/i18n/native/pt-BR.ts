@@ -25,4 +25,7 @@ export const ptBRNative = {
   'native.pdf.external': 'Abrir no seu leitor de PDF',
   'native.setup.runIt': 'Este app não consegue criar a VM sozinho: rode isto em um terminal. O app continua assim que o AgentBox responder.',
   'native.setup.startIt': 'A ferramenta de linha de comando não está no PATH, então este app não consegue iniciar o AgentBox sozinho. Inicie-o em um terminal:',
+  'native.update.restart': 'Reiniciar para atualizar',
+  'native.update.ready': 'O AgentBox {version} está instalado',
+  'native.update.inPlace': 'Baixa a {version}, instala no lugar desta versão e depois oferece reiniciar nela',
 };

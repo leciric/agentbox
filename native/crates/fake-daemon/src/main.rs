@@ -7,6 +7,10 @@
 //!   fake-daemon --listen /t/fake.sock [--upstream ~/.local/share/agentbox/run/agentbox.sock]
 //!               [--project demo] [--agents 6] [--history 400] [--rate 60]
 //!               [--media ~/abx/fake-media] [--worktree <a checkout>]
+//!
+//! FAKE_RELEASE=<release.json> (an api::UpdateRelease) answers GET /v1/update/release
+//! and makes GET /v1/update offer it, for testing the app's update in place;
+//! FAKE_IDLE=1 leaves no job running, which the update would wait for.
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -477,7 +481,12 @@ fn fake_jobs() -> Vec<Job> {
             id: "j-0006".into(),
             kind: "create".into(),
             target: "demo/agent-06".into(),
-            status: "running".into(),
+            // FAKE_IDLE: none running, which an update in place waits for.
+            status: if std::env::var_os("FAKE_IDLE").is_some() {
+                "succeeded".into()
+            } else {
+                "running".into()
+            },
             created_at: at(1),
             ai: "claude".into(),
             ..Default::default()
@@ -619,6 +628,30 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 ..Default::default()
             }],
         ),
+        // A release to update the app to (FAKE_RELEASE, a JSON
+        // api::UpdateRelease whose files a local server serves), for
+        // testing the app's update in place; the daemon's update check
+        // offers it.
+        (&Method::GET, ["v1", "update", "release"]) if fake_release().is_some() => {
+            json(StatusCode::OK, &fake_release().unwrap())
+        }
+        (&Method::GET, ["v1", "update"]) if fake_release().is_some() => {
+            let r = fake_release().unwrap();
+            json(
+                StatusCode::OK,
+                &UpdateStatus {
+                    current: std::env::var("FAKE_CURRENT").unwrap_or_else(|_| "0.17.0".into()),
+                    enabled: true,
+                    channel: "stable".into(),
+                    available: Some(UpdateAvailable {
+                        version: r.version,
+                        url: r.url,
+                    }),
+                    checked_at: Some(now()),
+                    ..Default::default()
+                },
+            )
+        }
         // The base image's state, which Settings → Setup shows: the real
         // daemon asks Incus for its snapshot, and has none here.
         (&Method::GET, ["v1", "image"]) => json(
@@ -1321,6 +1354,12 @@ async fn upstream_pick_up(fake: Arc<Fake>) -> bool {
         .ok()
         .and_then(|ps| ps.into_iter().find(|p| p.name == fake.opts.project))
         .is_some_and(|p| p.pick_up_issues)
+}
+
+/// fake_release is the release FAKE_RELEASE names, if any.
+fn fake_release() -> Option<UpdateRelease> {
+    let path = std::env::var_os("FAKE_RELEASE")?;
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
 
 async fn proxy(up: &PathBuf, req: Request<Incoming>) -> Result<Response<Body>> {

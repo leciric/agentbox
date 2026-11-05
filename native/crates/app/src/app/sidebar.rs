@@ -108,6 +108,10 @@ pub struct Sidebar {
     pub(super) page: Option<super::foot::FootPage>,
     pub(super) update: Option<agentbox_api::UpdateStatus>,
     pub(super) checking: bool,
+    /// Whether this copy of the app updates itself (update.rs), and how far
+    /// an update got.
+    pub(super) app_support: crate::update::Support,
+    pub(super) app_update: Option<crate::update::Phase>,
     pub(super) foot: super::foot::Foot,
     /// The window's own focus, so Ctrl+K and the rest reach the app when
     /// nothing in it has the focus.
@@ -160,6 +164,12 @@ impl Sidebar {
             page: None,
             update: None,
             checking: false,
+            app_support: {
+                let support = crate::update::detect(&crate::update::Machine::this());
+                crate::update::clean_up(&support);
+                support
+            },
+            app_update: None,
             foot: Default::default(),
             root_focus: cx.focus_handle(),
             _sub: sub,

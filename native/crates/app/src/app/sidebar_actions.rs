@@ -1249,6 +1249,15 @@ impl AppView {
     }
 
     fn update_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::update::Phase;
+        // Installed: the button restarts into the new version.
+        if let Some(Phase::Ready { relaunch, .. }) = &self.side.app_update {
+            let relaunch = relaunch.clone();
+            return glyph_button("update-restart", "⟳", t("native.update.restart"))
+                .text_color(theme::running())
+                .on_click(move |_, _, cx| restart_into(&relaunch, cx))
+                .into_any_element();
+        }
         let offer = self.side.update.as_ref().and_then(|u| {
             u.available
                 .as_ref()
@@ -1256,11 +1265,24 @@ impl AppView {
                 .cloned()
         });
         if let Some(offer) = offer {
-            let label: SharedString =
-                tv("v2.update.to", &[("version", (&offer.version).into())]).into();
-            return glyph_button("update-offer", "⇪", label.to_string())
+            let progress = self.side.app_update.as_ref().map(update_label);
+            let updating = progress.is_some();
+            let label = progress
+                .unwrap_or_else(|| tv("v2.update.to", &[("version", (&offer.version).into())]));
+            let tip = if updating {
+                label
+            } else {
+                format!(
+                    "{label} · {}",
+                    update_hint(&self.side.app_support, &offer.version)
+                )
+            };
+            return glyph_button("update-offer", if updating { "◌" } else { "⇪" }, tip)
                 .text_color(theme::running())
-                .on_click(move |_, _, cx| cx.open_url(&offer.url))
+                .when(updating, |el| el.opacity(0.6).cursor_default())
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.start_app_update(offer.url.clone(), cx)
+                }))
                 .into_any_element();
         }
         let label = if self.side.checking {
@@ -1272,6 +1294,134 @@ impl AppView {
             .when(self.side.checking, |el| el.opacity(0.5))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.check_update(cx)))
             .into_any_element()
+    }
+
+    /// start_app_update updates the app in place (update.rs), or opens the
+    /// release page where this copy can't (useAppUpdate.ts's start); pinned
+    /// is the page of the release the check found.
+    fn start_app_update(&mut self, pinned: String, cx: &mut Context<Self>) {
+        use crate::update::{self, Failure, Phase, Support};
+        let Support::InPlace(install) = self.side.app_support.clone() else {
+            cx.open_url(&pinned);
+            return;
+        };
+        if self.side.app_update.is_some() {
+            return;
+        }
+        self.side.app_update = Some(Phase::Preparing);
+        cx.notify();
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let prepared: Result<update::Plan, Failure> = async {
+                // A restart cuts a job short: the update waits for them.
+                let jobs = client
+                    .get::<Vec<agentbox_api::Job>>("/v1/jobs")
+                    .await
+                    .unwrap_or_default();
+                let busy = jobs.iter().filter(|j| j.status == "running").count();
+                if busy > 0 {
+                    return Err(Failure::new("busy", busy.to_string()));
+                }
+                let status = client
+                    .get::<agentbox_api::UpdateStatus>("/v1/update")
+                    .await
+                    .unwrap_or_default();
+                // A daemon of another version than this app picks the
+                // release for its own (updater.ts's isOutdated).
+                let app = update::app_version();
+                if let Some(app) = app
+                    && !status.current.is_empty()
+                    && status.current.trim_start_matches('v') != app.trim_start_matches('v')
+                {
+                    return Err(Failure::new("daemonStale", status.current.clone()));
+                }
+                let release = client
+                    .get::<agentbox_api::UpdateRelease>("/v1/update/release")
+                    .await
+                    .map_err(|e| Failure::new("noRelease", e.to_string()))?;
+                let current = app.map(str::to_string).unwrap_or(status.current.clone());
+                let offered = status.available.as_ref().map(|a| a.version.as_str());
+                update::plan(&release, &install, &current, offered)
+            }
+            .await;
+            let plan = match prepared {
+                Ok(p) => p,
+                Err(f) => {
+                    this.update(cx, |this, cx| this.update_failed(f, &pinned, cx))
+                        .ok();
+                    return;
+                }
+            };
+            // The download blocks: a thread of its own, saying how far it got.
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            std::thread::spawn(move || {
+                let progress = |p: Phase| {
+                    let _ = tx.send(Ok(p));
+                };
+                let done = update::apply(&plan, &progress).map(|relaunch| Phase::Ready {
+                    version: plan.version.clone(),
+                    relaunch,
+                });
+                let _ = tx.send(done);
+            });
+            while let Some(msg) = rx.recv().await {
+                let stop = this
+                    .update(cx, |this, cx| match msg {
+                        Ok(Phase::Ready { version, relaunch }) => {
+                            this.side.app_update = Some(Phase::Ready {
+                                version: version.clone(),
+                                relaunch: relaunch.clone(),
+                            });
+                            toasts::Toast::new(
+                                toasts::Kind::Info,
+                                tv("native.update.ready", &[("version", version.into())]),
+                            )
+                            .action(t("native.update.restart"), move |_, cx| {
+                                restart_into(&relaunch, cx)
+                            })
+                            .show(cx);
+                            cx.notify();
+                            true
+                        }
+                        Ok(p) => {
+                            this.side.app_update = Some(p);
+                            cx.notify();
+                            false
+                        }
+                        Err(f) => {
+                            this.update_failed(f, &pinned, cx);
+                            true
+                        }
+                    })
+                    .unwrap_or(true);
+                if stop {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// update_failed says why the update stopped, offering the release page.
+    fn update_failed(&mut self, f: crate::update::Failure, pinned: &str, cx: &mut Context<Self>) {
+        self.side.app_update = None;
+        let count = f.detail.parse::<usize>().unwrap_or(0);
+        let msg = tv(
+            &format!("shell.update.error.{}", f.code),
+            &[
+                ("detail", f.detail.clone().into()),
+                ("version", f.detail.clone().into()),
+                ("count", count.into()),
+            ],
+        );
+        let page = f.url.unwrap_or_else(|| pinned.to_string());
+        toasts::Toast::new(toasts::Kind::Error, t("shell.update.failed"))
+            .description(msg)
+            .action(t("shell.update.releasePage"), move |_, cx| {
+                cx.open_url(&page)
+            })
+            .show(cx);
+        cx.notify();
     }
 
     pub(super) fn load_update(&mut self, cx: &mut Context<Self>) {
@@ -1324,6 +1474,54 @@ impl AppView {
             .ok();
         })
         .detach();
+    }
+}
+
+/// update_label is what the update button says while it runs
+/// (appUpdate.ts's updateLabel).
+fn update_label(p: &crate::update::Phase) -> String {
+    use crate::update::Phase;
+    match p {
+        Phase::Preparing => t("shell.update.preparing"),
+        Phase::Download { received, total } => {
+            let percent = if *total > 0 {
+                received * 100 / total
+            } else {
+                0
+            };
+            tv(
+                "shell.update.downloading",
+                &[("percent", (percent as usize).into())],
+            )
+        }
+        Phase::Verify => t("shell.update.verifying"),
+        Phase::Install => t("shell.update.installing"),
+        Phase::Ready { .. } => t("native.update.restart"),
+    }
+}
+
+/// update_hint is the update button's tooltip: what clicking it does.
+fn update_hint(support: &crate::update::Support, version: &str) -> String {
+    match support {
+        crate::update::Support::InPlace(_) => {
+            tv("native.update.inPlace", &[("version", version.into())])
+        }
+        crate::update::Support::ReleasePage(reason) => {
+            t(&format!("shell.update.releasePage.{reason}"))
+        }
+    }
+}
+
+/// restart_into starts the new version and quits this one.
+fn restart_into(relaunch: &std::path::Path, cx: &mut App) {
+    match crate::update::restart(relaunch) {
+        Ok(()) => cx.quit(),
+        Err(e) => toasts::Toast::new(toasts::Kind::Error, t("shell.update.failed"))
+            .description(tv(
+                "shell.update.error.install",
+                &[("detail", e.to_string().into())],
+            ))
+            .show(cx),
     }
 }
 

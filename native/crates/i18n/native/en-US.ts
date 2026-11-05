@@ -27,4 +27,7 @@ export const enUSNative = {
   'native.pdf.external': 'Open it in your PDF viewer',
   'native.setup.runIt': 'This app can\'t make the VM itself: run this in a terminal. The app carries on once AgentBox answers.',
   'native.setup.startIt': 'The command-line tool isn\'t on PATH, so this app can\'t start AgentBox itself. Start it in a terminal:',
+  'native.update.restart': 'Restart to update',
+  'native.update.ready': 'AgentBox {version} is installed',
+  'native.update.inPlace': 'Downloads {version}, installs it in place of this version, then offers to restart into it',
 };
