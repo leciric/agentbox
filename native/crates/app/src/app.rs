@@ -10,9 +10,20 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
+mod sidebar;
+
 use crate::chat::ChatView;
 use crate::terminal::TerminalView;
 use crate::vnc::VncView;
+
+/// One agent in the rail.
+struct RailRow {
+    project: String,
+    name: String,
+    title: String,
+    state: String,
+    busy: bool,
+}
 
 /// What the main area shows of an agent.
 #[derive(Clone, Copy, PartialEq)]
@@ -50,6 +61,7 @@ pub struct AppView {
     /// An agent's desktop (VNC), opened the same way.
     desktop: Option<Entity<VncView>>,
     tab: Tab,
+    side: sidebar::Sidebar,
     _events: Task<()>,
 }
 
@@ -69,6 +81,7 @@ impl AppView {
             terminal: None,
             desktop: None,
             tab: Tab::Chat,
+            side: sidebar::Sidebar::new(window, cx),
             _events: events,
         };
         this.load_settings(window, cx);
@@ -122,6 +135,14 @@ impl AppView {
                 let Ok(change) = serde_json::from_value::<AgentChange>(ev.data) else {
                     return;
                 };
+                if !self
+                    .side
+                    .apply_agent(&change.r#ref, Some(&change.state), None)
+                    && !change.removed
+                {
+                    self.load_sidebar(cx);
+                }
+                cx.notify();
                 let mine = self
                     .project
                     .as_deref()
@@ -142,12 +163,25 @@ impl AppView {
                 let Ok(chat_ev) = serde_json::from_value::<ChatEvent>(ev.data) else {
                     return;
                 };
+                if let Some(s) = &chat_ev.session
+                    && self.side.apply_agent(&chat_ev.agent, None, Some(&s.state))
+                {
+                    cx.notify();
+                }
                 if let Some(s) = &chat_ev.session {
                     // An agent's chat working is what the rail shows as busy.
                     if let Some(a) = self.fleet.iter_mut().find(|a| a.r#ref == chat_ev.agent) {
                         a.busy = s.state == "running";
                         cx.notify();
                     }
+                }
+                // A lead's message changes its project's line in the sidebar.
+                if let Some(p) = chat_ev.agent.strip_suffix("/lead")
+                    && chat_ev.item.as_ref().is_some_and(|i| {
+                        !i.streaming && (i.kind == "user" || i.kind == "assistant")
+                    })
+                {
+                    self.load_line(p.to_string(), cx);
                 }
                 if let Some(chat) = &self.chat
                     && chat.read(cx).agent == chat_ev.agent
@@ -156,6 +190,11 @@ impl AppView {
                 }
             }
             EVENT_PROJECT => self.load_projects(window, cx),
+            agentbox_api::EVENT_QUESTION => {
+                if let Some(p) = ev.data.get("project").and_then(|v| v.as_str()) {
+                    self.load_questions(p.to_string(), cx);
+                }
+            }
             _ => {}
         }
     }
@@ -185,12 +224,25 @@ impl AppView {
                 match res {
                     Ok(p) => {
                         this.projects = p;
+                        this.load_sidebar(cx);
                         this.error = None;
                         bench::mark("projects-loaded");
-                        if this.project.is_none()
-                            && let Some(first) = this.projects.first().map(|p| p.name.clone())
-                        {
-                            this.select_project(first, window, cx);
+                        if this.project.is_none() {
+                            // The app opens on Home, as v2 does; a benchmark
+                            // opening an agent (AGENTBOX_NATIVE_OPEN) looks for
+                            // it in fake-daemon's project, demo.
+                            let first = match std::env::var_os("AGENTBOX_NATIVE_OPEN") {
+                                Some(_) => this
+                                    .projects
+                                    .iter()
+                                    .find(|p| p.name == "demo")
+                                    .or(this.projects.first())
+                                    .map(|p| p.name.clone()),
+                                None => Some(agentbox_api::HOME_PROJECT.to_string()),
+                            };
+                            if let Some(first) = first {
+                                this.select_project(first, window, cx);
+                            }
                         }
                     }
                     Err(e) => this.error = Some(e.to_string().into()),
@@ -206,6 +258,9 @@ impl AppView {
         let Some(project) = self.project.clone() else {
             return;
         };
+        if project == agentbox_api::HOME_PROJECT {
+            return; // Home's rail is every project's agents (rail_rows)
+        }
         let client = self.client.clone();
         cx.spawn_in(window, async move |this, cx| {
             let res = client
@@ -253,12 +308,18 @@ impl AppView {
             .iter()
             .find(|p| p.name == project)
             .map(|p| p.display_name.clone())
-            .unwrap_or(project.clone());
+            .unwrap_or_else(|| {
+                if project == agentbox_api::HOME_PROJECT {
+                    t("shell.nav.home")
+                } else {
+                    project.clone()
+                }
+            });
         let (prefix, agent, title) = if who == "lead" {
             (
                 format!("/v1/projects/{project}"),
                 format!("{project}/lead"),
-                format!("{display} · Lead"),
+                format!("{display} · {}", t("v2.header.lead")),
             )
         } else {
             let t = self
@@ -266,6 +327,13 @@ impl AppView {
                 .iter()
                 .find(|a| a.name == who)
                 .map(|a| a.title.clone())
+                .or_else(|| {
+                    self.side
+                        .agents
+                        .iter()
+                        .find(|a| a.project == project && a.name == who)
+                        .map(|a| a.title.clone())
+                })
                 .unwrap_or_default();
             (
                 format!("/v1/agents/{project}/{who}"),
@@ -283,96 +351,37 @@ impl AppView {
         cx.notify();
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .w(px(232.))
-            .flex_none()
-            .h_full()
-            .bg(theme::panel())
-            .border_r_1()
-            .border_color(theme::border())
-            .child(
-                h_flex()
-                    .h_12()
-                    .px_4()
-                    .gap_2()
-                    .child(div().size_5().rounded_md().bg(theme::accent()))
-                    .child(
-                        div()
-                            .text_color(theme::fg())
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("AgentBox"),
-                    )
-                    .child(div().flex_1())
-                    .child(div().size_2().rounded_full().bg(if self.connected {
-                        theme::running()
-                    } else {
-                        theme::error()
-                    })),
-            )
-            .child(
-                div()
-                    .px_4()
-                    .pt_3()
-                    .pb_1()
-                    .text_xs()
-                    .text_color(theme::faint())
-                    .child(t("shell.sidebar.projects").to_uppercase()),
-            )
-            .children(self.projects.iter().map(|p| {
-                let selected = self.project.as_deref() == Some(p.name.as_str());
-                let name = p.name.clone();
-                let display = if p.display_name.is_empty() {
-                    p.name.clone()
-                } else {
-                    p.display_name.clone()
-                };
-                let initial = display
-                    .chars()
-                    .next()
-                    .unwrap_or('?')
-                    .to_uppercase()
-                    .to_string();
-                h_flex()
-                    .id(SharedString::from(format!("project-{}", p.name)))
-                    .mx_2()
-                    .px_2()
-                    .py_1p5()
-                    .gap_2()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .when(selected, |el| el.bg(theme::hover()))
-                    .hover(|el| el.bg(theme::raised()))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.select_project(name.clone(), window, cx)
-                    }))
-                    .child(
-                        div()
-                            .size_5()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_sm()
-                            .bg(theme::raised())
-                            .text_xs()
-                            .text_color(theme::muted())
-                            .child(initial),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(if selected {
-                                theme::fg()
-                            } else {
-                                theme::muted()
-                            })
-                            .truncate()
-                            .child(display),
-                    )
-            }))
-            .when_some(self.error.clone(), |el, e| {
-                el.child(div().p_4().text_xs().text_color(theme::error()).child(e))
+    fn is_home(&self) -> bool {
+        self.project.as_deref() == Some(agentbox_api::HOME_PROJECT)
+    }
+
+    /// rail_rows are the agents the rail lists: the project's, or on Home
+    /// every project's.
+    fn rail_rows(&self) -> Vec<RailRow> {
+        if self.is_home() {
+            return self
+                .side
+                .agents
+                .iter()
+                .map(|a| RailRow {
+                    project: a.project.clone(),
+                    name: a.name.clone(),
+                    title: format!("{} · {}", a.project, a.title),
+                    state: a.state.clone(),
+                    busy: a.chat == "running",
+                })
+                .collect();
+        }
+        self.fleet
+            .iter()
+            .map(|a| RailRow {
+                project: a.project.clone(),
+                name: a.name.clone(),
+                title: a.title.clone(),
+                state: a.state.clone(),
+                busy: a.busy,
             })
+            .collect()
     }
 
     fn render_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -431,61 +440,69 @@ impl AppView {
                         div()
                             .text_xs()
                             .text_color(theme::faint())
-                            .child(format!("{}", self.fleet.len())),
+                            .child(format!("{}", self.rail_rows().len())),
                     ),
             )
             .child(lead)
             .child(div().mx_4().my_1().h(px(1.)).bg(theme::border()))
-            .children(self.fleet.iter().map(|a| {
-                let name = a.name.clone();
+            .children(self.rail_rows().into_iter().map(|a| {
+                let (name, project) = (a.name.clone(), a.project.clone());
                 let busy = a.busy;
-                row(format!("rail-{}", a.name), self.open == a.name)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.open_chat(name.clone(), window, cx)
-                    }))
-                    .child(
-                        div()
-                            .flex_none()
-                            .size_2()
-                            .rounded_full()
-                            .bg(theme::state_color(&a.state)),
-                    )
-                    .child(
-                        v_flex()
-                            .min_w_0()
-                            .flex_1()
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(
+                let home = self.is_home();
+                row(
+                    format!("rail-{}-{}", a.project, a.name),
+                    self.open == a.name && !home,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    // From Home, an agent opens in its own project.
+                    if this.is_home() {
+                        this.select_project(project.clone(), window, cx);
+                    }
+                    this.open_chat(name.clone(), window, cx)
+                }))
+                .child(
+                    div()
+                        .flex_none()
+                        .size_2()
+                        .rounded_full()
+                        .bg(theme::state_color(&a.state)),
+                )
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .flex_1()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(theme::fg())
+                                        .child(a.name.clone()),
+                                )
+                                .when(busy, |el| {
+                                    el.child(
                                         div()
-                                            .text_sm()
-                                            .text_color(theme::fg())
-                                            .child(a.name.clone()),
+                                            .text_xs()
+                                            .text_color(theme::starting())
+                                            .child(t("chat.subagent.working")),
                                     )
-                                    .when(busy, |el| {
-                                        el.child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(theme::starting())
-                                                .child(t("chat.subagent.working")),
-                                        )
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme::muted())
-                                    .truncate()
-                                    .child(a.title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme::faint())
-                                    .child(state_label(&a.state)),
-                            ),
-                    )
+                                }),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::muted())
+                                .truncate()
+                                .child(a.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::faint())
+                                .child(state_label(&a.state)),
+                        ),
+                )
             }))
             .when_some(self.fleet_error.clone(), |el, e| {
                 el.child(div().p_4().text_xs().text_color(theme::error()).child(e))

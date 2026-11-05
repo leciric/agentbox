@@ -142,6 +142,7 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
  "gtk",
+ "humantime",
  "image",
  "markdown",
  "mermaid-rs-renderer",

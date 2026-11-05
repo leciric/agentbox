@@ -410,6 +410,20 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             };
             json(StatusCode::OK, &vec![p])
         }
+        // An open question from an agent, for the sidebar's "needs you".
+        (&Method::GET, ["v1", "projects", p, "questions"]) if fake.is_fake(p) => json(
+            StatusCode::OK,
+            &vec![Question {
+                id: "q1".into(),
+                project: p.to_string(),
+                agent: "agent-03".into(),
+                r#ref: format!("{p}/agent-03"),
+                question: "Should the reminders page paginate?".into(),
+                status: "open".into(),
+                created_at: now(),
+                ..Default::default()
+            }],
+        ),
         // Every agent, as GET /v1/agents lists them (a FleetAgent is an Agent and more).
         (&Method::GET, ["v1", "agents"]) => {
             json(StatusCode::OK, &fake.fleet.lock().unwrap().clone())
