@@ -20,12 +20,13 @@ test('pods go a little wider than deep', () => {
 });
 
 test('a project of more desks than a room holds gets floors, evenly', () => {
-  assert.deepEqual([0, 1, 12, 13, 25, 40].map(floorsOf), [[0], [1], [12], [7, 6], [9, 8, 8], [10, 10, 10, 10]]);
+  assert.deepEqual([0, 1, 8, 9, 12, 25, 40].map(floorsOf), [[0], [1], [8], [5, 4], [6, 6], [7, 6, 6, 6], [8, 8, 8, 8, 8]]);
   const c = layout({ areas: [area('big', 25), area('small', 3)] });
   assert.deepEqual(c.rooms.map((r) => [r.project, r.floor, r.floors, r.desks.length, r.lead]), [
-    ['big', 1, 3, 9, true],
-    ['big', 2, 3, 8, false],
-    ['big', 3, 3, 8, false],
+    ['big', 1, 4, 7, true],
+    ['big', 2, 4, 6, false],
+    ['big', 3, 4, 6, false],
+    ['big', 4, 4, 6, false],
     ['small', 1, 1, 3, true],
   ]);
   for (const r of c.rooms) assert.ok(r.desks.length <= ROOM_DESKS);

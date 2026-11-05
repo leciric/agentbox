@@ -660,7 +660,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       for (const [pi, pod] of place.pods.entries()) {
         // Each pod a shade of its project's colour, so pods read apart.
         // Each pod its own pastel, near its project's colour: pods read apart.
-        const shade = [0, 12, -12, 6, -6][pi % 5];
+        const shade = [0, 30, -30, 15, -15][pi % 5];
         const hh = ((area.hue + shade + 360) % 360) / 360;
         // Saturated, as a toy's rugs: the pods read as coloured islands.
         const rugMat = own(std(new THREE.Color().setHSL(hh, 0.72, pi % 2 ? 0.55 : 0.6), { roughness: 0.95 }));
@@ -889,8 +889,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const flagMat = new THREE.MeshStandardMaterial({ color: '#34d399', side: THREE.DoubleSide });
     disp.push(() => flagMat.dispose());
     flag.position.set(lead ? 1.05 : out * 0.6, top, -0.28);
-    flag.add(mesh(geo.cyl, mats.pole, 0, 0.25, 0, 0.008, 0.5, 0.008));
-    const cloth = mesh(geo.plane, flagMat, 0.1, 0.42, 0, 0.2, 0.13, 1);
+    // Big enough to read from the room's view: its pull request's state.
+    flag.add(mesh(geo.cyl, mats.pole, 0, 0.45, 0, 0.014, 0.9, 0.014));
+    const cloth = mesh(geo.plane, flagMat, 0.2, 0.75, 0, 0.4, 0.26, 1);
     flag.add(cloth);
     g.add(flag);
 
@@ -990,7 +991,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         label.style.cssText = 'overflow:hidden;text-overflow:ellipsis';
         // A little tail up to its agent: whose tag it is.
         const tail = document.createElement('span');
-        tail.style.cssText = 'position:absolute;left:50%;top:-5px;margin-left:-5px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:5px solid #fff;pointer-events:none';
+        tail.style.cssText = 'position:absolute;left:50%;top:-8px;margin-left:-7px;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:8px solid #fff;pointer-events:none';
         walk.append(dot, label, tail);
         const more = document.createElement('button');
         more.type = 'button';
@@ -1196,7 +1197,14 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const ri = roomOf(lay, ref);
     const spot = spotOf(lay, ref);
     if (!spot || ri === undefined) return;
+    // In another room: there already, at it, the camera gliding in.
+    const other = ri !== cur;
     into(ri);
+    if (other) {
+      pos.x = spot.x;
+      pos.z = spot.z;
+      facing = spot.face;
+    }
     route = path(boxes, bounds, pos, spot);
     routeGoal = ref;
     zoomTo(Math.max(zoomZ, 0.5));
@@ -1437,7 +1445,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
       // From the far side from where you stand, so you never stand in the way.
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 19, pitch: 0.8, yaw: d.side < 0 ? 0.42 : -0.42 }, aspect);
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 19, pitch: 0.8, yaw: d.side < 0 ? 0.5 : 0.08 }, aspect);
     }
     return undefined;
   }
@@ -1697,7 +1705,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const sx = ((figPos.x + 1) / 2) * canvas.clientWidth;
         const sy = ((1 - figPos.y) / 2) * canvas.clientHeight;
         ahead = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 190 && Math.abs(sy - p.y) < 230);
-        leadHidesFace = nearer && Math.abs(sx - lookAt.spots[0].x) < 110 && Math.abs(sy - lookAt.spots[0].y) < 140;
+        leadHidesFace = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 110 && Math.abs(sy - p.y) < 140);
       }
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (d.root.position.distanceTo(camera.position) < 4.2 || ahead);
       // At a board, what stands between it and the camera steps aside.
@@ -1832,8 +1840,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       }
     }
     // You stand beside what you look at, never in front of it: always seen.
-    // At the board you're there, but see-through: it's the board you look at.
-    me.fade(isBoard(focusRef) ? 1 - cam.closeK * 0.65 : 1);
+    me.fade(1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1982,10 +1989,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
           folded.set(into, (folded.get(into) ?? 0) + 1);
           continue;
         }
-        // Nowhere to go and no one to fold into: it steps out of the way, as
-        // the quiet ones do (its bubble, the lists and N still reach it).
-        m.el.style.display = 'none';
-        continue;
+        // Nowhere to go and no one to fold into: who needs you keeps a tag,
+        // where it belongs.
+        off = [0, 0];
       }
       const x = inside(m.x + off[0]);
       const y = m.y + off[1];

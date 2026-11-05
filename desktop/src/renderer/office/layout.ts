@@ -444,7 +444,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     areas,
     // You stand at the board's left end, out of the way of reading it and of
     // its list, which is on the right.
-    board: { x: boardX, w: boardW, spot: { x: boardX - boardW / 2 + 0.2, z: 2.2, face: Math.PI } },
+    board: { x: boardX, w: boardW, spot: { x: boardX - boardW / 2 - 0.7, z: 1.1, face: Math.PI / 2 } },
     lobby: wood,
     wood,
     spawn: { x: wx + 2.4, z: lounge.z1 + 1.1, face: -0.5 },
@@ -538,12 +538,13 @@ const LOW_THEMES: Theme[] = [LOUNGE, STUDY];
 
 // The campus: each project's room, side by side as dioramas floating on the
 // sky, a project of more desks than a room holds on floors of its own.
-export const ROOM_DESKS = 12;
+// A room holds the target's eight or so; more desks, more floors.
+export const ROOM_DESKS = 8;
 // Between rooms on the campus: wider front to back, where the walls rise.
 const CAMPUS_GAP = 8;
 const CAMPUS_GAP_Z = 16;
 const FLOOR_GAP = 7;
-const CAMPUS_ASPECT = 2.1;
+const CAMPUS_ASPECT = 1.6;
 
 export type RoomPlace = {
   // project#floor.
@@ -611,10 +612,20 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Campus {
       while (j < locals.length && parts[j]?.area.project === parts[i]?.area.project) j++;
       const group = Array.from({ length: j - i }, (_, k) => i + k);
       const row = rows[rows.length - 1];
-      if (row.length && row.length + group.length > perRow) rows.push([...group]);
+      if (group.length > perRow) {
+        // More floors than a row holds: rows of their own, a block on its
+        // plinth, nothing else in them.
+        if (row.length) rows.push([]);
+        for (let k = 0; k < group.length; k += perRow) {
+          if (rows[rows.length - 1].length) rows.push([]);
+          rows[rows.length - 1].push(...group.slice(k, k + perRow));
+        }
+        rows.push([]);
+      } else if (row.length && row.length + group.length > perRow) rows.push([...group]);
       else row.push(...group);
       i = j;
     }
+    while (rows.length > 1 && rows[rows.length - 1].length === 0) rows.pop();
     const at: { ox: number; oz: number }[] = Array.from({ length: locals.length });
     let z = 0;
     for (const row of rows) {
