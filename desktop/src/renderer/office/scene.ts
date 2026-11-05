@@ -2004,6 +2004,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // Small from afar, as name tags are; wider as you come in to read them.
     const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '150px' : '170px';
     const smallRoom = scope !== null && lay.rooms[scope].desks.length <= 8;
+    const tinyRoom = scope !== null && lay.rooms[scope].desks.length <= 4;
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
@@ -2101,9 +2102,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         off = tries.find(([dx, dy]) => !clash(m.x + dx, m.y + dy)) ?? null;
         chipDy.set(m.el, off);
       }
-      // Who needs you (or failed) is never folded away, and in a room of up
-      // to eight nobody's: with nowhere clear, a tag stays at its desk.
-      if (!off && (m.needs || smallRoom)) off = [0, 0];
+      // Who needs you (or failed) is never folded away, and in a small team's
+      // room nobody's: with nowhere clear, a tag stays at its desk. In a full
+      // room a quiet one with no room of its own waits for you to come in,
+      // rather than pile onto its neighbours.
+      if (!off && (m.needs || tinyRoom)) off = [0, 0];
       if (!off && !m.loud) {
         // A quiet label with no room simply steps out of the way.
         m.el.style.display = 'none';

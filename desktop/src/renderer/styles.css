@@ -1685,3 +1685,9 @@ html[data-blurred] .ab-monitor * {
 body:has([data-office-chat]) [data-sonner-toaster][data-x-position="right"] {
   right: calc(min(34rem, 100vw - 1.5rem) + 1.5rem) !important;
 }
+
+/* In the Office's narrow chat panel, the pile of unseen pages would sit over
+   the messages: they stay in the app's own chat. */
+[data-office-chat] [data-page-stack] {
+  display: none;
+}
