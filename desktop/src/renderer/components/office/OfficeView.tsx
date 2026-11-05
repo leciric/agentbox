@@ -460,6 +460,10 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
   useEffect(() => {
     if (!trayOpen) setListOnly(null);
   }, [trayOpen]);
+  // Out to the campus, the chat closes: it's of a room you've left.
+  useEffect(() => {
+    if (!view.project) setChat(null);
+  }, [view.project]);
   // One asked for by Next opens as you arrive; the chat open closes when you
   // get to another desk, or set off yourself (onUserMove), not as you pass by
   // or settle where you are.

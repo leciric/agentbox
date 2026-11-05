@@ -383,15 +383,18 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         chip.type = 'button';
         chip.dataset.officeArea = rm.key;
         chip.style.cssText =
-          'position:absolute;left:0;top:0;display:none;pointer-events:auto;align-items:center;gap:6px;padding:5px 14px;border-radius:999px;color:#fff;font:700 13px/1.2 var(--font-sans,system-ui),sans-serif;box-shadow:0 3px 10px rgba(40,30,20,.22);cursor:pointer;white-space:nowrap;will-change:transform';
+          'position:absolute;left:0;top:0;display:none;pointer-events:auto;align-items:center;gap:6px;padding:5px 12px 5px 9px;border-radius:999px;background:#fff;color:#1e293b;font:700 13px/1.2 var(--font-sans,system-ui),sans-serif;box-shadow:0 3px 10px rgba(40,30,20,.18);cursor:pointer;white-space:nowrap;will-change:transform';
+        // White, as the target's pills are, its project's colour a dot.
+        const dot = document.createElement('i');
+        dot.style.cssText = 'display:inline-block;width:9px;height:9px;border-radius:999px;flex:none';
         const name = document.createElement('span');
         const sub = document.createElement('span');
         sub.style.cssText = 'font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.28)';
         const bad = document.createElement('span');
-        bad.style.cssText = 'display:none;font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:#fff;color:#dc2626';
+        bad.style.cssText = 'display:none;font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:#dcfce7;color:#047857';
         const work = document.createElement('span');
-        work.style.cssText = 'display:none;font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:#fff;color:#2563eb';
-        chip.append(name, sub, bad, work);
+        work.style.cssText = 'display:none;font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:#e0ecff;color:#2563eb';
+        chip.append(dot, name, sub, bad, work);
         const lead = rm.lead ? `${rm.project}/lead` : undefined;
         // Over the campus it goes into its room; in the room, to its lead.
         press(chip, () => {
@@ -403,9 +406,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       }
       // Not red, which the failed use: a red project's pill is coral.
       const ph = area.hue < 18 || area.hue > 342 ? 18 : area.hue;
-      chip.style.background = `hsl(${ph} 62% 50%)`;
+      (chip.children[0] as HTMLElement).style.background = `hsl(${ph} 62% 50%)`;
       const name = rm.floors > 1 ? opts.floorLabel?.(label.name, rm.floor) ?? `${label.name} ${rm.floor}` : label.name;
-      (chip.firstChild as HTMLElement).textContent = name;
+      (chip.children[1] as HTMLElement).textContent = name;
       // (A floor's pill says its own counts; its project's totals are the
       // project's, not the floor's.)
       chip.title = rm.floors > 1 ? '' : label.sub;
@@ -706,9 +709,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
             addTo(-1, mesh(geo.roundTop, frame, px, below + h / 2, pz, 0.22, h, 0.22));
         }
         // The lift, glass, beside the building, from its plinth to its top.
-        // Against the building's right side, at its back.
-        const lx = b.x1 + 0.75;
-        const lz = b.z0 + 1.6;
+        // Against the building's left side, by its top floor's back: beside
+        // every floor.
+        const lx = b.x0 - 0.85;
+        const lz = Math.max(...ups.map((rm) => rm.box.z0 + rm.shown.dz)) + 1.6;
         const lh = top + 4.2;
         const glassShaft = mesh(geo.box, shaft, lx, -0.9 + lh / 2, lz, 1.4, lh, 1.8, false);
         glassShaft.renderOrder = 3;
@@ -1136,13 +1140,16 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // In a room's own view, only it; over the campus, all of them. (Desks and
   // plants are also set each frame, which steps them aside too.)
   const inScope = (o: THREE.Object3D) => scope === null || o.userData.room === undefined || o.userData.room === scope;
-  // The scope the rooms were last placed for.
+  // The scope the rooms were last placed for, and how the campus was turned
+  // when you went into one.
   let shownFor: number | null | undefined;
+  let campusYaw = CAMPUS_YAW;
   function showScope() {
     for (const c of room.children) c.visible = inScope(c) && (!c.userData.campusOnly || scope === null);
     // Over the campus a floor past the first stands on its building; in a
     // room, it's where you walk. Moving it, the camera moves with it, so the
     // glide in or out starts where it was on screen.
+    if (shownFor === null && scope !== null) campusYaw = eased.yaw;
     if (shownFor !== undefined && shownFor !== scope) {
       const s = shownFor === null && scope !== null ? lay.rooms[scope]?.shown : shownFor !== null && scope === null ? lay.rooms[shownFor]?.shown : undefined;
       const sign = shownFor === null ? -1 : 1;
@@ -1400,13 +1407,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // campus stands back over every room.
   function campus() {
     scope = null;
+    // As you'd turned it.
+    const yaw = campusYaw;
     fitCache.key = '';
     lighting(true);
     showScope();
     zoomTo(0);
     zoomFocus = undefined;
     turned = false;
-    cam.yaw = CAMPUS_YAW;
+    cam.yaw = yaw;
     held = true;
     tellView();
     poke();
@@ -1576,7 +1585,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // What you're at, once you've stopped.
     // Standing back for the overview, you're at nothing.
     // Walking to a desk by name, its card is already up on the way.
-    const at = held ? undefined : stillFor > 0.15 ? nearest(lay, pos) : routeGoal && route.length ? routeGoal : undefined;
+    // (Over the campus, at nothing: you're in a room only once you're in it.)
+    const at = held || scope === null ? undefined : stillFor > 0.15 ? nearest(lay, pos) : routeGoal && route.length ? routeGoal : undefined;
     if (at !== near) {
       near = at;
       opts.onNear(isBoard(near) ? 'board' : near);
@@ -2008,9 +2018,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // Its third count: what waits for review, in green.
       const f0 = reviewIn.get(ri) ?? 0;
       const w0 = busy.get(ri) ?? 0;
-      const sub = chip.children[1] as HTMLElement;
-      const bad = chip.children[2] as HTMLElement;
-      const work = chip.children[3] as HTMLElement;
+      const sub = chip.children[2] as HTMLElement;
+      const bad = chip.children[3] as HTMLElement;
+      const work = chip.children[4] as HTMLElement;
       if (sub.dataset.n !== `${n0}:${f0}:${w0}`) {
         sub.dataset.n = `${n0}:${f0}:${w0}`;
         // Nobody waiting nor working: how many it has, quietly, so no pill is bare.
@@ -2060,7 +2070,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // see-through you reads as a glitch.
     me.fade(1);
     // Reading the board, you stand at its end, out of the picture.
-    me.group.visible = true;
+    // Reading the board, you're out of its picture (a figure so near the
+    // camera would fill a corner of it), your ring too.
+    me.group.visible = !(isBoard(near) && cam.closeK > 0.5);
+    meRing.visible = me.group.visible;
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -2083,7 +2096,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       face = { x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight };
     }
     // Small from afar, as name tags are; wider as you come in to read them.
-    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '150px' : '170px';
+    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '134px' : '170px';
     const smallRoom = scope !== null && lay.rooms[scope].desks.length <= 8;
     const tinyRoom = scope !== null && lay.rooms[scope].desks.length <= 4;
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
@@ -2107,7 +2120,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 130, ((1 - tp.y) / 2) * canvas.clientHeight);
-        const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 140 && my > face.y - 200 && my < face.y + 160);
+        const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 90 && my > face.y - 200 && my < face.y + 160);
         const show = onScreen && !underCard;
         marker.style.display = show ? 'flex' : 'none';
         if (show) shown.push({ el: marker, x: mx, y: my, loud, needs: d.tone === 'needs' || d.tone === 'error' });

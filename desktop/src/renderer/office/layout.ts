@@ -234,7 +234,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       obstacles.push(box(dx + side * 0.48, dz - SEAT, 1.2, 1.1));
       // You stand beside the agent, level with it, facing it, a good step
       // out: seen from the front, clear of it either side, never over it.
-      desks.push({ id: d.id, x: dx, z: dz, side: side as -1 | 1, spot: { x: Math.min(roomW - PAD_R - 0.1, Math.max(1.6, dx + side * 2.3)), z: dz - SEAT + 0.05, face: -side * (Math.PI / 2) } });
+      desks.push({ id: d.id, x: dx, z: dz, side: side as -1 | 1, spot: { x: Math.min(roomW - PAD_R - 0.1, Math.max(1.6, dx + side * 2.3)), z: dz - SEAT + 0.5, face: -side * 1.4 } });
     }
   }
   // A potted plant at each pod's cell's front corner, one side or the other:
@@ -251,7 +251,8 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   if (leadCell) {
     const cb = cellBox(...leadCell);
     const cx = (cb.x0 + cb.x1) / 2;
-    const cz = cb.z0 + 2.3;
+    // At its cell's front: well clear of the pods behind.
+    const cz = cb.z0 + 2.9;
     obstacles.push(box(cx, cz, COUNTER.w, COUNTER.d), box(cx, cz - 0.75, 0.7, 0.6));
     props.push({ kind: 'mat', x: cx, z: cz + 0.25, rot: 0 });
     lead = { x: cx, z: cz, spot: { x: cx - 1.95, z: cz + 0.55, face: Math.PI / 2 } };
@@ -441,8 +442,10 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   const around: { x: number; z: number; d: number }[] = [];
   for (let dx = -8; dx <= 8; dx += 0.25) for (let dz = -6; dz <= 1; dz += 0.25) around.push({ x: want.x + dx, z: want.z + dz, d: dx * dx + dz * dz });
   around.sort((p, q) => p.d - q.d);
+  // (Well clear of every spot, so you come in at nothing.)
+  const spots = [...desks.map((d) => d.spot), ...(lead ? [lead.spot] : []), boardSpot];
   for (const p of around)
-    if (p.x > 0.8 && p.x < roomW - 0.8 && p.z > 0.8 && p.z < roomD - 0.8 && clearAt(p.x, p.z, 0.75)) {
+    if (p.x > 0.8 && p.x < roomW - 0.8 && p.z > 0.8 && p.z < roomD - 0.8 && clearAt(p.x, p.z, 0.75) && spots.every((q) => Math.hypot(q.x - p.x, q.z - p.z) > 2.6)) {
       spawn = { x: p.x, z: p.z, face: -0.5 };
       break;
     }
@@ -558,7 +561,7 @@ const CAMPUS_GAP_Z = 13;
 const CAMPUS_ASPECT = 1.6;
 // A project's floors stand on each other over the campus, one building, each
 // this far over the one below and a little back.
-export const FLOOR_LIFT = 7.5;
+export const FLOOR_LIFT = 8.5;
 const FLOOR_STEP = 3;
 // Where a floor past the first really is, for walking in it: far behind the
 // campus, clear of every other room (the campus shows it on its building).
