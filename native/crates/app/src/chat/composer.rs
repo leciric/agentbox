@@ -968,11 +968,11 @@ impl ChatView {
                     .px_3()
                     .py_2()
                     .rounded_xl()
-                    .bg(theme::raised())
+                    .bg(theme::surface_raised())
                     .border_1()
                     .border_color(theme::error().opacity(0.4))
                     .text_sm()
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(f.text.clone()),
             )
             .child(
@@ -1504,7 +1504,7 @@ impl ChatView {
                             .text_color(theme::accent())
                     })
                     .when(!on, |el| el.text_color(theme::muted()))
-                    .hover(|el| el.bg(theme::hover()))
+                    .hover(|el| el.bg(theme::surface_strong()))
                     .child(t("chat.options.plan"))
                     .tooltip({
                         let tip = if on {
@@ -1699,7 +1699,7 @@ impl ChatView {
                                 div()
                                     .flex_1()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(heading),
                             )
                             .when(pending.len() > 1, |el| {
@@ -1709,7 +1709,7 @@ impl ChatView {
                                 )))
                             }),
                     )
-                    .child(div().text_color(theme::fg()).child(p.title.clone()))
+                    .child(div().text_color(theme::primary()).child(p.title.clone()))
                     .when(!detail.is_empty() && !p.title.contains(&detail), |el| {
                         el.child(
                             div()
@@ -1761,7 +1761,7 @@ impl ChatView {
                                 div()
                                     .flex_1()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(if expired {
                                         t("chat.cache.expired")
                                     } else {
@@ -1796,8 +1796,8 @@ impl ChatView {
                                 .px_2p5()
                                 .py_1p5()
                                 .rounded_lg()
-                                .bg(theme::raised())
-                                .text_color(theme::fg())
+                                .bg(theme::surface_raised())
+                                .text_color(theme::primary())
                                 .child(h),
                         )
                     })
@@ -1908,7 +1908,7 @@ impl ChatView {
             } else {
                 theme::muted()
             })
-            .hover(|el| el.bg(theme::hover()))
+            .hover(|el| el.bg(theme::surface_strong()))
             .child(if done == all {
                 format!("✓ {}", t("chat.tasks.allDone"))
             } else {
@@ -1926,8 +1926,8 @@ impl ChatView {
                 .py_2()
                 .rounded_lg()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::panel())
+                .border_color(theme::line())
+                .bg(theme::card())
                 .text_sm()
                 .children(plan.plan.iter().map(|e| {
                     let (mark, color) = match e.status.as_str() {
@@ -1948,7 +1948,7 @@ impl ChatView {
                                 .text_color(if e.status == "completed" {
                                     theme::muted()
                                 } else {
-                                    theme::fg()
+                                    theme::primary()
                                 })
                                 .child(e.content.clone()),
                         )
@@ -1973,8 +1973,8 @@ impl ChatView {
                 .gap_2()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::raised())
+                .border_color(theme::line())
+                .bg(theme::surface_raised())
                 .child(super::btn(
                     "closed-delete",
                     t("common.delete"),
@@ -2016,8 +2016,8 @@ impl ChatView {
                 .gap_2()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::raised())
+                .border_color(theme::line())
+                .bg(theme::surface_raised())
                 .child(super::btn(
                     "past-delete",
                     t("common.delete"),
@@ -2076,8 +2076,8 @@ impl ChatView {
                 .p_1()
                 .rounded_lg()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::panel())
+                .border_color(theme::line())
+                .bg(theme::card())
                 .shadow_md()
                 .child(
                     div()
@@ -2103,15 +2103,15 @@ impl ChatView {
                         .rounded_md()
                         .cursor_pointer()
                         .text_sm()
-                        .when(i == ix, |el| el.bg(theme::hover()))
-                        .hover(|el| el.bg(theme::hover()))
+                        .when(i == ix, |el| el.bg(theme::surface_strong()))
+                        .hover(|el| el.bg(theme::surface_strong()))
                         .on_click(move |_, window, cx| {
                             v.update(cx, |this, cx| this.pick(item.clone(), window, cx))
                         })
                         .child(
                             div()
                                 .flex_none()
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .font_family(if mention { theme::mono() } else { "" })
                                 .child(m.label.clone()),
                         )
@@ -2151,8 +2151,8 @@ impl ChatView {
                         .justify_center()
                         .rounded_full()
                         .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::raised())
+                        .border_color(theme::line())
+                        .bg(theme::surface_raised())
                         .cursor_pointer()
                         .text_xs()
                         .text_color(theme::muted())
@@ -2168,7 +2168,7 @@ impl ChatView {
                                     .rounded_lg()
                                     .overflow_hidden()
                                     .border_1()
-                                    .border_color(theme::border())
+                                    .border_color(theme::line())
                                     .child(
                                         img(im.clone()).size_full().object_fit(ObjectFit::Cover),
                                     ),
@@ -2186,8 +2186,8 @@ impl ChatView {
                                     .pr_3()
                                     .rounded_xl()
                                     .border_1()
-                                    .border_color(theme::border())
-                                    .bg(theme::panel())
+                                    .border_color(theme::line())
+                                    .bg(theme::card())
                                     .child(
                                         div()
                                             .text_color(theme::muted())
@@ -2225,26 +2225,26 @@ impl ChatView {
             });
         let menu_len = menu.len();
         let menu_for_enter = menu.clone();
+        let focused = self.composer.input.read(cx).focus_handle(cx).contains_focused(window, cx);
         v_flex()
             .flex_none()
             .px_4()
             .pt_2()
             .pb_3()
-            .border_t_1()
-            .border_color(theme::border())
             .children(tasks_list)
             .children(menu_el)
             .children(above)
             .child(
                 v_flex()
                     .id("composer")
-                    .rounded_xl()
+                    .rounded(px(22.))
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
-                    .px_3()
-                    .pt_2()
-                    .pb_1p5()
+                    .border_color(if focused { theme::line_vivid() } else { theme::line_strong() })
+                    .bg(theme::composer())
+                    .shadow(theme::shadow_composer(focused))
+                    .px_3p5()
+                    .pt_2p5()
+                    .pb_2()
                     // While a menu is open, its keys are its own.
                     .capture_action(cx.listener(move |this, _: &MoveDown, _, cx| {
                         if menu_len > 0 {
@@ -2306,7 +2306,7 @@ impl ChatView {
                                     .rounded_md()
                                     .cursor_pointer()
                                     .text_color(theme::muted())
-                                    .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+                                    .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
                                     .child("+")
                                     .tooltip(|w, cx| {
                                         gpui_component::tooltip::Tooltip::new(t(
@@ -2338,8 +2338,8 @@ impl ChatView {
                                     .rounded_md()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .bg(theme::accent())
-                                    .text_color(gpui::white())
+                                    .bg(theme::brand(500))
+                                    .text_color(theme::on_brand())
                                     .when(!can_send, |el| el.opacity(0.4))
                                     .when(can_send, |el| {
                                         el.cursor_pointer().hover(|el| el.opacity(0.9))

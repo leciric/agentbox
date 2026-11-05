@@ -19,8 +19,8 @@ pub(super) fn card(id: impl Into<ElementId>) -> Stateful<Div> {
         .gap_2()
         .rounded_xl()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::panel())
+        .border_color(theme::line())
+        .bg(theme::card())
 }
 
 /// empty is EmptyState: a title and a line under it, in a card.
@@ -32,7 +32,7 @@ pub(super) fn empty(id: &str, title: String, body: String) -> AnyElement {
             div()
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(title),
         )
         .when(!body.is_empty(), |el| {
@@ -73,7 +73,7 @@ pub(super) fn ask(
             div()
                 .text_lg()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(question),
         )
         .when(!description.is_empty(), |el| {
@@ -128,7 +128,7 @@ pub(super) fn check(
         .gap_2()
         .items_start()
         .text_sm()
-        .text_color(theme::fg())
+        .text_color(theme::primary())
         .when(disabled, |el| el.opacity(0.5))
         .when(!disabled, |el| el.cursor_pointer().on_click(on_click))
         .child(
@@ -138,12 +138,12 @@ pub(super) fn check(
                 .size(px(14.))
                 .rounded_sm()
                 .border_1()
-                .border_color(if on { theme::accent() } else { theme::border() })
-                .bg(if on { theme::accent() } else { theme::bg() })
+                .border_color(if on { theme::accent() } else { theme::line() })
+                .bg(if on { theme::accent() } else { theme::ink() })
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_color(gpui::white())
+                .text_color(theme::on_brand())
                 .text_size(px(10.))
                 .when(on, |el| el.child(crate::icons::of("✓"))),
         )
@@ -185,7 +185,7 @@ pub(super) fn title(text: impl Into<SharedString>) -> AnyElement {
     div()
         .text_sm()
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme::fg())
+        .text_color(theme::primary())
         .child(text.into())
         .into_any_element()
 }

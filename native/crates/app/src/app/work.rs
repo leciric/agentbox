@@ -270,8 +270,8 @@ impl WorkView {
             .gap(px(2.))
             .rounded_lg()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::panel())
+            .border_color(theme::line())
+            .bg(theme::card())
             .children(FILTERS.iter().map(|(f, key)| {
                 let on = self.filter == *f;
                 let n = if *f == "review" && self.filter.is_empty() {
@@ -289,13 +289,13 @@ impl WorkView {
                     .text_sm()
                     .cursor_pointer()
                     .when(on, |el| {
-                        el.bg(theme::hover())
-                            .text_color(theme::fg())
+                        el.bg(theme::surface_strong())
+                            .text_color(theme::primary())
                             .font_weight(FontWeight::MEDIUM)
                     })
                     .when(!on, |el| {
                         el.text_color(theme::muted())
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| s.text_color(theme::primary()))
                     })
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.filter = f.clone();
@@ -413,9 +413,9 @@ impl WorkView {
             .px_4()
             .py_2p5()
             .border_b_1()
-            .border_color(theme::border().opacity(0.5))
+            .border_color(theme::line().opacity(0.5))
             .cursor_pointer()
-            .hover(|el| el.bg(theme::raised()))
+            .hover(|el| el.bg(theme::surface_raised()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open(open.clone(), cx)))
             .child(
                 div()
@@ -439,7 +439,7 @@ impl WorkView {
                                     .truncate()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .when(i.title.is_empty(), |el| {
                                         el.font_family(crate::theme::mono())
                                     })
@@ -548,7 +548,7 @@ impl Render for WorkView {
                                             div()
                                                 .text_2xl()
                                                 .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(theme::fg())
+                                                .text_color(theme::primary())
                                                 .child(t("work.title")),
                                         )
                                         .child(
@@ -573,7 +573,7 @@ impl Render for WorkView {
                                         .hover(|el| el.bg(theme::accent().opacity(0.2)))
                                         .text_sm()
                                         .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .on_click(cx.listener(
                                             |this, _: &ClickEvent, window, cx| {
                                                 this.open_recap(window, cx)
@@ -613,8 +613,8 @@ impl Render for WorkView {
                             v_flex()
                                 .rounded_xl()
                                 .border_1()
-                                .border_color(theme::border())
-                                .bg(theme::panel())
+                                .border_color(theme::line())
+                                .bg(theme::card())
                                 .overflow_hidden()
                                 .map(|el| match (&self.error, &self.page) {
                                     (Some(e), _) => el.child(
@@ -655,8 +655,8 @@ impl Render for WorkView {
                                                         .px_4()
                                                         .py_1p5()
                                                         .border_b_1()
-                                                        .border_color(theme::border().opacity(0.5))
-                                                        .bg(theme::raised().opacity(0.4))
+                                                        .border_color(theme::line().opacity(0.5))
+                                                        .bg(theme::surface_raised().opacity(0.4))
                                                         .text_xs()
                                                         .font_weight(FontWeight::SEMIBOLD)
                                                         .text_color(theme::faint())

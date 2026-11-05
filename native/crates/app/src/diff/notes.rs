@@ -486,7 +486,7 @@ impl DiffView {
             .rounded_lg()
             .border_1()
             .border_color(theme::accent().opacity(0.4))
-            .bg(theme::panel())
+            .bg(theme::card())
             .font_family(cx.theme().font_family.clone())
             .child(div().text_xs().text_color(theme::muted()).child(title))
             .children(input.map(|i| Textarea::new(&i)))
@@ -550,8 +550,8 @@ impl DiffView {
             .py_2()
             .rounded_lg()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::panel())
+            .border_color(theme::line())
+            .bg(theme::card())
             .font_family(cx.theme().font_family.clone())
             .when(note.status == "resolved", |el| el.opacity(0.75))
             .child(
@@ -619,7 +619,7 @@ impl DiffView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .whitespace_normal()
                     .child(note.body.clone()),
             )

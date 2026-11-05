@@ -102,7 +102,7 @@ pub fn split(
         .custom(
             ButtonCustomVariant::new(cx)
                 .color(theme::accent())
-                .foreground(gpui::white())
+                .foreground(theme::on_brand())
                 .hover(theme::accent().opacity(0.9))
                 .active(theme::accent()),
         )
@@ -142,10 +142,10 @@ pub fn split(
                 .gap_2()
                 .px_3()
                 .rounded_l_md()
-                .bg(theme::accent())
+                .bg(theme::brand(500))
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(gpui::white())
+                .text_color(theme::on_brand())
                 .when(disabled, |el| el.opacity(0.45))
                 .when(!disabled, |el| {
                     el.cursor_pointer()
@@ -160,7 +160,7 @@ pub fn split(
                 .rounded_r_md()
                 .overflow_hidden()
                 .border_l_1()
-                .border_color(gpui::white().opacity(0.25))
+                .border_color(theme::on_brand().opacity(0.25))
                 .when(disabled, |el| el.opacity(0.45))
                 .child(menu),
         )
@@ -208,7 +208,7 @@ pub fn confirm(
         .id("merge-confirm")
         .absolute()
         .inset_0()
-        .bg(gpui::black().opacity(0.55))
+        .bg(theme::scrim())
         .flex()
         .items_center()
         .justify_center()
@@ -221,16 +221,16 @@ pub fn confirm(
                 .gap_4()
                 .p_6()
                 .rounded_xl()
-                .bg(theme::panel())
+                .bg(theme::card())
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .shadow_lg()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(
                     div()
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::fg())
+                        .text_color(theme::primary())
                         .child(tv(
                             "memory.pulls.confirm.title",
                             &[("number", pr.number.into())],

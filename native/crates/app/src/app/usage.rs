@@ -41,7 +41,7 @@ pub(super) struct Meters {
 }
 
 fn claude() -> Hsla {
-    rgb(0xd97757).into()
+    theme::claude()
 }
 
 fn now_ms() -> i64 {
@@ -369,7 +369,7 @@ impl AppView {
                         .py_0p5()
                         .rounded_full()
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .text_xs()
                         .text_color(theme::faint())
                         .child(if codex {
@@ -416,7 +416,7 @@ impl AppView {
             .child(
                 div()
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(name),
             )
             .child(
@@ -430,7 +430,7 @@ impl AppView {
                 div()
                     .font_family(theme::mono())
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(tone_color(tone(five_now), theme::fg()))
+                    .text_color(tone_color(tone(five_now), theme::primary()))
                     .child(percent(five_now)),
             )
             .when(week.is_some(), |el| {
@@ -442,7 +442,7 @@ impl AppView {
                 .child(
                     div()
                         .font_family(theme::mono())
-                        .text_color(tone_color(tone(week_now), theme::fg()))
+                        .text_color(tone_color(tone(week_now), theme::primary()))
                         .child(percent(week_now)),
                 )
             });
@@ -511,7 +511,7 @@ impl AppView {
                                 .border_1()
                                 .border_color(theme::error().opacity(0.25))
                                 .text_xs()
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(tv(
                                     if codex {
                                         "shell.top.codexAtLimit"
@@ -528,7 +528,7 @@ impl AppView {
                                 .gap_1()
                                 .pt_2p5()
                                 .border_t_1()
-                                .border_color(theme::border())
+                                .border_color(theme::line())
                                 .text_xs()
                                 .child(
                                     div()
@@ -682,7 +682,7 @@ impl AppView {
                             .gap_3()
                             .pt_2p5()
                             .border_t_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .text_xs()
                             .child(
                                 div()
@@ -698,7 +698,7 @@ impl AppView {
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme::accent())
                                     .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
+                                    .hover(|s| s.bg(theme::surface_strong()))
                                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                         this.topbar.pop = None;
                                         this.open_settings_at("resources".into(), window, cx)
@@ -758,12 +758,12 @@ impl AppView {
             .rounded_full()
             .border_1()
             .border_color(if kind == "running" {
-                theme::border()
+                theme::line()
             } else {
                 color.opacity(0.4)
             })
             .when(kind != "running", |el| el.bg(color.opacity(0.1)))
-            .hover(|s| s.bg(theme::hover()))
+            .hover(|s| s.bg(theme::surface_strong()))
             .cursor_pointer()
             .text_xs()
             .child(div().size(px(6.)).rounded_full().bg(color))
@@ -790,7 +790,7 @@ impl AppView {
                                 .truncate()
                                 .font_family(theme::mono())
                                 .text_color(if tone == theme::running() {
-                                    theme::fg()
+                                    theme::primary()
                                 } else {
                                     tone
                                 })
@@ -924,7 +924,7 @@ fn limit_row(w: &ClaudeLimitWindow, now: i64, bar: Hsla) -> AnyElement {
                         .child(
                             div()
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(tone_color(tn, theme::fg()))
+                                .text_color(tone_color(tn, theme::primary()))
                                 .child(tv(
                                     "shell.top.percentUsed",
                                     &[("percent", (pct.round() as i64).into())],
@@ -941,7 +941,7 @@ fn limit_row(w: &ClaudeLimitWindow, now: i64, bar: Hsla) -> AnyElement {
                 .h(px(6.))
                 .w_full()
                 .rounded_full()
-                .bg(theme::raised())
+                .bg(theme::surface_raised())
                 .overflow_hidden()
                 .when(used.is_some(), |el| {
                     el.child(
@@ -1049,7 +1049,7 @@ fn disk_row(d: &agentbox_api::DiskGuardDisk) -> AnyElement {
                 .h(px(6.))
                 .w_full()
                 .rounded_full()
-                .bg(theme::raised())
+                .bg(theme::surface_raised())
                 .child(
                     div()
                         .h_full()

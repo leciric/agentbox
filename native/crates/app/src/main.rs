@@ -23,6 +23,7 @@ mod prefs;
 mod snapshot;
 mod spot;
 mod terminal;
+mod motion;
 mod theme;
 mod toasts;
 mod tray;
@@ -59,7 +60,8 @@ fn main() {
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
-            gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
+            theme::init(cx);
+            motion::init(cx);
             webview::init(cx);
             // Where it was last time, on a display there is now (alerts.rs).
             let options = WindowOptions {

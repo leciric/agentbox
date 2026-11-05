@@ -630,11 +630,11 @@ impl AppView {
                 .border_color(if on {
                     theme::accent().opacity(0.6)
                 } else {
-                    theme::border()
+                    theme::line()
                 })
                 .when(on, |el| el.bg(theme::accent().opacity(0.08)))
                 .cursor_pointer()
-                .hover(|st| st.bg(theme::raised()))
+                .hover(|st| st.bg(theme::surface_raised()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     this.pick_preset(pick.clone(), window, cx)
                 }))
@@ -645,20 +645,20 @@ impl AppView {
                             div()
                                 .size(px(22.))
                                 .rounded_md()
-                                .bg(theme::raised())
+                                .bg(theme::surface_raised())
                                 .flex()
                                 .items_center()
                                 .justify_center()
                                 .text_xs()
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(crate::icons::of(mark)),
                         )
                         .child(
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(label),
                         ),
                 )
@@ -752,7 +752,7 @@ impl AppView {
             .gap_3()
             .pt_2()
             .border_t_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 h_flex()
                     .gap_3()
@@ -910,7 +910,7 @@ impl AppView {
             .py_2p5()
             .rounded_lg()
             .border_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 h_flex()
                     .flex_wrap()
@@ -919,7 +919,7 @@ impl AppView {
                         div()
                             .font_family(crate::theme::mono())
                             .text_sm()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(x.name.clone()),
                     )
                     .child(badge(label, color))

@@ -165,7 +165,7 @@ fn stat(label: String, value: String, color: Option<Hsla>) -> AnyElement {
             div()
                 .text_lg()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color.unwrap_or_else(theme::fg))
+                .text_color(color.unwrap_or_else(theme::primary))
                 .child(value),
         )
         .into_any_element()
@@ -176,8 +176,8 @@ fn stats_panel(stats: Vec<AnyElement>) -> AnyElement {
         .flex_wrap()
         .rounded_xl()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::panel())
+        .border_color(theme::line())
+        .bg(theme::card())
         .children(stats)
         .into_any_element()
 }
@@ -189,7 +189,7 @@ fn heading(title: String, description: String) -> AnyElement {
             div()
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(title),
         )
         .when(!description.is_empty(), |el| {
@@ -232,15 +232,15 @@ fn table(
         .id(SharedString::from(format!("diag-table-{id}")))
         .rounded_xl()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::panel())
+        .border_color(theme::line())
+        .bg(theme::card())
         .child(
             h_flex()
                 .gap_2()
                 .px_3()
                 .py_1p5()
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .children(
                     headers
                         .into_iter()
@@ -251,7 +251,7 @@ fn table(
         .children(rows.into_iter().map(|r| {
             h_flex().gap_2().px_3().py_1().items_start().children(
                 r.into_iter().enumerate().map(|(i, (text, color))| {
-                    cell(i, text, color.unwrap_or_else(theme::fg), i == 0)
+                    cell(i, text, color.unwrap_or_else(theme::primary), i == 0)
                 }),
             )
         }))
@@ -264,8 +264,8 @@ fn empty_line(text: String) -> AnyElement {
         .py_3()
         .rounded_xl()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::panel())
+        .border_color(theme::line())
+        .bg(theme::card())
         .text_xs()
         .text_color(theme::muted())
         .child(text)
@@ -304,7 +304,7 @@ fn chart(
                 .gap(px(1.))
                 .items_end()
                 .rounded_md()
-                .bg(theme::bg())
+                .bg(theme::ink())
                 .children(data.iter().map(|b| {
                     let h = |v: f64| relative(((v / max).clamp(0., 1.) as f32).max(0.03));
                     div()
@@ -659,7 +659,7 @@ impl AppView {
                         .min_w_0()
                         .text_xs()
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::fg())
+                        .text_color(theme::primary())
                         .child(name),
                 )
                 .child(
@@ -685,7 +685,7 @@ impl AppView {
                         .flex_none()
                         .text_right()
                         .text_xs()
-                        .text_color(theme::fg())
+                        .text_color(theme::primary())
                         .child(format_ms(s.duration_ms)),
                 )
                 .child(
@@ -718,15 +718,15 @@ impl AppView {
                 v_flex()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
+                    .border_color(theme::line())
+                    .bg(theme::card())
                     .child(
                         h_flex()
                             .gap_2()
                             .px_3()
                             .py_1p5()
                             .border_b_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .text_xs()
                             .text_color(theme::faint())
                             .children(headers.iter().enumerate().map(|(i, h)| {
@@ -941,7 +941,7 @@ impl AppView {
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .when(mono, |el| el.font_family(crate::theme::mono()).text_xs())
                                 .child(name),
                         )
@@ -1032,7 +1032,7 @@ impl AppView {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(t("diagnostics.resources.empty")),
                     )
                     .child(note(t("diagnostics.resources.emptyHint")))
@@ -1040,8 +1040,8 @@ impl AppView {
                 Some(Ok(_)) => v_flex()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
+                    .border_color(theme::line())
+                    .bg(theme::card())
                     .children(rows)
                     .into_any_element(),
             })

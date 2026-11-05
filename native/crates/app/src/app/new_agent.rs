@@ -728,20 +728,20 @@ impl AppView {
                     .border_color(if on {
                         theme::accent().opacity(0.6)
                     } else {
-                        theme::border()
+                        theme::line()
                     })
                     .when(on, |el| el.bg(theme::accent().opacity(0.1)))
                     .when(disabled, |el| el.opacity(0.5))
                     .when(!disabled, |el| {
                         el.cursor_pointer()
-                            .hover(|s| s.bg(theme::raised()))
+                            .hover(|s| s.bg(theme::surface_raised()))
                             .on_click(click)
                     })
                     .child(
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(title),
                     )
                     .child(div().text_xs().text_color(theme::faint()).child(hint))
@@ -829,7 +829,7 @@ impl AppView {
                 .text_sm()
                 .text_color(theme::muted())
                 .cursor_pointer()
-                .hover(|s| s.text_color(theme::fg()))
+                .hover(|s| s.text_color(theme::primary()))
                 .on_click(flip(|d| d.advanced = !d.advanced))
                 .child(format!(
                     "{} {}",
@@ -1240,8 +1240,8 @@ impl AppView {
             .p_4()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::bg())
+            .border_color(theme::line())
+            .bg(theme::ink())
             .children(rows)
             .into_any_element()
     }
@@ -1317,7 +1317,7 @@ fn switch_row(
                 .flex_1()
                 .min_w_0()
                 .gap_0p5()
-                .child(div().text_sm().text_color(theme::fg()).child(label))
+                .child(div().text_sm().text_color(theme::primary()).child(label))
                 .child(div().text_xs().text_color(theme::faint()).child(hint)),
         )
         .into_any_element()

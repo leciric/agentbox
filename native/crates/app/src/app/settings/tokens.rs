@@ -183,8 +183,8 @@ fn card_box(title: String, description: String) -> Div {
         .p_4()
         .rounded_xl()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::panel())
+        .border_color(theme::line())
+        .bg(theme::card())
         .child(
             v_flex()
                 .gap_0p5()
@@ -212,8 +212,8 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
         .p_3()
         .rounded_xl()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::bg())
+        .border_color(theme::line())
+        .bg(theme::ink())
         .child(
             div()
                 .text_xs()
@@ -244,7 +244,7 @@ fn bar(fraction: f64, color: Hsla, h: f32) -> Div {
         .h(px(h))
         .w_full()
         .rounded_full()
-        .bg(theme::raised())
+        .bg(theme::surface_raised())
         .overflow_hidden()
         .child(
             div()
@@ -392,7 +392,7 @@ impl AppView {
                 .p_6()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(
                     div()
                         .text_sm()
@@ -638,7 +638,7 @@ impl AppView {
                     .w(px(w))
                     .flex_none()
                     .when(right, |el| el.text_right())
-                    .text_color(if strong { theme::fg() } else { theme::muted() })
+                    .text_color(if strong { theme::primary() } else { theme::muted() })
                     .child(text)
             };
             let header = h_flex()
@@ -648,7 +648,7 @@ impl AppView {
                 .text_xs()
                 .text_color(theme::faint())
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(
                     div()
                         .flex_1()
@@ -674,7 +674,7 @@ impl AppView {
                         .gap_2()
                         .text_xs()
                         .border_t_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .child(
                             div()
                                 .flex_1()
@@ -695,8 +695,8 @@ impl AppView {
                 .p_4()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::panel())
+                .border_color(theme::line())
+                .bg(theme::card())
                 .child(head)
                 .child(
                     v_flex()
@@ -705,7 +705,7 @@ impl AppView {
                         .overflow_y_scroll()
                         .rounded_xl()
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .child(header)
                         .children(rows),
                 )
@@ -764,7 +764,7 @@ impl AppView {
                         .max_w(px(24.))
                         .h(relative(h as f32))
                         .rounded_t(px(4.))
-                        .bg(theme::accent())
+                        .bg(theme::brand(500))
                         .hover(|s| s.opacity(0.8)),
                 )
         });
@@ -778,8 +778,8 @@ impl AppView {
             .p_4()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::panel())
+            .border_color(theme::line())
+            .bg(theme::card())
             .child(head)
             .child(
                 h_flex()
@@ -804,7 +804,7 @@ impl AppView {
                             .items_end()
                             .gap(px(2.))
                             .border_b_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .children(columns),
                     ),
             )
@@ -871,8 +871,8 @@ impl AppView {
             };
             v_flex()
                 .border_t_1()
-                .border_color(theme::border())
-                .when(open, |el| el.bg(theme::raised()))
+                .border_color(theme::line())
+                .when(open, |el| el.bg(theme::surface_raised()))
                 .child(
                     h_flex()
                         .id(SharedString::from(format!("tokens-{}", a.r#ref)))
@@ -882,7 +882,7 @@ impl AppView {
                         .gap_2()
                         .text_xs()
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
+                        .hover(|s| s.bg(theme::surface_strong()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.unfold_agent(r2.clone(), cx)
                         }))
@@ -915,7 +915,7 @@ impl AppView {
                                                         div()
                                                             .px_1()
                                                             .rounded_sm()
-                                                            .bg(theme::raised())
+                                                            .bg(theme::surface_raised())
                                                             .text_color(theme::muted())
                                                             .child(t("vm.tokens.retired")),
                                                     )
@@ -973,7 +973,7 @@ impl AppView {
                 v_flex()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .overflow_hidden()
                     .child(header)
                     .children(rows),
@@ -1026,7 +1026,7 @@ impl AppView {
                 v_flex()
                     .rounded_lg()
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .text_xs()
                     .children(list.iter().map(|turn| {
                         let speed = if turn.generation_ms > 0 {
@@ -1039,7 +1039,7 @@ impl AppView {
                             .py_1()
                             .gap_2()
                             .border_t_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .text_color(theme::muted())
                             .child(div().w(px(72.)).flex_none().child(time_ago(&turn.at)))
                             .child(div().w(px(96.)).flex_none().child(kind_label(&turn.kind)))

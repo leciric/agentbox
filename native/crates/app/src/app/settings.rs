@@ -514,12 +514,7 @@ impl AppView {
 
     fn wear(&mut self, th: Theme, window: &mut Window, cx: &mut Context<Self>) {
         if theme::apply(&th) {
-            let mode = if theme::look() == theme::Look::Light {
-                gpui_component::ThemeMode::Light
-            } else {
-                gpui_component::ThemeMode::Dark
-            };
-            gpui_component::Theme::change(mode, Some(window), cx);
+            theme::sync_widgets(cx);
             window.refresh();
         }
         self.settings_page.theme = Some(th);
@@ -941,7 +936,7 @@ impl AppView {
             .id("settings")
             .size_full()
             .items_start()
-            .bg(theme::bg())
+            .bg(theme::ink())
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 let k = &ev.keystroke;
                 if k.key == "f" && (k.modifiers.control || k.modifiers.platform) {
@@ -1052,10 +1047,10 @@ impl AppView {
                 .rounded_lg()
                 .text_sm()
                 .cursor_pointer()
-                .when(active, |el| el.bg(theme::raised()).text_color(theme::fg()))
+                .when(active, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                 .when(!active, |el| {
                     el.text_color(theme::muted())
-                        .hover(|st| st.bg(theme::panel()).text_color(theme::fg()))
+                        .hover(|st| st.bg(theme::card()).text_color(theme::primary()))
                 })
                 .when(searching && n == 0, |el| el.opacity(0.4))
                 .child(div().flex_1().min_w_0().truncate().child(s.title.clone()))
@@ -1064,7 +1059,7 @@ impl AppView {
                         div()
                             .px_1p5()
                             .rounded_full()
-                            .bg(theme::raised())
+                            .bg(theme::surface_raised())
                             .text_xs()
                             .text_color(theme::muted())
                             .child(n.to_string()),
@@ -1121,7 +1116,7 @@ impl AppView {
                 .text_color(theme::muted())
                 .when(!searching, |el| {
                     el.cursor_pointer()
-                        .hover(|st| st.bg(theme::panel()).text_color(theme::fg()))
+                        .hover(|st| st.bg(theme::card()).text_color(theme::primary()))
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.settings_page.advanced = !this.settings_page.advanced;
                             cx.notify();
@@ -1157,7 +1152,7 @@ impl AppView {
             .h_full()
             .overflow_y_scroll()
             .border_r_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .px_3()
             .pt_6()
             .pb_6()
@@ -1173,7 +1168,7 @@ impl AppView {
                     .text_sm()
                     .text_color(theme::muted())
                     .cursor_pointer()
-                    .hover(|st| st.bg(theme::panel()).text_color(theme::fg()))
+                    .hover(|st| st.bg(theme::card()).text_color(theme::primary()))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_settings(cx)))
                     .child(format!("← {}", t("common.back")))
                     .child(
@@ -1181,7 +1176,7 @@ impl AppView {
                             .px_1()
                             .rounded_sm()
                             .border_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .text_xs()
                             .text_color(theme::faint())
                             .child("Esc"),
@@ -1192,7 +1187,7 @@ impl AppView {
                     .px_2()
                     .text_xl()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(t("common.settings")),
             )
             .child(
@@ -1213,13 +1208,13 @@ impl AppView {
                                 } else {
                                     theme::faint()
                                 })
-                                .hover(|st| st.text_color(theme::fg()))
+                                .hover(|st| st.text_color(theme::primary()))
                                 .child(
                                     div()
                                         .w(px(2.))
                                         .h(px(10.))
                                         .rounded_full()
-                                        .bg(theme::accent()),
+                                        .bg(theme::brand(500)),
                                 )
                                 .child(tv(
                                     "settings.page.changedFromDefault",
@@ -1271,7 +1266,7 @@ impl AppView {
                                 div()
                                     .text_lg()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(s.title.clone()),
                             ),
                     )
@@ -1289,8 +1284,8 @@ impl AppView {
                         .py_4()
                         .rounded_xl()
                         .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::panel())
+                        .border_color(theme::line())
+                        .bg(theme::card())
                         .text_sm()
                         .text_color(theme::muted())
                         .child(t("native.settings.later")),
@@ -1335,7 +1330,7 @@ impl AppView {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(g.title.clone()),
             )
             .when(!g.description.is_empty(), |el| {
@@ -1358,7 +1353,7 @@ impl AppView {
         for (i, e) in g.entries.iter().enumerate() {
             rows.push(
                 div()
-                    .when(i > 0, |el| el.border_t_1().border_color(theme::border()))
+                    .when(i > 0, |el| el.border_t_1().border_color(theme::line()))
                     .child(self.render_entry(e, cx))
                     .into_any_element(),
             );
@@ -1371,8 +1366,8 @@ impl AppView {
                 v_flex()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
+                    .border_color(theme::line())
+                    .bg(theme::card())
                     .children(rows),
             )
             .into_any_element()
@@ -1393,7 +1388,7 @@ impl AppView {
                     .text_sm()
                     .text_color(theme::muted())
                     .cursor_pointer()
-                    .hover(|st| st.text_color(theme::fg()))
+                    .hover(|st| st.text_color(theme::primary()))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.settings_page.advanced = !this.settings_page.advanced;
                         cx.notify();
@@ -1409,8 +1404,8 @@ impl AppView {
                     v_flex()
                         .rounded_xl()
                         .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::panel())
+                        .border_color(theme::line())
+                        .bg(theme::card())
                         .children(sections.iter().enumerate().map(|(i, s)| {
                             let id = s.id.clone();
                             let (n, changed) = (s.count(), s.changed());
@@ -1419,9 +1414,9 @@ impl AppView {
                                 .gap_3()
                                 .px_5()
                                 .py_3()
-                                .when(i > 0, |el| el.border_t_1().border_color(theme::border()))
+                                .when(i > 0, |el| el.border_t_1().border_color(theme::line()))
                                 .cursor_pointer()
-                                .hover(|st| st.bg(theme::raised()))
+                                .hover(|st| st.bg(theme::surface_raised()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                     this.open_settings_section(id.clone(), window, cx)
                                 }))
@@ -1444,7 +1439,7 @@ impl AppView {
                                                     div()
                                                         .text_sm()
                                                         .font_weight(FontWeight::MEDIUM)
-                                                        .text_color(theme::fg())
+                                                        .text_color(theme::primary())
                                                         .truncate()
                                                         .child(s.title.clone()),
                                                 ),
@@ -1519,7 +1514,7 @@ impl AppView {
                         div()
                             .text_base()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(s.title.clone()),
                     )
                     .children(s.groups.iter().map(|g| self.render_group(g, cx)))

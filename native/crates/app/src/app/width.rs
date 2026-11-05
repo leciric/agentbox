@@ -223,7 +223,7 @@ impl AppView {
                 .id("panel-drawer-scrim")
                 .absolute()
                 .inset_0()
-                .bg(gpui::black().opacity(0.45))
+                .bg(theme::scrim())
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _: &MouseDownEvent, _, cx| {

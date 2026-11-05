@@ -152,12 +152,12 @@ impl Render for Toasts {
                     .px_4()
                     .py_3()
                     .rounded(px(14.))
-                    .bg(theme::raised())
+                    .bg(theme::surface_raised())
                     .border_1()
                     .border_color(if toast.kind == Kind::Error {
                         theme::error().opacity(0.5)
                     } else {
-                        theme::border()
+                        theme::line()
                     })
                     .shadow_lg()
                     // A click on it stays on it, never reaching what's under.
@@ -180,7 +180,7 @@ impl Render for Toasts {
                                 div()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(toast.title.clone()),
                             )
                             .when_some(toast.description.clone(), |el, d| {
@@ -195,12 +195,12 @@ impl Render for Toasts {
                                 .px_2()
                                 .py_0p5()
                                 .rounded_md()
-                                .bg(theme::hover())
+                                .bg(theme::surface_strong())
                                 .text_xs()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .cursor_pointer()
-                                .hover(|s| s.bg(theme::border()))
+                                .hover(|s| s.bg(theme::line()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                     act(window, cx);
                                     this.dismiss(id, cx);
@@ -215,7 +215,7 @@ impl Render for Toasts {
                             .text_xs()
                             .text_color(theme::faint())
                             .cursor_pointer()
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| s.text_color(theme::primary()))
                             .on_click(
                                 cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.dismiss(id, cx)

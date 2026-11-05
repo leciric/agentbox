@@ -115,12 +115,12 @@ pub(crate) fn btn(
         .font_weight(FontWeight::MEDIUM)
         .map(|el| {
             if primary {
-                el.bg(theme::accent()).text_color(gpui::white())
+                el.bg(theme::brand(500)).text_color(theme::on_brand())
             } else {
                 el.border_1()
-                    .border_color(theme::border())
-                    .bg(theme::raised())
-                    .text_color(theme::fg())
+                    .border_color(theme::line())
+                    .bg(theme::surface_raised())
+                    .text_color(theme::primary())
             }
         })
         .when(disabled, |el| el.opacity(0.5))
@@ -804,10 +804,10 @@ impl ChatView {
             .px_6()
             .gap_3()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 div()
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(self.title.clone()),
             )
@@ -844,13 +844,13 @@ impl ChatView {
                         .py_1()
                         .rounded_full()
                         .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::raised())
+                        .border_color(theme::line())
+                        .bg(theme::surface_raised())
                         .shadow_md()
                         .cursor_pointer()
                         .text_xs()
-                        .text_color(theme::fg())
-                        .hover(|el| el.bg(theme::hover()))
+                        .text_color(theme::primary())
+                        .hover(|el| el.bg(theme::surface_strong()))
                         .child(format!("↓  {}", t("chat.tab.jumpToLatest")))
                         .on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| this.jump_to_latest(cx)),
@@ -904,7 +904,7 @@ impl Render for ChatView {
             .track_focus(&self.focus)
             .relative()
             .size_full()
-            .bg(theme::bg())
+            .bg(theme::chat())
             // Ctrl+F finds in this chat; Escape closes the find bar.
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 let k = &ev.keystroke;
@@ -951,7 +951,7 @@ impl Render for ChatView {
                                     div()
                                         .px_2()
                                         .rounded_md()
-                                        .bg(theme::raised())
+                                        .bg(theme::surface_raised())
                                         .text_xs()
                                         .text_color(theme::muted())
                                         .child(t("chat.tab.loadingOlder")),

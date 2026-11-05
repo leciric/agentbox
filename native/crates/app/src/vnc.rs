@@ -389,7 +389,7 @@ impl Render for VncView {
             .id("vnc")
             .track_focus(&self.focus)
             .size_full()
-            .bg(gpui::black())
+            .bg(theme::pitch())
             .flex()
             .items_center()
             .justify_center()

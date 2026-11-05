@@ -1797,7 +1797,7 @@ impl AppView {
                                 ],
                             )
                         },
-                        theme::fg(),
+                        theme::primary(),
                     ))
                     .children(removable.iter().map(|m| {
                         h_flex()
@@ -1808,7 +1808,7 @@ impl AppView {
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(format!(
                                         "{} · {}",
                                         if m.title.is_empty() {
@@ -1856,8 +1856,8 @@ impl AppView {
                 .py_2p5()
                 .rounded_lg()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::bg())
+                .border_color(theme::line())
+                .bg(theme::ink())
                 .child(preview)
                 .into_any_element(),
         );

@@ -448,7 +448,7 @@ pub(super) fn github_fix(
 pub(super) fn hex(color: &str) -> Hsla {
     match u32::from_str_radix(color, 16) {
         Ok(v) if color.len() == 6 => rgb(v).into(),
-        _ => rgb(0x8b949e).into(),
+        _ => theme::label_grey(),
     }
 }
 
@@ -520,7 +520,7 @@ fn check_state(run: &PullCheck) -> (&'static str, Hsla, &'static str) {
 /// colour of its state, and its checks' mark; a click opens it on GitHub.
 pub(super) fn pr_chip(id: impl Into<ElementId>, pr: &PullRequest) -> AnyElement {
     let color = match pr.state.as_str() {
-        "merged" => hsla(0.75, 0.6, 0.72, 1.),
+        "merged" => theme::merged(),
         "closed" => theme::error(),
         _ if pr.draft => theme::muted(),
         _ if pr.checks == "failing" => theme::error(),
@@ -637,13 +637,13 @@ pub(super) fn empty_state(title: String, body: String) -> AnyElement {
         .py_8()
         .rounded_xl()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::raised())
+        .border_color(theme::line())
+        .bg(theme::surface_raised())
         .child(
             div()
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(title),
         )
         .child(
@@ -668,14 +668,14 @@ pub(super) fn chip(id: &str, label: String, count: Option<usize>, on: bool) -> S
         .font_weight(FontWeight::MEDIUM)
         .map(|el| {
             if on {
-                el.bg(theme::hover())
-                    .border_color(theme::border())
-                    .text_color(theme::fg())
+                el.bg(theme::surface_strong())
+                    .border_color(theme::line())
+                    .text_color(theme::primary())
             } else {
                 el.border_color(transparent_black())
                     .text_color(theme::muted())
                     .cursor_pointer()
-                    .hover(|s| s.text_color(theme::fg()).bg(theme::raised()))
+                    .hover(|s| s.text_color(theme::primary()).bg(theme::surface_raised()))
             }
         })
         .child(label)
@@ -1083,7 +1083,7 @@ impl AppView {
                     .bg(c.opacity(0.18))
                     .text_xs()
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(mix(c, theme::fg(), 0.4))
+                    .text_color(mix(c, theme::primary(), 0.4))
                     .when(!tip.is_empty(), |el| {
                         el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
                     })
@@ -1123,11 +1123,11 @@ impl AppView {
                             .rounded_full()
                             .border_1()
                             .border_dashed()
-                            .border_color(if open { theme::fg() } else { theme::border() })
+                            .border_color(if open { theme::primary() } else { theme::line() })
                             .text_xs()
-                            .text_color(if open { theme::fg() } else { theme::muted() })
+                            .text_color(if open { theme::primary() } else { theme::muted() })
                             .cursor_pointer()
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| s.text_color(theme::primary()))
                             .tooltip({
                                 let tip: SharedString = t(if none {
                                     "memory.pulls.labels.add"
@@ -1209,7 +1209,7 @@ impl AppView {
                         .py_1p5()
                         .rounded_md()
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
+                        .hover(|s| s.bg(theme::surface_strong()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.toggle_label(number, label.clone(), !on, cx)
                         }))
@@ -1235,7 +1235,7 @@ impl AppView {
                                 .child(
                                     div()
                                         .text_xs()
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .truncate()
                                         .child(l.name.clone()),
                                 )
@@ -1257,9 +1257,9 @@ impl AppView {
             .mt_1()
             .w(px(288.))
             .rounded_lg()
-            .bg(theme::panel())
+            .bg(theme::card())
             .border_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .shadow_lg()
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -1278,7 +1278,7 @@ impl AppView {
                 div()
                     .p_2()
                     .border_b_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(Input::new(&self.pulls.search).small()),
             )
             .child(
@@ -1391,7 +1391,7 @@ impl AppView {
                     .child(
                         div()
                             .font_family(crate::theme::mono())
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(data.github.clone()),
                     )
                     .when_some(account, |el, a| {
@@ -1488,7 +1488,7 @@ impl AppView {
                     .on_click(pick(Filter::All)),
                 )
                 .when(!me.is_empty(), |el| {
-                    el.child(div().mx_1().w(px(1.)).h(px(14.)).bg(theme::border()))
+                    el.child(div().mx_1().w(px(1.)).h(px(14.)).bg(theme::line()))
                         .child(
                             chip(
                                 "pulls-mine",
@@ -1534,7 +1534,7 @@ impl AppView {
                                 .when(refreshing, |el| el.opacity(0.4))
                                 .when(!refreshing, |el| {
                                     el.cursor_pointer()
-                                        .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                                        .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                             this.load_pulls(true, cx);
                                             cx.notify();
@@ -1620,8 +1620,8 @@ impl AppView {
             .py_3()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::raised())
+            .border_color(theme::line())
+            .bg(theme::surface_raised())
             .cursor_pointer()
             .hover(|s| s.border_color(theme::muted().opacity(0.5)))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -1645,7 +1645,7 @@ impl AppView {
                             .min_w_0()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .line_clamp(2)
                             .child(pr.title.clone()),
                     )
@@ -1864,11 +1864,11 @@ impl AppView {
                     .py_1()
                     .rounded_md()
                     .text_sm()
-                    .text_color(if on { theme::fg() } else { theme::muted() })
-                    .when(on, |el| el.bg(theme::hover()))
+                    .text_color(if on { theme::primary() } else { theme::muted() })
+                    .when(on, |el| el.bg(theme::surface_strong()))
                     .when(!on, |el| {
                         el.cursor_pointer()
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| s.text_color(theme::primary()))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 if let Some(v) = &mut this.pulls.viewing {
                                     v.tab = to;
@@ -1944,7 +1944,7 @@ impl AppView {
                                         v_flex()
                                             .rounded_lg()
                                             .border_1()
-                                            .border_color(theme::border())
+                                            .border_color(theme::line())
                                             .overflow_hidden()
                                             .children(d.check_runs.iter().enumerate().map(
                                                 |(i, run)| {
@@ -1957,7 +1957,7 @@ impl AppView {
                                                         .py_1p5()
                                                         .when(i > 0, |el| {
                                                             el.border_t_1()
-                                                                .border_color(theme::border())
+                                                                .border_color(theme::line())
                                                         })
                                                         .text_xs()
                                                         .child(
@@ -1971,7 +1971,7 @@ impl AppView {
                                                                 .flex_1()
                                                                 .min_w_0()
                                                                 .truncate()
-                                                                .text_color(theme::fg())
+                                                                .text_color(theme::primary())
                                                                 .child(run.name.clone()),
                                                         )
                                                         .child(
@@ -2022,7 +2022,7 @@ impl AppView {
             .pt_5()
             .pb_3()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 h_flex()
                     .items_start()
@@ -2033,7 +2033,7 @@ impl AppView {
                             .min_w_0()
                             .text_lg()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(pr.title.clone()),
                     )
                     .child(
@@ -2048,7 +2048,7 @@ impl AppView {
                             .rounded_md()
                             .text_color(theme::muted())
                             .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                            .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                             .tooltip({
                                 let tip: SharedString = t("common.close").into();
                                 move |window, cx| Tooltip::new(tip.clone()).build(window, cx)
@@ -2137,7 +2137,7 @@ impl AppView {
                                 div()
                                     .px_1p5()
                                     .rounded_full()
-                                    .bg(theme::raised())
+                                    .bg(theme::surface_raised())
                                     .text_xs()
                                     .text_color(theme::muted())
                                     .child(n.to_string()),
@@ -2152,7 +2152,7 @@ impl AppView {
             .px_6()
             .py_3()
             .border_t_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .when_some(self.pulls.failed.get(&number), |el, e| {
                 el.child(
                     notice(
@@ -2192,7 +2192,7 @@ impl AppView {
                 .track_focus(&self.pulls.focus)
                 .absolute()
                 .inset_0()
-                .bg(gpui::black().opacity(0.6))
+                .bg(theme::media_shade(0.6))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -2217,9 +2217,9 @@ impl AppView {
                         .max_w(px(1150.))
                         .h(relative(0.88))
                         .rounded_xl()
-                        .bg(theme::panel())
+                        .bg(theme::card())
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .overflow_hidden()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(header)
@@ -2269,7 +2269,7 @@ impl AppView {
                 .bg(if lit {
                     theme::accent().opacity(0.18)
                 } else {
-                    theme::hover()
+                    theme::surface_strong()
                 })
                 .text_color(if lit { theme::accent() } else { theme::muted() })
                 .child(n.to_string())
@@ -2283,11 +2283,11 @@ impl AppView {
                 .rounded_md()
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
-                .when(on, |el| el.bg(theme::raised()).text_color(theme::fg()))
+                .when(on, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                 .when(!on, |el| {
                     el.text_color(theme::muted())
                         .cursor_pointer()
-                        .hover(|s| s.text_color(theme::fg()))
+                        .hover(|s| s.text_color(theme::primary()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.pulls.tab = to;
                             if to == RailTab::Pulls {
@@ -2311,8 +2311,8 @@ impl AppView {
             .p(px(2.))
             .rounded_lg()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::bg())
+            .border_color(theme::line())
+            .bg(theme::ink())
             .child(
                 item(
                     "rail-tab-agents",
@@ -2562,9 +2562,9 @@ impl AppView {
                 .h(px(44.))
                 .px_4()
                 .gap_2()
-                .bg(theme::panel())
+                .bg(theme::card())
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(
                     h_flex()
                         .id("project-crumb")
@@ -2573,7 +2573,7 @@ impl AppView {
                         .py_0p5()
                         .rounded_md()
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::raised()))
+                        .hover(|s| s.bg(theme::surface_raised()))
                         .tooltip(move |window, cx| Tooltip::new(root_tip.clone()).build(window, cx))
                         .map(|el| {
                             if lead {
@@ -2593,7 +2593,7 @@ impl AppView {
                                 .size(px(20.))
                                 .rounded_md()
                                 .bg(theme::accent().opacity(0.25))
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .text_xs()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .flex()
@@ -2607,7 +2607,7 @@ impl AppView {
                                 .truncate()
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(display.clone()),
                         ),
                 )
@@ -2622,7 +2622,7 @@ impl AppView {
                             theme::faint()
                         })
                         .cursor_pointer()
-                        .hover(|s| s.text_color(theme::fg()))
+                        .hover(|s| s.text_color(theme::primary()))
                         .tooltip(move |window, cx| Tooltip::new(copy_tip.clone()).build(window, cx))
                         .on_click(move |e, w, cx| copy(e, w, cx))
                         .child(crate::icons::of(if self.pulls.copied {
@@ -2644,7 +2644,7 @@ impl AppView {
                         .truncate()
                         .text_base()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if lead { theme::muted() } else { theme::fg() })
+                        .text_color(if lead { theme::muted() } else { theme::primary() })
                         .child(then),
                 )
                 .when(!status.is_empty(), |el| {
@@ -2674,11 +2674,11 @@ impl AppView {
                             .py_0p5()
                             .rounded_full()
                             .border_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .text_xs()
                             .text_color(theme::muted())
                             .cursor_pointer()
-                            .hover(|s| s.bg(theme::raised()).text_color(theme::fg()))
+                            .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.pulls.tab = RailTab::Pulls;
                                 this.load_pulls(false, cx);
@@ -2696,7 +2696,7 @@ impl AppView {
                         .text_sm()
                         .text_color(theme::muted())
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::raised()).text_color(theme::fg()))
+                        .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
                         .tooltip(move |window, cx| {
                             Tooltip::new(settings_tip.clone()).build(window, cx)
                         })

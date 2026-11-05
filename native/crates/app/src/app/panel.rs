@@ -1025,9 +1025,9 @@ impl AppView {
             .w(px(width))
             .flex_none()
             .h_full()
-            .bg(theme::panel())
+            .bg(theme::sunken())
             .border_l_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(header)
             .child(div().flex_1().min_h_0().child(body))
             .into_any_element()
@@ -1041,7 +1041,7 @@ impl AppView {
             .pr_1p5()
             .gap_1()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
     }
 
     fn lead_header(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1117,9 +1117,9 @@ impl AppView {
             .rounded_md()
             .text_sm()
             .cursor_pointer()
-            .text_color(if open { theme::fg() } else { theme::muted() })
-            .when(open, |el| el.bg(theme::raised()))
-            .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+            .text_color(if open { theme::primary() } else { theme::muted() })
+            .when(open, |el| el.bg(theme::surface_raised()))
+            .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
             .on_click(cx.listener(|this, _: &ClickEvent, w, cx| this.toggle_panel(w, cx)))
             .child(crate::icons::of("◨"))
@@ -1149,8 +1149,8 @@ impl AppView {
             .p(px(2.))
             .rounded_lg()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::bg())
+            .border_color(theme::line())
+            .bg(theme::ink())
             .children(shown.into_iter().map(|v| {
                 let on = v == view;
                 let r = r.to_string();
@@ -1160,14 +1160,14 @@ impl AppView {
                     .h(px(28.))
                     .gap_1p5()
                     .when(on, |el| {
-                        el.px_2p5().bg(theme::raised()).text_color(theme::fg())
+                        el.px_2p5().bg(theme::surface_raised()).text_color(theme::primary())
                     })
                     .when(!on, |el| {
                         el.w(px(28.))
                             .justify_center()
                             .text_color(theme::muted())
                             .cursor_pointer()
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| s.text_color(theme::primary()))
                             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                             .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                                 this.set_view(&r, v, w, cx)
@@ -1220,7 +1220,7 @@ impl AppView {
                                 theme::running()
                             })
                             .when(busy, |el| {
-                                el.border_1().border_color(theme::fg().opacity(0.5))
+                                el.border_1().border_color(theme::primary().opacity(0.5))
                             }),
                     ),
             )
@@ -1268,7 +1268,7 @@ impl AppView {
                 .text_color(theme::muted())
                 .when(folds, |el| {
                     el.cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                        .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.panel.idle_open = !this.panel.idle_open;
                             cx.notify();
@@ -1343,7 +1343,7 @@ impl AppView {
                         .text_xs()
                         .text_color(theme::muted())
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                        .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                         .on_click(cx.listener(|this, _: &ClickEvent, w, cx| {
                             let p = this.project.clone().unwrap_or_default();
                             this.open_work(p, String::new(), w, cx)
@@ -1448,8 +1448,8 @@ impl AppView {
             .py_1p5()
             .rounded_lg()
             .cursor_pointer()
-            .when(active, |el| el.bg(theme::raised()))
-            .when(!active, |el| el.hover(|s| s.bg(theme::hover())))
+            .when(active, |el| el.bg(theme::surface_raised()))
+            .when(!active, |el| el.hover(|s| s.bg(theme::surface_strong())))
             .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                 this.panel.list_beside = false;
                 this.open_chat(name.clone(), w, cx)
@@ -1503,7 +1503,7 @@ impl AppView {
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(if active || r.st != St::Done {
-                                        theme::fg()
+                                        theme::primary()
                                     } else {
                                         theme::muted()
                                     })
@@ -1625,9 +1625,9 @@ impl AppView {
             .items_center()
             .gap_1()
             .py_1p5()
-            .bg(theme::panel())
+            .bg(theme::card())
             .border_l_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .overflow_y_scroll()
             .child(
                 div()
@@ -1637,7 +1637,7 @@ impl AppView {
                     .rounded_md()
                     .text_color(theme::muted())
                     .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                    .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                     .tooltip(move |w, cx| Tooltip::new(unfold.clone()).build(w, cx))
                     .on_click(cx.listener(|this, _: &ClickEvent, w, cx| this.toggle_panel(w, cx)))
                     .child(crate::icons::of("«")),
@@ -1661,8 +1661,8 @@ impl AppView {
                     .p(px(3.))
                     .rounded_lg()
                     .cursor_pointer()
-                    .when(active, |el| el.bg(theme::raised()))
-                    .hover(|s| s.bg(theme::hover()))
+                    .when(active, |el| el.bg(theme::surface_raised()))
+                    .hover(|s| s.bg(theme::surface_strong()))
                     .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                     .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                         this.open_chat(name.clone(), w, cx)
@@ -1728,8 +1728,8 @@ impl AppView {
                     .size(px(48.))
                     .rounded_2xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
+                    .border_color(theme::line())
+                    .bg(theme::ink())
                     .flex()
                     .items_center()
                     .justify_center()
@@ -1741,7 +1741,7 @@ impl AppView {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(tv(
                         if paused {
                             "panel.paused.title"
@@ -1837,10 +1837,10 @@ impl AppView {
                         .px_1p5()
                         .rounded_sm()
                         .bg(theme::error())
-                        .text_color(gpui::white())
+                        .text_color(theme::on_bright())
                         .text_xs()
                         .font_weight(FontWeight::BOLD)
-                        .child(div().size(px(5.)).rounded_full().bg(gpui::white()))
+                        .child(div().size(px(5.)).rounded_full().bg(theme::on_bright()))
                         .child(t("panel.live")),
                 )
             })
@@ -1862,7 +1862,7 @@ impl AppView {
                     .text_color(theme::muted())
                     .when(connected && !self.panel.shooting, |el| {
                         el.cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                            .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                             .on_click(
                                 cx.listener(|this, _: &ClickEvent, _, cx| this.screenshot(cx)),
                             )
@@ -1888,7 +1888,7 @@ impl AppView {
                     })
                     .when(connected, |el| {
                         el.cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
+                            .hover(|s| s.bg(theme::surface_strong()))
                             .on_click(
                                 cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.toggle_recording(cx)
@@ -1909,7 +1909,7 @@ impl AppView {
                             div()
                                 .text_xs()
                                 .font_family(theme::mono())
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(clock(s)),
                         )
                     }),
@@ -1956,9 +1956,9 @@ impl AppView {
             .border_color(if control && connected {
                 theme::accent()
             } else {
-                theme::border()
+                theme::line()
             })
-            .bg(gpui::black())
+            .bg(theme::pitch())
             .map(|el| match (up, &self.desktop) {
                 (Some(false), _) => el.child(
                     v_flex()
@@ -2025,7 +2025,7 @@ impl AppView {
                             .text_xs()
                             .text_color(theme::muted())
                             .cursor_pointer()
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| s.text_color(theme::primary()))
                             .on_click({
                                 let r = r.clone();
                                 cx.listener(move |this, _: &ClickEvent, w, cx| {
@@ -2047,7 +2047,7 @@ impl AppView {
                             .rounded_lg()
                             .border_1()
                             .border_dashed()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .text_xs()
                             .text_color(theme::faint())
                             .child(crate::icons::of("◫"))
@@ -2119,8 +2119,8 @@ impl AppView {
             .rounded_md()
             .overflow_hidden()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::bg())
+            .border_color(theme::line())
+            .bg(theme::ink())
             .hover(|s| s.border_color(theme::accent()))
             .map(|el| match (path, self.panel.posters.get(&m.id)) {
                 (Some(p), _) => el.child(img(p).size_full().object_fit(ObjectFit::Cover)),
@@ -2145,8 +2145,8 @@ impl AppView {
                     .left(px(3.))
                     .px_1()
                     .rounded_sm()
-                    .bg(gpui::black().opacity(0.6))
-                    .text_color(gpui::white())
+                    .bg(theme::media_shade(0.6))
+                    .text_color(theme::on_media())
                     .text_xs()
                     .child(crate::icons::of(if m.kind == "recording" {
                         "▶"
@@ -2272,7 +2272,7 @@ impl AppView {
                                 .min_w_0()
                                 .truncate()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(media::readable(&m.name)),
                         )
                         .child(
@@ -2287,8 +2287,8 @@ impl AppView {
                         .rounded_lg()
                         .overflow_hidden()
                         .border_1()
-                        .border_color(theme::border())
-                        .bg(gpui::black())
+                        .border_color(theme::line())
+                        .bg(theme::pitch())
                         .child(stage),
                 )
                 .when(!chapters.is_empty(), |el| {
@@ -2312,7 +2312,7 @@ impl AppView {
                                     .rounded_md()
                                     .text_xs()
                                     .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
+                                    .hover(|s| s.bg(theme::surface_strong()))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         this.seek_player(at, cx)
                                     }))
@@ -2327,7 +2327,7 @@ impl AppView {
                                         div()
                                             .min_w_0()
                                             .truncate()
-                                            .text_color(theme::fg())
+                                            .text_color(theme::primary())
                                             .child(c.title.clone()),
                                     )
                             })),
@@ -2378,7 +2378,7 @@ impl AppView {
                                                     .mt_1()
                                                     .truncate()
                                                     .text_xs()
-                                                    .text_color(theme::fg())
+                                                    .text_color(theme::primary())
                                                     .child(media::readable(&m.name)),
                                             )
                                             .child(
@@ -2419,7 +2419,7 @@ impl AppView {
                                         .py_1p5()
                                         .rounded_lg()
                                         .cursor_pointer()
-                                        .hover(|s| s.bg(theme::hover()))
+                                        .hover(|s| s.bg(theme::surface_strong()))
                                         .on_click(cx.listener(
                                             move |this, _: &ClickEvent, _, cx| {
                                                 this.panel.viewer = Some(id.clone());
@@ -2433,8 +2433,8 @@ impl AppView {
                                                 .h(px(40.))
                                                 .rounded_sm()
                                                 .border_1()
-                                                .border_color(theme::border())
-                                                .bg(theme::bg())
+                                                .border_color(theme::line())
+                                                .bg(theme::ink())
                                                 .flex()
                                                 .items_center()
                                                 .justify_center()
@@ -2449,7 +2449,7 @@ impl AppView {
                                                     div()
                                                         .truncate()
                                                         .text_sm()
-                                                        .text_color(theme::fg())
+                                                        .text_color(theme::primary())
                                                         .child(m.name.clone()),
                                                 )
                                                 .child(
@@ -2480,7 +2480,7 @@ impl AppView {
         } else {
             div()
                 .text_sm()
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(if m.text.is_empty() {
                     m.name.clone()
                 } else {
@@ -2497,14 +2497,14 @@ impl AppView {
                     .px_3()
                     .gap_2()
                     .border_b_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(
                         div()
                             .min_w_0()
                             .flex_1()
                             .truncate()
                             .text_xs()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(media::readable(&m.name)),
                     )
                     .child(
@@ -2623,7 +2623,7 @@ impl AppView {
                             .gap_2()
                             .py_1p5()
                             .border_b_1()
-                            .border_color(theme::border().opacity(0.5))
+                            .border_color(theme::line().opacity(0.5))
                             .child(
                                 div()
                                     .flex_none()
@@ -2640,7 +2640,7 @@ impl AppView {
                                     .child(
                                         div()
                                             .text_sm()
-                                            .text_color(theme::fg())
+                                            .text_color(theme::primary())
                                             .truncate()
                                             .child(title),
                                     )
@@ -2774,7 +2774,7 @@ fn st_color(st: St) -> Hsla {
         St::Needs => theme::starting(),
         St::Error => theme::error(),
         St::Done => theme::muted(),
-        _ => theme::fg().opacity(0.8),
+        _ => theme::primary().opacity(0.8),
     }
 }
 
@@ -2812,7 +2812,7 @@ fn monitor(ai: &str, st: St, running: bool, label: Option<String>, active: bool)
                 .bg(if running {
                     color.opacity(0.14)
                 } else {
-                    theme::bg()
+                    theme::ink()
                 })
                 .flex()
                 .items_center()
@@ -2822,7 +2822,7 @@ fn monitor(ai: &str, st: St, running: bool, label: Option<String>, active: bool)
                 .text_color(if running { color } else { theme::faint() })
                 .child(crate::icons::of(mark)),
         )
-        .child(div().w(px(10.)).h(px(3.)).bg(theme::border()))
+        .child(div().w(px(10.)).h(px(3.)).bg(theme::line()))
         .into_any_element()
 }
 
@@ -2830,7 +2830,7 @@ fn count_pill(n: usize) -> AnyElement {
     div()
         .px_1p5()
         .rounded_full()
-        .bg(theme::hover())
+        .bg(theme::surface_strong())
         .text_xs()
         .text_color(theme::muted())
         .child(n.to_string())
@@ -2857,7 +2857,7 @@ pub(super) fn icon_button(id: &'static str, glyph: &'static str, tip: String) ->
         .text_sm()
         .text_color(theme::muted())
         .cursor_pointer()
-        .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
         .child(crate::icons::of(glyph))
 }

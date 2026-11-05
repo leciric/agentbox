@@ -430,7 +430,7 @@ impl Render for DeviceView {
                     .text_color(theme::muted())
                     .when(control, |el| {
                         el.cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                            .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, _| {
                                 this.send(serde_json::json!({"type":"button","button":which}))
                             }))

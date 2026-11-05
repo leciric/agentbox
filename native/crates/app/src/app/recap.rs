@@ -255,8 +255,8 @@ impl RecapView {
             .gap_4()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::panel())
+            .border_color(theme::line())
+            .bg(theme::card())
             .child(
                 h_flex()
                     .flex_wrap()
@@ -269,7 +269,7 @@ impl RecapView {
                                     .gap_1p5()
                                     .text_base()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(
                                         div()
                                             .text_color(theme::accent())
@@ -307,7 +307,7 @@ impl RecapView {
                         h_flex()
                             .gap_2()
                             .text_sm()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(controls::toggle(
                                 "recap-names",
                                 o.names,
@@ -332,8 +332,8 @@ impl RecapView {
                     .p_4()
                     .rounded_2xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
+                    .border_color(theme::line())
+                    .bg(theme::ink())
                     .child(
                         div()
                             .w_full()
@@ -341,7 +341,7 @@ impl RecapView {
                             .aspect_ratio(w as f32 / h as f32)
                             .rounded_xl()
                             .overflow_hidden()
-                            .bg(theme::raised())
+                            .bg(theme::surface_raised())
                             .when_some(card, |el, c| {
                                 el.child(img(c).size_full().object_fit(ObjectFit::Contain))
                             }),
@@ -417,14 +417,14 @@ fn stat(label: String, value: String, sub: String) -> AnyElement {
         .p_3()
         .rounded_lg()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::raised())
+        .border_color(theme::line())
+        .bg(theme::surface_raised())
         .child(div().text_xs().text_color(theme::muted()).child(label))
         .child(
             div()
                 .text_xl()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .truncate()
                 .child(value),
         )
@@ -442,7 +442,7 @@ fn heading(text: String) -> Div {
     div()
         .text_sm()
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme::fg())
+        .text_color(theme::primary())
         .child(text)
 }
 
@@ -518,7 +518,7 @@ impl RecapView {
                                     .w_full()
                                     .h(relative(away))
                                     .rounded_t_sm()
-                                    .bg(theme::accent()),
+                                    .bg(theme::brand(500)),
                             )
                             .child(
                                 div()
@@ -535,7 +535,7 @@ impl RecapView {
                 .flex_1()
                 .h(px(28.))
                 .rounded_sm()
-                .bg(theme::accent())
+                .bg(theme::brand(500))
                 .opacity(if *s > 0 {
                     0.18 + 0.82 * *s as f32 / most_hour as f32
                 } else {
@@ -555,7 +555,7 @@ impl RecapView {
                                 div()
                                     .text_3xl()
                                     .font_weight(FontWeight::BOLD)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(duration(r.work_seconds)),
                             )
                             .child(
@@ -691,7 +691,7 @@ impl RecapView {
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(model_label(&m.model)),
                             )
                             .child(div().text_color(theme::muted()).child(format!(
@@ -713,7 +713,7 @@ impl RecapView {
                                     div()
                                         .text_xl()
                                         .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .child(cost(r.cost_usd)),
                                 )
                                 .child(
@@ -766,7 +766,7 @@ impl Render for RecapView {
             .track_focus(&self.focus)
             .absolute()
             .inset_0()
-            .bg(gpui::black().opacity(0.55))
+            .bg(theme::scrim())
             .flex()
             .items_center()
             .justify_center()
@@ -790,9 +790,9 @@ impl Render for RecapView {
                     .gap_4()
                     .p_6()
                     .rounded_xl()
-                    .bg(theme::panel())
+                    .bg(theme::card())
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
                         h_flex()
@@ -807,7 +807,7 @@ impl Render for RecapView {
                                         div()
                                             .text_2xl()
                                             .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(theme::fg())
+                                            .text_color(theme::primary())
                                             .child(t("recap.title")),
                                     )
                                     .child(
@@ -824,7 +824,7 @@ impl Render for RecapView {
                                 false,
                                 cx.listener(|this, _: &ClickEvent, _, cx| this.go(1, cx)),
                             ))
-                            .child(div().pt_1().text_sm().text_color(theme::fg()).child(range))
+                            .child(div().pt_1().text_sm().text_color(theme::primary()).child(range))
                             .child(controls::button(
                                 "recap-next",
                                 "›",

@@ -362,12 +362,12 @@ impl AppView {
                         .py_1p5()
                         .rounded_lg()
                         .text_sm()
-                        .when(active, |el| el.bg(theme::raised()).text_color(theme::fg()))
+                        .when(active, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                         .when(!active, |el| el.text_color(theme::muted()))
                         .when(!done && !active, |el| el.opacity(0.6))
                         .when(reachable, |el| {
                             el.cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()))
+                                .hover(|s| s.bg(theme::surface_strong()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.go_step(Some(s), cx)
                                 }))
@@ -386,8 +386,8 @@ impl AppView {
                                     if done {
                                         el.text_color(theme::running()).child(crate::icons::of("✓"))
                                     } else if active {
-                                        el.bg(theme::accent())
-                                            .text_color(gpui::white())
+                                        el.bg(theme::brand(500))
+                                            .text_color(theme::on_brand())
                                             .child((i + 1).to_string())
                                     } else {
                                         el.border_1()
@@ -478,9 +478,9 @@ impl AppView {
                 v_flex()
                     .p_5()
                     .rounded_xl()
-                    .bg(theme::panel())
+                    .bg(theme::card())
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(
                         div()
                             .text_lg()
@@ -554,8 +554,8 @@ impl AppView {
                                 el.border_color(theme::accent())
                                     .bg(theme::accent().opacity(0.1))
                             } else {
-                                el.border_color(theme::border())
-                                    .hover(|s| s.bg(theme::hover()))
+                                el.border_color(theme::line())
+                                    .hover(|s| s.bg(theme::surface_strong()))
                             }
                         })
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -619,8 +619,8 @@ impl AppView {
                         .p_3()
                         .rounded_xl()
                         .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::bg())
+                        .border_color(theme::line())
+                        .bg(theme::ink())
                         .child(
                             h_flex()
                                 .items_start()
@@ -817,7 +817,7 @@ impl AppView {
                                             .bg(theme::accent().opacity(0.1))
                                     } else {
                                         el.border_color(transparent_black())
-                                            .hover(|s| s.bg(theme::hover()))
+                                            .hover(|s| s.bg(theme::surface_strong()))
                                     }
                                 })
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {

@@ -114,7 +114,7 @@ impl AppView {
                 .id("new-task")
                 .absolute()
                 .inset_0()
-                .bg(gpui::black().opacity(0.5))
+                .bg(theme::scrim())
                 .flex()
                 .justify_center()
                 .pt(px(120.))
@@ -134,13 +134,13 @@ impl AppView {
                         .p_4()
                         .gap_3()
                         .rounded_xl()
-                        .bg(theme::panel())
+                        .bg(theme::card())
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
                             div()
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child(t("v2.newTask.title")),
                         )
@@ -168,8 +168,8 @@ impl AppView {
                                             .gap_3()
                                             .rounded_md()
                                             .cursor_pointer()
-                                            .when(on, |el| el.bg(theme::hover()))
-                                            .hover(|el| el.bg(theme::raised()))
+                                            .when(on, |el| el.bg(theme::surface_strong()))
+                                            .hover(|el| el.bg(theme::surface_raised()))
                                             .on_click(cx.listener(
                                                 move |this, _: &ClickEvent, window, cx| {
                                                     this.pick_new_task(Some(i), window, cx)
@@ -190,7 +190,7 @@ impl AppView {
                                                 div()
                                                     .text_sm()
                                                     .text_color(if on {
-                                                        theme::fg()
+                                                        theme::primary()
                                                     } else {
                                                         theme::muted()
                                                     })

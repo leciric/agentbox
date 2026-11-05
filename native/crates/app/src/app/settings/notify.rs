@@ -168,7 +168,7 @@ impl AppView {
                                     div()
                                         .text_sm()
                                         .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .child(t(&format!("notify.kind.{k}.label"))),
                                 )
                                 .child(
@@ -208,7 +208,7 @@ impl AppView {
                                     .bottom_4()
                                     .w(px(2.))
                                     .rounded_r_full()
-                                    .bg(theme::accent()),
+                                    .bg(theme::brand(500)),
                             )
                         })
                         .child(head)

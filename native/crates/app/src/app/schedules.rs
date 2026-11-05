@@ -748,7 +748,7 @@ impl AppView {
             .px_3()
             .gap_1p5()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .text_xs()
             .font_weight(FontWeight::MEDIUM)
             .text_color(theme::muted())
@@ -797,7 +797,7 @@ impl AppView {
                         .rounded_xl()
                         .border_1()
                         .border_dashed()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(
                             crate::icons::lead("alarm-clock", t("schedules.empty.title")),
                         ))
@@ -908,8 +908,8 @@ impl AppView {
             .py_3()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::raised())
+            .border_color(theme::line())
+            .bg(theme::surface_raised())
             .when(s.paused, |el| el.opacity(0.75))
             .child(
                 h_flex()
@@ -1077,7 +1077,7 @@ impl AppView {
                     .px_2p5()
                     .py_1p5()
                     .rounded_lg()
-                    .bg(theme::bg())
+                    .bg(theme::ink())
                     .text_xs()
                     .text_color(theme::muted())
                     .when(titled, |el| {
@@ -1085,7 +1085,7 @@ impl AppView {
                             div()
                                 .truncate()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(run.title.clone()),
                         )
                     })
@@ -1253,10 +1253,10 @@ impl AppView {
                                     .border_color(if on {
                                         theme::accent()
                                     } else {
-                                        theme::border()
+                                        theme::line()
                                     })
                                     .when(on, |el| {
-                                        el.bg(theme::accent().opacity(0.2)).text_color(theme::fg())
+                                        el.bg(theme::accent().opacity(0.2)).text_color(theme::primary())
                                     })
                                     .when(!on, |el| el.text_color(theme::muted()))
                                     .cursor_pointer()
@@ -1441,11 +1441,11 @@ impl AppView {
                                 .py_0p5()
                                 .rounded_full()
                                 .border_1()
-                                .border_color(theme::border())
+                                .border_color(theme::line())
                                 .text_xs()
                                 .text_color(theme::muted())
                                 .cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                                .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                                     this.open_schedule_dialog(None, Some(i), w, cx)
                                 }))

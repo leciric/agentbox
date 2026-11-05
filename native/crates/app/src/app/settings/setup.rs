@@ -351,9 +351,9 @@ impl AppView {
                     v_flex()
                         .p_2()
                         .rounded_md()
-                        .bg(theme::bg())
+                        .bg(theme::ink())
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .children(tail.iter().map(|l| {
                             div()
                                 .font_family(crate::theme::mono())
@@ -379,16 +379,16 @@ impl AppView {
             .px_3()
             .py_2()
             .rounded_md()
-            .bg(theme::bg())
+            .bg(theme::ink())
             .border_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .font_family(crate::theme::mono())
                     .text_xs()
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(command.to_string()),
             )
             .child(link(
@@ -632,8 +632,8 @@ impl AppView {
                 v_flex()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
+                    .border_color(theme::line())
+                    .bg(theme::card())
                     .children(steps.iter().enumerate().map(|(i, c)| {
                         let is_next = next.as_deref() == Some(c.id.as_str());
                         let after = waits_for(c);
@@ -646,11 +646,11 @@ impl AppView {
                         let has_body = body.is_some();
                         v_flex()
                             .id(SharedString::from(format!("setup-step-{}", c.id)))
-                            .when(i > 0, |el| el.border_t_1().border_color(theme::border()))
+                            .when(i > 0, |el| el.border_t_1().border_color(theme::line()))
                             .when(is_next, |el| {
                                 el.border_l_2()
                                     .border_color(theme::starting())
-                                    .bg(theme::raised())
+                                    .bg(theme::surface_raised())
                             })
                             .child(
                                 h_flex()
@@ -661,7 +661,7 @@ impl AppView {
                                     .when(after.is_some(), |el| el.opacity(0.6))
                                     .when(has_body && !is_next, |el| {
                                         el.cursor_pointer()
-                                            .hover(|st| st.bg(theme::raised()))
+                                            .hover(|st| st.bg(theme::surface_raised()))
                                             .on_click(cx.listener(
                                                 move |this, _: &ClickEvent, _, cx| {
                                                     let u = &mut this.settings_page.setup.unfolded;
@@ -684,7 +684,7 @@ impl AppView {
                                             .truncate()
                                             .text_sm()
                                             .text_color(if is_next {
-                                                theme::fg()
+                                                theme::primary()
                                             } else {
                                                 theme::muted()
                                             })

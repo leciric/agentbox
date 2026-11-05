@@ -243,7 +243,7 @@ fn credential_text(c: &ToolCredential) -> (String, Hsla) {
     let color = match tone(c) {
         "warning" => theme::starting(),
         "idle" => theme::faint(),
-        _ => theme::fg(),
+        _ => theme::primary(),
     };
     (text, color)
 }
@@ -1130,7 +1130,7 @@ impl AppView {
                     row.control = Some(
                         div()
                             .text_sm()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(label_of(&p))
                             .into_any_element(),
                     );
@@ -1580,10 +1580,10 @@ impl AppView {
                                 .border_color(if on {
                                     theme::accent().opacity(0.5)
                                 } else {
-                                    theme::border()
+                                    theme::line()
                                 })
                                 .when(on, |el| {
-                                    el.bg(theme::accent().opacity(0.15)).text_color(theme::fg())
+                                    el.bg(theme::accent().opacity(0.15)).text_color(theme::primary())
                                 })
                                 .when(!on, |el| el.text_color(theme::faint()).line_through())
                                 .when(!locked && !busy, |el| {
@@ -1813,7 +1813,7 @@ impl AppView {
                                 } else {
                                     theme::muted()
                                 })
-                                .hover(|st| st.text_color(theme::fg()))
+                                .hover(|st| st.text_color(theme::primary()))
                                 .child(format!("{} {summary}", if open { "▾" } else { "▸" }))
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     let pp = &mut this.settings_page.project;
@@ -2416,8 +2416,8 @@ impl AppView {
             .py_2p5()
             .rounded_lg()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::panel())
+            .border_color(theme::line())
+            .bg(theme::card())
             .child(
                 h_flex()
                     .flex_wrap()
@@ -2426,7 +2426,7 @@ impl AppView {
                         div()
                             .font_family(crate::theme::mono())
                             .text_sm()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(format!("${}", s.name)),
                     )
                     .child(badge(

@@ -554,8 +554,8 @@ impl AppView {
                 .p_3()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::bg())
+                .border_color(theme::line())
+                .bg(theme::ink())
                 .child(check(
                     SharedString::from(format!("transfer-p-{}", p.name)),
                     on,
@@ -824,8 +824,8 @@ impl AppView {
                     .p_3()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
+                    .border_color(theme::line())
+                    .bg(theme::ink())
                     .child(
                         h_flex()
                             .gap_2()
@@ -986,13 +986,13 @@ impl AppView {
             .p_3()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::bg())
+            .border_color(theme::line())
+            .bg(theme::ink())
             .child(
                 div()
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(tv(
                         "transfer.report.summary",
                         &[
@@ -1035,15 +1035,15 @@ impl AppView {
                             .child(mono(e.id.clone()))
                             .children(e.notes.iter().map(|n| note(n.clone()))),
                     )
-                    .child(col(e.added.to_string(), Some(80.), theme::fg()))
-                    .child(col(e.skipped.to_string(), Some(100.), theme::fg()))
+                    .child(col(e.added.to_string(), Some(80.), theme::primary()))
+                    .child(col(e.skipped.to_string(), Some(100.), theme::primary()))
                     .child(col(
                         e.conflicted.to_string(),
                         Some(160.),
                         if e.conflicted > 0 {
                             theme::starting()
                         } else {
-                            theme::fg()
+                            theme::primary()
                         },
                     ))
             }))

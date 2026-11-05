@@ -233,8 +233,8 @@ impl AppView {
                     .py_3()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::raised())
+                    .border_color(theme::line())
+                    .bg(theme::surface_raised())
                     .child(
                         div()
                             .text_color(theme::muted())
@@ -264,7 +264,7 @@ impl AppView {
                                             .border_1()
                                             .border_color(green.opacity(0.6))
                                             .bg(green.opacity(0.18))
-                                            .text_color(mix(green, theme::fg(), 0.4))
+                                            .text_color(mix(green, theme::primary(), 0.4))
                                             .child(label),
                                     )
                                     .child(after.to_string()),
@@ -337,7 +337,7 @@ impl AppView {
                         .rounded_md()
                         .text_color(theme::muted())
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                        .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                         .tooltip(move |w, cx| Tooltip::new(refresh_tip.clone()).build(w, cx))
                         .on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| this.load_issues(true, cx)),
@@ -396,8 +396,8 @@ impl AppView {
             .py_3p5()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::raised())
+            .border_color(theme::line())
+            .bg(theme::surface_raised())
             .child(
                 h_flex()
                     .items_start()
@@ -440,7 +440,7 @@ impl AppView {
                                             .border_color(c.opacity(0.6))
                                             .bg(c.opacity(0.18))
                                             .text_xs()
-                                            .text_color(mix(c, theme::fg(), 0.4))
+                                            .text_color(mix(c, theme::primary(), 0.4))
                                             .child(l.name.clone())
                                     }),
                                 ))
@@ -472,7 +472,7 @@ impl AppView {
                                 .id(SharedString::from(format!("issue-pr-{n}")))
                                 .gap_1p5()
                                 .cursor_pointer()
-                                .hover(|s| s.text_color(theme::fg()))
+                                .hover(|s| s.text_color(theme::primary()))
                                 .on_click(move |_, _, cx| cx.open_url(&url))
                                 .child(format!(
                                     "⇄ {}",

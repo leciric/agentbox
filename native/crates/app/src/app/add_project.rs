@@ -606,7 +606,7 @@ impl AppView {
                         .text_xs()
                         .text_color(theme::faint())
                         .cursor_pointer()
-                        .hover(|s| s.text_color(theme::fg()))
+                        .hover(|s| s.text_color(theme::primary()))
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.side.dialog = None;
                             this.open_settings_at("accounts".into(), window, cx);
@@ -942,9 +942,9 @@ pub(super) fn job_log(lines: &[String], job: Option<&Job>) -> AnyElement {
                 .overflow_y_scroll()
                 .p_2()
                 .rounded_lg()
-                .bg(theme::bg())
+                .bg(theme::ink())
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .font_family(theme::mono())
                 .text_xs()
                 .text_color(theme::muted())
@@ -989,7 +989,7 @@ pub(super) fn form_modal(
         .id(SharedString::from(format!("{id}-backdrop")))
         .absolute()
         .inset_0()
-        .bg(gpui::black().opacity(0.55))
+        .bg(theme::scrim())
         .flex()
         .items_center()
         .justify_center()
@@ -1001,9 +1001,9 @@ pub(super) fn form_modal(
                 .max_w(relative(0.94))
                 .max_h(relative(0.9))
                 .rounded_xl()
-                .bg(theme::panel())
+                .bg(theme::card())
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .shadow_lg()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(
@@ -1013,7 +1013,7 @@ pub(super) fn form_modal(
                         .pb_3()
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::fg())
+                        .text_color(theme::primary())
                         .child(title),
                 )
                 .child(
@@ -1033,7 +1033,7 @@ pub(super) fn form_modal(
                         .py_4()
                         .gap_2()
                         .border_t_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .children(left)
                         .child(div().flex_1())
                         .child(controls::button(

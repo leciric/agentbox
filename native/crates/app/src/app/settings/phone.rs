@@ -59,7 +59,7 @@ fn qr(rows: &[String], module: f32) -> AnyElement {
     let n = rows.first().map_or(0, |r| r.len()) + 2 * quiet;
     v_flex()
         .flex_none()
-        .bg(gpui::white())
+        .bg(theme::paper())
         .rounded_lg()
         .p(px(module * quiet as f32))
         .children(rows.iter().map(|row| {
@@ -79,7 +79,7 @@ fn qr(rows: &[String], module: f32) -> AnyElement {
                     div()
                         .h_full()
                         .w(px(module * len as f32))
-                        .when(dark, |el| el.bg(gpui::black()))
+                        .when(dark, |el| el.bg(theme::pitch()))
                 }))
         }))
         .w(px(module * n as f32))
@@ -566,13 +566,13 @@ impl AppView {
                                     .border_color(if picked {
                                         theme::accent().opacity(0.6)
                                     } else {
-                                        theme::border()
+                                        theme::line()
                                     })
                                     .when(picked, |el| el.bg(theme::accent().opacity(0.08)))
                                     .when(no_hub || p.busy, |el| el.opacity(0.6))
                                     .when(!no_hub && !p.busy && !picked, |el| {
                                         el.cursor_pointer()
-                                            .hover(|st| st.bg(theme::raised()))
+                                            .hover(|st| st.bg(theme::surface_raised()))
                                             .on_click(cx.listener(
                                                 move |this, _: &ClickEvent, _, cx| {
                                                     if named_unset {
@@ -595,7 +595,7 @@ impl AppView {
                                         div()
                                             .text_sm()
                                             .font_weight(FontWeight::MEDIUM)
-                                            .text_color(theme::fg())
+                                            .text_color(theme::primary())
                                             .child(t(&format!("defaults.phone.mode.{m}"))),
                                     )
                                     .child(div().text_xs().text_color(theme::muted()).child(hint))
@@ -725,8 +725,8 @@ impl AppView {
             .p_4()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::bg())
+            .border_color(theme::line())
+            .bg(theme::ink())
             .child(
                 div()
                     .when(expired, |el| el.opacity(0.2))
@@ -741,7 +741,7 @@ impl AppView {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(t("defaults.phone.scan")),
                     )
                     .child(note(if expired {
@@ -824,7 +824,7 @@ impl AppView {
             .py_2p5()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 h_flex()
                     .gap_3()
@@ -836,7 +836,7 @@ impl AppView {
                                 div()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .truncate()
                                     .child(ph.name.clone()),
                             )
@@ -880,10 +880,10 @@ impl AppView {
                             .border_color(if on {
                                 theme::accent().opacity(0.5)
                             } else {
-                                theme::border()
+                                theme::line()
                             })
                             .when(on, |el| {
-                                el.bg(theme::accent().opacity(0.15)).text_color(theme::fg())
+                                el.bg(theme::accent().opacity(0.15)).text_color(theme::primary())
                             })
                             .when(!on, |el| el.text_color(theme::faint()).line_through())
                             .cursor_pointer()
@@ -909,7 +909,7 @@ impl AppView {
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(t("defaults.phone.mergeLabel")),
                             )
                             .child(note(t("defaults.phone.mergeDescription"))),
@@ -981,7 +981,7 @@ impl AppView {
                         .p_1p5()
                         .rounded_lg()
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .children(a.entries.iter().map(|x| {
                             let (word, color) = match x.result.as_str() {
                                 "ok" => (t("defaults.phone.auditOk"), theme::running()),

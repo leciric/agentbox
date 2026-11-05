@@ -288,8 +288,8 @@ fn tile(name: &str, dim: bool) -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .bg(hsla(h, 0.8, 0.6, 0.25))
-        .text_color(hsla(h, 0.9, 0.78, 1.))
+        .bg(theme::hashed(h).0)
+        .text_color(theme::hashed(h).1)
         .text_sm()
         .font_weight(FontWeight::SEMIBOLD)
         .when(dim, |el| el.opacity(0.45))
@@ -906,7 +906,7 @@ impl AppView {
         }
         card(SharedString::from(format!("skill-{scope}-{}", k.name)))
             .cursor_pointer()
-            .hover(|st| st.bg(theme::raised()))
+            .hover(|st| st.bg(theme::surface_raised()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.open_skill(open_scope.clone(), open_name.clone(), cx)
             }))
@@ -1029,7 +1029,7 @@ impl AppView {
                                     .text_color(if description.is_empty() {
                                         theme::error()
                                     } else {
-                                        theme::fg()
+                                        theme::primary()
                                     })
                                     .child(if description.is_empty() {
                                         t("skills.noDescription")
@@ -1046,9 +1046,9 @@ impl AppView {
                                             .py_0p5()
                                             .rounded_md()
                                             .border_1()
-                                            .border_color(theme::border())
+                                            .border_color(theme::line())
                                             .child(mono(k))
-                                            .child(div().text_xs().text_color(theme::fg()).child(v))
+                                            .child(div().text_xs().text_color(theme::primary()).child(v))
                                     }),
                                 ))
                             }),
@@ -1062,10 +1062,10 @@ impl AppView {
             Some(f) => div()
                 .p_3()
                 .rounded_lg()
-                .bg(theme::bg())
+                .bg(theme::ink())
                 .font_family(crate::theme::mono())
                 .text_xs()
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(f.content.clone())
                 .into_any_element(),
             None => note(t("common.loading")),
@@ -1180,11 +1180,11 @@ impl AppView {
                                         .font_family(crate::theme::mono())
                                         .cursor_pointer()
                                         .when(active, |el| {
-                                            el.bg(theme::raised()).text_color(theme::fg())
+                                            el.bg(theme::surface_raised()).text_color(theme::primary())
                                         })
                                         .when(!active, |el| {
                                             el.text_color(theme::muted())
-                                                .hover(|st| st.bg(theme::hover()))
+                                                .hover(|st| st.bg(theme::surface_strong()))
                                         })
                                         .on_click(cx.listener(
                                             move |this, _: &ClickEvent, _, cx| {

@@ -1087,9 +1087,9 @@ impl AppView {
             .border_color(if !ok && required && status != "checking" {
                 warn.opacity(0.3)
             } else {
-                theme::border()
+                theme::line()
             })
-            .bg(theme::panel())
+            .bg(theme::card())
             .child(
                 h_flex()
                     .items_start()
@@ -1121,7 +1121,7 @@ impl AppView {
                                         div()
                                             .text_sm()
                                             .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(theme::fg())
+                                            .text_color(theme::primary())
                                             .child(e.label.clone()),
                                     )
                                     .children(step_badge),
@@ -1340,8 +1340,8 @@ impl AppView {
         v_flex()
             .rounded_lg()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::bg())
+            .border_color(theme::line())
+            .bg(theme::ink())
             .children(lines.into_iter().enumerate().map(|(i, l)| {
                 let this_one = renaming
                     .as_ref()
@@ -1355,7 +1355,7 @@ impl AppView {
                     .gap_2()
                     .px_3()
                     .py_2()
-                    .when(i > 0, |el| el.border_t_1().border_color(theme::border()))
+                    .when(i > 0, |el| el.border_t_1().border_color(theme::line()))
                     .child(
                         h_flex()
                             .flex_1()
@@ -1397,7 +1397,7 @@ impl AppView {
                                         div()
                                             .text_sm()
                                             .font_weight(FontWeight::MEDIUM)
-                                            .text_color(theme::fg())
+                                            .text_color(theme::primary())
                                             .child(l.name.clone()),
                                     )
                                 }
@@ -1540,15 +1540,15 @@ impl AppView {
                     .py_2p5()
                     .rounded_lg()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
+                    .border_color(theme::line())
+                    .bg(theme::ink())
                     .child(
                         h_flex()
                             .flex_wrap()
                             .gap_2()
                             .child(note_in(
                                 words,
-                                if running { theme::muted() } else { theme::fg() },
+                                if running { theme::muted() } else { theme::primary() },
                             ))
                             .when_some(url.clone().filter(|_| running), |el, url| {
                                 el.child(button(
@@ -1679,8 +1679,8 @@ impl AppView {
                     .py_2p5()
                     .rounded_lg()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
+                    .border_color(theme::line())
+                    .bg(theme::ink())
                     .when(running && !code.is_empty(), |el| {
                         let (c2, u2) = (code.clone(), uri.clone());
                         el.child(note(t("settings.githubLogin.enterCode")))
@@ -1694,12 +1694,12 @@ impl AppView {
                                             .py_1()
                                             .rounded_md()
                                             .border_1()
-                                            .border_color(theme::border())
-                                            .bg(theme::raised())
+                                            .border_color(theme::line())
+                                            .bg(theme::surface_raised())
                                             .font_family(crate::theme::mono())
                                             .text_lg()
                                             .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(theme::fg())
+                                            .text_color(theme::primary())
                                             .child(code.clone()),
                                     )
                                     .child(button(
@@ -1746,7 +1746,7 @@ impl AppView {
                             .gap_2()
                             .child(note_in(
                                 words,
-                                if running { theme::muted() } else { theme::fg() },
+                                if running { theme::muted() } else { theme::primary() },
                             ))
                             .when(!running && s.status != "succeeded", |el| {
                                 el.child(button(
@@ -1788,7 +1788,7 @@ impl AppView {
             .text_xs()
             .text_color(theme::muted())
             .cursor_pointer()
-            .hover(|s| s.text_color(theme::fg()))
+            .hover(|s| s.text_color(theme::primary()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 let p = &mut this.settings_page.accounts.pasting;
                 if !p.remove(card) {
@@ -1965,7 +1965,7 @@ fn signed_in_line(on: bool, yes: String, no: String) -> AnyElement {
         .child(
             div()
                 .text_sm()
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(if on { yes } else { no }),
         )
         .into_any_element()
@@ -1980,15 +1980,15 @@ fn command_box(id: &str, command: String, _cx: &mut Context<AppView>) -> AnyElem
         .py_1p5()
         .rounded_lg()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::bg())
+        .border_color(theme::line())
+        .bg(theme::ink())
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .font_family(crate::theme::mono())
                 .text_xs()
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(command),
         )
         .child(button(

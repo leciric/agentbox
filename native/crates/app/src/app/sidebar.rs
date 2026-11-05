@@ -552,9 +552,9 @@ impl AppView {
             .w(px(288.))
             .flex_none()
             .h_full()
-            .bg(theme::panel())
+            .bg(theme::rail())
             .border_r_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(self.sidebar_head(cx))
             .child(
                 div()
@@ -583,13 +583,12 @@ impl AppView {
                                     .child(
                                         div()
                                             .flex_1()
-                                            .text_sm()
-                                            .text_color(theme::muted())
+                                            .text_size(theme::text::UI)
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme::secondary())
                                             .child(t("v2.sidebar.newTask")),
                                     )
-                                    .child(
-                                        div().text_xs().text_color(theme::faint()).child("Ctrl N"),
-                                    ),
+                                    .child(theme::kbd("Ctrl N")),
                             )
                             .child(self.home_row(cx))
                             .child(self.filter_bar(cx))
@@ -602,11 +601,11 @@ impl AppView {
                                         .rounded_md()
                                         .border_1()
                                         .border_dashed()
-                                        .border_color(theme::border())
+                                        .border_color(theme::line())
                                         .text_sm()
                                         .text_color(theme::muted())
                                         .cursor_pointer()
-                                        .hover(|el| el.text_color(theme::fg()))
+                                        .hover(|el| el.text_color(theme::primary()))
                                         .on_click(cx.listener(
                                             |this, _: &ClickEvent, window, cx| {
                                                 this.open_add_project(window, cx)
@@ -743,12 +742,12 @@ impl AppView {
                 .py_0p5()
                 .rounded_md()
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::muted())
                 .cursor_pointer()
-                .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
+                .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                 .child(tv("v2.review.all", &[("count", n.into())]))
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.open_work(String::new(), "review".into(), window, cx)
@@ -808,7 +807,7 @@ impl AppView {
                     .items_center()
                     .justify_center()
                     .rounded_md()
-                    .bg(theme::raised())
+                    .bg(theme::surface_raised())
                     .text_color(theme::muted())
                     .child(crate::icons::of("⌂")),
             )
@@ -819,7 +818,7 @@ impl AppView {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(t("shell.nav.home")),
                     )
                     .child(
@@ -840,10 +839,11 @@ impl AppView {
             .px_2()
             .py_1p5()
             .gap_2()
-            .rounded_md()
+            .rounded_lg()
             .cursor_pointer()
-            .when(selected, |el| el.bg(theme::hover()))
-            .hover(|el| el.bg(theme::raised()))
+            .when(selected, |el| el.bg(theme::surface_raised()))
+            .when(!selected, |el| el.hover(|el| el.bg(theme::surface())))
+            .active(|el| el.bg(theme::surface_strong()))
     }
 
     fn project_row(&self, p: &Project, place: Place, cx: &mut Context<Self>) -> AnyElement {
@@ -947,7 +947,7 @@ impl AppView {
                                     .text_sm()
                                     .truncate()
                                     .text_color(if selected {
-                                        theme::fg()
+                                        theme::primary()
                                     } else {
                                         theme::muted()
                                     })
@@ -1001,10 +1001,10 @@ impl AppView {
                                             .px_1p5()
                                             .rounded_full()
                                             .border_1()
-                                            .border_color(theme::border())
+                                            .border_color(theme::line())
                                             .text_color(theme::muted())
                                             .hover(|el| {
-                                                el.bg(theme::hover()).text_color(theme::fg())
+                                                el.bg(theme::surface_strong()).text_color(theme::primary())
                                             })
                                             .child(tv(
                                                 "v2.review.toReview",

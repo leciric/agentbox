@@ -194,7 +194,7 @@ impl AppView {
                             .min_w_0()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(mem.title.clone()),
                     )
                     .child(h_flex().gap(px(3.)).pt(px(5.)).children((1..=5).map(|n| {
@@ -204,7 +204,7 @@ impl AppView {
                             .bg(if n <= mem.importance {
                                 theme::accent()
                             } else {
-                                theme::hover()
+                                theme::surface_strong()
                             })
                     })))
                     .child(button(

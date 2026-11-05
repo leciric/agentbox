@@ -164,7 +164,7 @@ impl ChatView {
                 .text_xs()
                 .text_color(theme::faint())
                 .cursor_pointer()
-                .hover(|s| s.text_color(theme::fg()))
+                .hover(|s| s.text_color(theme::primary()))
                 .child(crate::icons::ic("git-merge"))
                 .child(if show {
                     t("evidence.hideMerged")
@@ -268,7 +268,7 @@ impl ChatView {
                 .id(SharedString::from(format!("ev-video-{item_id}-{r}")))
                 .w_full()
                 .h(px(220.))
-                .bg(gpui::black())
+                .bg(theme::pitch())
                 .overflow_hidden()
                 .cursor_pointer()
                 .on_click(open.clone())
@@ -283,8 +283,8 @@ impl ChatView {
         v_flex()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::panel())
+            .border_color(theme::line())
+            .bg(theme::card())
             .overflow_hidden()
             .children(video)
             .child(
@@ -305,7 +305,7 @@ impl ChatView {
                                     .min_w_0()
                                     .truncate()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(title),
                             )
                             .child(
@@ -323,7 +323,7 @@ impl ChatView {
                                 .text_xs()
                                 .text_color(theme::muted())
                                 .cursor_pointer()
-                                .hover(|s| s.text_color(theme::fg()))
+                                .hover(|s| s.text_color(theme::primary()))
                                 .on_click(open.clone())
                                 .child(crate::icons::lead("play", media::readable(&t.media.name))),
                         )
@@ -343,7 +343,7 @@ impl ChatView {
                                             div()
                                                 .min_w_0()
                                                 .truncate()
-                                                .text_color(theme::fg())
+                                                .text_color(theme::primary())
                                                 .child(c.title.clone()),
                                         )
                                 }),
@@ -416,7 +416,7 @@ impl ChatView {
                     .p_2p5()
                     .gap_2()
                     .border_t_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(
                         h_flex()
                             .flex_1()
@@ -431,8 +431,8 @@ impl ChatView {
                                     .rounded_md()
                                     .overflow_hidden()
                                     .border_1()
-                                    .border_color(theme::border())
-                                    .bg(gpui::black())
+                                    .border_color(theme::line())
+                                    .bg(theme::pitch())
                                     .cursor_pointer()
                                     .on_click(open.clone())
                                     .when_some(p, |el, p| {

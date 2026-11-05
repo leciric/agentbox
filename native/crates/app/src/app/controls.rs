@@ -36,13 +36,13 @@ pub fn toggle(
         .rounded_full()
         .flex()
         .when(on, |el| el.justify_end())
-        .bg(if on { theme::accent() } else { theme::hover() })
+        .bg(if on { theme::accent() } else { theme::surface_strong() })
         .border_1()
-        .border_color(if on { theme::accent() } else { theme::border() })
+        .border_color(if on { theme::accent() } else { theme::line() })
         .when(disabled, |el| el.opacity(0.5))
         .when(!disabled, |el| el.cursor_pointer().on_click(on_click))
         .child(div().size(px(14.)).rounded_full().bg(if on {
-            gpui::white()
+            theme::on_brand()
         } else {
             theme::muted()
         }))
@@ -78,8 +78,8 @@ fn segments(
         .gap(px(2.))
         .rounded_lg()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::panel())
+        .border_color(theme::line())
+        .bg(theme::card())
         .children(options.into_iter().map(|(value, label)| {
             let on = current == Some(value.as_ref());
             let pick = on_pick.clone();
@@ -90,15 +90,15 @@ fn segments(
                 .rounded_md()
                 .text_sm()
                 .when(on, |el| {
-                    el.bg(theme::hover())
-                        .text_color(theme::fg())
+                    el.bg(theme::surface_strong())
+                        .text_color(theme::primary())
                         .font_weight(FontWeight::MEDIUM)
                 })
                 .when(!on, |el| el.text_color(theme::muted()))
                 .when(disabled, |el| el.opacity(0.5))
                 .when(!disabled && !on, |el| {
                     el.cursor_pointer()
-                        .hover(|s| s.text_color(theme::fg()))
+                        .hover(|s| s.text_color(theme::primary()))
                         .on_click(move |_, window, cx| pick(&value, window, cx))
                 })
                 .child(label)
@@ -133,21 +133,21 @@ pub fn button(
         .text_sm()
         .font_weight(FontWeight::MEDIUM)
         .map(|el| match kind {
-            Btn::Primary => el.bg(theme::accent()).text_color(gpui::white()),
+            Btn::Primary => el.bg(theme::brand(500)).text_color(theme::on_brand()),
             Btn::Secondary => el
-                .bg(theme::raised())
+                .bg(theme::surface_raised())
                 .border_1()
-                .border_color(theme::border())
-                .text_color(theme::fg()),
+                .border_color(theme::line())
+                .text_color(theme::primary()),
             Btn::Ghost => el.text_color(theme::muted()),
-            Btn::Danger => el.bg(theme::error()).text_color(gpui::white()),
+            Btn::Danger => el.bg(theme::error()).text_color(theme::on_bright()),
         })
         .when(disabled, |el| el.opacity(0.5))
         .when(!disabled, |el| {
             el.cursor_pointer()
                 .hover(move |s| match kind {
                     Btn::Primary | Btn::Danger => s.opacity(0.9),
-                    _ => s.bg(theme::hover()).text_color(theme::fg()),
+                    _ => s.bg(theme::surface_strong()).text_color(theme::primary()),
                 })
                 .on_click(on_click)
         })
@@ -326,10 +326,10 @@ pub fn stepper(
             .items_center()
             .justify_center()
             .rounded_md()
-            .text_color(if usable { theme::fg() } else { theme::faint() })
+            .text_color(if usable { theme::primary() } else { theme::faint() })
             .when(usable, |el| {
                 el.cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
+                    .hover(|s| s.bg(theme::surface_strong()))
                     .on_click(move |_, window, cx| change(&next, window, cx))
             })
             .child(label)
@@ -340,15 +340,15 @@ pub fn stepper(
         .gap_1()
         .rounded_lg()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::panel())
+        .border_color(theme::line())
+        .bg(theme::card())
         .child(button("down", "−", (value - step).max(min)))
         .child(
             div()
                 .min_w(px(48.))
                 .text_center()
                 .text_sm()
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(format!("{value}{unit}")),
         )
         .child(button("up", "+", (value + step).min(max)))
@@ -412,7 +412,7 @@ impl Row {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(self.label),
             )
             .when(!self.description.is_empty(), |el| {
@@ -444,7 +444,7 @@ impl Row {
                             .text_color(theme::faint())
                             .underline()
                             .cursor_pointer()
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| s.text_color(theme::primary()))
                             .on_click(move |ev, window, cx| on_more(ev, window, cx))
                             .child(if self.more {
                                 t("settings.row.less")
@@ -468,7 +468,7 @@ impl Row {
                         .bottom_4()
                         .w(px(2.))
                         .rounded_r_full()
-                        .bg(theme::accent()),
+                        .bg(theme::brand(500)),
                 )
             })
             .child(
@@ -515,7 +515,7 @@ pub fn window_modal(
                 .id(SharedString::from(format!("{id}-backdrop")))
                 .w(size.width)
                 .h(size.height)
-                .bg(gpui::black().opacity(0.55))
+                .bg(theme::scrim())
                 .flex()
                 .items_center()
                 .justify_center()
@@ -530,9 +530,9 @@ pub fn window_modal(
                         .flex()
                         .flex_col()
                         .rounded_xl()
-                        .bg(theme::panel())
+                        .bg(theme::card())
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .shadow_lg()
                         .overflow_hidden()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

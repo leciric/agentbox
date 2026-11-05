@@ -374,7 +374,7 @@ impl AppView {
                 })
                 .when(!disabled, |el| {
                     el.cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                        .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                         .on_click(
                             cx.listener(move |this, _: &ClickEvent, w, cx| click(this, w, cx)),
                         )
@@ -473,7 +473,7 @@ impl AppView {
                                     .py_1p5()
                                     .rounded_md()
                                     .cursor_pointer()
-                                    .hover(|s| s.bg(theme::hover()))
+                                    .hover(|s| s.bg(theme::surface_strong()))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         this.seek_media(at, cx)
                                     }))
@@ -485,7 +485,7 @@ impl AppView {
                                                 div()
                                                     .flex_1()
                                                     .min_w_0()
-                                                    .text_color(theme::fg())
+                                                    .text_color(theme::primary())
                                                     .child(c.title.clone()),
                                             )
                                             .child(
@@ -518,7 +518,7 @@ impl AppView {
                     .overflow_y_scroll()
                     .p_6()
                     .rounded_lg()
-                    .bg(theme::panel())
+                    .bg(theme::card())
                     .text_sm()
                     .child(gpui_component::text::TextView::markdown(
                         SharedString::from(format!("media-text-{}", m.id)),
@@ -538,7 +538,7 @@ impl AppView {
                 .id("media-viewer")
                 .absolute()
                 .inset_0()
-                .bg(theme::bg())
+                .bg(theme::ink())
                 .track_focus(&v.focus)
                 .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
                     let z = this.side.foot.viewing.as_ref().map_or(1., |v| v.zoom);
@@ -573,7 +573,7 @@ impl AppView {
                         .py_2()
                         .gap_2()
                         .border_b_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .child(
                             v_flex()
                                 .flex_1()
@@ -583,7 +583,7 @@ impl AppView {
                                         .truncate()
                                         .text_sm()
                                         .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .child(media::readable(&m.name)),
                                 )
                                 .child(
@@ -611,7 +611,7 @@ impl AppView {
                                     .font_family(theme::mono())
                                     .text_color(theme::muted())
                                     .cursor_pointer()
-                                    .hover(|s| s.text_color(theme::fg()))
+                                    .hover(|s| s.text_color(theme::primary()))
                                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                         this.zoom_media(1., cx)
                                     }))
@@ -776,10 +776,10 @@ impl AppView {
                 .py_1()
                 .rounded_full()
                 .border_1()
-                .border_color(if on { theme::muted() } else { theme::border() })
-                .when(on, |el| el.bg(theme::hover()))
+                .border_color(if on { theme::muted() } else { theme::line() })
+                .when(on, |el| el.bg(theme::surface_strong()))
                 .text_xs()
-                .text_color(if on { theme::fg() } else { theme::muted() })
+                .text_color(if on { theme::primary() } else { theme::muted() })
                 .cursor_pointer()
                 .child(label)
         };
@@ -807,8 +807,8 @@ impl AppView {
                 .rounded_lg()
                 .overflow_hidden()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::raised())
+                .border_color(theme::line())
+                .bg(theme::surface_raised())
                 .cursor_pointer()
                 .hover(|el| el.border_color(theme::muted()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -817,7 +817,7 @@ impl AppView {
                 .child(
                     div()
                         .h(px(124.))
-                        .bg(theme::panel())
+                        .bg(theme::card())
                         .flex()
                         .items_center()
                         .justify_center()
@@ -841,7 +841,7 @@ impl AppView {
                                         .min_w_0()
                                         .truncate()
                                         .text_sm()
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .child(media::readable(&m.name)),
                                 )
                                 .when(m.unseen, |el| {
@@ -928,7 +928,7 @@ impl AppView {
                         .gap_2()
                         .child(
                             div()
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(t("project.media.emptyTitle")),
                         )
                         .child(
@@ -964,7 +964,7 @@ impl AppView {
                 .gap_2()
                 .child(
                     div()
-                        .text_color(theme::fg())
+                        .text_color(theme::primary())
                         .child(t("shell.jobs.emptyTitle")),
                 )
                 .child(
@@ -988,8 +988,8 @@ impl AppView {
                 .min_h_0()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::panel())
+                .border_color(theme::line())
+                .bg(theme::card())
                 .child(
                     div()
                         .px_4()
@@ -1011,8 +1011,8 @@ impl AppView {
                 .rounded_lg()
                 .text_sm()
                 .cursor_pointer()
-                .when(on, |el| el.bg(theme::hover()))
-                .hover(|el| el.bg(theme::raised()))
+                .when(on, |el| el.bg(theme::surface_strong()))
+                .hover(|el| el.bg(theme::surface_raised()))
                 .on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_job(id.clone(), cx)),
                 )

@@ -1321,9 +1321,9 @@ impl AppView {
                     .text_color(theme::accent())
             })
             .when(!on, |el| {
-                el.border_color(theme::border())
+                el.border_color(theme::line())
                     .text_color(theme::muted())
-                    .hover(|s| s.text_color(theme::fg()))
+                    .hover(|s| s.text_color(theme::primary()))
             })
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 click(this, cx);
@@ -1425,7 +1425,7 @@ impl AppView {
             .px_3()
             .py_2()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .children(chips)
             .child(div().flex_1())
             .child(past)
@@ -1451,8 +1451,8 @@ impl AppView {
             .gap_3()
             .rounded_md()
             .cursor_pointer()
-            .when(on, |el| el.bg(theme::hover()))
-            .hover(|el| el.bg(theme::raised()))
+            .when(on, |el| el.bg(theme::surface_strong()))
+            .hover(|el| el.bg(theme::surface_raised()))
             .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
                 if e.click_count() > 1 {
                     return this.palette_go(Some(ix), false, Some(window), cx);
@@ -1478,7 +1478,7 @@ impl AppView {
                         div()
                             .text_sm()
                             .truncate()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(marked(&c.title, query)),
                     )
                     .when_some(whom.filter(|_| on), |el, w| {
@@ -1509,7 +1509,7 @@ impl AppView {
                         .px_1()
                         .rounded_sm()
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .text_xs()
                         .text_color(theme::faint())
                         .child(c.keys),
@@ -1537,8 +1537,8 @@ impl AppView {
             .items_start()
             .rounded_md()
             .cursor_pointer()
-            .when(on, |el| el.bg(theme::hover()))
-            .hover(|el| el.bg(theme::raised()))
+            .when(on, |el| el.bg(theme::surface_strong()))
+            .hover(|el| el.bg(theme::surface_raised()))
             .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
                 if e.click_count() > 1 {
                     return this.palette_go(Some(ix), false, Some(window), cx);
@@ -1562,7 +1562,7 @@ impl AppView {
                                     .min_w_0()
                                     .text_sm()
                                     .truncate()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .when(kind == SEARCH_EVENTS, |el| el.font_family(theme::mono()))
                                     .child(marked(&h.title.replace('\n', " "), asked)),
                             )
@@ -1630,7 +1630,7 @@ impl AppView {
                 .child(
                     div()
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::fg())
+                        .text_color(theme::primary())
                         .child(c.title.clone()),
                 )
                 .child(div().text_color(theme::muted()).child(about))
@@ -1747,10 +1747,10 @@ impl AppView {
                                                     .px_3()
                                                     .py_2()
                                                     .rounded_xl()
-                                                    .when(mine, |el| el.bg(theme::raised()))
+                                                    .when(mine, |el| el.bg(theme::surface_raised()))
                                                     .when(here, |el| {
                                                         el.border_1()
-                                                            .border_color(gpui::rgb(0xf59e0b))
+                                                            .border_color(theme::amber(400))
                                                     })
                                                     .when(!here, |el| {
                                                         el.line_clamp(4).text_color(theme::muted())
@@ -1782,7 +1782,7 @@ impl AppView {
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(marked(
                                         if r.task.is_empty() {
                                             &r.summary
@@ -1802,7 +1802,7 @@ impl AppView {
                     )
                     .child(
                         div()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(marked(&r.summary, asked)),
                     )
                     .children(lists.into_iter().filter(|(_, l)| !l.is_empty()).map(
@@ -1836,7 +1836,7 @@ impl AppView {
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(marked(&m.title, asked)),
                             )
                             .child(
@@ -1849,7 +1849,7 @@ impl AppView {
                     )
                     .child(
                         div()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(marked(&m.content, asked)),
                     )
                     .into_any_element()
@@ -1874,7 +1874,7 @@ impl AppView {
                     .child(
                         div()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(marked(&m.name, asked)),
                     )
                     .when(!m.text.is_empty(), |el| {
@@ -1891,7 +1891,7 @@ impl AppView {
                     .child(
                         div()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .when(kind == SEARCH_EVENTS, |el| {
                                 el.font_family(theme::mono()).text_xs()
                             })
@@ -1986,8 +1986,8 @@ impl AppView {
                         .gap_3()
                         .rounded_md()
                         .cursor_pointer()
-                        .when(on, |el| el.bg(theme::hover()))
-                        .hover(|el| el.bg(theme::raised()))
+                        .when(on, |el| el.bg(theme::surface_strong()))
+                        .hover(|el| el.bg(theme::surface_raised()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.pick(Some(i), window, cx)
                         }))
@@ -1997,7 +1997,7 @@ impl AppView {
                                 .min_w_0()
                                 .truncate()
                                 .text_sm()
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(marked(&title, &query)),
                         )
                         .child(
@@ -2096,7 +2096,7 @@ impl AppView {
                                     div()
                                         .id("search-sort")
                                         .cursor_pointer()
-                                        .hover(|s| s.text_color(theme::fg()))
+                                        .hover(|s| s.text_color(theme::primary()))
                                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                             if let Some(p) = this.side.palette.as_mut() {
                                                 p.newest = !p.newest;
@@ -2215,7 +2215,7 @@ impl AppView {
                 .id("search-palette")
                 .absolute()
                 .inset_0()
-                .bg(gpui::black().opacity(0.5))
+                .bg(theme::scrim())
                 .flex()
                 .justify_center()
                 .pt(relative(0.08))
@@ -2236,9 +2236,9 @@ impl AppView {
                         .h(relative(0.8))
                         .rounded_2xl()
                         .overflow_hidden()
-                        .bg(theme::panel())
+                        .bg(theme::card())
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .shadow_lg()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
@@ -2246,7 +2246,7 @@ impl AppView {
                                 .gap_2()
                                 .p_3()
                                 .border_b_1()
-                                .border_color(theme::border())
+                                .border_color(theme::line())
                                 .children(picking_chip)
                                 .child(div().flex_1().child(Input::new(&p.input).cleanable(true))),
                         )
@@ -2275,7 +2275,7 @@ impl AppView {
                                 .py_2()
                                 .gap_4()
                                 .border_t_1()
-                                .border_color(theme::border())
+                                .border_color(theme::line())
                                 .text_xs()
                                 .text_color(theme::faint())
                                 .children(keys),
@@ -2304,8 +2304,8 @@ fn aside(place: String, at: String, body: AnyElement, foot: AnyElement) -> AnyEl
         .flex_none()
         .h_full()
         .border_l_1()
-        .border_color(theme::border())
-        .bg(theme::bg())
+        .border_color(theme::line())
+        .bg(theme::ink())
         .child(
             h_flex()
                 .justify_between()
@@ -2313,7 +2313,7 @@ fn aside(place: String, at: String, body: AnyElement, foot: AnyElement) -> AnyEl
                 .px_4()
                 .py_2p5()
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .text_xs()
                 .text_color(theme::faint())
                 .child(div().min_w_0().truncate().child(place))
@@ -2335,7 +2335,7 @@ fn aside(place: String, at: String, body: AnyElement, foot: AnyElement) -> AnyEl
                 .px_4()
                 .py_2p5()
                 .border_t_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(foot),
         )
         .into_any_element()
@@ -2351,10 +2351,10 @@ fn primary(
         .px_2p5()
         .py_1()
         .rounded_lg()
-        .bg(theme::accent())
+        .bg(theme::brand(500))
         .text_xs()
         .font_weight(FontWeight::MEDIUM)
-        .text_color(gpui::white())
+        .text_color(theme::on_brand())
         .cursor_pointer()
         .on_click(click)
         .child(label)
@@ -2372,11 +2372,11 @@ fn secondary(
         .py_1()
         .rounded_lg()
         .border_1()
-        .border_color(theme::border())
+        .border_color(theme::line())
         .text_xs()
         .text_color(theme::muted())
         .cursor_pointer()
-        .hover(|s| s.text_color(theme::fg()))
+        .hover(|s| s.text_color(theme::primary()))
         .on_click(click)
         .child(label)
         .into_any_element()

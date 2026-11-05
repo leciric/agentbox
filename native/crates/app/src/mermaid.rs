@@ -68,9 +68,9 @@ pub fn with_mermaid(view: TextView) -> TextView {
             .my_2()
             .p_3()
             .rounded_lg()
-            .bg(theme::raised())
+            .bg(theme::surface_raised())
             .border_1()
-            .border_color(theme::border());
+            .border_color(theme::line());
         match rendered(&src) {
             Ok(image) => block.child(img(image).max_w_full()).into_any_element(),
             Err(_) => block
@@ -89,8 +89,8 @@ pub fn with_mermaid(view: TextView) -> TextView {
             .rounded_lg()
             .overflow_hidden()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::raised());
+            .border_color(theme::line())
+            .bg(theme::surface_raised());
         let mut h = std::collections::hash_map::DefaultHasher::new();
         src.hash(&mut h);
         let id = format!("html-{:x}", h.finish());

@@ -226,11 +226,11 @@ impl AppView {
                     .py_1p5()
                     .rounded_md()
                     .text_sm()
-                    .when(on, |el| el.bg(theme::raised()).text_color(theme::fg()))
+                    .when(on, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                     .when(!on, |el| {
                         el.text_color(theme::muted())
                             .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                            .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                     })
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.agent_settings.section = sec;
@@ -283,8 +283,8 @@ impl AppView {
                     .gap_6()
                     .rounded_2xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
+                    .border_color(theme::line())
+                    .bg(theme::card())
                     .child(nav)
                     .child(
                         div()
@@ -305,8 +305,8 @@ impl AppView {
             .p_5()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::raised())
+            .border_color(theme::line())
+            .bg(theme::surface_raised())
             .children(rows.into_iter().map(|(label, value, mono)| {
                 h_flex()
                     .gap_4()
@@ -340,7 +340,7 @@ impl AppView {
                 .p_3()
                 .rounded_lg()
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(div().text_xs().text_color(theme::muted()).child(label))
                 .child(
                     div()
@@ -455,8 +455,8 @@ impl AppView {
                             .p_3p5()
                             .rounded_xl()
                             .border_1()
-                            .border_color(theme::border())
-                            .bg(theme::bg())
+                            .border_color(theme::line())
+                            .bg(theme::ink())
                             .font_family(theme::mono())
                             .text_xs()
                             .text_color(theme::muted())
@@ -539,7 +539,7 @@ impl AppView {
                 .py_2()
                 .rounded_lg()
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(
                     div()
                         .font_family(theme::mono())
@@ -590,8 +590,8 @@ impl AppView {
                 .p_5()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::raised())
+                .border_color(theme::line())
+                .bg(theme::surface_raised())
                 .child(
                     div()
                         .text_sm()
@@ -690,7 +690,7 @@ impl AppView {
                 .py_2p5()
                 .rounded_lg()
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(div().size(px(7.)).rounded_full().bg(color))
                 .child(
                     v_flex()
@@ -762,8 +762,8 @@ impl AppView {
                 .p_5()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::raised())
+                .border_color(theme::line())
+                .bg(theme::surface_raised())
                 .child(
                     div()
                         .text_sm()
