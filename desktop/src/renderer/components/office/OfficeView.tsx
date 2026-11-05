@@ -211,9 +211,19 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
       empty,
       items: items.map((i) => ({ ref: i.ref, title: i.title, sub: subOf(i), tone: i.tone, failing: i.pr?.checks === 'failing' })),
     });
-    const label = (project: string) => office.model.areas.find((a) => a.project === project)?.label ?? project;
+    // A project's name, and on floors which one the desk is on.
+    const label = (project: string, ref?: string) => {
+      const a = office.model.areas.find((x) => x.project === project);
+      const name = a?.label ?? project;
+      const sizes = a ? floorsOf(a.desks.length) : [1];
+      if (!a || !ref || ref.endsWith('/lead') || sizes.length < 2) return name;
+      let at = a.desks.findIndex((d) => d.id === ref);
+      let floor = 0;
+      while (floor < sizes.length - 1 && at >= sizes[floor]) at -= sizes[floor++];
+      return t('office.floor', { name, floor: floor + 1 });
+    };
     const subOf = (i: BoardItem) =>
-      i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${label(i.project)} · ${i.text}` : i.pr ? `${label(i.project)} · #${i.pr.number} ${t(`office.pr.${i.pr.state}`)}${i.pr.checks === 'failing' ? ` · ${t('office.checks.failing')}` : ''}` : label(i.project);
+      i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${label(i.project, i.ref)} · ${i.text}` : i.pr ? `${label(i.project, i.ref)} · #${i.pr.number} ${t(`office.pr.${i.pr.state}`)}${i.pr.checks === 'failing' ? ` · ${t('office.checks.failing')}` : ''}` : label(i.project, i.ref);
     return {
       title: t('office.board.title'),
       needs: col(office.model.board.needs, t('office.board.needs'), t('office.board.needsEmpty')),
@@ -347,6 +357,10 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
               setListChoice(true);
             },
             onLeave: () => leave.current(),
+            onUserMove: () => {
+              if (chatNow.current && !chatNext.current) setChat(null);
+              chatNext.current = null;
+            },
             onMoved: () => {
               setHint(false);
               try {
@@ -441,20 +455,31 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
   useEffect(() => {
     if (!trayOpen) setListOnly(null);
   }, [trayOpen]);
-  // The chat closes as you walk away from it, and one asked for by Next
-  // opens as you arrive.
+  // One asked for by Next opens as you arrive; the chat open closes when you
+  // get to another desk, or set off yourself (onUserMove), not as you pass by
+  // or settle where you are.
   useEffect(() => {
     if (near && chatNext.current === near) {
       chatNext.current = null;
       setChat(near);
-    } else if (chat && near !== chat) setChat(null);
+    } else if (chat && near && near !== chat && !chatNext.current) setChat(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [near]);
+  const chatNow = useRef(chat);
+  chatNow.current = chat;
+  // The composer has the keys as the chat opens: what you type goes to it,
+  // not to walking.
+  const chatPanel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!chat) return;
+    const id = window.setTimeout(() => chatPanel.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus({ preventScroll: true }), 120);
+    return () => window.clearTimeout(id);
+  }, [chat]);
   // A close-up keeps what it looks at clear of what's up on the right.
   useEffect(() => {
     if (status !== 'ready') return;
     const w = host.current?.clientWidth ?? 0;
-    scene.current?.setCover(chatOpen ? Math.min(w - 24, 480) + 24 : 0);
+    scene.current?.setCover(chatOpen ? Math.min(w - 24, 544) + 24 : 0);
   }, [chatOpen, status]);
   // The controls, shown a while and then folded to a button.
   useEffect(() => {
@@ -665,7 +690,8 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
       {/* Its chat, in place: the app's own, over the room. */}
       {chatOpen && (
         <section
-          className={cn(PANEL, 'pointer-events-auto absolute bottom-3 right-3 top-16 z-20 flex w-[min(30rem,calc(100%-1.5rem))] flex-col overflow-hidden')}
+          ref={chatPanel}
+          className={cn(PANEL, 'pointer-events-auto absolute bottom-3 right-3 top-16 z-20 flex w-[min(34rem,calc(100%-1.5rem))] flex-col overflow-hidden')}
           // Not modal: the room stays in view; but the room's keys rest while you type.
           role="dialog"
           aria-modal="false"

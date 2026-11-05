@@ -232,28 +232,40 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
 
   const frame = m(PALETTE.frame, { roughness: 0.5 });
 
-  // The meeting room, in the back left corner: glass on two sides, a round
-  // table and chairs.
+  // The meeting room: in the back left corner, glass on its two sides into
+  // the room; or at the front left, glass at its back and side and a low
+  // glass rail along the slab's open edge. A round table and chairs.
   const mr = l.meeting;
+  const front = mr.z0 > 0.5;
   const glass = keep(new THREE.MeshStandardMaterial({ color: '#bfe1ee', transparent: true, opacity: 0.42, roughness: 0.08, metalness: 0.1, depthWrite: false }));
   const gw = mr.x1 - mr.x0;
   const gd = mr.z1 - mr.z0;
+  // The glass across it, its z: the front of a back room, the back of a front one.
+  const gz = front ? mr.z0 : mr.z1;
   const glassFront = new THREE.Mesh(keep(new THREE.PlaneGeometry(gw, 2.2)), glass);
-  glassFront.position.set(mr.x0 + gw / 2, 1.1, mr.z1);
+  glassFront.position.set(mr.x0 + gw / 2, 1.1, gz);
   const glassSide = new THREE.Mesh(keep(new THREE.PlaneGeometry(gd, 2.2)), glass);
   glassSide.rotation.y = Math.PI / 2;
   glassSide.position.set(mr.x1, 1.1, mr.z0 + gd / 2);
-  for (const p of [glassFront, glassSide]) {
+  const panes = [glassFront, glassSide];
+  if (front) {
+    const rail = new THREE.Mesh(keep(new THREE.PlaneGeometry(gw, 0.9)), glass);
+    rail.position.set(mr.x0 + gw / 2, 0.45, mr.z1 - 0.02);
+    panes.push(rail);
+    put(rbox(gw, 0.05, 0.05, 0.02), frame, mr.x0 + gw / 2, 0.9, mr.z1 - 0.02);
+    put(rbox(0.06, 0.9, 0.06, 0.02), frame, mr.x1, 0.45, mr.z1 - 0.02);
+  }
+  for (const p of panes) {
     p.renderOrder = 3;
     g.add(p);
   }
   // Its frame: posts and rails, dark green.
-  for (const x of [mr.x0 + 0.05, mr.x0 + gw / 2, mr.x1 - 0.6]) put(rbox(0.06, 2.2, 0.06, 0.02), frame, x, 1.1, mr.z1);
-  put(rbox(0.06, 2.2, 0.06, 0.02), frame, mr.x1, 1.1, mr.z1);
+  for (const x of [mr.x0 + 0.05, mr.x0 + gw / 2, mr.x1 - 0.6]) put(rbox(0.06, 2.2, 0.06, 0.02), frame, x, 1.1, gz);
+  put(rbox(0.06, 2.2, 0.06, 0.02), frame, mr.x1, 1.1, gz);
   put(rbox(0.06, 2.2, 0.06, 0.02), frame, mr.x1, 1.1, mr.z0 + gd / 2);
-  put(rbox(gw, 0.06, 0.06, 0.02), frame, mr.x0 + gw / 2, 2.2, mr.z1);
+  put(rbox(gw, 0.06, 0.06, 0.02), frame, mr.x0 + gw / 2, 2.2, gz);
   put(rbox(0.06, 0.06, gd, 0.02), frame, mr.x1, 2.2, mr.z0 + gd / 2);
-  put(rbox(gw, 0.05, 0.05, 0.02), frame, mr.x0 + gw / 2, 0.03, mr.z1);
+  put(rbox(gw, 0.05, 0.05, 0.02), frame, mr.x0 + gw / 2, 0.03, gz);
   put(rbox(0.05, 0.05, gd, 0.02), frame, mr.x1, 0.03, mr.z0 + gd / 2);
   const tcx = mr.x0 + gw * 0.55;
   const tcz = mr.z0 + gd * 0.55;
@@ -270,10 +282,15 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
     put(rbox(0.36, 0.32, 0.06, 0.03), c, sx + Math.sin(a) * 0.17, 0.66, sz + Math.cos(a) * 0.17, [0, a, 0]);
     put(keep(new THREE.CylinderGeometry(0.02, 0.02, 0.44, 8)), m('#3b3f46'), sx, 0.22, sz);
   }
-  // A sofa against its back wall, sage green.
+  // A sofa against its wall, sage green: the back wall, or the left one.
   const sage = m('#9cb89a', { roughness: 0.9 });
-  put(rbox(1.6, 0.36, 0.7, 0.12), sage, mr.x0 + gw * 0.45, 0.22, mr.z0 + 0.5);
-  put(rbox(1.6, 0.5, 0.2, 0.08), sage, mr.x0 + gw * 0.45, 0.6, mr.z0 + 0.18);
+  if (front) {
+    put(rbox(0.7, 0.36, 1.6, 0.12), sage, mr.x0 + 0.5, 0.22, mr.z0 + gd * 0.5);
+    put(rbox(0.2, 0.5, 1.6, 0.08), sage, mr.x0 + 0.18, 0.6, mr.z0 + gd * 0.5);
+  } else {
+    put(rbox(1.6, 0.36, 0.7, 0.12), sage, mr.x0 + gw * 0.45, 0.22, mr.z0 + 0.5);
+    put(rbox(1.6, 0.5, 0.2, 0.08), sage, mr.x0 + gw * 0.45, 0.6, mr.z0 + 0.18);
+  }
 
   // The left wall: a big gridded window and a moss wall.
   const win = l.window;
@@ -466,9 +483,9 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
     face.position.set(x, 2.45, 0.06);
     g.add(face);
   }
-  // A clock over the meeting room.
+  // A clock over the meeting room, or where it'd be.
   {
-    const cx = (l.meeting.x0 + l.meeting.x1) / 2;
+    const cx = front ? 1.6 : (l.meeting.x0 + l.meeting.x1) / 2;
     put(keep(new THREE.CylinderGeometry(0.32, 0.32, 0.06, 32)), m('#ffffff', { roughness: 0.4 }), cx, 2.95, 0.04, [Math.PI / 2, 0, 0]);
     put(keep(new THREE.TorusGeometry(0.32, 0.03, 8, 32)), m('#2f4a3a', { roughness: 0.5 }), cx, 2.95, 0.06);
     put(rbox(0.03, 0.2, 0.01, 0.005), m('#1f2a3a'), cx, 3.03, 0.08);
@@ -489,10 +506,18 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
     c.font = '700 16px system-ui, sans-serif';
     c.fillText('Merged this week', 24, 24);
     keep(tv.tex);
-    const tvX = mr.x0 + gw * 0.5;
-    put(rbox(1.5, 0.88, 0.05, 0.02), m('#15181f', { roughness: 0.3 }), tvX, 1.75, 0.04);
     const scr = new THREE.Mesh(keep(new THREE.PlaneGeometry(1.42, 0.8)), keep(new THREE.MeshBasicMaterial({ map: tv.tex })));
-    scr.position.set(tvX, 1.75, 0.07);
+    if (front) {
+      // On the left wall, over the sofa, facing the table.
+      const tvZ = mr.z0 + gd * 0.5;
+      put(rbox(0.05, 0.88, 1.5, 0.02), m('#15181f', { roughness: 0.3 }), 0.04, 1.75, tvZ);
+      scr.rotation.y = Math.PI / 2;
+      scr.position.set(0.07, 1.75, tvZ);
+    } else {
+      const tvX = mr.x0 + gw * 0.5;
+      put(rbox(1.5, 0.88, 0.05, 0.02), m('#15181f', { roughness: 0.3 }), tvX, 1.75, 0.04);
+      scr.position.set(tvX, 1.75, 0.07);
+    }
     g.add(scr);
   }
 

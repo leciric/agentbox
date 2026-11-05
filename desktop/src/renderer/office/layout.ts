@@ -253,9 +253,9 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       obstacles.push(box(dx + side * 0.48, dz - SEAT, 1.2, 1.1));
       // You stand at the bench's end, beside the agent, as you'd stop by a
       // colleague's, turned half to the room: the close-up sees your face too.
-      // You stand beside the agent, a little behind its chair, facing it:
-      // never between it and the camera, nor pressed against it.
-      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.9, z: dz - 0.95, face: -side * 1.34 } };
+      // You stand beside the agent, level with it, facing it: neither
+      // between it and the camera nor behind it, and clear of its elbows.
+      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.95, z: dz - SEAT + 0.05, face: -side * (Math.PI / 2) } };
     });
     // The counter sits at the area's front, its lead behind it facing you.
     const lz = z + depth - LEAD_DEPTH / 2 - 0.1;
@@ -386,11 +386,29 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     prop('tree', roomW - 0.7, (zp + zb) / 2 + 0.8);
     prop('standing', roomW - 2.6, zp + 2.0 + (zb - zp - 3.8) / 2);
   }
-  // The meeting room, in the back left corner, behind glass.
-  const meeting: Box = { x0: 0, z0: 0, x1: Math.min(6, workW * 0.3), z1: BACK_AISLE - 0.4 };
-  obstacles.push({ x0: meeting.x0, z0: meeting.z0, x1: meeting.x1 + 0.05, z1: meeting.z1 + 0.05 });
+  // The meeting room, behind glass: in the back left corner, or in some
+  // rooms at the front left, as the target's is, where the floor before the
+  // pods would be bare. There only when it's clear of every desk, counter and
+  // the spots you stand at.
+  const overlapsAny = (b: Box, list: Box[]) => list.some((o) => b.x0 < o.x1 && o.x0 < b.x1 && b.z0 < o.z1 && o.z0 < b.z1);
+  const busy: Box[] = areas.flatMap((a) => [
+    ...a.pods.map((p) => expand(p, 0.5)),
+    ...a.desks.map((d) => box(d.spot.x, d.spot.z, 1.4, 1.4)),
+    ...(a.lead ? [box(a.lead.x, a.lead.z - 0.3, COUNTER.w + 0.8, 2.6), box(a.lead.spot.x, a.lead.spot.z, 1.4, 1.4)] : []),
+  ]);
+  const frontMeet: Box = { x0: 0, z0: roomD - 3.1, x1: Math.min(3.9, workW * 0.3), z1: roomD };
+  const meetFront = !compact && ((h >> 1) + floor) % 2 === 0 && frontMeet.x1 > 3.4 && !overlapsAny(frontMeet, busy);
+  const meeting: Box = meetFront ? frontMeet : { x0: 0, z0: 0, x1: Math.min(6, workW * 0.3), z1: BACK_AISLE - 0.4 };
+  if (meetFront) {
+    // What was set on that floor goes: it's the meeting room's now.
+    const inMeet = (b: Box) => b.x0 < meeting.x1 + 0.2 && b.z1 > meeting.z0 - 0.2;
+    for (let i = free.length - 1; i >= 0; i--) if (inMeet(free[i])) free.splice(i, 1);
+    for (let i = plants.length - 1; i >= 0; i--) if (plants[i].x < meeting.x1 + 0.3 && plants[i].z > meeting.z0 - 0.3) plants.splice(i, 1);
+    for (let i = obstacles.length - 1; i >= 0; i--) if (inMeet(obstacles[i]) && obstacles[i].x1 - obstacles[i].x0 < 0.7) obstacles.splice(i, 1);
+  }
+  obstacles.push({ x0: meeting.x0, z0: meeting.z0 - (meetFront ? 0.05 : 0), x1: meeting.x1 + 0.05, z1: meeting.z1 + (meetFront ? 0 : 0.05) });
   const corners = [
-    { x: 0.55, z: roomD - 0.55 },
+    ...(meetFront ? [] : [{ x: 0.55, z: roomD - 0.55 }]),
     { x: wx + 0.5, z: lounge.z1 + 0.6 },
     { x: wx + 0.5, z: roomD - 0.7 },
   ];
@@ -398,21 +416,24 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     plants.push(p);
     obstacles.push(box(p.x, p.z, 0.6, 0.6));
   }
-  // The bookshelf against the left wall, at the front, and the server racks
-  // beside it: a corner of their own.
-  const shelf: Box = { x0: 0, z0: roomD - 3.2, x1: 0.4, z1: roomD - 1.6 };
+  // The bookshelf against the left wall, at the front (or before the meeting
+  // room there), and the server racks beside it: a corner of their own.
+  const wallEnd = meetFront ? meeting.z0 - 0.3 : roomD - 1.6;
+  const shelf: Box = { x0: 0, z0: wallEnd - 1.6, x1: 0.4, z1: wallEnd };
   obstacles.push(shelf);
   const rack = { x: 0.36, z: shelf.z0 - 0.5 };
   obstacles.push(box(rack.x, rack.z, 0.65, 0.65));
   prop('rack', footOf('rack')[1] / 2 + 0.03, shelf.z0 - 1.3, Math.PI / 2);
-  // The board, right of the meeting room, on the work's back wall.
-  const boardW = Math.min(5.2, workW - meeting.x1 - 2);
-  const boardX = Math.min(workW - boardW / 2 - 0.8, Math.max(workW / 2, meeting.x1 + boardW / 2 + 2.2));
+  // The board, right of the meeting room (or of the corner), on the work's
+  // back wall.
+  const backLeft = meetFront ? 0 : meeting.x1;
+  const boardW = Math.min(5.2, workW - backLeft - 2);
+  const boardX = Math.min(workW - boardW / 2 - 0.8, Math.max(workW / 2, backLeft + boardW / 2 + 2.2));
   obstacles.push(box(boardX, 0.2, boardW, 0.4));
   // Along the back wall either side of the board, low shelves of plants,
   // and a tree in the work's back right corner.
   const backGaps: Box[] = [
-    { x0: meeting.x1 + 0.6, z0: 0, x1: boardX - boardW / 2 - 0.6, z1: 0.5 },
+    { x0: backLeft + 0.6, z0: 0, x1: boardX - boardW / 2 - 0.6, z1: 0.5 },
     { x0: boardX + boardW / 2 + 0.6, z0: 0, x1: workW - 1.4, z1: 0.5 },
   ];
   // Framed prints over them, where the wall's free.
@@ -424,11 +445,12 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     else if (w > 1.4) art.push((g.x0 + g.x1) / 2);
   }
   prop('tree', workW - 0.6, 0.6);
-  // The left wall: the window past the meeting room, the moss wall after it,
-  // lockers after that.
-  const winW = Math.min(4.6, Math.max(2.2, (roomD - meeting.z1) * 0.4));
-  const window = { at: meeting.z1 + 0.4 + winW / 2, w: winW };
-  const mossW = Math.min(3.6, Math.max(1.4, roomD - (window.at + winW / 2) - 1.6));
+  // The left wall: the window past the meeting room (or from the back), the
+  // moss wall after it, lockers after that, as far as the racks.
+  const wallFrom = meetFront ? 0.1 : meeting.z1;
+  const winW = Math.min(4.6, Math.max(2.2, ((meetFront ? meeting.z0 : roomD) - wallFrom) * 0.4));
+  const window = { at: wallFrom + 0.4 + winW / 2, w: winW };
+  const mossW = Math.min(3.6, Math.max(1.4, (meetFront ? shelf.z0 - 1.9 : roomD - 1.6) - (window.at + winW / 2) - 0.4));
   const moss = { at: window.at + winW / 2 + 0.4 + mossW / 2, w: mossW };
   for (let lz = moss.at + mossW / 2 + 1.6; lz + 1.25 < shelf.z0 - 1.8; lz += 3.2) prop('lockers', footOf('lockers')[1] / 2 + 0.02, lz, Math.PI / 2);
   // The brick wall behind the lounge, its sign over the sofa.
@@ -513,7 +535,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     areas,
     // You stand at the board's left end, out of the way of reading it and of
     // its list, which is on the right.
-    board: { x: boardX, w: boardW, spot: { x: Math.max(boardX - boardW / 2 - 0.7, meeting.x1 + 0.8), z: 1.1, face: Math.PI / 2 } },
+    board: { x: boardX, w: boardW, spot: { x: Math.max(boardX - boardW / 2 - 0.7, backLeft + 0.8), z: 1.1, face: Math.PI / 2 } },
     lobby: wood,
     wood,
     spawn,

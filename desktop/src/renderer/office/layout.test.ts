@@ -99,6 +99,7 @@ test('every room is furnished, and nothing stands on anything else', () => {
     for (const [i, f] of feet.entries()) {
       assert.ok(within(l.room, f), `${n}: ${solid[i].kind} is in the room`);
       assert.ok(!overlaps(f, l.sofa), `${n}: ${solid[i].kind} is clear of the sofa`);
+      assert.ok(!overlaps(f, l.meeting), `${name} ${n}: ${solid[i].kind} is out of the meeting room`);
       for (const a of l.areas) {
         for (const pod of a.pods) assert.ok(!overlaps(f, pod), `${n}: ${solid[i].kind} is off ${a.project}'s pods`);
         if (!a.lead) continue;

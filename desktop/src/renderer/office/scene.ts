@@ -55,6 +55,9 @@ export type OfficeSceneOptions = {
   // Escape over the campus, with nothing left to step back from: out of the
   // Office.
   onLeave?(): void;
+  // You set off yourself, by the keys or a click on the floor (not walked
+  // somewhere by name).
+  onUserMove?(): void;
   // A chip's "+n": show the list of who needs you.
   onMore(refs: string[], at: { x: number; y: number }): void;
   // A click on a row of the board, standing at it: the desk it's about.
@@ -543,6 +546,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   const pos: P = { x: 0, z: 0 };
   let facing = Math.PI;
   let speed = 0;
+  // What you last walked to by name: standing at it, the camera comes close.
+  let cameTo: string | undefined;
   // The pace you're moving at, eased, and which way the keys last sent you.
   let pace = 0;
   let keyDir: P | undefined;
@@ -904,7 +909,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const tag = sprite(640, 96, 1.9);
     disp.push(() => tag.tex.dispose(), () => tag.sprite.material.dispose());
     // At the desk's front edge, under the agent's face rather than over it.
-    tag.sprite.position.set(rx, 0.45, cz);
+    // Its name tag's anchor: the desk's front, under its agent, as a name
+    // plate; clear of the agent itself.
+    tag.sprite.position.set(rx, 0.5, 0.55);
     tag.sprite.renderOrder = 2;
     g.add(tag.sprite);
     const ringMat = new THREE.MeshBasicMaterial({ color: '#fbbf24', transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
@@ -1142,6 +1149,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         lighting(true);
         showScope();
         facing = lastVisit.facing;
+        cameTo = nearest(lay, pos);
         zoomTo(lastVisit.follow / 2);
         cam.followK = lastVisit.follow;
         cam.yaw = lastVisit.yaw;
@@ -1182,10 +1190,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       meTag.tex.needsUpdate = true;
     }
     syncAreaChips(input);
-    // Each room's board: what of the Office's is in that room.
+    // Each room's board: what waits in its project, every floor's (each
+    // note says which), so no floor's board hides what another's has.
     for (const b of boards.values()) {
       const rm = lay.rooms[b.room];
-      const inRoom = (ref: string) => (ref.endsWith('/lead') ? rm.lead && ref === `${rm.project}/lead` : rm.desks.includes(ref));
+      const inRoom = (ref: string) => ref.split('/')[0] === rm.project;
       const bs = { ...input.board, needs: { ...input.board.needs, items: input.board.needs.items.filter((i) => inRoom(i.ref)) }, review: { ...input.board.review, items: input.board.review.items.filter((i) => inRoom(i.ref)) } };
       const k = JSON.stringify(bs);
       if (k !== b.key) {
@@ -1248,6 +1257,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     }
     route = path(boxes, bounds, pos, spot);
     routeGoal = ref;
+    cameTo = ref;
     zoomTo(Math.max(zoomZ, 0.5));
     started();
     tellView();
@@ -1260,6 +1270,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     if (ri !== undefined && ri !== cur) into(ri);
     route = path(boxes, bounds, pos, p);
     routeGoal = undefined;
+    cameTo = undefined;
+    opts.onUserMove?.();
     // From the overview a click on the floor comes halfway down, not all the
     // way behind you.
     if (zoomZ === 0) zoomTo(0.24);
@@ -1400,7 +1412,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     if (kx || kz) {
       route = [];
       routeGoal = undefined;
-      if (zoomZ < 0.5) zoomTo(0.5);
+      if (cameTo !== undefined || pace === 0) opts.onUserMove?.();
+      cameTo = undefined;
+      // Down from the overview gently, a little behind you.
+      if (zoomZ < 0.35) zoomTo(0.35);
       started();
       const len = Math.hypot(kx, kz);
       const c = Math.cos(eased.yaw);
@@ -1614,7 +1629,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     if (Math.abs(followTarget - cam.followK) < 1e-3) cam.followK = followTarget;
     // Close up at what you're at, and gliding into it over a walk's last
     // few metres, so you arrive in the close-up rather than settle into it.
-    let closeTarget = near && stillFor > 0.15 && !held && !turned ? 1 : 0;
+    // Only at what you walked to by name (a click on it, N, a list): walking
+    // past a desk with the keys, the camera stays with you.
+    let closeTarget = near && near === cameTo && stillFor > 0.15 && !held && !turned ? 1 : 0;
     if (!closeTarget && routeGoal && route.length) {
       const rem = Math.hypot(route[0].x - pos.x, route[0].z - pos.z) + pathLengthFrom(route);
       if (rem < 8) closeTarget = 1 - rem / 8;
@@ -1909,8 +1926,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const work = chip.children[3] as HTMLElement;
       if (sub.dataset.n !== `${n0}:${f0}:${w0}`) {
         sub.dataset.n = `${n0}:${f0}:${w0}`;
-        work.textContent = w0 ? `● ${w0}` : '';
-        work.style.display = w0 ? 'inline' : 'none';
+        // Nobody waiting nor working: how many it has, quietly, so no pill is bare.
+        const quiet = !n0 && !w0 && rm.desks.length > 0;
+        work.textContent = w0 ? `● ${w0}` : quiet ? `● ${rm.desks.length}` : '';
+        work.style.display = w0 || quiet ? 'inline' : 'none';
+        work.style.color = quiet ? '#64748b' : '#2563eb';
         sub.textContent = n0 ? String(n0) : '';
         sub.style.display = n0 ? 'inline' : 'none';
         // Amber, as everything that needs you is.
@@ -1947,6 +1967,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // You stand beside the agent you're at (layout.ts), never faded: a
     // see-through you reads as a glitch.
     me.fade(1);
+    // Reading the board, you stand at its end, out of the picture.
+    me.group.visible = !(isBoard(near) && cam.closeK > 0.5);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -2068,9 +2090,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         off = tries.find(([dx, dy]) => !clash(m.x + dx, m.y + dy)) ?? null;
         chipDy.set(m.el, off);
       }
-      // Who needs you (or failed) is never folded away: with nowhere clear,
-      // its tag stays where it belongs.
-      if (!off && m.needs) off = [0, 0];
+      // Who needs you (or failed) is never folded away, and in a room of up
+      // to eight nobody's: with nowhere clear, a tag stays at its desk.
+      if (!off && (m.needs || smallRoom)) off = [0, 0];
       if (!off && !m.loud) {
         // A quiet label with no room simply steps out of the way.
         m.el.style.display = 'none';
