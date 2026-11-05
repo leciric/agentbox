@@ -8,7 +8,6 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 pub use hyper::Method;
 use hyper::Request;
-#[cfg(unix)]
 use hyper_util::rt::TokioIo;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::mpsc;
@@ -108,7 +107,11 @@ impl Client {
                 .body(Full::new(Bytes::from(body.unwrap_or_default())))?;
             let res = sender.send_request(req).await?;
             let status = res.status();
+            let headers = res.headers().clone();
             let bytes = res.into_body().collect().await?.to_bytes();
+            if let Some(why) = relay_refusal(status, &headers, &bytes) {
+                return Err(anyhow!("connecting to the daemon: {why}"));
+            }
             if !status.is_success() {
                 let msg = serde_json::from_slice::<ApiError>(&bytes)
                     .map(|e| e.error)
@@ -141,18 +144,9 @@ impl Client {
 
 type Sender = hyper::client::conn::http1::SendRequest<Full<Bytes>>;
 
-/// connect opens a connection to the daemon. On Windows the daemon is in WSL
-/// and the Electron app reaches it through its relay's named pipe
-/// (desktop/src/main/relay.ts), which this POC doesn't do yet.
-#[cfg(windows)]
-async fn connect(socket: &Path) -> Result<Sender> {
-    Err(anyhow!(
-        "{}: the native app can't reach the daemon on Windows yet",
-        socket.display()
-    ))
-}
-
-/// dial opens a raw connection to the daemon's socket.
+/// dial opens a raw connection to the daemon: its unix socket, or on
+/// Windows, where the daemon is in WSL, the named pipe of the relay into it
+/// (relay.rs, as desktop/src/main/relay.ts does).
 #[cfg(unix)]
 pub(crate) async fn dial(socket: &Path) -> Result<tokio::net::UnixStream> {
     tokio::net::UnixStream::connect(socket)
@@ -161,21 +155,35 @@ pub(crate) async fn dial(socket: &Path) -> Result<tokio::net::UnixStream> {
 }
 
 #[cfg(windows)]
-pub(crate) async fn dial(socket: &Path) -> Result<tokio::net::TcpStream> {
-    Err(anyhow!(
-        "{}: the native app can't reach the daemon on Windows yet",
-        socket.display()
-    ))
+pub(crate) async fn dial(
+    socket: &Path,
+) -> Result<tokio::net::windows::named_pipe::NamedPipeClient> {
+    crate::relay::open(socket).await
 }
 
-#[cfg(unix)]
+/// connect opens an HTTP/1 connection to the daemon.
 async fn connect(socket: &Path) -> Result<Sender> {
-    let stream = tokio::net::UnixStream::connect(socket)
-        .await
-        .with_context(|| format!("connecting to {}", socket.display()))?;
+    let stream = dial(socket).await?;
     let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
     tokio::spawn(conn);
     Ok(sender)
+}
+
+/// relay_refusal is the reason in an answer the relay gave because no daemon
+/// listens in the distro, which reads as the daemon not running.
+fn relay_refusal(
+    status: hyper::StatusCode,
+    headers: &hyper::HeaderMap,
+    body: &[u8],
+) -> Option<String> {
+    let header = headers
+        .get(crate::relay::RELAY_HEADER)
+        .and_then(|v| v.to_str().ok());
+    crate::relay::refused(status.as_u16(), header).then(|| {
+        serde_json::from_slice::<ApiError>(body)
+            .map(|e| e.error)
+            .unwrap_or_else(|_| "the AgentBox daemon isn't running".into())
+    })
 }
 
 async fn follow(socket: &Path, tx: &mpsc::UnboundedSender<Option<Event>>) -> Result<()> {
@@ -185,7 +193,10 @@ async fn follow(socket: &Path, tx: &mpsc::UnboundedSender<Option<Event>>) -> Res
         .body(Full::new(Bytes::new()))?;
     let res = sender.send_request(req).await?;
     if !res.status().is_success() {
-        return Err(anyhow!("events: {}", res.status()));
+        let (status, headers) = (res.status(), res.headers().clone());
+        let body = res.into_body().collect().await?.to_bytes();
+        let why = relay_refusal(status, &headers, &body).unwrap_or_default();
+        return Err(anyhow!("events: {status} {why}"));
     }
     tx.send(None)?;
     let mut body = res.into_body();

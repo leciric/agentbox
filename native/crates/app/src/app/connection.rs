@@ -59,6 +59,25 @@ pub(super) fn which(name: &str) -> Option<PathBuf> {
     })
 }
 
+/// agentbox_cli is the command-line tool to start the daemon with: on
+/// Windows the one the relay runs from (agentbox_api::relay::agentbox_bin,
+/// the Electron app's managed copy first), else the one on PATH.
+fn agentbox_cli() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let exe = std::env::current_exe().ok();
+        let bin = agentbox_api::relay::agentbox_bin(
+            |k| std::env::var(k).ok(),
+            exe.as_deref().and_then(std::path::Path::parent),
+            |p| p.is_file(),
+        );
+        if bin.is_file() {
+            return Some(bin);
+        }
+    }
+    which("agentbox")
+}
+
 /// last_line is progressStep: the last line said that isn't an error.
 fn last_line(said: &str) -> String {
     said.lines()
@@ -148,17 +167,17 @@ impl AppView {
 
     /// maybe_start_daemon starts the daemon once, as Electron's ensureDaemon:
     /// only on the default socket, with the tool on PATH, and unless
-    /// AGENTBOX_NO_AUTOSTART says not to. Windows reaches its daemon through
-    /// a relay this app doesn't have yet.
+    /// AGENTBOX_NO_AUTOSTART says not to. On Windows it's agentbox.exe, which
+    /// starts the daemon in its WSL distro (the relay reaches it there).
     fn maybe_start_daemon(&mut self) {
         let c = &mut self.conn;
-        if c.tried || cfg!(windows) || std::env::var_os("AGENTBOX_NO_AUTOSTART").is_some() {
+        if c.tried || std::env::var_os("AGENTBOX_NO_AUTOSTART").is_some() {
             return;
         }
         if self.client.socket() != agentbox_api::client::default_socket() {
             return;
         }
-        let Some(bin) = which("agentbox") else {
+        let Some(bin) = agentbox_cli() else {
             return;
         };
         c.tried = true;
@@ -240,7 +259,7 @@ impl AppView {
         {
             return;
         }
-        let Some(bin) = which("agentbox") else {
+        let Some(bin) = agentbox_cli() else {
             return;
         };
         self.conn.vm_at = Some(Instant::now());
