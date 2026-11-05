@@ -8,6 +8,4 @@ export const ptBRNative = {
   'native.settings.later': 'Este app ainda não tem estas configurações: por enquanto, mude-as no app AgentBox para desktop.',
   'native.settings.openCodePage': 'Abrir essa página',
   'native.diff.moreLines': '{count, plural, one {Mais # linha} other {Mais # linhas}} não mostradas aqui',
-  'native.agent.turns': 'Turnos',
-  'native.agent.turnsNote': 'A worktree como cada turno terminou: volte o agente a um deles, ou crie um novo agente a partir dele.',
 };

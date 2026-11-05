@@ -18,11 +18,12 @@ mod new_task;
 mod panel;
 mod pulls;
 mod review;
+mod sessions;
 mod settings;
 mod sidebar;
 mod work;
 
-use crate::chat::ChatView;
+use crate::chat::{ChatAction, ChatView};
 use crate::terminal::TerminalView;
 use crate::vnc::VncView;
 
@@ -81,6 +82,13 @@ pub struct AppView {
     /// The open project's pull requests, and the one open over the window.
     pulls: pulls::Pulls,
     toasts: Entity<crate::toasts::Toasts>,
+    /// The lead's chat sessions, every project's.
+    sessions: sessions::Sessions,
+    /// The lead's chat should show another session: opened on the next frame.
+    reopen_lead: bool,
+    /// The doctor's check being handed to the Home chat.
+    asking_home: Option<String>,
+    _chat_sub: Option<Subscription>,
     _subs: Vec<Subscription>,
     _review_sub: Option<Subscription>,
     _events: Task<()>,
@@ -117,6 +125,10 @@ impl AppView {
             review: None,
             pulls,
             toasts: crate::toasts::init(cx),
+            sessions: sessions::Sessions::new(window, cx),
+            reopen_lead: false,
+            asking_home: None,
+            _chat_sub: None,
             _subs: vec![search_sub],
             _review_sub: None,
             _events: events,
@@ -168,6 +180,10 @@ impl AppView {
             }
             self.load_projects(window, cx);
             self.reload_review(cx);
+            let names: Vec<String> = self.sessions.lists.keys().cloned().collect();
+            for p in names {
+                self.load_sessions(p, cx);
+            }
             self.load_pulls(false, cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
@@ -205,6 +221,7 @@ impl AppView {
                     Some(ix) => self.fleet[ix].state = change.state,
                     None => self.load_fleet(window, cx),
                 }
+                self.sync_chat_agent(cx);
                 cx.notify();
             }
             EVENT_CHAT => {
@@ -223,13 +240,16 @@ impl AppView {
                         cx.notify();
                     }
                 }
-                // A lead's message changes its project's line in the sidebar.
-                if let Some(p) = chat_ev.agent.strip_suffix("/lead")
+                // A lead's message changes its project's line in the sidebar,
+                // and where its session stands (unread).
+                if let Some((p, lead)) = chat_ev.agent.split_once('/')
+                    && (lead == "lead" || lead.starts_with("lead."))
                     && chat_ev.item.as_ref().is_some_and(|i| {
                         !i.streaming && (i.kind == "user" || i.kind == "assistant")
                     })
                 {
                     self.load_line(p.to_string(), cx);
+                    self.load_sessions(p.to_string(), cx);
                 }
                 if let Some(chat) = &self.chat
                     && chat.read(cx).agent == chat_ev.agent
@@ -238,6 +258,25 @@ impl AppView {
                 }
             }
             EVENT_PROJECT => self.load_projects(window, cx),
+            agentbox_api::EVENT_LEAD_SESSIONS => {
+                if let Ok(c) = serde_json::from_value::<agentbox_api::LeadSessionsChange>(ev.data) {
+                    self.load_sessions(c.project, cx);
+                }
+            }
+            agentbox_api::EVENT_LEAD_SESSION_STATUS => {
+                if let Ok(c) =
+                    serde_json::from_value::<agentbox_api::LeadSessionStatusChange>(ev.data)
+                {
+                    self.on_session_status(c.project, c.sessions, cx);
+                }
+            }
+            agentbox_api::EVENT_SESSIONS_SETTLED => {
+                if let Ok(c) = serde_json::from_value::<agentbox_api::SessionsSettled>(ev.data) {
+                    let p = c.project.clone();
+                    self.on_sessions_settled(c.project, c.sessions, cx);
+                    self.load_sessions(p, cx);
+                }
+            }
             agentbox_api::EVENT_FILES => {
                 if let Ok(change) = serde_json::from_value::<agentbox_api::FilesChange>(ev.data) {
                     self.on_files_event(change, cx);
@@ -304,6 +343,14 @@ impl AppView {
                     Ok(p) => {
                         this.projects = p;
                         this.load_sidebar(cx);
+                        let mut names: Vec<String> =
+                            this.projects.iter().map(|p| p.name.clone()).collect();
+                        names.push(agentbox_api::HOME_PROJECT.into());
+                        for n in names {
+                            if !this.sessions.lists.contains_key(&n) {
+                                this.load_sessions(n, cx);
+                            }
+                        }
                         this.error = None;
                         bench::mark("projects-loaded");
                         if this.project.is_none() {
@@ -366,6 +413,7 @@ impl AppView {
                             this.open_chat(open, window, cx);
                         }
                         this.panel_sync(window, cx);
+                        this.sync_chat_agent(cx);
                     }
                     Err(e) => this.fleet_error = Some(e.to_string().into()),
                 }
@@ -379,6 +427,8 @@ impl AppView {
     fn select_project(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
         self.settings = false;
         self.work = None;
+        self.sessions.history = false;
+        self.load_sessions(name.clone(), cx);
         self.project = Some(name);
         self.fleet.clear();
         self.load_fleet(window, cx);
@@ -403,10 +453,14 @@ impl AppView {
                 }
             });
         let (prefix, agent, title) = if who == "lead" {
+            let (prefix, r, topic) = self.lead_target(&project);
             (
-                format!("/v1/projects/{project}"),
-                format!("{project}/lead"),
-                format!("{display} · {}", t("v2.header.lead")),
+                prefix,
+                r,
+                format!(
+                    "{display} · {}",
+                    topic.unwrap_or_else(|| t("v2.header.lead"))
+                ),
             )
         } else {
             let t = self
@@ -436,13 +490,96 @@ impl AppView {
         let client = self.client.clone();
         // Under the project's header, the chat draws no title of its own.
         let header = self.is_home();
-        self.chat = Some(cx.new(|cx| {
+        let name = if self.open == "lead" {
+            String::new()
+        } else {
+            self.open.clone()
+        };
+        let chat = cx.new(|cx| {
             let mut c = ChatView::new(client, prefix, agent, title.into(), window, cx);
             c.header = header;
+            c.agent_name = name;
             c
-        }));
+        });
+        self._chat_sub = Some(cx.subscribe_in(&chat, window, Self::on_chat_action));
+        self.chat = Some(chat);
+        self.sync_chat_agent(cx);
         self.panel_sync(window, cx);
         cx.notify();
+    }
+
+    /// sync_chat_agent tells the open chat whether its agent sleeps.
+    fn sync_chat_agent(&mut self, cx: &mut Context<Self>) {
+        let state = self
+            .open_agent()
+            .map(|a| a.state.clone())
+            .filter(|s| s == "stopped" || s == "paused");
+        if let Some(chat) = &self.chat
+            && chat.read(cx).asleep != state
+        {
+            chat.update(cx, |c, cx| {
+                c.asleep = state;
+                cx.notify();
+            });
+        }
+    }
+
+    /// open_agent_ref opens an agent's chat, in its own project.
+    fn open_agent_ref(&mut self, r#ref: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((p, a)) = r#ref.split_once('/') else {
+            return;
+        };
+        if self.project.as_deref() != Some(p) {
+            self.select_project(p.to_string(), window, cx);
+        }
+        self.open_chat(a.to_string(), window, cx);
+    }
+
+    /// on_chat_action does what the chat asks of the window.
+    fn on_chat_action(
+        &mut self,
+        _: &Entity<ChatView>,
+        ev: &ChatAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match ev.clone() {
+            ChatAction::Rollback { checkpoint, n } => {
+                self.agent.confirm = Some(agent::Confirm::Rollback { checkpoint, n });
+                cx.notify();
+            }
+            ChatAction::Fork { checkpoint, n } => {
+                let name = self.open.clone();
+                self.start_fork(
+                    agentbox_i18n::tv(
+                        "chat.turn.forkTitle",
+                        &[("name", (&name).into()), ("n", n.into())],
+                    ),
+                    t("chat.turn.forkDescription"),
+                    agentbox_api::ForkRequest {
+                        checkpoint,
+                        ..Default::default()
+                    },
+                    window,
+                    cx,
+                );
+            }
+            ChatAction::OpenAgent(r) => self.open_agent_ref(r, window, cx),
+            ChatAction::OpenProject(p) => self.select_project(p, window, cx),
+            ChatAction::ForkSession(item) => self.fork_session(item, window, cx),
+            ChatAction::NewSession { text } => self.session_with_message(text, window, cx),
+            ChatAction::Wake => {
+                if let Some(a) = self.open_agent() {
+                    let action = if a.state == "paused" {
+                        agent_status::Action::Resume
+                    } else {
+                        agent_status::Action::Start
+                    };
+                    let r = a.r#ref.clone();
+                    self.run_action(r, action, cx);
+                }
+            }
+        }
     }
 
     fn is_home(&self) -> bool {
@@ -645,13 +782,30 @@ impl AppView {
 }
 
 impl Render for AppView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         bench::mark("first-render");
+        if std::mem::take(&mut self.reopen_lead) && self.open == "lead" {
+            cx.defer_in(window, |this, window, cx| {
+                this.open_chat("lead".into(), window, cx)
+            });
+        }
         let overlay = self.render_new_task(cx);
+        let lead_view =
+            self.open == "lead" && !self.settings && self.work.is_none() && self.project.is_some();
+        let no_session = lead_view
+            && self.project.as_ref().is_some_and(|p| {
+                self.sessions.lists.contains_key(p) && self.sessions.current(p).is_none()
+            });
         h_flex()
             .id("app")
             .relative()
             // Ctrl+N anywhere opens New task.
+            // A session's keys go first: Ctrl+Tab and Ctrl+W are a text box's too.
+            .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                if this.session_key(ev, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 if ev.keystroke.modifiers.control
                     && ev.keystroke.key == "n"
@@ -686,12 +840,20 @@ impl Render for AppView {
                             el.children(self.render_project_header(cx))
                                 .children(self.render_agent_header(cx))
                                 .children(self.render_machine_bar(cx))
+                                .children(self.render_session_tabs(cx))
+                                .when(!no_session, |el| {
+                                    el.children(self.render_session_header(cx))
+                                })
                         },
                     )
                     .child(
                         div().flex_1().min_h_0().child(match &self.chat {
                             _ if self.settings => self.render_settings(cx),
                             _ if self.work.is_some() => self.render_work(cx),
+                            Some(_) if lead_view && self.sessions.history => {
+                                self.render_history(cx)
+                            }
+                            Some(_) if no_session => self.render_no_session(cx),
                             Some(_)
                                 if self.open != "lead"
                                     && self.agent.page == Some(agent::Page::Snapshots) =>

@@ -567,6 +567,26 @@ impl AppView {
                             }),
                         )))
                     })
+                    // A failure with no fix of the doctor's own goes to the
+                    // Home chat, in a session of its own (canAskHome).
+                    .when(
+                        fail && !c.auto_fix
+                            && c.job.is_empty()
+                            && c.id != agentbox_api::DOCTOR_AI_LOGIN,
+                        |el| {
+                            let check = c.id.clone();
+                            let asking = self.asking_home.as_deref() == Some(c.id.as_str());
+                            el.child(h_flex().child(button(
+                                SharedString::from(format!("doctor-home-{}", c.id)),
+                                t("doctor.askHome"),
+                                Btn::Secondary,
+                                asking,
+                                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    this.ask_home(check.clone(), window, cx)
+                                }),
+                            )))
+                        },
+                    )
             }))
             .into_any_element()
     }

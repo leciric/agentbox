@@ -692,7 +692,10 @@ impl AppView {
             .to_uppercase()
             .to_string();
         let c = self.counts(&p.name);
-        let needs = c.asks + c.failed;
+        // Its chat's sessions: one working, one that said something unseen,
+        // one waiting on a permission.
+        let (s_working, s_unread, s_needs) = self.project_sessions(&p.name);
+        let needs = (c.asks + c.failed).max(usize::from(s_needs));
         let to_review = self.to_review(&p.name);
         let activity = self.side.activity.get(&p.name);
         let question = self
@@ -739,7 +742,8 @@ impl AppView {
                 theme::accent(),
             ));
         }
-        self.row(&p.name, selected, cx)
+        let row = self
+            .row(&p.name, selected, cx)
             .items_start()
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.select_project(name.clone(), window, cx)
@@ -757,7 +761,7 @@ impl AppView {
                     .text_xs()
                     .text_color(theme::muted())
                     .child(initial)
-                    .when(needs > 0, |el| {
+                    .when(needs > 0 || s_unread, |el| {
                         el.child(
                             div()
                                 .absolute()
@@ -765,7 +769,11 @@ impl AppView {
                                 .right(px(-2.))
                                 .size_2()
                                 .rounded_full()
-                                .bg(theme::starting()),
+                                .bg(if needs > 0 {
+                                    theme::starting()
+                                } else {
+                                    theme::accent()
+                                }),
                         )
                     }),
             )
@@ -789,7 +797,7 @@ impl AppView {
                                     })
                                     .child(display),
                             )
-                            .when(c.working > 0, |el| {
+                            .when(c.working > 0 || s_working, |el| {
                                 el.child(div().text_xs().text_color(theme::accent()).child("●"))
                             })
                             .child(right.flex_none().text_xs()),
@@ -849,6 +857,10 @@ impl AppView {
                         )
                     }),
             )
+            .into_any_element();
+        v_flex()
+            .child(row)
+            .children(self.render_snoozed_rows(&p.name, cx))
             .into_any_element()
     }
 }

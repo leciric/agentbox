@@ -2,8 +2,8 @@
 //! it): its header (its state in a badge that opens its info card,
 //! AgentInfoCard.tsx; its pull request or branch; the action that brings it
 //! back; its ⋯), the machine bar (v2/AgentMachineBar.tsx) while the panel
-//! doesn't show it, and over its chat its Snapshots (SnapshotsTab.tsx) with
-//! the turns it can roll back to or fork from (chat/TurnMarker.tsx). Its
+//! doesn't show it, and over its chat its Snapshots (SnapshotsTab.tsx); the
+//! turns it can roll back to or fork from are in its chat (chat/TurnMarker.tsx). Its
 //! menu (AgentContextMenu.tsx) is the same on its row and its header; its
 //! dialogs (DestroyAgentDialog.tsx, ForkDialog, the confirmations) go over the
 //! window. Every action is the daemon route the Electron app calls.
@@ -719,6 +719,10 @@ impl AppView {
                             Err(e) => toasts::error(cx, e.to_string()),
                         }
                         this.load_snapshots(cx);
+                        // The chat lost the turns after it.
+                        if let Some(chat) = &this.chat {
+                            chat.update(cx, |c, cx| c.load(cx));
+                        }
                     })
                     .ok();
                 }
@@ -762,7 +766,7 @@ impl AppView {
         cx.notify();
     }
 
-    fn start_fork(
+    pub(super) fn start_fork(
         &mut self,
         title: String,
         description: String,
@@ -1416,88 +1420,6 @@ impl AppView {
                     }),
                 ))
         }));
-        // The turns it can go back to, newest first: TurnMarker's menu.
-        let latest = self.agent.checkpoints.iter().map(|c| c.number).max();
-        let turns = (!self.agent.checkpoints.is_empty()).then(|| {
-            let mut checks = self.agent.checkpoints.clone();
-            checks.sort_by_key(|c| -c.number);
-            card(t("native.agent.turns"))
-                .child(controls::note(t("native.agent.turnsNote")))
-                .children(checks.into_iter().map(|c| {
-                    let n = c.number;
-                    let is_latest = Some(n) == latest;
-                    let (back, fork) = (c.id.clone(), c.id.clone());
-                    let fork_title = tv(
-                        "chat.turn.forkTitle",
-                        &[("name", (&a.name).into()), ("n", n.into())],
-                    );
-                    h_flex()
-                        .gap_3()
-                        .px_3()
-                        .py_2()
-                        .rounded_lg()
-                        .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::bg())
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
-                                .child(tv("chat.turn.label", &[("n", n.into())])),
-                        )
-                        .child(
-                            div()
-                                .min_w_0()
-                                .flex_1()
-                                .truncate()
-                                .text_xs()
-                                .text_color(theme::muted())
-                                .child(format!(
-                                    "{} · {} · {}",
-                                    time_ago(&c.created_at),
-                                    short_commit(&c.commit),
-                                    c.prompt.lines().next().unwrap_or("")
-                                )),
-                        )
-                        .child(controls::button(
-                            SharedString::from(format!("turn-back-{n}")),
-                            if is_latest {
-                                t("chat.turn.latest")
-                            } else {
-                                t("chat.turn.rollBackHere")
-                            },
-                            Btn::Secondary,
-                            is_latest,
-                            cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.agent.confirm = Some(Confirm::Rollback {
-                                    checkpoint: back.clone(),
-                                    n,
-                                });
-                                cx.notify();
-                            }),
-                        ))
-                        .child(controls::button(
-                            SharedString::from(format!("turn-fork-{n}")),
-                            t("chat.turn.forkHere"),
-                            Btn::Secondary,
-                            false,
-                            cx.listener(move |this, _: &ClickEvent, w, cx| {
-                                this.start_fork(
-                                    fork_title.clone(),
-                                    t("chat.turn.forkDescription"),
-                                    ForkRequest {
-                                        checkpoint: fork.clone(),
-                                        ..Default::default()
-                                    },
-                                    w,
-                                    cx,
-                                )
-                            }),
-                        ))
-                }))
-        });
         v_flex()
             .size_full()
             .child(
@@ -1544,8 +1466,7 @@ impl AppView {
                                     .child(controls::note(job.status.clone())),
                                 )
                             })
-                            .child(list)
-                            .children(turns),
+                            .child(list),
                     ),
             )
             .into_any_element()

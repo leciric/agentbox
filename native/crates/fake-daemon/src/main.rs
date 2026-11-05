@@ -24,6 +24,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
 
 mod agents;
+mod chat;
 mod pulls;
 mod review;
 
@@ -272,9 +273,20 @@ impl Fake {
     fn thread(&self, agent: &str) -> ChatThread {
         let mut chats = self.chats.lock().unwrap();
         let (seq, session, items) = chats.entry(agent.into()).or_insert_with(|| {
-            let mut items: Vec<ChatItem> = (0..self.opts.history)
-                .map(|i| history_item(agent, i))
-                .collect();
+            let mut items =
+                chat::history(agent, self.opts.history, |i| history_item(agent, i).text);
+            // The turn in progress, headed by its message.
+            items.push(ChatItem {
+                id: "tw".into(),
+                kind: "user".into(),
+                text: "Now render the tool calls and the permission requests.".into(),
+                created_at: humantime::format_rfc3339_millis(
+                    std::time::SystemTime::now() - Duration::from_secs(40),
+                )
+                .to_string(),
+                updated_at: now(),
+                ..Default::default()
+            });
             items.extend(working_items());
             (
                 0,
@@ -807,19 +819,57 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 })
                 .collect();
             let mut t = fake.thread(&format!("{p}/{a}"));
-            let end = query
-                .get("before")
-                .and_then(|b| t.items.iter().position(|i| &i.id == b))
-                .unwrap_or(t.items.len());
+            let n = t.items.len();
             let limit = query
                 .get("limit")
                 .and_then(|l| l.parse().ok())
-                .filter(|&l: &usize| l > 0)
-                .unwrap_or(end);
-            let start = end.saturating_sub(limit);
+                .filter(|&l: &usize| l > 0);
+            // around= is limit items each side of one.
+            let (start, end) = match query
+                .get("around")
+                .and_then(|id| t.items.iter().position(|i| &i.id == id))
+            {
+                Some(at) => {
+                    let side = limit.unwrap_or(50);
+                    (at.saturating_sub(side), (at + side + 1).min(n))
+                }
+                None => {
+                    let end = query
+                        .get("before")
+                        .and_then(|b| t.items.iter().position(|i| &i.id == b))
+                        .unwrap_or(n);
+                    (end.saturating_sub(limit.unwrap_or(end)), end)
+                }
+            };
             t.older = start > 0;
+            t.newer = end < n;
             t.items = t.items[start..end].to_vec();
             json(StatusCode::OK, &t)
+        }
+        (&Method::GET, ["v1", "agents", p, a, "chat", "search"]) if fake.is_fake(p) => {
+            let t = fake.thread(&format!("{p}/{a}"));
+            let q = decode(query.get("q").map(String::as_str).unwrap_or(""));
+            json(StatusCode::OK, &chat::search(&t.items, &q))
+        }
+        (&Method::GET, ["v1", "agents", p, _a, "chat", "images", _id]) if fake.is_fake(p) => {
+            match std::fs::read(fake.opts.media.join("settings-after.png")) {
+                Ok(b) => Response::builder()
+                    .header("content-type", "image/png")
+                    .body(Full::new(Bytes::from(b)).boxed())
+                    .unwrap(),
+                Err(_) => not_found(&path),
+            }
+        }
+        (&Method::GET, ["v1", "agents", p, _a, "chat", "files", _id]) if fake.is_fake(p) => {
+            Response::builder()
+                .header("content-type", "text/plain")
+                .body(
+                    Full::new(Bytes::from(
+                        "go test ./internal/api\nok  \tagentbox/internal/api\t0.065s\n",
+                    ))
+                    .boxed(),
+                )
+                .unwrap()
         }
         // Answering a permission request records the outcome, as the daemon does.
         (&Method::POST, ["v1", "agents", p, a, "chat", "permissions", item]) if fake.is_fake(p) => {

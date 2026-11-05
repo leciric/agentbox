@@ -330,28 +330,6 @@ fn timeline() -> Timeline {
     }
 }
 
-fn checkpoints(r#ref: &str) -> Vec<Checkpoint> {
-    let prompts = [
-        "Build the agent page and its panel",
-        "Add the files view with its changes",
-        "Now the snapshots page and the fork dialog",
-    ];
-    prompts
-        .iter()
-        .enumerate()
-        .map(|(i, p)| Checkpoint {
-            id: format!("cp-{}-{}", r#ref.replace('/', "-"), i + 1),
-            kind: "turn".into(),
-            turn: format!("t{}", i + 1),
-            number: i as i64 + 1,
-            prompt: p.to_string(),
-            commit: sha(0xc0ffee * (i as u64 + 1)),
-            head: sha(0xbeef * (i as u64 + 1)),
-            created_at: ago(Duration::from_secs((40 - 12 * i as u64) * 60)),
-        })
-        .collect()
-}
-
 async fn body_of(req: Request<Incoming>) -> Bytes {
     req.into_body()
         .collect()
@@ -572,13 +550,14 @@ pub async fn route(
         (&Method::GET, ["v1", "agents", p, a, "timeline"]) if in_fleet(p, a) => {
             json(StatusCode::OK, &timeline())
         }
-        (&Method::GET, ["v1", "agents", p, a, "checkpoints"]) if in_fleet(p, a) => {
-            json(StatusCode::OK, &checkpoints(&format!("{p}/{a}")))
-        }
+        (&Method::GET, ["v1", "agents", p, a, "checkpoints"]) if in_fleet(p, a) => json(
+            StatusCode::OK,
+            &crate::chat::checkpoints(&format!("{p}/{a}"), fake.opts.history),
+        ),
         (&Method::POST, ["v1", "agents", p, a, "rollback"]) if in_fleet(p, a) => {
             let body = body_of(req).await;
             let asked: RollbackRequest = serde_json::from_slice(&body).unwrap_or_default();
-            if !checkpoints(&format!("{p}/{a}"))
+            if !crate::chat::checkpoints(&format!("{p}/{a}"), fake.opts.history)
                 .iter()
                 .any(|c| c.id == asked.checkpoint)
             {

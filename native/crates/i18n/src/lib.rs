@@ -66,7 +66,15 @@ pub fn has(key: &str) -> bool {
 /// A value for a placeholder.
 pub enum Value<'a> {
     Str(&'a str),
+    /// A message of its own, made for the value (a duration, a count of tokens).
+    Own(String),
     Num(f64),
+}
+
+impl From<String> for Value<'_> {
+    fn from(s: String) -> Self {
+        Value::Own(s)
+    }
 }
 
 impl<'a> From<&'a str> for Value<'a> {
@@ -205,6 +213,7 @@ fn arg(body: &str, values: &[(&str, Value)], lang: &str, out: &mut String) {
             let n = match value {
                 Value::Num(n) => *n,
                 Value::Str(s) => s.parse().unwrap_or(0.0),
+                Value::Own(s) => s.parse().unwrap_or(0.0),
             };
             let exact = format!("={}", number(n));
             let pick = branch(branches, &exact)
@@ -217,6 +226,7 @@ fn arg(body: &str, values: &[(&str, Value)], lang: &str, out: &mut String) {
         (Some("select"), Some(branches)) => {
             let v = match value {
                 Value::Str(s) => s.to_string(),
+                Value::Own(s) => s.clone(),
                 Value::Num(n) => number(*n),
             };
             if let Some(b) = branch(branches, &v).or_else(|| branch(branches, "other")) {
@@ -225,6 +235,7 @@ fn arg(body: &str, values: &[(&str, Value)], lang: &str, out: &mut String) {
         }
         _ => match value {
             Value::Str(s) => out.push_str(s),
+            Value::Own(s) => out.push_str(s),
             Value::Num(n) => out.push_str(&number(*n)),
         },
     }
