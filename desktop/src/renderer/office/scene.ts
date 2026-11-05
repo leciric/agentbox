@@ -381,7 +381,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         markerLayer.prepend(chip);
         areaChips.set(rm.key, chip);
       }
-      chip.style.background = `hsl(${area.hue} 58% 48%)`;
+      // Not red, which the failed use: a red project's pill is coral.
+      const ph = area.hue < 18 || area.hue > 342 ? 18 : area.hue;
+      chip.style.background = `hsl(${ph} 62% 50%)`;
       const name = rm.floors > 1 ? opts.floorLabel?.(label.name, rm.floor) ?? `${label.name} ${rm.floor}` : label.name;
       (chip.firstChild as HTMLElement).textContent = name;
       chip.title = label.sub;
@@ -648,7 +650,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       }
       for (const [project, b] of groups) {
         const hue = input.model.areas.find((a) => a.project === project)?.hue ?? 260;
-        const plinth = mesh(geo.roundTop, own(std(new THREE.Color().setHSL(hue / 360, 0.35, 0.8), { roughness: 0.9 })), (b.x0 + b.x1) / 2, -1.0, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 3.2, 0.2, b.z1 - b.z0 + 3.2);
+        const plinth = mesh(geo.roundTop, own(std(new THREE.Color().setHSL(hue / 360, 0.45, 0.66), { roughness: 0.9 })), (b.x0 + b.x1) / 2, -1.0, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 3.2, 0.2, b.z1 - b.z0 + 3.2);
         addTo(-1, plinth);
       }
     }
@@ -1449,7 +1451,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
       // From the far side from where you stand, so you never stand in the way.
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 19, pitch: 0.8, yaw: d.side < 0 ? 0.5 : 0.08 }, aspect);
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.8, yaw: d.side < 0 ? 0.5 : 0.08 }, aspect);
     }
     return undefined;
   }
@@ -1624,9 +1626,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       chipsShown = show;
       // Away while it moves, and back once laid out where they'll stay: a tag
       // is never clicked on its way somewhere else.
-      markerLayer.style.opacity = show ? '1' : '0';
+      // Dimmed and not to be clicked while the camera moves: a tag is never
+      // clicked on its way somewhere else.
+      markerLayer.style.opacity = show ? '1' : '0.45';
       markerLayer.style.pointerEvents = 'none';
-      for (const el of markerLayer.children) (el as HTMLElement).style.visibility = show ? '' : 'hidden';
+      for (const el of markerLayer.children) for (const b of (el as HTMLElement).querySelectorAll('button')) b.style.pointerEvents = show ? 'auto' : 'none';
+      for (const el of markerLayer.children) if ((el as HTMLElement).tagName === 'BUTTON') (el as HTMLElement).style.pointerEvents = show ? 'auto' : 'none';
     }
     return Math.abs(after - before) > 1e-4 || cam.followK !== followTarget || cam.closeK !== closeTarget;
   }
@@ -1798,7 +1803,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const failed = new Map<number, number>();
     const busy = new Map<number, number>();
     for (const d of desks.values()) {
-      if (d.tone !== 'working') continue;
+      if (d.tone !== 'working' || d.ref.endsWith('/lead')) continue;
       const ri = roomOf(lay, d.ref);
       if (ri !== undefined) busy.set(ri, (busy.get(ri) ?? 0) + 1);
     }
@@ -1854,7 +1859,14 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       }
     }
     // You stand beside what you look at, never in front of it: always seen.
-    me.fade(1);
+    // Never over the face of the agent you're at: there, you're see-through.
+    let meOver = false;
+    if (lookAt && focusDesk && cam.closeK > 0.3 && lookAt.spots.length > 1) {
+      const [faceAt, meAt] = lookAt.spots;
+      const nearer = new THREE.Vector3(pos.x, 0.9, pos.z).distanceTo(camera.position) < lookAt.dist;
+      meOver = nearer && Math.abs(faceAt.x - meAt.x) < 75 && Math.abs(faceAt.y - meAt.y) < 140;
+    }
+    me.fade(meOver ? 0.4 : 1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1983,6 +1995,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         off = tries.find(([dx, dy]) => !clash(m.x + dx, m.y + dy)) ?? null;
         chipDy.set(m.el, off);
       }
+      if (!off && !m.loud && smallRoom) off = [0, 0];
       if (!off && !m.loud) {
         // A quiet label with no room simply steps out of the way.
         m.el.style.display = 'none';

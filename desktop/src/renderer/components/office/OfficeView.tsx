@@ -400,7 +400,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     }
   }, [listOpen]);
   const workingItems: BoardItem[] = office.model.areas.flatMap((a) => a.desks.filter((d) => d.tone === 'working').map((d) => ({ ref: d.id, project: a.project, title: d.title, tone: d.tone, pr: d.pr })));
-  const listed = listOnly ? needs.filter((i) => listOnly.includes(i.ref)) : listKind === 'working' ? workingItems : listKind === 'review' ? review : needs;
+  const listed = listOnly ? needs.filter((i) => listOnly.includes(i.ref)) : listKind === 'working' ? workingItems : listKind === 'review' ? review : round;
   const areaLabel = (project: string, ref?: string) => {
     const a = office.model.areas.find((x) => x.project === project);
     const name = a?.label ?? project;

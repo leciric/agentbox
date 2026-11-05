@@ -357,6 +357,24 @@ const BUILD: Record<Prop['kind'], (put: Put, k: Kit, t: Tex, i: number, kit: Kit
     put(flatRug(4.3, 2.4, 0.9, 0.016), k.m(cols[1], { roughness: 0.95 }), 0, 0, 0);
     put(flatRug(4.1, 2.2, 0.8, 0.02), k.m(cols[0], { roughness: 0.95 }), 0, 0, 0);
   },
+  // A two-seat couch, soft and low, facing the room.
+  couch(put, k, _t, i) {
+    const cols = ['#9cb89a', '#e9b44c', '#c9d3f5', '#f5c6d0'];
+    const fab = k.m(cols[i % cols.length], { roughness: 0.95 });
+    const cush = k.m('#fbf6ee', { roughness: 0.95 });
+    put(rbox(1.8, 0.34, 0.75, 0.12), fab, 0, 0.2, 0.02);
+    put(rbox(1.8, 0.5, 0.2, 0.09), fab, 0, 0.52, -0.3);
+    for (const x of [-0.82, 0.82]) put(rbox(0.18, 0.46, 0.75, 0.08), fab, x, 0.36, 0.02);
+    for (const x of [-0.38, 0.38]) put(rbox(0.7, 0.12, 0.6, 0.06), cush, x, 0.42, 0.06);
+    put(rbox(0.34, 0.3, 0.1, 0.08), k.m(['#ffc94d', '#ff7aa2', '#45cbb8'][i % 3], { roughness: 0.9 }), 0.45, 0.62, -0.16, [-0.25, 0.2, 0]);
+  },
+  // A low table: a mug and a book on it.
+  lowtable(put, k, _t, i) {
+    put(rbox(0.9, 0.05, 0.5, 0.15), k.m(OAK, { roughness: 0.45 }), 0, 0.38, 0);
+    for (const [x, z] of [[-0.36, -0.18], [0.36, -0.18], [-0.36, 0.18], [0.36, 0.18]]) put(cyl(0.02, 0.018, 0.36, 8), k.m(DARK), x, 0.18, z);
+    put(cyl(0.035, 0.03, 0.08, 12), k.m('#fbfaf7', { roughness: 0.3 }), 0.2, 0.45, 0.05);
+    put(rbox(0.24, 0.035, 0.17, 0.01), k.m(['#2f5a4c', '#c4622d', '#7c8bd6'][i % 3], { roughness: 0.7 }), -0.18, 0.425, -0.02, [0, 0.3, 0]);
+  },
   // A server rack, its lights green and blue.
   rack(put, k) {
     put(rbox(0.6, 1.5, 0.6, 0.05), k.m('#1e242c', { roughness: 0.4 }), 0, 0.75, 0);
