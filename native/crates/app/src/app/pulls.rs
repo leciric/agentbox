@@ -93,10 +93,82 @@ fn with_edits(labels: &[Label], number: i64, edits: &[LabelEdit]) -> Vec<Label> 
     out
 }
 
+/// github_image_hosts are where the daemon reads a description's pictures
+/// from (lib/pulls.ts isGitHubImage); a picture anywhere else isn't loaded.
+fn is_github_image(src: &str) -> bool {
+    let Some(rest) = src.strip_prefix("https://") else {
+        return false;
+    };
+    let host = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+    [
+        "github.com",
+        "raw.githubusercontent.com",
+        "private-user-images.githubusercontent.com",
+        "user-images.githubusercontent.com",
+        "camo.githubusercontent.com",
+        "avatars.githubusercontent.com",
+        "objects.githubusercontent.com",
+    ]
+    .contains(&host.as_str())
+}
+
+/// image_sources are the pictures a description shows: Markdown's
+/// ![alt](src) and HTML's <img src="…">.
+fn image_sources(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |s: &str| {
+        let s = s.split_whitespace().next().unwrap_or("").to_string();
+        if !s.is_empty() && !out.contains(&s) {
+            out.push(s);
+        }
+    };
+    let mut rest = body;
+    while let Some(i) = rest.find("](") {
+        let after = &rest[i + 2..];
+        if rest[..i].contains("![")
+            && let Some(end) = after.find(')')
+        {
+            push(&after[..end]);
+        }
+        rest = after;
+    }
+    let mut rest = body;
+    while let Some(i) = rest.find("src=") {
+        let after = &rest[i + 4..];
+        let q = after.chars().next().unwrap_or(' ');
+        if (q == '"' || q == '\'')
+            && let Some(end) = after[1..].find(q)
+        {
+            push(&after[1..1 + end]);
+        }
+        rest = after;
+    }
+    out
+}
+
+/// enc_query escapes a query value.
+fn enc_query(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 /// One pull request open over the window.
 struct Viewing {
     number: i64,
     detail: Option<Result<PullRequestDetail, String>>,
+    /// Its description's GitHub pictures, read through the daemon
+    /// (GET …/pulls/image?src=), by their address.
+    images: std::sync::Arc<std::sync::Mutex<HashMap<String, std::path::PathBuf>>>,
     tab: DetailTab,
     files: Entity<DiffView>,
 }
@@ -311,8 +383,15 @@ pub(super) fn github_sentence(e: &GitHubError) -> String {
     }
 }
 
-/// github_fix is what to do about it, if this app can (GitHubErrorFix).
-pub(super) fn github_fix(e: &GitHubError) -> Option<String> {
+/// github_fix is what to do about it (GitHubErrorFix), its two fixes as
+/// links in the sentence: <another> picks another account for the project
+/// (its settings), <setup> adds or saves one in Settings' accounts.
+pub(super) fn github_fix(
+    id: &'static str,
+    e: &GitHubError,
+    project: String,
+    cx: &mut Context<AppView>,
+) -> Option<AnyElement> {
     let key = match e.kind.as_str() {
         GIT_HUB_NO_ACCESS => "memory.pulls.fix.another",
         GIT_HUB_NO_ACCOUNT if !e.account.is_empty() => "memory.pulls.fix.another",
@@ -320,7 +399,49 @@ pub(super) fn github_fix(e: &GitHubError) -> Option<String> {
         GIT_HUB_BAD_TOKEN => "memory.pulls.fix.badToken",
         _ => return None,
     };
-    Some(plain(&t(key)))
+    let text = t(key);
+    let mut row = h_flex()
+        .flex_wrap()
+        .px_1()
+        .text_xs()
+        .text_color(theme::muted());
+    let mut rest = text.as_str();
+    while !rest.is_empty() {
+        let Some(open) = rest.find('<') else {
+            row = row.child(rest.to_string());
+            break;
+        };
+        if open > 0 {
+            row = row.child(rest[..open].to_string());
+        }
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('>') else {
+            row = row.child(rest[open..].to_string());
+            break;
+        };
+        let tag = &after[..close];
+        let end_tag = format!("</{tag}>");
+        let inner = &after[close + 1..];
+        let Some(end) = inner.find(&end_tag) else {
+            row = row.child(inner.to_string());
+            break;
+        };
+        let label = inner[..end].to_string();
+        let target = if tag == "another" {
+            format!("project:{project}")
+        } else {
+            "accounts".to_string()
+        };
+        row = row.child(
+            link(SharedString::from(format!("{id}-{tag}")), label).on_click(cx.listener(
+                move |this, _: &ClickEvent, window, cx| {
+                    this.open_settings_at(target.clone(), window, cx)
+                },
+            )),
+        );
+        rest = &inner[end + end_tag.len()..];
+    }
+    Some(row.into_any_element())
 }
 
 /// hex is a label's colour, grey when GitHub sent something else (labelHex).
@@ -829,8 +950,12 @@ impl AppView {
         let project = self.pulls.project.clone();
         let client = self.client.clone();
         let files = cx.new(|cx| DiffView::pull(client.clone(), project.clone(), number, cx));
+        let images: std::sync::Arc<std::sync::Mutex<HashMap<String, std::path::PathBuf>>> =
+            Default::default();
+        let found = images.clone();
         self.pulls.viewing = Some(Viewing {
             number,
+            images,
             detail: None,
             tab: DetailTab::Description,
             files,
@@ -840,6 +965,31 @@ impl AppView {
             let res = client
                 .get::<PullRequestDetail>(&format!("/v1/projects/{project}/pulls/{number}"))
                 .await;
+            let srcs = res
+                .as_ref()
+                .map(|d| image_sources(&d.body))
+                .unwrap_or_default();
+            for src in srcs.into_iter().filter(|s| is_github_image(s)) {
+                let (client, found, this) = (client.clone(), found.clone(), this.clone());
+                let path = format!("/v1/projects/{project}/pulls/image?src={}", enc_query(&src));
+                cx.spawn(async move |cx| {
+                    let Ok(bytes) = client
+                        .raw(agentbox_api::client::Method::GET, &path, None)
+                        .await
+                    else {
+                        return;
+                    };
+                    use sha2::Digest as _;
+                    let name = format!("{:x}", sha2::Sha256::digest(src.as_bytes()));
+                    let file =
+                        std::env::temp_dir().join(format!("agentbox-pr-image-{}", &name[..16]));
+                    if std::fs::write(&file, &bytes).is_ok() {
+                        found.lock().unwrap().insert(src, file);
+                        this.update(cx, |_, cx| cx.notify()).ok();
+                    }
+                })
+                .detach();
+            }
             this.update(cx, |this, cx| {
                 if let Some(v) = &mut this.pulls.viewing
                     && v.number == number
@@ -1222,18 +1372,7 @@ impl AppView {
                 v_flex()
                     .gap_1()
                     .child(notice(github_sentence(e), theme::starting()))
-                    .when_some(github_fix(e), |el, fix| {
-                        el.child(
-                            div()
-                                .px_1()
-                                .text_xs()
-                                .child(link("pulls-fix", fix).on_click(cx.listener(
-                                    move |this, _: &ClickEvent, window, cx| {
-                                        this.open_settings_at(format!("project:{p2}"), window, cx)
-                                    },
-                                ))),
-                        )
-                    }),
+                    .children(github_fix("pulls-fix", e, p2, cx)),
             );
         }
         if data.can_merge_known && !data.can_merge {
@@ -1727,10 +1866,24 @@ impl AppView {
                         } else {
                             div()
                                 .text_sm()
-                                .child(TextView::markdown(
-                                    SharedString::from(format!("pull-body-{number}")),
-                                    d.body.clone(),
-                                ))
+                                .child({
+                                    let images = v.images.clone();
+                                    let n = images.lock().map(|m| m.len()).unwrap_or(0);
+                                    TextView::markdown(
+                                        SharedString::from(format!("pull-body-{number}-{n}")),
+                                        d.body.clone(),
+                                    )
+                                    .image_source(move |uri| {
+                                        match images
+                                            .lock()
+                                            .ok()
+                                            .and_then(|m| m.get(uri.as_ref()).cloned())
+                                        {
+                                            Some(p) => ImageSource::from(p),
+                                            None => ImageSource::from(uri.clone()),
+                                        }
+                                    })
+                                })
                                 .into_any_element()
                         })
                         .when(!d.check_runs.is_empty(), |el| {
@@ -2265,51 +2418,98 @@ impl AppView {
                 let view = cx.entity().downgrade();
                 let root = root.clone();
                 let display = display.clone();
-                move |menu, _, _| {
-                    let (v1, v2, v3, v4) = (view.clone(), view.clone(), view.clone(), view.clone());
-                    let (p2, p3) = (menu_project.clone(), menu_project.clone());
-                    let r = root.clone();
-                    menu.min_w(px(220.))
+                let pinned = self.side.pins.contains(&name);
+                let others = self.projects.len() > 1;
+                move |menu, window, cx| {
+                    let v = view.clone();
+                    let n = menu_project.clone();
+                    let act =
+                        move |f: fn(&mut AppView, String, &mut Window, &mut Context<AppView>)| {
+                            let (v, n) = (v.clone(), n.clone());
+                            move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                                let n = n.clone();
+                                v.update(cx, |this, cx| f(this, n, window, cx)).ok();
+                            }
+                        };
+                    let mut menu = menu
+                        .min_w(px(220.))
                         .label(display.clone())
-                        .item(PopupMenuItem::new(t("v2.sidebar.newTask")).on_click(
+                        .item(PopupMenuItem::new(t("chat.tab.newChat")).on_click(act(
+                            |this, n, _, cx| {
+                                this.side.dialog =
+                                    Some(super::sidebar_dialogs::Dialog::NewChat { project: n });
+                                cx.notify();
+                            },
+                        )))
+                        .item(
+                            PopupMenuItem::new(t("group.menu.fanOut")).on_click(act(
+                                |this, n, window, cx| this.open_fan_out(n, window, cx),
+                            )),
+                        );
+                    if others {
+                        menu = menu.item(PopupMenuItem::new(t("v2.talk.button")).on_click(act(
+                            |this, n, _, cx| {
+                                this.side.dialog =
+                                    Some(super::sidebar_dialogs::Dialog::Talk { project: n });
+                                cx.notify();
+                            },
+                        )));
+                    }
+                    menu = menu
+                        .item(PopupMenuItem::new(t("panel.view.pulls")).on_click(act(
+                            |this, _, _, cx| {
+                                this.pulls.tab = RailTab::Pulls;
+                                this.load_pulls(false, cx);
+                                cx.notify();
+                            },
+                        )))
+                        .separator()
+                        .item(
+                            PopupMenuItem::new(if pinned {
+                                t("v2.sidebar.unpin")
+                            } else {
+                                t("v2.sidebar.pin")
+                            })
+                            .on_click(act(|this, n, _, cx| this.toggle_pin(&n, cx))),
+                        )
+                        .item(
+                            PopupMenuItem::new(t("v2.sidebar.projectSettings")).on_click(act(
+                                |this, n, window, cx| {
+                                    this.open_settings_at(format!("project:{n}"), window, cx)
+                                },
+                            )),
+                        );
+                    let (v, n, r) = (view.clone(), menu_project.clone(), root.clone());
+                    menu.submenu(t("common.more"), window, cx, move |m, _, _| {
+                        let (v1, v2, v3) = (v.clone(), v.clone(), v.clone());
+                        let (n1, n2, n3, r) = (n.clone(), n.clone(), n.clone(), r.clone());
+                        m.item(PopupMenuItem::new(t("projectIcon.change")).on_click(
                             move |_, window, cx| {
-                                v1.update(cx, |this, cx| this.open_new_task(window, cx))
+                                let n = n1.clone();
+                                v1.update(cx, |this, cx| this.open_icon_dialog(n, window, cx))
                                     .ok();
                             },
                         ))
-                        .item(PopupMenuItem::new(t("panel.view.pulls")).on_click(
-                            move |_, _, cx| {
-                                v2.update(cx, |this, cx| {
-                                    this.pulls.tab = RailTab::Pulls;
-                                    this.load_pulls(false, cx);
-                                    cx.notify();
-                                })
-                                .ok();
+                        .item(PopupMenuItem::new(t("project.view.openFolder")).on_click(
+                            move |_, _, cx| cx.open_with_system(std::path::Path::new(&r)),
+                        ))
+                        .item(PopupMenuItem::new(t("v2.menu.agentYourself")).on_click(
+                            move |_, window, cx| {
+                                let n = n2.clone();
+                                v2.update(cx, |this, cx| this.open_new_agent(n, window, cx))
+                                    .ok();
                             },
                         ))
                         .item(
                             PopupMenuItem::new(t("work.title")).on_click(move |_, window, cx| {
+                                let n = n3.clone();
                                 v3.update(cx, |this, cx| {
-                                    this.open_work(p2.clone(), String::new(), window, cx)
+                                    this.open_work(n, String::new(), window, cx)
                                 })
                                 .ok();
                             }),
                         )
-                        .separator()
-                        .item(
-                            PopupMenuItem::new(t("v2.sidebar.projectSettings")).on_click(
-                                move |_, window, cx| {
-                                    v4.update(cx, |this, cx| {
-                                        this.open_settings_at(format!("project:{p3}"), window, cx)
-                                    })
-                                    .ok();
-                                },
-                            ),
-                        )
-                        .label(t("common.more"))
-                        .item(PopupMenuItem::new(t("project.view.openFolder")).on_click(
-                            move |_, _, cx| cx.open_with_system(std::path::Path::new(&r)),
-                        ))
+                    })
                 }
             });
         let p_settings = name.clone();

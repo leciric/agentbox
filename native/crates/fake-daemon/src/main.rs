@@ -904,6 +904,15 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             StatusCode::OK,
             &fake.review.lock().unwrap().pulls().all_labels(),
         ),
+        (&Method::GET, ["v1", "projects", p, "pulls", "image"]) if fake.is_fake(p) => {
+            match fake.review.lock().unwrap().file("x-settings-after") {
+                Some((bytes, mime)) => Response::builder()
+                    .header("content-type", mime)
+                    .body(Full::new(Bytes::from(bytes)).boxed())
+                    .unwrap(),
+                None => not_found(&path),
+            }
+        }
         (&Method::GET, ["v1", "projects", p, "pulls", n, rest @ ..])
             if fake.is_fake(p) && n.parse::<i64>().is_ok() =>
         {

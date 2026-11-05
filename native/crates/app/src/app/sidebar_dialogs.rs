@@ -86,9 +86,32 @@ pub enum Dialog {
         error: Option<String>,
     },
     Keys,
+    /// The project chat's New chat: its conversation cleared, confirmed.
+    NewChat {
+        project: String,
+    },
 }
 
 impl AppView {
+    /// clear_lead_chat starts the project chat anew (DELETE …/chat).
+    pub(super) fn clear_lead_chat(&mut self, project: String, cx: &mut Context<Self>) {
+        let (prefix, _, _) = self.lead_target(&project);
+        let client = self.client.clone();
+        cx.spawn(async move |_, cx| {
+            if let Err(e) = client
+                .raw(
+                    agentbox_api::client::Method::DELETE,
+                    &format!("{prefix}/chat"),
+                    None,
+                )
+                .await
+            {
+                cx.update(|cx| crate::toasts::error(cx, e.to_string()));
+            }
+        })
+        .detach();
+    }
+
     fn close_dialog(&mut self, cx: &mut Context<Self>) {
         self.side.dialog = None;
         cx.notify();
@@ -1255,6 +1278,37 @@ impl AppView {
                     false,
                     *busy,
                     cx.listener(|this, _: &ClickEvent, _, cx| this.create_agent(cx)),
+                )
+            }
+            Dialog::NewChat { project } => {
+                let p = project.clone();
+                let label = self
+                    .projects
+                    .iter()
+                    .find(|x| &x.name == project)
+                    .map(label_of)
+                    .unwrap_or_else(|| project.clone());
+                modal(
+                    "new-chat",
+                    t("chat.tab.newChatTitle"),
+                    Some(tv(
+                        "chat.tab.newChatDescription",
+                        &[
+                            ("scope", "project".into()),
+                            ("tool", crate::chat::tool_label("").into()),
+                            ("project", label.into()),
+                            ("name", "".into()),
+                        ],
+                    )),
+                    Vec::new(),
+                    cancel,
+                    t("chat.tab.newChat"),
+                    true,
+                    false,
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.side.dialog = None;
+                        this.clear_lead_chat(p.clone(), cx);
+                    }),
                 )
             }
             Dialog::Keys => {

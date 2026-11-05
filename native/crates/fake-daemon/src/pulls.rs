@@ -96,7 +96,7 @@ const FIXTURES: &[Fixture] = &[
         labels: &["native", "enhancement"],
         comments: 3,
         ago: 8,
-        body: "## What\n\nA native desktop app in `native/`, built on GPUI (Zed's UI framework) and gpui-component, at parity with the Electron app's v2 layout.\n\n## Why\n\nThe Electron app takes 400 MB to show a chat. This one starts in under a second and stays under 120 MB.\n\n## Checked\n\n- `cargo test -p agentbox-native`\n- the review, Work and Settings against the fake daemon\n\n> Still a draft: pull requests and the files view are next.\n",
+        body: "## What\n\nA native desktop app in `native/`, built on GPUI (Zed's UI framework) and gpui-component, at parity with the Electron app's v2 layout.\n\n## Why\n\nThe Electron app takes 400 MB to show a chat. This one starts in under a second and stays under 120 MB.\n\n## Checked\n\n- `cargo test -p agentbox-native`\n- the review, Work and Settings against the fake daemon\n\n![The review](https://user-images.githubusercontent.com/1/review.png)\n\n> Still a draft: pull requests and the files view are next.\n",
         files: native_files,
     },
     Fixture {

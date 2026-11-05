@@ -206,21 +206,12 @@ impl AppView {
         }
         if let Some(e) = &d.github_error {
             let p = project.clone();
-            col =
-                col.child(
-                    v_flex()
-                        .gap_1()
-                        .child(notice(github_sentence(e), theme::starting()))
-                        .when_some(github_fix(e), |el, fix| {
-                            el.child(div().px_1().text_xs().child(
-                                link("issues-fix", fix).on_click(cx.listener(
-                                    move |this, _: &ClickEvent, w, cx| {
-                                        this.open_settings_at(format!("project:{p}"), w, cx)
-                                    },
-                                )),
-                            ))
-                        }),
-                );
+            col = col.child(
+                v_flex()
+                    .gap_1()
+                    .child(notice(github_sentence(e), theme::starting()))
+                    .children(github_fix("issues-fix", e, p, cx)),
+            );
         }
         if !d.github.is_empty() {
             let on = d.pick_up_issues;
