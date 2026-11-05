@@ -12,6 +12,15 @@ use gpui_component::{h_flex, v_flex};
 
 use crate::chat::ChatView;
 use crate::terminal::TerminalView;
+use crate::vnc::VncView;
+
+/// What the main area shows of an agent.
+#[derive(Clone, Copy, PartialEq)]
+enum Tab {
+    Chat,
+    Terminal,
+    Desktop,
+}
 use crate::{bench, theme};
 
 pub struct AppView {
@@ -27,7 +36,9 @@ pub struct AppView {
     chat: Option<Entity<ChatView>>,
     /// An agent's terminal, opened from its chat's tab bar.
     terminal: Option<Entity<TerminalView>>,
-    showing_terminal: bool,
+    /// An agent's desktop (VNC), opened the same way.
+    desktop: Option<Entity<VncView>>,
+    tab: Tab,
     _events: Task<()>,
 }
 
@@ -45,7 +56,8 @@ impl AppView {
             open: "lead".into(),
             chat: None,
             terminal: None,
-            showing_terminal: false,
+            desktop: None,
+            tab: Tab::Chat,
             _events: events,
         };
         this.load_projects(window, cx);
@@ -233,7 +245,8 @@ impl AppView {
         };
         self.open = who;
         self.terminal = None;
-        self.showing_terminal = false;
+        self.desktop = None;
+        self.tab = Tab::Chat;
         let client = self.client.clone();
         self.chat =
             Some(cx.new(|cx| ChatView::new(client, prefix, agent, title.into(), window, cx)));
@@ -470,17 +483,24 @@ impl AppView {
             .border_b_1()
             .border_color(theme::border())
             .child(
-                tab("tab-chat", "Chat", !self.showing_terminal).on_click(cx.listener(
+                tab("tab-chat", "Chat", self.tab == Tab::Chat).on_click(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
-                        this.showing_terminal = false;
+                        this.tab = Tab::Chat;
                         cx.notify();
                     },
                 )),
             )
             .child(
-                tab("tab-terminal", "Terminal", self.showing_terminal).on_click(cx.listener(
+                tab("tab-terminal", "Terminal", self.tab == Tab::Terminal).on_click(cx.listener(
                     |this, _: &ClickEvent, window, cx| {
                         this.show_terminal(window, cx);
+                    },
+                )),
+            )
+            .child(
+                tab("tab-desktop", "Desktop", self.tab == Tab::Desktop).on_click(cx.listener(
+                    |this, _: &ClickEvent, window, cx| {
+                        this.show_desktop(window, cx);
                     },
                 )),
             )
@@ -499,7 +519,24 @@ impl AppView {
             let focus = t.read(cx).focus_handle().clone();
             focus.focus(window, cx);
         }
-        self.showing_terminal = true;
+        self.tab = Tab::Terminal;
+        cx.notify();
+    }
+
+    fn show_desktop(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project.clone() else {
+            return;
+        };
+        if self.desktop.is_none() {
+            let path = format!("/v1/agents/{project}/{}/browser/view", self.open);
+            let client = self.client.clone();
+            self.desktop = Some(cx.new(|cx| VncView::new(client, path, cx)));
+        }
+        if let Some(d) = &self.desktop {
+            let focus = d.read(cx).focus_handle().clone();
+            focus.focus(window, cx);
+        }
+        self.tab = Tab::Desktop;
         cx.notify();
     }
 }
@@ -518,8 +555,9 @@ impl Render for AppView {
                         .size_full()
                         .child(self.render_tabs(cx))
                         .child(div().flex_1().min_h_0().child(
-                            match (&self.terminal, self.showing_terminal) {
-                                (Some(t), true) => t.clone().into_any_element(),
+                            match (self.tab, &self.terminal, &self.desktop) {
+                                (Tab::Terminal, Some(t), _) => t.clone().into_any_element(),
+                                (Tab::Desktop, _, Some(d)) => d.clone().into_any_element(),
                                 _ => chat.clone().into_any_element(),
                             },
                         ))

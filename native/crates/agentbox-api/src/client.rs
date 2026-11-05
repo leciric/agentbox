@@ -68,7 +68,7 @@ impl Client {
     }
 
     /// spawn runs a future on the I/O runtime.
-    pub(crate) fn spawn(&self, f: impl Future<Output = ()> + Send + 'static) {
+    pub fn spawn(&self, f: impl Future<Output = ()> + Send + 'static) {
         self.rt.spawn(f);
     }
 

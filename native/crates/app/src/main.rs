@@ -12,6 +12,7 @@ mod mermaid;
 mod terminal;
 mod theme;
 mod video;
+mod vnc;
 mod webview;
 
 use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};

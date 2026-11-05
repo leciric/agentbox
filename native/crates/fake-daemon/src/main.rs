@@ -351,6 +351,11 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         // An agent's terminal: a shell on this machine, in place of the
         // agent's tmux session (the same protocol as internal/daemon/terminal.go).
         (&Method::GET, ["v1", "agents", p, _a, "terminal"]) if fake.is_fake(p) => terminal(req),
+        // An agent's desktop: this machine's own VNC server (:5900), as raw
+        // RFB in WebSocket frames like internal/daemon/browser.go's vncView.
+        (&Method::GET, ["v1", "agents", p, _a, "browser", "view"]) if fake.is_fake(p) => {
+            vnc_view(req)
+        }
         (&Method::GET, ["v1", "agents", p, a, "chat"]) if fake.is_fake(p) => {
             json(StatusCode::OK, &fake.thread(&format!("{p}/{a}")))
         }
@@ -464,6 +469,75 @@ fn futures_stream(
         }
     }
     S(rx)
+}
+
+/// vnc_view upgrades to a WebSocket and relays it to the VNC server on
+/// 127.0.0.1:5900 (VNC_ADDR overrides it).
+fn vnc_view(req: Request<Incoming>) -> Response<Body> {
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio_tungstenite::tungstenite::{Message, handshake::derive_accept_key, protocol::Role};
+
+    let Some(key) = req.headers().get("sec-websocket-key").cloned() else {
+        return json(
+            StatusCode::BAD_REQUEST,
+            &ApiError {
+                error: "not a WebSocket".into(),
+                ..Default::default()
+            },
+        );
+    };
+    tokio::spawn(async move {
+        let addr = std::env::var("VNC_ADDR").unwrap_or_else(|_| "127.0.0.1:5900".into());
+        let Ok(vnc) = tokio::net::TcpStream::connect(&addr).await else {
+            eprintln!("vnc: can't reach {addr}");
+            return;
+        };
+        let Ok(upgraded) = hyper::upgrade::on(req).await else {
+            return;
+        };
+        let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
+            TokioIo::new(upgraded),
+            Role::Server,
+            None,
+        )
+        .await;
+        let (mut sink, mut source) = ws.split();
+        let (mut rd, mut wr) = vnc.into_split();
+        let up = async {
+            let mut buf = vec![0u8; 64 * 1024];
+            while let Ok(n) = rd.read(&mut buf).await {
+                if n == 0
+                    || sink
+                        .send(Message::Binary(buf[..n].to_vec().into()))
+                        .await
+                        .is_err()
+                {
+                    break;
+                }
+            }
+        };
+        let down = async {
+            while let Some(Ok(m)) = source.next().await {
+                if let Message::Binary(b) = m
+                    && wr.write_all(&b).await.is_err()
+                {
+                    break;
+                }
+            }
+        };
+        tokio::select! {
+            _ = up => {}
+            _ = down => {}
+        }
+    });
+    Response::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header("connection", "Upgrade")
+        .header("upgrade", "websocket")
+        .header("sec-websocket-accept", derive_accept_key(key.as_bytes()))
+        .body(Full::new(Bytes::new()).boxed())
+        .unwrap()
 }
 
 /// terminal upgrades to a WebSocket and runs a shell in a PTY behind it:
