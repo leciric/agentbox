@@ -58,7 +58,7 @@ export type Accessory = (typeof ACCESSORIES)[number] | 'headset';
 // head: from cyan to rose about the logo's violet, so every head is still
 // the logo's cube and yet they read apart across the room. (Leads keep the
 // logo's own.)
-export const HEAD_SHIFTS = [-78, 42, -40, 84, -60, 20, 64, -20];
+export const HEAD_SHIFTS = [-78, 20, 84, -40, 42, -60, 64, -20];
 
 export function accentOf(ref: string, variant?: number): { color: string; accessory: Accessory; tint: number; shift: number } {
   const r = rng(hash(ref));
@@ -72,7 +72,7 @@ export function accentOf(ref: string, variant?: number): { color: string; access
     color: ACCENTS[(Math.floor(variant / ACCESSORIES.length) + variant * 3) % ACCENTS.length],
     accessory: ACCESSORIES[variant % ACCESSORIES.length],
     tint,
-    shift: HEAD_SHIFTS[(variant * 5 + Math.floor(variant / HEAD_SHIFTS.length)) % HEAD_SHIFTS.length],
+    shift: HEAD_SHIFTS[variant % HEAD_SHIFTS.length],
   };
 }
 

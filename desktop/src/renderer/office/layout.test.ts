@@ -90,7 +90,8 @@ test('every room is furnished, and nothing stands on anything else', () => {
   for (const name of ['p', 'storefront', 'quill', 'agentbox', 'x', 'yy'])
   for (const n of [12, 9, 8, 4, 2, 1, 0]) {
     const l = roomLayout({ areas: n ? [area(name, n)] : [] });
-    assert.ok(l.props.length >= 8, `${n}: ${l.props.length} things`);
+    // A small team's room is small: a lounge and a corner.
+    assert.ok(l.props.length >= (n > 0 && n <= 4 ? 6 : 8), `${n}: ${l.props.length} things`);
     // Mats are floor, walked over: what's on them mustn't overlap but may sit on one.
     const solid = l.props.filter((p) => p.kind !== 'mat');
     const feet = solid.map(footprint);
