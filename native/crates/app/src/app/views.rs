@@ -656,7 +656,7 @@ impl AppView {
         cx.notify();
     }
 
-    fn stop_android(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn stop_android(&mut self, cx: &mut Context<Self>) {
         let Some(a) = self.open_agent() else { return };
         let (p, n, r) = (a.project.clone(), a.name.clone(), a.r#ref.clone());
         let client = self.client.clone();

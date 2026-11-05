@@ -212,6 +212,15 @@ impl SettingsPage {
     }
 }
 
+/// PaletteSetting is one setting as the search palette lists it.
+pub(super) struct PaletteSetting {
+    pub section: String,
+    pub place: String,
+    pub id: String,
+    pub label: String,
+    pub keywords: String,
+}
+
 /// Entry is one setting, as the search sees it (lib/settingsSearch.ts).
 struct Entry {
     id: &'static str,
@@ -860,6 +869,43 @@ impl AppView {
             });
         }
         out
+    }
+
+    /// palette_settings is every setting this app draws, for the search
+    /// palette (paletteCommands.tsx's settings): (section, its title and
+    /// group's, the setting's id, label and keywords).
+    pub(super) fn palette_settings(&self, cx: &App) -> Vec<PaletteSetting> {
+        let mut out = Vec::new();
+        for s in self.settings_sections(cx).into_iter().filter(|s| !s.later) {
+            for g in &s.groups {
+                for e in &g.entries {
+                    out.push(PaletteSetting {
+                        section: s.id.clone(),
+                        place: format!("{} · {}", s.title, g.title),
+                        id: e.id.to_string(),
+                        label: e.label.clone(),
+                        keywords: format!("{} {}", e.keywords, e.description),
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// open_setting opens Settings at one setting: its section, searched for
+    /// it, so it is the one shown (paletteCommands.tsx openSetting).
+    pub(super) fn open_setting(
+        &mut self,
+        section: String,
+        label: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_at(section, window, cx);
+        self.settings_page
+            .search
+            .update(cx, |s, cx| s.set_value(label, window, cx));
+        cx.notify();
     }
 
     pub(super) fn render_settings(&self, cx: &mut Context<Self>) -> AnyElement {

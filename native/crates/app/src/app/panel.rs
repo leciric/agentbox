@@ -139,7 +139,7 @@ pub struct Panel {
     player: Option<(String, Entity<crate::video::VideoPlayer>)>,
     timeline: Option<(String, Result<Timeline, String>)>,
     browser: Option<BrowserStatus>,
-    recording: Option<RecordingStatus>,
+    pub(super) recording: Option<RecordingStatus>,
     shooting: bool,
     files: Option<Entity<FileBrowser>>,
     /// The desktop asked for last: only that one connects (see connect_desktop).
@@ -794,7 +794,7 @@ impl AppView {
         }
     }
 
-    fn screenshot(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn screenshot(&mut self, cx: &mut Context<Self>) {
         let Some(a) = self.open_agent() else { return };
         let (p, n, r) = (a.project.clone(), a.name.clone(), a.r#ref.clone());
         let client = self.client.clone();

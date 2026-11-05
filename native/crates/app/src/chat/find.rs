@@ -48,6 +48,16 @@ impl ChatView {
         cx.notify();
     }
 
+    /// find_text opens the find bar on a query (the search palette's "Find
+    /// in this chat").
+    pub fn find_text(&mut self, query: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_find(window, cx);
+        if let Some(f) = &self.find {
+            f.input.update(cx, |s, cx| s.set_value(query, window, cx));
+        }
+        self.search_soon(cx);
+    }
+
     fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.find = None;
         self.focus_composer(window, cx);
