@@ -361,7 +361,16 @@ type Server struct {
 		running bool
 		last    time.Time
 	}
-	geminiModelsFor   func(context.Context) ([]acp.ConfigChoice, error)
+	geminiModelsFor func(context.Context) ([]acp.ConfigChoice, error)
+	// copilotModels and copilotModelsFor are the same for GitHub Copilot
+	// CLI's menu, and copilotUserFor stands in for asking GitHub whose a
+	// token is (copilotTokenUser).
+	copilotModels struct {
+		running bool
+		last    time.Time
+	}
+	copilotModelsFor  func(context.Context) ([]acp.ConfigChoice, error)
+	copilotUserFor    func(context.Context, string) (string, error)
 	cursorLogin       api.CursorLogin
 	cursorLoginCancel context.CancelFunc
 	// cursorHelperFor, when set, stands in for Manager.CursorHelper in tests,

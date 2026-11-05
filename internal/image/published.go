@@ -101,10 +101,14 @@ func ImagesURLs() []string {
 // unpublished are the tools tools.txt pins for every image that the published
 // image leaves out, because AgentBox may not redistribute them: Claude Code
 // is Anthropic's proprietary software, its ACP adapter bundles Anthropic's
-// Agent SDK, and Cursor's SDK is Cursor's. Each machine installs them itself,
-// from their own registries, as it always has. Every other tool is in
-// toolLicenses, which says why it may be published.
-var unpublished = []string{"claude", "npm:@agentclientprotocol/claude-agent-acp", "npm:@cursor/sdk"}
+// Agent SDK, and Cursor's SDK is Cursor's. GitHub Copilot CLI is GitHub's,
+// under the GitHub Copilot CLI License: it allows redistributing it only
+// unmodified, inside an application that does more, with the license
+// alongside, which a whole published image of tools may not be read as.
+// Each machine installs them itself, from their own registries, as it always
+// has. Every other tool is in toolLicenses, which says why it may be
+// published.
+var unpublished = []string{"claude", "npm:@agentclientprotocol/claude-agent-acp", "npm:@cursor/sdk", "npm:@github/copilot"}
 
 // toolLicenses are the licenses of the tools the published image has, and
 // where their source is: SOURCES-<arch>.md lists them. A tool tools.txt starts

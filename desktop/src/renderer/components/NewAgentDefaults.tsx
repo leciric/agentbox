@@ -467,6 +467,46 @@ export function GeminiDefaults() {
   );
 }
 
+// CopilotDefaults is the model new GitHub Copilot CLI agents start on: one of
+// Copilot's own, as the daemon remembered them; "" is Copilot's own default.
+// Its effort is each agent's chat's.
+export function CopilotDefaults() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const choices = settings.data?.copilotModelChoices ?? [];
+  const model = settings.data?.defaultCopilotModel ?? '';
+  const ready = settings.data?.copilotReady ?? false;
+  const disabled = save.isPending || settings.data === undefined || !ready;
+  const note = settings.data === undefined ? null : !ready ? t('defaults.copilot.signIn') : choices.length === 0 ? t('defaults.copilot.listLater') : null;
+
+  return (
+    <SettingRow
+      label={t('defaults.copilot.modelLabel')}
+      description={t('defaults.copilot.modelDescription')}
+      control={
+        <Select data-default-copilot-model aria-label={t('defaults.copilot.modelLabel')} disabled={disabled} value={model} onChange={(next) => save.mutate({ defaultCopilotModel: next })}>
+          <SelectOption value="">{t('defaults.copilot.modelAuto')}</SelectOption>
+          {choices.map((choice) => (
+            <SelectOption key={choice.value} value={choice.value}>
+              {choiceName(choice) || choice.value}
+            </SelectOption>
+          ))}
+          {model !== '' && !choices.some((c) => c.value === model) && <SelectOption value={model}>{t('defaults.newAgent.unavailable', { value: model })}</SelectOption>}
+        </Select>
+      }
+    >
+      {note && <SettingNote tone={ready ? 'muted' : 'warning'}>{note}</SettingNote>}
+    </SettingRow>
+  );
+}
+
 // ResourceField is a labelled CommitInput.
 function ResourceField({
   id,
@@ -1285,7 +1325,7 @@ export function DefaultTool() {
   );
 }
 
-const defaultTools = ['claude', 'codex', 'opencode', 'cursor', 'gemini'];
+const defaultTools = ['claude', 'codex', 'opencode', 'cursor', 'gemini', 'copilot'];
 
 export function MediaRetention() {
   const t = useT();

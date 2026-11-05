@@ -296,7 +296,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
 }
 
 function toolName(tool: string): string {
-  return tool === 'codex' ? 'Codex' : tool === 'opencode' ? 'OpenCode' : tool === 'cursor' ? 'Cursor' : tool === 'gemini' ? 'Gemini CLI' : 'Claude';
+  return tool === 'codex' ? 'Codex' : tool === 'opencode' ? 'OpenCode' : tool === 'cursor' ? 'Cursor' : tool === 'gemini' ? 'Gemini CLI' : tool === 'copilot' ? 'Copilot' : 'Claude';
 }
 
 function limitText(now: number | null): string {

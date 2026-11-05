@@ -73,6 +73,7 @@ export const catalog: CatalogSetting[] = [
   { section: 'models', group: 'settings.group.new-agents.title', id: 'cursor-model', label: 'settings.entry.cursor-model.label', keywords: 'settings.entry.cursor-model.keywords' },
   { section: 'models', group: 'settings.group.new-agents.title', id: 'cursor-effort', label: 'settings.entry.cursor-effort.label', keywords: 'settings.entry.cursor-effort.keywords' },
   { section: 'models', group: 'settings.group.new-agents.title', id: 'gemini-model', label: 'settings.entry.gemini-model.label', keywords: 'settings.entry.gemini-model.keywords' },
+  { section: 'models', group: 'settings.group.new-agents.title', id: 'copilot-model', label: 'settings.entry.copilot-model.label', keywords: 'settings.entry.copilot-model.keywords' },
   { section: 'models', group: 'settings.group.new-agents.title', id: 'enforce', label: 'settings.entry.enforce.label', keywords: 'settings.entry.enforce.keywords' },
   { section: 'models', group: 'settings.group.lead.title', id: 'lead-model', label: 'settings.entry.lead-model.label', keywords: 'settings.entry.lead-model.keywords' },
   { section: 'models', group: 'settings.group.lead.title', id: 'lead-window', label: 'settings.entry.lead-window.label', keywords: 'settings.entry.lead-window.keywords' },

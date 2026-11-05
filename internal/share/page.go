@@ -352,6 +352,8 @@ func aiName(ai string) string {
 		return "Cursor"
 	case "gemini":
 		return "Gemini CLI"
+	case "copilot":
+		return "GitHub Copilot CLI"
 	}
 	return ai
 }

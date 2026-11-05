@@ -24,6 +24,7 @@ const toolNames: Record<string, string> = {
   opencode: 'OpenCode',
   cursor: 'Cursor',
   gemini: 'Gemini CLI',
+  copilot: 'GitHub Copilot CLI',
 };
 
 // ConnectorImportDialog lists the MCP servers the user's own AI tools have

@@ -210,6 +210,8 @@ var sessionDirs = map[string][]string{
 	"cursor": {".cursor/projects"},
 	// Gemini CLI keeps each project's chats under ~/.gemini/tmp.
 	"gemini": {".gemini/tmp"},
+	// GitHub Copilot CLI keeps its sessions under ~/.copilot/session-state.
+	"copilot": {".copilot/session-state"},
 }
 
 // MigrateOptions are migrateCHV's.

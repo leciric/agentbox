@@ -34,9 +34,9 @@ import (
 
 // LeadTools are the AI tools a lead can run, in the order the composer offers
 // them.
-var LeadTools = []string{"claude", "codex", "opencode", "cursor", "gemini"}
+var LeadTools = []string{"claude", "codex", "opencode", "cursor", "gemini", "copilot"}
 
-// leadNPMTools are the npm packages a Codex, OpenCode or Gemini CLI lead runs, installed in
+// leadNPMTools are the npm packages a Codex, OpenCode, Gemini CLI or Copilot lead runs, installed in
 // AgentBox's tools directory, and the command each puts in node_modules/.bin.
 // The versions are the base image's (tools.txt), so a lead and an agent on the
 // same tool run the same one. OpenCode is mise's native package in an agent;
@@ -46,6 +46,9 @@ var leadNPMTools = map[string]npmTool{
 	"codex":    {strings.TrimPrefix(image.Pin("npm:@agentclientprotocol/codex-acp"), "npm:"), "codex-acp"},
 	"opencode": {"opencode-ai@" + pinnedVersion(image.Pin("opencode")), "opencode"},
 	"gemini":   {strings.TrimPrefix(image.Pin("npm:@google/gemini-cli"), "npm:"), "gemini"},
+	// Copilot's command is its platform package's binary, not the loader
+	// that would wait on it (copilotNativeBin).
+	"copilot": {strings.TrimPrefix(copilotPin, "npm:"), copilotNativeBin()},
 }
 
 // npmTool is an npm package at its pinned version (name@version), and the
@@ -84,7 +87,7 @@ func (m *Manager) leadNPMTool(ctx context.Context, tool string) (npmTool, error)
 
 // LeadChoice is what a lead's composer chose: the tool in effect, the one
 // chosen for the next message ("" for none), the Claude Code account (""
-// for the project's), and the Codex, Cursor and Gemini CLI accounts (tool →
+// for the project's), and the Codex, Cursor, Gemini CLI and Copilot accounts (tool →
 // account).
 type LeadChoice struct {
 	Tool, NextTool, Account string
@@ -120,7 +123,7 @@ func (m *Manager) LeadChoiceOf(ctx context.Context, a state.Agent) (LeadChoice, 
 // for it, and the same refusal an agent asking for it gets otherwise.
 func (m *Manager) LeadToolLogin(p state.Project, tool string) error {
 	if !slices.Contains(LeadTools, tool) {
-		return fmt.Errorf("a project's chat can't run %q: use claude, codex, opencode, cursor or gemini", tool)
+		return fmt.Errorf("a project's chat can't run %q: use claude, codex, opencode, cursor, gemini or copilot", tool)
 	}
 	_, err := m.CheckLogin(tool, p, Logins{})
 	return err
@@ -253,7 +256,7 @@ func (m *Manager) InstallLeadTool(ctx context.Context, tool string, status func(
 	case "cursor":
 		_, err := m.CursorHelper(ctx, status)
 		return err
-	case "codex", "opencode", "gemini":
+	case "codex", "opencode", "gemini", "copilot":
 		t, err := m.leadNPMTool(ctx, tool)
 		if err != nil {
 			return err
@@ -317,7 +320,7 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 		// The script reads the sign-in and the brief from HOME, which
 		// writeLeadTool filled.
 		return helper.Node, []string{helper.Script}, []string{cursor.SDKEnv + "=" + helper.SDK}, []string{filepath.Dir(helper.Node)}, nil
-	case "codex", "opencode", "gemini":
+	case "codex", "opencode", "gemini", "copilot":
 		ictx, cancel := context.WithTimeout(ctx, hostInstallTimeout)
 		defer cancel()
 		version, t := opencode.V1, leadNPMTools[a.AI]
@@ -348,6 +351,18 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 		case "gemini":
 			// Its API key, if it has one, goes over ACP (ChatAuth).
 			return path, ChatAdapters["gemini"].Args, nil, bin, nil
+		case "copilot":
+			// Its token, as Claude Code's is: Copilot's ACP has no sign-in
+			// but its terminal one.
+			env = []string{copilotNoUpdate}
+			token, err := m.copilotLeadToken(ctx, a)
+			if err != nil {
+				return "", nil, nil, nil, err
+			}
+			if token != "" {
+				env = append(env, "COPILOT_GITHUB_TOKEN="+token)
+			}
+			return path, ChatAdapters["copilot"].Args, env, bin, nil
 		}
 		return path, ChatAdapters["opencode"].Args, nil, bin, nil
 	}
@@ -369,6 +384,9 @@ func (m *Manager) leadToolFiles(home, worktree, text string, servers map[string]
 		".cursor/mcp.json":               leadCursorMCP(servers),
 		geminiBriefFile:                  []byte(text),
 		geminiSettingsFile:               leadGeminiSettings(servers),
+		copilotBriefFile:                 []byte(text),
+		copilotMCPFile:                   leadCopilotMCP(servers),
+		copilotSettingsFile:              copilotSettings(worktree),
 	}
 	return files, remove, nil
 }

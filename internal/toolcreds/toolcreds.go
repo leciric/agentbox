@@ -50,10 +50,20 @@ var Variables = map[string][]string{
 		"GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_ACCESS_TOKEN",
 		"GOOGLE_GEMINI_BASE_URL", "GEMINI_CLI_HOME",
 	},
+	// GitHub Copilot CLI reads a token from COPILOT_GITHUB_TOKEN ahead of
+	// GH_TOKEN and GITHUB_TOKEN (which agents keep for gh and git, and which
+	// it ranks below), or runs on another provider (BYOK) when told one.
+	// AgentBox gives it its account's token in COPILOT_GITHUB_TOKEN itself
+	// (agent.copilotTokenEnv).
+	"copilot": {
+		"COPILOT_GITHUB_TOKEN", "COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER_TYPE", "COPILOT_PROVIDER_API_KEY",
+		"COPILOT_PROVIDER_API_KEY_COMMAND", "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_WIRE_API",
+		"COPILOT_GH_HOST", "COPILOT_HOME", "COPILOT_OFFLINE",
+	},
 }
 
 // Names are the tools' names as people know them.
-var Names = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "gemini": "Gemini CLI"}
+var Names = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "gemini": "Gemini CLI", "copilot": "GitHub Copilot CLI"}
 
 // Keys are the variables that hold a credential, rather than choosing an
 // endpoint or a provider: the ones a status reports as what a tool runs on.
@@ -63,13 +73,14 @@ var Keys = map[string]bool{
 	"OPENAI_API_KEY": true, "CODEX_API_KEY": true, "OPENROUTER_API_KEY": true, "GEMINI_API_KEY": true,
 	"GOOGLE_GENERATIVE_AI_API_KEY": true, "GROQ_API_KEY": true, "XAI_API_KEY": true, "DEEPSEEK_API_KEY": true,
 	"MISTRAL_API_KEY": true, "OPENCODE_API_KEY": true, "GOOGLE_API_KEY": true, "GOOGLE_CLOUD_ACCESS_TOKEN": true,
+	"COPILOT_GITHUB_TOKEN": true, "COPILOT_PROVIDER_API_KEY": true, "COPILOT_PROVIDER_BEARER_TOKEN": true,
 }
 
 // Tools are the tools that read name, in a stable order: empty for a variable
 // no AI tool chooses its credential with.
 func Tools(name string) []string {
 	var tools []string
-	for _, tool := range []string{"claude", "codex", "opencode", "gemini"} {
+	for _, tool := range []string{"claude", "codex", "opencode", "gemini", "copilot"} {
 		if slices.Contains(Variables[tool], name) {
 			tools = append(tools, tool)
 		}

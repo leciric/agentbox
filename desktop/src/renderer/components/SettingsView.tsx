@@ -71,6 +71,7 @@ import {
   DefaultContextWindow,
   CursorDefaults,
   GeminiDefaults,
+  CopilotDefaults,
   DefaultModel,
   DefaultTool,
   LeadRecheck,
@@ -177,6 +178,7 @@ const descriptions: Record<string, MessageKey> = {
   opencode: "settings.setup.desc.opencode",
   cursor: "settings.setup.desc.cursor",
   gemini: "settings.setup.desc.gemini",
+  copilot: "settings.setup.desc.copilot",
   github: "settings.setup.desc.github",
   android: "settings.setup.desc.android",
   preview: "settings.setup.desc.preview",
@@ -194,6 +196,7 @@ const checkTitles: Record<string, MessageKey> = {
   opencode: "settings.setup.title.opencode",
   cursor: "settings.setup.title.cursor",
   gemini: "settings.setup.title.gemini",
+  copilot: "settings.setup.title.copilot",
   android: "settings.setup.title.android",
   preview: "settings.setup.title.preview",
 };
@@ -209,7 +212,7 @@ const environmentIds = new Set([
   "android",
   "preview",
 ]);
-const accountIds = new Set(["claude", "codex", "opencode", "cursor", "gemini", "github"]);
+const accountIds = new Set(["claude", "codex", "opencode", "cursor", "gemini", "copilot", "github"]);
 
 // githubDetail says who the default account's token belongs to, or why it
 // can't be used.
@@ -467,6 +470,7 @@ export function useSetupSteps() {
     ),
     cursor: <CursorAccount command={check("cursor")?.fix ?? "agentbox auth cursor"} />,
     gemini: <GeminiAccount command={check("gemini")?.fix ?? "agentbox auth gemini"} />,
+    copilot: <CopilotAccount command={check("copilot")?.fix ?? "agentbox auth copilot --from-gh"} />,
     android: check("android")?.fix ? (
       <div className="grid gap-2">
         <p className="text-ui text-muted">
@@ -1264,7 +1268,7 @@ function InstalledSettings({
           // Every tool's accounts are managed here even once they're done:
           // accounts to add, rename or remove, a key to change.
           // Every AI tool and GitHub are essential: agents run on nothing else.
-          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor", "gemini"].includes(step.id), true)),
+          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor", "gemini", "copilot"].includes(step.id), true)),
         },
         {
           id: "github",
@@ -1342,6 +1346,14 @@ function InstalledSettings({
               keywords: t("settings.entry.gemini-model.keywords"),
               modified: changed((s) => s.defaultGeminiModel !== ""),
               render: () => <GeminiDefaults />,
+            },
+            {
+              id: "copilot-model",
+              description: t("defaults.copilot.modelDescription"),
+              label: t("settings.entry.copilot-model.label"),
+              keywords: t("settings.entry.copilot-model.keywords"),
+              modified: changed((s) => s.defaultCopilotModel !== ""),
+              render: () => <CopilotDefaults />,
             },
             {
               id: "enforce",
@@ -3886,6 +3898,37 @@ function GeminiAccount({ command }: { command: string }) {
       <ToolKeyForm tool="gemini" accounts={accounts} />
       <p className="text-ui text-muted">
         {t.rich("settings.gemini.cliBody", { code: (c) => <Code>{c}</Code> })}
+      </p>
+      <CommandBox command={command} />
+    </div>
+  );
+}
+
+// CopilotAccount is GitHub Copilot CLI's accounts: a GitHub token with
+// Copilot access pasted here, as Codex's key is. Copilot's own `copilot login`
+// keeps its token in the OS keychain, out of AgentBox's reach, so there is no
+// sign-in to run; the command line can take the GitHub CLI's token.
+function CopilotAccount({ command }: { command: string }) {
+  const t = useT();
+  const auth = useQuery({ queryKey: ["auth"], queryFn: api.auth });
+  const accounts = auth.data?.copilotAccounts ?? [];
+  const signedIn = auth.data?.copilot === true;
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-2 text-ui">
+        <StepIcon status={signedIn ? "ok" : "optional"} small />
+        <span className="text-secondary">
+          {signedIn
+            ? auth.data?.copilotUser
+              ? t("settings.copilot.signedInAs", { user: auth.data.copilotUser })
+              : t("settings.copilot.signedInPlain")
+            : t("settings.copilot.notSignedIn")}
+        </span>
+      </div>
+      <ToolAccountList tool="copilot" accounts={accounts} />
+      <ToolKeyForm tool="copilot" accounts={accounts} />
+      <p className="text-ui text-muted">
+        {t.rich("settings.copilot.cliBody", { code: (c) => <Code>{c}</Code> })}
       </p>
       <CommandBox command={command} />
     </div>

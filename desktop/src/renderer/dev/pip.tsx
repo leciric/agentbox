@@ -51,6 +51,7 @@ const agent = (name: string, title: string, ai: string, chat: string, createdMin
     openCodeAccounts: {},
     cursorAccount: '',
     geminiAccount: '',
+    copilotAccount: '',
     interface: ai,
     state: 'running',
     ip: '',

@@ -72,6 +72,7 @@ export function AddProjectDialog({
   const [codexAccount, setCodexAccount] = useState('');
   const [cursorAccount, setCursorAccount] = useState('');
   const [geminiAccount, setGeminiAccount] = useState('');
+  const [copilotAccount, setCopilotAccount] = useState('');
   const [openCodeAccounts, setOpenCodeAccounts] = useState<Record<string, string>>({});
   // The AI tool the project's agents run when they name none; "" keeps what
   // every project does without one (Project.agentTool).
@@ -79,6 +80,7 @@ export function AddProjectDialog({
   const codexAccounts = accountsOf(auth.data, 'codex');
   const cursorAccounts = accountsOf(auth.data, 'cursor');
   const geminiAccounts = accountsOf(auth.data, 'gemini');
+  const copilotAccounts = accountsOf(auth.data, 'copilot');
   const openCodeAll = accountsOf(auth.data, 'opencode');
   const providers = [...new Set(openCodeAll.map((a) => a.provider ?? ''))].filter(Boolean);
   const signedOut = [
@@ -87,6 +89,7 @@ export function AddProjectDialog({
     providers.length === 0 && aiLabel('opencode'),
     cursorAccounts.length === 0 && aiLabel('cursor'),
     geminiAccounts.length === 0 && aiLabel('gemini'),
+    copilotAccounts.length === 0 && aiLabel('copilot'),
     githubAccounts.length === 0 && 'GitHub',
   ].filter((name): name is string => !!name);
   // On Windows, the picker gives a folder on a Windows drive as /mnt/<drive>/...:
@@ -99,6 +102,7 @@ export function AddProjectDialog({
     codexAccount: codexAccount || undefined,
     cursorAccount: cursorAccount || undefined,
     geminiAccount: geminiAccount || undefined,
+    copilotAccount: copilotAccount || undefined,
     openCodeAccounts: Object.values(openCodeAccounts).some(Boolean) ? openCodeAccounts : undefined,
   };
   const added = async (project: T.Project) => {
@@ -164,6 +168,7 @@ export function AddProjectDialog({
     setCodexAccount('');
     setCursorAccount('');
     setGeminiAccount('');
+    setCopilotAccount('');
     setOpenCodeAccounts({});
     add.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -364,7 +369,7 @@ export function AddProjectDialog({
           <Field label={t('project.add.toolLabel')} htmlFor="project-agent-tool" hint={t('project.add.toolHint')}>
             <Select id="project-agent-tool" value={agentTool} onChange={setAgentTool}>
               <SelectOption value="">{t('defaults.project.toolNone')}</SelectOption>
-              {['claude', 'codex', 'opencode', 'cursor', 'gemini'].map((tool) => (
+              {['claude', 'codex', 'opencode', 'cursor', 'gemini', 'copilot'].map((tool) => (
                 <SelectOption key={tool} value={tool}>
                   {aiLabel(tool)}
                 </SelectOption>
@@ -409,6 +414,11 @@ export function AddProjectDialog({
               {geminiAccounts.length > 0 && (
                 <AccountRow tool="gemini" label={aiLabel('gemini')} accounts={geminiAccounts} value={geminiAccount} onChange={setGeminiAccount}>
                   <ToolAccountState accounts={geminiAccounts} chosen={geminiAccount} />
+                </AccountRow>
+              )}
+              {copilotAccounts.length > 0 && (
+                <AccountRow tool="copilot" label={aiLabel('copilot')} accounts={copilotAccounts} value={copilotAccount} onChange={setCopilotAccount}>
+                  <ToolAccountState accounts={copilotAccounts} chosen={copilotAccount} />
                 </AccountRow>
               )}
               {githubAccounts.length > 0 && (

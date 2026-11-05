@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { t as translate, useT } from '../lib/i18n';
+import { t as translate, useT, type MessageKey } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
@@ -17,7 +17,7 @@ import { accountKind, accountsOf } from './ToolAccounts';
 
 // The accounts a project's new agents get, from the ones stored in Settings:
 // its Claude Code login, the logins it may use at all, its Codex, OpenCode,
-// Cursor and Gemini CLI accounts, and its GitHub account.
+// Cursor, Gemini CLI and Copilot accounts, and its GitHub account.
 // They're project settings like the rest, so they're drawn with them
 // (ProjectSettings), in Settings and on the project's Overview alike.
 
@@ -343,18 +343,18 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
 // project's chat moves to it as its tool next starts (the daemon restarts a
 // chat running that tool on it at once).
 
-// ToolAccountPicker chooses the project's Codex, Cursor or Gemini CLI account.
-export function ToolAccountPicker({ project, tool }: { project: T.Project; tool: 'codex' | 'cursor' | 'gemini' }) {
+// ToolAccountPicker chooses the project's Codex, Cursor, Gemini CLI or Copilot account.
+export function ToolAccountPicker({ project, tool }: { project: T.Project; tool: 'codex' | 'cursor' | 'gemini' | 'copilot' }) {
   const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const accounts = accountsOf(auth.data, tool);
-  const chosen = tool === 'codex' ? project.codexAccount : tool === 'gemini' ? project.geminiAccount : project.cursorAccount;
+  const chosen = tool === 'codex' ? project.codexAccount : tool === 'gemini' ? project.geminiAccount : tool === 'copilot' ? project.copilotAccount : project.cursorAccount;
   const fallback = accounts.find((a) => a.default)?.name;
-  const label = t(tool === 'codex' ? 'project.accounts.codexLabel' : tool === 'gemini' ? 'project.accounts.geminiLabel' : 'project.accounts.cursorLabel');
+  const label = t(toolAccountKeys[tool].label);
   const pick = useMutation({
     mutationFn: (account: string) =>
-      api.updateProject(project.name, tool === 'codex' ? { codexAccount: account } : tool === 'gemini' ? { geminiAccount: account } : { cursorAccount: account }),
+      api.updateProject(project.name, tool === 'codex' ? { codexAccount: account } : tool === 'gemini' ? { geminiAccount: account } : tool === 'copilot' ? { copilotAccount: account } : { cursorAccount: account }),
     onSuccess: async (updated, account) => {
       toast(
         account
@@ -368,7 +368,7 @@ export function ToolAccountPicker({ project, tool }: { project: T.Project; tool:
   return (
     <SettingRow
       label={label}
-      description={auth.isPending ? t('common.loading') : t(tool === 'codex' ? 'project.accounts.codexDescription' : tool === 'gemini' ? 'project.accounts.geminiDescription' : 'project.accounts.cursorDescription')}
+      description={auth.isPending ? t('common.loading') : t(toolAccountKeys[tool].description)}
       details={accounts.length > 0 && t('project.accounts.toolDetails')}
       control={
         accounts.length > 0 && (
@@ -511,3 +511,11 @@ export function ClaudeAccountState({ chosen }: { chosen: string }) {
     </span>
   );
 }
+
+// toolAccountKeys are each tool's words in ToolAccountPicker.
+const toolAccountKeys: Record<'codex' | 'cursor' | 'gemini' | 'copilot', { label: MessageKey; description: MessageKey }> = {
+  codex: { label: 'project.accounts.codexLabel', description: 'project.accounts.codexDescription' },
+  cursor: { label: 'project.accounts.cursorLabel', description: 'project.accounts.cursorDescription' },
+  gemini: { label: 'project.accounts.geminiLabel', description: 'project.accounts.geminiDescription' },
+  copilot: { label: 'project.accounts.copilotLabel', description: 'project.accounts.copilotDescription' },
+};

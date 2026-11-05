@@ -59,6 +59,10 @@ func TestFindServersReadsEveryTool(t *testing.T) {
 		{ToolGemini, "context7", Found{Transport: api.TransportHTTP, URL: "https://mcp.context7.com/mcp", Header: "CONTEXT7_API_KEY", Value: "ctx7-literal"}},
 		{ToolGemini, "legacy", Found{Transport: api.TransportSSE, URL: "https://legacy.example.com/sse"}},
 		{ToolGemini, "typed", Found{Transport: api.TransportHTTP, URL: "https://typed.example.com/mcp"}},
+		// GitHub Copilot CLI: typed http, sse and local servers.
+		{ToolCopilot, "sentry", Found{Transport: api.TransportHTTP, URL: "https://mcp.sentry.dev/mcp", Header: "Authorization", Scheme: "Bearer", Value: "${SENTRY_TOKEN}", Variable: "SENTRY_TOKEN", Unresolved: true}},
+		{ToolCopilot, "old", Found{Transport: api.TransportSSE, URL: "https://old.example.com/sse"}},
+		{ToolCopilot, "playwright", Found{Transport: api.TransportStdio, Command: "npx"}},
 	} {
 		got := foundNamed(t, found, tc.tool, tc.name)
 		got.Tool, got.Path, got.Name = "", "", ""

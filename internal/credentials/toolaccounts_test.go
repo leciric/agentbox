@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agentbox/internal/credentials"
@@ -261,5 +262,40 @@ func TestGeminiAccounts(t *testing.T) {
 	}
 	if kinds["google"] != "google dev@example.com" || kinds["studio"] != "apikey " {
 		t.Errorf("ToolAccounts = %v", kinds)
+	}
+}
+
+func TestCopilotAccounts(t *testing.T) {
+	s := store(t)
+	if s.HasCopilotLogin("") {
+		t.Fatal("a store with nothing in it has a Copilot login")
+	}
+	if _, err := credentials.CopilotTokenAuth("ghp_classic", ""); err == nil || !strings.Contains(err.Error(), "classic") {
+		t.Errorf("a classic token: %v", err)
+	}
+	if _, err := credentials.CopilotTokenAuth("two words", ""); err == nil {
+		t.Error("a token with a space in it was taken")
+	}
+	auth, err := credentials.CopilotTokenAuth(" github_pat_x \n", "octocat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	save(t, s, credentials.ToolCopilot, "", "work", string(auth))
+	login, ok := s.CopilotLogin("work")
+	if !ok || login.Token != "github_pat_x" || login.User != "octocat" {
+		t.Fatalf("CopilotLogin = %+v, %v", login, ok)
+	}
+	save(t, s, credentials.ToolCopilot, "", "empty", `{"login":"octocat"}`)
+	if s.HasCopilotLogin("empty") {
+		t.Error("an account without a token counts as a login")
+	}
+	if err := s.SaveToolAccount(credentials.ToolCopilot, "github", "x", auth); err == nil {
+		t.Error("a Copilot account was stored with a provider")
+	}
+	accounts, _ := s.ToolAccounts(credentials.ToolCopilot)
+	for _, a := range accounts {
+		if a.Name == "work" && (a.Kind != "token" || a.Email != "octocat") {
+			t.Errorf("work = %+v", a)
+		}
 	}
 }

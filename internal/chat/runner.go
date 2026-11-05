@@ -54,7 +54,7 @@ func (m *Manager) SetRunner(a state.Agent, tool, account string) (api.ChatSessio
 	switch tool {
 	case "claude":
 		c.stored.Account = account
-	case "codex", "cursor", "gemini":
+	case "codex", "cursor", "gemini", "copilot":
 		chosen := c.stored.ToolAccounts.Clean()
 		chosen[tool] = account
 		c.stored.ToolAccounts = chosen.Clean()
@@ -227,7 +227,7 @@ func (c *conversation) applyTool(tool string) {
 	c.stored.Tool, c.stored.NextTool = tool, ""
 	c.agent.AI = tool
 	c.agent.ClaudeAccount = ""
-	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount = "", nil, "", ""
+	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount, c.agent.CopilotAccount = "", nil, "", "", ""
 	if tool == "claude" && c.m.LeadAccount != nil {
 		account, err := c.m.LeadAccount(c.agent)
 		if err != nil {
@@ -238,7 +238,7 @@ func (c *conversation) applyTool(tool string) {
 		if on, err := c.m.LeadLogins(c.agent); err != nil {
 			c.m.logf("chat %s: the %s account to switch to: %v", c.agent.Ref(), ToolNames[tool], err)
 		} else {
-			c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount = on.CodexAccount, on.OpenCodeAccounts, on.CursorAccount, on.GeminiAccount
+			c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount, c.agent.GeminiAccount, c.agent.CopilotAccount = on.CodexAccount, on.OpenCodeAccounts, on.CursorAccount, on.GeminiAccount, on.CopilotAccount
 		}
 	}
 	c.session.Tool = tool

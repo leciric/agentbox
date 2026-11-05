@@ -15,7 +15,7 @@ import (
 
 // leadMarks are what a chat's AI tool and its ACP adapter have in their
 // command lines.
-var leadMarks = []string{"claude-agent-acp", "claude-agent-sdk", "codex-acp", "opencode", "gemini-cli"}
+var leadMarks = []string{"claude-agent-acp", "claude-agent-sdk", "codex-acp", "opencode", "gemini-cli", "@github/copilot"}
 
 // agentboxMarks are what AgentBox's own helpers have in theirs: the browser
 // the desktop tools drive, and Playwright's.

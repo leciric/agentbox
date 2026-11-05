@@ -85,6 +85,7 @@ const needs: Record<FirstRunTool, MessageKey> = {
   opencode: "firstRun.tool.needs.opencode",
   cursor: "firstRun.tool.needs.cursor",
   gemini: "firstRun.tool.needs.gemini",
+  copilot: "firstRun.tool.needs.copilot",
 };
 
 // The steps of Setup the machine step shows, and those it waits for:
