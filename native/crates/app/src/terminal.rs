@@ -19,7 +19,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::theme;
 
-const FONT: &str = "DejaVu Sans Mono";
+const FONT: &str = crate::theme::MONO;
 const FONT_SIZE: f32 = 13.;
 const LINE_HEIGHT: f32 = 17.;
 

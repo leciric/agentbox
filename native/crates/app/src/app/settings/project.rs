@@ -2275,7 +2275,7 @@ impl AppView {
                     .gap_3()
                     .child(
                         div()
-                            .font_family("monospace")
+                            .font_family(crate::theme::mono())
                             .text_sm()
                             .text_color(theme::fg())
                             .child(format!("${}", s.name)),

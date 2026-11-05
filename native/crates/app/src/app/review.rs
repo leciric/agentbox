@@ -841,7 +841,9 @@ impl ReviewView {
                             .text_xl()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme::fg())
-                            .when(i.title.is_empty(), |el| el.font_family("monospace"))
+                            .when(i.title.is_empty(), |el| {
+                                el.font_family(crate::theme::mono())
+                            })
                             .child(title),
                     )
                     .when(!i.verdict.is_empty(), |el| {
@@ -870,7 +872,7 @@ impl ReviewView {
                         .child(
                             div()
                                 .text_xs()
-                                .font_family("monospace")
+                                .font_family(crate::theme::mono())
                                 .text_color(theme::faint())
                                 .child(tv(
                                     "review.position",
@@ -917,7 +919,7 @@ impl ReviewView {
                             div()
                                 .min_w_0()
                                 .truncate()
-                                .font_family("monospace")
+                                .font_family(crate::theme::mono())
                                 .child(format!("⎇ {}", i.branch)),
                         )
                     })
@@ -978,7 +980,7 @@ impl ReviewView {
                     vec![
                         div().child(t("review.diff")).into_any_element(),
                         div()
-                            .font_family("monospace")
+                            .font_family(crate::theme::mono())
                             .text_color(theme::faint())
                             .when_some(i.changes.as_ref().filter(|c| c.files > 0), |el, c| {
                                 el.child(format!("+{} −{}", c.insertions, c.deletions))
@@ -1232,7 +1234,7 @@ impl ReviewView {
                                         .child(
                                             div()
                                                 .flex_none()
-                                                .font_family("monospace")
+                                                .font_family(crate::theme::mono())
                                                 .text_xs()
                                                 .text_color(theme::faint())
                                                 .child(clock(at)),
@@ -1376,7 +1378,7 @@ impl ReviewView {
                         n < 2,
                         cx.listener(|this, _: &ClickEvent, _, cx| this.step(-1, cx)),
                     ))
-                    .child(div().font_family("monospace").child(tv(
+                    .child(div().font_family(crate::theme::mono()).child(tv(
                         "review.position",
                         &[("n", (self.at + 1).into()), ("count", n.into())],
                     )))

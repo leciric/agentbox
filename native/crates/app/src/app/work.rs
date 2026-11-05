@@ -322,7 +322,7 @@ impl WorkView {
                 div()
                     .min_w_0()
                     .truncate()
-                    .font_family("monospace")
+                    .font_family(crate::theme::mono())
                     .child(format!("⎇ {}", i.branch))
                     .into_any_element(),
             );
@@ -332,7 +332,7 @@ impl WorkView {
                 h_flex()
                     .flex_none()
                     .gap_1()
-                    .font_family("monospace")
+                    .font_family(crate::theme::mono())
                     .child(tv("work.files", &[("count", c.files.into())]))
                     .child(
                         div()
@@ -400,7 +400,9 @@ impl WorkView {
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme::fg())
-                                    .when(i.title.is_empty(), |el| el.font_family("monospace"))
+                                    .when(i.title.is_empty(), |el| {
+                                        el.font_family(crate::theme::mono())
+                                    })
                                     .child(name),
                             )
                             .when(!i.title.is_empty(), |el| {
@@ -408,7 +410,7 @@ impl WorkView {
                                     div()
                                         .flex_none()
                                         .text_xs()
-                                        .font_family("monospace")
+                                        .font_family(crate::theme::mono())
                                         .text_color(theme::faint())
                                         .child(i.agent.clone()),
                                 )

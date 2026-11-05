@@ -917,7 +917,7 @@ impl AppView {
                     .gap_2()
                     .child(
                         div()
-                            .font_family("monospace")
+                            .font_family(crate::theme::mono())
                             .text_sm()
                             .text_color(theme::fg())
                             .child(x.name.clone()),

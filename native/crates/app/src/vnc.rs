@@ -85,6 +85,9 @@ pub struct VncView {
     shown: Arc<Mutex<Option<Bounds<Pixels>>>>,
     buttons: u8,
     focus: FocusHandle,
+    /// Whether the pointer and keys go to the remote screen: off, it is only
+    /// watched (the panel's "Take control" switch).
+    pub control: bool,
     _task: Task<()>,
 }
 
@@ -164,12 +167,18 @@ impl VncView {
             shown: Arc::default(),
             buttons: 0,
             focus: cx.focus_handle(),
+            control: true,
             _task: task,
         }
     }
 
     pub fn focus_handle(&self) -> &FocusHandle {
         &self.focus
+    }
+
+    /// connected is whether a frame of the remote screen has arrived.
+    pub fn connected(&self) -> bool {
+        self.image.is_some()
     }
 
     /// to_remote maps a window point onto the remote screen.
@@ -189,6 +198,9 @@ impl VncView {
 
     fn pointer(&mut self, p: Point<Pixels>, buttons: u8) {
         self.buttons = buttons;
+        if !self.control {
+            return;
+        }
         if let (Some((x, y)), Some(tx)) = (self.to_remote(p), &self.input) {
             let _ = tx.send(X11Event::PointerEvent(ClientMouseEvent {
                 position_x: x,
@@ -199,6 +211,9 @@ impl VncView {
     }
 
     fn key(&self, ks: &Keystroke, down: bool) {
+        if !self.control {
+            return;
+        }
         let Some(tx) = &self.input else { return };
         let send = |k: u32, d: bool| {
             let _ = tx.send(X11Event::KeyEvent(ClientKeyEvent {
@@ -410,7 +425,9 @@ impl Render for VncView {
             }))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                 this.key(&ev.keystroke, true);
-                cx.stop_propagation();
+                if this.control {
+                    cx.stop_propagation();
+                }
             }))
             .on_key_up(cx.listener(|this, ev: &KeyUpEvent, _, _| this.key(&ev.keystroke, false)))
             .when_some(self.image.clone(), |el, image| {

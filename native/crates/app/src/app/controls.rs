@@ -112,6 +112,8 @@ pub enum Btn {
     Primary,
     Secondary,
     Ghost,
+    /// One that destroys something (Electron's destructive).
+    Danger,
 }
 
 /// button is a labelled button in the app's palette.
@@ -138,12 +140,13 @@ pub fn button(
                 .border_color(theme::border())
                 .text_color(theme::fg()),
             Btn::Ghost => el.text_color(theme::muted()),
+            Btn::Danger => el.bg(theme::error()).text_color(gpui::white()),
         })
         .when(disabled, |el| el.opacity(0.5))
         .when(!disabled, |el| {
             el.cursor_pointer()
                 .hover(move |s| match kind {
-                    Btn::Primary => s.opacity(0.9),
+                    Btn::Primary | Btn::Danger => s.opacity(0.9),
                     _ => s.bg(theme::hover()).text_color(theme::fg()),
                 })
                 .on_click(on_click)

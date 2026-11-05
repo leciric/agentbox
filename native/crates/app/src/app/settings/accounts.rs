@@ -1652,7 +1652,7 @@ impl AppView {
                                             .border_1()
                                             .border_color(theme::border())
                                             .bg(theme::raised())
-                                            .font_family("monospace")
+                                            .font_family(crate::theme::mono())
                                             .text_lg()
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(theme::fg())
@@ -1942,7 +1942,7 @@ fn command_box(id: &str, command: String, _cx: &mut Context<AppView>) -> AnyElem
             div()
                 .flex_1()
                 .min_w_0()
-                .font_family("monospace")
+                .font_family(crate::theme::mono())
                 .text_xs()
                 .text_color(theme::fg())
                 .child(command),

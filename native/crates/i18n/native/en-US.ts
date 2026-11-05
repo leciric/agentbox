@@ -10,4 +10,6 @@ export const enUSNative = {
   'native.settings.later': 'This app doesn\'t have these settings yet: change them in the AgentBox desktop app for now.',
   'native.settings.openCodePage': 'Open that page',
   'native.diff.moreLines': '{count, plural, one {# more line} other {# more lines}} not shown here',
+  'native.agent.turns': 'Turns',
+  'native.agent.turnsNote': 'The worktree as each turn ended: roll the agent back to one, or fork a new agent from it.',
 };

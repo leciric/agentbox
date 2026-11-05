@@ -356,7 +356,7 @@ impl AppView {
                         .border_color(theme::border())
                         .children(tail.iter().map(|l| {
                             div()
-                                .font_family("monospace")
+                                .font_family(crate::theme::mono())
                                 .text_xs()
                                 .text_color(theme::muted())
                                 .child(l.clone())
@@ -386,7 +386,7 @@ impl AppView {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .font_family("monospace")
+                    .font_family(crate::theme::mono())
                     .text_xs()
                     .text_color(theme::fg())
                     .child(command.to_string()),

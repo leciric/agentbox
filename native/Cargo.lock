@@ -137,6 +137,7 @@ dependencies = [
  "agentbox-i18n",
  "alacritty_terminal",
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "ffmpeg-next",
  "gpui-component",
@@ -1844,6 +1845,7 @@ version = "0.0.0"
 dependencies = [
  "agentbox-api",
  "anyhow",
+ "base64 0.22.1",
  "bytes",
  "futures-core",
  "futures-util",

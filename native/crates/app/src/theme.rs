@@ -131,6 +131,11 @@ pub const MONO: &str = if cfg!(target_os = "macos") {
     "DejaVu Sans Mono"
 };
 
+/// mono is the font for monospaced text anywhere in the app: [MONO].
+pub fn mono() -> &'static str {
+    MONO
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

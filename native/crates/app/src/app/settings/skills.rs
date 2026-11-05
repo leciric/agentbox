@@ -1035,7 +1035,7 @@ impl AppView {
                 .p_3()
                 .rounded_lg()
                 .bg(theme::bg())
-                .font_family("monospace")
+                .font_family(crate::theme::mono())
                 .text_xs()
                 .text_color(theme::fg())
                 .child(f.content.clone())
@@ -1149,7 +1149,7 @@ impl AppView {
                                         .py_0p5()
                                         .rounded_md()
                                         .text_xs()
-                                        .font_family("monospace")
+                                        .font_family(crate::theme::mono())
                                         .cursor_pointer()
                                         .when(active, |el| {
                                             el.bg(theme::raised()).text_color(theme::fg())

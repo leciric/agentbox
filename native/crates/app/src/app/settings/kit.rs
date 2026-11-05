@@ -168,7 +168,7 @@ pub(super) fn link(
 /// mono is a path, a command or an address, as it's typed.
 pub(super) fn mono(text: impl Into<SharedString>) -> AnyElement {
     div()
-        .font_family("monospace")
+        .font_family(crate::theme::mono())
         .text_xs()
         .text_color(theme::muted())
         .child(text.into())

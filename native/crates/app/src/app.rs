@@ -10,9 +10,12 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
+mod agent;
+mod agent_status;
 mod controls;
 mod merge;
 mod new_task;
+mod panel;
 mod pulls;
 mod review;
 mod settings;
@@ -33,13 +36,6 @@ struct RailRow {
     pr: Option<agentbox_api::PullRequest>,
 }
 
-/// What the main area shows of an agent.
-#[derive(Clone, Copy, PartialEq)]
-enum Tab {
-    Chat,
-    Terminal,
-    Desktop,
-}
 use crate::{bench, theme};
 use agentbox_i18n::t;
 
@@ -64,11 +60,14 @@ pub struct AppView {
     /// Which chat is open: "lead" or an agent's name.
     open: String,
     chat: Option<Entity<ChatView>>,
-    /// An agent's terminal, opened from its chat's tab bar.
+    /// The open agent's terminal, in the panel.
     terminal: Option<Entity<TerminalView>>,
-    /// An agent's desktop (VNC), opened the same way.
+    /// The open agent's desktop (VNC), in the panel.
     desktop: Option<Entity<VncView>>,
-    tab: Tab,
+    /// The right-hand panel beside the chat.
+    panel: panel::Panel,
+    /// The open agent's page: its Snapshots, dialogs and info card.
+    agent: agent::AgentPage,
     side: sidebar::Sidebar,
     /// The New task picker, while it's open.
     new_task: Option<new_task::NewTask>,
@@ -108,7 +107,8 @@ impl AppView {
             chat: None,
             terminal: None,
             desktop: None,
-            tab: Tab::Chat,
+            panel: panel::Panel::new(cx),
+            agent: agent::AgentPage::new(window, cx),
             side: sidebar::Sidebar::new(window, cx),
             new_task: None,
             settings: false,
@@ -196,7 +196,11 @@ impl AppView {
                 }
                 match self.fleet.iter().position(|a| a.r#ref == change.r#ref) {
                     Some(ix) if change.removed => {
-                        self.fleet.remove(ix);
+                        let gone = self.fleet.remove(ix);
+                        // Its chat was open: back to the lead's.
+                        if self.open == gone.name {
+                            self.open_chat("lead".into(), window, cx);
+                        }
                     }
                     Some(ix) => self.fleet[ix].state = change.state,
                     None => self.load_fleet(window, cx),
@@ -234,6 +238,19 @@ impl AppView {
                 }
             }
             EVENT_PROJECT => self.load_projects(window, cx),
+            agentbox_api::EVENT_FILES => {
+                if let Ok(change) = serde_json::from_value::<agentbox_api::FilesChange>(ev.data) {
+                    self.on_files_event(change, cx);
+                }
+            }
+            agentbox_api::EVENT_MEDIA => self.on_media_event(cx),
+            agentbox_api::EVENT_AGENT_EVENT => {
+                if let Some(p) = ev.data.get("project").and_then(|v| v.as_str())
+                    && self.project.as_deref() == Some(p)
+                {
+                    self.panel_sync(window, cx);
+                }
+            }
             agentbox_api::EVENT_PULLS => {
                 let Ok(change) = serde_json::from_value::<agentbox_api::PullsChange>(ev.data)
                 else {
@@ -348,6 +365,7 @@ impl AppView {
                         {
                             this.open_chat(open, window, cx);
                         }
+                        this.panel_sync(window, cx);
                     }
                     Err(e) => this.fleet_error = Some(e.to_string().into()),
                 }
@@ -413,7 +431,8 @@ impl AppView {
         self.open = who;
         self.terminal = None;
         self.desktop = None;
-        self.tab = Tab::Chat;
+        self.panel.forget();
+        self.agent.reset();
         let client = self.client.clone();
         // Under the project's header, the chat draws no title of its own.
         let header = self.is_home();
@@ -422,6 +441,7 @@ impl AppView {
             c.header = header;
             c
         }));
+        self.panel_sync(window, cx);
         cx.notify();
     }
 
@@ -606,59 +626,7 @@ impl AppView {
 }
 
 impl AppView {
-    /// render_tabs is an agent's Chat | Terminal switch.
-    fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let tab = |id: &'static str, label: String, on: bool| {
-            div()
-                .id(id)
-                .px_3()
-                .py_1()
-                .rounded_md()
-                .cursor_pointer()
-                .text_sm()
-                .text_color(if on { theme::fg() } else { theme::muted() })
-                .when(on, |el| el.bg(theme::hover()))
-                .hover(|el| el.bg(theme::raised()))
-                .child(label)
-        };
-        h_flex()
-            .flex_none()
-            .gap_1()
-            .px_4()
-            .py_1p5()
-            .bg(theme::panel())
-            .border_b_1()
-            .border_color(theme::border())
-            .child(
-                tab("tab-chat", t("agent.tab.chat"), self.tab == Tab::Chat).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.tab = Tab::Chat;
-                        cx.notify();
-                    },
-                )),
-            )
-            .child(
-                tab(
-                    "tab-terminal",
-                    t("agent.tab.terminal"),
-                    self.tab == Tab::Terminal,
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.show_terminal(window, cx);
-                })),
-            )
-            .child(
-                tab(
-                    "tab-desktop",
-                    t("agent.tab.desktop"),
-                    self.tab == Tab::Desktop,
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.show_desktop(window, cx);
-                })),
-            )
-    }
-
+    /// show_terminal makes the open agent's terminal, for the panel.
     fn show_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.project.clone() else {
             return;
@@ -672,24 +640,6 @@ impl AppView {
             let focus = t.read(cx).focus_handle().clone();
             focus.focus(window, cx);
         }
-        self.tab = Tab::Terminal;
-        cx.notify();
-    }
-
-    fn show_desktop(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(project) = self.project.clone() else {
-            return;
-        };
-        if self.desktop.is_none() {
-            let path = format!("/v1/agents/{project}/{}/browser/view", self.open);
-            let client = self.client.clone();
-            self.desktop = Some(cx.new(|cx| VncView::new(client, path, cx)));
-        }
-        if let Some(d) = &self.desktop {
-            let focus = d.read(cx).focus_handle().clone();
-            focus.focus(window, cx);
-        }
-        self.tab = Tab::Desktop;
         cx.notify();
     }
 }
@@ -710,6 +660,16 @@ impl Render for AppView {
                     this.open_new_task(window, cx);
                     cx.stop_propagation();
                 }
+                // Ctrl+D folds the panel to its strip and back (a terminal's
+                // or a controlled desktop's own keys stop before here).
+                if ev.keystroke.modifiers.control
+                    && ev.keystroke.key == "d"
+                    && !this.is_home()
+                    && this.project.is_some()
+                {
+                    this.toggle_panel(window, cx);
+                    cx.stop_propagation();
+                }
             }))
             .size_full()
             .bg(theme::bg())
@@ -722,23 +682,22 @@ impl Render for AppView {
                     .h_full()
                     .when(
                         !self.settings && self.work.is_none() && self.chat.is_some(),
-                        |el| el.children(self.render_project_header(cx)),
+                        |el| {
+                            el.children(self.render_project_header(cx))
+                                .children(self.render_agent_header(cx))
+                                .children(self.render_machine_bar(cx))
+                        },
                     )
                     .child(
                         div().flex_1().min_h_0().child(match &self.chat {
                             _ if self.settings => self.render_settings(cx),
                             _ if self.work.is_some() => self.render_work(cx),
-                            Some(chat) if self.open != "lead" => v_flex()
-                                .size_full()
-                                .child(self.render_tabs(cx))
-                                .child(div().flex_1().min_h_0().child(
-                                    match (self.tab, &self.terminal, &self.desktop) {
-                                        (Tab::Terminal, Some(t), _) => t.clone().into_any_element(),
-                                        (Tab::Desktop, _, Some(d)) => d.clone().into_any_element(),
-                                        _ => chat.clone().into_any_element(),
-                                    },
-                                ))
-                                .into_any_element(),
+                            Some(_)
+                                if self.open != "lead"
+                                    && self.agent.page == Some(agent::Page::Snapshots) =>
+                            {
+                                self.render_snapshots(cx)
+                            }
                             Some(chat) => chat.clone().into_any_element(),
                             None => div()
                                 .size_full()
@@ -753,12 +712,17 @@ impl Render for AppView {
                         }),
                     ),
             )
-            .child(self.render_rail(cx))
+            .child(if self.is_home() || self.project.is_none() {
+                self.render_rail(cx).into_any_element()
+            } else {
+                self.render_panel(cx)
+            })
             // Last, so it draws over the rest.
             .children(overlay)
             .children(self.review.clone())
             .children(self.render_pull(cx))
             .children(self.render_merge_confirm(cx))
+            .children(self.render_agent_dialogs(cx))
             .child(self.toasts.clone())
     }
 }

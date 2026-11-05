@@ -71,6 +71,20 @@ impl Sidebar {
         }
     }
 
+    /// questions_of are a project's open questions.
+    pub fn questions_of(&self, project: &str) -> &[Question] {
+        self.questions.get(project).map_or(&[], Vec::as_slice)
+    }
+
+    /// review_of are the refs of a project's agents waiting for review.
+    pub fn review_of(&self, project: &str) -> Vec<String> {
+        self.review
+            .iter()
+            .filter(|i| i.project == project)
+            .map(|i| i.r#ref.clone())
+            .collect()
+    }
+
     /// apply_agent keeps an agent's state and chat state current from events.
     pub fn apply_agent(&mut self, r#ref: &str, state: Option<&str>, chat: Option<&str>) -> bool {
         let Some(a) = self.agents.iter_mut().find(|a| a.r#ref == r#ref) else {
@@ -841,7 +855,7 @@ impl AppView {
 
 /// ago is how long since an RFC 3339 time, as the sidebar writes it: now, 5m,
 /// 3h, 2d.
-fn ago(time: &str) -> String {
+pub(super) fn ago(time: &str) -> String {
     let Ok(at) =
         humantime::parse_rfc3339_weak(time.split('.').next().unwrap_or(time).trim_end_matches('Z'))
     else {

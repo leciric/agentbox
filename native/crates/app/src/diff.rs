@@ -561,7 +561,7 @@ fn counts(add: i64, del: i64) -> AnyElement {
     h_flex()
         .flex_none()
         .gap_1p5()
-        .font_family(theme::MONO)
+        .font_family(crate::theme::mono())
         .text_xs()
         .child(div().text_color(theme::running()).child(format!("+{add}")))
         .child(div().text_color(theme::error()).child(format!("−{del}")))
@@ -582,7 +582,7 @@ fn summary(f: &PullFile) -> Vec<AnyElement> {
         div()
             .min_w_0()
             .truncate()
-            .font_family(theme::MONO)
+            .font_family(crate::theme::mono())
             .text_color(theme::fg())
             .child(f.path.clone())
             .into_any_element(),
@@ -592,7 +592,7 @@ fn summary(f: &PullFile) -> Vec<AnyElement> {
             div()
                 .min_w_0()
                 .truncate()
-                .font_family(theme::MONO)
+                .font_family(crate::theme::mono())
                 .text_color(theme::faint())
                 .child(tv(
                     "pulls.detail.renamedFrom",
@@ -688,7 +688,7 @@ pub fn table(id: impl Into<ElementId>, lines: &[DiffLine]) -> AnyElement {
                 .flex_none()
                 .min_w_full()
                 .py_1()
-                .font_family(theme::MONO)
+                .font_family(crate::theme::mono())
                 .text_xs()
                 .line_height(px(19.))
                 .children(rows)

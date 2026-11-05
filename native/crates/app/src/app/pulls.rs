@@ -54,11 +54,13 @@ impl Filter {
     }
 }
 
-/// The rail's two tabs beside a project's chat (RightPanel.tsx LeadSwitch).
-#[derive(Clone, Copy, PartialEq)]
+/// The panel's tabs beside a project's lead (RightPanel.tsx LeadSwitch).
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum RailTab {
     Agents,
     Pulls,
+    Files,
+    Evidence,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -429,7 +431,7 @@ pub(super) fn pr_chip(id: impl Into<ElementId>, pr: &PullRequest) -> AnyElement 
         .border_1()
         .border_color(color.opacity(0.3))
         .text_xs()
-        .font_family("monospace")
+        .font_family(crate::theme::mono())
         .text_color(color)
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
         .when(!url.is_empty(), |el| {
@@ -1193,7 +1195,7 @@ impl AppView {
                     .text_color(theme::muted())
                     .child(
                         div()
-                            .font_family("monospace")
+                            .font_family(crate::theme::mono())
                             .text_color(theme::fg())
                             .child(data.github.clone()),
                     )
@@ -1481,7 +1483,7 @@ impl AppView {
             .child(
                 div()
                     .truncate()
-                    .font_family("monospace")
+                    .font_family(crate::theme::mono())
                     .text_xs()
                     .text_color(theme::muted())
                     .child(format!(
@@ -1510,7 +1512,7 @@ impl AppView {
                         el.child(
                             h_flex()
                                 .gap_1()
-                                .font_family("monospace")
+                                .font_family(crate::theme::mono())
                                 .child(
                                     div()
                                         .text_color(theme::running())
@@ -2083,11 +2085,12 @@ impl AppView {
                     el.text_color(theme::muted())
                         .cursor_pointer()
                         .hover(|s| s.text_color(theme::fg()))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.pulls.tab = to;
                             if to == RailTab::Pulls {
                                 this.load_pulls(false, cx);
                             }
+                            this.panel_sync(window, cx);
                             cx.notify();
                         }))
                 })
@@ -2110,22 +2113,57 @@ impl AppView {
             .child(
                 item(
                     "rail-tab-agents",
-                    t("panel.lead.agents"),
+                    if tab == RailTab::Agents {
+                        t("panel.lead.agents")
+                    } else {
+                        "◎".into()
+                    },
                     tab == RailTab::Agents,
                     RailTab::Agents,
                 )
+                .when(tab != RailTab::Agents, |el| {
+                    let tip: SharedString = t("panel.lead.agents").into();
+                    el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                })
                 .when(agents > 0, |el| el.child(count(agents, false))),
             )
             .child(
                 item(
                     "rail-tab-pulls",
-                    t("panel.view.pulls"),
+                    if tab == RailTab::Pulls {
+                        t("panel.view.pulls")
+                    } else {
+                        "⇄".into()
+                    },
                     tab == RailTab::Pulls,
                     RailTab::Pulls,
                 )
                 .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                .when(open > 0, |el| el.child(count(open, false)))
+                // Unlit, how many are ready says enough: how many are open is in its tooltip.
+                .when(open > 0 && (tab == RailTab::Pulls || ready == 0), |el| {
+                    el.child(count(open, false))
+                })
                 .when(ready > 0, |el| el.child(count(ready, true))),
+            )
+            .children(
+                [
+                    ("rail-tab-files", RailTab::Files, "panel.view.files", "▤"),
+                    (
+                        "rail-tab-evidence",
+                        RailTab::Evidence,
+                        "panel.view.evidence",
+                        "◫",
+                    ),
+                ]
+                .into_iter()
+                .map(|(id, to, key, glyph)| {
+                    // Only the lit one is named; the others by their mark (LeadSwitch).
+                    let on = tab == to;
+                    let tip: SharedString = t(key).into();
+                    item(id, if on { t(key) } else { glyph.to_string() }, on, to).when(!on, |el| {
+                        el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    })
+                }),
             )
             .into_any_element()
     }
@@ -2149,10 +2187,14 @@ impl AppView {
             .to_uppercase()
             .to_string();
         let lead = self.open == "lead";
+        // The agent by its title, as the breadcrumb names it, else its name.
         let then = if lead {
             t("v2.header.lead")
         } else {
-            self.open.clone()
+            self.open_agent()
+                .map(|a| a.title.clone())
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| self.open.clone())
         };
         let (status, working) = self
             .chat
@@ -2331,7 +2373,8 @@ impl AppView {
                 .child(div().text_sm().text_color(theme::faint()).child("›"))
                 .child(
                     div()
-                        .min_w_0()
+                        .flex_shrink_0()
+                        .max_w(px(200.))
                         .truncate()
                         .text_base()
                         .font_weight(FontWeight::SEMIBOLD)
@@ -2342,6 +2385,8 @@ impl AppView {
                     el.child(
                         div()
                             .ml_2()
+                            .min_w_0()
+                            .truncate()
                             .text_xs()
                             .text_color(if working {
                                 theme::starting()
@@ -2356,6 +2401,8 @@ impl AppView {
                     el.child(
                         div()
                             .id("project-pulls-counts")
+                            .min_w_0()
+                            .truncate()
                             .px_2()
                             .py_0p5()
                             .rounded_full()
@@ -2376,6 +2423,7 @@ impl AppView {
                 .child(
                     div()
                         .id("project-settings")
+                        .flex_none()
                         .px_1p5()
                         .rounded_md()
                         .text_sm()
@@ -2390,7 +2438,8 @@ impl AppView {
                         }))
                         .child("⚙"),
                 )
-                .child(menu)
+                .child(div().flex_none().child(menu))
+                .child(self.render_panel_button(cx))
                 .into_any_element(),
         )
     }

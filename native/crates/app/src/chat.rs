@@ -162,6 +162,12 @@ impl ChatView {
     }
 
     /// focus_composer puts the cursor in the message box.
+    /// set_draft puts text in the composer, not sent (lib/drafts.ts composeIn).
+    pub fn set_draft(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let text = text.to_string();
+        self.input.update(cx, |s, cx| s.set_value(text, window, cx));
+    }
+
     pub fn focus_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.input.update(cx, |s, cx| s.focus(window, cx));
     }
@@ -367,7 +373,7 @@ impl ChatView {
                     .rounded_md()
                     .bg(theme::raised())
                     .text_xs()
-                    .font_family("DejaVu Sans Mono")
+                    .font_family(crate::theme::mono())
                     .text_color(theme::muted())
             };
             if !tool.command.is_empty() {

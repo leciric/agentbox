@@ -9,6 +9,7 @@ mod app;
 mod bench;
 mod chat;
 mod diff;
+mod files;
 mod media;
 mod mermaid;
 mod prefs;

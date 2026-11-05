@@ -942,7 +942,7 @@ impl AppView {
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme::fg())
-                                .when(mono, |el| el.font_family("monospace").text_xs())
+                                .when(mono, |el| el.font_family(crate::theme::mono()).text_xs())
                                 .child(name),
                         )
                         .when_some(last, |el, (c, m)| {

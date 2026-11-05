@@ -75,7 +75,7 @@ pub fn with_mermaid(view: TextView) -> TextView {
             Ok(image) => block.child(img(image).max_w_full()).into_any_element(),
             Err(_) => block
                 .text_xs()
-                .font_family("monospace")
+                .font_family(crate::theme::mono())
                 .text_color(theme::muted())
                 .child(src)
                 .into_any_element(),
@@ -114,7 +114,7 @@ pub fn with_mermaid(view: TextView) -> TextView {
                 )
                 .p_3()
                 .text_xs()
-                .font_family("monospace")
+                .font_family(crate::theme::mono())
                 .text_color(theme::muted())
                 .child(src)
                 .into_any_element();

@@ -6,7 +6,7 @@
 //!
 //!   fake-daemon --listen /t/fake.sock [--upstream ~/.local/share/agentbox/run/agentbox.sock]
 //!               [--project demo] [--agents 6] [--history 400] [--rate 60]
-//!               [--media ~/abx/fake-media]
+//!               [--media ~/abx/fake-media] [--worktree <a checkout>]
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -23,6 +23,7 @@ use hyper_util::rt::TokioIo;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
 
+mod agents;
 mod pulls;
 mod review;
 
@@ -36,6 +37,8 @@ struct Opts {
     history: usize,
     rate: u64,
     media: PathBuf,
+    /// The checkout the agents' worktrees show (agents.rs).
+    worktree: PathBuf,
 }
 
 /// A chat: its last event's seq, its session and its items.
@@ -48,6 +51,8 @@ struct Fake {
     events: broadcast::Sender<String>,
     /// Work, review and their proof (review.rs).
     review: Mutex<review::Review>,
+    /// The agents' machines: files, snapshots, recordings (agents.rs).
+    machines: Mutex<agents::Machines>,
 }
 
 fn now() -> String {
@@ -191,34 +196,40 @@ impl Fake {
     fn new(opts: Opts) -> Arc<Self> {
         let fleet = (0..opts.agents)
             .map(|i| {
-                let name = format!("agent-{:02}", i + 1);
-                FleetAgent {
-                    r#ref: format!("{}/{}", opts.project, name),
-                    project: opts.project.clone(),
-                    name: name.clone(),
-                    title: TITLES[i % TITLES.len()].into(),
-                    ai: "claude".into(),
-                    branch: format!(
-                        "agentbox/{}",
-                        TITLES[i % TITLES.len()]
-                            .to_lowercase()
-                            .replace([' ', ':', '(', ')', '\''], "-")
-                    ),
-                    state: if i % 3 == 2 {
-                        "stopped".into()
-                    } else {
-                        "running".into()
-                    },
-                    interface: "chat".into(),
-                    busy: i % 3 == 0,
-                    created_at: now(),
-                    ..Default::default()
-                }
+                let mut a = {
+                    let name = format!("agent-{:02}", i + 1);
+                    FleetAgent {
+                        r#ref: format!("{}/{}", opts.project, name),
+                        project: opts.project.clone(),
+                        name: name.clone(),
+                        title: TITLES[i % TITLES.len()].into(),
+                        ai: "claude".into(),
+                        branch: format!(
+                            "agentbox/{}",
+                            TITLES[i % TITLES.len()]
+                                .to_lowercase()
+                                .replace([' ', ':', '(', ')', '\''], "-")
+                        ),
+                        state: if i % 3 == 2 {
+                            "stopped".into()
+                        } else {
+                            "running".into()
+                        },
+                        interface: "chat".into(),
+                        busy: i % 3 == 0,
+                        created_at: now(),
+                        ..Default::default()
+                    }
+                };
+                agents::fleet_extras(&mut a, &opts.worktree, i);
+                a
             })
             .collect();
         let (events, _) = broadcast::channel(4096);
         let review = Mutex::new(review::Review::new(opts.media.clone()));
+        let machines = Mutex::new(agents::Machines::new(opts.worktree.clone()));
         Arc::new(Self {
+            machines,
             review,
             opts,
             fleet: Mutex::new(fleet),
@@ -377,7 +388,11 @@ impl Fake {
                     continue;
                 }
                 let len = fleet.len();
-                let a = &mut fleet[(n * 7) % len];
+                // The first two keep still, for showing their actions.
+                if len < 3 {
+                    continue;
+                }
+                let a = &mut fleet[2 + (n * 7) % (len - 2)];
                 a.state = match a.state.as_str() {
                     "running" => "paused",
                     "paused" => "stopped",
@@ -476,6 +491,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         })
         .collect();
     let fake_agent = |p: &str, a: &str| fake.is_fake(p) && review::Review::is_agent(a);
+    let req = match agents::route(&fake, req, &query).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
     let res = match (&method, parts.as_slice()) {
         (&Method::GET, ["v1", "events"]) => events(fake.clone()).await,
         (&Method::GET, ["v1", "projects"]) if fake.opts.upstream.is_none() => {
@@ -1161,6 +1180,7 @@ fn parse() -> Opts {
             .map(PathBuf::from)
             .unwrap_or_default()
             .join("abx/fake-media"),
+        worktree: std::env::current_dir().unwrap_or_default(),
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -1173,6 +1193,7 @@ fn parse() -> Opts {
             "--history" => o.history = v().parse().unwrap(),
             "--rate" => o.rate = v().parse().unwrap(),
             "--media" => o.media = v().into(),
+            "--worktree" => o.worktree = v().into(),
             _ => panic!("unknown flag {a}"),
         }
     }
@@ -1191,6 +1212,7 @@ async fn main() -> Result<()> {
     );
     let fake = Fake::new(opts);
     tokio::spawn(fake.clone().churn());
+    tokio::spawn(agents::touch(fake.clone()));
     loop {
         let (stream, _) = listener.accept().await?;
         let fake = fake.clone();

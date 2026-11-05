@@ -456,6 +456,77 @@ impl Review {
         ))
     }
 
+    /// project_media is every live fixture's media, the project's Evidence.
+    pub fn project_media(&self, project: &str) -> Vec<MediaItem> {
+        FIXTURES
+            .iter()
+            .filter(|f| !f.past)
+            .flat_map(|f| {
+                let mut m = self.media(project, f.agent);
+                for i in &mut m {
+                    i.agent_name = f.agent.into();
+                }
+                m
+            })
+            .collect()
+    }
+
+    /// events are the agents' reports, newest first (GET …/agent-events).
+    pub fn events(&self, project: &str) -> Vec<AgentEvent> {
+        let mut out: Vec<(u64, AgentEvent)> = FIXTURES
+            .iter()
+            .filter(|f| !f.past)
+            .filter_map(|f| {
+                let (outcome, summary, _) = f.report?;
+                Some((
+                    f.ago,
+                    AgentEvent {
+                        id: format!("ev-{}", f.agent),
+                        project: project.into(),
+                        agent: f.agent.into(),
+                        r#ref: format!("{project}/{}", f.agent),
+                        title: f.title.into(),
+                        kind: "report".into(),
+                        summary: summary.into(),
+                        outcome: outcome.into(),
+                        at: self.ago(mins(f.ago)),
+                        ..Default::default()
+                    },
+                ))
+            })
+            .collect();
+        out.sort_by_key(|(ago, _)| *ago);
+        out.into_iter().map(|(_, e)| e).collect()
+    }
+
+    /// past are the fixtures' past agents (GET /v1/archived-agents).
+    pub fn past(&self, project: &str) -> Vec<ArchivedAgent> {
+        FIXTURES
+            .iter()
+            .filter(|f| f.past)
+            .map(|f| ArchivedAgent {
+                r#ref: format!("{project}/{}", f.agent),
+                project: project.into(),
+                name: f.agent.into(),
+                title: f.title.into(),
+                task: f.task.into(),
+                ai: "claude".into(),
+                branch: format!("agentbox/{}", f.agent),
+                created_at: self.ago(mins(f.ago + 90)),
+                archived_at: self.ago(mins(f.ago)),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    /// changes are a fixture's diff counts, for its fleet entry.
+    pub fn changes(agent: &str) -> Option<(i64, i64, i64)> {
+        FIXTURES
+            .iter()
+            .find(|f| f.agent == agent)
+            .map(|f| f.changes)
+    }
+
     pub fn is_agent(agent: &str) -> bool {
         FIXTURES.iter().any(|f| f.agent == agent)
     }
