@@ -1613,6 +1613,37 @@ impl ReviewView {
         }
     }
 
+    /// fitted is a picture contained in a box of size, centred, at sizes in
+    /// pixels: the slider's layers are absolute, where relative heights
+    /// don't reach.
+    fn fitted(&self, m: &MediaItem, size: Size<Pixels>, overlay: Option<&PathBuf>) -> AnyElement {
+        let Some(path) = self.files.get(&m.id) else {
+            return self.picture(m);
+        };
+        let (iw, ih) = image::image_dimensions(path).unwrap_or((16, 10));
+        let k = (f32::from(size.width) / iw.max(1) as f32)
+            .min(f32::from(size.height) / ih.max(1) as f32)
+            * self.zoom;
+        let (w, h) = (px(iw as f32 * k), px(ih as f32 * k));
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .relative()
+                    .flex_none()
+                    .w(w)
+                    .h(h)
+                    .child(img(path.clone()).w(w).h(h))
+                    .when_some(overlay.cloned(), |el, o| {
+                        el.child(img(o).absolute().top_0().left_0().w(w).h(h))
+                    }),
+            )
+            .into_any_element()
+    }
+
     /// zoomed is a picture at the stage's zoom: past fit it scrolls to pan.
     fn zoomed(&self, id: &str, el: AnyElement) -> AnyElement {
         if self.zoom <= 1.0001 {
@@ -1752,6 +1783,9 @@ impl ReviewView {
                 .into_any_element(),
             Compare::Slider => {
                 let frac = self.slider.clamp(0.001, 0.999);
+                // The pictures at the box's size, as measured (relative
+                // heights don't reach through the absolute layers).
+                let size = self.slider_box.get().size;
                 let bounds = self.slider_box.clone();
                 let read = self.slider_box.clone();
                 let at = move |pos: Point<Pixels>| {
@@ -1771,32 +1805,46 @@ impl ReviewView {
                     .overflow_hidden()
                     .bg(theme::bg())
                     .cursor_col_resize()
+                    .child({
+                        let me = cx.entity().downgrade();
+                        canvas(
+                            move |b, window, _| {
+                                // Measured: the pictures take its size next frame.
+                                if bounds.get().size != b.size {
+                                    let me = me.clone();
+                                    window.on_next_frame(move |_, cx| {
+                                        me.update(cx, |_, cx| cx.notify()).ok();
+                                    });
+                                }
+                                bounds.set(b)
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full()
+                    })
                     .child(
-                        canvas(move |b, _, _| bounds.set(b), |_, _, _, _| {})
+                        div()
                             .absolute()
-                            .size_full(),
+                            .top_0()
+                            .left_0()
+                            .w(size.width)
+                            .h(size.height)
+                            .child(self.fitted(&p.after, size, overlay)),
                     )
                     .child(
                         div()
                             .absolute()
                             .top_0()
                             .left_0()
-                            .size_full()
-                            .child(self.shot(&p.after, overlay)),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .h_full()
-                            .w(relative(frac))
+                            .h(size.height)
+                            .w(size.width * frac)
                             .overflow_hidden()
                             .child(
                                 div()
-                                    .h_full()
-                                    .w(relative(1. / frac))
-                                    .child(self.shot(&p.before, None)),
+                                    .w(size.width)
+                                    .h(size.height)
+                                    .child(self.fitted(&p.before, size, None)),
                             ),
                     )
                     .child(
