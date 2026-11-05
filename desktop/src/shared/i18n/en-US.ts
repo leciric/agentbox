@@ -4934,6 +4934,7 @@ export const enUS = {
   'office.legend.finished': 'Finished',
   'office.legend.error': 'Failed',
   'office.legend.stopped': 'Stopped',
+  'office.legend.idle': 'Idle',
   'office.legend.pr': 'Flag: its pull request (green open, red failing, purple merged)',
   'office.hint.click': 'Click a desk or the floor to walk there',
   'office.hint.keys': 'WASD to walk · E opens · N next who needs you',

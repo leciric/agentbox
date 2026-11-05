@@ -4935,6 +4935,7 @@ export const ptBR: Messages = {
   'office.legend.finished': 'Terminou',
   'office.legend.error': 'Falhou',
   'office.legend.stopped': 'Parado',
+  'office.legend.idle': 'Ocioso',
   'office.legend.pr': 'Bandeira: o pull request (verde aberto, vermelho falhando, roxo mesclado)',
   'office.hint.click': 'Clique numa mesa ou no chão para ir até lá',
   'office.hint.keys': 'WASD para andar · E abre · N próximo que precisa de você',

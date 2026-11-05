@@ -411,7 +411,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       (chip.children[1] as HTMLElement).textContent = name;
       // (A floor's pill says its own counts; its project's totals are the
       // project's, not the floor's.)
-      chip.title = rm.floors > 1 ? '' : label.sub;
+      // (Its counts are on it: no tooltip, the app's dark one, over the room.)
+      chip.title = '';
       chip.setAttribute('aria-label', opts.markerLabel(name));
     }
   }
@@ -689,7 +690,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     {
       const firsts = l.rooms.filter((rm) => rm.floors > 1 && rm.floor === 1);
       const frame = own(std('#2f4a3a', { roughness: 0.5 }));
-      const shaft = own(new THREE.MeshStandardMaterial({ color: '#bfe1ee', transparent: true, opacity: 0.35, roughness: 0.1, depthWrite: false }));
+      const shaft = own(new THREE.MeshStandardMaterial({ color: '#9fd3e8', transparent: true, opacity: 0.55, roughness: 0.1, depthWrite: false }));
       for (const f of firsts) {
         const hue = input.model.areas.find((a) => a.project === f.project)?.hue ?? 260;
         const b = f.box;
@@ -718,7 +719,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         glassShaft.renderOrder = 3;
         addTo(-1, glassShaft);
         for (const y of [0, ...ups.map((rm) => rm.shown.dy)]) addTo(-1, mesh(geo.roundTop, frame, lx, y - 0.05, lz, 1.5, 0.1, 1.9));
-        for (const dx of [-0.7, 0.7]) for (const dz of [-0.9, 0.9]) addTo(-1, mesh(geo.roundTop, frame, lx + dx, -0.9 + lh / 2, lz + dz, 0.08, lh, 0.08));
+        for (const dx of [-0.7, 0.7]) for (const dz of [-0.9, 0.9]) addTo(-1, mesh(geo.roundTop, frame, lx + dx, -0.9 + lh / 2, lz + dz, 0.14, lh, 0.14));
+        // Its car, halfway up, warm against the glass.
+        addTo(-1, mesh(geo.roundTop, own(std('#f4c66a', { roughness: 0.5 })), lx, top / 2 + 0.9, lz, 1.1, 1.8, 1.4));
       }
     }
 
@@ -1614,12 +1617,14 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     for (const a of lay.areas) {
       // The angle you're at: a walk by name comes closer, it doesn't swing
       // the room round.
-      if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 17, pitch: 0.7, yaw: cam.yaw }, aspect);
+      // (Within a little of the room's own angle: you stand beside the agent
+      // for that view, never between.)
+      if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 17, pitch: 0.7, yaw: Math.min(0.75, Math.max(0.1, cam.yaw)) }, aspect);
       const d = a.desks.find((x) => x.id === ref);
       // One angle for every desk, a little from the right as the room's view
       // is: N from desk to desk doesn't swing the room round. You stand at
       // the bench's end, beside the agent, clear of it either side.
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.85, yaw: cam.yaw }, aspect);
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.85, yaw: Math.min(0.75, Math.max(0.1, cam.yaw)) }, aspect);
     }
     return undefined;
   }
@@ -2044,7 +2049,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // its name plate, clear of the rooms behind.
         // A building's floors' pills beside them, each at its own floor, as
         // a building's directory; a single room's at its front corner.
-        if (rm.floors > 1) ap.set(rm.box.x1 + 1.2 + rm.shown.dx, 0.6 + rm.shown.dy, rm.box.z1 - 1.2 + rm.shown.dz);
+        if (rm.floors > 1) {
+          // In a column beside the building, clear of every floor.
+          const right = Math.max(...lay.rooms.filter((o) => o.project === rm.project).map((o) => o.box.x1 + o.shown.dx));
+          ap.set(right + 2.6, 0.6 + rm.shown.dy, rm.box.z1 - 1.2 + rm.shown.dz);
+        }
         else ap.set(rm.box.x1 - Math.min(5, (rm.box.x1 - rm.box.x0) / 3) + rm.shown.dx, -0.4 + rm.shown.dy, rm.box.z1 + 1.0 + rm.shown.dz);
         ap.project(camera);
         on = ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
@@ -2251,7 +2260,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (n) more.textContent = opts.moreLabelShort(n);
     }
     // The board you're at: a button over each of its rows.
-    const atBoard = isBoard(near) && cam.closeK > 0.6 && chipsShown ? boards.get(near) : undefined;
+    // Its notes take clicks from near the glide's end: they follow the board
+    // frame by frame, so a click lands on the note under it.
+    const atBoard = isBoard(near) && (cam.closeK > 0.85 || (cam.closeK > 0.6 && chipsShown)) ? boards.get(near) : undefined;
     let usedRows = 0;
     if (atBoard?.face) {
       const { width: W, height: H } = atBoard.ctx.canvas;

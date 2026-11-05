@@ -104,6 +104,8 @@ test('every room is furnished, and nothing stands on anything else', () => {
     // Every cell holds something; these are the things besides the pods, the
     // counter, the meeting room and the lounge.
     assert.ok(l.props.length >= (n ? 4 : 3), `${name} ${n}: ${l.props.length} things`);
+    // Every room has its kitchen, its island at least.
+    assert.ok(l.props.some((p) => p.kind === 'island'), `${name} ${n} ${floor}: a kitchen`);
     // Mats are floor, walked over: what's on them mustn't overlap but may sit on one.
     const solid = l.props.filter((p) => p.kind !== 'mat');
     const feet = solid.map(footprint);

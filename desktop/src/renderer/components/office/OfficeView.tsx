@@ -110,6 +110,7 @@ const LEGEND = [
   ['✓', '#10b981', 'office.legend.finished'],
   ['×', '#ef4444', 'office.legend.error'],
   ['z', '#94a3b8', 'office.legend.stopped'],
+  ['○', '#cbd5e1', 'office.legend.idle'],
 ] as const;
 
 export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => void; onBack: () => void }) {
@@ -625,7 +626,8 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
                     sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${areaLabel(i.project, i.ref)} · ${i.text}` : i.pr ? `${areaLabel(i.project, i.ref)} · #${i.pr.number}` : areaLabel(i.project, i.ref)}
                     label={t('office.walkTo', { title: i.title })}
                     onClick={() => {
-                      if (!wide) setListChoice(false);
+                      // Folded as you go, whichever list: the room's yours again.
+                      setListChoice(false);
                       walkTo(i.ref);
                     }}
                   />
