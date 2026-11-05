@@ -3,6 +3,8 @@
 // must come from them instead. Kept apart because desktop/ is left untouched.
 export const enUSNative = {
   'native.video.play': 'Play',
+  'native.video.pause': 'Pause',
+  'native.video.unavailable': 'Recordings can\'t play in this build of the app.',
   'native.video.playAgain': 'Play again',
   'native.preview.source': 'Shown as source: no web view on this desktop',
   'native.settings.later': 'This app doesn\'t have these settings yet: change them in the AgentBox desktop app for now.',

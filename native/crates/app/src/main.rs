@@ -8,6 +8,7 @@
 mod app;
 mod bench;
 mod chat;
+mod media;
 mod mermaid;
 mod prefs;
 #[cfg(target_os = "linux")]

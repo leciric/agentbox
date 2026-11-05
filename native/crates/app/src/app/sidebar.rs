@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
 use agentbox_api::{
-    Agent, ChatLine, HOME_PROJECT, Project, ProjectActivity, ProjectChat, Question, Section,
-    SidebarLayout,
+    Agent, ChatLine, HOME_PROJECT, Project, ProjectActivity, ProjectChat, Question, ReviewItem,
+    ReviewPage, Section, SidebarLayout,
 };
 use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
@@ -27,6 +27,8 @@ pub struct Sidebar {
     questions: HashMap<String, Vec<Question>>,
     /// Each project's lead's last line (GET /v1/projects/<p>/lead).
     lines: HashMap<String, ChatLine>,
+    /// Every project's agents ready to review (GET /v1/review).
+    review: Vec<ReviewItem>,
     search: Entity<InputState>,
     idle_open: bool,
     hidden_open: bool,
@@ -60,6 +62,7 @@ impl Sidebar {
             agents: Vec::new(),
             questions: HashMap::new(),
             lines: HashMap::new(),
+            review: Vec::new(),
             search,
             idle_open: false,
             hidden_open: false,
@@ -121,6 +124,7 @@ impl AppView {
         })
         .detach();
         self.load_activity(cx);
+        self.load_review(cx);
         let names: Vec<String> = self.projects.iter().map(|p| p.name.clone()).collect();
         for p in names.into_iter().chain([HOME_PROJECT.to_string()]) {
             self.load_questions(p.clone(), cx);
@@ -159,6 +163,53 @@ impl AppView {
         } else {
             text
         })
+    }
+
+    /// load_review reads what waits for review, every project's.
+    pub(super) fn load_review(&mut self, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            if let Ok(p) = client.get::<ReviewPage>("/v1/review?limit=200").await {
+                this.update(cx, |this, cx| {
+                    this.side.review = p.items;
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// held_agents are the agents whose state keeps their work out of "to
+    /// review": one that asks you something, failed, or is at work again
+    /// (lib/agentCounts.ts workStatus), by ref.
+    pub(super) fn held_agents(&self) -> HashMap<String, &'static str> {
+        let mut out = HashMap::new();
+        for a in &self.side.agents {
+            match a.chat.as_str() {
+                "running" => out.insert(a.r#ref.clone(), "working"),
+                "error" => out.insert(a.r#ref.clone(), "error"),
+                _ => None,
+            };
+        }
+        for q in self.side.questions.values().flatten() {
+            if !q.r#ref.is_empty() {
+                out.insert(q.r#ref.clone(), "needs");
+            }
+        }
+        out
+    }
+
+    /// to_review is how many of a project's agents wait for review ("" for
+    /// every project's), as the counts read it.
+    fn to_review(&self, project: &str) -> usize {
+        let held = self.held_agents();
+        self.side
+            .review
+            .iter()
+            .filter(|i| project.is_empty() || i.project == project)
+            .filter(|i| !held.contains_key(&i.r#ref))
+            .count()
     }
 
     pub(super) fn load_activity(&mut self, cx: &mut Context<Self>) {
@@ -350,6 +401,7 @@ impl AppView {
                                     .py_2()
                                     .child(Input::new(&self.side.search).cleanable(true)),
                             )
+                            .child(self.review_all(cx))
                             .when(self.projects.is_empty(), |el| {
                                 el.child(
                                     div()
@@ -453,8 +505,61 @@ impl AppView {
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.open_settings(window, cx)
                             })),
+                    )
+                    .child(
+                        div()
+                            .id("foot-work")
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .text_sm()
+                            .text_color(if self.work.is_some() && !self.settings {
+                                theme::fg()
+                            } else {
+                                theme::muted()
+                            })
+                            .when(self.work.is_some() && !self.settings, |el| {
+                                el.bg(theme::hover())
+                            })
+                            .hover(|el| el.bg(theme::raised()))
+                            .child(format!("▤  {}", t("work.title")))
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.open_work(String::new(), String::new(), window, cx)
+                            })),
                     ),
             )
+    }
+
+    /// review_all is "Review N": the Work page on what waits, every project's.
+    fn review_all(&self, cx: &mut Context<Self>) -> AnyElement {
+        let n = self.to_review("");
+        if n == 0 {
+            return div().into_any_element();
+        }
+        h_flex()
+            .px_4()
+            .pb_1()
+            .child(div().flex_1())
+            .child(
+                div()
+                    .id("review-all")
+                    .px_2()
+                    .py_0p5()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme::border())
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::muted())
+                    .cursor_pointer()
+                    .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
+                    .child(tv("v2.review.all", &[("count", n.into())]))
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.open_work(String::new(), "review".into(), window, cx)
+                    })),
+            )
+            .into_any_element()
     }
 
     fn last(&self, project: &str) -> String {
@@ -574,6 +679,7 @@ impl AppView {
             .to_string();
         let c = self.counts(&p.name);
         let needs = c.asks + c.failed;
+        let to_review = self.to_review(&p.name);
         let activity = self.side.activity.get(&p.name);
         let question = self
             .side
@@ -685,13 +791,47 @@ impl AppView {
                             })
                             .child(line),
                     )
-                    .when(!counts.is_empty(), |el| {
+                    .when(!counts.is_empty() || to_review > 0, |el| {
+                        let project = p.name.clone();
                         el.child(
-                            h_flex().gap_2().text_xs().children(
-                                counts
-                                    .into_iter()
-                                    .map(|(s, c)| div().text_color(c).child(s)),
-                            ),
+                            h_flex()
+                                .gap_2()
+                                .text_xs()
+                                .children(
+                                    counts
+                                        .into_iter()
+                                        .map(|(s, c)| div().text_color(c).child(s)),
+                                )
+                                .when(to_review > 0, |el| {
+                                    // "N to review" opens Work on what waits.
+                                    el.child(div().flex_1()).child(
+                                        div()
+                                            .id(SharedString::from(format!("to-review-{project}")))
+                                            .px_1p5()
+                                            .rounded_full()
+                                            .border_1()
+                                            .border_color(theme::border())
+                                            .text_color(theme::muted())
+                                            .hover(|el| {
+                                                el.bg(theme::hover()).text_color(theme::fg())
+                                            })
+                                            .child(tv(
+                                                "v2.review.toReview",
+                                                &[("count", to_review.into())],
+                                            ))
+                                            .on_click(cx.listener(
+                                                move |this, _: &ClickEvent, window, cx| {
+                                                    cx.stop_propagation();
+                                                    this.open_work(
+                                                        project.clone(),
+                                                        "review".into(),
+                                                        window,
+                                                        cx,
+                                                    )
+                                                },
+                                            )),
+                                    )
+                                }),
                         )
                     }),
             )

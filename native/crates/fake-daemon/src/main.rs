@@ -6,6 +6,7 @@
 //!
 //!   fake-daemon --listen /t/fake.sock [--upstream ~/.local/share/agentbox/run/agentbox.sock]
 //!               [--project demo] [--agents 6] [--history 400] [--rate 60]
+//!               [--media ~/abx/fake-media]
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -22,6 +23,8 @@ use hyper_util::rt::TokioIo;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
 
+mod review;
+
 type Body = BoxBody<Bytes, Infallible>;
 
 struct Opts {
@@ -31,6 +34,7 @@ struct Opts {
     agents: usize,
     history: usize,
     rate: u64,
+    media: PathBuf,
 }
 
 /// A chat: its last event's seq, its session and its items.
@@ -41,6 +45,8 @@ struct Fake {
     fleet: Mutex<Vec<FleetAgent>>,
     chats: Mutex<HashMap<String, Chat>>,
     events: broadcast::Sender<String>,
+    /// Work, review and their proof (review.rs).
+    review: Mutex<review::Review>,
 }
 
 fn now() -> String {
@@ -210,7 +216,9 @@ impl Fake {
             })
             .collect();
         let (events, _) = broadcast::channel(4096);
+        let review = Mutex::new(review::Review::new(opts.media.clone()));
         Arc::new(Self {
+            review,
             opts,
             fleet: Mutex::new(fleet),
             chats: Mutex::new(HashMap::new()),
@@ -400,6 +408,17 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
     let path = req.uri().path().to_string();
     let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
     let method = req.method().clone();
+    let query: HashMap<String, String> = req
+        .uri()
+        .query()
+        .unwrap_or("")
+        .split('&')
+        .filter_map(|kv| {
+            kv.split_once('=')
+                .map(|(k, v)| (k.to_string(), v.replace('+', " ")))
+        })
+        .collect();
+    let fake_agent = |p: &str, a: &str| fake.is_fake(p) && review::Review::is_agent(a);
     let res = match (&method, parts.as_slice()) {
         (&Method::GET, ["v1", "events"]) => events(fake.clone()).await,
         (&Method::GET, ["v1", "projects"]) if fake.opts.upstream.is_none() => {
@@ -481,6 +500,119 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                     kept: Vec::new(),
                 },
             )
+        }
+        // Work, review and proof (review.rs): the real daemon has no agents
+        // to have done any. Every project's is the fake project's.
+        (&Method::GET, ["v1", "work"]) => {
+            let p = query
+                .get("project")
+                .cloned()
+                .unwrap_or(fake.opts.project.clone());
+            json(
+                StatusCode::OK,
+                &fake.review.lock().unwrap().work(&p, &query),
+            )
+        }
+        (&Method::GET, ["v1", "projects", p, "work"]) if fake.is_fake(p) => {
+            json(StatusCode::OK, &fake.review.lock().unwrap().work(p, &query))
+        }
+        (&Method::GET, ["v1", "review"]) => json(
+            StatusCode::OK,
+            &fake
+                .review
+                .lock()
+                .unwrap()
+                .review(&fake.opts.project, query.contains_key("reviewed")),
+        ),
+        (&Method::GET, ["v1", "projects", p, "review"]) if fake.is_fake(p) => json(
+            StatusCode::OK,
+            &fake
+                .review
+                .lock()
+                .unwrap()
+                .review(p, query.contains_key("reviewed")),
+        ),
+        (&Method::GET, ["v1", "agents", p, a, "media"]) if fake_agent(p, a) => {
+            json(StatusCode::OK, &fake.review.lock().unwrap().media(p, a))
+        }
+        // A past agent's media is the project's, under its name.
+        (&Method::GET, ["v1", "projects", p, "media"])
+            if query.get("agent").is_some_and(|a| fake_agent(p, a)) =>
+        {
+            let a = &query["agent"];
+            json(StatusCode::OK, &fake.review.lock().unwrap().media(p, a))
+        }
+        (&Method::GET, ["v1", "media", id, "file"])
+            if fake.review.lock().unwrap().file(id).is_some() =>
+        {
+            let (bytes, mime) = fake.review.lock().unwrap().file(id).unwrap();
+            Response::builder()
+                .header("content-type", mime)
+                .header("cache-control", "private, max-age=31536000, immutable")
+                .body(Full::new(Bytes::from(bytes)).boxed())
+                .unwrap()
+        }
+        (&Method::GET, ["v1", "agents" | "archived-agents", p, a, "diff"]) if fake_agent(p, a) => {
+            Response::builder()
+                .header("content-type", "text/plain; charset=utf-8")
+                .body(Full::new(Bytes::from(fake.review.lock().unwrap().diff(a))).boxed())
+                .unwrap()
+        }
+        (&Method::GET, ["v1", "agents", p, a, "review-notes"]) if fake_agent(p, a) => {
+            json(StatusCode::OK, &Vec::<ReviewNote>::new())
+        }
+        (&Method::POST, ["v1", "agents", p, a, "review" | "request-changes"])
+            if fake_agent(p, a) =>
+        {
+            let changes = parts[4] == "request-changes";
+            let body = req
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            let verdict = if changes {
+                "changes".to_string()
+            } else {
+                serde_json::from_slice::<ReviewRequest>(&body)
+                    .unwrap_or_default()
+                    .verdict
+            };
+            fake.review
+                .lock()
+                .unwrap()
+                .verdict(&format!("{p}/{a}"), &verdict);
+            fake.emit(EVENT_REVIEW, &p.to_string());
+            if changes {
+                // A TellResult: the message, as it went into the agent's chat.
+                json(
+                    StatusCode::ACCEPTED,
+                    &ChatItem {
+                        id: format!("u{}", rand_id()),
+                        kind: "user".into(),
+                        created_at: now(),
+                        ..Default::default()
+                    },
+                )
+            } else {
+                Response::builder()
+                    .status(StatusCode::NO_CONTENT)
+                    .body(Full::new(Bytes::new()).boxed())
+                    .unwrap()
+            }
+        }
+        (&Method::POST, ["v1", "projects", p, "pulls", n, "merge"]) if fake.is_fake(p) => {
+            let merged = n
+                .parse()
+                .ok()
+                .and_then(|n| fake.review.lock().unwrap().merge(p, n));
+            match merged {
+                Some(pr) => {
+                    fake.emit(EVENT_REVIEW, &p.to_string());
+                    json(StatusCode::OK, &pr)
+                }
+                None => not_found(&path),
+            }
         }
         // Every agent, as GET /v1/agents lists them (a FleetAgent is an Agent and more).
         (&Method::GET, ["v1", "agents"]) => {
@@ -885,6 +1017,10 @@ fn parse() -> Opts {
         agents: 6,
         history: 400,
         rate: 60,
+        media: std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join("abx/fake-media"),
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -896,6 +1032,7 @@ fn parse() -> Opts {
             "--agents" => o.agents = v().parse().unwrap(),
             "--history" => o.history = v().parse().unwrap(),
             "--rate" => o.rate = v().parse().unwrap(),
+            "--media" => o.media = v().into(),
             _ => panic!("unknown flag {a}"),
         }
     }

@@ -12,8 +12,10 @@ use gpui_component::{h_flex, v_flex};
 
 mod controls;
 mod new_task;
+mod review;
 mod settings;
 mod sidebar;
+mod work;
 
 use crate::chat::ChatView;
 use crate::terminal::TerminalView;
@@ -70,6 +72,12 @@ pub struct AppView {
     /// The Settings page is open in the main area.
     settings: bool,
     settings_page: settings::SettingsPage,
+    /// The Work page, while it's open in the main area.
+    work: Option<Entity<work::WorkView>>,
+    /// The review, over everything, while it's open.
+    review: Option<Entity<review::ReviewView>>,
+    _subs: Vec<Subscription>,
+    _review_sub: Option<Subscription>,
     _events: Task<()>,
 }
 
@@ -93,6 +101,10 @@ impl AppView {
             new_task: None,
             settings: false,
             settings_page: settings::SettingsPage::new(window, cx),
+            work: None,
+            review: None,
+            _subs: Vec::new(),
+            _review_sub: None,
             _events: events,
         };
         this.load_settings(window, cx);
@@ -141,6 +153,7 @@ impl AppView {
                 self.load_settings_page(cx);
             }
             self.load_projects(window, cx);
+            self.reload_review(cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
             }
@@ -206,6 +219,7 @@ impl AppView {
                 }
             }
             EVENT_PROJECT => self.load_projects(window, cx),
+            agentbox_api::EVENT_REVIEW => self.reload_review(cx),
             agentbox_api::EVENT_THEME => self.load_theme(window, cx),
             agentbox_api::EVENT_UPDATE => self.reload_update(cx),
             agentbox_api::EVENT_QUESTION => {
@@ -316,6 +330,7 @@ impl AppView {
 
     fn select_project(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
         self.settings = false;
+        self.work = None;
         self.project = Some(name);
         self.fleet.clear();
         self.load_fleet(window, cx);
@@ -646,6 +661,7 @@ impl Render for AppView {
             .child(
                 div().flex_1().min_w_0().h_full().child(match &self.chat {
                     _ if self.settings => self.render_settings(cx),
+                    _ if self.work.is_some() => self.render_work(cx),
                     Some(chat) if self.open != "lead" => v_flex()
                         .size_full()
                         .child(self.render_tabs(cx))
@@ -673,5 +689,6 @@ impl Render for AppView {
             .child(self.render_rail(cx))
             // Last, so it draws over the rest.
             .children(overlay)
+            .children(self.review.clone())
     }
 }

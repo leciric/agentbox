@@ -523,6 +523,7 @@ impl AppView {
 
     pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.settings = true;
+        self.work = None;
         self.load_settings_page(cx);
         self.load_accounts(window, cx);
         self.load_stopped(cx);
