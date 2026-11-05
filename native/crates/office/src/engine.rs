@@ -102,7 +102,7 @@ struct Stage {
     meshes: Vec<MeshId>,
     built: Option<Built>,
     player: Option<Player>,
-    player_mesh: Option<(MeshId, usize)>,
+    player_mesh: Vec<MeshId>,
     sim: Sim,
     input: Option<SceneInput>,
     layout_key: String,
@@ -146,7 +146,7 @@ impl Stage {
             self.kit.meshes.clear();
             self.meshes.clear();
             self.gpu.clear_meshes();
-            self.player_mesh = None;
+            self.player_mesh.clear();
             let built = crate::desks::build(&input, &lay, &mut self.kit);
             self.sim.hits = built.hits.clone();
             let visit = self.sim_visit.take();
@@ -165,24 +165,33 @@ impl Stage {
         if let Some(b) = &mut self.built {
             b.draws(&self.sim, t, self.sim.motion, &mut self.kit, &mut draws);
         }
-        // You: Kenney's figure, posed on the CPU, where you stand.
-        if let Some(p) = &mut self.player {
+        // The textures and meshes first: you're drawn with Kenney's colormap.
+        self.upload();
+        // You: Kenney's figure, posed on the CPU, where you stand (only in a
+        // room's view: over the campus you're nowhere).
+        if let (Some(p), true) = (&mut self.player, self.sim.scope.is_some()) {
+            p.yaw = self.sim.facing as f32;
             p.stride(self.sim.speed as f32, t, self.sim.motion);
-            let at = Mat4::from_translation(self.sim.you()) * Mat4::from_rotation_y(self.sim.facing as f32);
-            let mesh = p.mesh();
-            match self.player_mesh {
-                Some((id, n)) if n == mesh.vertices.len() => self.gpu.update_mesh(id, &mesh.vertices),
-                _ => {
-                    let mut m = mesh.clone();
-                    m.texture = m.texture.map(|t| self.tex.get(t).copied().unwrap_or(0));
-                    self.player_mesh = Some((self.gpu.add_mesh(&m), m.vertices.len()));
+            if self.player_mesh.len() != p.meshes.len() {
+                self.player_mesh = p
+                    .meshes
+                    .iter()
+                    .map(|m| {
+                        let mut m = m.clone();
+                        m.texture = m.texture.map(|t| self.tex.get(t).copied().unwrap_or(0));
+                        self.gpu.add_mesh(&m)
+                    })
+                    .collect();
+            } else {
+                for (id, m) in self.player_mesh.iter().zip(&p.meshes) {
+                    self.gpu.update_mesh(*id, &m.vertices);
                 }
             }
-            if let Some((id, _)) = self.player_mesh {
-                self.extra = vec![(id, Instance::new(at, [1., 1., 1., p.opacity()]))];
+            if p.visible() {
+                let at = Mat4::from_translation(self.sim.you()) * Mat4::from_rotation_y(self.sim.facing as f32) * p.matrix();
+                self.extra = self.player_mesh.iter().map(|id| (*id, Instance::new(at, [1., 1., 1., p.opacity()]))).collect();
             }
         }
-        self.upload();
         // Group by mesh: one instanced draw each.
         let mut by: HashMap<usize, Vec<Instance>> = HashMap::new();
         let mut order: Vec<usize> = Vec::new();
@@ -251,7 +260,7 @@ fn run(rx: Receiver<In>, mut out: impl FnMut(Out), kept: std::sync::Arc<std::syn
         meshes: Vec::new(),
         built: None,
         player,
-        player_mesh: None,
+        player_mesh: Vec::new(),
         sim: Sim::new(),
         input: None,
         layout_key: String::new(),
@@ -333,7 +342,7 @@ fn run(rx: Receiver<In>, mut out: impl FnMut(Out), kept: std::sync::Arc<std::syn
         if !notes.is_empty() {
             out(Out::Notes(notes));
         }
-        busy = moving || st.sim.busy() || st.player.as_ref().is_some_and(|p| p.settling());
+        busy = moving || st.sim.busy();
         if !(busy || st.sim.dirty) {
             continue;
         }
