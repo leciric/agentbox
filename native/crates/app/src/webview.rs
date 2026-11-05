@@ -104,7 +104,7 @@ pub fn init(cx: &mut App) {
                         list.scroll_by(px(dy));
                     }
                 });
-                let _ = cx.update(|cx| cx.refresh_windows());
+                cx.update(|cx| cx.refresh_windows());
             }
         }
     })
