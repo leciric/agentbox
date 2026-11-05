@@ -1679,3 +1679,9 @@ html[data-blurred] .ab-monitor * {
   --color-violet-300: var(--ab-violet-300);
   --color-violet-400: var(--ab-violet-400);
 }
+
+/* The Office's chat in place takes the window's right edge: the app's toasts
+   step left of it rather than over its composer. */
+body:has([data-office-chat]) [data-sonner-toaster][data-x-position="right"] {
+  right: calc(min(34rem, 100vw - 1.5rem) + 1.5rem) !important;
+}

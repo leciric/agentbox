@@ -546,6 +546,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   const pos: P = { x: 0, z: 0 };
   let facing = Math.PI;
   let speed = 0;
+  const reviewIn = new Map<number, number>();
   // What you last walked to by name: standing at it, the camera comes close.
   let cameTo: string | undefined;
   // The pace you're moving at, eased, and which way the keys last sent you.
@@ -689,7 +690,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       for (const [pi, pod] of place.pods.entries()) {
         // Each pod a shade of its project's colour, so pods read apart.
         // Each pod its own pastel, near its project's colour: pods read apart.
-        const shade = [0, 30, -30, 15, -15][pi % 5];
+        // And floor to floor, so floors read apart up close too.
+        const shade = [0, 30, -30, 15, -15][(pi + 2 * (lay.rooms[place.room]?.floor ?? 1) - 2) % 5];
         const hh = ((area.hue + shade + 360) % 360) / 360;
         // Saturated, as a toy's rugs: the pods read as coloured islands.
         const rugMat = own(std(new THREE.Color().setHSL(hh, 0.72, pi % 2 ? 0.55 : 0.6), { roughness: 0.95 }));
@@ -1190,6 +1192,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       meTag.tex.needsUpdate = true;
     }
     syncAreaChips(input);
+    // What waits for review in each room, for its pill.
+    reviewIn.clear();
+    for (const i of input.board.review.items) {
+      const ri = roomOf(lay, i.ref);
+      if (ri !== undefined) reviewIn.set(ri, (reviewIn.get(ri) ?? 0) + 1);
+    }
     // Each room's board: what waits in its project, every floor's (each
     // note says which), so no floor's board hides what another's has.
     for (const b of boards.values()) {
@@ -1919,7 +1927,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // Amber is everything that needs you, the failed too, as the summary
       // counts them: the rooms' add up to it.
       const n0 = (waiting.get(ri) ?? 0) + (failed.get(ri) ?? 0);
-      const f0 = 0;
+      // Its third count: what waits for review, in green.
+      const f0 = reviewIn.get(ri) ?? 0;
       const w0 = busy.get(ri) ?? 0;
       const sub = chip.children[1] as HTMLElement;
       const bad = chip.children[2] as HTMLElement;
@@ -1927,8 +1936,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (sub.dataset.n !== `${n0}:${f0}:${w0}`) {
         sub.dataset.n = `${n0}:${f0}:${w0}`;
         // Nobody waiting nor working: how many it has, quietly, so no pill is bare.
-        const quiet = !n0 && !w0 && rm.desks.length > 0;
-        work.textContent = w0 ? `● ${w0}` : quiet ? `● ${rm.desks.length}` : '';
+        const quiet = !n0 && !w0 && !f0 && rm.desks.length > 0;
+        // Idle, a hollow ring: not the working's blue dot.
+        work.textContent = w0 ? `● ${w0}` : quiet ? `○ ${rm.desks.length}` : '';
         work.style.display = w0 || quiet ? 'inline' : 'none';
         work.style.color = quiet ? '#64748b' : '#2563eb';
         sub.textContent = n0 ? String(n0) : '';
@@ -1936,8 +1946,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // Amber, as everything that needs you is.
         sub.style.background = '#fbbf24';
         sub.style.color = '#3a2a05';
-        bad.textContent = f0 ? `× ${f0}` : '';
+        bad.textContent = f0 ? `✓ ${f0}` : '';
         bad.style.display = f0 ? 'inline' : 'none';
+        bad.style.color = '#047857';
       }
       let on = false;
       if (scope === null) {
@@ -2010,7 +2021,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // come in. None over the campus (its pills and bubbles say it), none
         // for the desk you're at (its card says it). They keep off the
         // agents (below), and a quiet one with no room steps out of the way.
-        const want = scope !== null && d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || smallRoom || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (smallRoom || dist < 17)));
+        const want = scope !== null && d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || smallRoom || cam.followK > 0.4) && (loud || smallRoom || (cam.closeK < 0.3 && dist < 17));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 130, ((1 - tp.y) / 2) * canvas.clientHeight);

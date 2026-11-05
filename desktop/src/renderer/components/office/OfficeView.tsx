@@ -257,15 +257,14 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
   boardRow.current = (ref: string) => {
     // The board's "+n": the full list, in the panel beside it.
     // It goes to the first row the board had no room for, lit up a moment.
+    // The board's "+n": its column in full, in the tray, its project's own.
     if (ref.startsWith('more:')) {
-      const [, list, from] = ref.split(':');
-      const card = document.querySelector<HTMLElement>(`[data-office-board-list="${list}"]`);
-      const rows = card ? [...card.querySelectorAll<HTMLElement>('button')] : [];
-      const first = rows[Number(from) || 0] ?? rows[0];
-      if (!first) return;
-      first.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
-      first.focus({ preventScroll: true });
-      if (!reduced) for (const r of rows.slice(Number(from) || 0)) r.animate([{ backgroundColor: 'rgba(251,191,36,.4)', boxShadow: 'inset 0 0 0 2px rgba(245,158,11,.9)' }, { backgroundColor: 'rgba(251,191,36,.25)', boxShadow: 'inset 0 0 0 2px rgba(245,158,11,.7)', offset: 0.7 }, { backgroundColor: 'rgba(251,191,36,0)', boxShadow: 'inset 0 0 0 2px rgba(245,158,11,0)' }], { duration: 2600, easing: 'ease-out' });
+      const [, list] = ref.split(':');
+      const kind = list === 'review' ? 'review' : 'needs';
+      const items = kind === 'review' ? office.model.board.review : office.model.board.needs;
+      setListKind(kind);
+      setListOnly(kind === 'needs' && view.project ? items.filter((i) => i.project === view.project).map((i) => i.ref) : null);
+      setListChoice(true);
       return;
     }
     // Walk there, as everywhere else: its card up, with the question, E to
@@ -649,7 +648,9 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
           title={nearDesk.title}
           project={areaLabel(nearDesk.project, nearDesk.id)}
           facts={[nearDesk.branch, [nearAgent.ai, modelOf(nearThread)].filter(Boolean).join(' · ')]}
-          activity={nearThread ? agentChatStatus(nearAgent, nearThread).text : undefined}
+          // The status once: in the question's box when there's no question
+          // of its own, else on its line.
+          activity={nearThread && (nearDesk.question || !(nearDesk.tone === 'needs' || nearDesk.tone === 'error')) ? agentChatStatus(nearAgent, nearThread).text : undefined}
           question={nearDesk.question ? plain(readable(nearDesk.question)) : nearDesk.tone === 'needs' || nearDesk.tone === 'error' ? agentChatStatus(nearAgent, nearThread).text : undefined}
           last={nearDesk.question ? undefined : lastMessage(nearThread)}
           pr={nearDesk.pr ? prLine(nearDesk.pr).text : undefined}
@@ -750,7 +751,7 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
       )}
 
       {/* What a click on what's under the pointer would do. */}
-      {hoverText && (
+      {hoverText && !chatOpen && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3">
           <div className={cn(PANEL, 'px-3 py-1.5 text-ui font-medium text-primary')} data-office-hover>
             {hoverText}
@@ -914,7 +915,6 @@ function WalkRow({ item, sub, label, onClick, active }: { item: BoardItem; sub?:
       type="button"
       onClick={onClick}
       aria-label={label}
-      title={label}
       className={cn('group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400', active && 'bg-surface-strong ring-1 ring-amber-300/40')}
       aria-current={active ? 'true' : undefined}
       data-office-walk={item.ref}

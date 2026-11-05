@@ -78,12 +78,14 @@ const POD = 2;
 const POD_SPAN = 2 * DESK.w + 2.4;
 // Pod to pod across a row, and row to row; every other row is staggered by
 // half a pod, so the pods read as islands rather than a classroom's rows.
-const POD_PX = 5.6;
-const POD_PZ = 4.4;
+const POD_PX = 6.4;
+// Rows far enough apart that, seen from the front and above, one row's
+// heads clear the next one's desks.
+const POD_PZ = 5.6;
 const STAGGER = POD_PX / 2;
 const FIRST = 1.5; // from an area's back to its first pods' desks
 const AREA_PAD = 0.5; // the area's margin around its pods
-const LEAD_DEPTH = 3.0; // the counter's strip at the front of an area, clear of the pods
+const LEAD_DEPTH = 3.8; // the counter's strip at the front of an area, well clear of the pods
 const AISLE = 2.0; // between areas
 const BACK_AISLE = 3.1; // before the board
 const FRONT = 0.6; // floor before the front areas
@@ -444,7 +446,8 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     if (w > 4.4) art.push((g.x0 + g.x1) / 2 - 1.2, (g.x0 + g.x1) / 2 + 1.2);
     else if (w > 1.4) art.push((g.x0 + g.x1) / 2);
   }
-  prop('tree', workW - 0.6, 0.6);
+  // (Not where it would stand before the board in the board's view.)
+  if (boardX + boardW / 2 + 1.7 < workW - 0.6) prop('tree', workW - 0.6, 0.6);
   // The left wall: the window past the meeting room (or from the back), the
   // moss wall after it, lockers after that, as far as the racks.
   const wallFrom = meetFront ? 0.1 : meeting.z1;
@@ -518,9 +521,9 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
         }
       }
   }
-  // You come in on the commons' free floor: the nearest spot clear of
-  // everything to where its lounge ends, never inside a piece of furniture.
-  const want = { x: wx + 2.4, z: lounge.z1 + 1.1 };
+  // You come in at the front, by the planter's end, in full view: the
+  // nearest spot clear of everything, never inside a piece of furniture.
+  const want = { x: workW - 1.6, z: roomD - 1.5 };
   let spawn = { ...want, face: -0.5 };
   const around: { x: number; z: number; d: number }[] = [];
   for (let dx = -5; dx <= 5; dx += 0.25) for (let dz = -4; dz <= 5; dz += 0.25) around.push({ x: want.x + dx, z: want.z + dz, d: dx * dx + dz * dz });
