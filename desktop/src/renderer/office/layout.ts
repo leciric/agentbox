@@ -223,7 +223,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
       const dz = podZ(p);
       obstacles.push(box(dx, dz, DESK.w, DESK.d));
       // The chair, under the agent, at the bench's outer end.
-      obstacles.push(box(dx + side * 0.48, dz - SEAT, 0.62, 0.62));
+      obstacles.push(box(dx + side * 0.48, dz - SEAT, 0.9, 0.8));
       // You stand at the bench's end, beside the agent, as you'd stop by a
       // colleague's, turned half to the room: the close-up sees your face too.
       return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.35, z: dz + 0.1, face: side < 0 ? Math.PI / 3 : -Math.PI / 3 } };
@@ -441,8 +441,9 @@ export const FOOT: Record<PropKind, [number, number]> = {
 export const PROP_SCALE = 1.25;
 export const footOf = (k: PropKind): [number, number] => [FOOT[k][0] * PROP_SCALE, FOOT[k][1] * PROP_SCALE];
 const ISLANDS: PropKind[] = ['tree', 'standing', 'aquarium', 'booth', 'plants', 'beanbags', 'vending', 'logo', 'printer', 'shelf', 'tree', 'whiteboard'];
-// What may stand before an area: nothing taller than a desk's monitor.
-const LOW: PropKind[] = ['standing', 'aquarium', 'plants', 'beanbags', 'logo', 'shelf', 'printer'];
+// What may stand before an area: nothing taller than a desk's monitor, nor
+// leafy, so a close-up looks over it.
+const LOW: PropKind[] = ['standing', 'beanbags', 'logo', 'shelf', 'printer'];
 // Corners of a few things together, on a mat, each within 5.4 by 3: where
 // each stands from the mat's middle. (Sizes are FOOT's, PROP_SCALE larger.)
 type Theme = [PropKind, number, number][];
@@ -470,8 +471,17 @@ const FOCUS: Theme = [
   ['booth', 0.65, 0],
   ['tree', 2.25, 0.2],
 ];
+const LOUNGE: Theme = [
+  ['beanbags', -1.05, 0],
+  ['shelf', 1.75, -0.8],
+];
+const STUDY: Theme = [
+  ['shelf', -1.5, -0.85],
+  ['standing', -1.2, 0.55],
+  ['logo', 1.5, 0],
+];
 const THEMES: Theme[] = [COFFEE, NOOK, FOCUS, GARDEN, READING];
-const LOW_THEMES: Theme[] = [NOOK, GARDEN, READING];
+const LOW_THEMES: Theme[] = [LOUNGE, STUDY];
 
 // spotOf is where you stand to look at a desk, a lead's counter or the board.
 export function spotOf(l: Layout, ref: string): Spot | undefined {

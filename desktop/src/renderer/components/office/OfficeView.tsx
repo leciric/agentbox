@@ -463,7 +463,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             foldLabel={t('office.fold')}
           >
             {listed.map((i) => (
-              <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ?? (i.pr ? `${areaLabel(i.project)} · #${i.pr.number}` : areaLabel(i.project))} label={t('office.walkTo', { title: i.title })} onClick={() => {
+              <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${areaLabel(i.project)} · ${i.text}` : i.pr ? `${areaLabel(i.project)} · #${i.pr.number}` : areaLabel(i.project)} label={t('office.walkTo', { title: i.title })} onClick={() => {
                 setListChoice(false);
                 walkTo(i.ref);
               }} />
@@ -531,7 +531,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           <ListCard title={t('office.board.needs')} accent="text-amber-600" list="needs" fill="shrink">
             {needs.length === 0 && <Empty>{t('office.board.needsEmpty')}</Empty>}
             {needs.map((i) => (
-              <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text} label={t('office.walkTo', { title: i.title })} onClick={() => walkTo(i.ref)} />
+              <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${areaLabel(i.project)} · ${i.text}` : areaLabel(i.project)} label={t('office.walkTo', { title: i.title })} onClick={() => walkTo(i.ref)} />
             ))}
           </ListCard>
           <ListCard title={t('office.board.review')} accent="text-emerald-600" list="review" fill="max-h-[45%] shrink-0">

@@ -154,7 +154,8 @@ function turned(r: Ramp, deg: number): Ramp {
   const t = (c: THREE.Color) => {
     const hsl = { h: 0, s: 0, l: 0 };
     c.getHSL(hsl);
-    return new THREE.Color().setHSL((hsl.h + deg / 360 + 1) % 1, hsl.s, hsl.l);
+    // A little softer than the logo's own, so a room of them stays calm.
+    return new THREE.Color().setHSL((hsl.h + deg / 360 + 1) % 1, hsl.s * (deg ? 0.78 : 1), hsl.l);
   };
   return { light: t(r.light), mid: t(r.mid), dark: t(r.dark) };
 }

@@ -485,7 +485,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // Input.
   const keys = new Set<string>();
   let hover: string | undefined;
-  let pointer: { x: number; y: number; id: number; dragged: boolean; button: number; aim: { ref?: string; row?: string; floor?: P }; still: boolean; cam: string } | undefined;
+  let pointer: { x: number; y: number; id: number; dragged: boolean; button: number; aim: { ref?: string; row?: string; floor?: P }; cam: string } | undefined;
   // Where the camera is, to tell whether it moved between a press and its release.
   const camAt = () => `${eased.tx.toFixed(2)}:${eased.tz.toFixed(2)}:${eased.dist.toFixed(2)}:${eased.pitch.toFixed(3)}:${eased.yaw.toFixed(3)}`;
   const ndc = new THREE.Vector2();
@@ -570,7 +570,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       for (const [pi, pod] of place.pods.entries()) {
         // Each pod a shade of its project's colour, so pods read apart.
         // Each pod its own pastel, near its project's colour: pods read apart.
-        const shade = [0, 38, -38, 76, -76, 19, -19][pi % 7];
+        const shade = [0, 12, -12, 6, -6][pi % 5];
         const hh = ((area.hue + shade + 360) % 360) / 360;
         // Saturated, as a toy's rugs: the pods read as coloured islands.
         const rugMat = own(std(new THREE.Color().setHSL(hh, 0.72, pi % 2 ? 0.55 : 0.6), { roughness: 0.95 }));
@@ -1477,7 +1477,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (d.ring.visible) {
         const p = motion ? (t * 0.8) % 1 : 0.5;
         d.ring.scale.setScalar((0.9 + p * 0.5) * Math.min(1.8, grow));
-        (d.ring.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - p);
+        (d.ring.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - p);
       }
       // The beams stand down while you read the board over them.
       // No columns of light: the ring, the chip and the bubble say it.
@@ -1817,7 +1817,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     canvas.focus({ preventScroll: true });
     // What's under the pointer as it's pressed is what the click is for, even
     // if the camera moves on before it's released.
-    pointer = { x: e.clientX, y: e.clientY, id: e.pointerId, dragged: false, button: e.button, aim: pick(e.clientX, e.clientY), still: settledFor >= 0.3 && !(cam.closeK > 0.05 && cam.closeK < 0.95), cam: camAt() };
+    pointer = { x: e.clientX, y: e.clientY, id: e.pointerId, dragged: false, button: e.button, aim: pick(e.clientX, e.clientY), cam: camAt() };
     canvas.setPointerCapture(e.pointerId);
     poke();
   };
@@ -1883,16 +1883,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     pointer = undefined;
     canvas.style.cursor = hover ? 'pointer' : 'default';
     if (p.dragged || p.button !== 0) return;
-    const { ref, row, floor } = p.aim;
+    // What's under the pointer as it's let go: the press's, unless the camera
+    // moved between the two, when it's looked again.
+    const { ref, row, floor } = p.cam === camAt() ? p.aim : pick(e.clientX, e.clientY);
     // While the camera is still gliding, a click on the room waits (what was
     // under it a moment ago isn't what will be), but a board row is a row.
-    if (settledFor < (ref || row ? 0.3 : 0.15) && !route.length) return;
-    // A desk or a row is what was under the pointer at the press: only if the
-    // camera was at rest then and hasn't moved since is it still there.
-    if ((ref || row) && (!p.still || p.cam !== camAt())) return;
-    // Walking somewhere by name, or gliding into a close-up, a desk or a
-    // board note under the pointer now isn't where it will be: wait.
-    if ((ref || row) && ((route.length && routeGoal) || (cam.closeK > 0.05 && cam.closeK < 0.95))) return;
     // A row on the board opens what it's about, from wherever you see it.
     if (row && (near === 'board' || !row.startsWith('more:'))) opts.onBoardRow(row);
     else if (ref) {
