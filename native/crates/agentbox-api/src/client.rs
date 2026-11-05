@@ -60,11 +60,16 @@ impl Client {
         &self.socket
     }
 
-    async fn on_rt<T: Send + 'static>(
+    pub(crate) async fn on_rt<T: Send + 'static>(
         &self,
         f: impl Future<Output = Result<T>> + Send + 'static,
     ) -> Result<T> {
         self.rt.spawn(f).await.map_err(|e| anyhow!(e))?
+    }
+
+    /// spawn runs a future on the I/O runtime.
+    pub(crate) fn spawn(&self, f: impl Future<Output = ()> + Send + 'static) {
+        self.rt.spawn(f);
     }
 
     pub async fn get<T: DeserializeOwned + Send + 'static>(&self, path: &str) -> Result<T> {
@@ -139,6 +144,22 @@ type Sender = hyper::client::conn::http1::SendRequest<Full<Bytes>>;
 /// (desktop/src/main/relay.ts), which this POC doesn't do yet.
 #[cfg(windows)]
 async fn connect(socket: &Path) -> Result<Sender> {
+    Err(anyhow!(
+        "{}: the native app can't reach the daemon on Windows yet",
+        socket.display()
+    ))
+}
+
+/// dial opens a raw connection to the daemon's socket.
+#[cfg(unix)]
+pub(crate) async fn dial(socket: &Path) -> Result<tokio::net::UnixStream> {
+    tokio::net::UnixStream::connect(socket)
+        .await
+        .with_context(|| format!("connecting to {}", socket.display()))
+}
+
+#[cfg(windows)]
+pub(crate) async fn dial(socket: &Path) -> Result<tokio::net::TcpStream> {
     Err(anyhow!(
         "{}: the native app can't reach the daemon on Windows yet",
         socket.display()

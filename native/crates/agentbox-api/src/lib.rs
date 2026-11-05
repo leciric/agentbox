@@ -3,6 +3,7 @@
 pub mod client;
 pub mod de;
 pub mod sse;
+pub mod stream;
 #[allow(clippy::all, non_camel_case_types)]
 pub mod types;
 

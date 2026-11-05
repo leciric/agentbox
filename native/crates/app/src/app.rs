@@ -11,6 +11,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use crate::chat::ChatView;
+use crate::terminal::TerminalView;
 use crate::{bench, theme};
 
 pub struct AppView {
@@ -24,6 +25,9 @@ pub struct AppView {
     /// Which chat is open: "lead" or an agent's name.
     open: String,
     chat: Option<Entity<ChatView>>,
+    /// An agent's terminal, opened from its chat's tab bar.
+    terminal: Option<Entity<TerminalView>>,
+    showing_terminal: bool,
     _events: Task<()>,
 }
 
@@ -40,6 +44,8 @@ impl AppView {
             connected: false,
             open: "lead".into(),
             chat: None,
+            terminal: None,
+            showing_terminal: false,
             _events: events,
         };
         this.load_projects(window, cx);
@@ -226,6 +232,8 @@ impl AppView {
             )
         };
         self.open = who;
+        self.terminal = None;
+        self.showing_terminal = false;
         let client = self.client.clone();
         self.chat =
             Some(cx.new(|cx| ChatView::new(client, prefix, agent, title.into(), window, cx)));
@@ -437,6 +445,65 @@ impl AppView {
     }
 }
 
+impl AppView {
+    /// render_tabs is an agent's Chat | Terminal switch.
+    fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let tab = |id: &'static str, label: &'static str, on: bool| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .rounded_md()
+                .cursor_pointer()
+                .text_sm()
+                .text_color(if on { theme::fg() } else { theme::muted() })
+                .when(on, |el| el.bg(theme::hover()))
+                .hover(|el| el.bg(theme::raised()))
+                .child(label)
+        };
+        h_flex()
+            .flex_none()
+            .gap_1()
+            .px_4()
+            .py_1p5()
+            .bg(theme::panel())
+            .border_b_1()
+            .border_color(theme::border())
+            .child(
+                tab("tab-chat", "Chat", !self.showing_terminal).on_click(cx.listener(
+                    |this, _: &ClickEvent, _, cx| {
+                        this.showing_terminal = false;
+                        cx.notify();
+                    },
+                )),
+            )
+            .child(
+                tab("tab-terminal", "Terminal", self.showing_terminal).on_click(cx.listener(
+                    |this, _: &ClickEvent, window, cx| {
+                        this.show_terminal(window, cx);
+                    },
+                )),
+            )
+    }
+
+    fn show_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project.clone() else {
+            return;
+        };
+        if self.terminal.is_none() {
+            let path = format!("/v1/agents/{project}/{}/terminal", self.open);
+            let client = self.client.clone();
+            self.terminal = Some(cx.new(|cx| TerminalView::new(client, path, cx)));
+        }
+        if let Some(t) = &self.terminal {
+            let focus = t.read(cx).focus_handle().clone();
+            focus.focus(window, cx);
+        }
+        self.showing_terminal = true;
+        cx.notify();
+    }
+}
+
 impl Render for AppView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         bench::mark("first-render");
@@ -447,6 +514,16 @@ impl Render for AppView {
             .child(self.render_sidebar(cx))
             .child(
                 div().flex_1().min_w_0().h_full().child(match &self.chat {
+                    Some(chat) if self.open != "lead" => v_flex()
+                        .size_full()
+                        .child(self.render_tabs(cx))
+                        .child(div().flex_1().min_h_0().child(
+                            match (&self.terminal, self.showing_terminal) {
+                                (Some(t), true) => t.clone().into_any_element(),
+                                _ => chat.clone().into_any_element(),
+                            },
+                        ))
+                        .into_any_element(),
                     Some(chat) => chat.clone().into_any_element(),
                     None => div()
                         .size_full()

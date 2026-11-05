@@ -14,3 +14,5 @@ hyper-util.workspace = true
 http-body-util.workspace = true
 bytes.workspace = true
 anyhow.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true

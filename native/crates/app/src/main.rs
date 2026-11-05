@@ -9,6 +9,7 @@ mod app;
 mod bench;
 mod chat;
 mod mermaid;
+mod terminal;
 mod theme;
 mod video;
 mod webview;

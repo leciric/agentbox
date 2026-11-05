@@ -17,3 +17,6 @@ anyhow.workspace = true
 serde.workspace = true
 futures-core = "0.3"
 humantime = "2"
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+portable-pty = "0.9"

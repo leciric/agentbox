@@ -18,6 +18,8 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
 anyhow = "1"
+tokio-tungstenite = "0.30"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 # gpui-component pins gpui-pre (Zed's gpui, published to crates.io); use the
 # same one so there is a single gpui in the tree.
 gpui = { package = "gpui-pre", version = "=0.3.11" }

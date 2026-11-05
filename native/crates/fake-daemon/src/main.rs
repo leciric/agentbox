@@ -348,6 +348,9 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             };
             json(StatusCode::OK, &fleet)
         }
+        // An agent's terminal: a shell on this machine, in place of the
+        // agent's tmux session (the same protocol as internal/daemon/terminal.go).
+        (&Method::GET, ["v1", "agents", p, _a, "terminal"]) if fake.is_fake(p) => terminal(req),
         (&Method::GET, ["v1", "agents", p, a, "chat"]) if fake.is_fake(p) => {
             json(StatusCode::OK, &fake.thread(&format!("{p}/{a}")))
         }
@@ -463,6 +466,124 @@ fn futures_stream(
     S(rx)
 }
 
+/// terminal upgrades to a WebSocket and runs a shell in a PTY behind it:
+/// binary frames are its bytes both ways, text frames a TerminalResize.
+fn terminal(req: Request<Incoming>) -> Response<Body> {
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+    use tokio_tungstenite::tungstenite::{Message, handshake::derive_accept_key, protocol::Role};
+
+    let Some(key) = req.headers().get("sec-websocket-key").cloned() else {
+        return json(
+            StatusCode::BAD_REQUEST,
+            &ApiError {
+                error: "not a WebSocket".into(),
+                ..Default::default()
+            },
+        );
+    };
+    let query: HashMap<String, String> = req
+        .uri()
+        .query()
+        .unwrap_or("")
+        .split('&')
+        .filter_map(|kv| {
+            kv.split_once('=')
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+        })
+        .collect();
+    let size = |k: &str, d: u16| query.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
+    let (cols, rows) = (size("cols", 120), size("rows", 32));
+    tokio::spawn(async move {
+        let Ok(upgraded) = hyper::upgrade::on(req).await else {
+            return;
+        };
+        let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
+            TokioIo::new(upgraded),
+            Role::Server,
+            None,
+        )
+        .await;
+        let pty = match native_pty_system().openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        }) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("pty: {e}");
+                return;
+            }
+        };
+        let mut cmd =
+            CommandBuilder::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into()));
+        cmd.env("TERM", "xterm-256color");
+        if let Some(home) = std::env::var_os("HOME") {
+            cmd.cwd(home);
+        }
+        let Ok(mut child) = pty.slave.spawn_command(cmd) else {
+            return;
+        };
+        let mut reader = pty.master.try_clone_reader().unwrap();
+        let mut writer = pty.master.take_writer().unwrap();
+        let (mut sink, mut source) = ws.split();
+        let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 32 * 1024];
+            while let Ok(n) = std::io::Read::read(&mut reader, &mut buf) {
+                if n == 0 || out_tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let send = async {
+            while let Some(b) = out_rx.recv().await {
+                if sink.send(Message::Binary(b.into())).await.is_err() {
+                    break;
+                }
+            }
+            let _ = sink.close().await;
+        };
+        let master = std::sync::Mutex::new(pty.master); // Send, not Sync
+        let recv = async {
+            while let Some(Ok(m)) = source.next().await {
+                match m {
+                    Message::Binary(b) => {
+                        if std::io::Write::write_all(&mut writer, &b).is_err() {
+                            break;
+                        }
+                    }
+                    Message::Text(t) => {
+                        if let Ok(r) = serde_json::from_str::<TerminalResize>(&t) {
+                            let _ = master.lock().unwrap().resize(PtySize {
+                                rows: r.rows,
+                                cols: r.cols,
+                                pixel_width: 0,
+                                pixel_height: 0,
+                            });
+                        }
+                    }
+                    Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+        };
+        tokio::select! {
+            _ = send => {}
+            _ = recv => {}
+        }
+        let _ = child.kill();
+    });
+    Response::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header("connection", "Upgrade")
+        .header("upgrade", "websocket")
+        .header("sec-websocket-accept", derive_accept_key(key.as_bytes()))
+        .body(Full::new(Bytes::new()).boxed())
+        .unwrap()
+}
+
 type Sender = hyper::client::conn::http1::SendRequest<Full<Bytes>>;
 
 async fn connect(socket: &PathBuf) -> Result<Sender> {
@@ -532,6 +653,7 @@ async fn main() -> Result<()> {
             let svc = hyper::service::service_fn(move |req| handle(fake.clone(), req));
             let _ = hyper::server::conn::http1::Builder::new()
                 .serve_connection(TokioIo::new(stream), svc)
+                .with_upgrades()
                 .await;
         });
     }
