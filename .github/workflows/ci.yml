@@ -383,6 +383,10 @@ jobs:
     if: needs.changes.outputs.native == 'true' && github.event.action != 'labeled'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
     defaults:
       run:
         working-directory: native
@@ -400,14 +404,12 @@ jobs:
 
       - run: rustup toolchain install stable --profile minimal -c clippy,rustfmt && rustup default stable
 
-      - uses: actions/cache@v6
+      # Dependencies' build artifacts only (rust-cache drops the workspace's own
+      # and anything stale): all of native/target, debuginfo and incremental
+      # state included, grew past 3 GiB and killed the runner restoring it.
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            native/target
-          key: native-${{ runner.os }}-${{ hashFiles('native/Cargo.lock') }}
-          restore-keys: native-${{ runner.os }}-
+          workspaces: native
 
       - run: cargo fmt --check
 
@@ -434,6 +436,9 @@ jobs:
       (github.event.action == 'labeled' && github.event.label.name == 'ci:native-mac')
     runs-on: macos-15
     timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
     defaults:
       run:
         working-directory: native
@@ -442,14 +447,9 @@ jobs:
 
       - run: rustup toolchain install stable --profile minimal && rustup default stable
 
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            native/target
-          key: native-${{ runner.os }}-${{ hashFiles('native/Cargo.lock') }}
-          restore-keys: native-${{ runner.os }}-
+          workspaces: native
 
       - run: cargo check -p agentbox-native --locked --no-default-features
 
