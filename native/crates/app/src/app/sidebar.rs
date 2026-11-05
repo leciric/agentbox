@@ -415,6 +415,37 @@ impl AppView {
                             }),
                     ),
             )
+            // The foot: Settings (Work, Media and Jobs come with their pages).
+            .child(
+                h_flex()
+                    .flex_none()
+                    .h_10()
+                    .px_3()
+                    .gap_1()
+                    .border_t_1()
+                    .border_color(theme::border())
+                    .child(
+                        div()
+                            .id("foot-settings")
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .text_sm()
+                            .text_color(if self.settings {
+                                theme::fg()
+                            } else {
+                                theme::muted()
+                            })
+                            .when(self.settings, |el| el.bg(theme::hover()))
+                            .hover(|el| el.bg(theme::raised()))
+                            .child(format!("⚙  {}", t("common.settings")))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.settings = true;
+                                cx.notify();
+                            })),
+                    ),
+            )
     }
 
     fn last(&self, project: &str) -> String {

@@ -11,6 +11,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 mod new_task;
+mod settings;
 mod sidebar;
 
 use crate::chat::ChatView;
@@ -65,6 +66,8 @@ pub struct AppView {
     side: sidebar::Sidebar,
     /// The New task picker, while it's open.
     new_task: Option<new_task::NewTask>,
+    /// The Settings page is open in the main area.
+    settings: bool,
     _events: Task<()>,
 }
 
@@ -86,6 +89,7 @@ impl AppView {
             tab: Tab::Chat,
             side: sidebar::Sidebar::new(window, cx),
             new_task: None,
+            settings: false,
             _events: events,
         };
         this.load_settings(window, cx);
@@ -297,6 +301,7 @@ impl AppView {
     }
 
     fn select_project(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.settings = false;
         self.project = Some(name);
         self.fleet.clear();
         self.load_fleet(window, cx);
@@ -626,6 +631,7 @@ impl Render for AppView {
             .child(self.render_sidebar(cx))
             .child(
                 div().flex_1().min_w_0().h_full().child(match &self.chat {
+                    _ if self.settings => self.render_settings(cx),
                     Some(chat) if self.open != "lead" => v_flex()
                         .size_full()
                         .child(self.render_tabs(cx))
