@@ -1,11 +1,12 @@
-// You, as Kenney's Mini Characters "character-male-a": a blocky chibi with
+// You, as Kenney's Mini Characters "character-female-b": a blocky chibi with
 // real walk, sprint and idle animations, which suit the logo cube's toy room
 // better than anything drawn in code. CC0 (assets/kenney/License.txt), so it
 // may be bundled; it's inlined into the Office's lazy chunk (about 340 kB),
 // and the hand-drawn walker stands in until it has loaded.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import glbUrl from './assets/kenney/character-male-a.glb?inline';
+// Ginger hair and a yellow top: found at a glance from above.
+import glbUrl from './assets/kenney/character-female-b.glb?inline';
 import colormapUrl from './assets/kenney/colormap.png?inline';
 import type { Walker } from './figures.ts';
 

@@ -55,10 +55,10 @@ export type Accessory = (typeof ACCESSORIES)[number] | 'headset';
 // variant, when given, is the agent's place in the room: then no two agents
 // wear the same thing in the same colour until sixty-four of them do.
 // The logo's gradient, its hue turned by these many degrees, for an agent's
-// head: round much of the wheel from the logo's violet, so every head is still
+// head: from cyan to rose about the logo's violet, so every head is still
 // the logo's cube and yet they read apart across the room. (Leads keep the
 // logo's own.)
-export const HEAD_SHIFTS = [-112, 68, -37, 133, -67, 28, 153, -87];
+export const HEAD_SHIFTS = [-78, 42, -40, 84, -60, 20, 64, -20];
 
 export function accentOf(ref: string, variant?: number): { color: string; accessory: Accessory; tint: number; shift: number } {
   const r = rng(hash(ref));
@@ -155,7 +155,7 @@ function turned(r: Ramp, deg: number): Ramp {
     const hsl = { h: 0, s: 0, l: 0 };
     c.getHSL(hsl);
     // A little softer than the logo's own, so a room of them stays calm.
-    return new THREE.Color().setHSL((hsl.h + deg / 360 + 1) % 1, hsl.s * (deg ? 0.78 : 1), hsl.l);
+    return new THREE.Color().setHSL((hsl.h + deg / 360 + 1) % 1, hsl.s * (deg ? 0.9 : 1), hsl.l);
   };
   return { light: t(r.light), mid: t(r.mid), dark: t(r.dark) };
 }
@@ -175,6 +175,37 @@ function gradient(g: THREE.BufferGeometry, size: number, ramp: Ramp = LOGO) {
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;
+}
+
+// logoMark is the logo's white line-art cube, on nothing: for the top of a
+// head. Drawn once.
+let markTex: THREE.CanvasTexture | undefined;
+function logoMark(): THREE.CanvasTexture {
+  if (markTex) return markTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d')!;
+  x.strokeStyle = 'rgba(255,255,255,0.92)';
+  x.lineWidth = 9;
+  x.lineJoin = 'round';
+  x.lineCap = 'round';
+  x.beginPath();
+  x.moveTo(64, 16);
+  x.lineTo(106, 40);
+  x.lineTo(106, 88);
+  x.lineTo(64, 112);
+  x.lineTo(22, 88);
+  x.lineTo(22, 40);
+  x.closePath();
+  x.moveTo(22, 40);
+  x.lineTo(64, 64);
+  x.lineTo(106, 40);
+  x.moveTo(64, 64);
+  x.lineTo(64, 112);
+  x.stroke();
+  markTex = new THREE.CanvasTexture(c);
+  markTex.colorSpace = THREE.SRGBColorSpace;
+  return markTex;
 }
 
 // piping is a white frame on a rounded box's edges (w by h by d, its
@@ -251,6 +282,10 @@ function boxie(k: Kit): Build {
   // frame round the rounded cube.
   const pipe = k.m(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 }));
   head.add(new THREE.Mesh(piping(S, S * 0.92, S * 0.9, 0.16, 0.032), pipe));
+  // On top, the logo itself: its white line-art cube, seen from above.
+  const mark = at(new THREE.Mesh(new THREE.PlaneGeometry(S * 0.5, S * 0.5), k.m(new THREE.MeshBasicMaterial({ map: logoMark(), transparent: true, depthWrite: false }))), 0, (S * 0.92) / 2 + 0.003, 0);
+  mark.rotation.x = -Math.PI / 2;
+  head.add(mark);
   // The face: a dark, glossy screen on the front.
   const screen = at(new THREE.Mesh(new RoundedBoxGeometry(S * 0.82, S * 0.64, 0.03, 4, 0.07), k.m(new THREE.MeshStandardMaterial({ color: '#1a1530', roughness: 0.2, metalness: 0.1, emissive: '#221a44', emissiveIntensity: 0.4 }))), 0, -0.01, S * 0.45);
   head.add(screen);

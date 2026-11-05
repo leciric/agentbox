@@ -4912,6 +4912,7 @@ export const enUS = {
   'office.hint.click': 'Click a desk or the floor to walk there',
   'office.hint.keys': 'WASD to walk · E opens · N next who needs you',
   'office.hint.look': 'Drag to turn · scroll to zoom',
+  'office.hint.campus': 'Click a room to go in · scroll in over one · N next who needs you · Esc steps back',
   'office.hint.short': 'Click to walk · WASD · drag to turn · scroll to zoom · E opens · N next',
   'office.hint.nav': 'Walk among your agents',
   'office.empty.title': 'The office is empty',

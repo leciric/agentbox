@@ -159,7 +159,7 @@ export type Diorama = { group: THREE.Group; dispose(): void; meeting: THREE.Vect
 
 // diorama builds the room for a layout: slab, floors, walls and what's on
 // them, the lobby's planter and rack, the meeting room.
-export function diorama(l: Layout, sign: string): Diorama {
+export function diorama(l: Layout, sign: string, hue?: number): Diorama {
   const own: { dispose(): void }[] = [];
   const keep = <T extends { dispose(): void }>(x: T) => (own.push(x), x);
   // Materials shared by colour and finish, so the bake merges what shares one.
@@ -218,7 +218,8 @@ export function diorama(l: Layout, sign: string): Diorama {
   g.add(woodFloor);
 
   // The two walls, back and left, with a lighter cap and a skirting.
-  const wall = m(PALETTE.wall, { roughness: 0.85 });
+  // Its walls a little of its project's colour, so rooms read apart.
+  const wall = m(hue === undefined ? PALETTE.wall : new THREE.Color(PALETTE.wall).lerp(new THREE.Color().setHSL(hue / 360, 0.5, 0.82), 0.3), { roughness: 0.85 });
   const cap = m(PALETTE.wallTop, { roughness: 0.8 });
   const skirt = m(PALETTE.wallEdge);
   put(rbox(W + WT, WALL, WT, 0.03), wall, W / 2 - WT / 2, WALL / 2, -WT / 2);

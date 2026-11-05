@@ -372,9 +372,6 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       setListKind('needs');
     }
   }, [listOpen]);
-  // At a room's board, its list is that room's, as the board is.
-  const roomNeeds = view.refs ? needs.filter((i) => view.refs!.includes(i.ref)) : needs;
-  const roomReview = view.refs ? review.filter((i) => view.refs!.includes(i.ref)) : review;
   const workingItems: BoardItem[] = office.model.areas.flatMap((a) => a.desks.filter((d) => d.tone === 'working').map((d) => ({ ref: d.id, project: a.project, title: d.title, tone: d.tone, pr: d.pr })));
   const listed = listOnly ? needs.filter((i) => listOnly.includes(i.ref)) : listKind === 'working' ? workingItems : listKind === 'review' ? review : needs;
   const areaLabel = (project: string) => office.model.areas.find((a) => a.project === project)?.label ?? project;
@@ -547,31 +544,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           {nextButton}
         </DeskCard>
       )}
-      {near === 'board' && (
-        <div className="pointer-events-auto absolute bottom-16 right-3 top-16 flex w-[min(18rem,calc(100%-1.5rem))] flex-col gap-2" data-office-board>
-          {/* Both lists in view, each scrolling on its own. */}
-          <ListCard title={t('office.board.needs')} accent="text-amber-600" list="needs" fill="shrink">
-            {roomNeeds.length === 0 && <Empty>{t('office.board.needsEmpty')}</Empty>}
-            {roomNeeds.map((i) => (
-              <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${areaLabel(i.project)} · ${i.text}` : areaLabel(i.project)} label={t('office.walkTo', { title: i.title })} onClick={() => walkTo(i.ref)} />
-            ))}
-          </ListCard>
-          <ListCard title={t('office.board.review')} accent="text-emerald-600" list="review" fill="max-h-[45%] shrink-0">
-            {roomReview.length === 0 && <Empty>{t('office.board.reviewEmpty')}</Empty>}
-            {roomReview.map((i) => {
-              return (
-                <WalkRow
-                  key={i.ref}
-                  item={i}
-                  sub={i.pr ? `#${i.pr.number} · ${t(`office.pr.${i.pr.state}`)}${i.pr.checks === 'failing' ? ` · ${t('office.checks.failing')}` : ''}` : toneLabel(i.tone)}
-                  label={t('office.walkTo', { title: i.title })}
-                  onClick={() => walkTo(i.ref)}
-                />
-              );
-            })}
-          </ListCard>
-        </div>
-      )}
+      {/* At a board its notes are buttons themselves (scene.ts). */}
 
       {/* The controls, until you've moved; after that a line. */}
       {status === 'ready' && !empty && (
@@ -604,7 +577,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
               </button>
             </div>
           ) : (
-            <div className="rounded-lg bg-white/90 px-3 py-1 text-[12px] text-slate-700 backdrop-blur-md" data-office-hint-short>{t('office.hint.short')}</div>
+            <div className="rounded-lg bg-white/90 px-3 py-1 text-[12px] text-slate-700 backdrop-blur-md" data-office-hint-short>{view.project ? t('office.hint.short') : t('office.hint.campus')}</div>
           )}
         </div>
       )}
@@ -674,10 +647,6 @@ function ListCard({ title, accent, children, onFold, foldLabel, list, fill }: { 
       {fill ? <div className="min-h-0 overflow-y-auto">{children}</div> : children}
     </div>
   );
-}
-
-function Empty({ children }: { children: ReactNode }) {
-  return <div className="px-2 pb-2 text-[12px] text-slate-500">{children}</div>;
 }
 
 // RowTitle is a row's title; an agent told apart from another of the same

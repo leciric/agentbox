@@ -515,6 +515,7 @@ export const ROOM_DESKS = 12;
 // Between rooms on the campus: wider front to back, where the walls rise.
 const CAMPUS_GAP = 8;
 const CAMPUS_GAP_Z = 13;
+const FLOOR_GAP = 3;
 const CAMPUS_ASPECT = 2.1;
 
 export type RoomPlace = {
@@ -581,9 +582,12 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Campus {
     for (let r = 0; r * perRow < locals.length; r++) {
       const row = locals.slice(r * perRow, (r + 1) * perRow);
       let x = 0;
-      for (const l of row) {
+      for (const [j, l] of row.entries()) {
         at.push({ ox: x, oz: z });
-        x += l.room.x1 + CAMPUS_GAP;
+        // A project's floors close together: one place.
+        const k = r * perRow + j;
+        const sameNext = parts[k + 1] && parts[k]?.area.project === parts[k + 1].area.project;
+        x += l.room.x1 + (sameNext ? FLOOR_GAP : CAMPUS_GAP);
       }
       z += Math.max(...row.map((l) => l.room.z1)) + CAMPUS_GAP_Z;
     }
