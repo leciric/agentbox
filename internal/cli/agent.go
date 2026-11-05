@@ -19,6 +19,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
+	"agentbox/internal/state"
 )
 
 func newImageCmd(a *app) *cobra.Command {
@@ -78,7 +79,7 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 				return err
 			}
 			req.Local = local
-			if !local && !components.NeedsLocalBuild() && image.ImagesURL() != "" {
+			if !local && !components.NeedsLocalBuild() && len(image.ImagesURLs()) > 0 {
 				also := ""
 				if components.Any() {
 					also = ", and " + components.Summary()
@@ -187,6 +188,9 @@ func newCreateCmd(a *app) *cobra.Command {
 	var (
 		autonomous, queue     bool
 		model, effort, window string
+		goal                  string
+		goalChecks            []string
+		goalBudget            int
 	)
 	cmd := &cobra.Command{
 		Use:   "create <project>",
@@ -205,9 +209,23 @@ func newCreateCmd(a *app) *cobra.Command {
 			if f.Changed("context-window") {
 				req.ContextWindow = &window
 			}
+			req.Goal = goalSpec(goal, goalChecks, goalBudget)
+			if req.Goal == nil && (len(goalChecks) > 0 || goalBudget != 0) {
+				return errors.New("--goal-check and --goal-budget go with --goal")
+			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
+			}
+			if !f.Changed("ai") {
+				// The project's tool, when it names one; Claude Code, as
+				// always, when it doesn't. Never the chat's: that is the
+				// chat's own.
+				p, err := c.Project(cmd.Context(), req.Project)
+				if err != nil {
+					return err
+				}
+				req.AI = cmp.Or(p.AgentTool, "claude")
 			}
 			start := time.Now()
 			j, err := c.CreateAgent(cmd.Context(), req)
@@ -221,16 +239,17 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&req.Name, "name", "", "agent name (default: the next free agent-NN)")
 	f.StringVar(&req.Title, "title", "", `a title shown next to the agent's name, like "Medication reminders"`)
 	f.StringVar(&req.Branch, "branch", "", "its branch, after the project's prefix, in lowercase kebab-case like fix-login-redirect (default: made from --title, then the agent's name; a taken branch gets -2, -3…)")
-	f.StringVar(&req.AI, "ai", "claude", "AI tool to start: claude, codex, opencode, cursor or none")
+	f.StringVar(&req.AI, "ai", "", "AI tool to start: claude, codex, opencode, cursor, gemini or none (default: the project's, then claude)")
 	f.StringVar(&req.Interface, "interface", "", "how you use the AI tool: chat (the default: the app's Chat tab, or agentbox chat) or cli (its command line, in the terminal)")
 	f.BoolVar(&autonomous, "autonomous", true, "start the AI tool without permission prompts (the agent's machine is the sandbox); --autonomous=false asks first")
-	f.StringVar(&model, "model", "", "the Claude Code model this agent runs on, as Claude Code names it, like opus, sonnet or haiku (default: the project's, then the model new agents start on in Settings, then opus)")
-	f.StringVar(&window, "context-window", "", "this agent's context window, where its chat compacts, like 200k or 1m, if its model has that window (default: the window new agents start with in Settings, then the installation's compact window)")
+	f.StringVar(&model, "model", "", "the model this agent runs on, as its tool names it: for Claude Code like opus, sonnet or haiku (default: the project's, then the model new agents start on in Settings, then opus)")
+	f.StringVar(&window, "context-window", "", "this agent's context window, where its chat compacts: any window from "+state.FormatContextWindow(state.MinContextWindow)+" up to its model's whole window, like 200k or 1m (a longer one is refused); default: the window new agents start with in Settings, then the installation's compact window")
 	f.StringVar(&effort, "effort", "", "how hard this agent thinks, as Claude Code names it, like xhigh or low (default: the effort new agents start on, then high)")
 	f.StringVar(&req.From, "from", "", "branch or commit to start from (default: the branch checked out in the project)")
 	f.StringVar(&req.ClaudeAccount, "claude-account", "", "a stored Claude Code account for this agent (default: the project's, then this machine's default)")
 	f.StringVar(&req.CodexAccount, "codex-account", "", "with --ai codex, a stored Codex account for this agent (default: the project's, then this machine's default)")
 	f.StringVar(&req.CursorAccount, "cursor-account", "", "with --ai cursor, a stored Cursor account for this agent (default: the project's, then this machine's default)")
+	f.StringVar(&req.GeminiAccount, "gemini-account", "", "with --ai gemini, a stored Gemini CLI account for this agent (default: the project's, then this machine's default)")
 	f.StringToStringVar(&req.OpenCodeAccounts, "opencode-account", nil, "with --ai opencode, a stored OpenCode account for a provider, as provider=account; repeat it for several (default: the project's, then each provider's default)")
 	f.StringVar(&req.GitHubAccount, "github-account", "", "a stored GitHub account for this agent (default: the project's, then this machine's default, then none)")
 	f.BoolVar(&queue, "queue", false, "accepted and ignored: every agent starts at once")
@@ -238,6 +257,9 @@ func newCreateCmd(a *app) *cobra.Command {
 	_ = f.MarkHidden("queue")
 	_ = f.MarkHidden("size")
 	f.StringVar(&req.Task, "task", "", "its first message, sent once it's ready: what to do")
+	f.StringVar(&goal, "goal", "", "experimental (Settings → Experimental): what done looks like; after each turn AgentBox runs the --goal-check checks and sends the agent back until they pass")
+	f.StringArrayVar(&goalChecks, "goal-check", nil, "with --goal: pr_open, ci_green (its pull request's checks all passed), or a shell command that must exit 0 in its worktree; repeat it for several")
+	f.IntVar(&goalBudget, "goal-budget", 0, "with --goal: the most times the agent is sent back (default 10)")
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
 	f.BoolVar(&req.Clean, "clean", false, "start from the base image even if the project has a saved base")
 	f.BoolVar(&req.CatchUp, "catch-up", false, "bring the machine up to the current base image's packages and agent tools before its task: how a project base is refreshed")
@@ -272,7 +294,7 @@ func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	if ag.ClaudeAccount != "" {
 		_, _ = fmt.Fprintf(w, "  account\t%s (Claude Code)\n", ag.ClaudeAccount)
 	}
-	if account := cmp.Or(ag.CodexAccount, ag.CursorAccount, describeAccountMap(ag.OpenCodeAccounts)); account != "" {
+	if account := cmp.Or(ag.CodexAccount, ag.CursorAccount, ag.GeminiAccount, describeAccountMap(ag.OpenCodeAccounts)); account != "" {
 		_, _ = fmt.Fprintf(w, "  account\t%s (%s)\n", account, describeAI(ag.AI, true))
 	}
 	if ag.GitHubAccount != "" {

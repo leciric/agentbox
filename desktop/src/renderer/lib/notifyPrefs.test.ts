@@ -6,7 +6,7 @@ const noon = new Date(2026, 9, 14, 12, 0).getTime();
 
 test('everything is on by default, and only what needs you has a switch', () => {
   const p = defaults();
-  assert.deepEqual([...kinds], ['review', 'question', 'error']);
+  assert.deepEqual([...kinds], ['review', 'question', 'error', 'session']);
   for (const k of kinds) assert.equal(p.kinds[k].system && p.kinds[k].sound, true);
   assert.equal(dndActive(p, noon), false);
   assert.equal(modeOf(p), 'on');
@@ -30,7 +30,7 @@ test('the chime’s old switch still decides the review sound until something is
 test('what was stored for finishing carries over to Ready to review', () => {
   const p = parsePrefs(JSON.stringify({ kinds: { finished: { sound: false, system: false }, ci: { sound: false } } }));
   assert.deepEqual(p.kinds.review, { sound: false, system: false });
-  assert.deepEqual(Object.keys(p.kinds).sort(), ['error', 'question', 'review']);
+  assert.deepEqual(Object.keys(p.kinds).sort(), ['error', 'question', 'review', 'session']);
   // Its own entry wins once there is one.
   assert.equal(parsePrefs(JSON.stringify({ kinds: { finished: { sound: false }, review: { sound: true } } })).kinds.review.sound, true);
 });

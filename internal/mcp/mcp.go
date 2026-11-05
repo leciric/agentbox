@@ -59,12 +59,18 @@ type Server struct {
 	Name    string
 	Version string
 	Tools   []Tool
+	// LoadTools, when set, makes Tools while initialize is answered, for a
+	// server whose tools ask the daemon about themselves: a client gives up on
+	// a server that doesn't answer initialize in time, and never asks again.
+	// Listing and calling tools wait for it.
+	LoadTools func() []Tool
 	// Instructions, when set, tell the client how to use the server's tools
 	// together; a client may give them to its model.
 	Instructions string
 
-	mu  sync.Mutex
-	out *bufio.Writer
+	mu     sync.Mutex
+	out    *bufio.Writer
+	loaded chan struct{}
 
 	// calls are the waiting tools' calls still running, by request ID, to be
 	// cancelled when the client says so.
@@ -99,6 +105,13 @@ const (
 func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	s.out = bufio.NewWriter(out)
 	s.calls = map[string]context.CancelFunc{}
+	if s.LoadTools != nil {
+		s.loaded = make(chan struct{})
+		go func() {
+			s.Tools = s.LoadTools()
+			close(s.loaded)
+		}()
+	}
 	// The session is over when the input ends: every call still waiting goes
 	// with it.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -150,8 +163,8 @@ func (s *Server) handle(msg message) (any, *rpcError) {
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
-		tools := make([]map[string]any, 0, len(s.Tools))
-		for _, t := range s.Tools {
+		tools := make([]map[string]any, 0, len(s.tools()))
+		for _, t := range s.tools() {
 			schema := t.Schema
 			if schema == nil {
 				schema = map[string]any{"type": "object", "properties": map[string]any{}}
@@ -167,7 +180,7 @@ func (s *Server) handle(msg message) (any, *rpcError) {
 		if err := json.Unmarshal(msg.Params, &call); err != nil {
 			return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
 		}
-		for _, t := range s.Tools {
+		for _, t := range s.tools() {
 			if t.Name != call.Name {
 				continue
 			}
@@ -198,12 +211,20 @@ func (s *Server) waitingTool(msg message) (Tool, json.RawMessage, bool) {
 	if json.Unmarshal(msg.Params, &call) != nil {
 		return Tool{}, nil, false
 	}
-	for _, t := range s.Tools {
+	for _, t := range s.tools() {
 		if t.Name == call.Name && t.Wait != nil {
 			return t, call.Arguments, true
 		}
 	}
 	return Tool{}, nil, false
+}
+
+// tools are the server's tools, once LoadTools has made them.
+func (s *Server) tools() []Tool {
+	if s.loaded != nil {
+		<-s.loaded
+	}
+	return s.Tools
 }
 
 // startCall runs a waiting tool's call alongside the session, and answers it

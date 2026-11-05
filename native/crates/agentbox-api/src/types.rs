@@ -15,6 +15,7 @@ pub struct Project {
     #[serde(rename = "envFiles", deserialize_with = "nullable")]
     pub env_files: Vec<String>,
     pub android: bool,
+    pub ios: bool,
     #[serde(rename = "claudeAccount")]
     pub claude_account: String,
     #[serde(rename = "claudeAccounts", deserialize_with = "nullable")]
@@ -27,9 +28,19 @@ pub struct Project {
     pub open_code_accounts: BTreeMap<String, String>,
     #[serde(rename = "cursorAccount")]
     pub cursor_account: String,
+    #[serde(rename = "geminiAccount")]
+    pub gemini_account: String,
     pub autonomy: String,
     #[serde(rename = "agentModel")]
     pub agent_model: String,
+    #[serde(rename = "agentTool")]
+    pub agent_tool: String,
+    #[serde(rename = "agentEffort")]
+    pub agent_effort: String,
+    #[serde(rename = "agentContextWindow")]
+    pub agent_context_window: String,
+    #[serde(rename = "agentMode")]
+    pub agent_mode: String,
     #[serde(rename = "branchPrefix")]
     pub branch_prefix: String,
     #[serde(rename = "finishNotices")]
@@ -50,6 +61,14 @@ pub struct Project {
     pub pr_watch: String,
     #[serde(rename = "syncBase")]
     pub sync_base: bool,
+    #[serde(rename = "settleHours")]
+    pub settle_hours: i64,
+    #[serde(rename = "fullTestSuite")]
+    pub full_test_suite: bool,
+    #[serde(rename = "pickUpIssues")]
+    pub pick_up_issues: bool,
+    #[serde(rename = "pullRequests")]
+    pub pull_requests: bool,
     #[serde(rename = "prWatching")]
     pub pr_watching: bool,
     #[serde(rename = "createdAt")]
@@ -84,9 +103,20 @@ pub struct ProjectIcon {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct ProjectIconCandidate {
+    pub from: String,
+    pub image: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub chosen: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SetProjectIconRequest {
     #[serde(skip_serializing_if = "is_empty")]
     pub emoji: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub candidate: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub image: String,
 }
@@ -111,6 +141,39 @@ pub struct AddProjectRequest {
     pub open_code_accounts: BTreeMap<String, String>,
     #[serde(rename = "cursorAccount", skip_serializing_if = "is_empty")]
     pub cursor_account: String,
+    #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
+    pub gemini_account: String,
+    #[serde(rename = "copyToLinux", skip_serializing_if = "is_empty")]
+    pub copy_to_linux: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub create: bool,
+    #[serde(rename = "commitFiles", skip_serializing_if = "is_empty")]
+    pub commit_files: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CloneProjectRequest {
+    pub url: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub name: String,
+    #[serde(rename = "claudeAccount", skip_serializing_if = "is_empty")]
+    pub claude_account: String,
+    #[serde(rename = "githubAccount", skip_serializing_if = "is_empty")]
+    pub github_account: String,
+    #[serde(rename = "codexAccount", skip_serializing_if = "is_empty")]
+    pub codex_account: String,
+    #[serde(
+        rename = "openCodeAccounts",
+        deserialize_with = "nullable",
+        skip_serializing_if = "is_empty"
+    )]
+    pub open_code_accounts: BTreeMap<String, String>,
+    #[serde(rename = "cursorAccount", skip_serializing_if = "is_empty")]
+    pub cursor_account: String,
+    #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
+    pub gemini_account: String,
     #[serde(rename = "copyToLinux", skip_serializing_if = "is_empty")]
     pub copy_to_linux: bool,
     #[serde(skip_serializing_if = "is_empty")]
@@ -136,6 +199,8 @@ pub struct UpdateProjectRequest {
     pub open_code_accounts: Option<BTreeMap<String, String>>,
     #[serde(rename = "cursorAccount", skip_serializing_if = "Option::is_none")]
     pub cursor_account: Option<String>,
+    #[serde(rename = "geminiAccount", skip_serializing_if = "Option::is_none")]
+    pub gemini_account: Option<String>,
     #[serde(rename = "moveClaudeAgents", skip_serializing_if = "is_empty")]
     pub move_claude_agents: bool,
     #[serde(rename = "moveGitHubAgents", skip_serializing_if = "is_empty")]
@@ -144,6 +209,14 @@ pub struct UpdateProjectRequest {
     pub autonomy: Option<String>,
     #[serde(rename = "agentModel", skip_serializing_if = "Option::is_none")]
     pub agent_model: Option<String>,
+    #[serde(rename = "agentTool", skip_serializing_if = "Option::is_none")]
+    pub agent_tool: Option<String>,
+    #[serde(rename = "agentEffort", skip_serializing_if = "Option::is_none")]
+    pub agent_effort: Option<String>,
+    #[serde(rename = "agentContextWindow", skip_serializing_if = "Option::is_none")]
+    pub agent_context_window: Option<String>,
+    #[serde(rename = "agentMode", skip_serializing_if = "Option::is_none")]
+    pub agent_mode: Option<String>,
     #[serde(rename = "branchPrefix", skip_serializing_if = "Option::is_none")]
     pub branch_prefix: Option<String>,
     #[serde(rename = "finishNotices", skip_serializing_if = "Option::is_none")]
@@ -164,6 +237,14 @@ pub struct UpdateProjectRequest {
     pub pr_watch: Option<String>,
     #[serde(rename = "syncBase", skip_serializing_if = "Option::is_none")]
     pub sync_base: Option<bool>,
+    #[serde(rename = "settleHours", skip_serializing_if = "Option::is_none")]
+    pub settle_hours: Option<i64>,
+    #[serde(rename = "fullTestSuite", skip_serializing_if = "Option::is_none")]
+    pub full_test_suite: Option<bool>,
+    #[serde(rename = "pickUpIssues", skip_serializing_if = "Option::is_none")]
+    pub pick_up_issues: Option<bool>,
+    #[serde(rename = "pullRequests", skip_serializing_if = "Option::is_none")]
+    pub pull_requests: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -243,6 +324,12 @@ pub struct Settings {
     pub default_lead_model: String,
     #[serde(rename = "defaultLeadContextWindow")]
     pub default_lead_context_window: String,
+    #[serde(rename = "cloneFolder")]
+    pub clone_folder: String,
+    #[serde(rename = "defaultLeadEffort")]
+    pub default_lead_effort: String,
+    #[serde(rename = "defaultLeadMode")]
+    pub default_lead_mode: String,
     #[serde(rename = "claudeModelChoices", deserialize_with = "nullable")]
     pub claude_model_choices: Vec<ChatOptionChoice>,
     #[serde(rename = "claudeContextWindows", deserialize_with = "nullable")]
@@ -253,10 +340,14 @@ pub struct Settings {
     pub default_claude_effort: String,
     #[serde(rename = "claudeEffortChoices", deserialize_with = "nullable")]
     pub claude_effort_choices: Vec<ChatOptionChoice>,
+    #[serde(rename = "claudeModeChoices", deserialize_with = "nullable")]
+    pub claude_mode_choices: Vec<ChatOptionChoice>,
     #[serde(rename = "openCodeModelChoices", deserialize_with = "nullable")]
     pub open_code_model_choices: Vec<ChatOptionChoice>,
     #[serde(rename = "openCodeReady")]
     pub open_code_ready: bool,
+    #[serde(rename = "openCodeVersion")]
+    pub open_code_version: String,
     #[serde(rename = "cursorModelChoices", deserialize_with = "nullable")]
     pub cursor_model_choices: Vec<ChatOptionChoice>,
     #[serde(rename = "cursorReady")]
@@ -265,12 +356,28 @@ pub struct Settings {
     pub default_cursor_model: String,
     #[serde(rename = "defaultCursorEffort")]
     pub default_cursor_effort: String,
+    #[serde(rename = "geminiModelChoices", deserialize_with = "nullable")]
+    pub gemini_model_choices: Vec<ChatOptionChoice>,
+    #[serde(rename = "geminiReady")]
+    pub gemini_ready: bool,
+    #[serde(rename = "defaultGeminiModel")]
+    pub default_gemini_model: String,
+    #[serde(rename = "lastAgentPick")]
+    pub last_agent_pick: AgentPick,
+    #[serde(rename = "firstRun")]
+    pub first_run: bool,
     #[serde(rename = "resumeAfterLimit")]
     pub resume_after_limit: bool,
     #[serde(rename = "continueAfterRestart")]
     pub continue_after_restart: bool,
     #[serde(rename = "creditAITool")]
     pub credit_ai_tool: bool,
+    #[serde(rename = "builtWithBadge")]
+    pub built_with_badge: bool,
+    #[serde(rename = "builtWithBadgeOffer")]
+    pub built_with_badge_offer: bool,
+    #[serde(rename = "seenFeatures", deserialize_with = "nullable")]
+    pub seen_features: Vec<String>,
     #[serde(rename = "claudeCompactWindow")]
     pub claude_compact_window: i64,
     #[serde(rename = "updateCheck")]
@@ -279,12 +386,20 @@ pub struct Settings {
     pub usage_stats: bool,
     #[serde(rename = "agentGPU")]
     pub agent_gpu: bool,
+    #[serde(rename = "blockFullSuite")]
+    pub block_full_suite: bool,
     #[serde(rename = "vmGPU")]
     pub vm_gpu: VMGPU,
     #[serde(rename = "errorReports")]
     pub error_reports: bool,
     #[serde(rename = "prWatch")]
     pub pr_watch: bool,
+    #[serde(rename = "mergeWhenGreen")]
+    pub merge_when_green: bool,
+    #[serde(rename = "agentGoals")]
+    pub agent_goals: bool,
+    #[serde(rename = "agentFreeze")]
+    pub agent_freeze: bool,
     #[serde(rename = "mediaRetention")]
     pub media_retention: String,
     pub language: String,
@@ -297,14 +412,28 @@ pub struct Settings {
     pub disk_floor_percent: f64,
     #[serde(rename = "autoStopIdle")]
     pub auto_stop_idle: bool,
+    #[serde(rename = "removeStopped")]
+    pub remove_stopped: bool,
+    #[serde(rename = "removeStoppedDays")]
+    pub remove_stopped_days: i64,
     #[serde(rename = "dockerPruneOnStop")]
     pub docker_prune_on_stop: bool,
     #[serde(rename = "idleTimeSeconds")]
     pub idle_time_seconds: i64,
+    #[serde(rename = "idleReclaim")]
+    pub idle_reclaim: bool,
+    #[serde(rename = "idleFreezeSeconds")]
+    pub idle_freeze_seconds: i64,
+    #[serde(rename = "idleStopSeconds")]
+    pub idle_stop_seconds: i64,
     #[serde(rename = "leadRecheck")]
     pub lead_recheck: bool,
     #[serde(rename = "leadRecheckMinutes")]
     pub lead_recheck_minutes: i64,
+    #[serde(rename = "leadSleep")]
+    pub lead_sleep: bool,
+    #[serde(rename = "leadSleepMinutes")]
+    pub lead_sleep_minutes: i64,
     #[serde(rename = "imageCache")]
     pub image_cache: bool,
     #[serde(rename = "imageCacheMaxBytes")]
@@ -321,8 +450,18 @@ pub struct Settings {
     pub default_package_cache_max_bytes: i64,
     #[serde(rename = "packageCacheBytes")]
     pub package_cache_bytes: i64,
+    #[serde(rename = "localNodeModules")]
+    pub local_node_modules: bool,
     #[serde(rename = "claudeCodeUpdate")]
     pub claude_code_update: ToolAutoUpdate,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentPick {
+    pub ai: String,
+    pub model: String,
+    pub effort: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -363,11 +502,17 @@ pub struct UpdateSettingsRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub default_lead_context_window: Option<String>,
+    #[serde(rename = "cloneFolder", skip_serializing_if = "Option::is_none")]
+    pub clone_folder: Option<String>,
     #[serde(
         rename = "defaultClaudeEffort",
         skip_serializing_if = "Option::is_none"
     )]
     pub default_claude_effort: Option<String>,
+    #[serde(rename = "defaultLeadEffort", skip_serializing_if = "Option::is_none")]
+    pub default_lead_effort: Option<String>,
+    #[serde(rename = "defaultLeadMode", skip_serializing_if = "Option::is_none")]
+    pub default_lead_mode: Option<String>,
     #[serde(rename = "defaultCursorModel", skip_serializing_if = "Option::is_none")]
     pub default_cursor_model: Option<String>,
     #[serde(
@@ -375,6 +520,14 @@ pub struct UpdateSettingsRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub default_cursor_effort: Option<String>,
+    #[serde(rename = "defaultGeminiModel", skip_serializing_if = "Option::is_none")]
+    pub default_gemini_model: Option<String>,
+    #[serde(rename = "lastAgentPick", skip_serializing_if = "Option::is_none")]
+    pub last_agent_pick: Option<AgentPick>,
+    #[serde(rename = "firstRunDone", skip_serializing_if = "Option::is_none")]
+    pub first_run_done: Option<bool>,
+    #[serde(rename = "openCodeVersion", skip_serializing_if = "Option::is_none")]
+    pub open_code_version: Option<String>,
     #[serde(rename = "resumeAfterLimit", skip_serializing_if = "Option::is_none")]
     pub resume_after_limit: Option<bool>,
     #[serde(
@@ -384,6 +537,15 @@ pub struct UpdateSettingsRequest {
     pub continue_after_restart: Option<bool>,
     #[serde(rename = "creditAITool", skip_serializing_if = "Option::is_none")]
     pub credit_ai_tool: Option<bool>,
+    #[serde(rename = "builtWithBadge", skip_serializing_if = "Option::is_none")]
+    pub built_with_badge: Option<bool>,
+    #[serde(
+        rename = "dismissBuiltWithBadgeOffer",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub dismiss_built_with_badge_offer: Option<bool>,
+    #[serde(rename = "seeFeature", skip_serializing_if = "Option::is_none")]
+    pub see_feature: Option<String>,
     #[serde(
         rename = "claudeCompactWindow",
         skip_serializing_if = "Option::is_none"
@@ -397,10 +559,18 @@ pub struct UpdateSettingsRequest {
     pub usage_stats: Option<bool>,
     #[serde(rename = "agentGPU", skip_serializing_if = "Option::is_none")]
     pub agent_gpu: Option<bool>,
+    #[serde(rename = "blockFullSuite", skip_serializing_if = "Option::is_none")]
+    pub block_full_suite: Option<bool>,
     #[serde(rename = "errorReports", skip_serializing_if = "Option::is_none")]
     pub error_reports: Option<bool>,
     #[serde(rename = "prWatch", skip_serializing_if = "Option::is_none")]
     pub pr_watch: Option<bool>,
+    #[serde(rename = "mergeWhenGreen", skip_serializing_if = "Option::is_none")]
+    pub merge_when_green: Option<bool>,
+    #[serde(rename = "agentGoals", skip_serializing_if = "Option::is_none")]
+    pub agent_goals: Option<bool>,
+    #[serde(rename = "agentFreeze", skip_serializing_if = "Option::is_none")]
+    pub agent_freeze: Option<bool>,
     #[serde(rename = "mediaRetention", skip_serializing_if = "Option::is_none")]
     pub media_retention: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -409,14 +579,28 @@ pub struct UpdateSettingsRequest {
     pub timezone: Option<String>,
     #[serde(rename = "autoStopIdle", skip_serializing_if = "Option::is_none")]
     pub auto_stop_idle: Option<bool>,
+    #[serde(rename = "removeStopped", skip_serializing_if = "Option::is_none")]
+    pub remove_stopped: Option<bool>,
+    #[serde(rename = "removeStoppedDays", skip_serializing_if = "Option::is_none")]
+    pub remove_stopped_days: Option<i64>,
     #[serde(rename = "dockerPruneOnStop", skip_serializing_if = "Option::is_none")]
     pub docker_prune_on_stop: Option<bool>,
     #[serde(rename = "idleTimeSeconds", skip_serializing_if = "Option::is_none")]
     pub idle_time_seconds: Option<i64>,
+    #[serde(rename = "idleReclaim", skip_serializing_if = "Option::is_none")]
+    pub idle_reclaim: Option<bool>,
+    #[serde(rename = "idleFreezeSeconds", skip_serializing_if = "Option::is_none")]
+    pub idle_freeze_seconds: Option<i64>,
+    #[serde(rename = "idleStopSeconds", skip_serializing_if = "Option::is_none")]
+    pub idle_stop_seconds: Option<i64>,
     #[serde(rename = "leadRecheck", skip_serializing_if = "Option::is_none")]
     pub lead_recheck: Option<bool>,
     #[serde(rename = "leadRecheckMinutes", skip_serializing_if = "Option::is_none")]
     pub lead_recheck_minutes: Option<i64>,
+    #[serde(rename = "leadSleep", skip_serializing_if = "Option::is_none")]
+    pub lead_sleep: Option<bool>,
+    #[serde(rename = "leadSleepMinutes", skip_serializing_if = "Option::is_none")]
+    pub lead_sleep_minutes: Option<i64>,
     #[serde(rename = "diskFloorMin", skip_serializing_if = "Option::is_none")]
     pub disk_floor_min: Option<i64>,
     #[serde(rename = "diskFloorPercent", skip_serializing_if = "Option::is_none")]
@@ -436,6 +620,8 @@ pub struct UpdateSettingsRequest {
     pub package_cache_max_bytes: Option<i64>,
     #[serde(rename = "clearPackageCache", skip_serializing_if = "is_empty")]
     pub clear_package_cache: bool,
+    #[serde(rename = "localNodeModules", skip_serializing_if = "Option::is_none")]
+    pub local_node_modules: Option<bool>,
     #[serde(
         rename = "claudeCodeAutoUpdate",
         skip_serializing_if = "Option::is_none"
@@ -474,11 +660,15 @@ pub struct Agent {
     pub open_code_accounts: BTreeMap<String, String>,
     #[serde(rename = "cursorAccount", skip_serializing_if = "is_empty")]
     pub cursor_account: String,
+    #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
+    pub gemini_account: String,
     #[serde(rename = "githubAccount")]
     pub github_account: String,
     pub interface: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub chat: String,
+    #[serde(rename = "leadSession", skip_serializing_if = "is_empty")]
+    pub lead_session: String,
     #[serde(rename = "stalledSince", skip_serializing_if = "Option::is_none")]
     pub stalled_since: Option<String>,
     #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
@@ -492,8 +682,14 @@ pub struct Agent {
     #[serde(rename = "changesRequested", skip_serializing_if = "is_empty")]
     pub changes_requested: String,
     pub state: String,
+    #[serde(rename = "waitingForImage", skip_serializing_if = "is_empty")]
+    pub waiting_for_image: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemoryHold>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub reclaimed: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal: Option<AgentGoal>,
     pub ip: String,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -554,6 +750,10 @@ pub struct FileContent {
     pub text: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub truncated: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub pdf: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub sqlite: bool,
     #[serde(rename = "tooLarge", skip_serializing_if = "is_empty")]
     pub too_large: bool,
     #[serde(skip_serializing_if = "is_empty")]
@@ -564,6 +764,30 @@ pub struct FileContent {
     pub base_text: String,
     #[serde(rename = "baseMissing", skip_serializing_if = "is_empty")]
     pub base_missing: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SQLiteTable {
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub view: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SQLiteQuery {
+    pub path: String,
+    #[serde(deserialize_with = "nullable")]
+    pub tables: Vec<SQLiteTable>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub table: String,
+    #[serde(deserialize_with = "nullable")]
+    pub columns: Vec<String>,
+    #[serde(deserialize_with = "nullable")]
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub offset: i64,
+    pub total: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -632,6 +856,8 @@ pub struct ContinueArchivedRequest {
 pub struct CreateAgentRequest {
     #[serde(skip_serializing_if = "is_empty")]
     pub task: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub issue: i64,
     pub project: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub name: String,
@@ -666,6 +892,8 @@ pub struct CreateAgentRequest {
     pub open_code_accounts: BTreeMap<String, String>,
     #[serde(rename = "cursorAccount", skip_serializing_if = "is_empty")]
     pub cursor_account: String,
+    #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
+    pub gemini_account: String,
     #[serde(rename = "githubAccount", skip_serializing_if = "is_empty")]
     pub github_account: String,
     #[serde(rename = "noEnv", skip_serializing_if = "is_empty")]
@@ -676,6 +904,8 @@ pub struct CreateAgentRequest {
     pub catch_up: bool,
     #[serde(rename = "finishNotice", skip_serializing_if = "is_empty")]
     pub finish_notice: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal: Option<GoalSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queue: Option<bool>,
     #[serde(skip_serializing_if = "is_empty")]
@@ -870,6 +1100,10 @@ pub struct MemoryHold {
     pub paused: i64,
     #[serde(skip_serializing_if = "is_empty")]
     pub waiting: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub machine: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub ahead: i64,
     pub since: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub why: String,
@@ -881,6 +1115,8 @@ pub struct MemoryHold {
     pub available: i64,
     #[serde(skip_serializing_if = "is_empty")]
     pub total: i64,
+    #[serde(rename = "swapFull", skip_serializing_if = "is_empty")]
+    pub swap_full: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -922,6 +1158,10 @@ pub struct Job {
     pub created_at: String,
     #[serde(rename = "finishedAt", skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub ai: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub notice: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1019,6 +1259,49 @@ pub struct AgentDisk {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct StoppedMachine {
+    pub r#ref: String,
+    pub project: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub title: String,
+    pub branch: String,
+    #[serde(rename = "stoppedSince")]
+    pub stopped_since: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<i64>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub remove: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub keep: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StoppedMachines {
+    pub days: i64,
+    #[serde(deserialize_with = "nullable")]
+    pub machines: Vec<StoppedMachine>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemoveStoppedRequest {
+    #[serde(deserialize_with = "nullable")]
+    pub agents: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemoveStoppedResult {
+    #[serde(deserialize_with = "nullable")]
+    pub removed: Vec<String>,
+    #[serde(deserialize_with = "nullable")]
+    pub kept: Vec<StoppedMachine>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ToolCredential {
     pub agent: String,
     pub tool: String,
@@ -1094,10 +1377,24 @@ pub struct MemoryUsage {
     pub swap_used: i64,
     #[serde(rename = "agentsSwap")]
     pub agents_swap: i64,
+    pub used: i64,
+    #[serde(rename = "fileCache")]
+    pub file_cache: i64,
+    pub leads: i64,
+    pub agentbox: i64,
+    pub kernel: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zram: Option<ZramUsage>,
     #[serde(deserialize_with = "nullable")]
     pub agents: Vec<MemoryUsageAgent>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HostMemory {
+    pub total: i64,
+    pub available: i64,
+    pub cpus: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1173,6 +1470,9 @@ pub struct AuthStatus {
     pub cursor: bool,
     #[serde(rename = "cursorEmail", skip_serializing_if = "is_empty")]
     pub cursor_email: String,
+    pub gemini: bool,
+    #[serde(rename = "geminiEmail", skip_serializing_if = "is_empty")]
+    pub gemini_email: String,
     #[serde(rename = "claudeAccounts", deserialize_with = "nullable")]
     pub claude_accounts: Vec<ClaudeAccount>,
     #[serde(rename = "codexAccounts", deserialize_with = "nullable")]
@@ -1181,6 +1481,8 @@ pub struct AuthStatus {
     pub open_code_accounts: Vec<ToolAccount>,
     #[serde(rename = "cursorAccounts", deserialize_with = "nullable")]
     pub cursor_accounts: Vec<ToolAccount>,
+    #[serde(rename = "geminiAccounts", deserialize_with = "nullable")]
+    pub gemini_accounts: Vec<ToolAccount>,
     pub github: bool,
     #[serde(rename = "githubAccounts", deserialize_with = "nullable")]
     pub github_accounts: Vec<GitHubAccount>,
@@ -1217,6 +1519,10 @@ pub struct AgentChange {
     pub removed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemoryHold>,
+    #[serde(rename = "waitingForImage", skip_serializing_if = "is_empty")]
+    pub waiting_for_image: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub reclaimed: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1521,6 +1827,12 @@ pub struct MediaMeta {
     pub recorded: f64,
     #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
     pub cuts: Vec<MediaCut>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub pair: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub side: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub raw: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1589,6 +1901,10 @@ pub struct ScreenshotRequest {
     pub full_page: bool,
     #[serde(skip_serializing_if = "is_empty")]
     pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub pair: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub side: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1606,6 +1922,12 @@ pub struct RecordRequest {
     pub no_trim: bool,
     #[serde(rename = "wholeDisplay", skip_serializing_if = "is_empty")]
     pub whole_display: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub pair: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub side: String,
+    #[serde(rename = "noEdit", skip_serializing_if = "is_empty")]
+    pub no_edit: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1680,6 +2002,10 @@ pub struct AddMediaRequest {
     pub kind: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub pair: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub side: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1779,6 +2105,36 @@ pub struct ReviewPage {
     #[serde(skip_serializing_if = "is_empty")]
     pub next: String,
     pub total: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkPage {
+    #[serde(deserialize_with = "nullable")]
+    pub items: Vec<WorkItem>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub next: String,
+    pub total: i64,
+    #[serde(deserialize_with = "nullable")]
+    pub counts: BTreeMap<String, i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkItem {
+    pub item: ReviewItem,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub task: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub past: bool,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<AgentReport>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub screenshots: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub recordings: i64,
+    pub at: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1903,6 +2259,8 @@ pub struct ImageStatus {
     #[serde(skip_serializing_if = "is_empty")]
     pub step: String,
     #[serde(skip_serializing_if = "is_empty")]
+    pub progress: String,
+    #[serde(skip_serializing_if = "is_empty")]
     pub error: String,
     pub waiting: i64,
 }
@@ -1965,6 +2323,47 @@ pub struct GitHubTokenRequest {
     pub token: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub account: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GitHubLoginRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub account: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GitHubLogin {
+    pub job: String,
+    pub account: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+    #[serde(rename = "userCode", skip_serializing_if = "is_empty")]
+    pub user_code: String,
+    #[serde(rename = "verificationUri", skip_serializing_if = "is_empty")]
+    pub verification_uri: String,
+    #[serde(rename = "expiresAt", skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub outcome: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub user: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GitHubRepo {
+    #[serde(rename = "fullName")]
+    pub full_name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub description: String,
+    pub private: bool,
+    #[serde(rename = "pushedAt", skip_serializing_if = "is_empty")]
+    pub pushed_at: String,
+    #[serde(rename = "cloneUrl")]
+    pub clone_url: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2086,12 +2485,23 @@ pub struct Secret {
     pub agents: Vec<String>,
     #[serde(skip_serializing_if = "is_empty")]
     pub warning: String,
+    #[serde(rename = "leadManaged")]
+    pub lead_managed: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SetSecretRequest {
     pub value: String,
+    #[serde(rename = "leadManaged", skip_serializing_if = "Option::is_none")]
+    pub lead_managed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecretSettingsRequest {
+    #[serde(rename = "leadManaged")]
+    pub lead_managed: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2265,6 +2675,10 @@ pub struct BrowserProfile {
     pub name: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub keyring: String,
+    #[serde(rename = "appBound", skip_serializing_if = "is_empty")]
+    pub app_bound: bool,
+    #[serde(rename = "profileDir", skip_serializing_if = "is_empty")]
+    pub profile_dir: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2281,6 +2695,31 @@ pub struct ImportFromBrowserRequest {
     pub profile_id: String,
     #[serde(rename = "keyringSecret")]
     pub keyring_secret: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImportedCookie {
+    pub domain: String,
+    pub name: String,
+    pub value: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub expires: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub secure: bool,
+    #[serde(rename = "httpOnly", skip_serializing_if = "is_empty")]
+    pub http_only: bool,
+    #[serde(rename = "sameSite", skip_serializing_if = "is_empty")]
+    pub same_site: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImportDecryptedCookiesRequest {
+    pub source: String,
+    #[serde(deserialize_with = "nullable")]
+    pub cookies: Vec<ImportedCookie>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2333,6 +2772,170 @@ pub struct SnapSendRequest {
     #[serde(skip_serializing_if = "is_empty")]
     pub note: String,
     pub accessibility: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TransferCategory {
+    pub kind: String,
+    pub items: i64,
+    pub size: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceExportPreview {
+    #[serde(deserialize_with = "nullable")]
+    pub projects: Vec<InstanceExportProjectPreview>,
+    #[serde(deserialize_with = "nullable")]
+    pub logins: Vec<InstanceExportLoginPreview>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceExportProjectPreview {
+    pub name: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(deserialize_with = "nullable")]
+    pub categories: Vec<TransferCategory>,
+    pub remote: String,
+    pub branch: String,
+    #[serde(rename = "bundleSize")]
+    pub bundle_size: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceExportLoginPreview {
+    pub kind: String,
+    #[serde(deserialize_with = "nullable")]
+    pub accounts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceExportRequest {
+    pub path: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub passphrase: String,
+    #[serde(rename = "noEncrypt", skip_serializing_if = "is_empty")]
+    pub no_encrypt: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub projects: Vec<InstanceExportProjectChoice>,
+    #[serde(deserialize_with = "nullable")]
+    pub logins: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceExportProjectChoice {
+    pub name: String,
+    #[serde(deserialize_with = "nullable")]
+    pub categories: Vec<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub bundle: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceExportResult {
+    pub path: String,
+    pub size: i64,
+    pub encrypted: bool,
+    pub entries: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceImportInspectRequest {
+    pub path: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub passphrase: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceImportContents {
+    pub path: String,
+    pub encrypted: bool,
+    pub schema: i64,
+    pub app: String,
+    pub id: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(deserialize_with = "nullable")]
+    pub projects: Vec<InstanceImportProjectContents>,
+    #[serde(deserialize_with = "nullable")]
+    pub logins: Vec<TransferCategory>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceImportProjectContents {
+    pub name: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub exists: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub categories: Vec<TransferCategory>,
+    pub remote: String,
+    pub branch: String,
+    pub bundled: bool,
+    pub path: String,
+    pub plan: String,
+    #[serde(rename = "planError", skip_serializing_if = "is_empty")]
+    pub plan_error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceImportRequest {
+    pub path: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub passphrase: String,
+    #[serde(deserialize_with = "nullable")]
+    pub projects: Vec<InstanceImportProjectChoice>,
+    #[serde(deserialize_with = "nullable")]
+    pub logins: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceImportProjectChoice {
+    pub name: String,
+    #[serde(deserialize_with = "nullable")]
+    pub categories: Vec<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceImportReport {
+    #[serde(deserialize_with = "nullable")]
+    pub entries: Vec<InstanceImportEntryReport>,
+    pub added: i64,
+    pub skipped: i64,
+    pub conflicted: i64,
+    #[serde(rename = "projectsAdded", deserialize_with = "nullable")]
+    pub projects_added: Vec<String>,
+    #[serde(rename = "reportPath")]
+    pub report_path: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InstanceImportEntryReport {
+    pub id: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub project: String,
+    pub added: i64,
+    pub skipped: i64,
+    pub conflicted: i64,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2550,6 +3153,8 @@ pub struct PullRequest {
     pub base_branch: String,
     #[serde(rename = "headBranch", skip_serializing_if = "is_empty")]
     pub head_branch: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub fork: bool,
     #[serde(rename = "headSha", skip_serializing_if = "is_empty")]
     pub head_sha: String,
     #[serde(skip_serializing_if = "is_empty")]
@@ -2597,6 +3202,8 @@ pub struct EditLabelsRequest {
 #[serde(default)]
 pub struct GitHubError {
     pub kind: String,
+    #[serde(rename = "resetAt", skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<String>,
     #[serde(skip_serializing_if = "is_empty")]
     pub message: String,
     #[serde(skip_serializing_if = "is_empty")]
@@ -2643,10 +3250,109 @@ pub struct ProjectPullRequests {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Issue {
+    pub number: i64,
+    pub title: String,
+    pub url: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub author: String,
+    #[serde(rename = "authorAvatar", skip_serializing_if = "is_empty")]
+    pub author_avatar: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub labels: Vec<Label>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub comments: i64,
+    #[serde(rename = "createdAt", skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(rename = "updatedAt", skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handed: Option<IssueHandoff>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IssueHandoff {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub agent: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub job: String,
+    #[serde(rename = "agentTitle", skip_serializing_if = "is_empty")]
+    pub agent_title: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub status: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub retired: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub auto: bool,
+    pub at: String,
+    #[serde(rename = "pullRequest", skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<IssuePullRequest>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IssuePullRequest {
+    pub number: i64,
+    pub url: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectIssues {
+    pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub github: String,
+    #[serde(rename = "githubAccount", skip_serializing_if = "is_empty")]
+    pub github_account: String,
+    #[serde(rename = "githubError", skip_serializing_if = "Option::is_none")]
+    pub github_error: Option<GitHubError>,
+    #[serde(rename = "noOrigin", skip_serializing_if = "is_empty")]
+    pub no_origin: bool,
+    #[serde(rename = "nonGitHubRemote", skip_serializing_if = "is_empty")]
+    pub non_git_hub_remote: String,
+    #[serde(deserialize_with = "nullable")]
+    pub issues: Vec<Issue>,
+    #[serde(rename = "pickUpIssues")]
+    pub pick_up_issues: bool,
+    pub label: String,
+    #[serde(rename = "fetchedAt", skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MergePullRequestRequest {
     pub method: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MergeWhenGreenRequest {
+    pub method: String,
+    pub agent: String,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MergeWhenGreen {
+    pub number: i64,
+    pub method: String,
+    pub at: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+    #[serde(rename = "failedAt", skip_serializing_if = "Option::is_none")]
+    pub failed_at: Option<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub waiting: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub detail: String,
+    #[serde(rename = "fixRounds", skip_serializing_if = "is_empty")]
+    pub fix_rounds: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2671,6 +3377,8 @@ pub struct PullRequestDetail {
     pub base_branch: String,
     #[serde(rename = "headBranch", skip_serializing_if = "is_empty")]
     pub head_branch: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub fork: bool,
     #[serde(rename = "headSha", skip_serializing_if = "is_empty")]
     pub head_sha: String,
     #[serde(skip_serializing_if = "is_empty")]
@@ -2782,11 +3490,15 @@ pub struct FleetAgent {
     pub open_code_accounts: BTreeMap<String, String>,
     #[serde(rename = "cursorAccount", skip_serializing_if = "is_empty")]
     pub cursor_account: String,
+    #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
+    pub gemini_account: String,
     #[serde(rename = "githubAccount")]
     pub github_account: String,
     pub interface: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub chat: String,
+    #[serde(rename = "leadSession", skip_serializing_if = "is_empty")]
+    pub lead_session: String,
     #[serde(rename = "stalledSince", skip_serializing_if = "Option::is_none")]
     pub stalled_since: Option<String>,
     #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
@@ -2800,11 +3512,19 @@ pub struct FleetAgent {
     #[serde(rename = "changesRequested", skip_serializing_if = "is_empty")]
     pub changes_requested: String,
     pub state: String,
+    #[serde(rename = "waitingForImage", skip_serializing_if = "is_empty")]
+    pub waiting_for_image: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemoryHold>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub reclaimed: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal: Option<AgentGoal>,
     pub ip: String,
     #[serde(rename = "createdAt")]
     pub created_at: String,
+    #[serde(rename = "sessionTopic", skip_serializing_if = "is_empty")]
+    pub session_topic: String,
     pub changes: AgentChanges,
     pub media: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2835,8 +3555,52 @@ pub struct Fleet {
     pub github_error: Option<GitHubError>,
     #[serde(rename = "pullsFetchedAt", skip_serializing_if = "Option::is_none")]
     pub pulls_fetched_at: Option<String>,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub remote: Vec<RemoteAgent>,
     #[serde(rename = "pullsRefreshing", skip_serializing_if = "is_empty")]
     pub pulls_refreshing: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemoteAgent {
+    pub machine: String,
+    #[serde(rename = "machineId")]
+    pub machine_id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub title: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub branch: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub summary: String,
+    #[serde(rename = "prUrl", skip_serializing_if = "is_empty")]
+    pub pr_url: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Machine {
+    pub id: String,
+    pub name: String,
+    pub online: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub hostname: String,
+    #[serde(rename = "hasProject")]
+    pub has_project: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemoteAgentsChange {
+    pub project: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2990,6 +3754,8 @@ pub struct ReviewItem {
     pub title: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub branch: String,
+    #[serde(rename = "baseRef", skip_serializing_if = "is_empty")]
+    pub base_ref: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub ai: String,
     #[serde(skip_serializing_if = "is_empty")]
@@ -3007,6 +3773,8 @@ pub struct ReviewItem {
     pub reviewed_at: Option<String>,
     #[serde(rename = "machineKept", skip_serializing_if = "is_empty")]
     pub machine_kept: bool,
+    #[serde(rename = "mergeWhenGreen", skip_serializing_if = "Option::is_none")]
+    pub merge_when_green: Option<MergeWhenGreen>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3081,6 +3849,9 @@ pub struct AndroidStatus {
     pub image: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub device: String,
+    pub gpu: bool,
+    #[serde(rename = "gpuProblem", skip_serializing_if = "is_empty")]
+    pub gpu_problem: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3108,6 +3879,102 @@ pub struct AndroidInstallResult {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct IOSStatus {
+    pub available: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub problem: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub xcode: String,
+    #[serde(deserialize_with = "nullable")]
+    pub devices: Vec<IOSDevice>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub device: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IOSDevice {
+    pub udid: String,
+    pub name: String,
+    pub runtime: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IOSDeviceRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub device: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IOSInput {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub device: String,
+    pub r#type: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub phase: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub x: f64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub y: f64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub x2: f64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub y2: f64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub pixels: bool,
+    #[serde(rename = "durationMs", skip_serializing_if = "is_empty")]
+    pub duration_ms: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub key: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub modifiers: Vec<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub text: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub button: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IOSInstallRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub device: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IOSLaunchRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub device: String,
+    #[serde(rename = "bundleId")]
+    pub bundle_id: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub args: Vec<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub terminate: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IOSOpenURLRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub device: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IOSResult {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub output: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HubUser {
     pub id: String,
     pub email: String,
@@ -3116,13 +3983,11 @@ pub struct HubUser {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct HubSignupRequest {
-    pub email: String,
+pub struct HubInfo {
+    pub version: String,
+    pub claimed: bool,
     #[serde(skip_serializing_if = "is_empty")]
-    pub name: String,
-    pub password: String,
-    #[serde(skip_serializing_if = "is_empty")]
-    pub label: String,
+    pub passwords: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3136,11 +4001,94 @@ pub struct HubLoginRequest {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct HubSetupRequest {
+    pub secret: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HubSession {
     pub token: String,
     pub user: HubUser,
     #[serde(rename = "expiresAt")]
     pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HubPairRequest {
+    pub kind: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub hostname: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HubPairing {
+    pub secret: String,
+    pub code: String,
+    #[serde(rename = "approveURL")]
+    pub approve_url: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+    pub interval: i64,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub qr: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HubPairTokenRequest {
+    pub secret: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HubPairResult {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<HubSession>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment: Option<HubEnvironmentToken>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HubPairingInfo {
+    pub code: String,
+    pub kind: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub name: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub hostname: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub version: String,
+    pub address: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HubDevice {
+    pub id: String,
+    pub label: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "lastSeenAt", skip_serializing_if = "is_empty")]
+    pub last_seen_at: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub current: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3159,6 +4107,10 @@ pub struct HubEnvironment {
     pub hostname: String,
     #[serde(rename = "createdAt")]
     pub created_at: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub transport: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub address: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3185,6 +4137,8 @@ pub struct RemoteStatus {
     pub since: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pairing: Option<RemotePairing>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3192,6 +4146,29 @@ pub struct RemoteStatus {
 pub struct RemoteConnectRequest {
     pub hub: String,
     pub token: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemotePairRequest {
+    pub hub: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RemotePairing {
+    pub hub: String,
+    pub code: String,
+    #[serde(rename = "approveURL")]
+    pub approve_url: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub qr: Vec<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3206,6 +4183,8 @@ pub struct UsageStatsPending {
     pub events: String,
     #[serde(rename = "eventsWaiting")]
     pub events_waiting: i64,
+    pub health: String,
+    pub setup: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3216,6 +4195,8 @@ pub struct LANStatus {
     pub listening: bool,
     #[serde(skip_serializing_if = "is_empty")]
     pub error: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub warning: String,
     #[serde(deserialize_with = "nullable")]
     pub urls: Vec<String>,
     pub tunnel: LANTunnel,
@@ -3239,6 +4220,10 @@ pub struct LANTunnel {
     pub hostname: String,
     #[serde(rename = "namedHostname", skip_serializing_if = "is_empty")]
     pub named_hostname: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub transport: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub tailnet: String,
     pub state: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub url: String,
@@ -3259,6 +4244,34 @@ pub struct LANPhone {
     pub last_addr: String,
     #[serde(deserialize_with = "nullable")]
     pub scopes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PhonePush {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub token: String,
+    pub registered: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub kinds: Vec<String>,
+    #[serde(rename = "quietFrom")]
+    pub quiet_from: i64,
+    #[serde(rename = "quietTo")]
+    pub quiet_to: i64,
+    #[serde(rename = "timeZone", skip_serializing_if = "is_empty")]
+    pub time_zone: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PhonePushTest {
+    pub sent: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+    pub title: String,
+    pub body: String,
+    #[serde(deserialize_with = "nullable")]
+    pub data: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3295,6 +4308,8 @@ pub struct LANHostReport {
     pub listening: bool,
     #[serde(skip_serializing_if = "is_empty")]
     pub error: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub warning: String,
     #[serde(deserialize_with = "nullable")]
     pub addresses: Vec<String>,
 }
@@ -3490,6 +4505,8 @@ pub struct ChatItem {
     #[serde(skip_serializing_if = "is_empty")]
     pub hidden: bool,
     #[serde(skip_serializing_if = "is_empty")]
+    pub to: String,
+    #[serde(skip_serializing_if = "is_empty")]
     pub streaming: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool: Option<ChatTool>,
@@ -3503,6 +4520,8 @@ pub struct ChatItem {
     pub subagent: Option<ChatSubagent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ChatCompaction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal: Option<AgentGoal>,
     #[serde(skip_serializing_if = "is_empty")]
     pub handoff: String,
     #[serde(rename = "projectMessage", skip_serializing_if = "Option::is_none")]
@@ -3597,6 +4616,8 @@ pub struct ChatPermission {
     pub detail: String,
     #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
     pub diffs: Vec<ChatDiff>,
+    #[serde(rename = "planApprove", skip_serializing_if = "is_empty")]
+    pub plan_approve: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3605,6 +4626,8 @@ pub struct ChatPermissionOption {
     pub id: String,
     pub name: String,
     pub kind: String,
+    #[serde(rename = "modeKind", skip_serializing_if = "is_empty")]
+    pub mode_kind: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3623,6 +4646,47 @@ pub struct ChatCompaction {
     pub waiting: i64,
     #[serde(skip_serializing_if = "is_empty")]
     pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentGoal {
+    pub objective: String,
+    pub source: String,
+    pub status: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub checks: Vec<GoalCheck>,
+    pub checked: i64,
+    #[serde(rename = "lastUnmet", skip_serializing_if = "is_empty")]
+    pub last_unmet: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub budget: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub continuations: i64,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GoalSpec {
+    pub objective: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub checks: Vec<GoalCheck>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub budget: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GoalCheck {
+    pub kind: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub met: Option<bool>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3646,6 +4710,10 @@ pub struct ChatScheduledRun {
     pub run: String,
     pub title: String,
     pub trigger: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub event: String,
+    #[serde(rename = "eventUrl", skip_serializing_if = "is_empty")]
+    pub event_url: String,
     #[serde(rename = "dueAt", skip_serializing_if = "Option::is_none")]
     pub due_at: Option<String>,
     #[serde(skip_serializing_if = "is_empty")]
@@ -3665,6 +4733,10 @@ pub struct Schedule {
     pub title: String,
     pub task: String,
     pub kind: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub event: String,
+    #[serde(rename = "eventLabel", skip_serializing_if = "is_empty")]
+    pub event_label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at: Option<String>,
     #[serde(rename = "everyMinutes", skip_serializing_if = "is_empty")]
@@ -3706,6 +4778,10 @@ pub struct ScheduleRun {
     #[serde(skip_serializing_if = "is_empty")]
     pub title: String,
     pub trigger: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub event: String,
+    #[serde(rename = "eventUrl", skip_serializing_if = "is_empty")]
+    pub event_url: String,
     #[serde(rename = "dueAt", skip_serializing_if = "Option::is_none")]
     pub due_at: Option<String>,
     #[serde(rename = "ranAt")]
@@ -3740,6 +4816,10 @@ pub struct ScheduleRequest {
     pub every: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cron: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3798,6 +4878,8 @@ pub struct ChatMessageRequest {
     pub images: Vec<ChatImageUpload>,
     #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
     pub files: Vec<ChatFileUpload>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub to: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3885,6 +4967,8 @@ pub struct ChatAppend {
 #[serde(default)]
 pub struct ProjectChat {
     pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub session: String,
     pub r#ref: String,
     pub started: bool,
     #[serde(skip_serializing_if = "is_empty")]
@@ -3894,6 +4978,155 @@ pub struct ProjectChat {
     pub chat: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last: Option<ChatLine>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSession {
+    pub project: String,
+    pub id: String,
+    pub r#ref: String,
+    pub topic: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub untitled: bool,
+    pub color: String,
+    pub chat: String,
+    pub agents: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last: Option<ChatLine>,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "activeAt")]
+    pub active_at: String,
+    #[serde(rename = "closedAt", skip_serializing_if = "Option::is_none")]
+    pub closed_at: Option<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub status: String,
+    #[serde(rename = "needsYou", skip_serializing_if = "is_empty")]
+    pub needs_you: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub questions: i64,
+    #[serde(rename = "agentsWorking", skip_serializing_if = "is_empty")]
+    pub agents_working: i64,
+    #[serde(rename = "seenAt", skip_serializing_if = "Option::is_none")]
+    pub seen_at: Option<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub unread: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub settled: bool,
+    #[serde(rename = "snoozedUntil", skip_serializing_if = "Option::is_none")]
+    pub snoozed_until: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<LeadSessionParent>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub pinned: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionParent {
+    pub session: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub item: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub topic: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub closed: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionFork {
+    pub session: String,
+    pub item: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NewLeadSessionRequest {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub topic: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub from: String,
+    #[serde(rename = "continueFrom", skip_serializing_if = "is_empty")]
+    pub continue_from: String,
+    #[serde(rename = "forkFrom", skip_serializing_if = "Option::is_none")]
+    pub fork_from: Option<LeadSessionFork>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionPatch {
+    #[serde(skip_serializing_if = "is_empty")]
+    pub topic: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentSessionRequest {
+    pub session: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionsChange {
+    pub project: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionStatusChange {
+    pub project: String,
+    #[serde(deserialize_with = "nullable")]
+    pub sessions: Vec<LeadSession>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SeeLeadSessionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionSnooze {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionsSettled {
+    pub project: String,
+    #[serde(deserialize_with = "nullable")]
+    pub sessions: Vec<LeadSession>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionOutput {
+    pub project: String,
+    pub session: String,
+    #[serde(deserialize_with = "nullable")]
+    pub agents: Vec<SessionAgent>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionAgent {
+    pub r#ref: String,
+    pub name: String,
+    pub title: String,
+    pub branch: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub archived: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub working: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr: Option<PullRequest>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3908,6 +5141,8 @@ pub struct ChatLine {
 #[serde(default)]
 pub struct ChatCache {
     pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub session: String,
     #[serde(rename = "idleSince", skip_serializing_if = "Option::is_none")]
     pub idle_since: Option<String>,
     #[serde(rename = "ttlSeconds", skip_serializing_if = "is_empty")]
@@ -3991,6 +5226,13 @@ pub struct LeadAccount {
     pub agents: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<ClaudeLimit>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LeadSessionOrder {
+    #[serde(deserialize_with = "nullable")]
+    pub ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -4119,6 +5361,8 @@ pub struct WorkingMemory {
     pub blockers: Vec<String>,
     #[serde(skip_serializing_if = "is_empty")]
     pub notes: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub sessions: BTreeMap<String, String>,
     #[serde(rename = "updatedAt", skip_serializing_if = "is_empty")]
     pub updated_at: String,
 }
@@ -4575,6 +5819,93 @@ pub struct ClaudeLimitWindow {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Recap {
+    pub start: String,
+    pub end: String,
+    pub agents: i64,
+    #[serde(rename = "prsOpened")]
+    pub prs_opened: i64,
+    #[serde(rename = "prsMerged")]
+    pub prs_merged: i64,
+    pub insertions: i64,
+    pub deletions: i64,
+    pub files: i64,
+    #[serde(rename = "workSeconds")]
+    pub work_seconds: i64,
+    #[serde(rename = "awaySeconds")]
+    pub away_seconds: i64,
+    #[serde(deserialize_with = "nullable")]
+    pub days: Vec<RecapDay>,
+    #[serde(deserialize_with = "nullable")]
+    pub hours: Vec<i64>,
+    pub projects: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub busiest: Option<RecapProject>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub longest: Option<RecapAgent>,
+    #[serde(deserialize_with = "nullable")]
+    pub models: Vec<RecapModel>,
+    pub tokens: i64,
+    #[serde(rename = "costUsd")]
+    pub cost_usd: f64,
+    #[serde(rename = "estimatedUsd")]
+    pub estimated_usd: f64,
+    #[serde(rename = "unpricedTokens")]
+    pub unpriced_tokens: i64,
+    pub streak: i64,
+    #[serde(rename = "bestStreak")]
+    pub best_streak: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecapDay {
+    pub date: String,
+    #[serde(rename = "workSeconds")]
+    pub work_seconds: i64,
+    #[serde(rename = "awaySeconds")]
+    pub away_seconds: i64,
+    pub agents: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecapProject {
+    pub project: String,
+    #[serde(rename = "workSeconds")]
+    pub work_seconds: i64,
+    pub agents: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecapAgent {
+    pub project: String,
+    pub agent: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub title: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub ai: String,
+    #[serde(rename = "workSeconds")]
+    pub work_seconds: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecapModel {
+    pub model: String,
+    pub tokens: i64,
+    pub output: i64,
+    #[serde(rename = "costUsd")]
+    pub cost_usd: f64,
+    #[serde(rename = "estimatedUsd")]
+    pub estimated_usd: f64,
+    #[serde(rename = "unpricedTokens")]
+    pub unpriced_tokens: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct VMStatus {
     pub mode: String,
     pub driver: String,
@@ -4604,8 +5935,12 @@ pub struct VMMemory {
     pub min: i64,
     pub cap: i64,
     pub granted: i64,
+    #[serde(rename = "hostReserve", skip_serializing_if = "is_empty")]
+    pub host_reserve: i64,
     pub used: i64,
     pub resident: i64,
+    #[serde(rename = "hostCache")]
+    pub host_cache: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -4639,6 +5974,8 @@ pub struct VMSwap {
     pub size: i64,
     pub total: i64,
     pub used: i64,
+    #[serde(rename = "diskUsed", skip_serializing_if = "is_empty")]
+    pub disk_used: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -4758,6 +6095,10 @@ pub struct SearchHit {
     pub url: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub archived: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub session: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub item: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<Memory>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -4863,6 +6204,8 @@ pub struct FanOutVariant {
     pub open_code_accounts: BTreeMap<String, String>,
     #[serde(rename = "cursorAccount", skip_serializing_if = "is_empty")]
     pub cursor_account: String,
+    #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
+    pub gemini_account: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -4871,6 +6214,8 @@ pub struct FanOutResult {
     pub group: Group,
     #[serde(deserialize_with = "nullable")]
     pub jobs: Vec<Job>,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub notices: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5078,9 +6423,115 @@ pub struct DiagnosticsResources {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct PackageCachePart {
+    pub name: String,
+    pub bytes: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DiagnosticsPackageCache {
+    pub on: bool,
+    pub bytes: i64,
+    #[serde(rename = "maxBytes")]
+    pub max_bytes: i64,
+    #[serde(deserialize_with = "nullable")]
+    pub parts: Vec<PackageCachePart>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ClientSpansRequest {
     #[serde(deserialize_with = "nullable")]
     pub spans: Vec<TraceSpan>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShareReport {
+    pub open: i64,
+    pub limit: i64,
+    pub trims: i64,
+    #[serde(rename = "lastTrim", skip_serializing_if = "Option::is_none")]
+    pub last_trim: Option<String>,
+    pub pinned: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FileCount {
+    pub open: i64,
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DiagnosticsFiles {
+    pub daemon: FileCount,
+    pub system: FileCount,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share: Option<ShareReport>,
+    pub waiting: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DoctorCheck {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub fix: String,
+    #[serde(rename = "autoFix", skip_serializing_if = "is_empty")]
+    pub auto_fix: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub job: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DoctorReport {
+    pub version: String,
+    #[serde(deserialize_with = "nullable")]
+    pub checks: Vec<DoctorCheck>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DoctorFixRequest {
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub checks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DoctorFix {
+    pub id: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub job: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DoctorFixResult {
+    #[serde(deserialize_with = "nullable")]
+    pub fixes: Vec<DoctorFix>,
+    pub report: DoctorReport,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DoctorHomeRequest {
+    pub check: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DoctorHomeResult {
+    pub session: String,
 }
 
 pub const JOB_RUNNING: &str = "running";
@@ -5098,6 +6549,7 @@ pub const EVENT_NOTIFICATIONS_SEEN: &str = "notification.seen";
 pub const NOTIFY_QUESTION: &str = "question";
 pub const NOTIFY_MEDIA: &str = "media";
 pub const EVENT_PULLS: &str = "pulls";
+pub const EVENT_REMOTE_AGENTS: &str = "remote-agents";
 pub const EVENT_THEME: &str = "theme";
 pub const EVENT_UPDATE: &str = "update";
 pub const EVENT_DISK: &str = "disk";
@@ -5107,10 +6559,18 @@ pub const DISK_FULL: &str = "full";
 pub const EVENT_LAN: &str = "lan";
 pub const EVENT_SNAP: &str = "snap";
 pub const EVENT_FILES: &str = "files";
+pub const PUSH_FINISHED: &str = "finished";
+pub const PUSH_NEEDS_YOU: &str = "needs_you";
+pub const PUSH_PR_READY: &str = "pr_ready";
+pub const PUSH_CI_FAILED: &str = "ci_failed";
 pub const FILE_MODIFIED: &str = "modified";
 pub const FILE_ADDED: &str = "added";
 pub const FILE_DELETED: &str = "deleted";
 pub const FILE_UNTRACKED: &str = "untracked";
+pub const DOCTOR_OK: &str = "ok";
+pub const DOCTOR_WARN: &str = "warn";
+pub const DOCTOR_FAIL: &str = "fail";
+pub const DOCTOR_AI_LOGIN: &str = "ai-login";
 pub const SETUP_OK: &str = "ok";
 pub const SETUP_MISSING: &str = "missing";
 pub const SETUP_OUTDATED: &str = "outdated";
@@ -5122,6 +6582,11 @@ pub const IMAGE_BUILDING: &str = "building";
 pub const IMAGE_BUILD_FAILED: &str = "failed";
 pub const IN_AGENT_SOCKET: &str = "/run/agentbox.sock";
 pub const ERROR_FOLDER_NOT_EMPTY: &str = "folder-not-empty";
+pub const ERROR_FOLDER_EXISTS: &str = "folder-exists";
+pub const ERROR_BAD_REPO_URL: &str = "bad-repo-url";
+pub const ERROR_PASSPHRASE_NEEDED: &str = "passphrase-needed";
+pub const ERROR_WRONG_PASSPHRASE: &str = "wrong-passphrase";
+pub const ERROR_NEWER_EXPORT: &str = "newer-export";
 pub const DEFAULT_LANGUAGE: &str = "en-US";
 pub const PR_STATE_OPEN: &str = "open";
 pub const PR_STATE_MERGED: &str = "merged";
@@ -5135,6 +6600,13 @@ pub const CONSOLIDATION_MODEL_CHAT: &str = "";
 pub const EVENT_GROUP: &str = "group";
 pub const EVENT_CHAT: &str = "chat";
 pub const EVENT_CHAT_CACHE: &str = "chat.cache";
+pub const EVENT_LEAD_SESSIONS: &str = "lead.sessions";
+pub const EVENT_SESSIONS_SETTLED: &str = "lead.sessions.settled";
+pub const EVENT_LEAD_SESSION_STATUS: &str = "lead.session.status";
+pub const SESSION_NEEDS_YOU: &str = "needsYou";
+pub const SESSION_FAILED: &str = "failed";
+pub const SESSION_WORKING: &str = "working";
+pub const SESSION_IDLE: &str = "idle";
 pub const EVENT_QUESTION: &str = "question";
 pub const EVENT_SCHEDULE: &str = "schedule";
 pub const EVENT_AGENT_EVENT: &str = "agent.event";
@@ -5151,6 +6623,7 @@ pub const CLAUDE_CREDENTIAL_VARIABLES: &str = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_
 pub const CODEX_CREDENTIAL_VARIABLES: &str =
     "OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL CODEX_HOME";
 pub const OPEN_CODE_CREDENTIAL_VARIABLES: &str = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL OPENROUTER_API_KEY GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY GROQ_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MISTRAL_API_KEY OPENCODE_API_KEY";
+pub const GEMINI_CREDENTIAL_VARIABLES: &str = "GEMINI_API_KEY GOOGLE_API_KEY GOOGLE_GENAI_USE_VERTEXAI GOOGLE_GENAI_USE_GCA GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_ACCESS_TOKEN GOOGLE_GEMINI_BASE_URL GEMINI_CLI_HOME";
 pub const CONNECTOR_O_AUTH: &str = "oauth";
 pub const CONNECTOR_SECRET: &str = "secret";
 pub const CONNECTOR_NONE: &str = "none";
@@ -5174,6 +6647,7 @@ pub const ARTIFACT_UNAVAILABLE: &str = "unavailable";
 pub const GIT_HUB_NO_ACCOUNT: &str = "noAccount";
 pub const GIT_HUB_NO_ACCESS: &str = "noAccess";
 pub const GIT_HUB_BAD_TOKEN: &str = "badToken";
+pub const GIT_HUB_RATE_LIMITED: &str = "rateLimited";
 pub const GIT_HUB_OTHER_ERR: &str = "other";
 pub const CHAT_OFF: &str = "off";
 pub const CHAT_STARTING: &str = "starting";
@@ -5181,6 +6655,7 @@ pub const CHAT_READY: &str = "ready";
 pub const CHAT_RUNNING: &str = "running";
 pub const CHAT_WAITING: &str = "waiting";
 pub const CHAT_ERROR: &str = "error";
+pub const CHAT_OPTION_PLAN: &str = "plan";
 pub const MEMORY_KIND_PROJECT: &str = "project";
 pub const MEMORY_KIND_EPISODIC: &str = "episodic";
 pub const MEMORY_KIND_DECISION: &str = "decision";
@@ -5204,6 +6679,7 @@ pub const CONTEXT_FOR_TOOL: &str = "tool";
 pub const CONSOLIDATION_MECHANICAL: &str = "mechanical";
 pub const CONSOLIDATION_DISTILL: &str = "distill";
 pub const SEARCH_PROJECTS: &str = "projects";
+pub const SEARCH_SESSIONS: &str = "sessions";
 pub const SEARCH_AGENTS: &str = "agents";
 pub const SEARCH_CHATS: &str = "chats";
 pub const SEARCH_MEMORIES: &str = "memories";
@@ -5218,6 +6694,7 @@ pub const TOKENS_TURN: &str = "turn";
 pub const TOKENS_BACKGROUND: &str = "background";
 pub const TOKENS_COMPACTION: &str = "compaction";
 pub const TOKENS_CONSOLIDATION: &str = "consolidation";
+pub const TOKENS_KEEPALIVE: &str = "keepalive";
 pub const FEATURE_DESKTOP_OPEN: &str = "desktop.open";
 pub const FEATURE_TERMINAL_OPEN: &str = "terminal.open";
 pub const FEATURE_ANDROID_OPEN: &str = "android.open";

@@ -22,9 +22,9 @@ export function DoNotDisturbControl({ className, titled = true }: { className?: 
   const { on, until } = useDnd();
   return (
     <div className={cn('grid gap-2', className)} data-dnd-control>
-      {titled && <div className="text-[13px] font-medium text-title">{t('notify.dnd.title')}</div>}
+      {titled && <div className="text-ui font-medium text-title">{t('notify.dnd.title')}</div>}
       {(on || titled) && (
-        <p className="text-[12px] text-muted" data-dnd-status>
+        <p className="text-caption text-muted" data-dnd-status>
           {on ? untilText(until, t) : t('notify.dnd.hint')}
         </p>
       )}

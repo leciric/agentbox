@@ -1,12 +1,14 @@
 // This phone: the AgentBox it's paired with, what its scopes let it do (set
-// on the computer, under Settings, Phone), notifications to come, and
+// on the computer, under Settings, Phone), its notifications, and
 // unpairing, which revokes it in AgentBox too.
+import { Check, Minus, Unplug } from 'lucide-react-native';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { isPlainHTTP } from '../../connection/pairing.ts';
 import { unpair, useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
 import { Button, Note, ScreenHeader } from '../../ui/parts.tsx';
 import { colors, mono } from '../../ui/theme.ts';
+import { PushSettings } from './PushSettings.tsx';
 
 const scopes = ['read', 'chat', 'answer', 'merge'] as const;
 
@@ -26,17 +28,18 @@ export function SettingsScreen() {
           const on = !!session.phone.scopes?.includes(scope);
           return (
             <View key={scope} style={styles.scope}>
-              <Text style={[styles.scopeMark, { color: on ? colors.emerald : colors.faint }]}>{on ? '✓' : '–'}</Text>
+              {on ? <Check size={16} color={colors.emerald} strokeWidth={2.4} /> : <Minus size={16} color={colors.faint} />}
               <Text style={[styles.scopeText, !on && { color: colors.subtle }]}>{t(`mobile.scope.${scope}`)}</Text>
             </View>
           );
         })}
         <Text style={styles.small}>{t('mobile.settings.scopesHint')}</Text>
         <Text style={styles.label}>{t('mobile.settings.notifications')}</Text>
-        <Text style={styles.small}>{t('mobile.settings.notificationsLater')}</Text>
+        <PushSettings />
         <Button
           kind="danger"
           label={t('web.phone.unpair')}
+          icon={Unplug}
           style={{ marginTop: 16 }}
           onPress={() =>
             Alert.alert(t('web.phone.unpair'), t('mobile.settings.unpairBody'), [
@@ -57,7 +60,6 @@ const styles = StyleSheet.create({
   origin: { color: colors.subtle, fontSize: 12 },
   label: { color: colors.faint, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.3, marginTop: 14 },
   scope: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  scopeMark: { width: 16, fontSize: 14, fontWeight: '700' },
   scopeText: { color: colors.primary, fontSize: 14 },
   small: { color: colors.subtle, fontSize: 12.5, lineHeight: 18 },
 });

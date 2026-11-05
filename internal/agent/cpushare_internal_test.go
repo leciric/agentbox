@@ -24,7 +24,8 @@ func runWorkers(t *testing.T, shell, cpus string, env ...string) map[string]stri
 		script += `printf '%s=%s\n' ` + name + ` "${` + name + `-}"` + "\n"
 	}
 	cmd := exec.Command(shell, "-c", script)
-	cmd.Env = append([]string{"PATH=" + bin + ":" + os.Getenv("PATH")}, env...)
+	// No memory short unless env says so: os/exec keeps the last of a name.
+	cmd.Env = append([]string{"PATH=" + bin + ":" + os.Getenv("PATH"), "AGENTBOX_MEMORY_SHORT_FILE=" + filepath.Join(bin, "none")}, env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s: %v\n%s", shell, err, out)
@@ -67,6 +68,25 @@ func TestWorkersScript(t *testing.T) {
 		got = runWorkers(t, shell, "2", "AGENTBOX_CPUS=4", "GOMAXPROCS=4", "VITEST_MAX_WORKERS=4", "TURBO_CONCURRENCY=2", "MAKEFLAGS=-j4", "GOFLAGS=-mod=mod -p=4 -tags=x")
 		if got["GOMAXPROCS"] != "2" || got["VITEST_MAX_WORKERS"] != "2" || got["TURBO_CONCURRENCY"] != "1" || got["MAKEFLAGS"] != "-j2" || got["GOFLAGS"] != "-mod=mod -tags=x -p=2" {
 			t.Errorf("%s: after the share shrank: %v", shell, got)
+		}
+
+		// While memory is short, half as many, and back once it isn't.
+		short := filepath.Join(t.TempDir(), "memory-short")
+		if err := os.WriteFile(short, []byte("short\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got = runWorkers(t, shell, "4", "AGENTBOX_MEMORY_SHORT_FILE="+short, "AGENTBOX_CPUS=4", "GOMAXPROCS=4", "MAKEFLAGS=-j4", "GOFLAGS=-p=4")
+		if got["GOMAXPROCS"] != "2" || got["MAKEFLAGS"] != "-j2" || got["GOFLAGS"] != "-p=2" || got["TURBO_CONCURRENCY"] != "1" || got["AGENTBOX_CPUS"] != "2" {
+			t.Errorf("%s: with memory short: %v", shell, got)
+		}
+		if got = runWorkers(t, shell, "3", "AGENTBOX_MEMORY_SHORT_FILE="+short); got["GOMAXPROCS"] != "2" {
+			t.Errorf("%s: 3 cpus with memory short: GOMAXPROCS = %q, want 2", shell, got["GOMAXPROCS"])
+		}
+		if err := os.WriteFile(short, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got = runWorkers(t, shell, "4", "AGENTBOX_MEMORY_SHORT_FILE="+short, "AGENTBOX_CPUS=2", "GOMAXPROCS=2", "GOFLAGS=-p=2"); got["GOMAXPROCS"] != "4" || got["GOFLAGS"] != "-p=4" {
+			t.Errorf("%s: once memory eased: %v", shell, got)
 		}
 
 		// What somebody else set stays: the user's GOMAXPROCS, a lease's -p,

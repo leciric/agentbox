@@ -2,8 +2,13 @@ package gitrepo_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/cgi"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agentbox/internal/gitrepo"
@@ -68,7 +73,7 @@ func TestFetchAndFastForwardCheckedOut(t *testing.T) {
 	if _, ok := repo.Ahead("main", up); ok {
 		t.Fatal("Ahead() before a fetch: origin/main moved without one")
 	}
-	if err := repo.Fetch(context.Background(), up.Remote); err != nil {
+	if err := repo.Fetch(context.Background(), up.Remote, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := repo.Ahead("main", up); !ok || got != newTip {
@@ -106,7 +111,7 @@ func TestFetchAndFastForwardCheckedOut(t *testing.T) {
 func TestFastForwardNotCheckedOutAndDiverged(t *testing.T) {
 	repo, newTip := staleClone(t)
 	_, up, _ := repo.BaseBranch()
-	if err := repo.Fetch(context.Background(), up.Remote); err != nil {
+	if err := repo.Fetch(context.Background(), up.Remote, ""); err != nil {
 		t.Fatal(err)
 	}
 	testutil.Git(t, repo.Root, "checkout", "--quiet", "-b", "feature")
@@ -147,7 +152,61 @@ func TestFastForwardNotCheckedOutAndDiverged(t *testing.T) {
 func TestFetchFailsWithoutWaiting(t *testing.T) {
 	repo, _ := staleClone(t)
 	testutil.Git(t, repo.Root, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
-	if err := repo.Fetch(context.Background(), "origin"); err == nil {
+	if err := repo.Fetch(context.Background(), "origin", ""); err == nil {
 		t.Error("Fetch() from a remote that isn't there succeeded")
+	}
+}
+
+// A fetch with a GitHub token authenticates with it, whatever credential
+// helper the user's gitconfig names: in AgentBox's VM, the host's
+// `gh auth setup-git` points git at a gh that isn't there, and every
+// private project's base went stale.
+func TestFetchWithGitHubTokenIgnoresTheUsersHelper(t *testing.T) {
+	repo, newTip := staleClone(t)
+	_, up, _ := repo.BaseBranch()
+	remote := testutil.Git(t, repo.Root, "config", "remote.origin.url")
+
+	const token = "the-projects-token"
+	backend, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if user, pass, ok := r.BasicAuth(); !ok || user != "x-access-token" || pass != token {
+			w.Header().Set("WWW-Authenticate", `Basic realm="github"`)
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		(&cgi.Handler{
+			Path: backend,
+			Args: []string{"http-backend"},
+			Env:  []string{"GIT_PROJECT_ROOT=" + filepath.Dir(remote), "GIT_HTTP_EXPORT_ALL=1"},
+		}).ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	gitrepo.SetGitHubURL(t, srv.URL)
+	testutil.Git(t, repo.Root, "remote", "set-url", "origin", srv.URL+"/"+filepath.Base(remote))
+
+	// What `gh auth setup-git` writes, with a gh that doesn't exist.
+	missing := "!" + filepath.Join(t.TempDir(), "gh") + " auth git-credential"
+	config := filepath.Join(t.TempDir(), "gitconfig")
+	write(t, filepath.Dir(config), filepath.Base(config), "[credential]\n\thelper = "+missing+"\n"+
+		"[credential \""+srv.URL+"\"]\n\thelper =\n\thelper = "+missing+"\n")
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+
+	if err := repo.Fetch(context.Background(), up.Remote, ""); err == nil {
+		t.Fatal("Fetch() without a token got past the server, so this test proves nothing")
+	}
+	if err := repo.Fetch(context.Background(), up.Remote, "a-wrong-token"); err == nil {
+		t.Error("Fetch() with the wrong token succeeded")
+	}
+	if err := repo.Fetch(context.Background(), up.Remote, token); err != nil {
+		t.Fatalf("Fetch() with the project's token: %v", err)
+	}
+	if got, ok := repo.Ahead("main", up); !ok || got != newTip {
+		t.Errorf("Ahead() after a fetch = %q, %v; want %s", got, ok, newTip)
+	}
+	if b, err := os.ReadFile(config); err != nil || !strings.Contains(string(b), missing) || strings.Contains(string(b), token) {
+		t.Errorf("the user's gitconfig changed: %q, %v", b, err)
 	}
 }

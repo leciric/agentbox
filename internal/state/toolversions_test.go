@@ -11,8 +11,8 @@ import (
 func TestToolVersions(t *testing.T) {
 	ctx := context.Background()
 	s := openStore(t)
-	if on, err := s.Flag(ctx, state.SettingClaudeCodeAutoUpdate); err != nil || on {
-		t.Fatalf("auto-update starts %v, %v; want off", on, err)
+	if on, err := s.FlagOn(ctx, state.SettingClaudeCodeAutoUpdate); err != nil || !on {
+		t.Fatalf("auto-update starts %v, %v; want on", on, err)
 	}
 	at := time.UnixMilli(time.Now().UnixMilli())
 	if err := s.SetToolVersion(ctx, state.ToolVersion{Name: "claude", Latest: "2.2.0", CheckedAt: at, Error: "no network"}); err != nil {
@@ -39,5 +39,27 @@ func TestToolVersions(t *testing.T) {
 	}
 	if all, _ := s.ToolVersions(ctx); len(all) != 0 {
 		t.Fatalf("after forgetting: %v", all)
+	}
+}
+
+// Keeping Claude Code up to date is on until somebody turns it off, and an
+// explicit off stays off.
+func TestClaudeCodeAutoUpdateDefaultsOn(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	if on, err := s.FlagOn(ctx, state.SettingClaudeCodeAutoUpdate); err != nil || !on {
+		t.Fatalf("never chosen: %v, %v; want on", on, err)
+	}
+	if err := s.SetFlag(ctx, state.SettingClaudeCodeAutoUpdate, false); err != nil {
+		t.Fatal(err)
+	}
+	if on, err := s.FlagOn(ctx, state.SettingClaudeCodeAutoUpdate); err != nil || on {
+		t.Fatalf("turned off: %v, %v; want off", on, err)
+	}
+	if err := s.SetFlag(ctx, state.SettingClaudeCodeAutoUpdate, true); err != nil {
+		t.Fatal(err)
+	}
+	if on, err := s.FlagOn(ctx, state.SettingClaudeCodeAutoUpdate); err != nil || !on {
+		t.Fatalf("turned back on: %v, %v; want on", on, err)
 	}
 }

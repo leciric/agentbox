@@ -48,7 +48,7 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
             }}
           >
             <Field label={t('agent.snapshots.name')} htmlFor="snapshot-name">
-              <Input id="snapshot-name" className="w-64 font-mono text-[13px]" placeholder={t('agent.snapshots.namePlaceholder')} value={name} onChange={(event) => setName(event.target.value)} />
+              <Input id="snapshot-name" className="w-64 font-mono text-ui" placeholder={t('agent.snapshots.namePlaceholder')} value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
             <div className="flex h-9 items-center gap-2.5">
               <Switch id="snapshot-consistent" checked={consistent} onCheckedChange={setConsistent} />
@@ -91,8 +91,8 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
                 <span className="absolute left-4 top-1/2 size-2.5 -translate-y-1/2 rounded-full border-2 border-brand-400 bg-ink" />
                 {i < (snapshots.data?.length ?? 0) - 1 && <span className="absolute left-[21px] top-[calc(50%+8px)] h-[calc(100%-4px)] w-px bg-line-strong" />}
                 <div className="min-w-0">
-                  <div className="font-mono text-[13px] text-primary">{snapshot.name}</div>
-                  <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-subtle">
+                  <div className="font-mono text-ui text-primary">{snapshot.name}</div>
+                  <div className="mt-0.5 flex items-center gap-2 text-caption text-subtle">
                     <span title={formatDateTime(snapshot.createdAt)}>{timeAgo(snapshot.createdAt)}</span>
                     <span className="flex items-center gap-1 font-mono">
                       <GitCommitHorizontal className="size-3" />
@@ -232,7 +232,7 @@ export function ForkDialog({
               <Input id="fork-title" autoFocus value={title} onChange={(event) => setTitle(event.target.value)} />
             </Field>
             <Field label={t('agent.snapshots.name')} htmlFor="fork-name" hint={t('agent.snapshots.forkNameHint')}>
-              <Input id="fork-name" className="font-mono text-[13px]" placeholder="agent-NN" value={name} onChange={(event) => setName(event.target.value)} />
+              <Input id="fork-name" className="font-mono text-ui" placeholder="agent-NN" value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
             {fork.error && <Notice>{errorMessage(fork.error)}</Notice>}
             <DialogFooter>

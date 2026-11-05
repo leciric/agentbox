@@ -47,6 +47,7 @@ type job struct {
 	mu      sync.Mutex
 	info    api.Job
 	lines   []string
+	logGone bool // dropLog has let lines go: the store has them
 	partial string
 	changed chan struct{} // closed and replaced whenever lines or status change
 	cancel  context.CancelFunc
@@ -89,9 +90,18 @@ func (js *jobs) start(kind, target string, fn func(ctx context.Context, log io.W
 		_ = js.store.FinishJob(context.WithoutCancel(ctx), record)
 		j.commitFinish(info)
 		js.events.publish(api.EventJob, info)
+		// Its log is in the store now, and read from there once dropped:
+		// not at once, for whoever is still following it.
+		time.AfterFunc(jobKept, j.dropLog)
 	}()
 	return j, nil
 }
+
+// jobKept is how long a finished job keeps its log in memory. Every job used
+// to keep every line it logged for the daemon's life; after this the log is
+// read from the store, where it went as the job finished, and only the job's
+// info stays.
+const jobKept = 5 * time.Minute
 
 func (js *jobs) get(id string) (*job, bool) {
 	js.mu.Lock()
@@ -120,7 +130,9 @@ func (js *jobs) list(ctx context.Context, limit int) ([]api.Job, error) {
 // lookup returns a job's info and log, from memory or from the store.
 func (js *jobs) lookup(ctx context.Context, id string) (api.Job, []string, error) {
 	if j, ok := js.get(id); ok {
-		return j.snapshot(), j.logLines(), nil
+		if lines, kept := j.keptLog(); kept {
+			return j.snapshot(), lines, nil
+		}
 	}
 	r, err := js.store.Job(ctx, id)
 	if err != nil {
@@ -221,6 +233,20 @@ func (j *job) snapshot() api.Job {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.info
+}
+
+// dropLog lets a finished job's log go from memory (jobKept).
+func (j *job) dropLog() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.lines, j.logGone = nil, true
+}
+
+// keptLog is the job's log, unless dropLog has let it go.
+func (j *job) keptLog() ([]string, bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return append([]string(nil), j.lines...), !j.logGone
 }
 
 func (j *job) logLines() []string {

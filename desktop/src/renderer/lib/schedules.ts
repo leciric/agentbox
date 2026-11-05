@@ -79,9 +79,19 @@ export function everyLabel(minutes: number, t: Translate): string {
   return t('schedules.every.minutes', { n: minutes });
 }
 
+// The events an event trigger runs on (schedule.Events), in the order the
+// editor offers them.
+export const scheduleEvents = ['ci_failed', 'review_requested', 'issue_labeled', 'pr_opened'] as const;
+export type ScheduleEvent = (typeof scheduleEvents)[number];
+
+export function isScheduleEvent(event: string | undefined): event is ScheduleEvent {
+  return (scheduleEvents as readonly string[]).includes(event ?? '');
+}
+
 // whenLabel says when a schedule runs: "Weekdays at 09:00", "Every 2 hours",
-// "Once, 19 Oct 2026, 09:00".
-export function whenLabel(s: Pick<T.Schedule, 'kind' | 'at' | 'everyMinutes' | 'cron' | 'timezone'>, t: Translate): string {
+// "Once, 19 Oct 2026, 09:00", "When an issue is labelled “bug”".
+export function whenLabel(s: Pick<T.Schedule, 'kind' | 'at' | 'everyMinutes' | 'cron' | 'timezone' | 'event' | 'eventLabel'>, t: Translate): string {
+  if (s.kind === 'event') return isScheduleEvent(s.event) ? t(`schedules.when.event.${s.event}`, { label: s.eventLabel ?? '' }) : (s.event ?? '');
   if (s.kind === 'once') return t('schedules.when.once', { at: s.at ? formatDateTime(s.at, { dateStyle: 'medium', timeStyle: 'short', timeZone: zoneOrUndefined(s.timezone) }) : '' });
   if (s.kind === 'every') return everyLabel(s.everyMinutes ?? 0, t);
   const w = s.cron ? parseWeekly(s.cron) : null;
@@ -119,11 +129,24 @@ export function fromLocalInput(value: string): string {
 }
 
 // Template is a starting point for a new schedule, the editor's chips.
-export type Template = { id: string; title: MessageKey; task: MessageKey; cron?: string; every?: number; target: 'lead' | 'agent'; precheck?: string };
+// An event one has event (and label), and no time.
+export type Template = {
+  id: string;
+  title: MessageKey;
+  task: MessageKey;
+  cron?: string;
+  every?: number;
+  event?: ScheduleEvent;
+  label?: string;
+  target: 'lead' | 'agent';
+  precheck?: string;
+};
 
 export const templates: Template[] = [
   { id: 'audit', title: 'schedules.template.audit.title', task: 'schedules.template.audit.task', cron: '0 9 * * 1-5', target: 'agent' },
   { id: 'release', title: 'schedules.template.release.title', task: 'schedules.template.release.task', cron: '0 10 * * 5', target: 'lead' },
   { id: 'review', title: 'schedules.template.review.title', task: 'schedules.template.review.task', cron: '0 18 * * *', target: 'lead' },
   { id: 'ci', title: 'schedules.template.ci.title', task: 'schedules.template.ci.task', every: 60, target: 'lead', precheck: 'gh pr list --state open --limit 1 | grep -q .' },
+  { id: 'fixmain', title: 'schedules.template.fixmain.title', task: 'schedules.template.fixmain.task', event: 'ci_failed', target: 'agent' },
+  { id: 'bugs', title: 'schedules.template.bugs.title', task: 'schedules.template.bugs.task', event: 'issue_labeled', label: 'bug', target: 'agent' },
 ];

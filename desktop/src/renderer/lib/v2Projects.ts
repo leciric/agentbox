@@ -2,8 +2,8 @@
 // are pinned and in what order, whether the Hidden list is open, and the
 // state and project filters (none until the user picks). Which projects are
 // hidden is the daemon's (sidebarHidden.ts).
-// v2 is how this app looks here (uiV2.ts), so these live in localStorage
-// beside it, not in the daemon, and v1's order (D79) never sees them. The
+// They're how this app looks here, so they live in localStorage, not in the
+// daemon, and the daemon's order of projects (D79) never sees them. The
 // reading of them is projectOrder.ts's.
 import { useSyncExternalStore } from 'react';
 import { noFilters, stOrder, type AgentSt } from './leadFirst.ts';

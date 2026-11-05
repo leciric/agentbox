@@ -28,11 +28,14 @@ test('when a schedule runs is said in words', () => {
   assert.match(whenLabel({ kind: 'once', at: '2026-10-19T09:00:00Z', timezone: 'UTC' }, t), /^Once, .*2026/);
   assert.equal(everyLabel(1440, t), 'Every day');
   assert.equal(everyLabel(45, t), 'Every 45 minutes');
+  assert.equal(whenLabel({ kind: 'event', event: 'issue_labeled', eventLabel: 'bug', timezone: 'UTC' }, t), 'When an issue is labelled “bug”');
+  assert.equal(whenLabel({ kind: 'event', event: 'ci_failed', timezone: 'UTC' }, t), 'When CI goes red on the default branch');
 });
 
-test('every template has a time and words in the catalog', () => {
+test('every template has a time or an event, and words in the catalog', () => {
   for (const tpl of templates) {
-    assert.ok(tpl.cron || tpl.every, tpl.id);
+    assert.ok(tpl.cron || tpl.every || tpl.event, tpl.id);
+    if (tpl.event === 'issue_labeled') assert.ok(tpl.label, tpl.id);
     assert.ok(enUS[tpl.title] && enUS[tpl.task], tpl.id);
     if (tpl.cron) assert.ok(parseWeekly(tpl.cron), tpl.cron);
   }

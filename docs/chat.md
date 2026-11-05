@@ -51,11 +51,18 @@ var ChatAdapters = map[string]ChatAdapter{
 The versions are the ones the base image pins, in
 [`internal/image/tools.txt`](../internal/image/tools.txt).
 
+OpenCode has two releases and an installation chooses between them
+(`state.SettingOpenCodeVersion`, `internal/opencode/version.go`). OpenCode 1 is the `opencode`
+the tools pin. OpenCode 2 is not part of the image: it is installed on demand, beside it, as `opencode2`, because both
+releases carry a command called `opencode`; `openCodeAdapter` swaps the command and drops the
+mise package for 2, which runs by name. The ACP side is the same `acp` subcommand in both.
+
 Claude Code and Codex don't speak ACP themselves, so AgentBox runs a separate adapter package in
 front of each (`claude-agent-acp`, `codex-acp`) that wraps the tool's own protocol in ACP. OpenCode
 speaks ACP natively through its own `acp` subcommand, so there's no wrapper — the adapter is just
 `opencode acp`. All three are installed with `mise install` and launched with `mise exec` inside
-the agent's container.
+the agent's container, except OpenCode 2, which each agent installs from its npm package at its first OpenCode 2 start
+(`ensureOpenCode2InAgent`) and links into its `~/.local/bin`.
 
 ## The chat manager
 

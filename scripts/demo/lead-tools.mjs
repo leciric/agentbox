@@ -151,7 +151,7 @@ async function main() {
   const listed = await tools.send('tools/list');
   const names = (listed.result?.tools ?? []).map((t) => t.name).sort();
   console.log(`\n[the chat's tools]\n${names.join('\n')}`);
-  for (const want of ['list_agents', 'create_agent', 'tell_agent', 'read_agent', 'agent_diff', 'retire_agent', 'list_questions', 'answer_question', 'escalate_question']) {
+  for (const want of ['list_agents', 'create_agent', 'tell_agent', 'read_agent', 'retire_agent', 'questions']) {
     check(`it offers ${want}`, names.includes(want), names.join(','));
   }
 
@@ -164,9 +164,9 @@ async function main() {
   const first = askAsAgent('Should the reminders page paginate, or load everything?', 'building the page');
   const q = await waitForQuestion();
   check('the question reaches the chat, with what the agent was doing', q.context.includes('building the page'), JSON.stringify(q));
-  const waiting = await tools.call('list_questions');
+  const waiting = await tools.call('questions', { action: 'list' });
   check('the chat is told an agent is blocked on it', waiting.text.includes('Should the reminders page paginate'), waiting.text);
-  const gave = await tools.call('answer_question', { id: q.id, answer: 'Paginate, 20 per page: the list grows without limit.' });
+  const gave = await tools.call('questions', { action: 'answer', id: q.id, text: 'Paginate, 20 per page: the list grows without limit.' });
   check('the chat can answer it itself', !gave.isError && gave.text.includes('carrying on'), gave.text);
   const got = await first;
   check('and the waiting agent gets that answer', got.answer.includes('Paginate') && got.answeredBy === 'lead', JSON.stringify(got));
@@ -175,7 +175,7 @@ async function main() {
   log("agent-01 asks something that is the user's call");
   const second = askAsAgent('Which payment provider should the checkout use?', 'starting the checkout');
   const q2 = await waitForQuestion();
-  const passed = await tools.call('escalate_question', { id: q2.id, why: "it's a product decision: I'd suggest Stripe, but it's your call" });
+  const passed = await tools.call('questions', { action: 'escalate', id: q2.id, text: "it's a product decision: I'd suggest Stripe, but it's your call" });
   check('the chat can pass a question to the user', !passed.isError && passed.text.includes('user'), passed.text);
   const forUser = ab('questions', P);
   check('the user sees it waiting for them', forUser.includes('waiting for you'), forUser);

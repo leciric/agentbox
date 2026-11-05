@@ -210,7 +210,10 @@ func stubLeadTools(t *testing.T, m *Manager) {
 	for path, body := range map[string]string{
 		m.claudePath():  "#!/bin/sh\nexit 0\n",
 		m.adapterPath(): "#!/bin/sh\nexit 0\n",
-		manifest:        fmt.Sprintf(`{"name":%q,"version":%q}`, name, pinnedVersion(pkg)),
+		// hostTools always runs the adapter with a real node.
+		filepath.Join(m.nodeDir(), "bin", "node"): "#!/bin/sh\nexit 0\n",
+		filepath.Join(m.nodeDir(), "bin", "npm"):  "#!/bin/sh\nexit 0\n",
+		manifest:                                  fmt.Sprintf(`{"name":%q,"version":%q}`, name, pinnedVersion(pkg)),
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
