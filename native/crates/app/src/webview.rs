@@ -45,6 +45,22 @@ pub fn available() -> bool {
     !UNAVAILABLE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Wheel deltas from pages, in pixels: a page doesn't scroll, the chat does.
+static WHEEL: std::sync::Mutex<f32> = std::sync::Mutex::new(0.);
+
+/// The script every page gets: its wheel goes to the app.
+const FORWARD_WHEEL: &str = "addEventListener('wheel', e => { e.preventDefault(); window.ipc.postMessage(String(e.deltaY)); }, { passive: false });";
+
+thread_local! {
+    /// The list the webviews in view belong to, which a page's wheel scrolls.
+    static SCROLLER: RefCell<Option<ListState>> = const { RefCell::new(None) };
+}
+
+/// set_scroller names the list the next frame's webviews scroll.
+pub fn set_scroller(list: ListState) {
+    SCROLLER.with_borrow_mut(|s| *s = Some(list));
+}
+
 static FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The app's palette as the CSS variables the Electron app's previews use.
@@ -80,6 +96,15 @@ pub fn init(cx: &mut App) {
             #[cfg(target_os = "linux")]
             while gtk::events_pending() {
                 gtk::main_iteration_do(false);
+            }
+            let dy = std::mem::take(&mut *WHEEL.lock().unwrap());
+            if dy != 0. {
+                SCROLLER.with_borrow(|s| {
+                    if let Some(list) = s {
+                        list.scroll_by(px(dy));
+                    }
+                });
+                let _ = cx.update(|cx| cx.refresh_windows());
             }
         }
     })
@@ -198,6 +223,12 @@ fn place(id: &str, html: &str, bounds: Bounds<Pixels>, inside: bool, window: &mu
                 .with_visible(inside)
                 .with_incognito(true)
                 .with_navigation_handler(|url| url == "about:blank" || url.starts_with("data:"))
+                .with_initialization_script(FORWARD_WHEEL)
+                .with_ipc_handler(|req| {
+                    if let Ok(dy) = req.body().parse::<f32>() {
+                        *WHEEL.lock().unwrap() += dy;
+                    }
+                })
                 .build_as_child(&Parent(window));
             match built {
                 Ok(view) => {

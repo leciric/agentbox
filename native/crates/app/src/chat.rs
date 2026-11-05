@@ -51,6 +51,9 @@ pub struct ChatView {
     expanded: std::collections::HashSet<String>,
     /// Permission requests whose answer is on its way.
     answering: std::collections::HashSet<String>,
+    /// The conversation has items before those held, and a read of them is out.
+    older: bool,
+    loading_older: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -72,6 +75,13 @@ impl ChatView {
         });
         let list = ListState::new(0, ListAlignment::Bottom, px(800.));
         list.set_follow_mode(FollowMode::Tail);
+        // Scrolled to the top of what's loaded: read the page before it.
+        let view = cx.entity().downgrade();
+        list.set_scroll_handler(move |ev, _, cx| {
+            if ev.visible_range.start == 0 && ev.is_scrolled {
+                view.update(cx, |this, cx| this.load_older(cx)).ok();
+            }
+        });
         let mut this = Self {
             client,
             prefix,
@@ -88,6 +98,8 @@ impl ChatView {
             last_frame: None,
             expanded: Default::default(),
             answering: Default::default(),
+            older: false,
+            loading_older: false,
             _subs: vec![sub],
         };
         this.load(cx);
@@ -95,6 +107,64 @@ impl ChatView {
     }
 
     /// load reads the latest page, again after the event stream reconnects.
+    /// load_older reads the page before the oldest item held, and puts it above
+    /// without moving what's on screen.
+    fn load_older(&mut self, cx: &mut Context<Self>) {
+        if !self.older || self.loading_older {
+            return;
+        }
+        let Some(first) = self.items.first().map(|i| i.id.clone()) else {
+            return;
+        };
+        self.loading_older = true;
+        let client = self.client.clone();
+        let path = format!("{}/chat?limit={PAGE}&before={first}", self.prefix);
+        cx.spawn(async move |this, cx| {
+            let res = client.get::<ChatThread>(&path).await;
+            this.update(cx, |this, cx| {
+                this.loading_older = false;
+                let Ok(t) = res else { return };
+                // The page may overlap what an event already brought.
+                let have: std::collections::HashSet<&str> =
+                    this.items.iter().map(|i| i.id.as_str()).collect();
+                let page: Vec<ChatItem> = t
+                    .items
+                    .into_iter()
+                    .filter(|i| !have.contains(i.id.as_str()))
+                    .collect();
+                let n = page.len();
+                let top = this.list.logical_scroll_top();
+                this.items.splice(0..0, page);
+                this.older = t.older;
+                this.list.splice(0..0, n);
+                this.list.scroll_to(ListOffset {
+                    item_ix: top.item_ix + n,
+                    offset_in_item: top.offset_in_item,
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// stop ends the turn in progress (POST …/chat/cancel).
+    fn stop(&mut self, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        let path = format!("{}/chat/cancel", self.prefix);
+        cx.spawn(async move |this, cx| {
+            let res = client
+                .raw(agentbox_api::client::Method::POST, &path, None)
+                .await;
+            this.update(cx, |this, cx| {
+                this.error = res.err().map(|e| e.to_string().into());
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub fn load(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();
         let path = format!("{}/chat?limit={PAGE}", self.prefix);
@@ -107,6 +177,7 @@ impl ChatView {
                         this.seq = t.seq;
                         this.session = t.session;
                         this.items = t.items;
+                        this.older = t.older;
                         this.list.reset(this.items.len());
                         this.list.set_follow_mode(FollowMode::Tail);
                         this.loaded = true;
@@ -506,6 +577,7 @@ impl ChatView {
 impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let viewport = self.list.viewport_bounds();
+        crate::webview::set_scroller(self.list.clone());
         crate::webview::set_clip((viewport.size.height > px(0.)).then_some(viewport));
         if bench::on() {
             if let Some(at) = self.arrived.take() {
@@ -583,7 +655,32 @@ impl Render for ChatView {
                     .p_4()
                     .border_t_1()
                     .border_color(theme::border())
-                    .child(Input::new(&self.input)),
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(div().flex_1().child(Input::new(&self.input)))
+                            // While a turn runs, it can be stopped.
+                            .when(working, |el| {
+                                el.child(
+                                    div()
+                                        .id("stop-turn")
+                                        .flex_none()
+                                        .px_3()
+                                        .py_1p5()
+                                        .rounded_md()
+                                        .cursor_pointer()
+                                        .bg(theme::hover())
+                                        .text_sm()
+                                        .text_color(theme::fg())
+                                        .child(t("chat.composer.stopTurn"))
+                                        .on_click(
+                                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                this.stop(cx)
+                                            }),
+                                        ),
+                                )
+                            }),
+                    ),
             )
     }
 }

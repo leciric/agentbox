@@ -445,7 +445,32 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             vnc_view(req)
         }
         (&Method::GET, ["v1", "agents", p, a, "chat"]) if fake.is_fake(p) => {
-            json(StatusCode::OK, &fake.thread(&format!("{p}/{a}")))
+            // A page, as internal/daemon/chat.go reads one: limit= items
+            // ending before= an item (the latest page without it).
+            let query: HashMap<String, String> = req
+                .uri()
+                .query()
+                .unwrap_or("")
+                .split('&')
+                .filter_map(|kv| {
+                    kv.split_once('=')
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                })
+                .collect();
+            let mut t = fake.thread(&format!("{p}/{a}"));
+            let end = query
+                .get("before")
+                .and_then(|b| t.items.iter().position(|i| &i.id == b))
+                .unwrap_or(t.items.len());
+            let limit = query
+                .get("limit")
+                .and_then(|l| l.parse().ok())
+                .filter(|&l: &usize| l > 0)
+                .unwrap_or(end);
+            let start = end.saturating_sub(limit);
+            t.older = start > 0;
+            t.items = t.items[start..end].to_vec();
+            json(StatusCode::OK, &t)
         }
         // Answering a permission request records the outcome, as the daemon does.
         (&Method::POST, ["v1", "agents", p, a, "chat", "permissions", item]) if fake.is_fake(p) => {
