@@ -1290,7 +1290,9 @@ impl AppView {
             let relaunch = relaunch.clone();
             return glyph_button("update-restart", "⟳", t("native.update.restart"))
                 .text_color(theme::running())
-                .on_click(move |_, _, cx| restart_into(&relaunch, cx))
+                .on_click(move |_, _, cx| {
+                    restart_into(&relaunch, cx);
+                })
                 .into_any_element();
         }
         let offer = self.side.update.as_ref().and_then(|u| {
@@ -1407,14 +1409,19 @@ impl AppView {
                                 version: version.clone(),
                                 relaunch: relaunch.clone(),
                             });
-                            toasts::Toast::new(
-                                toasts::Kind::Info,
-                                tv("native.update.ready", &[("version", version.into())]),
-                            )
-                            .action(t("native.update.restart"), move |_, cx| {
-                                restart_into(&relaunch, cx)
-                            })
-                            .show(cx);
+                            // Installed: straight into the new version, as
+                            // Electron's quitAndInstall. Should starting it
+                            // fail, the button and the toast's stay to try again.
+                            if !restart_into(&relaunch, cx) {
+                                toasts::Toast::new(
+                                    toasts::Kind::Info,
+                                    tv("native.update.ready", &[("version", version.into())]),
+                                )
+                                .action(t("native.update.restart"), move |_, cx| {
+                                    restart_into(&relaunch, cx);
+                                })
+                                .show(cx);
+                            }
                             cx.notify();
                             true
                         }
@@ -1547,16 +1554,23 @@ fn update_hint(support: &crate::update::Support, version: &str) -> String {
     }
 }
 
-/// restart_into starts the new version and quits this one.
-fn restart_into(relaunch: &std::path::Path, cx: &mut App) {
+/// restart_into starts the new version and quits this one; false, saying
+/// why, when the new one couldn't be started.
+fn restart_into(relaunch: &std::path::Path, cx: &mut App) -> bool {
     match crate::update::restart(relaunch) {
-        Ok(()) => cx.quit(),
-        Err(e) => toasts::Toast::new(toasts::Kind::Error, t("shell.update.failed"))
-            .description(tv(
-                "shell.update.error.install",
-                &[("detail", e.to_string().into())],
-            ))
-            .show(cx),
+        Ok(()) => {
+            cx.quit();
+            true
+        }
+        Err(e) => {
+            toasts::Toast::new(toasts::Kind::Error, t("shell.update.failed"))
+                .description(tv(
+                    "shell.update.error.install",
+                    &[("detail", e.to_string().into())],
+                ))
+                .show(cx);
+            false
+        }
     }
 }
 
