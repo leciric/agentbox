@@ -9,6 +9,7 @@ mod app;
 mod bench;
 mod chat;
 mod mermaid;
+mod prefs;
 #[cfg(target_os = "linux")]
 mod snapshot;
 mod terminal;

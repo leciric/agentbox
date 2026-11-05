@@ -1,0 +1,280 @@
+//! The controls a setting is made of (components/ui/settings.tsx, switch.tsx,
+//! the segmented radiogroups of SettingsView.tsx), drawn in the app's palette
+//! so every Settings section, and a project's own settings later, look alike.
+//! Each takes plain values and a callback, so they hold no state themselves:
+//! get callbacks from `cx.listener(|this, v: &str, window, cx| …)`.
+use std::rc::Rc;
+
+use agentbox_i18n::t;
+use gpui::prelude::FluentBuilder as _;
+use gpui::*;
+use gpui_component::{h_flex, v_flex};
+
+use crate::theme;
+
+/// Pick is what a segmented control or a stepper calls with the new value.
+pub type Pick<V> = Rc<dyn Fn(&V, &mut Window, &mut App)>;
+
+/// OnClick is a click handler a Row keeps.
+pub type OnClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+
+/// toggle is a switch: a pill with its knob at the right when on.
+pub fn toggle(
+    id: impl Into<ElementId>,
+    on: bool,
+    disabled: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    div()
+        .id(id)
+        .flex_none()
+        .w(px(34.))
+        .h(px(20.))
+        .p(px(2.))
+        .rounded_full()
+        .flex()
+        .when(on, |el| el.justify_end())
+        .bg(if on { theme::accent() } else { theme::hover() })
+        .border_1()
+        .border_color(if on { theme::accent() } else { theme::border() })
+        .when(disabled, |el| el.opacity(0.5))
+        .when(!disabled, |el| el.cursor_pointer().on_click(on_click))
+        .child(div().size(px(14.)).rounded_full().bg(if on {
+            gpui::white()
+        } else {
+            theme::muted()
+        }))
+        .into_any_element()
+}
+
+/// segmented is a row of choices, one of them picked: a radiogroup, as
+/// Appearance and the update channel are (and a short select).
+pub fn segmented(
+    id: &str,
+    options: Vec<(SharedString, String)>,
+    current: Option<&str>,
+    disabled: bool,
+    on_pick: Pick<str>,
+) -> AnyElement {
+    // Its own width, not its column's: a column stretches what it holds.
+    h_flex()
+        .child(segments(id, options, current, disabled, on_pick))
+        .into_any_element()
+}
+
+fn segments(
+    id: &str,
+    options: Vec<(SharedString, String)>,
+    current: Option<&str>,
+    disabled: bool,
+    on_pick: Pick<str>,
+) -> impl IntoElement {
+    h_flex()
+        .flex_wrap()
+        .w_auto()
+        .p(px(2.))
+        .gap(px(2.))
+        .rounded_lg()
+        .border_1()
+        .border_color(theme::border())
+        .bg(theme::panel())
+        .children(options.into_iter().map(|(value, label)| {
+            let on = current == Some(value.as_ref());
+            let pick = on_pick.clone();
+            div()
+                .id(SharedString::from(format!("{id}-{value}")))
+                .px_3()
+                .py_1()
+                .rounded_md()
+                .text_sm()
+                .when(on, |el| {
+                    el.bg(theme::hover())
+                        .text_color(theme::fg())
+                        .font_weight(FontWeight::MEDIUM)
+                })
+                .when(!on, |el| el.text_color(theme::muted()))
+                .when(disabled, |el| el.opacity(0.5))
+                .when(!disabled && !on, |el| {
+                    el.cursor_pointer()
+                        .hover(|s| s.text_color(theme::fg()))
+                        .on_click(move |_, window, cx| pick(&value, window, cx))
+                })
+                .child(label)
+        }))
+}
+
+/// stepper is a number within bounds, moved by a step: − value +. Not used
+/// yet: the Resources section's disk floor and caches are its first.
+#[allow(dead_code)]
+pub fn stepper(
+    id: &str,
+    value: i64,
+    (min, max, step): (i64, i64, i64),
+    unit: &str,
+    disabled: bool,
+    on_change: Pick<i64>,
+) -> AnyElement {
+    let button = |name: &str, label: &'static str, next: i64| {
+        let change = on_change.clone();
+        let usable = !disabled && next != value;
+        div()
+            .id(SharedString::from(format!("{id}-{name}")))
+            .w(px(26.))
+            .h(px(26.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_md()
+            .text_color(if usable { theme::fg() } else { theme::faint() })
+            .when(usable, |el| {
+                el.cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .on_click(move |_, window, cx| change(&next, window, cx))
+            })
+            .child(label)
+    };
+    h_flex()
+        .w_auto()
+        .p(px(2.))
+        .gap_1()
+        .rounded_lg()
+        .border_1()
+        .border_color(theme::border())
+        .bg(theme::panel())
+        .child(button("down", "−", (value - step).max(min)))
+        .child(
+            div()
+                .min_w(px(48.))
+                .text_center()
+                .text_sm()
+                .text_color(theme::fg())
+                .child(format!("{value}{unit}")),
+        )
+        .child(button("up", "+", (value + step).min(max)))
+        .into_any_element()
+}
+
+/// note is a line under a setting's control: why it's off, what's out.
+pub fn note(text: impl Into<SharedString>) -> AnyElement {
+    div()
+        .text_xs()
+        .text_color(theme::muted())
+        .child(text.into())
+        .into_any_element()
+}
+
+/// Row is one setting (SettingRow): its name, what it does, "More" for the
+/// rest of that when there is a rest, its control beside them and anything
+/// else under them; marked at its edge when it's changed from its default.
+pub struct Row {
+    pub id: SharedString,
+    pub label: String,
+    pub description: String,
+    pub details: Option<String>,
+    /// more is whether the details are open; on_more opens or closes them.
+    pub more: bool,
+    pub on_more: Option<OnClick>,
+    pub modified: bool,
+    pub control: Option<AnyElement>,
+    pub body: Vec<AnyElement>,
+}
+
+impl Row {
+    pub fn new(id: impl Into<SharedString>, label: String, description: String) -> Self {
+        Self {
+            id: id.into(),
+            label,
+            description,
+            details: None,
+            more: false,
+            on_more: None,
+            modified: false,
+            control: None,
+            body: Vec::new(),
+        }
+    }
+
+    pub fn render(self) -> AnyElement {
+        let more_id = SharedString::from(format!("{}-more", self.id));
+        let words = v_flex()
+            .flex_1()
+            .min_w_0()
+            .gap_1()
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::fg())
+                    .child(self.label),
+            )
+            .when(!self.description.is_empty(), |el| {
+                el.child(
+                    div()
+                        .text_xs()
+                        .line_height(rems(1.25))
+                        .text_color(theme::muted())
+                        .child(self.description),
+                )
+            })
+            .when_some(
+                self.details.clone().zip(self.on_more.clone()),
+                |el, (details, on_more)| {
+                    el.when(self.more, |el| {
+                        el.child(
+                            div()
+                                .text_xs()
+                                .line_height(rems(1.25))
+                                .text_color(theme::muted())
+                                .child(details),
+                        )
+                    })
+                    .child(
+                        div()
+                            .id(more_id)
+                            .w_auto()
+                            .text_xs()
+                            .text_color(theme::faint())
+                            .underline()
+                            .cursor_pointer()
+                            .hover(|s| s.text_color(theme::fg()))
+                            .on_click(move |ev, window, cx| on_more(ev, window, cx))
+                            .child(if self.more {
+                                t("settings.row.less")
+                            } else {
+                                t("settings.row.more")
+                            }),
+                    )
+                },
+            );
+        div()
+            .id(self.id)
+            .relative()
+            .px_5()
+            .py_4()
+            .when(self.modified, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_4()
+                        .bottom_4()
+                        .w(px(2.))
+                        .rounded_r_full()
+                        .bg(theme::accent()),
+                )
+            })
+            .child(
+                v_flex()
+                    .gap_3()
+                    .child(
+                        h_flex()
+                            .items_start()
+                            .gap_6()
+                            .child(words)
+                            .children(self.control.map(|c| div().flex_none().child(c))),
+                    )
+                    .children(self.body),
+            )
+            .into_any_element()
+    }
+}

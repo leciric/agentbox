@@ -10,6 +10,7 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
+mod controls;
 mod new_task;
 mod settings;
 mod sidebar;
@@ -68,6 +69,7 @@ pub struct AppView {
     new_task: Option<new_task::NewTask>,
     /// The Settings page is open in the main area.
     settings: bool,
+    settings_page: settings::SettingsPage,
     _events: Task<()>,
 }
 
@@ -90,9 +92,11 @@ impl AppView {
             side: sidebar::Sidebar::new(window, cx),
             new_task: None,
             settings: false,
+            settings_page: settings::SettingsPage::new(window, cx),
             _events: events,
         };
         this.load_settings(window, cx);
+        this.load_theme(window, cx);
         this.load_projects(window, cx);
         if let Ok(secs) =
             std::env::var("AGENTBOX_NATIVE_SCROLL_BENCH").map(|s| s.parse::<u64>().unwrap_or(3))
@@ -132,6 +136,10 @@ impl AppView {
             // (Re)connected: whatever happened meanwhile is in a fresh read.
             self.connected = true;
             self.load_settings(window, cx);
+            self.load_theme(window, cx);
+            if self.settings {
+                self.load_settings_page(cx);
+            }
             self.load_projects(window, cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
@@ -198,6 +206,8 @@ impl AppView {
                 }
             }
             EVENT_PROJECT => self.load_projects(window, cx),
+            agentbox_api::EVENT_THEME => self.load_theme(window, cx),
+            agentbox_api::EVENT_UPDATE => self.reload_update(cx),
             agentbox_api::EVENT_QUESTION => {
                 if let Some(p) = ev.data.get("project").and_then(|v| v.as_str()) {
                     self.load_questions(p.to_string(), cx);

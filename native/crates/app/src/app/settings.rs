@@ -1,30 +1,326 @@
-//! Settings (components/SettingsView.tsx), so far its General section's
-//! language: which the daemon keeps (PATCH /v1/settings), so the app, the
-//! Electron app and the phone app all speak it.
-use agentbox_i18n::{LANGUAGES, t};
+//! Settings (components/SettingsView.tsx, drawn by SettingsPage.tsx): a
+//! column of sections beside the open one, with a search across every
+//! setting above it. It opens on Essentials, the few settings a new user
+//! changes, and keeps the rest under Advanced. A setting changed from its
+//! default is marked at its edge, and "@changed" finds every such one.
+//!
+//! Everything here is the daemon's (GET/PATCH /v1/settings, /v1/theme,
+//! GET /v1/update) except group-idle, which is how this window lists
+//! projects and so lives on this computer (crate::prefs). Sections this app
+//! doesn't draw yet are listed, and say so when opened.
+use std::collections::HashSet;
+use std::rc::Rc;
+
+use agentbox_api::client::Method;
+use agentbox_api::{DEFAULT_LANGUAGE, Settings, Theme, UpdateSettingsRequest, UpdateStatus};
+use agentbox_i18n::{LANGUAGES, t, tv};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
+use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
-use crate::theme;
+use super::controls::{Row, note, segmented, toggle};
+use crate::{prefs, theme};
+
+const ESSENTIALS: &str = "essentials";
+
+/// The page's own state: what's open, what's searched, and what the daemon said.
+pub struct SettingsPage {
+    search: Entity<InputState>,
+    open: String,
+    /// advanced is whether the nav lists every section, not only Essentials.
+    advanced: bool,
+    /// more holds the settings whose "More" is open.
+    more: HashSet<&'static str>,
+    settings: Option<Settings>,
+    theme: Option<Theme>,
+    update: Option<UpdateStatus>,
+    _sub: Subscription,
+}
+
+impl SettingsPage {
+    pub fn new(window: &mut Window, cx: &mut Context<AppView>) -> Self {
+        let search =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t("settings.page.search")));
+        let sub = cx.subscribe_in(
+            &search,
+            window,
+            |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::Change => cx.notify(),
+                // Enter opens the first section the search found.
+                InputEvent::PressEnter { .. } => {
+                    let q = this.settings_page.search.read(cx).value().to_string();
+                    let first = super::settings::search(&this.settings_sections(cx), &q)
+                        .first()
+                        .map(|s| s.id.clone());
+                    if let Some(id) = first {
+                        this.open_settings_section(id, window, cx);
+                    }
+                }
+                _ => {}
+            },
+        );
+        Self {
+            search,
+            open: ESSENTIALS.into(),
+            advanced: false,
+            more: HashSet::new(),
+            settings: None,
+            theme: None,
+            update: None,
+            _sub: sub,
+        }
+    }
+}
+
+/// Entry is one setting, as the search sees it (lib/settingsSearch.ts).
+struct Entry {
+    id: &'static str,
+    label: String,
+    description: String,
+    keywords: String,
+    essential: bool,
+    modified: bool,
+}
+
+struct Group {
+    id: &'static str,
+    title: String,
+    entries: Vec<Entry>,
+}
+
+struct Section {
+    id: String,
+    title: String,
+    description: String,
+    /// nav is the heading it sits under in the column, when it has one.
+    nav: Option<String>,
+    project: bool,
+    groups: Vec<Group>,
+    /// later: this app doesn't draw its settings yet.
+    later: bool,
+}
+
+impl Section {
+    fn count(&self) -> usize {
+        self.groups.iter().map(|g| g.entries.len()).sum()
+    }
+    fn changed(&self) -> usize {
+        self.groups
+            .iter()
+            .flat_map(|g| &g.entries)
+            .filter(|e| e.modified)
+            .count()
+    }
+}
+
+/// normalize lowercases, drops accents and apostrophes, so "cafe" finds
+/// "café" and "agents" finds "agent's", as settingsSearch.ts's normalize.
+fn normalize(text: &str) -> String {
+    text.chars()
+        .filter(|c| *c != '\'' && *c != '’')
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            'ñ' => 'n',
+            c => c,
+        })
+        .collect()
+}
+
+/// parse_query splits a search into its words and whether it asks for the
+/// changed settings only (@changed or @modified, as VS Code's).
+fn parse_query(query: &str) -> (Vec<String>, bool) {
+    let mut changed = false;
+    let words = normalize(query)
+        .split_whitespace()
+        .filter(|w| {
+            let token = *w == "@changed" || *w == "@modified";
+            changed |= token;
+            !token
+        })
+        .map(String::from)
+        .collect();
+    (words, changed)
+}
+
+/// search keeps the sections, groups and settings that match, in the page's
+/// order: every word is somewhere in the section's title, the group's, or the
+/// setting's name, description or keywords.
+fn search(sections: &[Section], query: &str) -> Vec<Section> {
+    let (words, changed) = parse_query(query);
+    let mut out = Vec::new();
+    for s in sections {
+        let mut groups = Vec::new();
+        for g in &s.groups {
+            let entries: Vec<Entry> = g
+                .entries
+                .iter()
+                .filter(|e| {
+                    if changed && !e.modified {
+                        return false;
+                    }
+                    let hay = normalize(&format!(
+                        "{} {} {} {} {}",
+                        s.title, g.title, e.label, e.description, e.keywords
+                    ));
+                    words.iter().all(|w| hay.contains(w.as_str()))
+                })
+                .map(|e| Entry {
+                    id: e.id,
+                    label: e.label.clone(),
+                    description: e.description.clone(),
+                    keywords: String::new(),
+                    essential: e.essential,
+                    modified: e.modified,
+                })
+                .collect();
+            if !entries.is_empty() {
+                groups.push(Group {
+                    id: g.id,
+                    title: g.title.clone(),
+                    entries,
+                });
+            }
+        }
+        if !groups.is_empty() {
+            out.push(Section {
+                id: s.id.clone(),
+                title: s.title.clone(),
+                description: s.description.clone(),
+                nav: s.nav.clone(),
+                project: s.project,
+                groups,
+                later: s.later,
+            });
+        }
+    }
+    out
+}
+
+/// essentials is the section Settings opens on: the essential settings of
+/// every installation section, under their own groups.
+fn essentials(sections: &[Section]) -> Section {
+    let mut groups = Vec::new();
+    for s in sections.iter().filter(|s| !s.project) {
+        for g in &s.groups {
+            let entries: Vec<Entry> = g
+                .entries
+                .iter()
+                .filter(|e| e.essential)
+                .map(|e| Entry {
+                    id: e.id,
+                    label: e.label.clone(),
+                    description: e.description.clone(),
+                    keywords: e.keywords.clone(),
+                    essential: true,
+                    modified: e.modified,
+                })
+                .collect();
+            if !entries.is_empty() {
+                groups.push(Group {
+                    id: g.id,
+                    title: g.title.clone(),
+                    entries,
+                });
+            }
+        }
+    }
+    Section {
+        id: ESSENTIALS.into(),
+        title: t("settings.page.essentials"),
+        description: t("settings.page.essentialsDescription"),
+        nav: None,
+        project: false,
+        groups,
+        later: false,
+    }
+}
+
+fn entry(id: &'static str, label: &str, description: &str, keywords: &str) -> Entry {
+    Entry {
+        id,
+        label: t(label),
+        description: if description.is_empty() {
+            String::new()
+        } else {
+            t(description)
+        },
+        keywords: t(keywords),
+        essential: false,
+        modified: false,
+    }
+}
+
+impl Entry {
+    fn essential(mut self) -> Self {
+        self.essential = true;
+        self
+    }
+    fn modified(mut self, on: bool) -> Self {
+        self.modified = on;
+        self
+    }
+}
+
+fn group(id: &'static str, title: &str, entries: Vec<Entry>) -> Group {
+    Group {
+        id,
+        title: t(title),
+        entries,
+    }
+}
+
+fn section(id: &str, nav: Option<&str>, groups: Vec<Group>) -> Section {
+    Section {
+        id: id.into(),
+        title: t(&format!("settings.section.{id}.title")),
+        description: t(&format!("settings.section.{id}.description")),
+        nav: nav.map(t),
+        project: false,
+        later: groups.is_empty(),
+        groups,
+    }
+}
+
+/// Seconds a freeze or a stop may wait, as IdleReclaim.tsx offers them.
+const FREEZE_TIMES: [i64; 5] = [120, 300, 600, 900, 1800];
+const STOP_TIMES: [i64; 5] = [300, 600, 1800, 3600, 7200];
+const DEFAULT_FREEZE: i64 = 300;
+const DEFAULT_STOP: i64 = 600;
+
+fn minutes_words(seconds: i64) -> String {
+    if seconds >= 3600 && seconds % 3600 == 0 {
+        format!("{}h", seconds / 3600)
+    } else {
+        format!("{}m", (seconds + 30) / 60)
+    }
+}
 
 impl AppView {
-    fn set_language(&mut self, tag: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+    /// load_settings_page reads what the page shows, as it opens and when
+    /// the daemon says the theme or the update status changed.
+    pub(super) fn load_settings_page(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();
-        agentbox_i18n::set_language(tag);
-        window.refresh();
         cx.spawn(async move |this, cx| {
-            let body = serde_json::to_vec(&serde_json::json!({ "language": tag })).unwrap();
-            let res = client
-                .raw(
-                    agentbox_api::client::Method::PATCH,
-                    "/v1/settings",
-                    Some(body),
-                )
-                .await;
+            let (s, th, up) = (
+                client.get::<Settings>("/v1/settings").await,
+                client.get::<Theme>("/v1/theme").await,
+                client.get::<UpdateStatus>("/v1/update").await,
+            );
             this.update(cx, |this, cx| {
-                this.error = res.err().map(|e| e.to_string().into());
+                let page = &mut this.settings_page;
+                page.settings = s.ok().or(page.settings.take());
+                page.update = up.ok().or(page.update.take());
+                if let Ok(th) = th {
+                    page.theme = Some(th);
+                }
                 cx.notify();
             })
             .ok();
@@ -32,18 +328,569 @@ impl AppView {
         .detach();
     }
 
+    /// load_theme wears the daemon's appearance, at start and on its event.
+    pub(super) fn load_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(th) = client.get::<Theme>("/v1/theme").await {
+                this.update_in(cx, |this, window, cx| this.wear(th, window, cx))
+                    .ok();
+            }
+        })
+        .detach();
+    }
+
+    fn wear(&mut self, th: Theme, window: &mut Window, cx: &mut Context<Self>) {
+        if theme::apply(&th) {
+            let mode = if theme::look() == theme::Look::Light {
+                gpui_component::ThemeMode::Light
+            } else {
+                gpui_component::ThemeMode::Dark
+            };
+            gpui_component::Theme::change(mode, Some(window), cx);
+            window.refresh();
+        }
+        self.settings_page.theme = Some(th);
+        cx.notify();
+    }
+
+    pub(super) fn reload_update(&mut self, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            if let Ok(up) = client.get::<UpdateStatus>("/v1/update").await {
+                this.update(cx, |this, cx| {
+                    this.settings_page.update = Some(up);
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.settings = true;
+        self.load_settings_page(cx);
+        self.translate_settings_search(window, cx);
+        cx.notify();
+    }
+
+    /// translate_settings_search puts the search's placeholder in the
+    /// language picked since it was made.
+    fn translate_settings_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.settings_page.search.update(cx, |s, cx| {
+            s.set_placeholder(t("settings.page.search"), window, cx)
+        });
+    }
+
+    pub(super) fn close_settings(&mut self, cx: &mut Context<Self>) {
+        self.settings = false;
+        cx.notify();
+    }
+
+    fn open_settings_section(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        if id != ESSENTIALS {
+            self.settings_page.advanced = true;
+        }
+        self.settings_page.open = id;
+        self.settings_page
+            .search
+            .update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+    }
+
+    /// save sends one change to PATCH /v1/settings and shows what it answers.
+    fn save(&mut self, req: UpdateSettingsRequest, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        let channel = req.update_channel.is_some();
+        cx.spawn(async move |this, cx| {
+            let body = serde_json::to_vec(&req).unwrap_or_default();
+            let res = client.raw(Method::PATCH, "/v1/settings", Some(body)).await;
+            this.update(cx, |this, cx| {
+                match res.map(|b| serde_json::from_slice::<Settings>(&b)) {
+                    Ok(Ok(s)) => {
+                        this.settings_page.settings = Some(s);
+                        this.error = None;
+                    }
+                    Ok(Err(e)) => this.error = Some(e.to_string().into()),
+                    Err(e) => this.error = Some(e.to_string().into()),
+                }
+                // The daemon checks again on a new channel; read what it found.
+                if channel {
+                    this.reload_update(cx);
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn set_appearance(&mut self, appearance: String, window: &mut Window, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let body = serde_json::to_vec(&agentbox_api::UpdateThemeRequest {
+                appearance: Some(appearance),
+            })
+            .unwrap_or_default();
+            let res = client.raw(Method::PATCH, "/v1/theme", Some(body)).await;
+            this.update_in(cx, |this, window, cx| {
+                match res.map(|b| serde_json::from_slice::<Theme>(&b)) {
+                    Ok(Ok(th)) => this.wear(th, window, cx),
+                    Ok(Err(e)) => this.error = Some(e.to_string().into()),
+                    Err(e) => this.error = Some(e.to_string().into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn set_language(&mut self, tag: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+        agentbox_i18n::set_language(tag);
+        self.translate_settings_search(window, cx);
+        window.refresh();
+        self.save(
+            UpdateSettingsRequest {
+                language: Some(tag.into()),
+                ..Default::default()
+            },
+            cx,
+        );
+    }
+
+    /// settings_sections is Settings as Electron's InstalledSettings lists
+    /// it, each project's after the installation's.
+    fn settings_sections(&self, _cx: &App) -> Vec<Section> {
+        let page = &self.settings_page;
+        let s = page.settings.as_ref();
+        let changed = |f: fn(&Settings) -> bool| s.is_some_and(f);
+        let general =
+            vec![
+                group(
+                    "appearance",
+                    "settings.group.appearance.title",
+                    vec![
+                        entry(
+                            "appearance",
+                            "settings.entry.appearance.label",
+                            "settings.appearance.description",
+                            "settings.entry.appearance.keywords",
+                        )
+                        .essential()
+                        .modified(
+                            page.theme
+                                .as_ref()
+                                .is_some_and(|t| t.appearance != "follow"),
+                        ),
+                        entry(
+                            "language",
+                            "common.language",
+                            "common.languageDescription",
+                            "settings.languageKeywords",
+                        )
+                        .essential()
+                        .modified(changed(|s| s.language != DEFAULT_LANGUAGE)),
+                        entry(
+                            "group-idle",
+                            "settings.entry.group-idle.label",
+                            "settings.groupIdle.description",
+                            "settings.entry.group-idle.keywords",
+                        )
+                        .modified(prefs::group_idle()),
+                    ],
+                ),
+                group(
+                    "commits",
+                    "settings.group.commits.title",
+                    vec![
+                        entry(
+                            "credit-ai-tool",
+                            "settings.entry.credit-ai-tool.label",
+                            "settings.creditAITool.description",
+                            "settings.entry.credit-ai-tool.keywords",
+                        )
+                        .modified(changed(|s| s.credit_ai_tool)),
+                        entry(
+                            "built-with-badge",
+                            "settings.entry.built-with-badge.label",
+                            "settings.builtWithBadge.description",
+                            "settings.entry.built-with-badge.keywords",
+                        )
+                        .modified(changed(|s| s.built_with_badge)),
+                    ],
+                ),
+                group(
+                    "updates",
+                    "settings.group.updates.title",
+                    vec![
+                        entry(
+                            "update-channel",
+                            "settings.entry.update-channel.label",
+                            "settings.channel.description",
+                            "settings.entry.update-channel.keywords",
+                        )
+                        .modified(page.update.as_ref().is_some_and(|u| {
+                            u.channel != if u.nightly { "nightly" } else { "stable" }
+                        })),
+                        entry(
+                            "update-check",
+                            "settings.entry.update-check.label",
+                            "settings.updateCheck.description",
+                            "settings.entry.update-check.keywords",
+                        )
+                        .modified(changed(|s| !s.update_check)),
+                    ],
+                ),
+                group(
+                    "privacy",
+                    "settings.group.privacy.title",
+                    vec![
+                        entry(
+                            "usage-stats",
+                            "settings.entry.usage-stats.label",
+                            "settings.usageStats.description",
+                            "settings.entry.usage-stats.keywords",
+                        )
+                        .modified(changed(|s| !s.usage_stats)),
+                        entry(
+                            "error-reports",
+                            "settings.entry.error-reports.label",
+                            "settings.errorReports.description",
+                            "settings.entry.error-reports.keywords",
+                        )
+                        .modified(changed(|s| !s.error_reports)),
+                    ],
+                ),
+            ];
+        let experimental = vec![
+            group(
+                "experimental-tests",
+                "settings.group.experimental-tests.title",
+                vec![
+                    entry(
+                        "block-full-suite",
+                        "settings.entry.block-full-suite.label",
+                        "settings.blockFullSuite.description",
+                        "settings.entry.block-full-suite.keywords",
+                    )
+                    .modified(changed(|s| s.block_full_suite)),
+                ],
+            ),
+            group(
+                "experimental-agents",
+                "settings.group.experimental-agents.title",
+                vec![
+                    entry(
+                        "agent-goals",
+                        "settings.entry.agent-goals.label",
+                        "settings.agentGoals.description",
+                        "settings.entry.agent-goals.keywords",
+                    )
+                    .modified(changed(|s| s.agent_goals)),
+                ],
+            ),
+            group(
+                "experimental-memory",
+                "settings.group.experimental-memory.title",
+                vec![
+                    entry(
+                        "idle-reclaim",
+                        "settings.idleReclaim.label",
+                        "settings.idleReclaim.description",
+                        "settings.entry.idle-reclaim.keywords",
+                    )
+                    .modified(changed(|s| s.idle_reclaim)),
+                    entry(
+                        "agent-freeze",
+                        "settings.entry.agent-freeze.label",
+                        "settings.agentFreeze.description",
+                        "settings.entry.agent-freeze.keywords",
+                    )
+                    .modified(changed(|s| s.agent_freeze)),
+                ],
+            ),
+        ];
+        let ai = Some("settings.nav.ai");
+        let machine = Some("settings.nav.machine");
+        let mut out = vec![
+            section("general", None, general),
+            // Notifications are the app's own (lib/notifyPrefs.ts), and this
+            // app doesn't notify yet.
+            section("notifications", None, Vec::new()),
+            section("phone", None, Vec::new()),
+            section("experimental", None, experimental),
+            section("accounts", ai, Vec::new()),
+            section("models", ai, Vec::new()),
+            section("agents", ai, Vec::new()),
+            section("skills", ai, Vec::new()),
+            section("connectors", ai, Vec::new()),
+            section("memory", ai, Vec::new()),
+            section("resources", machine, Vec::new()),
+            section("setup", machine, Vec::new()),
+            section("transfer", machine, Vec::new()),
+            section("diagnostics", machine, Vec::new()),
+        ];
+        for p in &self.projects {
+            out.push(Section {
+                id: format!("project:{}", p.name),
+                title: if p.display_name.is_empty() {
+                    p.name.clone()
+                } else {
+                    p.display_name.clone()
+                },
+                description: p.name.clone(),
+                nav: None,
+                project: true,
+                groups: Vec::new(),
+                later: true,
+            });
+        }
+        out
+    }
+
     pub(super) fn render_settings(&self, cx: &mut Context<Self>) -> AnyElement {
-        let current = agentbox_i18n::language();
-        v_flex()
+        let sections = self.settings_sections(cx);
+        let page = &self.settings_page;
+        let query = page.search.read(cx).value().to_string();
+        let searching = !query.trim().is_empty();
+        let ess = essentials(&sections);
+        let found = if searching {
+            search(&sections, &query)
+        } else {
+            Vec::new()
+        };
+        let changed: usize = sections.iter().map(Section::changed).sum();
+
+        let main = if searching {
+            self.render_found(&found, &query, cx)
+        } else if page.open == ESSENTIALS {
+            v_flex()
+                .gap_8()
+                .child(self.render_section(&ess, cx))
+                .child(self.render_advanced_list(&sections, cx))
+                .into_any_element()
+        } else {
+            match sections.iter().find(|s| s.id == page.open) {
+                Some(s) => self.render_section(s, cx),
+                None => self.render_section(&ess, cx),
+            }
+        };
+
+        h_flex()
             .id("settings")
             .size_full()
-            .overflow_y_scroll()
+            .items_start()
             .bg(theme::bg())
-            .px_8()
-            .py_6()
-            .gap_6()
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                let k = &ev.keystroke;
+                if k.key == "f" && (k.modifiers.control || k.modifiers.platform) {
+                    this.settings_page
+                        .search
+                        .update(cx, |s, cx| s.focus(window, cx));
+                    cx.stop_propagation();
+                } else if k.key == "escape" {
+                    let empty = this.settings_page.search.read(cx).value().is_empty();
+                    if empty {
+                        this.close_settings(cx);
+                    } else {
+                        this.settings_page
+                            .search
+                            .update(cx, |s, cx| s.set_value("", window, cx));
+                    }
+                    cx.stop_propagation();
+                }
+            }))
+            .child(
+                self.render_settings_nav(&sections, &ess, &found, searching, changed, &query, cx),
+            )
             .child(
                 div()
+                    .id("settings-main")
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .overflow_y_scroll()
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .max_w(px(768.))
+                            .mx_auto()
+                            .px_8()
+                            .py_8()
+                            .gap_4()
+                            .when_some(self.error.clone(), |el, e| {
+                                el.child(
+                                    div()
+                                        .px_4()
+                                        .py_2()
+                                        .rounded_lg()
+                                        .border_1()
+                                        .border_color(theme::error())
+                                        .text_sm()
+                                        .text_color(theme::error())
+                                        .child(e),
+                                )
+                            })
+                            .child(main),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_settings_nav(
+        &self,
+        sections: &[Section],
+        ess: &Section,
+        found: &[Section],
+        searching: bool,
+        changed: usize,
+        query: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let page = &self.settings_page;
+        let hits = |id: &str| -> usize {
+            if id == ESSENTIALS {
+                search(std::slice::from_ref(ess), query)
+                    .iter()
+                    .map(Section::count)
+                    .sum()
+            } else {
+                found.iter().find(|s| s.id == id).map_or(0, Section::count)
+            }
+        };
+        let nav_item = |s: &Section, cx: &mut Context<Self>| {
+            let active = !searching && s.id == page.open;
+            let n = if searching { hits(&s.id) } else { 0 };
+            let id = s.id.clone();
+            h_flex()
+                .id(SharedString::from(format!("settings-nav-{}", s.id)))
+                .gap_2()
+                .px_2p5()
+                .py(px(7.))
+                .rounded_lg()
+                .text_sm()
+                .cursor_pointer()
+                .when(active, |el| el.bg(theme::raised()).text_color(theme::fg()))
+                .when(!active, |el| {
+                    el.text_color(theme::muted())
+                        .hover(|st| st.bg(theme::panel()).text_color(theme::fg()))
+                })
+                .when(searching && n == 0, |el| el.opacity(0.4))
+                .child(div().flex_1().min_w_0().truncate().child(s.title.clone()))
+                .when(n > 0, |el| {
+                    el.child(
+                        div()
+                            .px_1p5()
+                            .rounded_full()
+                            .bg(theme::raised())
+                            .text_xs()
+                            .text_color(theme::muted())
+                            .child(n.to_string()),
+                    )
+                })
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.open_settings_section(id.clone(), window, cx)
+                }))
+                .into_any_element()
+        };
+        let heading = |text: String| {
+            div()
+                .px_2p5()
+                .pt_4()
+                .pb_1()
+                .text_xs()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::faint())
+                .child(text.to_uppercase())
+                .into_any_element()
+        };
+
+        let show_advanced = page.advanced || searching;
+        let mut items = vec![nav_item(ess, cx)];
+        items.push(
+            h_flex()
+                .id("settings-advanced-nav")
+                .mt_3()
+                .gap_1p5()
+                .px_2p5()
+                .py(px(7.))
+                .rounded_lg()
+                .text_sm()
+                .text_color(theme::muted())
+                .when(!searching, |el| {
+                    el.cursor_pointer()
+                        .hover(|st| st.bg(theme::panel()).text_color(theme::fg()))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.settings_page.advanced = !this.settings_page.advanced;
+                            cx.notify();
+                        }))
+                })
+                .child(if show_advanced { "▾" } else { "▸" })
+                .child(t("settings.page.advanced"))
+                .into_any_element(),
+        );
+        if show_advanced {
+            let mut last: Option<&String> = None;
+            for s in sections.iter().filter(|s| !s.project) {
+                if let Some(nav) = &s.nav
+                    && last != Some(nav)
+                {
+                    items.push(heading(nav.clone()));
+                }
+                last = s.nav.as_ref();
+                items.push(nav_item(s, cx));
+            }
+            if sections.iter().any(|s| s.project) {
+                items.push(heading(t("settings.page.projects")));
+                for s in sections.iter().filter(|s| s.project) {
+                    items.push(nav_item(s, cx));
+                }
+            }
+        }
+        let changed_on = query.to_lowercase().contains("@changed");
+        v_flex()
+            .id("settings-nav")
+            .w(px(240.))
+            .flex_none()
+            .h_full()
+            .overflow_y_scroll()
+            .border_r_1()
+            .border_color(theme::border())
+            .px_3()
+            .pt_6()
+            .pb_6()
+            .gap_3()
+            .child(
+                h_flex()
+                    .id("settings-back")
+                    .w_auto()
+                    .gap_1p5()
+                    .px_2()
+                    .py_1()
+                    .rounded_lg()
+                    .text_sm()
+                    .text_color(theme::muted())
+                    .cursor_pointer()
+                    .hover(|st| st.bg(theme::panel()).text_color(theme::fg()))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_settings(cx)))
+                    .child(format!("← {}", t("common.back")))
+                    .child(
+                        div()
+                            .px_1()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(theme::border())
+                            .text_xs()
+                            .text_color(theme::faint())
+                            .child("Esc"),
+                    ),
+            )
+            .child(
+                div()
+                    .px_2()
                     .text_xl()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::fg())
@@ -51,73 +898,747 @@ impl AppView {
             )
             .child(
                 v_flex()
+                    .gap_1p5()
+                    .child(Input::new(&page.search).cleanable(true))
+                    .when(changed > 0, |el| {
+                        el.child(
+                            h_flex()
+                                .id("settings-changed")
+                                .w_auto()
+                                .gap_1p5()
+                                .px_2()
+                                .text_xs()
+                                .cursor_pointer()
+                                .text_color(if changed_on {
+                                    theme::accent()
+                                } else {
+                                    theme::faint()
+                                })
+                                .hover(|st| st.text_color(theme::fg()))
+                                .child(
+                                    div()
+                                        .w(px(2.))
+                                        .h(px(10.))
+                                        .rounded_full()
+                                        .bg(theme::accent()),
+                                )
+                                .child(tv(
+                                    "settings.page.changedFromDefault",
+                                    &[("n", changed.into())],
+                                ))
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    let q = this.settings_page.search.read(cx).value().to_string();
+                                    let next = if q.to_lowercase().contains("@changed") {
+                                        q.split_whitespace()
+                                            .filter(|w| !w.eq_ignore_ascii_case("@changed"))
+                                            .collect::<Vec<_>>()
+                                            .join(" ")
+                                    } else {
+                                        format!("@changed {q}").trim().to_string()
+                                    };
+                                    this.settings_page
+                                        .search
+                                        .update(cx, |s, cx| s.set_value(next, window, cx));
+                                    cx.notify();
+                                })),
+                        )
+                    }),
+            )
+            .child(v_flex().gap(px(2.)).children(items))
+            .into_any_element()
+    }
+
+    /// render_section draws one section: its title and what it holds, then
+    /// its groups, or a line saying this app hasn't these settings yet.
+    fn render_section(&self, s: &Section, cx: &mut Context<Self>) -> AnyElement {
+        v_flex()
+            .gap_8()
+            .child(
+                v_flex()
                     .gap_1()
                     .child(
-                        div()
-                            .text_color(theme::fg())
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(t("settings.section.general.title")),
+                        h_flex()
+                            .gap_2()
+                            .items_baseline()
+                            .when(s.project, |el| {
+                                el.child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(theme::faint())
+                                        .child(t("settings.page.project")),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme::fg())
+                                    .child(s.title.clone()),
+                            ),
                     )
                     .child(
                         div()
                             .text_sm()
                             .text_color(theme::muted())
-                            .child(t("settings.section.general.description")),
+                            .child(s.description.clone()),
                     ),
+            )
+            .when(s.later, |el| {
+                el.child(
+                    div()
+                        .px_5()
+                        .py_4()
+                        .rounded_xl()
+                        .border_1()
+                        .border_color(theme::border())
+                        .bg(theme::panel())
+                        .text_sm()
+                        .text_color(theme::muted())
+                        .child(t("native.settings.later")),
+                )
+            })
+            .children(s.groups.iter().map(|g| self.render_group(g, cx)))
+            .when(s.id == "general", |el| {
+                el.when_some(self.settings_page.update.as_ref(), |el, u| {
+                    el.child(
+                        div()
+                            .w_full()
+                            .text_center()
+                            .text_xs()
+                            .text_color(theme::faint())
+                            .child(format!(
+                                "AgentBox {} · {}",
+                                u.current,
+                                self.client.socket().display()
+                            )),
+                    )
+                })
+            })
+            .into_any_element()
+    }
+
+    fn render_group(&self, g: &Group, cx: &mut Context<Self>) -> AnyElement {
+        let mut rows = Vec::new();
+        for (i, e) in g.entries.iter().enumerate() {
+            rows.push(
+                div()
+                    .when(i > 0, |el| el.border_t_1().border_color(theme::border()))
+                    .child(self.render_entry(e, cx))
+                    .into_any_element(),
+            );
+        }
+        v_flex()
+            .id(SharedString::from(format!("settings-group-{}", g.id)))
+            .gap_2p5()
+            .child(
+                div()
+                    .px_1()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::fg())
+                    .child(g.title.clone()),
             )
             .child(
                 v_flex()
-                    .gap_3()
-                    .p_4()
-                    .rounded_lg()
+                    .rounded_xl()
                     .border_1()
                     .border_color(theme::border())
                     .bg(theme::panel())
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme::fg())
-                                    .child(t("common.language")),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme::muted())
-                                    .child(t("common.languageDescription")),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .children(LANGUAGES.iter().map(|(tag, name)| {
-                                let on = *tag == current;
-                                div()
-                                    .id(SharedString::from(format!("lang-{tag}")))
-                                    .px_3()
-                                    .py_1p5()
-                                    .rounded_md()
-                                    .cursor_pointer()
-                                    .border_1()
-                                    .border_color(if on {
-                                        theme::accent()
-                                    } else {
-                                        theme::border()
-                                    })
-                                    .when(on, |el| el.bg(theme::hover()))
-                                    .text_sm()
-                                    .text_color(theme::fg())
-                                    .child(*name)
-                                    .on_click(cx.listener(
-                                        move |this, _: &ClickEvent, window, cx| {
-                                            this.set_language(tag, window, cx)
-                                        },
-                                    ))
-                            })),
-                    ),
+                    .children(rows),
             )
             .into_any_element()
+    }
+
+    /// render_advanced_list is Essentials' end: every section, with how many
+    /// settings it holds and how many are changed, a click from opening it.
+    fn render_advanced_list(&self, sections: &[Section], cx: &mut Context<Self>) -> AnyElement {
+        let open = self.settings_page.advanced;
+        let total: usize = sections.iter().map(Section::count).sum();
+        v_flex()
+            .gap_2p5()
+            .child(
+                h_flex()
+                    .id("settings-advanced")
+                    .gap_1p5()
+                    .px_1()
+                    .text_sm()
+                    .text_color(theme::muted())
+                    .cursor_pointer()
+                    .hover(|st| st.text_color(theme::fg()))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.settings_page.advanced = !this.settings_page.advanced;
+                        cx.notify();
+                    }))
+                    .child(if open { "▾" } else { "▸" })
+                    .child(tv(
+                        "settings.page.advancedSections",
+                        &[("count", total.into()), ("sections", sections.len().into())],
+                    )),
+            )
+            .when(open, |el| {
+                el.child(
+                    v_flex()
+                        .rounded_xl()
+                        .border_1()
+                        .border_color(theme::border())
+                        .bg(theme::panel())
+                        .children(sections.iter().enumerate().map(|(i, s)| {
+                            let id = s.id.clone();
+                            let (n, changed) = (s.count(), s.changed());
+                            h_flex()
+                                .id(SharedString::from(format!("settings-adv-{}", s.id)))
+                                .gap_3()
+                                .px_5()
+                                .py_3()
+                                .when(i > 0, |el| el.border_t_1().border_color(theme::border()))
+                                .cursor_pointer()
+                                .hover(|st| st.bg(theme::raised()))
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    this.open_settings_section(id.clone(), window, cx)
+                                }))
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .child(
+                                            h_flex()
+                                                .gap_2()
+                                                .when(s.project, |el| {
+                                                    el.child(
+                                                        div()
+                                                            .text_xs()
+                                                            .text_color(theme::faint())
+                                                            .child(t("settings.page.project")),
+                                                    )
+                                                })
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .font_weight(FontWeight::MEDIUM)
+                                                        .text_color(theme::fg())
+                                                        .truncate()
+                                                        .child(s.title.clone()),
+                                                ),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(theme::faint())
+                                                .truncate()
+                                                .child(s.description.clone()),
+                                        ),
+                                )
+                                .when(n > 0, |el| {
+                                    el.child(
+                                        div()
+                                            .flex_none()
+                                            .text_xs()
+                                            .text_color(theme::faint())
+                                            .child(if changed > 0 {
+                                                tv(
+                                                    "settings.page.advancedCountChanged",
+                                                    &[
+                                                        ("count", n.into()),
+                                                        ("changed", changed.into()),
+                                                    ],
+                                                )
+                                            } else {
+                                                tv(
+                                                    "settings.page.advancedCount",
+                                                    &[("count", n.into())],
+                                                )
+                                            }),
+                                    )
+                                })
+                                .child(div().text_color(theme::faint()).child("›"))
+                        })),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// render_found is a search's result: every setting that matched, under
+    /// its section and group.
+    fn render_found(&self, found: &[Section], query: &str, cx: &mut Context<Self>) -> AnyElement {
+        if found.is_empty() {
+            return div()
+                .text_sm()
+                .text_color(theme::muted())
+                .child(tv(
+                    "settings.page.noMatch",
+                    &[("query", query.trim().into())],
+                ))
+                .into_any_element();
+        }
+        let total: usize = found.iter().map(Section::count).sum();
+        v_flex()
+            .gap_8()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(theme::muted())
+                    .child(tv("settings.page.found", &[("count", total.into())])),
+            )
+            .children(found.iter().map(|s| {
+                v_flex()
+                    .gap_4()
+                    .child(
+                        div()
+                            .text_base()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::fg())
+                            .child(s.title.clone()),
+                    )
+                    .children(s.groups.iter().map(|g| self.render_group(g, cx)))
+            }))
+            .into_any_element()
+    }
+
+    /// more_row is a Row with its "More" wired to the page's state.
+    fn more_row(&self, e: &Entry, details: Option<String>, cx: &mut Context<Self>) -> Row {
+        let id = e.id;
+        let mut row = Row::new(
+            SharedString::from(format!("setting-{id}")),
+            e.label.clone(),
+            e.description.clone(),
+        );
+        row.modified = e.modified;
+        if details.is_some() {
+            row.details = details;
+            row.more = self.settings_page.more.contains(id);
+            row.on_more = Some(Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let more = &mut this.settings_page.more;
+                if !more.remove(id) {
+                    more.insert(id);
+                }
+                cx.notify();
+            })));
+        }
+        row
+    }
+
+    /// switch_row is a setting that's a switch over one field of Settings.
+    fn switch_row(
+        &self,
+        e: &Entry,
+        details: &str,
+        on: impl Fn(&Settings) -> bool,
+        set: fn(bool) -> UpdateSettingsRequest,
+        cx: &mut Context<Self>,
+    ) -> Row {
+        let s = self.settings_page.settings.as_ref();
+        let value = s.is_some_and(on);
+        let mut row = self.more_row(e, (!details.is_empty()).then(|| t(details)), cx);
+        row.control = Some(toggle(
+            SharedString::from(format!("switch-{}", e.id)),
+            value,
+            s.is_none(),
+            cx.listener(move |this, _: &ClickEvent, _, cx| this.save(set(!value), cx)),
+        ));
+        row
+    }
+
+    fn render_entry(&self, e: &Entry, cx: &mut Context<Self>) -> AnyElement {
+        let page = &self.settings_page;
+        let s = page.settings.as_ref();
+        let update = page.update.as_ref();
+        let blocked = update.map(|u| u.blocked.clone()).filter(|b| !b.is_empty());
+        let row = match e.id {
+            "appearance" => {
+                let mut row = self.more_row(e, Some(t("settings.appearance.details")), cx);
+                let th = page.theme.as_ref();
+                let options = ["follow", "light", "dark", "dracula"]
+                    .into_iter()
+                    .map(|v| {
+                        (
+                            SharedString::from(v),
+                            t(&format!("settings.appearance.{v}")),
+                        )
+                    })
+                    .collect();
+                row.body.push(segmented(
+                    "appearance",
+                    options,
+                    th.map(|t| t.appearance.as_str()),
+                    th.is_none(),
+                    Rc::new(cx.listener(|this, v: &str, window, cx| {
+                        this.set_appearance(v.to_string(), window, cx)
+                    })),
+                ));
+                if let Some(th) = th {
+                    let name = if th.name.is_empty() {
+                        t("settings.appearance.noName")
+                    } else {
+                        th.name.clone()
+                    };
+                    row.body.push(note(if !th.available {
+                        t("settings.appearance.noTheme")
+                    } else {
+                        let key = match th.appearance.as_str() {
+                            "dracula" => "settings.appearance.onDracula",
+                            "follow" => "settings.appearance.onThemeFollowing",
+                            _ => "settings.appearance.onThemeNot",
+                        };
+                        let mode = if th.mode == "light" { "light" } else { "dark" };
+                        tv(key, &[("name", (&name).into()), ("mode", mode.into())])
+                    }));
+                }
+                row
+            }
+            "language" => {
+                let mut row = self.more_row(e, None, cx);
+                let options = LANGUAGES
+                    .iter()
+                    .map(|(tag, name)| (SharedString::from(*tag), name.to_string()))
+                    .collect();
+                row.body.push(segmented(
+                    "lang",
+                    options,
+                    Some(agentbox_i18n::language()),
+                    false,
+                    Rc::new(cx.listener(|this, v: &str, window, cx| {
+                        if let Some((tag, _)) = LANGUAGES.iter().find(|(tag, _)| *tag == v) {
+                            this.set_language(tag, window, cx)
+                        }
+                    })),
+                ));
+                row
+            }
+            "group-idle" => {
+                let on = prefs::group_idle();
+                let mut row = self.more_row(e, None, cx);
+                row.control = Some(toggle(
+                    "switch-group-idle",
+                    on,
+                    false,
+                    cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        prefs::set_bool(prefs::GROUP_IDLE, !on);
+                        cx.notify();
+                    }),
+                ));
+                row
+            }
+            "credit-ai-tool" => self.switch_row(
+                e,
+                "settings.creditAITool.details",
+                |s| s.credit_ai_tool,
+                |v| UpdateSettingsRequest {
+                    credit_ai_tool: Some(v),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            "built-with-badge" => self.switch_row(
+                e,
+                "settings.builtWithBadge.details",
+                |s| s.built_with_badge,
+                |v| UpdateSettingsRequest {
+                    built_with_badge: Some(v),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            "update-channel" => {
+                let mut row = self.more_row(e, Some(t("settings.channel.details")), cx);
+                let options = ["stable", "nightly"]
+                    .into_iter()
+                    .map(|v| (SharedString::from(v), t(&format!("settings.channel.{v}"))))
+                    .collect();
+                row.body.push(segmented(
+                    "channel",
+                    options,
+                    update.map(|u| u.channel.as_str()),
+                    update.is_none() || blocked.is_some(),
+                    Rc::new(cx.listener(|this, v: &str, _, cx| {
+                        if let Some(u) = this.settings_page.update.as_mut() {
+                            u.channel = v.to_string();
+                            u.available = None;
+                        }
+                        this.save(
+                            UpdateSettingsRequest {
+                                update_channel: Some(v.to_string()),
+                                ..Default::default()
+                            },
+                            cx,
+                        )
+                    })),
+                ));
+                if let Some(b) = &blocked {
+                    row.body.push(note(tv(
+                        "settings.update.offBecause",
+                        &[("reason", b.into())],
+                    )));
+                }
+                row
+            }
+            "update-check" => {
+                let version = update
+                    .filter(|u| !u.current.is_empty())
+                    .map(|u| format!(" ({})", u.current))
+                    .unwrap_or_default();
+                let details = tv(
+                    "settings.updateCheck.details",
+                    &[("version", (&version).into())],
+                );
+                let on = blocked.is_none() && s.is_some_and(|s| s.update_check);
+                let mut row = self.more_row(e, Some(details), cx);
+                row.control = Some(toggle(
+                    "switch-update-check",
+                    on,
+                    s.is_none() || blocked.is_some(),
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.save(
+                            UpdateSettingsRequest {
+                                update_check: Some(!on),
+                                ..Default::default()
+                            },
+                            cx,
+                        )
+                    }),
+                ));
+                if let Some(b) = &blocked {
+                    row.body.push(note(tv(
+                        "settings.update.offBecause",
+                        &[("reason", b.into())],
+                    )));
+                }
+                if let Some(a) = update.and_then(|u| u.available.as_ref())
+                    && update.is_some_and(|u| u.current != a.version)
+                {
+                    row.body.push(note(tv(
+                        "settings.updateCheck.isOut",
+                        &[("version", (&a.version).into())],
+                    )));
+                }
+                row
+            }
+            "usage-stats" => {
+                let check_off = s.is_some_and(|s| !s.update_check);
+                let on = blocked.is_none() && !check_off && s.is_some_and(|s| s.usage_stats);
+                let mut row = self.more_row(e, Some(t("settings.usageStats.details")), cx);
+                row.control = Some(toggle(
+                    "switch-usage-stats",
+                    on,
+                    s.is_none() || blocked.is_some() || check_off,
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.save(
+                            UpdateSettingsRequest {
+                                usage_stats: Some(!on),
+                                ..Default::default()
+                            },
+                            cx,
+                        )
+                    }),
+                ));
+                if blocked.is_some() || check_off {
+                    let reason = blocked.unwrap_or_else(|| t("settings.usageStats.checkOff"));
+                    row.body.push(note(tv(
+                        "settings.update.offBecause",
+                        &[("reason", (&reason).into())],
+                    )));
+                }
+                row
+            }
+            "error-reports" => self.switch_row(
+                e,
+                "settings.errorReports.details",
+                |s| s.error_reports,
+                |v| UpdateSettingsRequest {
+                    error_reports: Some(v),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            "block-full-suite" => self.switch_row(
+                e,
+                "settings.blockFullSuite.details",
+                |s| s.block_full_suite,
+                |v| UpdateSettingsRequest {
+                    block_full_suite: Some(v),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            "agent-goals" => self.switch_row(
+                e,
+                "settings.agentGoals.details",
+                |s| s.agent_goals,
+                |v| UpdateSettingsRequest {
+                    agent_goals: Some(v),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            "agent-freeze" => self.switch_row(
+                e,
+                "settings.agentFreeze.details",
+                |s| s.agent_freeze,
+                |v| UpdateSettingsRequest {
+                    agent_freeze: Some(v),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            "idle-reclaim" => {
+                let mut row = self.switch_row(
+                    e,
+                    "settings.idleReclaim.details",
+                    |s| s.idle_reclaim,
+                    |v| UpdateSettingsRequest {
+                        idle_reclaim: Some(v),
+                        ..Default::default()
+                    },
+                    cx,
+                );
+                if let Some(s) = s.filter(|s| s.idle_reclaim) {
+                    let wait = |id: &str,
+                                label: &str,
+                                value: i64,
+                                choices: &[i64],
+                                fallback: i64,
+                                set: fn(i64) -> UpdateSettingsRequest,
+                                cx: &mut Context<Self>| {
+                        let mut values = choices.to_vec();
+                        if !values.contains(&value) {
+                            values.push(value);
+                        }
+                        let options = values
+                            .iter()
+                            .map(|n| {
+                                let words = minutes_words(*n);
+                                let label = if *n == fallback {
+                                    tv(
+                                        "defaults.newAgent.withDefault",
+                                        &[("label", (&words).into())],
+                                    )
+                                } else {
+                                    words
+                                };
+                                (SharedString::from(n.to_string()), label)
+                            })
+                            .collect();
+                        v_flex()
+                            .gap_1()
+                            .child(div().text_xs().text_color(theme::muted()).child(t(label)))
+                            .child(segmented(
+                                id,
+                                options,
+                                Some(&value.to_string()),
+                                false,
+                                Rc::new(cx.listener(move |this, v: &str, _, cx| {
+                                    if let Ok(n) = v.parse::<i64>() {
+                                        this.save(set(n), cx)
+                                    }
+                                })),
+                            ))
+                            .into_any_element()
+                    };
+                    row.body.push(
+                        v_flex()
+                            .gap_3()
+                            .child(wait(
+                                "freeze",
+                                "settings.idleReclaim.freezeAfter",
+                                if s.idle_freeze_seconds > 0 {
+                                    s.idle_freeze_seconds
+                                } else {
+                                    DEFAULT_FREEZE
+                                },
+                                &FREEZE_TIMES,
+                                DEFAULT_FREEZE,
+                                |n| UpdateSettingsRequest {
+                                    idle_freeze_seconds: Some(n),
+                                    ..Default::default()
+                                },
+                                cx,
+                            ))
+                            .child(wait(
+                                "stop",
+                                "settings.idleReclaim.stopAfter",
+                                if s.idle_stop_seconds > 0 {
+                                    s.idle_stop_seconds
+                                } else {
+                                    DEFAULT_STOP
+                                },
+                                &STOP_TIMES,
+                                DEFAULT_STOP,
+                                |n| UpdateSettingsRequest {
+                                    idle_stop_seconds: Some(n),
+                                    ..Default::default()
+                                },
+                                cx,
+                            ))
+                            .into_any_element(),
+                    );
+                }
+                row
+            }
+            _ => self.more_row(e, None, cx),
+        };
+        row.render()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Entry, Group, Section, essentials, minutes_words, search};
+
+    fn sample() -> Vec<Section> {
+        vec![Section {
+            id: "general".into(),
+            title: "General".into(),
+            description: String::new(),
+            nav: None,
+            project: false,
+            later: false,
+            groups: vec![Group {
+                id: "appearance",
+                title: "Appearance".into(),
+                entries: vec![
+                    Entry {
+                        id: "appearance",
+                        label: "Aparência".into(),
+                        description: "light or dark".into(),
+                        keywords: "theme".into(),
+                        essential: true,
+                        modified: true,
+                    },
+                    Entry {
+                        id: "group-idle",
+                        label: "Group idle projects".into(),
+                        description: "the agent's sidebar".into(),
+                        keywords: String::new(),
+                        essential: false,
+                        modified: false,
+                    },
+                ],
+            }],
+        }]
+    }
+
+    #[test]
+    fn search_matches_words_accents_and_changed() {
+        let s = sample();
+        let ids = |q: &str| -> Vec<&'static str> {
+            search(&s, q)
+                .iter()
+                .flat_map(|s| s.groups.iter().flat_map(|g| g.entries.iter().map(|e| e.id)))
+                .collect()
+        };
+        assert_eq!(ids("theme"), ["appearance"]);
+        assert_eq!(ids("aparencia"), ["appearance"], "accents fold");
+        assert_eq!(ids("agents sidebar"), ["group-idle"], "apostrophes fold");
+        assert_eq!(ids("general idle"), ["group-idle"], "section title counts");
+        assert_eq!(ids("@changed"), ["appearance"]);
+        assert!(ids("nothing").is_empty());
+        assert_eq!(essentials(&s).count(), 1);
+    }
+
+    #[test]
+    fn minutes_read_as_electron_writes_them() {
+        assert_eq!(minutes_words(300), "5m");
+        assert_eq!(minutes_words(3600), "1h");
+        assert_eq!(minutes_words(7200), "2h");
+        assert_eq!(minutes_words(5400), "90m");
     }
 }

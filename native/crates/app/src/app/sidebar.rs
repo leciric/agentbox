@@ -236,8 +236,10 @@ impl AppView {
             .filter(|p| self.matches(p, &query))
             .collect();
         let hidden = &self.side.hidden;
-        // Sections keep the user's order; the rest go by attention, then activity.
+        // Sections keep the user's order; with group-idle on (Settings), the rest go by
+        // attention, then activity, and the idle ones to a dock.
         let mut placed = HashSet::new();
+        let group_idle = crate::prefs::group_idle();
         let mut sections = Vec::new();
         for s in &self.side.sections {
             let mut ps: Vec<&Project> = shown
@@ -253,18 +255,26 @@ impl AppView {
         for p in shown.iter().copied().filter(|p| !placed.contains(&p.name)) {
             if hidden.contains(&p.name) && self.project.as_deref() != Some(&p.name) {
                 hid.push(p);
-            } else if self.counts(&p.name).running == 0 && self.counts(&p.name).asks == 0 {
+            } else if group_idle
+                && self.counts(&p.name).running == 0
+                && self.counts(&p.name).asks == 0
+            {
                 idle.push(p);
             } else {
                 rest.push(p);
             }
         }
-        rest.sort_by(|a, b| {
-            let (ca, cb) = (self.counts(&a.name), self.counts(&b.name));
-            (cb.asks + cb.failed, cb.working)
-                .cmp(&(ca.asks + ca.failed, ca.working))
-                .then_with(|| self.last(&b.name).cmp(&self.last(&a.name)))
-        });
+        if group_idle {
+            rest.sort_by(|a, b| {
+                let (ca, cb) = (self.counts(&a.name), self.counts(&b.name));
+                (cb.asks + cb.failed, cb.working)
+                    .cmp(&(ca.asks + ca.failed, ca.working))
+                    .then_with(|| self.last(&b.name).cmp(&self.last(&a.name)))
+            });
+        } else {
+            // Off (the default), a stable order that activity never moves.
+            rest.sort_by_key(|p| (p.position, p.name.clone()));
+        }
         idle.sort_by_key(|p| std::cmp::Reverse(self.last(&p.name)));
         let nothing_else = rest.is_empty() && sections.iter().all(|(_, ps)| ps.is_empty());
         let idle_open = self.side.idle_open || nothing_else || !query.is_empty();
@@ -440,9 +450,8 @@ impl AppView {
                             .when(self.settings, |el| el.bg(theme::hover()))
                             .hover(|el| el.bg(theme::raised()))
                             .child(format!("⚙  {}", t("common.settings")))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.settings = true;
-                                cx.notify();
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.open_settings(window, cx)
                             })),
                     ),
             )
