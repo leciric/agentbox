@@ -580,6 +580,7 @@ impl AppView {
                 });
             }
         }
+        self.name_placeholders(window, cx);
     }
 
     /// open_settings_at opens Settings on one section.
@@ -1020,9 +1021,28 @@ impl AppView {
                 found.iter().find(|s| s.id == id).map_or(0, Section::count)
             }
         };
+        // What needs a look (SettingsView.tsx needsLook): the checks of
+        // Accounts' tools, and of Setup's machine, missing, outdated or warning.
+        let look = |ids: &[&str]| {
+            page.accounts.setup.as_ref().map_or(0, |st| {
+                st.checks
+                    .iter()
+                    .filter(|c| {
+                        ids.contains(&c.id.as_str())
+                            && ["missing", "outdated", "warn"].contains(&c.status.as_str())
+                    })
+                    .count()
+            })
+        };
+        let attention = |id: &str| match id {
+            "accounts" => look(&["claude", "codex", "opencode", "cursor", "gemini", "github"]),
+            "setup" => look(&["incus", "host", "image", "storage", "android", "preview"]),
+            _ => 0,
+        };
         let nav_item = |s: &Section, cx: &mut Context<Self>| {
             let active = !searching && s.id == page.open;
             let n = if searching { hits(&s.id) } else { 0 };
+            let look = if searching { 0 } else { attention(&s.id) };
             let id = s.id.clone();
             h_flex()
                 .id(SharedString::from(format!("settings-nav-{}", s.id)))
@@ -1048,6 +1068,26 @@ impl AppView {
                             .text_xs()
                             .text_color(theme::muted())
                             .child(n.to_string()),
+                    )
+                })
+                .when(look > 0, |el| {
+                    el.child(
+                        div()
+                            .id(SharedString::from(format!("settings-look-{}", s.id)))
+                            .px_1p5()
+                            .rounded_full()
+                            .bg(theme::starting().opacity(0.15))
+                            .text_xs()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::starting())
+                            .tooltip(move |w, cx| {
+                                gpui_component::tooltip::Tooltip::new(tv(
+                                    "settings.page.toLookAt",
+                                    &[("n", look.into())],
+                                ))
+                                .build(w, cx)
+                            })
+                            .child(look.to_string()),
                     )
                 })
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {

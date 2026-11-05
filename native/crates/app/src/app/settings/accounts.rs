@@ -89,6 +89,8 @@ pub(super) struct Login {
     opened: Option<String>,
     polling: bool,
     copied: bool,
+    /// The sign-in job's log, as it's written (JobProgress).
+    log: Vec<String>,
 }
 
 /// The Accounts section's own state.
@@ -134,7 +136,7 @@ fn saved_label(saved_at: &str) -> String {
     }
     tv(
         "settings.accounts.savedOn",
-        &[("date", saved_at.get(..10).unwrap_or(saved_at).into())],
+        &[("date", crate::dates::date_of(saved_at).into())],
     )
 }
 
@@ -308,11 +310,39 @@ impl AppView {
                 for flow in follow {
                     this.poll_login(flow, window, cx);
                 }
+                this.name_placeholders(window, cx);
                 cx.notify();
             })
             .ok();
         })
         .detach();
+    }
+
+    /// name_placeholders suggests "default" for a tool's first account and
+    /// "work" once it has one (ToolAccounts.tsx).
+    pub(super) fn name_placeholders(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(a) = self.settings_page.accounts.auth.as_ref() else {
+            return;
+        };
+        let count = |field: &str| match field.split('-').next().unwrap_or("") {
+            "claude" => a.claude_accounts.len(),
+            "gemini" => a.gemini_accounts.len(),
+            "codex" => a.codex_accounts.len(),
+            "opencode" => a.open_code_accounts.len(),
+            "cursor" => a.cursor_accounts.len(),
+            "github" => a.github_accounts.len(),
+            _ => 0,
+        };
+        let names: Vec<(&str, &str)> = FIELDS
+            .iter()
+            .filter(|(_, p, _)| *p == "default")
+            .map(|(n, _, _)| (*n, if count(n) == 0 { "default" } else { "work" }))
+            .collect();
+        for (name, p) in names {
+            if let Some(i) = self.settings_page.fields.get(name) {
+                i.update(cx, |i, cx| i.set_placeholder(p, window, cx));
+            }
+        }
     }
 
     pub(super) fn field_value(&self, name: &str, cx: &App) -> String {
@@ -808,7 +838,18 @@ impl AppView {
                     this.update_in(cx, |this, window, cx| this.got_github(&job, r, window, cx))
                 } else {
                     let r = client.get::<ClaudeLogin>(&path).await;
+                    let log = client
+                        .raw(Method::GET, &format!("/v1/jobs/{}/log", enc(&job)), None)
+                        .await;
                     this.update_in(cx, |this, window, cx| {
+                        if let Ok(b) = log
+                            && let Some(l) = this.settings_page.accounts.logins.get_mut(flow)
+                        {
+                            l.log = String::from_utf8_lossy(&b)
+                                .lines()
+                                .map(String::from)
+                                .collect();
+                        }
                         this.got_login(flow, &job, r, window, cx)
                     })
                 }
@@ -1553,6 +1594,9 @@ impl AppView {
                         )
                     }),
             );
+            if let Some(l) = l.filter(|l| !l.log.is_empty()) {
+                col = col.child(crate::app::add_project::job_log(&l.log, None));
+            }
         }
         col.into_any_element()
     }
@@ -1973,6 +2017,6 @@ mod tests {
             saved_label("0001-01-01T00:00:00Z"),
             "saved on an unknown date"
         );
-        assert_eq!(saved_label("2026-11-05T03:55:18Z"), "saved 2026-11-05");
+        assert!(saved_label("2026-11-05T13:55:18Z").starts_with("saved Nov "));
     }
 }
