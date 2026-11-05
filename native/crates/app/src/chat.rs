@@ -47,6 +47,10 @@ pub struct ChatView {
     /// When the last unpainted chunk arrived, for bench's arrival-to-paint.
     arrived: Option<Instant>,
     last_frame: Option<Instant>,
+    /// Tool calls opened to show their command and output.
+    expanded: std::collections::HashSet<String>,
+    /// Permission requests whose answer is on its way.
+    answering: std::collections::HashSet<String>,
     _subs: Vec<Subscription>,
 }
 
@@ -82,6 +86,8 @@ impl ChatView {
             input,
             arrived: None,
             last_frame: None,
+            expanded: Default::default(),
+            answering: Default::default(),
             _subs: vec![sub],
         };
         this.load(cx);
@@ -219,7 +225,199 @@ impl ChatView {
         cx.notify();
     }
 
-    fn render_item(&self, ix: usize) -> AnyElement {
+    fn toggle(&mut self, id: &str, ix: usize, cx: &mut Context<Self>) {
+        if !self.expanded.remove(id) {
+            self.expanded.insert(id.to_string());
+        }
+        self.list.remeasure_items(ix..ix + 1);
+        cx.notify();
+    }
+
+    /// answer picks one of a permission request's options.
+    fn answer(&mut self, item: String, option: String, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        let path = format!("{}/chat/permissions/{item}", self.prefix);
+        self.answering.insert(item.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let res = client
+                .post::<_, serde_json::Value>(
+                    &path,
+                    &agentbox_api::ChatAnswerRequest { option_id: option },
+                )
+                .await;
+            this.update(cx, |this, cx| {
+                this.answering.remove(&item);
+                this.error = res.err().map(|e| e.to_string().into());
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn render_tool(&self, item: &ChatItem, ix: usize, view: Entity<Self>) -> AnyElement {
+        let tool = item.tool.clone().unwrap_or_default();
+        let open = self.expanded.contains(&item.id);
+        let id = item.id.clone();
+        let dot = match tool.status.as_str() {
+            "completed" => theme::running(),
+            "failed" => theme::error(),
+            _ => theme::starting(),
+        };
+        let title = if tool.title.is_empty() {
+            tool.kind.clone()
+        } else {
+            tool.title.clone()
+        };
+        let mut body = v_flex().gap_1();
+        if open {
+            let mono = || {
+                div()
+                    .p_2()
+                    .rounded_md()
+                    .bg(theme::raised())
+                    .text_xs()
+                    .font_family("DejaVu Sans Mono")
+                    .text_color(theme::muted())
+            };
+            if !tool.command.is_empty() {
+                body = body.child(mono().child(format!("$ {}", tool.command)));
+            }
+            for d in &tool.diffs {
+                let (old, new) = (d.old_text.lines().count(), d.new_text.lines().count());
+                body = body.child(
+                    div()
+                        .text_xs()
+                        .text_color(theme::muted())
+                        .child(format!("{}  −{old} +{new}", d.path)),
+                );
+            }
+            if !tool.output.is_empty() {
+                let out: String = tool.output.chars().take(4000).collect();
+                body = body.child(mono().child(out));
+            }
+        }
+        div()
+            .w_full()
+            .px_6()
+            .py_0p5()
+            .child(
+                h_flex()
+                    .id(SharedString::from(format!("tool-{}", item.id)))
+                    .gap_2()
+                    .cursor_pointer()
+                    .text_xs()
+                    .text_color(theme::muted())
+                    .hover(|el| el.text_color(theme::fg()))
+                    .on_click(move |_, _, cx| view.update(cx, |this, cx| this.toggle(&id, ix, cx)))
+                    .child(div().flex_none().size_1p5().rounded_full().bg(dot))
+                    .child(div().truncate().child(title))
+                    .child(div().flex_none().text_color(theme::faint()).child(if open {
+                        "▾"
+                    } else {
+                        "▸"
+                    })),
+            )
+            .when(open, |el| el.child(div().pl_4().pt_1().child(body)))
+            .into_any_element()
+    }
+
+    fn render_permission(&self, item: &ChatItem, view: Entity<Self>) -> AnyElement {
+        let p = item.permission.clone().unwrap_or_default();
+        let sending = self.answering.contains(&item.id);
+        let mut buttons = h_flex().gap_2().flex_wrap();
+        if p.outcome.is_empty() {
+            for o in &p.options {
+                let key = match o.kind.as_str() {
+                    "allow_once" => Some("chat.permission.allow"),
+                    "allow_always" => Some("chat.permission.alwaysAllow"),
+                    "reject_once" => Some("chat.permission.deny"),
+                    "reject_always" => Some("chat.permission.alwaysDeny"),
+                    _ => None,
+                };
+                let label = key.map(t).unwrap_or_else(|| o.name.clone());
+                let (item_id, option) = (item.id.clone(), o.id.clone());
+                let view = view.clone();
+                let primary = o.kind == "allow_once";
+                buttons = buttons.child(
+                    div()
+                        .id(SharedString::from(format!("perm-{}-{}", item.id, o.id)))
+                        .px_3()
+                        .py_1()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .text_sm()
+                        .bg(if primary {
+                            theme::accent()
+                        } else {
+                            theme::hover()
+                        })
+                        .text_color(theme::fg())
+                        .when(!sending, |el| {
+                            el.on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.answer(item_id.clone(), option.clone(), cx)
+                                })
+                            })
+                        })
+                        .child(label),
+                );
+            }
+        }
+        div()
+            .w_full()
+            .px_6()
+            .py_2()
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_3()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(if p.outcome.is_empty() {
+                        theme::starting()
+                    } else {
+                        theme::border()
+                    })
+                    .bg(theme::panel())
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme::fg())
+                            .child(p.title.clone()),
+                    )
+                    .when(!p.detail.is_empty(), |el| {
+                        el.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::muted())
+                                .child(p.detail.clone()),
+                        )
+                    })
+                    .when(sending, |el| {
+                        el.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::muted())
+                                .child(t("chat.permission.sending")),
+                        )
+                    })
+                    .when(!p.outcome.is_empty(), |el| {
+                        let chosen = p
+                            .options
+                            .iter()
+                            .find(|o| o.id == p.outcome)
+                            .map(|o| o.name.clone())
+                            .unwrap_or(p.outcome.clone());
+                        el.child(div().text_xs().text_color(theme::faint()).child(chosen))
+                    })
+                    .child(buttons),
+            )
+            .into_any_element()
+    }
+
+    fn render_item(&self, ix: usize, view: Entity<Self>) -> AnyElement {
         let Some(item) = self.items.get(ix) else {
             return div().into_any_element();
         };
@@ -255,29 +453,41 @@ impl ChatView {
                     .text_color(theme::fg()),
                 )
                 .into_any_element(),
-            "tool" => {
-                let tool = item.tool.clone().unwrap_or_default();
-                row.py_0p5()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .text_xs()
-                            .text_color(theme::muted())
-                            .child(div().size_1p5().rounded_full().bg(
-                                if tool.status == "completed" {
-                                    theme::running()
-                                } else {
-                                    theme::starting()
-                                },
-                            ))
-                            .child(div().truncate().child(if tool.title.is_empty() {
-                                tool.kind
-                            } else {
-                                tool.title
-                            })),
-                    )
-                    .into_any_element()
-            }
+            "tool" => self.render_tool(item, ix, view),
+            "permission" => self.render_permission(item, view),
+            "plan" => row
+                .py_1()
+                .child(
+                    v_flex()
+                        .gap_0p5()
+                        .text_sm()
+                        .children(item.plan.iter().map(|e| {
+                            let (mark, color) = match e.status.as_str() {
+                                "completed" => ("✓", theme::running()),
+                                "in_progress" => ("●", theme::starting()),
+                                _ => ("○", theme::faint()),
+                            };
+                            h_flex()
+                                .gap_2()
+                                .child(div().flex_none().text_color(color).child(mark))
+                                .child(
+                                    div()
+                                        .text_color(if e.status == "completed" {
+                                            theme::muted()
+                                        } else {
+                                            theme::fg()
+                                        })
+                                        .child(e.content.clone()),
+                                )
+                        })),
+                )
+                .into_any_element(),
+            "thought" => row
+                .text_sm()
+                .italic()
+                .text_color(theme::faint())
+                .child(text)
+                .into_any_element(),
             "error" => row
                 .text_sm()
                 .text_color(theme::error())
@@ -351,7 +561,7 @@ impl Render for ChatView {
                     .child(crate::webview::begin())
                     .child(
                         list(self.list.clone(), move |ix, _window, cx| {
-                            view.read(cx).render_item(ix)
+                            view.read(cx).render_item(ix, view.clone())
                         })
                         .size_full(),
                     )

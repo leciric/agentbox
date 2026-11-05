@@ -69,6 +69,79 @@ const LOREM: &str = "The daemon owns the state, and every client is a thin one: 
 shows what comes back. This reply is **streamed** a few words at a time, the way an agent's answer arrives, \
 with `inline code`, lists and a block of code so the renderer has real work to do.";
 
+/// working_items end a chat the way a turn in progress does: a plan, tool
+/// calls (one with output), and a permission request waiting for an answer.
+fn working_items() -> Vec<ChatItem> {
+    let item = |id: &str, kind: &str| ChatItem {
+        id: id.into(),
+        turn: "tw".into(),
+        kind: kind.into(),
+        created_at: now(),
+        updated_at: now(),
+        ..Default::default()
+    };
+    let plan = |c: &str, s: &str| ChatPlanEntry {
+        content: c.into(),
+        status: s.into(),
+    };
+    vec![
+        ChatItem {
+            plan: vec![
+                plan("Read internal/api's chat types", "completed"),
+                plan("Render tool calls and permissions", "in_progress"),
+                plan("Check it against the daemon", "pending"),
+            ],
+            ..item("w-plan", "plan")
+        },
+        ChatItem {
+            tool: Some(ChatTool {
+                call_id: "c1".into(),
+                title: "go test ./internal/api".into(),
+                kind: "execute".into(),
+                status: "completed".into(),
+                command: "go test ./internal/api".into(),
+                output: "ok  \tagentbox/internal/api\t0.065s".into(),
+                ..Default::default()
+            }),
+            ..item("w-tool1", "tool")
+        },
+        ChatItem {
+            tool: Some(ChatTool {
+                call_id: "c2".into(),
+                title: "Edit native/crates/app/src/chat.rs".into(),
+                kind: "edit".into(),
+                status: "completed".into(),
+                diffs: vec![ChatDiff {
+                    path: "native/crates/app/src/chat.rs".into(),
+                    old_text: "a\nb\n".into(),
+                    new_text: "a\nb\nc\nd\n".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..item("w-tool2", "tool")
+        },
+        ChatItem {
+            permission: Some(ChatPermission {
+                call_id: "c3".into(),
+                title: "Run `rm -rf target/`".into(),
+                detail: "Claude Code asks to run a command".into(),
+                options: ["allow_once", "allow_always", "reject_once"]
+                    .iter()
+                    .map(|k| ChatPermissionOption {
+                        id: k.to_string(),
+                        name: k.replace('_', " "),
+                        kind: k.to_string(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }),
+            ..item("w-perm", "permission")
+        },
+    ]
+}
+
 fn history_item(agent: &str, i: usize) -> ChatItem {
     let kind = if i.is_multiple_of(2) {
         "user"
@@ -164,9 +237,10 @@ impl Fake {
     fn thread(&self, agent: &str) -> ChatThread {
         let mut chats = self.chats.lock().unwrap();
         let (seq, session, items) = chats.entry(agent.into()).or_insert_with(|| {
-            let items = (0..self.opts.history)
+            let mut items: Vec<ChatItem> = (0..self.opts.history)
                 .map(|i| history_item(agent, i))
                 .collect();
+            items.extend(working_items());
             (
                 0,
                 ChatSession {
@@ -358,6 +432,29 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         }
         (&Method::GET, ["v1", "agents", p, a, "chat"]) if fake.is_fake(p) => {
             json(StatusCode::OK, &fake.thread(&format!("{p}/{a}")))
+        }
+        // Answering a permission request records the outcome, as the daemon does.
+        (&Method::POST, ["v1", "agents", p, a, "chat", "permissions", item]) if fake.is_fake(p) => {
+            let body = req
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            let answer: ChatAnswerRequest = serde_json::from_slice(&body).unwrap_or_default();
+            let item = item.to_string();
+            fake.chat_event(&format!("{p}/{a}"), |ev, _, items| {
+                if let Some(it) = items.iter_mut().find(|i| i.id == item)
+                    && let Some(perm) = it.permission.as_mut()
+                {
+                    perm.outcome = answer.option_id.clone();
+                    ev.item = Some(it.clone());
+                }
+            });
+            Response::builder()
+                .status(StatusCode::NO_CONTENT)
+                .body(Full::new(Bytes::new()).boxed())
+                .unwrap()
         }
         (&Method::POST, ["v1", "agents", p, a, "chat", "messages"]) if fake.is_fake(p) => {
             let agent = format!("{p}/{a}");
