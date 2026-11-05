@@ -42,6 +42,12 @@ pub fn decode_png(bytes: &[u8]) -> Result<Image> {
 /// load reads a .glb; `external` resolves an image it names by URI (Kenney's
 /// models point at Textures/colormap.png beside them).
 pub fn load(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>) -> Result<Model> {
+    load_with(bytes, external, &|_| None)
+}
+
+/// load_with also recolours its materials by name (linear RGB), as #668
+/// recolours Kenney's furniture to the room's palette.
+pub fn load_with(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>, recolour: &dyn Fn(&str) -> Option<[f32; 3]>) -> Result<Model> {
     let gltf = gltf::Gltf::from_slice(bytes).context("read the .glb")?;
     let blob = gltf.blob.as_deref();
     let buffers: Vec<&[u8]> = gltf
@@ -84,7 +90,10 @@ pub fn load(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>) -> R
             let colors: Option<Vec<[f32; 4]>> = r.read_colors(0).map(|c| c.into_rgba_f32().collect());
             let mat = prim.material();
             let pbr = mat.pbr_metallic_roughness();
-            let factor = pbr.base_color_factor();
+            let mut factor = pbr.base_color_factor();
+            if let Some(c) = mat.name().and_then(recolour) {
+                factor = [c[0], c[1], c[2], factor[3]];
+            }
             let tex = pbr.base_color_texture().map(|t| t.texture().source().index());
             let at = match by_tex.iter().position(|(t, _)| *t == tex) {
                 Some(i) => i,

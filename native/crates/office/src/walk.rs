@@ -256,3 +256,61 @@ pub fn turn(from: f64, to: f64, max: f64) -> f64 {
     }
     from + d.clamp(-max, max)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ROOM: Rect = Rect { x0: 0., z0: 0., x1: 10., z1: 10. };
+    const WALL: Rect = Rect { x0: 4., z0: 0., x1: 6., z1: 8. };
+
+    #[test]
+    fn a_move_into_a_box_slides_along_its_side() {
+        assert_eq!(slide(&[WALL], &ROOM, p(3.9, 5.), p(0.5, 0.5)), p(3.9, 5.5));
+        assert_eq!(slide(&[WALL], &ROOM, p(1., 1.), p(0.5, 0.)), p(1.5, 1.));
+        // The room's walls hold too.
+        assert_eq!(slide(&[], &ROOM, p(9.9, 1.), p(0.5, 0.)), p(9.9, 1.));
+    }
+
+    #[test]
+    fn a_straight_line_is_clear_only_when_it_crosses_nothing() {
+        assert!(clear(&[WALL], &ROOM, p(1., 9.), p(9., 9.)));
+        assert!(!clear(&[WALL], &ROOM, p(1., 1.), p(9., 1.)));
+    }
+
+    #[test]
+    fn a_walk_goes_round_the_wall_in_a_few_straight_legs() {
+        let a = p(1., 1.);
+        let b = p(9., 1.);
+        let route = path(&[WALL], &ROOM, a, b);
+        assert!(route.len() >= 2 && route.len() <= 4, "legs: {}", route.len());
+        assert_eq!(*route.last().unwrap(), b);
+        let mut at = a;
+        for &q in &route {
+            assert!(clear(&[WALL], &ROOM, at, q), "each leg is clear");
+            at = q;
+        }
+        // Round the end of the wall at z = 8: about 8 down, 2 across, 8 up.
+        assert!(path_length(a, &route) < 20.);
+    }
+
+    #[test]
+    fn a_goal_inside_a_box_walks_to_the_free_floor_nearest_it() {
+        let route = path(&[WALL], &ROOM, p(1., 1.), p(4.2, 3.));
+        let end = *route.last().unwrap();
+        assert!(!blocked(&[WALL], &ROOM, end));
+        assert!((end.x - 4.).abs() < 0.5 && (end.z - 3.).abs() < 0.5, "{end:?}");
+    }
+
+    #[test]
+    fn a_goal_nothing_reaches_is_no_walk() {
+        let boxed = [Rect { x0: 7., z0: 7., x1: 10., z1: 7.5 }, Rect { x0: 7., z0: 7., x1: 7.5, z1: 10. }];
+        assert_eq!(path(&boxed, &ROOM, p(1., 1.), p(9., 9.)), Vec::<P>::new());
+    }
+
+    #[test]
+    fn turning_goes_the_short_way_round() {
+        assert!((turn(3., -3., 0.1) - 3.1).abs() < 1e-9);
+        assert_eq!(turn(0., 1., 2.), 1.);
+    }
+}

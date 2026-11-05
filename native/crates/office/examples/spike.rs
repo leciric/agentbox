@@ -44,7 +44,7 @@ fn render_thread(rx: std::sync::mpsc::Receiver<Req>, tx: async_channel::Sender<O
         })
         .collect();
     let v = |x: f32, z: f32| gpu::Vertex { pos: [x, 0., z], normal: [0., 1., 0.], uv: [0., 0.], color: [0.93, 0.90, 0.85, 1.] };
-    let floor = g.add_mesh(&gpu::MeshData { vertices: vec![v(-1., -1.), v(1., -1.), v(1., 1.), v(-1., 1.)], indices: vec![0, 2, 1, 0, 3, 2], texture: None });
+    let floor = g.add_mesh(&gpu::MeshData { vertices: vec![v(-1., -1.), v(1., -1.), v(1., 1.), v(-1., 1.)], indices: vec![0, 2, 1, 0, 3, 2], texture: None, transparent: false });
     let h = model.max.y - model.min.y;
     let scale = 1.95 / h;
     while let Ok(mut req) = rx.recv() {

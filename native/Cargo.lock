@@ -171,9 +171,11 @@ dependencies = [
 name = "agentbox-office"
 version = "0.0.0"
 dependencies = [
+ "agentbox-api",
  "anyhow",
  "async-channel",
  "bytemuck",
+ "fancy-regex",
  "glam",
  "gltf",
  "gpui-pre",
@@ -181,6 +183,9 @@ dependencies = [
  "image",
  "png 0.17.16",
  "pollster",
+ "resvg 0.46.0",
+ "serde",
+ "serde_json",
  "wgpu",
 ]
 

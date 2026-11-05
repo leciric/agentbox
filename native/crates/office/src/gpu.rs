@@ -23,6 +23,8 @@ pub struct MeshData {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub texture: Option<usize>,
+    /// Seen through (glass): drawn after everything else, not hiding what's behind.
+    pub transparent: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -65,6 +67,7 @@ struct GpuMesh {
     indices: wgpu::Buffer,
     count: u32,
     texture: usize,
+    transparent: bool,
 }
 
 struct Target {
@@ -87,6 +90,7 @@ pub struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    glass: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
     globals_bind: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
@@ -180,7 +184,7 @@ impl Gpu {
         });
         let attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4];
         let inst_attrs = wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let make = |glass: bool| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("office"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -216,7 +220,7 @@ impl Gpu {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH,
-                depth_write_enabled: Some(true),
+                depth_write_enabled: Some(!glass),
                 depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: Default::default(),
                 bias: Default::default(),
@@ -225,6 +229,8 @@ impl Gpu {
             multiview_mask: None,
             cache: None,
         });
+        let pipeline = make(false);
+        let glass = make(true);
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: std::mem::size_of::<Globals>() as u64,
@@ -254,6 +260,7 @@ impl Gpu {
             device,
             queue,
             pipeline,
+            glass,
             globals,
             globals_bind,
             texture_layout,
@@ -315,7 +322,7 @@ impl Gpu {
             contents: bytemuck::cast_slice(&m.indices),
             usage: wgpu::BufferUsages::INDEX,
         });
-        self.meshes.push(GpuMesh { vertices, indices, count: m.indices.len() as u32, texture: m.texture.unwrap_or(0) });
+        self.meshes.push(GpuMesh { vertices, indices, count: m.indices.len() as u32, texture: m.texture.unwrap_or(0), transparent: m.transparent });
         MeshId(self.meshes.len() - 1)
     }
 
@@ -418,21 +425,23 @@ impl Gpu {
                 }),
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bind, &[]);
             pass.set_vertex_buffer(1, self.instances.slice(..));
-            let mut first = 0u32;
-            for (id, inst) in draws {
-                let n = inst.len() as u32;
-                if n == 0 {
-                    continue;
+            // Solid things first, then glass over them.
+            for glass in [false, true] {
+                pass.set_pipeline(if glass { &self.glass } else { &self.pipeline });
+                let mut first = 0u32;
+                for (id, inst) in draws {
+                    let n = inst.len() as u32;
+                    let m = &self.meshes[id.0];
+                    if n > 0 && m.transparent == glass {
+                        pass.set_bind_group(1, &self.textures[m.texture], &[]);
+                        pass.set_vertex_buffer(0, m.vertices.slice(..));
+                        pass.set_index_buffer(m.indices.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..m.count, 0, first..first + n);
+                    }
+                    first += n;
                 }
-                let m = &self.meshes[id.0];
-                pass.set_bind_group(1, &self.textures[m.texture], &[]);
-                pass.set_vertex_buffer(0, m.vertices.slice(..));
-                pass.set_index_buffer(m.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..m.count, 0, first..first + n);
-                first += n;
             }
         }
         enc.copy_texture_to_buffer(

@@ -44,10 +44,13 @@ struct VOut {
 }
 
 @fragment fn fs(i: VOut) -> @location(0) vec4<f32> {
-  let base = textureSample(tex, samp, i.uv) * i.color;
-  // A tint's alpha over 1 marks something lit by itself (a screen, a lamp).
-  if (i.color.a > 1.5) {
-    return vec4<f32>(base.rgb, 1.0);
+  // Alpha over 1.5 marks something lit by itself (a screen, a lamp): its
+  // opacity is what's over 2.
+  let glow = i.color.a > 1.5;
+  let a = select(i.color.a, i.color.a - 2.0, glow);
+  let base = textureSample(tex, samp, i.uv) * vec4<f32>(i.color.rgb, a);
+  if (glow) {
+    return base;
   }
   let n = normalize(i.normal);
   let hemi = mix(g.ground.rgb, g.sky.rgb, n.y * 0.5 + 0.5);
