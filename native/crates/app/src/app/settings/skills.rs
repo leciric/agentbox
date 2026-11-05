@@ -679,12 +679,36 @@ impl AppView {
             .filter(|(sc, _)| sc == scope)
             .map(|(_, v)| v.clone())
             .unwrap_or(View::List);
-        let body = match view {
-            View::List => self.skills_list(scope, cx),
-            View::Open(name) => self.skill_open(scope, &name, cx),
-            View::New => self.skill_editor(scope, true, cx),
-            View::Import => self.skills_import(scope, cx),
+        // A skill opened, written or imported is a dialog over the list,
+        // as the Electron app's SkillsPanel opens them.
+        let dialog = match view {
+            View::List => None,
+            View::Open(name) => Some(self.skill_open(scope, &name, cx)),
+            View::New => Some(self.skill_editor(scope, true, cx)),
+            View::Import => Some(self.skills_import(scope, cx)),
         };
+        let body = self.skills_list(scope, cx);
+        let dialog = dialog.map(|d| {
+            let close = cx.listener(|this, _: &ClickEvent, _, cx| {
+                let s = &mut this.settings_page.skills;
+                s.view = None;
+                s.editing = false;
+                s.deleting = false;
+                cx.notify();
+            });
+            crate::app::controls::window_modal(
+                format!("skill-dialog-{scope}"),
+                px(760.),
+                div()
+                    .id("skill-dialog-body")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p_6()
+                    .child(d),
+                std::rc::Rc::new(close),
+            )
+        });
         v_flex()
             .id(SharedString::from(format!("skills-{scope}")))
             .gap_3()
@@ -695,13 +719,17 @@ impl AppView {
                 el.child(note_in(m.clone(), theme::running()))
             })
             .child(body)
+            .children(dialog)
             .into_any_element()
     }
 
     fn back_to_skills(&self, cx: &mut Context<Self>) -> AnyElement {
-        link(
+        // The dialog's close (it was a page's Back).
+        crate::app::controls::button(
             "skills-back",
-            format!("← {}", t("common.back")),
+            "✕",
+            crate::app::controls::Btn::Ghost,
+            false,
             cx.listener(|this, _: &ClickEvent, _, cx| {
                 let s = &mut this.settings_page.skills;
                 s.view = None;

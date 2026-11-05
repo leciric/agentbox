@@ -1420,39 +1420,22 @@ impl AppView {
                 ],
             ));
         }
-        if let Some(s) = self.panel.peeked.get(&a.r#ref) {
-            if let Some(m) = s
-                .options
-                .iter()
-                .find(|o| o.category == "model" && o.r#type == "select")
-            {
-                tip.push(
-                    m.choices
-                        .iter()
-                        .find(|c| c.value == m.value)
-                        .map(|c| c.name.clone())
-                        .unwrap_or_else(|| m.value.clone()),
-                );
-            }
-            if s.context_size > 0 {
-                tip.push(tv(
-                    "panel.list.contextTip",
-                    &[
-                        ("percent", (s.context_used * 100 / s.context_size).into()),
-                        ("size", crate::chat::tokens(s.context_size).into()),
-                    ],
-                ));
-            }
-        }
-        if let Some(c) = &changes {
-            tip.push(format!(
-                "+{} −{} · {}",
-                c.insertions,
-                c.deletions,
-                tv("panel.list.files", &[("count", c.files.into())])
-            ));
-        }
-        let tip: SharedString = tip.join("\n").into();
+        // The model and context come from the agent's session, read on the
+        // first hover: the tooltip fills them in where it stands when the
+        // read returns, so the first hover shows them too.
+        let tip_head = tip;
+        let tip_tail: Vec<String> = changes
+            .iter()
+            .map(|c| {
+                format!(
+                    "+{} −{} · {}",
+                    c.insertions,
+                    c.deletions,
+                    tv("panel.list.files", &[("count", c.files.into())])
+                )
+            })
+            .collect();
+        let (tip_app, tip_ref) = (cx.entity().downgrade(), a.r#ref.clone());
         let name = a.name.clone();
         let menu = self.agent_menu(a, false, cx);
         h_flex()
@@ -1484,7 +1467,24 @@ impl AppView {
                             }
                         })
                     })
-                    .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
+                    .tooltip(move |w, cx| {
+                        let (head, tail) = (tip_head.clone(), tip_tail.clone());
+                        let (app, r) = (tip_app.clone(), tip_ref.clone());
+                        Tooltip::element(move |_, cx| {
+                            let peeked = app
+                                .upgrade()
+                                .and_then(|a| a.read(cx).panel.peeked.get(&r).map(peek_lines))
+                                .unwrap_or_default();
+                            let all: Vec<String> = head
+                                .iter()
+                                .cloned()
+                                .chain(peeked)
+                                .chain(tail.iter().cloned())
+                                .collect();
+                            all.join("\n")
+                        })
+                        .build(w, cx)
+                    })
                     .child(monitor(&a.ai, r.st, a.state == "running", None, false)),
             )
             .child(
@@ -2860,4 +2860,33 @@ pub(super) fn icon_button(id: &'static str, glyph: &'static str, tip: String) ->
         .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
         .child(crate::icons::of(glyph))
+}
+
+/// peek_lines are what an agent's session adds to its row's tooltip: its
+/// model and how full its context is.
+fn peek_lines(s: &agentbox_api::ChatSession) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(m) = s
+        .options
+        .iter()
+        .find(|o| o.category == "model" && o.r#type == "select")
+    {
+        out.push(
+            m.choices
+                .iter()
+                .find(|c| c.value == m.value)
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| m.value.clone()),
+        );
+    }
+    if s.context_size > 0 {
+        out.push(tv(
+            "panel.list.contextTip",
+            &[
+                ("percent", (s.context_used * 100 / s.context_size).into()),
+                ("size", crate::chat::tokens(s.context_size).into()),
+            ],
+        ));
+    }
+    out
 }

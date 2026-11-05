@@ -353,6 +353,22 @@ pub fn drag_pans(el: Stateful<Div>, pan: &ScrollHandle) -> Stateful<Div> {
     })
 }
 
+/// rezoom keeps what is at the middle of a zoomed view there as its zoom
+/// goes from `from` to `to` (lib/zoom.ts keeps the view's middle point).
+pub fn rezoom(pan: &ScrollHandle, from: f32, to: f32) {
+    let size = pan.bounds().size;
+    if size.width <= px(0.) || from <= 0. {
+        return;
+    }
+    let (w, h) = (size.width, size.height);
+    let o = pan.offset();
+    let k = to / from;
+    let x = w / 2. - (w / 2. - o.x) * k;
+    let y = h / 2. - (h / 2. - o.y) * k;
+    let (mx, my) = (w * (to - 1.).max(0.), h * (to - 1.).max(0.));
+    pan.set_offset(point(x.clamp(-mx, px(0.)), y.clamp(-my, px(0.))));
+}
+
 #[cfg(test)]
 mod tests {
     use super::{is_number, parse_delimited};

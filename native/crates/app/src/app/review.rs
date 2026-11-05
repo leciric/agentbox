@@ -469,7 +469,9 @@ impl ReviewView {
     }
 
     fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        let from = self.zoom;
         self.zoom = zoom.clamp(1., ZOOM_MAX);
+        crate::viewers::rezoom(&self.pan, from, self.zoom);
         self.zoom_shared.set(self.zoom);
         if self.zoom <= 1.0001 {
             self.pan.set_offset(point(px(0.), px(0.)));
@@ -1646,15 +1648,14 @@ impl ReviewView {
 
     /// zoomed is a picture at the stage's zoom: past fit it scrolls to pan.
     fn zoomed(&self, id: &str, el: AnyElement) -> AnyElement {
-        if self.zoom <= 1.0001 {
-            return el;
-        }
+        // Its scroll is there at fit too, so the first zoom knows the
+        // view's size and keeps its middle.
         div()
             .id(SharedString::from(format!("zoom-{id}")))
             .size_full()
             .overflow_scroll()
             .track_scroll(&self.pan)
-            .cursor_grab()
+            .when(self.zoom > 1.0001, |el| el.cursor_grab())
             .map(|el| crate::viewers::drag_pans(el, &self.pan))
             .child(
                 div()

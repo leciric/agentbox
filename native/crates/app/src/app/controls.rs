@@ -486,3 +486,61 @@ impl Row {
             .into_any_element()
     }
 }
+
+thread_local! {
+    /// The window's size as it was last drawn, for overlays drawn from deep
+    /// in a page.
+    static VIEWPORT: std::cell::Cell<Size<Pixels>> = const { std::cell::Cell::new(Size { width: px(0.), height: px(0.) }) };
+}
+
+/// set_viewport records the window's size, each frame.
+pub fn set_viewport(size: Size<Pixels>) {
+    VIEWPORT.with(|v| v.set(size));
+}
+
+/// window_modal is a dialog over the whole window from wherever in a page it
+/// is drawn (the Electron app's Dialog): the page dimmed behind it, a click
+/// there closing it.
+pub fn window_modal(
+    id: impl Into<SharedString>,
+    width: Pixels,
+    card: impl IntoElement,
+    on_backdrop: OnClick,
+) -> AnyElement {
+    let id: SharedString = id.into();
+    let size = VIEWPORT.with(|v| v.get());
+    deferred(
+        anchored().position(point(px(0.), px(0.))).child(
+            div()
+                .id(SharedString::from(format!("{id}-backdrop")))
+                .w(size.width)
+                .h(size.height)
+                .bg(gpui::black().opacity(0.55))
+                .flex()
+                .items_center()
+                .justify_center()
+                .occlude()
+                .on_click(move |e, w, cx| on_backdrop(e, w, cx))
+                .child(
+                    div()
+                        .id(SharedString::from(format!("{id}-card")))
+                        .w(width)
+                        .max_w(relative(0.92))
+                        .max_h(relative(0.88))
+                        .flex()
+                        .flex_col()
+                        .rounded_xl()
+                        .bg(theme::panel())
+                        .border_1()
+                        .border_color(theme::border())
+                        .shadow_lg()
+                        .overflow_hidden()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .child(card),
+                ),
+        ),
+    )
+    .with_priority(2)
+    .into_any_element()
+}

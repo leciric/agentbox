@@ -1,10 +1,11 @@
 //! Small pieces the later sections share: a card, an empty state, a
-//! question asked in place of a confirmation dialog, a checkbox, a link,
+//! question asked over the window (a confirmation dialog), a checkbox, a link,
 //! sizes and dates in the user's words.
 use agentbox_i18n::t;
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
+use std::rc::Rc;
 
 use super::super::controls::{Btn, button};
 use crate::theme;
@@ -60,23 +61,17 @@ pub(super) fn ask(
     on_yes: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_no: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    let color = if destructive {
-        theme::error()
-    } else {
-        theme::accent()
-    };
-    v_flex()
+    // Asked over the window, as the Electron app's AlertDialog asks: a
+    // click beside it is No.
+    let no = Rc::new(on_no);
+    let backdrop = no.clone();
+    let card = v_flex()
         .id(SharedString::from(format!("ask-{id}")))
-        .gap_2()
-        .px_4()
-        .py_3()
-        .rounded_lg()
-        .border_1()
-        .border_color(color.opacity(0.4))
-        .bg(color.opacity(0.06))
+        .gap_4()
+        .p_6()
         .child(
             div()
-                .text_sm()
+                .text_lg()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::fg())
                 .child(question),
@@ -84,7 +79,7 @@ pub(super) fn ask(
         .when(!description.is_empty(), |el| {
             el.child(
                 div()
-                    .text_xs()
+                    .text_sm()
                     .text_color(theme::muted())
                     .child(description),
             )
@@ -92,22 +87,32 @@ pub(super) fn ask(
         .child(
             h_flex()
                 .gap_2()
-                .child(button(
-                    SharedString::from(format!("ask-{id}-yes")),
-                    confirm,
-                    Btn::Primary,
-                    busy,
-                    on_yes,
-                ))
+                .justify_end()
                 .child(button(
                     SharedString::from(format!("ask-{id}-no")),
                     t("common.cancel"),
                     Btn::Ghost,
                     false,
-                    on_no,
+                    move |e, w, cx| no(e, w, cx),
+                ))
+                .child(button(
+                    SharedString::from(format!("ask-{id}-yes")),
+                    confirm,
+                    if destructive {
+                        Btn::Danger
+                    } else {
+                        Btn::Primary
+                    },
+                    busy,
+                    on_yes,
                 )),
-        )
-        .into_any_element()
+        );
+    crate::app::controls::window_modal(
+        format!("ask-{id}"),
+        px(460.),
+        card,
+        Rc::new(move |e: &ClickEvent, w: &mut Window, cx: &mut App| backdrop(e, w, cx)),
+    )
 }
 
 /// check is a checkbox and its words.

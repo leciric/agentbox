@@ -300,7 +300,9 @@ impl Render for VideoPlayer {
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(cx)))
                     .when_some(self.frame.clone(), |el, f| {
                         let picture = img(f).size_full().object_fit(ObjectFit::Contain);
-                        match self.zoom.as_ref().filter(|(z, _)| z.get() > 1.0001) {
+                        // Under a review's zoom it is in its scroll at fit
+                        // too, so the first zoom keeps the middle.
+                        match self.zoom.as_ref() {
                             // Zoomed past fit: the frame scrolls to pan.
                             Some((z, pan)) => el.child(
                                 div()
@@ -308,7 +310,7 @@ impl Render for VideoPlayer {
                                     .size_full()
                                     .overflow_scroll()
                                     .track_scroll(pan)
-                                    .cursor_grab()
+                                    .when(z.get() > 1.0001, |el| el.cursor_grab())
                                     .map(|el| crate::viewers::drag_pans(el, pan))
                                     .child(
                                         div()

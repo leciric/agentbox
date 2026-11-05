@@ -55,7 +55,21 @@ struct Viewing {
     #[cfg(feature = "video")]
     player: Option<Entity<crate::video::VideoPlayer>>,
     focus: FocusHandle,
+    /// What it is part of, as the review shows it (media::gallery): the
+    /// other half of its before/after pair, or its recording's chapters.
+    pair: Option<media::Pair>,
+    other: Option<PathBuf>,
+    chapters: Vec<media::Chapter>,
+    /// The review's zoom (1 fits) and the scroll it pans by, shared by a
+    /// pair's halves and the player.
+    zoom: f32,
+    zoom_shared: std::rc::Rc<std::cell::Cell<f32>>,
+    pan: ScrollHandle,
 }
+
+/// The zoom steps and the most it zooms in, as the review's (lib/zoom.ts).
+const ZOOM_STEP: f32 = 1.25;
+const ZOOM_MAX: f32 = 8.;
 
 const PAGE: usize = 40;
 
@@ -144,6 +158,34 @@ impl AppView {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let text = (!item.text.is_empty()).then(|| item.text.clone());
+        // Its place among its agent's media, as the review groups them.
+        let same: Vec<MediaItem> = self
+            .side
+            .foot
+            .media
+            .iter()
+            .filter(|m| m.agent == item.agent)
+            .cloned()
+            .collect();
+        let (mut pair, mut chapters) = (None, Vec::new());
+        for s in media::gallery(&same) {
+            match s {
+                media::Shown::Pair(p) if p.before.id == item.id || p.after.id == item.id => {
+                    pair = Some(p)
+                }
+                media::Shown::Recording(t) if t.media.id == item.id => chapters = t.chapters,
+                _ => {}
+            }
+        }
+        let other = pair.as_ref().map(|p| {
+            if p.before.id == item.id {
+                p.after.clone()
+            } else {
+                p.before.clone()
+            }
+        });
+        let zoom_shared = std::rc::Rc::new(std::cell::Cell::new(1.));
+        let pan = ScrollHandle::new();
         self.side.foot.viewing = Some(Viewing {
             item: item.clone(),
             path: None,
@@ -152,10 +194,32 @@ impl AppView {
             #[cfg(feature = "video")]
             player: None,
             focus,
+            pair,
+            other: None,
+            chapters: chapters.clone(),
+            zoom: 1.,
+            zoom_shared: zoom_shared.clone(),
+            pan: pan.clone(),
         });
         cx.notify();
         let client = self.client.clone();
         let id = item.id.clone();
+        if let Some(o) = other {
+            let (client, id) = (client.clone(), id.clone());
+            cx.spawn(async move |this, cx| {
+                let res = media::fetch(client, o).await;
+                this.update(cx, |this, cx| {
+                    if let Some(v) = this.side.foot.viewing.as_mut().filter(|v| v.item.id == id) {
+                        v.other = res.ok();
+                        cx.notify();
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
+        #[cfg(feature = "video")]
+        let marks: Vec<f64> = chapters.iter().map(|c| c.at).collect();
         cx.spawn(async move |this, cx| {
             let res = media::fetch(client, item.clone()).await;
             // A report or a note is read as text.
@@ -176,6 +240,8 @@ impl AppView {
                             let path = p.clone();
                             v.player = Some(cx.new(|cx| {
                                 let mut pl = crate::video::VideoPlayer::new(path, cx);
+                                pl.set_marks(marks.clone(), cx);
+                                pl.set_zoom(zoom_shared.clone(), pan.clone());
                                 pl.play(cx);
                                 pl
                             }));
@@ -209,6 +275,57 @@ impl AppView {
         }
         let next = list[j as usize].clone();
         self.open_media(next, window, cx);
+    }
+
+    /// seek_media goes to a chapter of the recording on view.
+    fn seek_media(&mut self, at: f64, cx: &mut Context<Self>) {
+        #[cfg(feature = "video")]
+        if let Some(p) = self
+            .side
+            .foot
+            .viewing
+            .as_ref()
+            .and_then(|v| v.player.clone())
+        {
+            p.update(cx, |p, cx| p.seek(at, cx));
+        }
+        #[cfg(not(feature = "video"))]
+        let _ = (at, cx);
+    }
+
+    /// zoom_media zooms what the viewer shows (1 fits it).
+    fn zoom_media(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        let Some(v) = self.side.foot.viewing.as_mut() else {
+            return;
+        };
+        let from = v.zoom;
+        v.zoom = zoom.clamp(1., ZOOM_MAX);
+        crate::viewers::rezoom(&v.pan, from, v.zoom);
+        v.zoom_shared.set(v.zoom);
+        if v.zoom <= 1.0001 {
+            v.pan.set_offset(point(px(0.), px(0.)));
+        }
+        cx.notify();
+    }
+
+    /// zoomed is a picture at the viewer's zoom: past fit it scrolls, and a
+    /// drag pans it; a pair's halves pan together.
+    fn media_zoomed(v: &Viewing, id: &str, el: AnyElement) -> AnyElement {
+        div()
+            .id(SharedString::from(format!("media-zoom-{id}")))
+            .size_full()
+            .overflow_scroll()
+            .track_scroll(&v.pan)
+            .when(v.zoom > 1.0001, |el| el.cursor_grab())
+            .map(|el| crate::viewers::drag_pans(el, &v.pan))
+            .child(
+                div()
+                    .flex_none()
+                    .w(relative(v.zoom))
+                    .h(relative(v.zoom))
+                    .child(el),
+            )
+            .into_any_element()
     }
 
     fn close_media(&mut self, cx: &mut Context<Self>) {
@@ -265,7 +382,7 @@ impl AppView {
                 .tooltip(move |w, cx| {
                     gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
                 })
-                .child(crate::icons::glyph(label))
+                .child(crate::icons::of(label))
         };
         let body: AnyElement = if let Some(e) = v.error.as_ref().filter(|_| v.text.is_none()) {
             div()
@@ -273,18 +390,126 @@ impl AppView {
                 .child(e.clone())
                 .into_any_element()
         } else if m.kind == "screenshot" {
-            match &v.path {
-                Some(p) => img(p.clone())
+            let picture = |p: &PathBuf| {
+                img(p.clone())
                     .size_full()
                     .object_fit(ObjectFit::Contain)
-                    .into_any_element(),
-                None => div()
+                    .into_any_element()
+            };
+            match (&v.path, &v.pair, &v.other) {
+                // Part of a before/after pair: both halves side by side, as
+                // the review compares them, zoomed and panned together.
+                (Some(p), Some(pair), Some(o)) => {
+                    let mine_before = pair.before.id == m.id;
+                    let (b, a) = if mine_before { (p, o) } else { (o, p) };
+                    let half = |label: String, id: &str, path: &PathBuf| {
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme::muted())
+                                    .child(label),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .rounded_lg()
+                                    .overflow_hidden()
+                                    .child(Self::media_zoomed(v, id, picture(path))),
+                            )
+                    };
+                    h_flex()
+                        .size_full()
+                        .gap_3()
+                        .child(half(t("review.compare.before"), "before", b))
+                        .child(half(t("review.compare.after"), "after", a))
+                        .into_any_element()
+                }
+                (Some(p), _, _) => Self::media_zoomed(v, &m.id, picture(p)),
+                _ => div()
                     .text_color(theme::faint())
                     .child(t("common.loading"))
                     .into_any_element(),
             }
         } else if m.kind == "recording" {
-            self.viewer_player(v)
+            // Its chapters beside it, each a jump in the recording.
+            h_flex()
+                .size_full()
+                .gap_4()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .child(self.viewer_player(v)),
+                )
+                .when(!v.chapters.is_empty(), |el| {
+                    el.child(
+                        v_flex()
+                            .id("media-chapters")
+                            .w(px(260.))
+                            .flex_none()
+                            .h_full()
+                            .overflow_y_scroll()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme::muted())
+                                    .child(t("review.checked")),
+                            )
+                            .children(v.chapters.iter().enumerate().map(|(n, c)| {
+                                let at = c.at;
+                                v_flex()
+                                    .id(SharedString::from(format!("media-chapter-{n}")))
+                                    .px_2()
+                                    .py_1p5()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(theme::hover()))
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.seek_media(at, cx)
+                                    }))
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .text_sm()
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .text_color(theme::fg())
+                                                    .child(c.title.clone()),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_none()
+                                                    .text_xs()
+                                                    .font_family(theme::mono())
+                                                    .text_color(theme::faint())
+                                                    .child(super::panel::clock(at)),
+                                            ),
+                                    )
+                                    .when_some(c.detail.clone(), |el, d| {
+                                        el.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(theme::faint())
+                                                .line_clamp(3)
+                                                .child(d),
+                                        )
+                                    })
+                            })),
+                    )
+                })
+                .into_any_element()
         } else {
             match &v.text {
                 Some(text) => div()
@@ -307,6 +532,7 @@ impl AppView {
             }
         };
         let path = v.path.clone();
+        let zoomable = m.kind == "screenshot" || m.kind == "recording";
         Some(
             v_flex()
                 .id("media-viewer")
@@ -314,12 +540,30 @@ impl AppView {
                 .inset_0()
                 .bg(theme::bg())
                 .track_focus(&v.focus)
-                .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                    let z = this.side.foot.viewing.as_ref().map_or(1., |v| v.zoom);
                     match e.keystroke.key.as_str() {
                         "escape" => this.close_media(cx),
                         "left" => this.step_media(-1, window, cx),
                         "right" => this.step_media(1, window, cx),
+                        "+" | "=" if zoomable => this.zoom_media(z * ZOOM_STEP, cx),
+                        "-" if zoomable => this.zoom_media(z / ZOOM_STEP, cx),
+                        "0" if zoomable => this.zoom_media(1., cx),
                         _ => return,
+                    }
+                    cx.stop_propagation();
+                }))
+                // Ctrl (or ⌘) and the wheel zoom, as the review's.
+                .on_scroll(cx.listener(move |this, ev: &ScrollEvent, _, cx| {
+                    if !zoomable || !(ev.modifiers.control || ev.modifiers.platform) {
+                        return;
+                    }
+                    let z = this.side.foot.viewing.as_ref().map_or(1., |v| v.zoom);
+                    let dy = ev.delta.pixel_delta(px(16.)).y;
+                    if dy > px(0.) {
+                        this.zoom_media(z * ZOOM_STEP, cx);
+                    } else if dy < px(0.) {
+                        this.zoom_media(z / ZOOM_STEP, cx);
                     }
                     cx.stop_propagation();
                 }))
@@ -350,6 +594,41 @@ impl AppView {
                                         .child(sub),
                                 ),
                         )
+                        .when(zoomable, |el| {
+                            let z = v.zoom;
+                            el.child(icon(
+                                "media-zoom-out",
+                                "zoom-out",
+                                t("review.zoom.out"),
+                                z <= 1.,
+                                Box::new(move |this, _, cx| this.zoom_media(z / ZOOM_STEP, cx)),
+                            ))
+                            .child(
+                                div()
+                                    .id("media-zoom-fit")
+                                    .px_1()
+                                    .text_xs()
+                                    .font_family(theme::mono())
+                                    .text_color(theme::muted())
+                                    .cursor_pointer()
+                                    .hover(|s| s.text_color(theme::fg()))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.zoom_media(1., cx)
+                                    }))
+                                    .child(format!(
+                                        "{}% · {}",
+                                        (z * 100.).round(),
+                                        t("review.zoom.fit")
+                                    )),
+                            )
+                            .child(icon(
+                                "media-zoom-in",
+                                "zoom-in",
+                                t("review.zoom.in"),
+                                z >= ZOOM_MAX,
+                                Box::new(move |this, _, cx| this.zoom_media(z * ZOOM_STEP, cx)),
+                            ))
+                        })
                         .child(icon(
                             "media-prev",
                             "‹",
