@@ -57,6 +57,7 @@ jobs:
       go: ${{ steps.paths.outputs.go }}
       desktop: ${{ steps.paths.outputs.desktop }}
       mobile: ${{ steps.paths.outputs.mobile }}
+      native: ${{ steps.paths.outputs.native }}
       vuln: ${{ steps.paths.outputs.vuln }}
       macos: ${{ steps.paths.outputs.macos }}
       windows: ${{ steps.paths.outputs.windows }}
@@ -368,6 +369,41 @@ jobs:
             echo "::error::Run npm --prefix desktop run build:machines-view and commit internal/machinesweb/static/vnc.js"
             exit 1
           }
+
+  # The native app (native/, Rust and GPUI): check, clippy and its tests, on
+  # Linux only. It is a proof of concept beside desktop/; macOS and Windows
+  # builds of it aren't set up.
+  native:
+    name: Native app
+    needs: changes
+    if: needs.changes.outputs.native == 'true' && github.event.action != 'labeled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: native
+    steps:
+      - uses: actions/checkout@v7
+
+      # GPUI's Linux backends link against these (X11, Wayland, Vulkan loader).
+      - run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libxkbcommon-x11-dev libwayland-dev libvulkan-dev libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev
+
+      - run: rustup toolchain install stable --profile minimal -c clippy,rustfmt && rustup default stable
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            native/target
+          key: native-${{ runner.os }}-${{ hashFiles('native/Cargo.lock') }}
+          restore-keys: native-${{ runner.os }}-
+
+      - run: cargo fmt --check
+
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - run: cargo test --workspace --locked
 
   # The phone app (mobile/): lint, typecheck and its tests. Its typecheck
   # reads the desktop's shared/ (the API's types and the text's catalogs),

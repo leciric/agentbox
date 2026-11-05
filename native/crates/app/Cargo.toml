@@ -1,0 +1,15 @@
+[package]
+name = "agentbox-native"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+agentbox-api.workspace = true
+gpui.workspace = true
+gpui-component.workspace = true
+gpui_platform.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
