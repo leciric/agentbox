@@ -188,23 +188,11 @@ pub(super) fn title(text: impl Into<SharedString>) -> AnyElement {
 /// local_date reads an RFC 3339 time as the user's own date and time
 /// (formatDateTime), or as it came when it can't be read.
 pub(super) fn local_date_time(time: &str) -> String {
-    match chrono::DateTime::parse_from_rfc3339(time) {
-        Ok(at) => at
-            .with_timezone(&chrono::Local)
-            .format("%Y-%m-%d %H:%M")
-            .to_string(),
-        Err(_) => time.to_string(),
-    }
+    crate::dates::date_time_of(time)
 }
 
 pub(super) fn local_date(time: &str) -> String {
-    match chrono::DateTime::parse_from_rfc3339(time) {
-        Ok(at) => at
-            .with_timezone(&chrono::Local)
-            .format("%Y-%m-%d")
-            .to_string(),
-        Err(_) => time.get(..10).unwrap_or(time).to_string(),
-    }
+    crate::dates::date_of(time)
 }
 
 /// enc is a path segment, percent-encoded.

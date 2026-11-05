@@ -16,6 +16,19 @@ use gpui_component::{h_flex, v_flex};
 
 use crate::{prefs, theme};
 
+mod notes;
+
+/// OnAdd is a click on a row's + (its row, whether Shift was held).
+pub type OnAdd = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
+
+/// Hooks are what a table shows besides its lines: the + beside each line
+/// of code, the elements under rows, and the rows lit (line notes).
+pub struct Hooks {
+    pub add: OnAdd,
+    pub under: HashMap<usize, Vec<AnyElement>>,
+    pub lit: Option<(usize, usize)>,
+}
+
 /// What a line of a unified diff is.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum LineKind {
@@ -365,6 +378,7 @@ pub struct DiffView {
     open: HashSet<String>,
     focus: FocusHandle,
     pane: ScrollHandle,
+    notes: Option<notes::Notes>,
 }
 
 impl DiffView {
@@ -385,6 +399,7 @@ impl DiffView {
             open: HashSet::new(),
             focus: cx.focus_handle(),
             pane: ScrollHandle::new(),
+            notes: None,
         }
     }
 
@@ -635,6 +650,21 @@ pub fn table(
     lines: &[DiffLine],
     lang: Option<&'static str>,
 ) -> AnyElement {
+    table_with(id, lines, lang, None)
+}
+
+/// table_with is table with line notes' hooks.
+pub fn table_with(
+    id: impl Into<ElementId>,
+    lines: &[DiffLine],
+    lang: Option<&'static str>,
+    hooks: Option<Hooks>,
+) -> AnyElement {
+    let id: ElementId = id.into();
+    let (add, mut under, lit) = match hooks {
+        Some(h) => (Some(h.add), h.under, h.lit),
+        None => (None, HashMap::new(), None),
+    };
     let num = |n: Option<u32>| {
         div()
             .flex_none()
@@ -658,7 +688,7 @@ pub fn table(
         crate::highlight::line_runs(lang, &code)
     });
     let mut nth = 0;
-    let rows = lines[..shown].iter().map(|l| {
+    let rows = lines[..shown].iter().enumerate().flat_map(|(row, l)| {
         let runs = if is_code(l) {
             nth += 1;
             colours.as_ref().and_then(|c| c.get(nth - 1))
@@ -672,8 +702,34 @@ pub fn table(
             _ => (transparent_black(), " "),
         };
         let code = matches!(l.kind, LineKind::Add | LineKind::Del | LineKind::Context);
-        h_flex()
+        let lit_row = lit.is_some_and(|(a, b)| row >= a && row <= b);
+        let plus = add.clone().filter(|_| code).map(|add| {
+            div()
+                .id(ElementId::NamedInteger("note-add".into(), row as u64))
+                .flex_none()
+                .w(px(16.))
+                .text_center()
+                .rounded_sm()
+                .text_color(theme::accent())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::accent().opacity(0.2)))
+                .tooltip(|w, cx| {
+                    gpui_component::tooltip::Tooltip::new(t("review.notes.addHint")).build(w, cx)
+                })
+                .on_click(move |ev: &ClickEvent, window, cx| {
+                    add(row, ev.modifiers().shift, window, cx)
+                })
+                .child("+")
+        });
+        let line = h_flex()
             .bg(bg)
+            .when(lit_row, |el| el.bg(theme::accent().opacity(0.18)))
+            .when(add.is_some(), |el| {
+                el.child(match plus {
+                    Some(p) => p.into_any_element(),
+                    None => div().flex_none().w(px(16.)).into_any_element(),
+                })
+            })
             .child(num(if code { l.old } else { None }))
             .child(num(if code { l.new } else { None }))
             .child(
@@ -699,7 +755,10 @@ pub fn table(
                         crate::highlight::styled(expand(&l.text), runs)
                     }),
             )
+            .into_any_element();
+        std::iter::once(line).chain(under.remove(&row).unwrap_or_default())
     });
+    let rows: Vec<AnyElement> = rows.collect();
     h_flex()
         .id(id)
         .w_full()
@@ -727,7 +786,7 @@ pub fn table(
 }
 
 impl DiffView {
-    fn body(&self, f: &PullFile, ix: usize) -> AnyElement {
+    fn body(&self, f: &PullFile, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let note = |text: String, color: Hsla| {
             div()
                 .px_3()
@@ -743,16 +802,25 @@ impl DiffView {
             return note(t("pulls.detail.noDiff"), theme::muted());
         }
         match self.patches.get(&f.path) {
-            Some(Patch::Ready(lines)) => table(
+            Some(Patch::Ready(lines)) => table_with(
                 (SharedString::from(format!("{}-t", self.id)), ix),
                 lines,
                 crate::highlight::lang_of(&f.path),
+                self.note_hooks(&f.path, lines, cx),
             ),
             Some(Patch::Failed(e)) => note(
                 tv("pulls.detail.diffFailed", &[("error", e.into())]),
                 theme::error(),
             ),
             _ => note(t("common.loading"), theme::faint()),
+        }
+    }
+
+    /// lines_of is a file's diff lines, when they're here.
+    fn lines_of(&self, path: &str) -> Vec<DiffLine> {
+        match self.patches.get(path) {
+            Some(Patch::Ready(l)) => l.as_ref().clone(),
+            _ => Vec::new(),
         }
     }
 
@@ -841,7 +909,14 @@ impl DiffView {
         out
     }
 
-    fn card(&self, f: &PullFile, ix: usize, header: AnyElement, open: bool) -> AnyElement {
+    fn card(
+        &self,
+        f: &PullFile,
+        ix: usize,
+        header: AnyElement,
+        open: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         v_flex()
             .flex_none()
             .w_full()
@@ -851,7 +926,7 @@ impl DiffView {
             .border_color(theme::border())
             .overflow_hidden()
             .child(header)
-            .when(open, |el| el.child(self.body(f, ix)))
+            .when(open, |el| el.child(self.body(f, ix, cx)))
             .into_any_element()
     }
 }
@@ -987,7 +1062,7 @@ impl Render for DiffView {
                                         .text_xs()
                                         .children(summary(f))
                                         .into_any_element();
-                                    self.card(f, ix, header, true)
+                                    self.card(f, ix, header, true, cx)
                                 }
                                 None => div()
                                     .text_sm()
@@ -1030,7 +1105,7 @@ impl Render for DiffView {
                         )
                         .children(summary(f))
                         .into_any_element();
-                    self.card(f, ix, header, open)
+                    self.card(f, ix, header, open, cx)
                 }))
                 .into_any_element(),
         };

@@ -111,6 +111,8 @@ pub enum Shown {
     Pair(Pair),
     Recording(Take),
     Screenshot(MediaItem),
+    /// A Hatch page the agent published (lib/pages.ts pagesFor).
+    Page(agentbox_api::Artifact),
 }
 
 impl Shown {
@@ -119,6 +121,7 @@ impl Shown {
             Shown::Pair(p) => readable(&p.name),
             Shown::Recording(t) => readable(&t.media.name),
             Shown::Screenshot(m) => readable(&m.name),
+            Shown::Page(p) => p.title.clone(),
         }
     }
 
@@ -130,6 +133,24 @@ impl Shown {
             _ => None,
         }
     }
+}
+
+/// live_pages is a project's pages Hatch still has that an agent made or
+/// changed (lib/pages.ts pagesFor, isExpired), none without a connector.
+pub fn live_pages(list: &agentbox_api::Artifacts, agent_ref: &str) -> Vec<agentbox_api::Artifact> {
+    if list.connector.is_empty() {
+        return Vec::new();
+    }
+    let now = chrono::Utc::now().timestamp_millis();
+    list.artifacts
+        .iter()
+        .filter(|a| {
+            !a.expired
+                && (a.permanent || a.expires_at.as_deref().is_none_or(|e| ms(e) > now))
+                && a.agents.iter().any(|r| r == agent_ref)
+        })
+        .cloned()
+        .collect()
 }
 
 /// readable turns a media name like "settings-at-1024" into words.

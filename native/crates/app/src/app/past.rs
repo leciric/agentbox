@@ -52,13 +52,7 @@ impl Past {
 
 /// local_or is an RFC 3339 time in the user's own date and time.
 pub fn local_or(iso: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(iso)
-        .map(|d| {
-            d.with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M")
-                .to_string()
-        })
-        .unwrap_or_else(|_| iso.to_string())
+    crate::dates::date_time_of(iso)
 }
 
 /// as_fleet is a past agent as the views that take an agent want it.

@@ -16,6 +16,7 @@ use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
 use super::controls::{self, Choice};
+use super::recap::{RecapEvent, RecapView};
 use super::review::{ReviewEvent, ReviewView};
 use crate::theme;
 
@@ -51,6 +52,8 @@ pub struct WorkView {
     held: HashMap<String, &'static str>,
     _debounce: Option<Task<()>>,
     _sub: Subscription,
+    /// Your week, open over the page.
+    recap: Option<(Entity<RecapView>, Subscription)>,
 }
 
 impl EventEmitter<WorkEvent> for WorkView {}
@@ -96,6 +99,7 @@ impl WorkView {
             held: HashMap::new(),
             _debounce: None,
             _sub: sub,
+            recap: None,
         };
         this.load(cx);
         this
@@ -124,7 +128,24 @@ impl WorkView {
 
     /// load reads the page as the filters have it now.
     pub fn load(&mut self, cx: &mut Context<Self>) {
+        self.fetch(None, cx);
+    }
+
+    /// load_more reads the page after the ones shown, adding it to them.
+    fn load_more(&mut self, cx: &mut Context<Self>) {
+        if let Some(next) = self.page.as_ref().map(|p| p.next.clone())
+            && !next.is_empty()
+            && !self.loading
+        {
+            self.fetch(Some(next), cx);
+        }
+    }
+
+    fn fetch(&mut self, cursor: Option<String>, cx: &mut Context<Self>) {
         let mut query = vec!["limit=200".to_string()];
+        if let Some(c) = &cursor {
+            query.push(format!("cursor={}", enc(c)));
+        }
         if !self.filter.is_empty() {
             query.push(format!("filter={}", self.filter));
         }
@@ -144,7 +165,15 @@ impl WorkView {
             this.update(cx, |this, cx| {
                 this.loading = false;
                 match res {
-                    Ok(p) => {
+                    Ok(mut p) => {
+                        if cursor.is_some()
+                            && let Some(old) = this.page.take()
+                        {
+                            let mut items = old.items;
+                            items.append(&mut p.items);
+                            p.items = items;
+                            p.counts = old.counts;
+                        }
                         this.page = Some(p);
                         this.error = None;
                     }
@@ -194,6 +223,19 @@ impl WorkView {
             Vec::new()
         };
         cx.emit(WorkEvent::Open(w, queue));
+    }
+
+    fn open_recap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        let view = cx.new(|cx| RecapView::new(client, window, cx));
+        let sub = cx.subscribe(&view, |this: &mut Self, _, ev: &RecapEvent, cx| match ev {
+            RecapEvent::Close => {
+                this.recap = None;
+                cx.notify();
+            }
+        });
+        self.recap = Some((view, sub));
+        cx.notify();
     }
 
     fn project_label(&self, name: &str) -> String {
@@ -378,11 +420,9 @@ impl WorkView {
             .child(
                 div()
                     .flex_none()
-                    .mt(px(5.))
-                    .size_2()
-                    .rounded_full()
-                    .bg(theme::accent())
-                    .when(w.past, |el| el.opacity(0.4)),
+                    .mt(px(2.))
+                    .when(w.past, |el| el.opacity(0.6))
+                    .child(crate::icons::ai_icon(&i.ai, px(16.), theme::muted())),
             )
             .child(
                 v_flex()
@@ -481,117 +521,170 @@ impl Render for WorkView {
             })
             .ok();
         });
-        div().id("work-page").size_full().overflow_y_scroll().child(
-            v_flex()
-                .w_full()
-                .max_w(px(1100.))
-                .mx_auto()
-                .px_8()
-                .py_7()
-                .gap_3()
-                .child(
-                    h_flex()
-                        .flex_wrap()
-                        .items_end()
+        let recap = self.recap.as_ref().map(|(v, _)| v.clone());
+        div()
+            .relative()
+            .size_full()
+            .child(
+                div().id("work-page").size_full().overflow_y_scroll().child(
+                    v_flex()
+                        .w_full()
+                        .max_w(px(1100.))
+                        .mx_auto()
+                        .px_8()
+                        .py_7()
                         .gap_3()
-                        .mb_2()
+                        .child(
+                            h_flex()
+                                .flex_wrap()
+                                .items_end()
+                                .gap_3()
+                                .mb_2()
+                                .child(
+                                    v_flex()
+                                        .min_w_0()
+                                        .gap_1()
+                                        .child(
+                                            div()
+                                                .text_2xl()
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .text_color(theme::fg())
+                                                .child(t("work.title")),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(theme::muted())
+                                                .child(t("work.description")),
+                                        ),
+                                )
+                                .child(div().flex_1())
+                                .child(
+                                    h_flex()
+                                        .id("work-recap")
+                                        .h(px(34.))
+                                        .px_3()
+                                        .gap_1p5()
+                                        .rounded_lg()
+                                        .border_1()
+                                        .border_color(theme::accent().opacity(0.35))
+                                        .bg(theme::accent().opacity(0.12))
+                                        .cursor_pointer()
+                                        .hover(|el| el.bg(theme::accent().opacity(0.2)))
+                                        .text_sm()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(theme::fg())
+                                        .on_click(cx.listener(
+                                            |this, _: &ClickEvent, window, cx| {
+                                                this.open_recap(window, cx)
+                                            },
+                                        ))
+                                        .child(div().text_color(theme::accent()).child("✦"))
+                                        .child(t("recap.open")),
+                                )
+                                .child(controls::select(
+                                    "work-project",
+                                    choices,
+                                    &self.project,
+                                    false,
+                                    pick,
+                                )),
+                        )
+                        .child(
+                            h_flex()
+                                .flex_wrap()
+                                .gap_2()
+                                .child(self.render_filters(cx))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w(px(220.))
+                                        .child(Input::new(&self.search).cleanable(true)),
+                                )
+                                .when(self.loading && self.page.is_some(), |el| {
+                                    el.child(div().text_xs().text_color(theme::faint()).child("…"))
+                                }),
+                        )
                         .child(
                             v_flex()
-                                .min_w_0()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .text_2xl()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(theme::fg())
-                                        .child(t("work.title")),
-                                )
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(theme::muted())
-                                        .child(t("work.description")),
-                                ),
-                        )
-                        .child(div().flex_1())
-                        .child(controls::select(
-                            "work-project",
-                            choices,
-                            &self.project,
-                            false,
-                            pick,
-                        )),
-                )
-                .child(
-                    h_flex()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(self.render_filters(cx))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(px(220.))
-                                .child(Input::new(&self.search).cleanable(true)),
-                        )
-                        .when(self.loading && self.page.is_some(), |el| {
-                            el.child(div().text_xs().text_color(theme::faint()).child("…"))
-                        }),
-                )
-                .child(
-                    v_flex()
-                        .rounded_xl()
-                        .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::panel())
-                        .overflow_hidden()
-                        .map(|el| match (&self.error, &self.page) {
-                            (Some(e), _) => el.child(
-                                div()
-                                    .p_4()
-                                    .text_sm()
-                                    .text_color(theme::error())
-                                    .child(e.clone()),
-                            ),
-                            (None, None) => el.child(
-                                div()
-                                    .p_4()
-                                    .text_sm()
-                                    .text_color(theme::faint())
-                                    .child(t("common.loading")),
-                            ),
-                            (None, Some(_)) if empty => el.child(
-                                v_flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .px_4()
-                                    .py_8()
-                                    .text_sm()
-                                    .text_color(theme::faint())
-                                    .child(if self.q.is_empty() && self.filter.is_empty() {
-                                        t("work.empty")
-                                    } else {
-                                        t("work.noMatch")
-                                    }),
-                            ),
-                            (None, Some(_)) => el.children(days.into_iter().map(|(day, list)| {
-                                v_flex()
-                                    .child(
+                                .rounded_xl()
+                                .border_1()
+                                .border_color(theme::border())
+                                .bg(theme::panel())
+                                .overflow_hidden()
+                                .map(|el| match (&self.error, &self.page) {
+                                    (Some(e), _) => el.child(
                                         div()
-                                            .px_4()
-                                            .py_1p5()
-                                            .border_b_1()
-                                            .border_color(theme::border().opacity(0.5))
-                                            .bg(theme::raised().opacity(0.4))
-                                            .text_xs()
-                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .p_4()
+                                            .text_sm()
+                                            .text_color(theme::error())
+                                            .child(e.clone()),
+                                    ),
+                                    (None, None) => el.child(
+                                        div()
+                                            .p_4()
+                                            .text_sm()
                                             .text_color(theme::faint())
-                                            .child(day_label(&day).to_uppercase()),
-                                    )
-                                    .children(list.iter().map(|w| self.render_row(w, cx)))
-                            })),
-                        }),
+                                            .child(t("common.loading")),
+                                    ),
+                                    (None, Some(_)) if empty => el.child(
+                                        v_flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .px_4()
+                                            .py_8()
+                                            .text_sm()
+                                            .text_color(theme::faint())
+                                            .child(
+                                                if self.q.is_empty() && self.filter.is_empty() {
+                                                    t("work.empty")
+                                                } else {
+                                                    t("work.noMatch")
+                                                },
+                                            ),
+                                    ),
+                                    (None, Some(_)) => {
+                                        el.children(days.into_iter().map(|(day, list)| {
+                                            v_flex()
+                                                .child(
+                                                    div()
+                                                        .px_4()
+                                                        .py_1p5()
+                                                        .border_b_1()
+                                                        .border_color(theme::border().opacity(0.5))
+                                                        .bg(theme::raised().opacity(0.4))
+                                                        .text_xs()
+                                                        .font_weight(FontWeight::SEMIBOLD)
+                                                        .text_color(theme::faint())
+                                                        .child(day_label(&day).to_uppercase()),
+                                                )
+                                                .children(
+                                                    list.iter().map(|w| self.render_row(w, cx)),
+                                                )
+                                        }))
+                                    }
+                                }),
+                        )
+                        .when(
+                            self.error.is_none()
+                                && self.page.as_ref().is_some_and(|p| !p.next.is_empty()),
+                            |el| {
+                                el.child(h_flex().justify_center().child(controls::button(
+                                    "work-more",
+                                    if self.loading {
+                                        t("agent.mediaTab.loadingMore")
+                                    } else {
+                                        t("common.more")
+                                    },
+                                    controls::Btn::Ghost,
+                                    self.loading,
+                                    cx.listener(|this, _: &ClickEvent, _, cx| this.load_more(cx)),
+                                )))
+                            },
+                        ),
                 ),
-        )
+            )
+            .children(recap)
     }
 }
 
@@ -632,8 +725,7 @@ fn day_of(time: &str) -> String {
 fn day_label(day: &str) -> String {
     let today = chrono::Local::now().date_naive();
     match chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d") {
-        Ok(d) if d == today => t("work.today"),
-        Ok(d) if Some(d) == today.pred_opt() => t("work.yesterday"),
+        Ok(d) => crate::dates::day_label(d, today),
         _ => day.to_string(),
     }
 }

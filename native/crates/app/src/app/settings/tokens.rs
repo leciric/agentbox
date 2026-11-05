@@ -135,9 +135,9 @@ fn slot_label(start: i64, step: i64) -> String {
         return String::new();
     };
     if step >= 86_400 {
-        at.format("%b %-d").to_string()
+        crate::dates::date(at.date_naive(), true)
     } else if step >= 3600 {
-        at.format("%b %-d, %H:%M").to_string()
+        crate::dates::date_time(at)
     } else {
         at.format("%H:%M").to_string()
     }

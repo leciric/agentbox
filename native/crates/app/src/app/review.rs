@@ -28,10 +28,10 @@ use super::merge;
 use super::work::{outcome_badge, pr_chip};
 use crate::diff::DiffView;
 use crate::media::{self, Shown};
-use crate::theme;
 use crate::toasts::{self, Kind, Toast};
 #[cfg(feature = "video")]
 use crate::video::VideoPlayer;
+use crate::{prefs, theme};
 
 pub enum ReviewEvent {
     Close,
@@ -52,8 +52,118 @@ enum Pane {
 #[derive(Clone, Copy, PartialEq)]
 enum Compare {
     Side,
+    Slider,
     Flip,
 }
+
+impl Compare {
+    fn name(self) -> &'static str {
+        match self {
+            Compare::Side => "side",
+            Compare::Slider => "slider",
+            Compare::Flip => "flip",
+        }
+    }
+
+    fn from(name: &str) -> Self {
+        match name {
+            "slider" => Compare::Slider,
+            "flip" => Compare::Flip,
+            _ => Compare::Side,
+        }
+    }
+
+    /// next is Q's cycle (nextMode).
+    fn next(self) -> Self {
+        match self {
+            Compare::Side => Compare::Slider,
+            Compare::Slider => Compare::Flip,
+            Compare::Flip => Compare::Side,
+        }
+    }
+}
+
+/// Where a pair's mode and highlight are remembered (lib/compare.ts).
+const COMPARE_KEY: &str = "review.compare";
+
+/// What highlighting found between a pair's screenshots (lib/compare.ts).
+#[derive(Clone)]
+enum Difference {
+    Working,
+    Ready {
+        overlay: PathBuf,
+        changed: u64,
+        total: u64,
+    },
+    Sizes(String, String),
+    Failed(String),
+}
+
+/// pixel_diff is pixelDiff: a pixel changed when a channel moved by more
+/// than 24; the overlay has those in solid magenta and the 16px cells around
+/// them tinted. None when nothing changed.
+fn pixel_diff(a: &image::RgbaImage, b: &image::RgbaImage) -> (Option<image::RgbaImage>, u64) {
+    const CELL: u32 = 16;
+    let (w, h) = a.dimensions();
+    let cols = w.div_ceil(CELL);
+    let mut cells = vec![false; (cols * h.div_ceil(CELL)) as usize];
+    let mut hit = vec![false; (w * h) as usize];
+    let mut changed = 0u64;
+    for (p, (x, y)) in a.pixels().zip(b.pixels()).enumerate() {
+        let d = (0..4)
+            .map(|c| (x[c] as i32 - y[c] as i32).abs())
+            .max()
+            .unwrap_or(0);
+        if d <= 24 {
+            continue;
+        }
+        hit[p] = true;
+        changed += 1;
+        let (px, py) = (p as u32 % w, p as u32 / w);
+        cells[((py / CELL) * cols + px / CELL) as usize] = true;
+    }
+    if changed == 0 {
+        return (None, 0);
+    }
+    let overlay = image::RgbaImage::from_fn(w, h, |x, y| {
+        let p = (y * w + x) as usize;
+        if hit[p] {
+            image::Rgba([255, 0, 170, 230])
+        } else if cells[((y / CELL) * cols + x / CELL) as usize] {
+            image::Rgba([255, 0, 170, 60])
+        } else {
+            image::Rgba([0, 0, 0, 0])
+        }
+    });
+    (Some(overlay), changed)
+}
+
+fn difference_of(before: PathBuf, after: PathBuf, out: PathBuf) -> Difference {
+    let open = |p: &PathBuf| image::open(p).map(|i| i.to_rgba8());
+    let (a, b) = match (open(&before), open(&after)) {
+        (Ok(a), Ok(b)) => (a, b),
+        (Err(e), _) | (_, Err(e)) => return Difference::Failed(e.to_string()),
+    };
+    if a.dimensions() != b.dimensions() {
+        let size = |i: &image::RgbaImage| format!("{}×{}", i.width(), i.height());
+        return Difference::Sizes(size(&a), size(&b));
+    }
+    let total = a.width() as u64 * a.height() as u64;
+    let (overlay, changed) = pixel_diff(&a, &b);
+    let overlay = overlay.unwrap_or_else(|| image::RgbaImage::new(1, 1));
+    match overlay.save_with_format(&out, image::ImageFormat::Png) {
+        Ok(()) => Difference::Ready {
+            overlay: out,
+            changed,
+            total,
+        },
+        Err(e) => Difference::Failed(e.to_string()),
+    }
+}
+
+/// The zoom steps (lib/zoom.ts zoomStep) and how far in it goes.
+const ZOOM_STEP: f32 = 1.25;
+const ZOOM_MAX: f32 = 8.;
 
 pub struct ReviewView {
     client: Client,
@@ -74,6 +184,18 @@ pub struct ReviewView {
     players: HashMap<String, Entity<VideoPlayer>>,
     compare: Compare,
     flipped: bool,
+    /// Slider: where the divider is (0..1) and the box it's dragged in.
+    slider: f32,
+    slider_box: std::rc::Rc<std::cell::Cell<Bounds<Pixels>>>,
+    /// Highlight changes is on, and what it found for each pair.
+    highlight: bool,
+    differences: HashMap<String, Difference>,
+    /// How far what's on stage is zoomed (1 fits it), and whether it's
+    /// open large over the whole review.
+    zoom: f32,
+    expanded: bool,
+    /// The agent's Hatch pages, part of its proof.
+    pages: Option<Vec<agentbox_api::Artifact>>,
     pane: Option<Pane>,
     diff: Option<Result<Entity<DiffView>, String>>,
     /// The project's pull requests, for the methods its repository allows
@@ -132,8 +254,25 @@ impl ReviewView {
             failed: HashMap::new(),
             #[cfg(feature = "video")]
             players: HashMap::new(),
-            compare: Compare::Side,
+            compare: Compare::from(
+                prefs::get(COMPARE_KEY)
+                    .as_ref()
+                    .and_then(|v| v.get("mode"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("side"),
+            ),
             flipped: false,
+            slider: 0.5,
+            slider_box: Default::default(),
+            highlight: prefs::get(COMPARE_KEY)
+                .as_ref()
+                .and_then(|v| v.get("highlight"))
+                .and_then(|m| m.as_bool())
+                .unwrap_or(false),
+            differences: HashMap::new(),
+            zoom: 1.,
+            expanded: false,
+            pages: None,
             pane: None,
             diff: None,
             pulls: None,
@@ -177,7 +316,31 @@ impl ReviewView {
         self.error = None;
         self.armed = false;
         self.flipped = false;
+        self.zoom = 1.;
+        self.expanded = false;
+        self.pages = None;
         let i = &self.item.item;
+        {
+            let client = self.client.clone();
+            let path = format!("/v1/projects/{}/artifacts", i.project);
+            let r#ref = i.r#ref.clone();
+            cx.spawn(async move |this, cx| {
+                let list = client
+                    .get::<agentbox_api::Artifacts>(&path)
+                    .await
+                    .unwrap_or_default();
+                this.update(cx, |this, cx| {
+                    if this.item.item.r#ref != r#ref {
+                        return;
+                    }
+                    this.pages = Some(media::live_pages(&list, &r#ref));
+                    this.rebuild();
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
         if self.pulls.as_ref().is_none_or(|p| p.project != i.project) {
             self.pulls = None;
             self.method = None;
@@ -211,8 +374,8 @@ impl ReviewView {
                 }
                 match res {
                     Ok(m) => {
-                        this.gallery = media::gallery(&m);
                         this.media = Some(Ok(m));
+                        this.rebuild();
                         this.fetch_files(cx);
                     }
                     Err(e) => this.media = Some(Err(e.to_string())),
@@ -225,6 +388,74 @@ impl ReviewView {
         cx.notify();
     }
 
+    /// rebuild is the gallery from the media and the pages read so far.
+    fn rebuild(&mut self) {
+        let mut g = match &self.media {
+            Some(Ok(m)) => media::gallery(m),
+            _ => Vec::new(),
+        };
+        g.extend(self.pages.iter().flatten().cloned().map(Shown::Page));
+        self.at = self.at.min(g.len().saturating_sub(1));
+        self.gallery = g;
+    }
+
+    /// set_compare picks how pairs are compared, remembered for next time.
+    fn set_compare(&mut self, compare: Compare, highlight: bool, cx: &mut Context<Self>) {
+        self.compare = compare;
+        self.highlight = highlight;
+        prefs::set(
+            COMPARE_KEY,
+            serde_json::json!({ "mode": compare.name(), "highlight": highlight }),
+        );
+        cx.notify();
+    }
+
+    /// ensure_difference works out the pair on stage's highlight when it's
+    /// on, both its pictures are here, and it isn't known yet.
+    fn ensure_difference(&mut self, cx: &mut Context<Self>) {
+        if !self.highlight || self.pane() != Pane::Proof {
+            return;
+        }
+        let Some(Shown::Pair(p)) = self.gallery.get(self.at) else {
+            return;
+        };
+        if p.before.kind != "screenshot" {
+            return;
+        }
+        let key = format!("{}|{}", p.before.id, p.after.id);
+        if self.differences.contains_key(&key) {
+            return;
+        }
+        let (Some(a), Some(b)) = (
+            self.files.get(&p.before.id).cloned(),
+            self.files.get(&p.after.id).cloned(),
+        ) else {
+            return;
+        };
+        self.differences.insert(key.clone(), Difference::Working);
+        let out = std::env::temp_dir().join(format!(
+            "agentbox-highlight-{}-{}.png",
+            p.before.id, p.after.id
+        ));
+        let task = cx
+            .background_executor()
+            .spawn(async move { difference_of(a, b, out) });
+        cx.spawn(async move |this, cx| {
+            let d = task.await;
+            this.update(cx, |this, cx| {
+                this.differences.insert(key, d);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        self.zoom = zoom.clamp(1., ZOOM_MAX);
+        cx.notify();
+    }
+
     /// fetch_files reads every picture and recording of the proof into the cache.
     fn fetch_files(&mut self, cx: &mut Context<Self>) {
         let mut wanted: Vec<MediaItem> = Vec::new();
@@ -233,6 +464,7 @@ impl ReviewView {
                 Shown::Pair(p) => wanted.extend([p.before.clone(), p.after.clone()]),
                 Shown::Recording(t) => wanted.push(t.media.clone()),
                 Shown::Screenshot(m) => wanted.push(m.clone()),
+                Shown::Page(_) => {}
             }
         }
         for m in wanted {
@@ -340,7 +572,20 @@ impl ReviewView {
                 this.diff = Some(match res {
                     Ok(b) => {
                         let text = String::from_utf8_lossy(&b).into_owned();
-                        Ok(cx.new(|cx| DiffView::text("review-diff", &text, cx)))
+                        let notes = (!this.item.past).then(|| {
+                            let i = &this.item.item;
+                            (
+                                this.client.clone(),
+                                format!("/v1/agents/{}/{}/review-notes", i.project, i.agent),
+                            )
+                        });
+                        Ok(cx.new(|cx| {
+                            let d = DiffView::text("review-diff", &text, cx);
+                            match notes {
+                                Some((c, base)) => d.with_notes(c, base, cx),
+                                None => d,
+                            }
+                        }))
                     }
                     Err(e) => Err(e.to_string()),
                 });
@@ -358,6 +603,7 @@ impl ReviewView {
         }
         self.at = (self.at as isize + by).rem_euclid(n as isize) as usize;
         self.flipped = false;
+        self.zoom = 1.;
         self.sync_players(cx);
         cx.notify();
     }
@@ -437,9 +683,14 @@ impl ReviewView {
 
     fn send_changes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.changes.read(cx).value().trim().to_string();
-        if self.busy || text.is_empty() {
+        let drafts = self.drafts(cx);
+        if self.busy || (text.is_empty() && drafts == 0) {
             return;
         }
+        let notes_path = (!self.item.past).then(|| {
+            let i = &self.item.item;
+            format!("/v1/agents/{}/{}/review-notes", i.project, i.agent)
+        });
         let i = &self.item.item;
         let path = format!("/v1/agents/{}/{}/request-changes", i.project, i.agent);
         let req = RequestChangesRequest {
@@ -455,13 +706,24 @@ impl ReviewView {
         let agent = i.agent.clone();
         let text = req.text.clone();
         let client = self.client.clone();
-        let body = serde_json::to_vec(&req).unwrap_or_default();
+        let mut req = req;
         Toast::new(
             Kind::Info,
             tv("review.changesSent", &[("agent", (&agent).into())]),
         )
         .show(cx);
         cx.spawn(async move |this, cx| {
+            // The drafts on the diff's lines go with them.
+            if let Some(np) = notes_path
+                && let Ok(notes) = client.get::<Vec<agentbox_api::ReviewNote>>(&np).await
+            {
+                req.notes = notes
+                    .into_iter()
+                    .filter(|n| n.status == "draft")
+                    .map(|n| n.id)
+                    .collect();
+            }
+            let body = serde_json::to_vec(&req).unwrap_or_default();
             let res = client
                 .raw(agentbox_api::client::Method::POST, &path, Some(body))
                 .await;
@@ -487,6 +749,14 @@ impl ReviewView {
         })
         .detach();
         self.advance(cx);
+    }
+
+    /// drafts is how many line notes wait to go with Request changes.
+    fn drafts(&self, cx: &App) -> usize {
+        match &self.diff {
+            Some(Ok(d)) => d.read(cx).drafts().len(),
+            _ => 0,
+        }
     }
 
     /// send posts a verdict and goes on when it's taken.
@@ -725,7 +995,17 @@ impl ReviewView {
         let typing = self.changes.read(cx).focus_handle(cx).is_focused(window);
         let k = &ev.keystroke;
         if k.key == "escape" {
-            if self.changing {
+            if let Some(Ok(d)) = &self.diff
+                && d.read(cx).notes_open()
+            {
+                d.update(cx, |d, cx| d.close_note(window, cx));
+                cx.stop_propagation();
+                return;
+            }
+            if self.expanded {
+                self.expanded = false;
+                cx.notify();
+            } else if self.changing {
                 self.close_changes(window, cx);
             } else if self.pane() != Pane::Proof && self.pane.is_some() {
                 self.set_pane(Pane::Proof, cx);
@@ -735,7 +1015,8 @@ impl ReviewView {
             cx.stop_propagation();
             return;
         }
-        if typing {
+        let noting = matches!(&self.diff, Some(Ok(d)) if d.read(cx).notes_open());
+        if typing || noting {
             return;
         }
         if k.modifiers.control || k.modifiers.alt || k.modifiers.platform {
@@ -754,13 +1035,15 @@ impl ReviewView {
             "i" => self.set_pane(Pane::Details, cx),
             "r" => self.mark_reviewed(cx),
             "c" => self.open_changes(window, cx),
-            "q" => {
-                self.compare = match self.compare {
-                    Compare::Side => Compare::Flip,
-                    Compare::Flip => Compare::Side,
-                };
+            "q" => self.set_compare(self.compare.next(), self.highlight, cx),
+            "h" => self.set_compare(self.compare, !self.highlight, cx),
+            "f" if self.pane() == Pane::Proof && !self.gallery.is_empty() => {
+                self.expanded = !self.expanded;
                 cx.notify();
             }
+            "+" | "=" if self.pane() == Pane::Proof => self.set_zoom(self.zoom * ZOOM_STEP, cx),
+            "-" if self.pane() == Pane::Proof => self.set_zoom(self.zoom / ZOOM_STEP, cx),
+            "0" if self.pane() == Pane::Proof => self.set_zoom(1., cx),
             "m" => {
                 if self.armed {
                     self.merge(cx);
@@ -847,12 +1130,20 @@ impl ReviewView {
                             .child(title),
                     )
                     .when(!i.verdict.is_empty(), |el| {
+                        let when = i
+                            .reviewed_at
+                            .as_deref()
+                            .map(super::settings::defaults::time_ago)
+                            .unwrap_or_default();
                         el.child(controls::badge(
-                            t(match i.verdict.as_str() {
-                                "changes" => "work.verdict.changes",
-                                "dismissed" => "work.verdict.dismissed",
-                                _ => "work.verdict.reviewed",
-                            }),
+                            tv(
+                                match i.verdict.as_str() {
+                                    "changes" => "review.verdict.changes",
+                                    "dismissed" => "review.verdict.dismissed",
+                                    _ => "review.verdict.reviewed",
+                                },
+                                &[("when", when.into())],
+                            ),
                             match i.verdict.as_str() {
                                 "changes" => theme::starting(),
                                 "dismissed" => theme::muted(),
@@ -1185,7 +1476,17 @@ impl ReviewView {
                 .child(s)
         };
         match shown {
-            Shown::Screenshot(m) => frame(self.picture(m)).size_full().into_any_element(),
+            Shown::Screenshot(m) => frame(self.zoomed(&m.id, self.picture(m)))
+                .id("review-shot")
+                .size_full()
+                .when(!self.expanded && self.zoom <= 1., |el| {
+                    el.cursor_pointer()
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.expanded = true;
+                            cx.notify();
+                        }))
+                })
+                .into_any_element(),
             Shown::Recording(take) => h_flex()
                 .size_full()
                 .gap_4()
@@ -1274,89 +1575,367 @@ impl ReviewView {
                         .child(div().flex_1().min_h_0().child(self.video(&p.after))),
                 )
                 .into_any_element(),
-            Shown::Pair(p) => {
-                let modes = controls::segmented(
-                    "review-compare",
-                    vec![
-                        ("side".into(), t("review.compare.side")),
-                        ("flip".into(), t("review.compare.flip")),
-                    ],
-                    Some(match self.compare {
-                        Compare::Side => "side",
-                        Compare::Flip => "flip",
-                    }),
-                    false,
-                    {
-                        let me = cx.entity().downgrade();
-                        std::rc::Rc::new(move |v: &str, _, cx| {
-                            let flip = v == "flip";
-                            me.update(cx, |this, cx| {
-                                this.compare = if flip { Compare::Flip } else { Compare::Side };
-                                cx.notify();
-                            })
-                            .ok();
-                        })
-                    },
-                );
-                let body = match self.compare {
-                    Compare::Side => h_flex()
-                        .flex_1()
-                        .min_h_0()
-                        .gap_3()
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .h_full()
-                                .gap_1()
-                                .child(label(t("review.compare.before")))
-                                .child(frame(self.picture(&p.before))),
-                        )
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .h_full()
-                                .gap_1()
-                                .child(label(t("review.compare.after")))
-                                .child(frame(self.picture(&p.after))),
-                        )
-                        .into_any_element(),
-                    Compare::Flip => {
-                        let (side, m) = if self.flipped {
-                            (t("review.compare.before"), &p.before)
-                        } else {
-                            (t("review.compare.after"), &p.after)
-                        };
-                        v_flex()
-                            .id("review-flip")
-                            .flex_1()
-                            .min_h_0()
-                            .gap_1()
-                            .cursor_pointer()
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.flipped = !this.flipped;
-                                cx.notify();
-                            }))
-                            .child(label(side))
-                            .child(frame(self.picture(m)))
-                            .into_any_element()
-                    }
-                };
+            Shown::Pair(p) => self.render_pair(p, cx),
+            Shown::Page(page) => {
+                let url = page.url.clone();
                 v_flex()
                     .size_full()
-                    .gap_2()
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .rounded_lg()
+                    .bg(theme::bg())
+                    .child(div().text_3xl().text_color(theme::faint()).child("◰"))
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .child(label(t("review.compare.modes")))
-                            .child(modes)
-                            .child(hint("Q")),
+                        div()
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::fg())
+                            .child(page.title.clone()),
                     )
-                    .child(body)
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme::muted())
+                            .child(crate::dates::date_time_of(&page.updated_at)),
+                    )
+                    .when(!url.is_empty(), |el| {
+                        el.child(controls::button(
+                            "review-open-page",
+                            t("review.openPage"),
+                            Btn::Secondary,
+                            false,
+                            move |_, _, cx| cx.open_url(&url),
+                        ))
+                    })
                     .into_any_element()
             }
         }
+    }
+
+    /// zoomed is a picture at the stage's zoom: past fit it scrolls to pan.
+    fn zoomed(&self, id: &str, el: AnyElement) -> AnyElement {
+        if self.zoom <= 1.0001 {
+            return el;
+        }
+        div()
+            .id(SharedString::from(format!("zoom-{id}")))
+            .size_full()
+            .overflow_scroll()
+            .child(
+                div()
+                    .flex_none()
+                    .w(relative(self.zoom))
+                    .h(relative(self.zoom))
+                    .child(el),
+            )
+            .into_any_element()
+    }
+
+    /// shot is a pair's screenshot zoomed, with the highlight over it when
+    /// it's the after.
+    fn shot(&self, m: &MediaItem, overlay: Option<&PathBuf>) -> AnyElement {
+        let el = div()
+            .relative()
+            .size_full()
+            .child(self.picture(m))
+            .when_some(overlay.cloned(), |el, o| {
+                el.child(
+                    img(o)
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .object_fit(ObjectFit::Contain),
+                )
+            })
+            .into_any_element();
+        self.zoomed(&m.id, el)
+    }
+
+    /// render_pair is two screenshots compared (ReviewCompare): side by
+    /// side, one over the other with a divider to drag, or flipped; the
+    /// pixels that changed highlighted over the after.
+    fn render_pair(&self, p: &media::Pair, cx: &mut Context<Self>) -> AnyElement {
+        let frame = |el: AnyElement| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_lg()
+                .bg(theme::bg())
+                .overflow_hidden()
+                .child(el)
+        };
+        let label = |s: String| {
+            div()
+                .flex_none()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::muted())
+                .child(s)
+        };
+        let me = cx.entity().downgrade();
+        let modes = controls::segmented(
+            "review-compare",
+            vec![
+                ("side".into(), t("review.compare.side")),
+                ("slider".into(), t("review.compare.slider")),
+                ("flip".into(), t("review.compare.flip")),
+            ],
+            Some(self.compare.name()),
+            false,
+            std::rc::Rc::new(move |v: &str, _, cx| {
+                let c = Compare::from(v);
+                me.update(cx, |this, cx| this.set_compare(c, this.highlight, cx))
+                    .ok();
+            }),
+        );
+        let key = format!("{}|{}", p.before.id, p.after.id);
+        let diff = self.differences.get(&key).filter(|_| self.highlight);
+        let overlay = match diff {
+            Some(Difference::Ready {
+                overlay, changed, ..
+            }) if *changed > 0 => Some(overlay),
+            _ => None,
+        };
+        let note = diff.map(|d| match d {
+            Difference::Working => t("review.compare.working"),
+            Difference::Sizes(a, b) => tv(
+                "review.compare.sizes",
+                &[("before", a.into()), ("after", b.into())],
+            ),
+            Difference::Failed(e) => tv("review.compare.failed", &[("error", e.into())]),
+            Difference::Ready { changed: 0, .. } => t("review.compare.unchanged"),
+            Difference::Ready { changed, total, .. } => {
+                let pc = *changed as f64 / (*total).max(1) as f64 * 100.;
+                tv(
+                    "review.compare.changed",
+                    &[(
+                        "percent",
+                        if pc < 0.1 {
+                            "<0.1".to_string()
+                        } else {
+                            format!("{pc:.1}")
+                        }
+                        .into(),
+                    )],
+                )
+            }
+        });
+        let body = match self.compare {
+            Compare::Side => h_flex()
+                .flex_1()
+                .min_h_0()
+                .gap_3()
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .gap_1()
+                        .child(label(t("review.compare.before")))
+                        .child(frame(self.shot(&p.before, None))),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .gap_1()
+                        .child(label(t("review.compare.after")))
+                        .child(frame(self.shot(&p.after, overlay))),
+                )
+                .into_any_element(),
+            Compare::Slider => {
+                let frac = self.slider.clamp(0.001, 0.999);
+                let bounds = self.slider_box.clone();
+                let read = self.slider_box.clone();
+                let at = move |pos: Point<Pixels>| {
+                    let b = read.get();
+                    if b.size.width <= px(0.) {
+                        return None;
+                    }
+                    Some(((pos.x - b.origin.x) / b.size.width).clamp(0., 1.))
+                };
+                let at2 = at.clone();
+                div()
+                    .id("review-slider")
+                    .flex_1()
+                    .min_h_0()
+                    .relative()
+                    .rounded_lg()
+                    .overflow_hidden()
+                    .bg(theme::bg())
+                    .cursor_col_resize()
+                    .child(
+                        canvas(move |b, _, _| bounds.set(b), |_, _, _, _| {})
+                            .absolute()
+                            .size_full(),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full()
+                            .child(self.shot(&p.after, overlay)),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .h_full()
+                            .w(relative(frac))
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .h_full()
+                                    .w(relative(1. / frac))
+                                    .child(self.shot(&p.before, None)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .h_full()
+                            .left(relative(frac))
+                            .w(px(2.))
+                            .bg(gpui::white())
+                            .shadow_md(),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_2()
+                            .left_2()
+                            .px_1p5()
+                            .rounded_sm()
+                            .bg(gpui::black().opacity(0.6))
+                            .text_xs()
+                            .text_color(gpui::white())
+                            .child(t("review.compare.before")),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top_2()
+                            .right_2()
+                            .px_1p5()
+                            .rounded_sm()
+                            .bg(gpui::black().opacity(0.6))
+                            .text_xs()
+                            .text_color(gpui::white())
+                            .child(t("review.compare.after")),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                            if let Some(f) = at(ev.position) {
+                                this.slider = f;
+                                cx.notify();
+                            }
+                        }),
+                    )
+                    .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
+                        if ev.pressed_button == Some(MouseButton::Left)
+                            && let Some(f) = at2(ev.position)
+                        {
+                            this.slider = f;
+                            cx.notify();
+                        }
+                    }))
+                    .into_any_element()
+            }
+            Compare::Flip => {
+                let (side, m, o) = if self.flipped {
+                    (t("review.compare.before"), &p.before, None)
+                } else {
+                    (t("review.compare.after"), &p.after, overlay)
+                };
+                v_flex()
+                    .id("review-flip")
+                    .flex_1()
+                    .min_h_0()
+                    .gap_1()
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.flipped = !this.flipped;
+                        cx.notify();
+                    }))
+                    .child(label(side))
+                    .child(frame(self.shot(m, o)))
+                    .into_any_element()
+            }
+        };
+        let hint_key = match self.compare {
+            Compare::Side => "review.compare.sideHint",
+            Compare::Slider => "review.compare.sliderHint",
+            Compare::Flip => "review.compare.flipHint",
+        };
+        let on = self.highlight;
+        v_flex()
+            .size_full()
+            .gap_2()
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(label(t("review.compare.modes")))
+                    .child(modes)
+                    .child(hint("Q"))
+                    .child(
+                        div()
+                            .id("review-highlight")
+                            .px_2()
+                            .py_0p5()
+                            .rounded_md()
+                            .text_xs()
+                            .font_weight(FontWeight::MEDIUM)
+                            .cursor_pointer()
+                            .when(on, |el| el.bg(rgba(0xff00aa33)).text_color(theme::fg()))
+                            .when(!on, |el| {
+                                el.text_color(theme::muted())
+                                    .hover(|s| s.bg(theme::hover()))
+                            })
+                            .tooltip(|w, cx| {
+                                gpui_component::tooltip::Tooltip::new(t(
+                                    "review.compare.highlightTitle",
+                                ))
+                                .build(w, cx)
+                            })
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.set_compare(this.compare, !this.highlight, cx)
+                            }))
+                            .child(t("review.compare.highlight")),
+                    )
+                    .child(hint("H"))
+                    .when_some(note, |el, n| {
+                        el.child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .text_xs()
+                                .text_color(theme::muted())
+                                .child(n),
+                        )
+                    })
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme::faint())
+                            .truncate()
+                            .child(tv(hint_key, &[("mod", "Ctrl".into())])),
+                    ),
+            )
+            .child(body)
+            .into_any_element()
     }
 
     /// render_strip is every piece of proof in cards, the one on stage lit,
@@ -1400,7 +1979,9 @@ impl ReviewView {
                             .truncate()
                             .text_color(theme::fg())
                             .child(name),
-                    ),
+                    )
+                    .child(div().flex_1())
+                    .children(self.zoom_controls(cx)),
             )
             .child(
                 h_flex()
@@ -1413,6 +1994,7 @@ impl ReviewView {
                             Shown::Pair(_) => "⇆",
                             Shown::Recording(_) => "▶",
                             Shown::Screenshot(_) => "▣",
+                            Shown::Page(_) => "◰",
                         };
                         let thumb = s.thumb().and_then(|m| self.files.get(&m.id)).cloned();
                         v_flex()
@@ -1475,6 +2057,152 @@ impl ReviewView {
             .into_any_element()
     }
 
+    /// zoom_controls are − the zoom · Fit + and Expand (StageBar,
+    /// ZoomControls), for what can be zoomed.
+    fn zoom_controls(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let zoomable = !matches!(
+            self.gallery.get(self.at),
+            None | Some(Shown::Page(_)) | Some(Shown::Recording(_))
+        ) && !matches!(self.gallery.get(self.at), Some(Shown::Pair(p)) if p.before.kind == "recording");
+        let mut out = Vec::new();
+        if zoomable {
+            out.push(controls::button(
+                "zoom-out",
+                "−",
+                Btn::Ghost,
+                self.zoom <= 1.,
+                cx.listener(|this, _: &ClickEvent, _, cx| this.set_zoom(this.zoom / ZOOM_STEP, cx)),
+            ));
+            out.push(
+                div()
+                    .id("zoom-fit")
+                    .px_1p5()
+                    .rounded_md()
+                    .font_family(crate::theme::mono())
+                    .text_xs()
+                    .text_color(theme::muted())
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(theme::fg()))
+                    .tooltip(|w, cx| {
+                        gpui_component::tooltip::Tooltip::new(t("review.zoom.fitTitle"))
+                            .build(w, cx)
+                    })
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.set_zoom(1., cx)))
+                    .child(format!(
+                        "{}% · {}",
+                        (self.zoom * 100.).round(),
+                        t("review.zoom.fit")
+                    ))
+                    .into_any_element(),
+            );
+            out.push(controls::button(
+                "zoom-in",
+                "+",
+                Btn::Ghost,
+                self.zoom >= ZOOM_MAX,
+                cx.listener(|this, _: &ClickEvent, _, cx| this.set_zoom(this.zoom * ZOOM_STEP, cx)),
+            ));
+        }
+        if let Some(Shown::Page(p)) = self.gallery.get(self.at)
+            && !p.url.is_empty()
+        {
+            let url = p.url.clone();
+            out.push(controls::button(
+                "page-open",
+                t("review.openPage"),
+                Btn::Ghost,
+                false,
+                move |_, _, cx| cx.open_url(&url),
+            ));
+        }
+        out.push(if self.expanded {
+            controls::button(
+                "review-collapse",
+                format!("✕ {}", t("review.collapse")),
+                Btn::Ghost,
+                false,
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.expanded = false;
+                    cx.notify();
+                }),
+            )
+        } else {
+            controls::button(
+                "review-expand",
+                t("review.expand"),
+                Btn::Ghost,
+                self.gallery.is_empty(),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.expanded = true;
+                    cx.notify();
+                }),
+            )
+        });
+        out
+    }
+
+    /// render_expanded is the piece on stage large over the whole review,
+    /// Esc or Back closing it.
+    fn render_expanded(&self, cx: &mut Context<Self>) -> AnyElement {
+        let name = self
+            .gallery
+            .get(self.at)
+            .map(Shown::name)
+            .unwrap_or_default();
+        v_flex()
+            .id("review-expanded")
+            .absolute()
+            .inset_0()
+            .bg(rgb(0x09090b))
+            .on_scroll(cx.listener(Self::on_wheel))
+            .child(
+                h_flex()
+                    .px_4()
+                    .py_3()
+                    .gap_2()
+                    .text_sm()
+                    .text_color(gpui::white())
+                    .child(div().font_family(crate::theme::mono()).text_xs().child(tv(
+                        "review.position",
+                        &[
+                            ("n", (self.at + 1).into()),
+                            ("count", self.gallery.len().into()),
+                        ],
+                    )))
+                    .child(div().min_w_0().truncate().child(name))
+                    .child(div().flex_1())
+                    .children(self.zoom_controls(cx)),
+            )
+            .child(div().flex_1().min_h_0().px_4().child(self.render_stage(cx)))
+            .child(
+                div()
+                    .px_4()
+                    .py_2()
+                    .text_center()
+                    .text_xs()
+                    .text_color(gpui::white().opacity(0.4))
+                    .child(tv("review.zoom.hint", &[("mod", "Ctrl".into())])),
+            )
+            .into_any_element()
+    }
+
+    /// on_wheel zooms with Ctrl (or ⌘) held, as the Electron app does.
+    fn on_wheel(&mut self, ev: &ScrollEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if !(ev.modifiers.control || ev.modifiers.platform) {
+            return;
+        }
+        let dy = match ev.delta {
+            ScrollDelta::Pixels(p) => f32::from(p.y),
+            ScrollDelta::Lines(l) => l.y * 20.,
+        };
+        if dy > 0. {
+            self.set_zoom(self.zoom * ZOOM_STEP, cx);
+        } else if dy < 0. {
+            self.set_zoom(self.zoom / ZOOM_STEP, cx);
+        }
+        cx.stop_propagation();
+    }
+
     fn render_proof(&self, cx: &mut Context<Self>) -> AnyElement {
         match &self.media {
             None => div()
@@ -1506,10 +2234,12 @@ impl ReviewView {
                 .gap_3()
                 .child(
                     v_flex()
+                        .id("review-stage")
                         .flex_1()
                         .min_h_0()
                         .overflow_hidden()
-                        .child(self.render_stage(cx)),
+                        .on_scroll(cx.listener(Self::on_wheel))
+                        .when(!self.expanded, |el| el.child(self.render_stage(cx))),
                 )
                 .child(self.render_strip(cx))
                 .into_any_element(),
@@ -1619,6 +2349,12 @@ impl ReviewView {
                 "review.changesTo",
                 &[("agent", (&self.item.item.agent).into())],
             )))
+            .when(self.drafts(cx) > 0, |el| {
+                el.child(div().text_xs().text_color(theme::starting()).child(tv(
+                    "review.notes.toSend",
+                    &[("count", self.drafts(cx).into())],
+                )))
+            })
             .child(Textarea::new(&self.changes))
             .child(
                 h_flex()
@@ -1827,6 +2563,7 @@ impl ReviewView {
 
 impl Render for ReviewView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.ensure_difference(cx);
         let pane = self.pane();
         let body = match pane {
             Pane::Proof => self.render_proof(cx),
@@ -1865,7 +2602,10 @@ impl Render for ReviewView {
                     .child(div().flex_1().min_h_0().child(body))
                     .when(self.changing, |el| el.child(self.render_changes(cx)))
                     .children(self.render_green_note(cx))
-                    .child(self.render_footer(cx)),
+                    .child(self.render_footer(cx))
+                    .when(self.expanded && pane == Pane::Proof, |el| {
+                        el.relative().child(self.render_expanded(cx))
+                    }),
             )
     }
 }

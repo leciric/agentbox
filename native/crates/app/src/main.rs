@@ -8,11 +8,13 @@
 mod app;
 mod bench;
 mod chat;
+mod dates;
 #[cfg(feature = "video")]
 mod device;
 mod diff;
 mod files;
 mod highlight;
+mod icons;
 mod media;
 mod mermaid;
 mod notices;

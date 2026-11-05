@@ -61,6 +61,8 @@ struct Fake {
     review: Mutex<review::Review>,
     /// The agents' machines: files, snapshots, recordings (agents.rs).
     machines: Mutex<agents::Machines>,
+    /// Line notes on the agents' diffs, by agent (reviewnotes.go).
+    notes: Mutex<Vec<(String, ReviewNote)>>,
 }
 
 /// chat_options are the model and effort an agent's chat runs with.
@@ -267,6 +269,7 @@ impl Fake {
         let machines = Mutex::new(agents::Machines::new(opts.worktree.clone()));
         Arc::new(Self {
             machines,
+            notes: Mutex::new(Vec::new()),
             review,
             opts,
             fleet: Mutex::new(fleet),
@@ -781,8 +784,78 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 .unwrap()
         }
         (&Method::GET, ["v1", "agents", p, a, "review-notes"]) if fake_agent(p, a) => {
-            json(StatusCode::OK, &Vec::<ReviewNote>::new())
+            let notes: Vec<ReviewNote> = fake
+                .notes
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(who, _)| who == a)
+                .map(|(_, n)| n.clone())
+                .collect();
+            json(StatusCode::OK, &notes)
         }
+        (&Method::POST, ["v1", "agents", p, a, "review-notes"]) if fake_agent(p, a) => {
+            let a = a.to_string();
+            let body = req.into_body().collect().await.map(|b| b.to_bytes()).unwrap_or_default();
+            let r: AddReviewNoteRequest = serde_json::from_slice(&body).unwrap_or_default();
+            let mut notes = fake.notes.lock().unwrap();
+            let note = ReviewNote {
+                id: notes.len() as i64 + 1,
+                path: r.path,
+                side: r.side,
+                start: r.start,
+                end: r.end,
+                code: r.code,
+                body: r.body,
+                status: "draft".into(),
+                created_at: "2026-11-05T12:00:00Z".into(),
+                ..Default::default()
+            };
+            notes.push((a, note.clone()));
+            json(StatusCode::OK, &note)
+        }
+        (&Method::PATCH, ["v1", "agents", p, a, "review-notes", id]) if fake_agent(p, a) => {
+            let (a, id) = (a.to_string(), id.parse::<i64>().unwrap_or(0));
+            let body = req.into_body().collect().await.map(|b| b.to_bytes()).unwrap_or_default();
+            let r: EditReviewNoteRequest = serde_json::from_slice(&body).unwrap_or_default();
+            let mut notes = fake.notes.lock().unwrap();
+            match notes.iter_mut().find(|(who, n)| *who == a && n.id == id) {
+                Some((_, n)) => {
+                    if let Some(b) = r.body {
+                        n.body = b;
+                    }
+                    if let Some(on) = r.resolved {
+                        n.status = if on { "resolved" } else { "pending" }.into();
+                        n.resolved_at = on.then(|| "2026-11-05T12:00:00Z".into());
+                    }
+                    json(StatusCode::OK, &n.clone())
+                }
+                None => json(StatusCode::NOT_FOUND, &serde_json::json!({"error": "no such note"})),
+            }
+        }
+        (&Method::DELETE, ["v1", "agents", p, a, "review-notes", id]) if fake_agent(p, a) => {
+            let (a, id) = (a.to_string(), id.parse::<i64>().unwrap_or(0));
+            fake.notes.lock().unwrap().retain(|(who, n)| !(*who == a && n.id == id));
+            json(StatusCode::OK, &serde_json::json!({}))
+        }
+        (&Method::GET, ["v1", "projects", p, "artifacts"]) if fake.is_fake(p) => json(
+            StatusCode::OK,
+            &Artifacts {
+                connector: "hatch".into(),
+                artifacts: vec![Artifact {
+                    id: "O4CQYsCRRC1WKQ16".into(),
+                    title: "Settings: before and after".into(),
+                    url: "https://usehatch.dev/p/O4CQYsCRRC1WKQ16".into(),
+                    agent: format!("{p}/agent-02"),
+                    agents: vec![format!("{p}/agent-02")],
+                    version: 1,
+                    permanent: true,
+                    created_at: "2026-11-05T10:00:00Z".into(),
+                    updated_at: "2026-11-05T10:30:00Z".into(),
+                    ..Default::default()
+                }],
+            },
+        ),
         (&Method::POST, ["v1", "agents", p, a, "review" | "request-changes"])
             if fake_agent(p, a) =>
         {

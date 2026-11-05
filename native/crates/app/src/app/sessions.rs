@@ -89,7 +89,7 @@ pub(super) fn topic(s: &LeadSession) -> String {
 /// wake_time is when a snoozed session comes back, short: "Thu 09:00".
 fn wake_time(iso: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(iso)
-        .map(|d| d.with_timezone(&Local).format("%a %H:%M").to_string())
+        .map(|d| crate::dates::weekday_time(d.with_timezone(&Local)))
         .unwrap_or_default()
 }
 
@@ -1294,7 +1294,7 @@ impl AppView {
                                     PopupMenuItem::new(format!(
                                         "{}  ·  {}",
                                         t(&format!("sessions.snooze.{key}")),
-                                        until.format("%a %H:%M")
+                                        crate::dates::weekday_time(until)
                                     ))
                                     .on_click(
                                         move |_, window, cx| {

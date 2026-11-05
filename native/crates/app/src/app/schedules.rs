@@ -288,21 +288,12 @@ fn every_label(minutes: i64) -> String {
 }
 
 fn day_name(d: u32, long: bool) -> String {
-    t(&format!(
-        "native.day.{}.{d}",
-        if long { "long" } else { "short" }
-    ))
+    crate::dates::weekday(d, long)
 }
 
 /// local_time is an RFC 3339 time as the user's own date and time.
 fn local_time(iso: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(iso)
-        .map(|d| {
-            d.with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M")
-                .to_string()
-        })
-        .unwrap_or_else(|_| iso.to_string())
+    crate::dates::date_time_of(iso)
 }
 
 /// when_label is lib/schedules.ts's whenLabel.
