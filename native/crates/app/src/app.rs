@@ -923,6 +923,8 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         bench::mark("first-render");
         self.focus_tour(window, cx);
+        // The tour's spotlight reads where its anchors were drawn last.
+        crate::spot::measure(self.onboarding_touring());
         if window.focused(cx).is_none() {
             self.side.root_focus.focus(window, cx);
         }
@@ -1092,7 +1094,7 @@ impl Render for AppView {
             .children(self.render_agent_dialogs(cx))
             .children(self.render_past_dialogs(cx))
             .children(self.render_schedule_dialogs(cx))
-            .children(self.render_onboarding(cx))
+            .children(self.render_onboarding(window, cx))
             .children(self.render_usage_sent(cx))
             .children(self.render_sidebar_dialog(cx))
             .children(self.render_session_changes(cx))

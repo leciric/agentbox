@@ -1027,9 +1027,12 @@ impl AppView {
                     }),
             )
             .into_any_element();
+        let hidden = matches!(place, Place::Hidden);
         let row = self.row_dnd(p, &display, place, row, cx);
         v_flex()
-            .child(row)
+            .child(div().relative().child(row).when(!hidden, |el| {
+                el.child(crate::spot::spot(format!("project:{}", p.name)))
+            }))
             .children(self.render_snoozed_rows(&p.name, cx))
             .into_any_element()
     }

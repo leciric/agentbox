@@ -2,9 +2,10 @@
 //! start (components/v2/Tour.tsx, lib/tours.ts' welcomeTour) and What's new
 //! after an update (WhatsNewDialog.tsx, lib/whatsnew.ts).
 //!
-//! The tour is the welcome's six steps as a card, the way Electron plays a
-//! step whose anchor isn't on screen: no spotlight, the sidebar's step
-//! beside the sidebar. It plays once, after the first run when there is one,
+//! The tour is the welcome's six steps, each a spotlight on what it points
+//! at in the real window (crate::spot measures it), the rest dimmed and the
+//! card beside it, or the card in the middle with nothing to point at; a
+//! click outside the card ends it. It plays once, after the first run when there is one,
 //! and this computer remembers it was seen (crate::prefs), as Electron's
 //! localStorage does. What's new is the release notes, from CHANGELOG.md as
 //! the app was built, from the daemon's version down; it opens by itself
@@ -20,6 +21,67 @@ use super::controls::{Btn, button};
 use crate::{prefs, theme};
 
 const STEPS: [&str; 6] = ["welcome", "sidebar", "lead", "cards", "review", "help"];
+
+/// anchor_of is what a step points at (lib/tours.ts' anchors), the first
+/// one on screen: a project's row, the chat's composer, the Help button.
+fn anchor_of(step: &str) -> Option<&'static [&'static str]> {
+    match step {
+        "sidebar" => Some(&["project:*", "sidebar-nav"]),
+        "lead" | "cards" => Some(&["composer"]),
+        "help" => Some(&["help"]),
+        _ => None,
+    }
+}
+
+/// place_card puts the tour's card beside its target (lib/tours.ts
+/// placeCard): right of it, else left, else below, else above; in the
+/// middle with none.
+fn place_card(
+    target: Option<Bounds<Pixels>>,
+    card: Size<Pixels>,
+    vp: Size<Pixels>,
+) -> Point<Pixels> {
+    let (gap, margin) = (px(14.), px(12.));
+    let clamp = |v: Pixels, lo: Pixels, hi: Pixels| v.min(hi.max(lo)).max(lo);
+    let centre_x = (vp.width - card.width) / 2.;
+    let Some(t) = target else {
+        return point(
+            centre_x.max(margin),
+            ((vp.height - card.height) / 2.).max(margin),
+        );
+    };
+    let right = t.origin.x + t.size.width;
+    let bottom = t.origin.y + t.size.height;
+    let along_y = clamp(t.origin.y, margin, vp.height - card.height - margin);
+    let along_x = clamp(
+        t.origin.x + t.size.width / 2. - card.width / 2.,
+        margin,
+        vp.width - card.width - margin,
+    );
+    if vp.width >= px(640.) {
+        if right + gap + card.width <= vp.width - margin {
+            return point(right + gap, along_y);
+        }
+        if t.origin.x - gap - card.width >= margin {
+            return point(t.origin.x - gap - card.width, along_y);
+        }
+        if bottom + gap + card.height <= vp.height - margin {
+            return point(along_x, bottom + gap);
+        }
+        if t.origin.y - gap - card.height >= margin {
+            return point(along_x, t.origin.y - gap - card.height);
+        }
+    }
+    let low = t.origin.y + t.size.height / 2. > vp.height / 2.;
+    point(
+        centre_x.max(margin),
+        if low {
+            margin
+        } else {
+            (vp.height - card.height - margin).max(margin)
+        },
+    )
+}
 /// TOUR keeps how the welcome tour ended: "seen" or "dismissed".
 const TOUR: &str = "tour";
 /// NEWS is the version What's new was last shown for.
@@ -116,7 +178,16 @@ impl AppView {
 
     fn tour_to(&mut self, step: Option<usize>, cx: &mut Context<Self>) {
         match step {
-            Some(i) if i < STEPS.len() => self.onboarding.tour = Some(i),
+            Some(i) if i < STEPS.len() => {
+                self.onboarding.tour = Some(i);
+                // A step about the chat shows the chat (a step's go: 'lead'):
+                // Settings, Work or a foot page give way to it.
+                if matches!(STEPS[i], "lead" | "cards") {
+                    self.settings = false;
+                    self.work = None;
+                    self.side.page = None;
+                }
+            }
             Some(_) => {
                 self.onboarding.tour = None;
                 prefs::set(TOUR, "seen".into());
@@ -155,15 +226,23 @@ impl AppView {
         }
     }
 
-    pub(super) fn render_onboarding(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn onboarding_touring(&self) -> bool {
+        self.onboarding.tour.is_some()
+    }
+
+    pub(super) fn render_onboarding(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if let Some(i) = self.onboarding.tour {
-            return Some(self.render_tour(i, cx));
+            return Some(self.render_tour(i, window, cx));
         }
         let version = self.onboarding.news.clone()?;
         Some(self.render_whats_new(&version, cx))
     }
 
-    fn render_tour(&self, i: usize, cx: &mut Context<Self>) -> AnyElement {
+    fn render_tour(&self, i: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let step = STEPS[i];
         let last = i + 1 == STEPS.len();
         let card = v_flex()
@@ -233,9 +312,36 @@ impl AppView {
                         }),
                     )),
             );
-        // The sidebar's step sits beside the sidebar; the rest in the middle.
-        let beside = step == "sidebar";
-        div()
+        // A spotlight on what the step points at, the rest dimmed, and the
+        // card beside it (placeCard); with nothing to point at, in the middle.
+        let vp = window.viewport_size();
+        let pad = px(6.);
+        let hole = anchor_of(step).and_then(crate::spot::bounds).map(|b| {
+            Bounds::new(
+                point(b.origin.x - pad, b.origin.y - pad),
+                size(b.size.width + pad * 2., b.size.height + pad * 2.),
+            )
+        });
+        let at = place_card(hole, size(px(400.), px(300.)), vp);
+        let skip = |el: Div| {
+            el.on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, cx| this.tour_to(None, cx)),
+            )
+        };
+        let dim = gpui::black().opacity(0.45);
+        let shade = |x: Pixels, y: Pixels, w: Pixels, h: Pixels| {
+            skip(
+                div()
+                    .absolute()
+                    .left(x)
+                    .top(y)
+                    .w(w.max(px(0.)))
+                    .h(h.max(px(0.)))
+                    .bg(dim),
+            )
+        };
+        let mut layer = div()
             .id("tour")
             .when_some(self.onboarding.focus.as_ref(), |el, h| el.track_focus(h))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
@@ -244,14 +350,36 @@ impl AppView {
                 }
             }))
             .absolute()
-            .inset_0()
-            .occlude()
-            .bg(gpui::black().opacity(0.35))
-            .flex()
-            .items_center()
-            .when(beside, |el| el.pl(px(296.)))
-            .when(!beside, |el| el.justify_center())
-            .child(card)
+            .inset_0();
+        match hole {
+            Some(h) => {
+                let (l, t_, r, b) = (
+                    h.origin.x,
+                    h.origin.y,
+                    h.origin.x + h.size.width,
+                    h.origin.y + h.size.height,
+                );
+                layer = layer
+                    .child(shade(px(0.), px(0.), vp.width, t_))
+                    .child(shade(px(0.), b, vp.width, vp.height - b))
+                    .child(shade(px(0.), t_, l, h.size.height))
+                    .child(shade(r, t_, vp.width - r, h.size.height))
+                    .child(
+                        div()
+                            .absolute()
+                            .left(l)
+                            .top(t_)
+                            .w(h.size.width)
+                            .h(h.size.height)
+                            .rounded_xl()
+                            .border_2()
+                            .border_color(theme::accent().opacity(0.7)),
+                    );
+            }
+            None => layer = layer.child(skip(div().absolute().inset_0().bg(dim))),
+        }
+        layer
+            .child(div().absolute().left(at.x).top(at.y).child(card))
             .into_any_element()
     }
 

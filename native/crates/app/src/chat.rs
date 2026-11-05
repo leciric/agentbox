@@ -972,7 +972,12 @@ impl Render for ChatView {
                         .child(e),
                 )
             })
-            .child(self.render_composer(window, cx))
+            .child(
+                div()
+                    .relative()
+                    .child(self.render_composer(window, cx))
+                    .child(crate::spot::spot("composer")),
+            )
             .children(zoom)
     }
 }

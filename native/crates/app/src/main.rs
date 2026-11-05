@@ -21,6 +21,7 @@ mod notices;
 mod prefs;
 #[cfg(target_os = "linux")]
 mod snapshot;
+mod spot;
 mod terminal;
 mod theme;
 mod toasts;

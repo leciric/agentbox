@@ -127,6 +127,15 @@ fn tool_name(tool: &str) -> &'static str {
     }
 }
 
+/// OpenAgent is what the meter needs of the open agent.
+struct OpenAgent<'a> {
+    ai: &'a str,
+    title: &'a str,
+    name: &'a str,
+    claude: &'a str,
+    codex: &'a str,
+}
+
 /// Pick is the account the meter shows (MeterPick).
 struct Pick {
     tool: String,
@@ -199,19 +208,49 @@ impl AppView {
             .as_ref()
             .filter(|_| !self.is_home())
             .and_then(|p| self.projects.iter().find(|x| &x.name == p));
-        if let Some(a) = self
-            .open_agent()
-            .filter(|a| !a.ai.is_empty() && a.ai != "none")
+        // The open agent as every agent's list has it (GET /v1/agents, as
+        // TopBar.tsx finds it among them all), else as its project's.
+        let open_ref = (self.open != "lead" && !self.open.starts_with("lead."))
+            .then(|| self.project.as_ref().map(|p| format!("{p}/{}", self.open)))
+            .flatten();
+        let every = open_ref
+            .as_ref()
+            .and_then(|r| m.agents.iter().find(|a| &a.r#ref == r));
+        let open = every.map(|a| {
+            (
+                a.ai.as_str(),
+                a.title.as_str(),
+                a.name.as_str(),
+                a.claude_account.as_str(),
+                a.codex_account.as_str(),
+            )
+        });
+        let open = open.or_else(|| {
+            self.open_agent().map(|a| {
+                (
+                    a.ai.as_str(),
+                    a.title.as_str(),
+                    a.name.as_str(),
+                    a.claude_account.as_str(),
+                    a.codex_account.as_str(),
+                )
+            })
+        });
+        if let Some((ai, title, name, claude, codex)) =
+            open.filter(|(ai, ..)| !ai.is_empty() && *ai != "none")
         {
-            let name = if a.title.is_empty() {
-                &a.name
-            } else {
-                &a.title
+            let a = OpenAgent {
+                ai,
+                title,
+                name,
+                claude,
+                codex,
             };
+            let name = if a.title.is_empty() { a.name } else { a.title };
             let whose = tv("vm.usageMeter.accountOf", &[("name", name.into())]);
-            return match a.ai.as_str() {
-                "codex" => by(&m.codex, "codex", &a.codex_account, whose),
-                "claude" => by(&m.limits, "claude", &a.claude_account, whose),
+            return match a.ai {
+                "codex" => by(&m.codex, "codex", a.codex, whose),
+                "claude" => by(&m.limits, "claude", a.claude, whose),
                 other => Pick {
                     tool: other.into(),
                     reading: None,

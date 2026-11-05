@@ -156,7 +156,12 @@ impl AppView {
                 theme::error()
             }))
             .child(div().flex_1())
-            .child(help)
+            .child(
+                div()
+                    .relative()
+                    .child(help)
+                    .child(crate::spot::spot("help")),
+            )
             .child(
                 glyph_button("add-project", "⊕", t("shell.home.addProject")).on_click(cx.listener(
                     |this, _: &ClickEvent, window, cx| this.open_add_project(window, cx),

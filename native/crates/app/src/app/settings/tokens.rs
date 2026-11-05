@@ -9,14 +9,14 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use agentbox_api::{AgentTokens, ClaudeLimit, TokenReport, TokenTurn};
+use agentbox_api::{AgentTokens, ClaudeLimit, TokenBucket, TokenReport, TokenTurn};
 use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{note, note_in, segmented};
+use super::super::controls::{Btn, button, note, note_in, segmented};
 use super::defaults::time_ago;
 use super::kit::enc;
 use crate::theme;
@@ -33,6 +33,8 @@ pub(super) struct Tokens {
     open: Option<String>,
     turns: HashMap<String, Result<Vec<TokenTurn>, String>>,
     polling: bool,
+    /// as_table shows spend over time as a table, not the chart.
+    as_table: bool,
 }
 
 fn fixed(v: f64, digits: usize) -> String {
@@ -100,15 +102,15 @@ fn millis(time: &str) -> Option<i64> {
 
 /// slots are the report's columns on a real time axis, the stretches it
 /// has no bucket for left empty.
-fn slots(r: &TokenReport) -> Vec<(i64, i64)> {
+fn slots(r: &TokenReport) -> Vec<(i64, Option<&TokenBucket>)> {
     let step = r.bucket_seconds * 1000;
     if step <= 0 {
         return Vec::new();
     }
-    let by: HashMap<i64, i64> = r
+    let by: HashMap<i64, &TokenBucket> = r
         .buckets
         .iter()
-        .filter_map(|b| millis(&b.start).map(|s| (s, b.total)))
+        .filter_map(|b| millis(&b.start).map(|s| (s, b)))
         .collect();
     let floor = |ms: i64| ms.div_euclid(step) * step;
     let last = floor(millis(&r.until).unwrap_or(0));
@@ -123,24 +125,32 @@ fn slots(r: &TokenReport) -> Vec<(i64, i64)> {
     let mut out = Vec::new();
     let mut at = first.max(last - 400 * step);
     while at <= last {
-        out.push((at, by.get(&at).copied().unwrap_or(0)));
+        out.push((at, by.get(&at).copied()));
         at += step;
     }
     out
 }
 
+/// slot_label is a column's stretch (TokensPanel.tsx slotLabel): its day,
+/// or from and to, with the day when a column spans hours.
 fn slot_label(start: i64, step: i64) -> String {
     use chrono::{Local, TimeZone};
     let Some(at) = Local.timestamp_millis_opt(start).single() else {
         return String::new();
     };
     if step >= 86_400 {
-        crate::dates::date(at.date_naive(), true)
-    } else if step >= 3600 {
-        crate::dates::date_time(at)
-    } else {
-        at.format("%H:%M").to_string()
+        return crate::dates::date(at.date_naive(), true);
     }
+    let to = Local
+        .timestamp_millis_opt(start + step * 1000)
+        .single()
+        .unwrap_or(at);
+    let day = if step >= 3600 {
+        format!("{}, ", crate::dates::date(at.date_naive(), true))
+    } else {
+        String::new()
+    };
+    format!("{day}{}–{}", at.format("%H:%M"), to.format("%H:%M"))
 }
 
 fn step_words(seconds: i64) -> String {
@@ -399,7 +409,7 @@ impl AppView {
             Some(Ok(r)) => v_flex()
                 .gap_4()
                 .child(self.token_headline(r))
-                .child(self.spend_over_time(r))
+                .child(self.spend_over_time(r, cx))
                 .child(self.agents_table(r, cx))
                 .into_any_element(),
         };
@@ -568,36 +578,194 @@ impl AppView {
             .into_any_element()
     }
 
-    /// spend_over_time is SpendOverTime's chart: a column per stretch.
-    fn spend_over_time(&self, r: &TokenReport) -> AnyElement {
+    /// spend_over_time is SpendOverTime's chart, a column per stretch each
+    /// saying what it spent, or the same as a table.
+    fn spend_over_time(&self, r: &TokenReport, cx: &mut Context<Self>) -> AnyElement {
         let series = slots(r);
-        let peak = nice_ceiling(series.iter().map(|s| s.1).max().unwrap_or(0));
+        let peak = nice_ceiling(
+            series
+                .iter()
+                .map(|s| s.1.map_or(0, |b| b.total))
+                .max()
+                .unwrap_or(0),
+        );
         let labelled: Vec<i64> = match series.len() {
             0 => Vec::new(),
             1 => vec![series[0].0],
             n => vec![series[0].0, series[(n - 1) / 2].0, series[n - 1].0],
         };
         let step = r.bucket_seconds;
-        let columns = series.iter().map(|(_, total)| {
-            let h = if *total > 0 {
-                (*total as f64 / peak as f64).max(0.015)
+        let as_table = self.settings_page.tokens.as_table;
+        let toggle = button(
+            "tokens-as-table",
+            t(if as_table {
+                "vm.tokens.showChart"
+            } else {
+                "vm.tokens.showTable"
+            }),
+            Btn::Ghost,
+            false,
+            cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.settings_page.tokens.as_table = !this.settings_page.tokens.as_table;
+                cx.notify();
+            }),
+        );
+        let head = h_flex()
+            .items_start()
+            .gap_2()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_0p5()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(t("vm.tokens.overTime")),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme::muted())
+                            .child(step_words(step)),
+                    ),
+            )
+            .child(toggle);
+        if as_table {
+            let cell = |text: String, w: f32, right: bool, strong: bool| {
+                div()
+                    .w(px(w))
+                    .flex_none()
+                    .when(right, |el| el.text_right())
+                    .text_color(if strong { theme::fg() } else { theme::muted() })
+                    .child(text)
+            };
+            let header = h_flex()
+                .px_3()
+                .py_1p5()
+                .gap_2()
+                .text_xs()
+                .text_color(theme::faint())
+                .border_b_1()
+                .border_color(theme::border())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(t("vm.tokens.when").to_uppercase()),
+                )
+                .child(cell(t("vm.tokens.tokens").to_uppercase(), 80., true, false))
+                .child(cell(
+                    t("vm.tokens.cacheRead").to_uppercase(),
+                    90.,
+                    true,
+                    false,
+                ))
+                .child(cell(t("vm.tokens.output").to_uppercase(), 80., true, false))
+                .child(cell(t("vm.tokens.avgTPS").to_uppercase(), 80., true, false))
+                .child(cell(t("vm.tokens.cost").to_uppercase(), 70., true, false));
+            let rows = series.iter().filter_map(|(start, b)| {
+                let b = (*b)?;
+                Some(
+                    h_flex()
+                        .px_3()
+                        .py_1p5()
+                        .gap_2()
+                        .text_xs()
+                        .border_t_1()
+                        .border_color(theme::border())
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(theme::muted())
+                                .child(slot_label(*start, step)),
+                        )
+                        .child(cell(human_tokens(b.total), 80., true, true))
+                        .child(cell(human_tokens(b.cache_read), 90., true, false))
+                        .child(cell(human_tokens(b.output), 80., true, false))
+                        .child(cell(tps(b.avg_tps), 80., true, false))
+                        .child(cell(usd(b.cost_usd), 70., true, false)),
+                )
+            });
+            return v_flex()
+                .gap_3()
+                .p_4()
+                .rounded_xl()
+                .border_1()
+                .border_color(theme::border())
+                .bg(theme::panel())
+                .child(head)
+                .child(
+                    v_flex()
+                        .id("tokens-table")
+                        .max_h(px(288.))
+                        .overflow_y_scroll()
+                        .rounded_xl()
+                        .border_1()
+                        .border_color(theme::border())
+                        .child(header)
+                        .children(rows),
+                )
+                .into_any_element();
+        }
+        let columns = series.iter().map(|(start, b)| {
+            let total = b.map_or(0, |b| b.total);
+            let h = if total > 0 {
+                (total as f64 / peak as f64).max(0.015)
             } else {
                 0.
             };
+            // Each column says what it spent, how much was cache, how fast
+            // and what it cost, and when.
+            let title = if total > 0 {
+                tv("vm.tokens.nTokens", &[("n", human_tokens(total).into())])
+            } else {
+                t("vm.tokens.nothingSpentSlot")
+            };
+            let detail = b.map(|b| {
+                format!(
+                    "{} · {} · {}",
+                    tv(
+                        "vm.tokens.cacheReadsShare",
+                        &[("share", share(b.cache_read, total).into())]
+                    ),
+                    tps(b.avg_tps),
+                    usd(b.cost_usd)
+                )
+            });
+            let when = slot_label(*start, step);
             div()
+                .id(SharedString::from(format!("tokens-slot-{start}")))
                 .flex_1()
                 .min_w_0()
                 .h_full()
                 .flex()
                 .items_end()
                 .justify_center()
+                .tooltip(move |w, cx| {
+                    let (title, detail, when) = (title.clone(), detail.clone(), when.clone());
+                    gpui_component::tooltip::Tooltip::element(move |_, _| {
+                        v_flex()
+                            .gap_0p5()
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(title.clone()))
+                            .when_some(detail.clone(), |el, d| {
+                                el.child(div().text_color(theme::muted()).child(d))
+                            })
+                            .child(div().text_color(theme::faint()).child(when.clone()))
+                    })
+                    .build(w, cx)
+                })
                 .child(
                     div()
                         .w_full()
                         .max_w(px(24.))
                         .h(relative(h as f32))
                         .rounded_t(px(4.))
-                        .bg(theme::accent()),
+                        .bg(theme::accent())
+                        .hover(|s| s.opacity(0.8)),
                 )
         });
         let axis = |f: f64| {
@@ -605,7 +773,14 @@ impl AppView {
                 .replace(".0K", "K")
                 .replace(".0M", "M")
         };
-        card_box(t("vm.tokens.overTime"), step_words(step))
+        v_flex()
+            .gap_3()
+            .p_4()
+            .rounded_xl()
+            .border_1()
+            .border_color(theme::border())
+            .bg(theme::panel())
+            .child(head)
             .child(
                 h_flex()
                     .h(px(160.))
@@ -639,7 +814,13 @@ impl AppView {
                     .justify_between()
                     .text_xs()
                     .text_color(theme::faint())
-                    .children(labelled.into_iter().map(|s| slot_label(s, step))),
+                    .children(labelled.into_iter().map(|s| {
+                        slot_label(s, step)
+                            .split('–')
+                            .next()
+                            .unwrap_or_default()
+                            .to_string()
+                    })),
             )
             .into_any_element()
     }
