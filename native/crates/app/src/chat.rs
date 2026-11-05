@@ -230,9 +230,12 @@ impl ChatView {
                 .into_any_element(),
             "assistant" => row
                 .child(
-                    TextView::markdown(SharedString::from(format!("md-{}", item.id)), text)
-                        .selectable(true)
-                        .text_color(theme::fg()),
+                    crate::mermaid::with_mermaid(TextView::markdown(
+                        SharedString::from(format!("md-{}", item.id)),
+                        text,
+                    ))
+                    .selectable(true)
+                    .text_color(theme::fg()),
                 )
                 .into_any_element(),
             "tool" => {

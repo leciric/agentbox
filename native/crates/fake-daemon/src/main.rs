@@ -58,6 +58,8 @@ const TITLES: &[&str] = &[
     "Search palette: memories",
 ];
 
+const DIAGRAM: &str = "```mermaid\nsequenceDiagram\n  participant App\n  participant Daemon\n  participant Claude\n  App->>Daemon: POST /chat/messages\n  Daemon->>Claude: prompt (ACP)\n  Claude-->>Daemon: chunks\n  Daemon-->>App: SSE chat events\n```";
+
 const LOREM: &str = "The daemon owns the state, and every client is a thin one: it asks over the socket and \
 shows what comes back. This reply is **streamed** a few words at a time, the way an agent's answer arrives, \
 with `inline code`, lists and a block of code so the renderer has real work to do.";
@@ -78,6 +80,11 @@ fn history_item(agent: &str, i: usize) -> ChatItem {
             "Done with step {i}.\n\n- read `{agent}`'s worktree\n- ran `go test ./internal/api`\n- **{} passed**\n\n```go\nfunc (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {{\n\treturn writeJSON(w, 200, s.list(r))\n}}\n```\n\n{LOREM}",
             i * 3 + 1
         )
+    };
+    let text = if i % 10 == 9 {
+        format!("{text}\n\n{DIAGRAM}")
+    } else {
+        text
     };
     ChatItem {
         id: format!("h{i}"),
@@ -212,7 +219,11 @@ impl Fake {
             items.push(item.clone());
             ev.item = Some(item);
         });
-        let body = format!("You said: *{to}*.\n\n{}", [LOREM; 8].join("\n\n"));
+        let body = format!(
+            "You said: *{to}*.\n\n{}\n\n{DIAGRAM}\n\n{}",
+            [LOREM; 3].join("\n\n"),
+            [LOREM; 3].join("\n\n")
+        );
         let words: Vec<&str> = body.split_inclusive(' ').collect();
         let tick = Duration::from_millis(1000 / self.opts.rate.max(1));
         for chunk in words.chunks(2) {

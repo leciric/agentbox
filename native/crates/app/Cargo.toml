@@ -13,3 +13,7 @@ gpui_platform.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
+# ```mermaid blocks in chat, drawn natively (no webview): Mermaid → SVG.
+mermaid-rs-renderer = { version = "0.3.1", default-features = false }
+# The Markdown AST gpui-component parses into, for custom blocks.
+markdown = "1"

@@ -8,6 +8,7 @@
 mod app;
 mod bench;
 mod chat;
+mod mermaid;
 mod theme;
 
 use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
