@@ -2211,7 +2211,7 @@ impl AppView {
             keys.push(format!("> {}", t("palette.keys.commandsOnly")));
         }
         Some(
-            div()
+            crate::motion::scrim_in(div()
                 .id("search-palette")
                 .absolute()
                 .inset_0()
@@ -2280,7 +2280,7 @@ impl AppView {
                                 .text_color(theme::faint())
                                 .children(keys),
                         ),
-                )
+                ), "idsearch-palette-in")
                 .into_any_element(),
         )
     }

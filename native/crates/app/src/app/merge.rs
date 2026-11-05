@@ -204,7 +204,7 @@ pub fn confirm(
         .collect();
     let cancel = Rc::new(on_cancel);
     let backdrop = cancel.clone();
-    div()
+    crate::motion::scrim_in(div()
         .id("merge-confirm")
         .absolute()
         .inset_0()
@@ -267,7 +267,7 @@ pub fn confirm(
                             on_confirm,
                         )),
                 ),
-        )
+        ), "idmerge-confirm-in")
         .into_any_element()
 }
 

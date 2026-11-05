@@ -292,7 +292,7 @@ impl AppView {
             cx.notify();
         });
         Some(
-            div()
+            crate::motion::scrim_in(div()
                 .id("usage-sent")
                 .absolute()
                 .inset_0()
@@ -347,7 +347,7 @@ impl AppView {
                                 cx.notify();
                             }),
                         ))),
-                )
+                ), "idusage-sent-in")
                 .into_any_element(),
         )
     }

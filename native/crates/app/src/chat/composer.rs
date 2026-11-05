@@ -2330,35 +2330,40 @@ impl ChatView {
                                     cx.listener(|this, _: &ClickEvent, _, cx| this.stop(cx)),
                                 ))
                             })
-                            .child(
+                            .child({
+                                let label: SharedString = if working {
+                                    tv(
+                                        "chat.composer.sendWhileWorking",
+                                        &[("tool", super::tool_label(&self.session.tool).into())],
+                                    )
+                                    .into()
+                                } else {
+                                    t("chat.composer.send").into()
+                                };
+                                // Electron's round send: an arrow on the brand,
+                                // its words in the tooltip.
                                 div()
                                     .id("send")
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_md()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .bg(theme::brand(500))
-                                    .text_color(theme::on_brand())
-                                    .when(!can_send, |el| el.opacity(0.4))
+                                    .flex_none()
+                                    .size(px(30.))
+                                    .rounded_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(if can_send { theme::brand(500) } else { theme::surface_strong() })
+                                    .text_color(if can_send { theme::on_brand() } else { theme::faint() })
                                     .when(can_send, |el| {
-                                        el.cursor_pointer().hover(|el| el.opacity(0.9))
+                                        el.cursor_pointer()
+                                            .shadow(theme::glow(theme::brand(500), 0.6))
+                                            .hover(|el| el.bg(theme::brand(600)))
+                                            .active(|el| el.bg(theme::brand(700)))
                                     })
-                                    .child(if working {
-                                        tv(
-                                            "chat.composer.sendWhileWorking",
-                                            &[(
-                                                "tool",
-                                                super::tool_label(&self.session.tool).into(),
-                                            )],
-                                        )
-                                    } else {
-                                        t("chat.composer.send")
-                                    })
+                                    .tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(label.clone()).build(w, cx))
+                                    .child(crate::icons::ic("arrow-up").size(px(16.)))
                                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                         this.submit(window, cx)
-                                    })),
-                            ),
+                                    }))
+                            }),
                     ),
             )
             .into_any_element()

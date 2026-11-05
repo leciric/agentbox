@@ -110,7 +110,7 @@ impl AppView {
         let task = self.new_task.as_ref()?;
         let choices = self.new_task_choices(cx);
         Some(
-            div()
+            crate::motion::scrim_in(div()
                 .id("new-task")
                 .absolute()
                 .inset_0()
@@ -208,7 +208,7 @@ impl AppView {
                                 .child(t("v2.newTask.hintOpen"))
                                 .child(t("v2.newTask.hintDigit")),
                         ),
-                )
+                ), "idnew-task-in")
                 .into_any_element(),
         )
     }

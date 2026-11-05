@@ -985,7 +985,7 @@ pub(super) fn form_modal(
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let backdrop = on_cancel.clone();
-    div()
+    crate::motion::scrim_in(div()
         .id(SharedString::from(format!("{id}-backdrop")))
         .absolute()
         .inset_0()
@@ -1051,7 +1051,7 @@ pub(super) fn form_modal(
                             on_confirm,
                         )),
                 ),
-        )
+        ), "idsharedstringfromformatid-backdrop-in")
         .into_any_element()
 }
 

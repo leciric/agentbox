@@ -761,7 +761,7 @@ impl Render for RecapView {
             Some(Ok(r)) => Self::range(r),
             _ => String::new(),
         };
-        div()
+        crate::motion::scrim_in(div()
             .id("recap")
             .track_focus(&self.focus)
             .absolute()
@@ -858,7 +858,7 @@ impl Render for RecapView {
                         el.child(self.render_share(cx))
                     }),
             )
-    }
+    , "idrecap-in")}
 }
 
 #[cfg(test)]

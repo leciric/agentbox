@@ -1551,7 +1551,7 @@ impl AppView {
             cx.notify();
         });
         Some(
-            div()
+            crate::motion::scrim_in(div()
                 .id("session-changes")
                 .absolute()
                 .inset_0()
@@ -1690,7 +1690,7 @@ impl AppView {
                                         })
                                 })),
                         ),
-                )
+                ), "idsession-changes-in")
                 .into_any_element(),
         )
     }

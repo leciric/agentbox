@@ -1824,7 +1824,7 @@ pub fn modal(
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let backdrop = on_cancel.clone();
-    div()
+    crate::motion::scrim_in(div()
         .id(SharedString::from(format!("{id}-backdrop")))
         .absolute()
         .inset_0()
@@ -1833,22 +1833,22 @@ pub fn modal(
         .items_center()
         .justify_center()
         .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
-        .child(
+        .child(crate::motion::pop_in(
             v_flex()
                 .id(SharedString::from(format!("{id}-card")))
                 .w(px(480.))
                 .max_w(relative(0.92))
                 .gap_4()
                 .p_6()
-                .rounded_xl()
+                .rounded(theme::radius::XXL)
                 .bg(theme::card())
                 .border_1()
-                .border_color(theme::line())
-                .shadow_lg()
+                .border_color(theme::line_strong())
+                .shadow(theme::shadow_modal())
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(
                     div()
-                        .text_lg()
+                        .text_size(theme::text::HEADING)
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::primary())
                         .child(title),
@@ -1879,7 +1879,7 @@ pub fn modal(
                             disabled,
                             on_confirm,
                         )),
-                ),
-        )
+                ), "dialog-card-in"),
+        ), "dialog-backdrop-in")
         .into_any_element()
 }
