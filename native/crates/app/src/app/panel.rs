@@ -118,6 +118,10 @@ pub struct Panel {
     views: HashMap<String, PView>,
     idle_open: bool,
     usage: HashMap<String, (Option<f64>, Option<i64>)>,
+    /// Each agent's chat session as one read on hovering its row: its
+    /// model and context, for the row's tooltip.
+    peeked: HashMap<String, agentbox_api::ChatSession>,
+    peeking: HashSet<String>,
     host_memory: i64,
     /// Each agent's last report: when, and what it said.
     reports: HashMap<String, (String, String)>,
@@ -160,6 +164,8 @@ impl Panel {
             views: HashMap::new(),
             idle_open: false,
             usage: HashMap::new(),
+            peeked: HashMap::new(),
+            peeking: HashSet::new(),
             host_memory: 0,
             reports: HashMap::new(),
             past: Vec::new(),
@@ -1357,6 +1363,36 @@ impl AppView {
             .into_any_element()
     }
 
+    /// peek_session reads an agent's chat session once, on hovering its row
+    /// (peekThread), for the model and context its tooltip names.
+    fn peek_session(&mut self, r: String, cx: &mut Context<Self>) {
+        if !self.panel.peeking.insert(r.clone()) {
+            return;
+        }
+        let Some((p, a)) = r.split_once('/') else {
+            return;
+        };
+        let path = format!("/v1/agents/{p}/{a}/chat?limit=1");
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let res = client.get::<agentbox_api::ChatThread>(&path).await;
+            this.update(cx, |this, cx| {
+                match res {
+                    Ok(t) => {
+                        this.panel.peeked.insert(r, t.session);
+                        cx.notify();
+                    }
+                    // Read again on the next hover.
+                    Err(_) => {
+                        this.panel.peeking.remove(&r);
+                    }
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// list_row is one agent: its monitor, then its lines (AgentLine).
     fn list_row(&self, r: &ListRow, active: bool, cx: &mut Context<Self>) -> AnyElement {
         let a = &r.agent;
@@ -1383,6 +1419,30 @@ impl AppView {
                     ("memory", (&m.map_or("–".into(), st::mem_short)).into()),
                 ],
             ));
+        }
+        if let Some(s) = self.panel.peeked.get(&a.r#ref) {
+            if let Some(m) = s
+                .options
+                .iter()
+                .find(|o| o.category == "model" && o.r#type == "select")
+            {
+                tip.push(
+                    m.choices
+                        .iter()
+                        .find(|c| c.value == m.value)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_else(|| m.value.clone()),
+                );
+            }
+            if s.context_size > 0 {
+                tip.push(tv(
+                    "panel.list.contextTip",
+                    &[
+                        ("percent", (s.context_used * 100 / s.context_size).into()),
+                        ("size", crate::chat::tokens(s.context_size).into()),
+                    ],
+                ));
+            }
         }
         if let Some(c) = &changes {
             tip.push(format!(
@@ -1416,6 +1476,14 @@ impl AppView {
             .child(
                 div()
                     .id(SharedString::from(format!("list-monitor-{}", a.r#ref)))
+                    .on_hover({
+                        let r = a.r#ref.clone();
+                        cx.listener(move |this, hovered: &bool, _, cx| {
+                            if *hovered {
+                                this.peek_session(r.clone(), cx)
+                            }
+                        })
+                    })
                     .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                     .child(monitor(&a.ai, r.st, a.state == "running", None, false)),
             )

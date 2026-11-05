@@ -41,8 +41,32 @@ pub(super) struct ProjectPage {
     said: std::collections::HashMap<String, String>,
     errors: std::collections::HashMap<String, String>,
     removing: Option<(String, String)>,
+    /// An account change that asks whether the agents still on the old one
+    /// move too (MoveAgentsDialog).
+    moving: Option<Moving>,
     busy: bool,
     show_credentials: bool,
+}
+
+/// Moving is a project's Claude Code or GitHub account about to change, with
+/// how many of its agents still use the one it replaces.
+pub(super) struct Moving {
+    project: String,
+    github: bool,
+    account: String,
+    from: String,
+    to: String,
+    count: usize,
+}
+
+/// account_label names an account as the question reads best: quoted, or
+/// "the default account" for the machine's own.
+fn account_label(name: &str) -> String {
+    if name.is_empty() {
+        t("project.accounts.theDefault")
+    } else {
+        format!("\u{201c}{name}\u{201d}")
+    }
 }
 
 /// Rows is which of a tool's settings a project offers (agentToolRows).
@@ -817,6 +841,156 @@ impl AppView {
         }))
     }
 
+    /// pick_account changes a project's Claude Code (or GitHub) account,
+    /// asking first whether the agents still on the old one move too when
+    /// any do (ClaudeAccountPicker, GitHubAccountPicker).
+    fn pick_account(
+        &self,
+        name: &str,
+        github: bool,
+        current: String,
+        fallback: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> super::super::controls::Pick<str> {
+        let name = name.to_string();
+        Rc::new(cx.listener(move |this, v: &str, _, cx| {
+            let from = if current.is_empty() {
+                fallback.clone().unwrap_or_default()
+            } else {
+                current.clone()
+            };
+            let count = this
+                .fleet
+                .iter()
+                .filter(|a| a.project == name)
+                .filter(|a| {
+                    if github {
+                        a.github_account == from
+                    } else {
+                        a.ai == "claude" && a.claude_account == from
+                    }
+                })
+                .count();
+            if v == current || count == 0 {
+                this.set_account(name.clone(), github, v.to_string(), false, cx);
+                return;
+            }
+            this.settings_page.project.moving = Some(Moving {
+                project: name.clone(),
+                github,
+                account: v.to_string(),
+                from,
+                to: if v.is_empty() {
+                    fallback.clone().unwrap_or_default()
+                } else {
+                    v.to_string()
+                },
+                count,
+            });
+            cx.notify();
+        }))
+    }
+
+    fn set_account(
+        &mut self,
+        project: String,
+        github: bool,
+        account: String,
+        move_agents: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let req = if github {
+            UpdateProjectRequest {
+                github_account: Some(account),
+                move_git_hub_agents: move_agents,
+                ..Default::default()
+            }
+        } else {
+            UpdateProjectRequest {
+                claude_account: Some(account),
+                move_claude_agents: move_agents,
+                ..Default::default()
+            }
+        };
+        self.patch_project(
+            project,
+            req,
+            move |p| {
+                let (key, account) = match (
+                    github,
+                    if github {
+                        &p.github_account
+                    } else {
+                        &p.claude_account
+                    },
+                ) {
+                    (true, a) if a.is_empty() => ("project.accounts.githubDefault", a),
+                    (true, a) => ("project.accounts.githubSet", a),
+                    (false, a) if a.is_empty() => ("project.accounts.claudeDefault", a),
+                    (false, a) => ("project.accounts.claudeSet", a),
+                };
+                Some(tv(
+                    key,
+                    &[("name", (&p.name).into()), ("account", account.into())],
+                ))
+            },
+            cx,
+        );
+    }
+
+    /// render_move_agents is MoveAgentsDialog: the change goes ahead either
+    /// way; only whether the agents come with it differs.
+    pub(crate) fn render_move_agents(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let m = self.settings_page.project.moving.as_ref()?;
+        let n = m.count;
+        let close: crate::app::agent::OnCancel = {
+            let me = cx.entity().downgrade();
+            Rc::new(move |_, cx: &mut App| {
+                me.update(cx, |this, cx| {
+                    this.settings_page.project.moving = None;
+                    cx.notify();
+                })
+                .ok();
+            })
+        };
+        let choose = |move_agents: bool| {
+            cx.listener(move |this: &mut Self, _: &ClickEvent, _, cx| {
+                if let Some(m) = this.settings_page.project.moving.take() {
+                    this.set_account(m.project, m.github, m.account, move_agents, cx);
+                }
+            })
+        };
+        Some(crate::app::agent::modal(
+            "move-agents",
+            t("project.accounts.moveTitle"),
+            Some(tv(
+                "project.accounts.moveQuestion",
+                &[
+                    ("count", n.into()),
+                    ("from", account_label(&m.from).into()),
+                    ("to", account_label(&m.to).into()),
+                ],
+            )),
+            vec![
+                h_flex()
+                    .justify_end()
+                    .child(super::super::controls::button(
+                        "move-agents-leave",
+                        tv("project.accounts.leave", &[("count", n.into())]),
+                        super::super::controls::Btn::Secondary,
+                        false,
+                        choose(false),
+                    ))
+                    .into_any_element(),
+            ],
+            close,
+            tv("project.accounts.move", &[("count", n.into())]),
+            false,
+            false,
+            choose(true),
+        ))
+    }
+
     fn pswitch(
         &self,
         e: &Entry,
@@ -1323,33 +1497,16 @@ impl AppView {
                         &format!("p-claude-{n}"),
                         Self::account_choices(
                             accounts.iter().map(|a| a.name.clone()).collect(),
-                            fallback,
+                            fallback.clone(),
                             &p.claude_account,
                         ),
                         &p.claude_account,
                         busy,
-                        self.psave(
+                        self.pick_account(
                             &n,
-                            |v| UpdateProjectRequest {
-                                claude_account: Some(v.into()),
-                                ..Default::default()
-                            },
-                            |p, _| {
-                                Some(if p.claude_account.is_empty() {
-                                    tv(
-                                        "project.accounts.claudeDefault",
-                                        &[("name", (&p.name).into())],
-                                    )
-                                } else {
-                                    tv(
-                                        "project.accounts.claudeSet",
-                                        &[
-                                            ("name", (&p.name).into()),
-                                            ("account", (&p.claude_account).into()),
-                                        ],
-                                    )
-                                })
-                            },
+                            false,
+                            p.claude_account.clone(),
+                            fallback.clone(),
                             cx,
                         ),
                     ));
@@ -1711,35 +1868,12 @@ impl AppView {
                         &format!("p-github-{n}"),
                         Self::account_choices(
                             accounts.iter().map(|a| a.name.clone()).collect(),
-                            fallback,
+                            fallback.clone(),
                             &p.github_account,
                         ),
                         &p.github_account,
                         busy,
-                        self.psave(
-                            &n,
-                            |v| UpdateProjectRequest {
-                                github_account: Some(v.into()),
-                                ..Default::default()
-                            },
-                            |p, _| {
-                                Some(if p.github_account.is_empty() {
-                                    tv(
-                                        "project.accounts.githubDefault",
-                                        &[("name", (&p.name).into())],
-                                    )
-                                } else {
-                                    tv(
-                                        "project.accounts.githubSet",
-                                        &[
-                                            ("name", (&p.name).into()),
-                                            ("account", (&p.github_account).into()),
-                                        ],
-                                    )
-                                })
-                            },
-                            cx,
-                        ),
+                        self.pick_account(&n, true, p.github_account.clone(), fallback.clone(), cx),
                     ));
                 }
                 row

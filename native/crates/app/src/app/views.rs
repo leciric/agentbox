@@ -159,10 +159,24 @@ pub fn preview_url(a: &FleetAgent, port: &str, addr: &str, path: &str) -> String
 }
 
 /// picked_text is lib/picks.ts's pickedText: the element, for the message.
+/// pick_image_name is the name a pick's crop goes as (pickImageName).
+pub fn pick_image_name(n: usize, mime: &str) -> String {
+    format!(
+        "element-{n}.{}",
+        if mime == "image/jpeg" { "jpg" } else { "png" }
+    )
+}
+
 pub fn picked_text(n: usize, from: &str, el: &ElementPick) -> String {
     let b = &el.r#box;
     let mut lines = vec![
-        format!("<picked-element n=\"{n}\" from=\"{from}\">"),
+        format!(
+            "<picked-element n=\"{n}\" from=\"{from}\"{}>",
+            el.image
+                .as_ref()
+                .map(|i| format!(" image=\"{}\"", pick_image_name(n, &i.mime_type)))
+                .unwrap_or_default()
+        ),
         format!(
             "Page: {}{}",
             el.url,
@@ -822,6 +836,26 @@ impl AppView {
             .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                 let v1 = view.clone();
                 let v2 = view.clone();
+                let v3 = view.clone();
+                let menu = menu.item(
+                    PopupMenuItem::new(t("agent.android.sendClipboard"))
+                        .disabled(!booted)
+                        .on_click(move |_, _, cx| {
+                            let text = cx
+                                .read_from_clipboard()
+                                .and_then(|c| c.text())
+                                .unwrap_or_default();
+                            #[cfg(feature = "video")]
+                            v3.update(cx, |this, cx| {
+                                if let Some((_, d)) = &this.views.device {
+                                    d.read(cx).send_text(&text);
+                                }
+                            })
+                            .ok();
+                            #[cfg(not(feature = "video"))]
+                            let _ = (&v3, text);
+                        }),
+                );
                 let menu = menu.item(
                     PopupMenuItem::new(t("agent.android.saveLogcat"))
                         .disabled(!booted)
@@ -1214,6 +1248,18 @@ impl AppView {
         chat.update(cx, |c, cx| {
             let n = c.draft_text(cx).matches("<picked-element ").count() + 1;
             c.append_draft(&picked_text(n, from, &el), cx);
+            // Its crop goes with it, as a picture the AI tool sees.
+            if let Some(i) = &el.image {
+                use base64::Engine as _;
+                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&i.data) {
+                    c.attach(
+                        pick_image_name(n, &i.mime_type),
+                        i.mime_type.clone(),
+                        bytes,
+                        cx,
+                    );
+                }
+            }
         });
         toasts::info(cx, tv("pick.added", &[("name", (&label).into())]));
     }

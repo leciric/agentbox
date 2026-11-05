@@ -10,7 +10,7 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
-mod agent;
+pub(crate) mod agent;
 mod alerts;
 pub use alerts::initial_bounds;
 mod agent_settings;
@@ -1094,6 +1094,7 @@ impl Render for AppView {
             .children(self.render_usage_sent(cx))
             .children(self.render_sidebar_dialog(cx))
             .children(self.render_session_changes(cx))
+            .children(self.render_move_agents(cx))
             .children(self.render_search(cx))
             .child(self.toasts.clone())
             .child(crate::webview::pages_end())

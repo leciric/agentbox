@@ -245,6 +245,13 @@ impl DeviceView {
         }
     }
 
+    /// send_text types text on the device (the Android tab's Send clipboard).
+    pub fn send_text(&self, text: &str) {
+        if !text.is_empty() {
+            self.send(serde_json::json!({"type": "text", "text": text}));
+        }
+    }
+
     fn send(&self, v: serde_json::Value) {
         if let Some(tx) = &self.input {
             let _ = tx.send(Out::Text(v.to_string()));

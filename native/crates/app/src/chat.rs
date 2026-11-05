@@ -466,6 +466,21 @@ impl ChatView {
         self.composer.input.read(cx).value().to_string()
     }
 
+    /// attach adds a file to the message being written: a picture shown as
+    /// one when it's one.
+    pub fn attach(&mut self, name: String, mime: String, bytes: Vec<u8>, cx: &mut Context<Self>) {
+        let image = ImageFormat::from_mime_type(&mime)
+            .filter(|f| *f != ImageFormat::Svg)
+            .map(|f| Arc::new(Image::from_bytes(f, bytes.clone())));
+        self.composer.attachments.push(composer::Attachment {
+            name,
+            mime,
+            bytes,
+            image,
+        });
+        cx.notify();
+    }
+
     /// append_draft adds text after the draft, on the next frame.
     pub fn append_draft(&mut self, text: &str, cx: &mut Context<Self>) {
         self.append.push(text.to_string());

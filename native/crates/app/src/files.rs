@@ -55,6 +55,8 @@ pub struct FileBrowser {
     /// The PDF shown, drawn, and the page on screen.
     pdf: Option<(String, Result<crate::viewers::PdfPages, String>)>,
     page: usize,
+    /// The PDF's zoom, a share of its pages' own size; None fits the width.
+    pdf_zoom: Option<f32>,
     _subs: Vec<Subscription>,
     _poll: Task<()>,
 }
@@ -117,6 +119,7 @@ impl FileBrowser {
             sqlite: None,
             pdf: None,
             page: 0,
+            pdf_zoom: None,
             _subs: vec![sub],
             _poll: poll,
         };
@@ -279,6 +282,7 @@ impl FileBrowser {
     pub fn open_file(&mut self, path: String, cx: &mut Context<Self>) {
         self.sqlite = None;
         self.pdf = None;
+        self.pdf_zoom = None;
         self.selected = Some(path.clone());
         self.content = None;
         self.image = None;
@@ -622,6 +626,19 @@ impl FileBrowser {
         let n = pages.pages.len();
         let page = self.page.min(n - 1);
         let (w, h) = pages.sizes[page];
+        // The zoom steps (PdfView's), of the page's own size: it was drawn
+        // at 1.5 times that. Fit is about the panel's usual width.
+        const ZOOMS: [f32; 9] = [0.5, 0.67, 0.8, 1., 1.25, 1.5, 2., 3., 4.];
+        let natural = w as f32 / 1.5;
+        let scale = self.pdf_zoom.unwrap_or(560. / natural.max(1.));
+        let zoom_by = move |step: i32| {
+            if step > 0 {
+                ZOOMS.iter().copied().find(|z| *z > scale + 0.001)
+            } else {
+                ZOOMS.iter().rev().copied().find(|z| *z < scale - 0.001)
+            }
+        };
+        let (zin, zout) = (zoom_by(1), zoom_by(-1));
         v_flex()
             .child(
                 h_flex()
@@ -655,17 +672,76 @@ impl FileBrowser {
                             })),
                     )
                     .child(div().flex_1())
+                    .child(
+                        icon_button("pdf-zoom-out", "−", t("files.pdf.zoomOut"))
+                            .when(zout.is_none(), |el| el.opacity(0.4))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                if let Some(z) = zout {
+                                    this.pdf_zoom = Some(z);
+                                    cx.notify();
+                                }
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("pdf-fit")
+                            .px_1p5()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
+                            .when(self.pdf_zoom.is_none(), |el| el.text_color(theme::fg()))
+                            .tooltip(|w, cx| {
+                                gpui_component::tooltip::Tooltip::new(t("files.pdf.fit"))
+                                    .build(w, cx)
+                            })
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.pdf_zoom = None;
+                                cx.notify();
+                            }))
+                            .child(if self.pdf_zoom.is_none() {
+                                t("files.pdf.fitShort")
+                            } else {
+                                format!("{}%", (scale * 100.).round())
+                            }),
+                    )
+                    .child(
+                        icon_button("pdf-zoom-in", "+", t("files.pdf.zoomIn"))
+                            .when(zin.is_none(), |el| el.opacity(0.4))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                if let Some(z) = zin {
+                                    this.pdf_zoom = Some(z);
+                                    cx.notify();
+                                }
+                            })),
+                    )
                     .child(outside),
             )
-            .child(
-                div().p_3().bg(theme::bg()).child(
-                    img(pages.pages[page].clone())
-                        .w_full()
-                        // A page's height for the panel's usual width.
-                        .h(px(560. * h as f32 / w.max(1) as f32))
-                        .object_fit(ObjectFit::Contain),
-                ),
-            )
+            .child(match self.pdf_zoom {
+                None => div()
+                    .p_3()
+                    .bg(theme::bg())
+                    .child(
+                        img(pages.pages[page].clone())
+                            .w_full()
+                            // A page's height for the panel's usual width.
+                            .h(px(560. * h as f32 / w.max(1) as f32))
+                            .object_fit(ObjectFit::Contain),
+                    )
+                    .into_any_element(),
+                Some(z) => div()
+                    .id("pdf-zoomed")
+                    .p_3()
+                    .bg(theme::bg())
+                    .overflow_x_scroll()
+                    .child(
+                        img(pages.pages[page].clone())
+                            .flex_none()
+                            .w(px(natural * z))
+                            .h(px(h as f32 / 1.5 * z))
+                            .object_fit(ObjectFit::Contain),
+                    )
+                    .into_any_element(),
+            })
             .into_any_element()
     }
 
