@@ -38,6 +38,8 @@ pub struct Widths {
     drag: Option<(Which, f32, f32)>,
     /// Narrow, the drawer is open over the chat.
     pub drawer: bool,
+    /// The drawer is sliding shut: still drawn, until its spring settles.
+    pub closing: bool,
 }
 
 fn saved(key: &str) -> Option<f32> {
@@ -53,6 +55,7 @@ impl Widths {
             window: 1440.,
             drag: None,
             drawer: false,
+            closing: false,
         }
     }
 
@@ -201,9 +204,35 @@ impl AppView {
         }
     }
 
+    /// close_drawer slides the drawer shut: it stays drawn while it goes.
+    pub(super) fn close_drawer(&mut self, cx: &mut Context<Self>) {
+        if !self.widths.drawer {
+            return;
+        }
+        self.widths.drawer = false;
+        self.widths.closing = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(360)).await;
+            this.update(cx, |this, cx| {
+                if !this.widths.drawer {
+                    this.widths.closing = false;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// render_drawer is the panel over the chat, with its scrim, while open.
     pub(super) fn render_drawer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.widths.drawer || !self.narrow() || self.is_home() || self.project.is_none() {
+        let open = self.widths.drawer;
+        if !(open || self.widths.closing)
+            || !self.narrow()
+            || self.is_home()
+            || self.project.is_none()
+        {
             return None;
         }
         let b = self.panel_box();
@@ -226,12 +255,9 @@ impl AppView {
                 .bg(theme::scrim())
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        this.widths.drawer = false;
-                        cx.notify();
-                    }),
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| this.close_drawer(cx)),
                 )
-                .child(
+                .child(crate::motion::drawer(
                     div()
                         .id("panel-drawer")
                         .absolute()
@@ -239,15 +265,26 @@ impl AppView {
                         .bottom_0()
                         .right_0()
                         .w(px(width))
-                        .shadow_lg()
+                        .bg(theme::modal())
+                        .border_l_1()
+                        .border_color(theme::line())
+                        .shadow(theme::shadow_drawer())
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                             if ev.keystroke.key == "escape" {
-                                this.widths.drawer = false;
-                                cx.notify();
+                                this.close_drawer(cx);
                             }
                         }))
                         .child(self.render_panel_body(width, cx)),
+                    "panel-drawer-slide",
+                    crate::motion::Side::Right,
+                    px(width + 24.),
+                    open,
+                ))
+                .with_spring(
+                    "panel-drawer-scrim-fade",
+                    SpringAnimation::new(crate::motion::GENTLE).to(open).from(false),
+                    |el, phase| el.opacity(phase.0.clamp(0., 1.)),
                 )
                 .into_any_element(),
         )

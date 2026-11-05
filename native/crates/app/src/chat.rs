@@ -190,6 +190,10 @@ pub struct ChatView {
     find: Option<find::Find>,
     focus: FocusHandle,
     _tick: Option<Task<()>>,
+    /// Rows that arrived at the end after the chat loaded, and when: they
+    /// slide in (motion::enter) the first time they're drawn; history
+    /// scrolled into view never does.
+    pub(crate) entering: std::collections::HashMap<String, std::time::Instant>,
     _subs: Vec<Subscription>,
 }
 
@@ -274,6 +278,7 @@ impl ChatView {
             find: None,
             focus: cx.focus_handle(),
             _tick: None,
+            entering: Default::default(),
             _subs: subs,
         };
         this.load(cx);
@@ -309,6 +314,14 @@ impl ChatView {
                 .filter(|&k| old[old.len() - 1 - k].sig != new[new.len() - 1 - k].sig)
                 .map(|k| new.len() - 1 - k),
         );
+        // What's new past the old end, once there was something: arrivals.
+        if !old.is_empty() && suf == 0 && new.len() > old.len().max(pre) {
+            let now = std::time::Instant::now();
+            self.entering.retain(|_, t| now.duration_since(*t).as_secs() < 2);
+            for r in &new[pre.max(old.len())..] {
+                self.entering.entry(r.key.clone()).or_insert(now);
+            }
+        }
         if pre + suf != old.len() || pre + suf != new.len() {
             self.list
                 .splice(pre..old.len() - suf, new.len() - pre - suf);

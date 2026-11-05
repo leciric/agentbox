@@ -736,6 +736,17 @@ pub fn shadow_composer(focused: bool) -> Vec<BoxShadow> {
     }
     v
 }
+/// shadow_drawer is a drawer's, cast over what it slides across:
+/// Electron's -20px 0 60px -20px shadow-deep.
+pub fn shadow_drawer() -> Vec<BoxShadow> {
+    vec![BoxShadow {
+        color: c(worn().shadow_deep),
+        offset: point(px(-20.), px(0.)),
+        blur_radius: px(60.),
+        spread_radius: px(-20.),
+        inset: false,
+    }]
+}
 /// shadow_modal is a dialog's: deep, so it reads above the scrim.
 pub fn shadow_modal() -> Vec<BoxShadow> {
     vec![BoxShadow {

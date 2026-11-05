@@ -113,6 +113,9 @@ pub enum Whose {
 }
 
 pub struct Panel {
+    /// Each agent's standing as last drawn, and when it last went from
+    /// working to finished: that tile bursts once (motion::celebrate).
+    seen: std::cell::RefCell<HashMap<String, (St, Option<std::time::Instant>)>>,
     pub folded: bool,
     pub list_beside: bool,
     views: HashMap<String, PView>,
@@ -163,6 +166,7 @@ impl Panel {
             list_beside: false,
             views: HashMap::new(),
             idle_open: false,
+            seen: Default::default(),
             usage: HashMap::new(),
             peeked: HashMap::new(),
             peeking: HashSet::new(),
@@ -269,6 +273,8 @@ pub(super) fn clock(secs: f64) -> String {
 struct ListRow {
     agent: FleetAgent,
     st: St,
+    /// It finished a moment ago: its tile plays the finish.
+    finished: Option<std::time::Instant>,
     reason: String,
     color: Hsla,
     approval: bool,
@@ -327,7 +333,11 @@ impl AppView {
     pub(super) fn toggle_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.narrow() {
             // Where it doesn't fit beside the chat, it opens over it.
-            self.widths.drawer = !self.widths.drawer;
+            if self.widths.drawer {
+                self.close_drawer(cx);
+            } else {
+                self.widths.drawer = true;
+            }
             self.panel.folded = false;
             self.panel_sync(window, cx);
             cx.notify();
@@ -943,6 +953,15 @@ impl AppView {
                     .find(|(r, _)| r == &a.r#ref)
                     .map(|(_, q)| q.clone());
                 let st = st::agent_st(&a, question.is_some(), review.contains(&a.r#ref));
+                let finished = {
+                    let mut seen = self.panel.seen.borrow_mut();
+                    let e = seen.entry(a.r#ref.clone()).or_insert((st, None));
+                    if e.0 == St::Working && matches!(st, St::Review | St::Done) {
+                        e.1 = Some(std::time::Instant::now());
+                    }
+                    e.0 = st;
+                    e.1.filter(|t| t.elapsed() < std::time::Duration::from_secs(3))
+                };
                 let (label, tone) = st::chat_label(&a);
                 let report = self.panel.reports.get(&a.r#ref);
                 let (reason, color) = if let Some(q) = question {
@@ -975,6 +994,7 @@ impl AppView {
                 ListRow {
                     approval: a.chat == "waiting",
                     st,
+                    finished,
                     reason,
                     color,
                     when,
@@ -1485,7 +1505,7 @@ impl AppView {
                         })
                         .build(w, cx)
                     })
-                    .child(monitor(&a.ai, r.st, a.state == "running", None, false)),
+                    .child(monitor(&a.r#ref, &a.ai, r.st, a.state == "running", None, false, r.finished)),
             )
             .child(
                 v_flex()
@@ -1668,11 +1688,13 @@ impl AppView {
                         this.open_chat(name.clone(), w, cx)
                     }))
                     .child(monitor(
+                        &r.agent.r#ref,
                         &r.agent.ai,
                         r.st,
                         r.agent.state == "running",
                         Some(label),
                         active,
+                        r.finished,
                     ))
             }))
             .into_any_element()
@@ -2780,7 +2802,18 @@ fn st_color(st: St) -> Hsla {
 
 /// monitor is an agent's tiny computer acting out its state (AgentMonitor):
 /// its screen lit by what it does, its AI tool's mark or its tile's label.
-fn monitor(ai: &str, st: St, running: bool, label: Option<String>, active: bool) -> AnyElement {
+/// monitor is an agent's little screen: its tool's mark in its standing's
+/// colour. Working, its edge breathes; the moment it finishes, a ring of
+/// the brand bursts out from it once.
+fn monitor(
+    key: &str,
+    ai: &str,
+    st: St,
+    running: bool,
+    label: Option<String>,
+    active: bool,
+    finished: Option<std::time::Instant>,
+) -> AnyElement {
     let color = match st {
         St::Needs => theme::starting(),
         St::Error => theme::error(),
@@ -2798,8 +2831,8 @@ fn monitor(ai: &str, st: St, running: bool, label: Option<String>, active: bool)
         .flex_none()
         .items_center()
         .mt_0p5()
-        .child(
-            div()
+        .child({
+            let screen = div()
                 .w(px(36.))
                 .h(px(25.))
                 .rounded_md()
@@ -2820,8 +2853,23 @@ fn monitor(ai: &str, st: St, running: bool, label: Option<String>, active: bool)
                 .text_xs()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(if running { color } else { theme::faint() })
-                .child(crate::icons::of(mark)),
-        )
+                .child(crate::icons::of(mark));
+            match (st, finished) {
+                (St::Working, _) => crate::motion::breathe(
+                    screen,
+                    SharedString::from(format!("monitor-work-{key}")),
+                    color,
+                )
+                .into_any_element(),
+                (_, Some(t)) => crate::motion::celebrate(
+                    screen,
+                    SharedString::from(format!("monitor-done-{key}-{:?}", t)),
+                    theme::brand(400),
+                )
+                .into_any_element(),
+                _ => screen.into_any_element(),
+            }
+        })
         .child(div().w(px(10.)).h(px(3.)).bg(theme::line()))
         .into_any_element()
 }

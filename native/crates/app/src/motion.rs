@@ -163,6 +163,25 @@ pub fn pulse<E: IntoElement + Styled + 'static>(el: E, id: impl Into<ElementId>)
     )
 }
 
+/// breathe is a working thing's glow: a soft ring of its colour swelling and
+/// easing back (the loop Electron's working dot plays, given to the edge).
+pub fn breathe<E: IntoElement + Styled + 'static>(el: E, id: impl Into<ElementId>, color: Hsla) -> impl IntoElement {
+    el.with_animation(
+        id,
+        Animation::new(Duration::from_millis(1800)).repeat().with_max_fps(AMBIENT_FPS),
+        move |el, t| {
+            let wave = (1. - (t * std::f32::consts::TAU).cos()) / 2.;
+            el.shadow(vec![gpui::BoxShadow {
+                color: color.opacity(0.1 + 0.3 * wave),
+                offset: gpui::point(px(0.), px(0.)),
+                blur_radius: px(4. + 6. * wave),
+                spread_radius: px(0.),
+                inset: false,
+            }])
+        },
+    )
+}
+
 /// halo is the ring a working dot wears: it widens and fades, over and over,
 /// behind the dot it is laid under (absolute, same size as the dot).
 pub fn halo(id: impl Into<ElementId>, color: Hsla, size: Pixels) -> impl IntoElement {
