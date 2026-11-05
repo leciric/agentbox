@@ -424,6 +424,17 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 ..Default::default()
             }],
         ),
+        // The base image's state, which Settings → Setup shows: the real
+        // daemon asks Incus for its snapshot, and has none here.
+        (&Method::GET, ["v1", "image"]) => json(
+            StatusCode::OK,
+            &ImageStatus {
+                ready: true,
+                snapshot: "base-v42".into(),
+                build: "idle".into(),
+                ..Default::default()
+            },
+        ),
         // The stopped agents Settings → Agents would remove (agent.go's
         // StoppedMachines): the real daemon needs Incus to say. The first
         // two stopped agents lose nothing; the rest are kept.

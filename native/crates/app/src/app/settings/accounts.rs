@@ -211,6 +211,7 @@ impl AppView {
                 keywords: detail,
                 essential: true,
                 modified: false,
+                scope: String::new(),
             }
         };
         vec![
@@ -314,7 +315,7 @@ impl AppView {
         .detach();
     }
 
-    fn field_value(&self, name: &str, cx: &App) -> String {
+    pub(super) fn field_value(&self, name: &str, cx: &App) -> String {
         self.settings_page
             .fields
             .get(name)
@@ -322,7 +323,7 @@ impl AppView {
             .unwrap_or_default()
     }
 
-    fn clear_field(&self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn clear_field(&self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(i) = self.settings_page.fields.get(name) {
             i.update(cx, |i, cx| i.set_value("", window, cx));
         }

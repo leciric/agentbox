@@ -5,11 +5,22 @@
 //! default is marked at its edge, and "@changed" finds every such one.
 //!
 //! Everything here is the daemon's (GET/PATCH /v1/settings, /v1/theme,
-//! GET /v1/update) except group-idle, which is how this window lists
-//! projects and so lives on this computer (crate::prefs). Sections this app
-//! doesn't draw yet are listed, and say so when opened.
+//! GET /v1/update, and each section's own routes, in its module) except
+//! group-idle and Notifications, which are how this window behaves and so
+//! live on this computer (crate::prefs). A section opens at its top, and
+//! reads what it shows as it opens (load_section).
 mod accounts;
+mod connectors;
 mod defaults;
+mod diagnostics;
+mod kit;
+mod memory;
+mod notify;
+mod phone;
+mod project;
+mod setup;
+mod skills;
+mod transfer;
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -28,6 +39,45 @@ use crate::{prefs, theme};
 
 const ESSENTIALS: &str = "essentials";
 
+/// MORE_FIELDS are the later sections' text fields: (name, placeholder
+/// key, masked). Typing in one redraws the page, and Enter does what its
+/// form does (more_enter).
+const MORE_FIELDS: &[(&str, &str, bool)] = &[
+    ("memory-filter", "memory.search.placeholder", false),
+    ("skills-search", "skills.search", false),
+    ("skill-name", "review-pr", false),
+    ("skills-folder", "~/skills", false),
+    ("skills-git", "https://github.com/…", false),
+    ("connector-name", "acme", false),
+    ("connector-url", "https://mcp.example.com/mcp", false),
+    (
+        "connector-token",
+        "project.connectors.tokenPlaceholder",
+        true,
+    ),
+    ("connector-secret", "ACME_TOKEN", false),
+    ("connector-header", "Authorization", false),
+    (
+        "transfer-export-path",
+        "transfer.export.pathPlaceholder",
+        false,
+    ),
+    ("transfer-pass", "transfer.passphrase.label", true),
+    ("transfer-pass-again", "transfer.passphrase.again", true),
+    (
+        "transfer-import-path",
+        "transfer.import.pathPlaceholder",
+        false,
+    ),
+    ("transfer-import-pass", "transfer.passphrase.label", true),
+    ("tunnel-hostname", "chat.example.com", false),
+    ("tunnel-token", "eyJhIjoi…", true),
+    ("project-name", "", false),
+    ("project-prefix", "defaults.project.noPrefix", false),
+    ("secret-name", "API_KEY", false),
+    ("secret-value", "agent.secrets.valuePlaceholder", true),
+];
+
 /// The page's own state: what's open, what's searched, and what the daemon said.
 pub struct SettingsPage {
     search: Entity<InputState>,
@@ -44,6 +94,18 @@ pub struct SettingsPage {
     fields: HashMap<&'static str, Entity<InputState>>,
     accounts: accounts::Accounts,
     stopped: defaults::Stopped,
+    memory: memory::GlobalMemory,
+    skills: skills::Skills,
+    connectors: connectors::Connectors,
+    diagnostics: diagnostics::Diagnostics,
+    setup: setup::SetupPage,
+    transfer: transfer::Transfer,
+    phone: phone::Phone,
+    project: project::ProjectPage,
+    /// skill_draft is the SKILL.md being written or edited.
+    skill_draft: Entity<gpui_component::input::TextareaState>,
+    /// scroll is the open section's, put back at its top as another opens.
+    scroll: ScrollHandle,
     watching_claude_code: bool,
     _sub: Subscription,
     _field_subs: Vec<Subscription>,
@@ -83,6 +145,7 @@ impl SettingsPage {
                 (*n, p, false)
             }),
         );
+        let named = named.chain(MORE_FIELDS.iter().map(|(n, p, m)| (*n, *p, *m)));
         for (name, placeholder, masked) in named {
             let input = cx.new(|cx| {
                 InputState::new(window, cx)
@@ -90,10 +153,17 @@ impl SettingsPage {
                     .masked(masked)
             });
             let number = defaults::FIELDS.contains(&name);
+            let more = MORE_FIELDS.iter().any(|(n, _, _)| *n == name);
             field_subs.push(cx.subscribe_in(
                 &input,
                 window,
                 move |this, _, ev: &InputEvent, window, cx| match ev {
+                    InputEvent::Change if name == "skill-name" => {
+                        this.skill_name_typed(window, cx);
+                        cx.notify()
+                    }
+                    InputEvent::Change if more => cx.notify(),
+                    InputEvent::PressEnter { .. } if more => this.more_enter(name, window, cx),
                     InputEvent::PressEnter { .. } if number => this.commit_field(name, window, cx),
                     InputEvent::Blur if number && !name.ends_with("model-name") => {
                         this.commit_field(name, window, cx)
@@ -115,6 +185,16 @@ impl SettingsPage {
             fields,
             accounts: accounts::Accounts::default(),
             stopped: defaults::Stopped::default(),
+            memory: Default::default(),
+            skills: Default::default(),
+            connectors: Default::default(),
+            diagnostics: Default::default(),
+            setup: Default::default(),
+            transfer: Default::default(),
+            phone: Default::default(),
+            project: Default::default(),
+            skill_draft: cx.new(|cx| gpui_component::input::TextareaState::new(window, cx)),
+            scroll: ScrollHandle::new(),
             watching_claude_code: false,
             _sub: sub,
             _field_subs: field_subs,
@@ -130,6 +210,9 @@ struct Entry {
     keywords: String,
     essential: bool,
     modified: bool,
+    /// scope is the project a project's setting is of, empty for the
+    /// installation's.
+    scope: String,
 }
 
 struct Group {
@@ -252,6 +335,7 @@ fn search(sections: &[Section], query: &str) -> Vec<Section> {
                     keywords: String::new(),
                     essential: e.essential,
                     modified: e.modified,
+                    scope: e.scope.clone(),
                 })
                 .collect();
             if !entries.is_empty() {
@@ -290,6 +374,7 @@ fn essentials(sections: &[Section]) -> Section {
                     keywords: e.keywords.clone(),
                     essential: true,
                     modified: e.modified,
+                    scope: e.scope.clone(),
                 })
                 .collect();
             if !entries.is_empty() {
@@ -320,6 +405,7 @@ fn entry(id: &'static str, label: &str, description: &str, keywords: &str) -> En
         keywords: t(keywords),
         essential: false,
         modified: false,
+        scope: String::new(),
     }
 }
 
@@ -440,6 +526,8 @@ impl AppView {
         self.load_settings_page(cx);
         self.load_accounts(window, cx);
         self.load_stopped(cx);
+        let open = self.settings_page.open.clone();
+        self.load_section(&open, window, cx);
         self.translate_settings_search(window, cx);
         // The number fields read the settings once they're in.
         let client = self.client.clone();
@@ -473,6 +561,17 @@ impl AppView {
         }
     }
 
+    /// open_settings_at opens Settings on one section.
+    pub(super) fn open_settings_at(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings(window, cx);
+        self.open_settings_section(id, window, cx);
+    }
+
     pub(super) fn close_settings(&mut self, cx: &mut Context<Self>) {
         self.settings = false;
         cx.notify();
@@ -482,10 +581,12 @@ impl AppView {
         if id != ESSENTIALS {
             self.settings_page.advanced = true;
         }
-        self.settings_page.open = id;
+        self.settings_page.open = id.clone();
         self.settings_page
             .search
             .update(cx, |s, cx| s.set_value("", window, cx));
+        self.settings_page.scroll.set_offset(point(px(0.), px(0.)));
+        self.load_section(&id, window, cx);
         cx.notify();
     }
 
@@ -707,21 +808,21 @@ impl AppView {
         let machine = Some("settings.nav.machine");
         let mut out = vec![
             section("general", None, general),
-            // Notifications are the app's own (lib/notifyPrefs.ts), and this
-            // app doesn't notify yet.
-            section("notifications", None, Vec::new()),
-            section("phone", None, Vec::new()),
+            // Notifications are the app's own (lib/notifyPrefs.ts): kept here,
+            // given once this app notifies.
+            section("notifications", None, self.notify_groups()),
+            section("phone", None, self.phone_groups()),
             section("experimental", None, experimental),
             section("accounts", ai, self.accounts_groups()),
             section("models", ai, self.models_groups()),
             section("agents", ai, self.agents_groups()),
-            section("skills", ai, Vec::new()),
-            section("connectors", ai, Vec::new()),
-            section("memory", ai, Vec::new()),
+            section("skills", ai, self.skills_groups()),
+            section("connectors", ai, self.connectors_groups()),
+            section("memory", ai, self.memory_groups()),
             section("resources", machine, self.resources_groups()),
-            section("setup", machine, Vec::new()),
-            section("transfer", machine, Vec::new()),
-            section("diagnostics", machine, Vec::new()),
+            section("setup", machine, self.setup_groups()),
+            section("transfer", machine, self.transfer_groups()),
+            section("diagnostics", machine, self.diagnostics_groups()),
         ];
         for p in &self.projects {
             out.push(Section {
@@ -731,11 +832,11 @@ impl AppView {
                 } else {
                     p.display_name.clone()
                 },
-                description: p.name.clone(),
+                description: t("defaults.project.sectionDescription"),
                 nav: None,
                 project: true,
-                groups: Vec::new(),
-                later: true,
+                groups: self.project_groups(p),
+                later: false,
             });
         }
         out
@@ -803,6 +904,7 @@ impl AppView {
                     .min_w_0()
                     .h_full()
                     .overflow_y_scroll()
+                    .track_scroll(&page.scroll)
                     .child(
                         v_flex()
                             .w_full()
@@ -1143,7 +1245,7 @@ impl AppView {
                 .id(SharedString::from(format!("settings-group-{}", g.id)))
                 .gap_2p5()
                 .child(heading)
-                .children(g.entries.iter().map(|e| self.account_card(e, cx)))
+                .children(g.entries.iter().map(|e| self.render_card(e, cx)))
                 .into_any_element();
         }
         let mut rows = Vec::new();
@@ -1363,7 +1465,73 @@ impl AppView {
         row
     }
 
+    /// render_card draws a setting that's a card of its own: a tool's
+    /// accounts, or a whole panel (Memory, Skills, a checklist).
+    fn render_card(&self, e: &Entry, cx: &mut Context<Self>) -> AnyElement {
+        match e.id {
+            "global-memory" => self.memory_card(cx),
+            "skills" => self.skills_card(&e.scope, cx),
+            "connectors" => self.connectors_card(cx),
+            "p-secrets" => self.secrets_card(&e.scope, cx),
+            "diagnostics" => self.diagnostics_card(cx),
+            "doctor" => self.doctor_card(cx),
+            "checklist" => self.checklist_card(cx),
+            "incus" | "host" | "image" | "storage" | "android" | "preview" => {
+                self.optional_step_card(e, cx)
+            }
+            _ => self.account_card(e, cx),
+        }
+    }
+
+    /// load_section reads what a section shows as it opens.
+    fn load_section(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(name) = id.strip_prefix("project:") {
+            self.load_accounts(window, cx);
+            self.load_project(name.to_string(), window, cx);
+            return;
+        }
+        match id {
+            "memory" => self.load_global_memory(cx),
+            "skills" => self.load_skills(String::new(), cx),
+            "connectors" => self.load_connectors(cx),
+            "diagnostics" => self.load_diagnostics(cx),
+            "setup" => self.load_setup(cx),
+            "transfer" => self.load_transfer_preview(cx),
+            "phone" => self.load_lan(cx),
+            _ => {}
+        }
+    }
+
+    /// more_enter is Enter in a later section's field.
+    fn more_enter(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        match name {
+            "skills-folder" | "skills-git" => self.skills_look(cx),
+            n if n.starts_with("connector-") => self.add_connector(cx),
+            "transfer-import-path" | "transfer-import-pass" => self.inspect_import(cx),
+            "tunnel-hostname" | "tunnel-token" => self.save_tunnel(cx),
+            "project-name" | "project-prefix" | "secret-name" | "secret-value" => {
+                if let Some(p) = self.open_project_name() {
+                    match name {
+                        "project-name" => self.save_project_name(p, cx),
+                        "project-prefix" => self.save_project_prefix(p, cx),
+                        _ => self.save_secret(p, window, cx),
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn render_entry(&self, e: &Entry, cx: &mut Context<Self>) -> AnyElement {
+        if let Some(el) = self
+            .notify_entry(e, cx)
+            .or_else(|| self.setup_entry(e, cx))
+            .or_else(|| self.transfer_entry(e, cx))
+            .or_else(|| self.phone_entry(e, cx))
+            .or_else(|| self.project_entry(e, cx))
+        {
+            return el;
+        }
         let page = &self.settings_page;
         let s = page.settings.as_ref();
         let update = page.update.as_ref();
@@ -1732,6 +1900,7 @@ mod tests {
                         keywords: "theme".into(),
                         essential: true,
                         modified: true,
+                        scope: String::new(),
                     },
                     Entry {
                         id: "group-idle",
@@ -1740,6 +1909,7 @@ mod tests {
                         keywords: String::new(),
                         essential: false,
                         modified: false,
+                        scope: String::new(),
                     },
                 ],
             }],

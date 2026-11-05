@@ -261,6 +261,10 @@ impl AppView {
                             if let Some(first) = first {
                                 this.select_project(first, window, cx);
                             }
+                            // AGENTBOX_NATIVE_SETTINGS=<section> opens Settings there (checks).
+                            if let Ok(id) = std::env::var("AGENTBOX_NATIVE_SETTINGS") {
+                                this.open_settings_at(id, window, cx);
+                            }
                         }
                     }
                     Err(e) => this.error = Some(e.to_string().into()),

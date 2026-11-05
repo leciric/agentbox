@@ -303,9 +303,7 @@ pub fn select_at(
     h_flex().child(button).into_any_element()
 }
 
-/// stepper is a number within bounds, moved by a step: − value +. Not used
-/// yet.
-#[allow(dead_code)]
+/// stepper is a number within bounds, moved by a step: − value +.
 pub fn stepper(
     id: &str,
     value: i64,
@@ -362,6 +360,7 @@ pub fn note(text: impl Into<SharedString>) -> AnyElement {
 /// note_in is a note in a colour of its own: a warning, an error, done.
 pub fn note_in(text: impl Into<SharedString>, color: Hsla) -> AnyElement {
     div()
+        .min_w_0()
         .text_xs()
         .line_height(rems(1.25))
         .text_color(color)

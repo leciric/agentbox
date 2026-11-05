@@ -137,6 +137,7 @@ dependencies = [
  "agentbox-i18n",
  "alacritty_terminal",
  "anyhow",
+ "chrono",
  "ffmpeg-next",
  "gpui-component",
  "gpui-pre",
