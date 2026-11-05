@@ -1814,7 +1814,7 @@ impl AppView {
                                         .text_xs()
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .text_color(theme::faint())
-                                        .child(t(label).to_uppercase()),
+                                        .child(t(label)),
                                 )
                                 .children(lines.iter().map(|l| {
                                     h_flex()
@@ -2131,7 +2131,7 @@ impl AppView {
                                     } else {
                                         "palette.group.actions"
                                     })
-                                    .to_uppercase(),
+                                    ,
                                 )
                                 .into_any_element(),
                         );

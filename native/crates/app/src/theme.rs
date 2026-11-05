@@ -883,7 +883,9 @@ pub fn sync_widgets(cx: &mut App) {
     Theme::change(mode, None, cx);
     let t = Theme::global_mut(cx);
     t.font_family = SharedString::from(SANS);
-    t.font_size = text::BODY;
+    // gpui-component makes this the window's rem: 16px, as a browser's, so
+    // text_sm() and friends are the sizes Electron's classes are.
+    t.font_size = px(16.);
     t.mono_font_family = SharedString::from(MONO_FACE);
     t.mono_font_size = text::UI;
     t.radius = radius::MD;

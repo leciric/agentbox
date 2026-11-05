@@ -218,7 +218,7 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
             div()
                 .text_xs()
                 .text_color(theme::faint())
-                .child(label.to_uppercase()),
+                .child(label),
         )
         .child(
             div()
@@ -653,18 +653,18 @@ impl AppView {
                     div()
                         .flex_1()
                         .min_w_0()
-                        .child(t("vm.tokens.when").to_uppercase()),
+                        .child(t("vm.tokens.when")),
                 )
-                .child(cell(t("vm.tokens.tokens").to_uppercase(), 80., true, false))
+                .child(cell(t("vm.tokens.tokens"), 80., true, false))
                 .child(cell(
-                    t("vm.tokens.cacheRead").to_uppercase(),
+                    t("vm.tokens.cacheRead"),
                     90.,
                     true,
                     false,
                 ))
-                .child(cell(t("vm.tokens.output").to_uppercase(), 80., true, false))
-                .child(cell(t("vm.tokens.avgTPS").to_uppercase(), 80., true, false))
-                .child(cell(t("vm.tokens.cost").to_uppercase(), 70., true, false));
+                .child(cell(t("vm.tokens.output"), 80., true, false))
+                .child(cell(t("vm.tokens.avgTPS"), 80., true, false))
+                .child(cell(t("vm.tokens.cost"), 70., true, false));
             let rows = series.iter().filter_map(|(start, b)| {
                 let b = (*b)?;
                 Some(
@@ -833,7 +833,7 @@ impl AppView {
                 .w(px(w))
                 .flex_none()
                 .text_right()
-                .child(label.to_uppercase())
+                .child(label)
         };
         let header = h_flex()
             .px_3()
@@ -845,7 +845,7 @@ impl AppView {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .child(t("vm.tokens.agent").to_uppercase()),
+                    .child(t("vm.tokens.agent")),
             )
             .child(head(t("vm.tokens.tokens"), 140.))
             .child(head(t("vm.tokens.cacheRead"), 56.))
@@ -1099,7 +1099,7 @@ impl AppView {
                         div()
                             .text_xs()
                             .text_color(theme::faint())
-                            .child(t("vm.tokens.byModel").to_uppercase()),
+                            .child(t("vm.tokens.byModel")),
                     )
                     .child(h_flex().flex_wrap().gap_x_6().gap_y_1p5().children(models)),
             )
@@ -1110,7 +1110,7 @@ impl AppView {
                         div()
                             .text_xs()
                             .text_color(theme::faint())
-                            .child(t("vm.tokens.lastTurns").to_uppercase()),
+                            .child(t("vm.tokens.lastTurns")),
                     )
                     .child(turns),
             )

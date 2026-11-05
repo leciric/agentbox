@@ -660,7 +660,7 @@ impl Render for WorkView {
                                                         .text_xs()
                                                         .font_weight(FontWeight::SEMIBOLD)
                                                         .text_color(theme::faint())
-                                                        .child(day_label(&day).to_uppercase()),
+                                                        .child(day_label(&day)),
                                                 )
                                                 .children(
                                                     list.iter().map(|w| self.render_row(w, cx)),

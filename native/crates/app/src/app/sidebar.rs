@@ -807,8 +807,8 @@ impl AppView {
                     .items_center()
                     .justify_center()
                     .rounded_md()
-                    .bg(theme::surface_raised())
-                    .text_color(theme::muted())
+                    .bg(theme::surface_strong())
+                    .text_color(theme::secondary())
                     .child(crate::icons::of("⌂")),
             )
             .child(
@@ -875,12 +875,13 @@ impl AppView {
         let right = if needs > 0 {
             div()
                 .px_1p5()
-                .rounded_sm()
-                .bg(theme::starting().opacity(0.15))
-                .text_color(theme::starting())
+                .rounded_full()
+                .bg(theme::amber(400).opacity(0.15))
+                .text_color(theme::amber(300))
+                .font_weight(FontWeight::MEDIUM)
                 .child(tv("v2.attention.needs", &[("count", needs.into())]))
         } else {
-            div().text_color(theme::faint()).child(
+            div().text_color(theme::subtle()).child(
                 activity
                     .and_then(|a| a.last_activity.as_deref())
                     .map(ago)
@@ -906,9 +907,29 @@ impl AppView {
                 theme::accent(),
             ));
         }
+        let working = c.working > 0 || s_working;
         let row = self
             .row(&p.name, selected, cx)
+            .relative()
             .items_start()
+            .when(needs > 0 && !selected, |el| {
+                el.bg(theme::amber(400).opacity(0.05))
+                    .hover(|el| el.bg(theme::amber(400).opacity(0.1)))
+            })
+            // Working: a thin sky bar down its left edge, breathing.
+            .when(working, |el| {
+                el.child(crate::motion::pulse(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_2()
+                        .bottom_2()
+                        .w(px(2.))
+                        .rounded_full()
+                        .bg(theme::sky(400)),
+                    SharedString::from(format!("working-bar-{}", p.name)),
+                ))
+            })
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.select_project(name.clone(), window, cx)
             }))
@@ -944,12 +965,13 @@ impl AppView {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .text_sm()
+                                    .text_size(theme::text::UI)
+                                    .font_weight(FontWeight::MEDIUM)
                                     .truncate()
                                     .text_color(if selected {
-                                        theme::primary()
+                                        theme::title()
                                     } else {
-                                        theme::muted()
+                                        theme::secondary()
                                     })
                                     .child(display.clone()),
                             )
@@ -966,8 +988,11 @@ impl AppView {
                                         .child(crate::icons::of("✎")),
                                 )
                             })
-                            .when(c.working > 0 || s_working, |el| {
-                                el.child(div().text_xs().text_color(theme::accent()).child("●"))
+                            .when(working, |el| {
+                                el.child(crate::motion::pulse(
+                                    div().flex_none().mt(px(5.)).size(px(6.)).rounded_full().bg(theme::sky(400)),
+                                    SharedString::from(format!("working-dot-{}", p.name)),
+                                ))
                             })
                             .child(right.flex_none().text_xs()),
                     )
@@ -976,9 +1001,9 @@ impl AppView {
                             .text_xs()
                             .truncate()
                             .text_color(if question.is_some() {
-                                theme::starting()
+                                theme::amber(300)
                             } else {
-                                theme::faint()
+                                theme::subtle()
                             })
                             .child(line),
                     )

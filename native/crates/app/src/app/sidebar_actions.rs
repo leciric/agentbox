@@ -438,9 +438,10 @@ impl AppView {
             .pt_3()
             .pb_1()
             .gap_2()
-            .text_xs()
-            .text_color(theme::faint())
-            .child(label.to_uppercase())
+            .text_size(theme::text::CAPTION)
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme::muted())
+            .child(label)
             .child(div().flex_1())
             .when(review, |el| el.children(self.review_all(cx)))
             .when(new_section, |el| {
@@ -562,7 +563,7 @@ impl AppView {
                     .min_w_0()
                     .truncate()
                     .font_weight(FontWeight::MEDIUM)
-                    .child(s.name.to_uppercase()),
+                    .child(s.name.clone()),
             )
             .child(div().child(count.to_string()))
             .child(div().flex_1())
@@ -635,7 +636,7 @@ impl AppView {
                         .chars()
                         .next()
                         .unwrap_or('?')
-                        .to_uppercase()
+                        
                         .to_string(),
                 ),
         }

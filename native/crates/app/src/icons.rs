@@ -87,6 +87,7 @@ gpui_kit_assets::icon_assets!(
         ArrowUpRight,
         Ban,
         Bot,
+        Box,
         Brain,
         Briefcase,
         Camera,

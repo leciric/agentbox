@@ -245,7 +245,7 @@ fn table(
                     headers
                         .into_iter()
                         .enumerate()
-                        .map(|(i, h)| cell(i, h.to_uppercase(), theme::faint(), false)),
+                        .map(|(i, h)| cell(i, h, theme::faint(), false)),
                 ),
         )
         .children(rows.into_iter().map(|r| {
@@ -642,7 +642,7 @@ impl AppView {
         };
         let rows = spans[..shown].iter().enumerate().map(|(i, s)| {
             let name = if s.source == agentbox_api::SPAN_SOURCE_APP {
-                format!("{} {}", t("diagnostics.source.app").to_uppercase(), s.name)
+                format!("{} {}", t("diagnostics.source.app"), s.name)
             } else {
                 s.name.clone()
             };
@@ -730,7 +730,7 @@ impl AppView {
                             .text_xs()
                             .text_color(theme::faint())
                             .children(headers.iter().enumerate().map(|(i, h)| {
-                                let text = t(&format!("diagnostics.col.{h}")).to_uppercase();
+                                let text = t(&format!("diagnostics.col.{h}"));
                                 match i {
                                     0 => div().flex_1().child(text),
                                     1 => div().w(px(120.)).child(text),
