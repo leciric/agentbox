@@ -15,6 +15,7 @@ use crate::{bench, theme};
 use agentbox_i18n::{t, tv};
 
 mod composer;
+mod evidence;
 mod find;
 mod items;
 pub mod rows;
@@ -74,6 +75,13 @@ pub enum ChatAction {
     /// A past agent's chat: continue it in a new agent, or delete it.
     ContinuePast,
     DeletePast,
+    /// A closed lead session read from History: continue it in a new one,
+    /// reopen it, or delete it.
+    ContinueClosed,
+    /// Open the review on a finished agent's work (its card's Review).
+    OpenReview(Box<agentbox_api::ReviewItem>),
+    ReopenClosed,
+    DeleteClosed,
 }
 
 /// The picture shown over everything, zoomed.
@@ -139,6 +147,11 @@ pub struct ChatView {
     /// A past agent's chat: read-only, Continue and Delete where the
     /// composer was (ChatTab's readOnly).
     pub past: bool,
+    /// A closed lead session read from History: read-only, Delete, Reopen
+    /// and Continue where the composer was (SessionHistory's readOnly).
+    pub closed: bool,
+    /// The finished agents' cards, as they're read.
+    evidence: evidence::Evidences,
     /// Text to add to the composer's on the next frame (a picked element).
     append: Vec<String>,
     items: Vec<ChatItem>,
@@ -232,6 +245,8 @@ impl ChatView {
             agent_name: String::new(),
             asleep: None,
             past: false,
+            closed: false,
+            evidence: Default::default(),
             append: Vec::new(),
             items: Vec::new(),
             rows: Vec::new(),
@@ -840,6 +855,7 @@ impl Render for ChatView {
                 .input
                 .update(cx, |s, cx| s.set_value(text, window, cx));
         }
+        self.want_evidence(cx);
         let viewport = self.list.viewport_bounds();
         crate::webview::set_scroller(self.list.clone());
         crate::webview::set_clip((viewport.size.height > px(0.)).then_some(viewport));

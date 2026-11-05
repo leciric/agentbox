@@ -52,6 +52,18 @@ pub struct MenuItem {
     pub start: usize,
 }
 
+/// An agent a message can go to: its name and title.
+type Target = (String, String);
+
+/// A message that didn't go, kept to send again as it was or to edit.
+pub struct Failed {
+    key: usize,
+    text: String,
+    attachments: Vec<Attachment>,
+    to: String,
+    error: String,
+}
+
 pub struct Composer {
     pub input: Entity<TextareaState>,
     pub attachments: Vec<Attachment>,
@@ -60,8 +72,19 @@ pub struct Composer {
     dismissed: Option<String>,
     files: Option<Vec<String>>,
     projects: Option<Vec<(String, String)>>,
-    agents: Option<Vec<(String, String, String)>>,
+    /// The agents "@" can name and a lead's message can go to: project,
+    /// name, title and the lead session that made it.
+    agents: Option<Vec<(String, String, String, String)>>,
+    /// Who a project chat's message goes to: an agent of the project
+    /// (ChatMessageRequest.to), or its lead (None) (shared/messageTarget.ts).
+    target: Option<String>,
+    /// Messages that didn't reach the daemon, to send again or edit
+    /// (lib/sending.ts): their text, files, target and why.
+    failed: Vec<Failed>,
     asked_mentions: bool,
+    /// The skills "/" and "$" offer (Settings → Skills), read once.
+    skills: Option<Vec<agentbox_api::Skill>>,
+    asked_skills: bool,
     cache: Option<ChatCache>,
     /// A message written while the cache card asks: sent once you choose.
     held: Option<String>,
@@ -90,6 +113,104 @@ fn mime_of(name: &str) -> String {
         _ => "application/octet-stream",
     }
     .to_string()
+}
+
+/// skill_mention_at is the $word the cursor is in (skillMentionAt): a $ at
+/// the start or after whitespace, and what's typed after it so far.
+pub fn skill_mention_at(text: &str, cursor: usize) -> Option<(usize, String)> {
+    let before = text.get(..cursor)?;
+    let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, ':' | '_' | '-');
+    let q_len = before
+        .chars()
+        .rev()
+        .take_while(|c| word(*c))
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let at = before.len() - q_len;
+    if !before[..at].ends_with('$') {
+        return None;
+    }
+    let dollar = at - 1;
+    if dollar > 0 && !before[..dollar].ends_with(char::is_whitespace) {
+        return None;
+    }
+    if text[cursor..].chars().next().is_some_and(word) {
+        return None;
+    }
+    Some((dollar, before[at..].to_string()))
+}
+
+/// skill_title is a skill's name as words: review-pr is "Review Pr".
+fn skill_title(name: &str) -> String {
+    name.split(|c: char| c.is_whitespace() || matches!(c, ':' | '_' | '-'))
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut c = w.chars();
+            c.next()
+                .map(|f| f.to_uppercase().chain(c).collect())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
+}
+
+/// search_skills is searchSkills: by name first (its letters in order at
+/// worst), then its title, then its description; all by name for none.
+pub fn search_skills(
+    skills: &[agentbox_api::Skill],
+    query: &str,
+    limit: usize,
+) -> Vec<agentbox_api::Skill> {
+    let q = query.trim().trim_start_matches(['$', '/']).to_lowercase();
+    let score = |value: &str, base: usize, fuzzy: bool| -> Option<usize> {
+        if value.is_empty() {
+            return None;
+        }
+        if value == q {
+            return Some(base);
+        }
+        if value.starts_with(&q) {
+            return Some(base + 2);
+        }
+        if value.match_indices(&q).any(|(i, _)| {
+            i == 0 || value[..i].ends_with(|c: char| c.is_whitespace() || "/_:-".contains(c))
+        }) {
+            return Some(base + 4);
+        }
+        if value.contains(&q) {
+            return Some(base + 6);
+        }
+        if fuzzy {
+            let mut it = value.chars();
+            return q
+                .chars()
+                .all(|ch| it.any(|c| c == ch))
+                .then_some(base + 100);
+        }
+        None
+    };
+    let mut out: Vec<(usize, &agentbox_api::Skill)> = skills
+        .iter()
+        .filter_map(|s| {
+            if q.is_empty() {
+                return Some((0, s));
+            }
+            [
+                score(&s.name.to_lowercase(), 0, true),
+                score(&skill_title(&s.name).to_lowercase(), 1, false),
+                score(&s.description.to_lowercase(), 30, false),
+            ]
+            .into_iter()
+            .flatten()
+            .min()
+            .map(|sc| (sc, s))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.name.cmp(&b.1.name)));
+    out.into_iter()
+        .take(limit)
+        .map(|(_, s)| s.clone())
+        .collect()
 }
 
 /// slash_query is what's typed after a "/" that is the whole message.
@@ -166,6 +287,7 @@ impl Composer {
                 InputEvent::Change => {
                     this.composer.menu_ix = 0;
                     this.want_mentions(cx);
+                    this.want_skills(cx);
                     cx.notify();
                 }
                 _ => {}
@@ -181,6 +303,10 @@ impl Composer {
                 projects: None,
                 agents: None,
                 asked_mentions: false,
+                skills: None,
+                asked_skills: false,
+                target: None,
+                failed: Vec::new(),
                 cache: None,
                 held: None,
                 choosing: false,
@@ -363,6 +489,51 @@ impl ChatView {
         self.composer.input.read(cx).value().to_string()
     }
 
+    /// want_skills reads, once, the skills this chat's agent has and a user
+    /// may invoke (composerSkills): a project's active ones, or AgentBox's
+    /// enabled ones in Home.
+    fn want_skills(&mut self, cx: &mut Context<Self>) {
+        if self.composer.asked_skills {
+            return;
+        }
+        let text = self.text(cx);
+        let cursor = self.composer.input.read(cx).cursor().min(text.len());
+        if slash_query(&text).is_none() && skill_mention_at(&text, cursor).is_none() {
+            return;
+        }
+        self.composer.asked_skills = true;
+        let project = self.agent.split('/').next().unwrap_or("").to_string();
+        let home = project == agentbox_api::HOME_PROJECT;
+        let path = if home {
+            "/v1/skills".to_string()
+        } else {
+            format!("/v1/projects/{project}/skills")
+        };
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let list = client
+                .get::<Vec<agentbox_api::Skill>>(&path)
+                .await
+                .unwrap_or_default();
+            this.update(cx, |this, cx| {
+                this.composer.skills = Some(
+                    list.into_iter()
+                        .filter(|s| {
+                            (if home {
+                                s.enabled
+                            } else {
+                                s.active.unwrap_or(false)
+                            }) && s.user_invocable
+                        })
+                        .collect(),
+                );
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// want_mentions reads, once, what "@" can name: the worktree's files,
     /// the projects and the agents.
     fn want_mentions(&mut self, cx: &mut Context<Self>) {
@@ -374,6 +545,11 @@ impl ChatView {
         if mention_at(&text, cursor).is_none() {
             return;
         }
+        self.load_mentions(cx);
+    }
+
+    /// load_mentions reads what "@" can name and a message can go to.
+    fn load_mentions(&mut self, cx: &mut Context<Self>) {
         self.composer.asked_mentions = true;
         let client = self.client.clone();
         let files = format!("{}/files", self.prefix);
@@ -397,7 +573,7 @@ impl ChatView {
                 this.composer.agents = Some(
                     a.unwrap_or_default()
                         .into_iter()
-                        .map(|a| (a.project, a.name, a.title))
+                        .map(|a| (a.project, a.name, a.title, a.lead_session))
                         .collect(),
                 );
                 cx.notify();
@@ -417,17 +593,50 @@ impl ChatView {
                 return (Vec::new(), token);
             }
             let ql = q.to_lowercase();
-            let items = self
-                .session
-                .commands
+            // The chat's skills first, then the tool's commands: Claude Code
+            // lists skills among its commands too, which show once, as skills.
+            let skills = self.composer.skills.as_deref().unwrap_or_default();
+            let found = search_skills(skills, q, 6);
+            let mut items: Vec<MenuItem> = found
                 .iter()
-                .filter(|c| c.name.to_lowercase().contains(&ql))
-                .take(9)
-                .map(|c| MenuItem {
-                    label: format!("/{}", c.name),
-                    hint: c.description.clone(),
-                    insert: format!("/{} ", c.name),
+                .map(|s| MenuItem {
+                    label: format!("${}", s.name),
+                    hint: s.description.clone(),
+                    insert: format!("${} ", s.name),
                     start: 0,
+                })
+                .collect();
+            items.extend(
+                self.session
+                    .commands
+                    .iter()
+                    .filter(|c| {
+                        c.name.to_lowercase().contains(&ql)
+                            && !skills.iter().any(|s| s.name == c.name)
+                    })
+                    .take(9usize.saturating_sub(items.len()))
+                    .map(|c| MenuItem {
+                        label: format!("/{}", c.name),
+                        hint: c.description.clone(),
+                        insert: format!("/{} ", c.name),
+                        start: 0,
+                    }),
+            );
+            return (items, token);
+        }
+        // "$" anywhere lists the skills alone, for one mid-sentence.
+        if let Some((start, q)) = skill_mention_at(&text, cursor) {
+            let token = format!("${start}:{q}");
+            if self.composer.dismissed.as_deref() == Some(token.as_str()) {
+                return (Vec::new(), token);
+            }
+            let items = search_skills(self.composer.skills.as_deref().unwrap_or_default(), &q, 8)
+                .into_iter()
+                .map(|s| MenuItem {
+                    label: format!("${}", s.name),
+                    hint: s.description.clone(),
+                    insert: format!("${} ", s.name),
+                    start,
                 })
                 .collect();
             return (items, token);
@@ -457,7 +666,7 @@ impl ChatView {
                 });
             }
         }
-        for (p, name, title) in self.composer.agents.iter().flatten() {
+        for (p, name, title, _) in self.composer.agents.iter().flatten() {
             if (!home && p != project) || format!("{p}/{name}") == self.agent {
                 continue;
             }
@@ -563,7 +772,65 @@ impl ChatView {
         (images, files)
     }
 
+    /// targets are what this project chat can write to besides its lead
+    /// (targetsOf): the agents its session made, then the project's others.
+    fn targets(&self) -> (Vec<Target>, Vec<Target>) {
+        if !self.is_lead() {
+            return (Vec::new(), Vec::new());
+        }
+        let project = self.agent.split('/').next().unwrap_or("");
+        if project == agentbox_api::HOME_PROJECT {
+            return (Vec::new(), Vec::new());
+        }
+        let name = self.agent.split('/').nth(1).unwrap_or("");
+        let session = if name == "lead" {
+            "main"
+        } else {
+            name.strip_prefix("lead.").unwrap_or("")
+        };
+        let mut mine: Vec<&(String, String, String, String)> = self
+            .composer
+            .agents
+            .iter()
+            .flatten()
+            .filter(|(p, n, ..)| p == project && n != "lead" && !n.starts_with("lead."))
+            .collect();
+        mine.sort_by_key(|(_, n, ..)| {
+            let digits: String = n.chars().filter(char::is_ascii_digit).collect();
+            (digits.parse::<u64>().unwrap_or(0), n.clone())
+        });
+        let (own, others): (Vec<_>, Vec<_>) = mine
+            .into_iter()
+            .partition(|(.., s)| !session.is_empty() && s == session);
+        let pair = |v: Vec<&(String, String, String, String)>| {
+            v.into_iter()
+                .map(|(_, n, title, _)| (n.clone(), title.clone()))
+                .collect()
+        };
+        (pair(own), pair(others))
+    }
+
+    /// at_target reads "@agent-31 " at the start of a message as its target
+    /// (atTarget): the agent, and the message without it.
+    fn at_target(&self, text: &str) -> Option<(String, String)> {
+        let rest = text.trim_start().strip_prefix('@')?;
+        let (name, body) = rest.split_once(char::is_whitespace)?;
+        let (own, others) = self.targets();
+        own.iter()
+            .chain(others.iter())
+            .any(|(n, _)| n == name)
+            .then(|| (name.to_string(), body.trim().to_string()))
+    }
+
     fn send_text(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let (to, text) = match self.at_target(&text) {
+            Some((to, body)) => (to, body),
+            None => (self.composer.target.clone().unwrap_or_default(), text),
+        };
+        self.send_to(text, to, window, cx);
+    }
+
+    fn send_to(&mut self, text: String, to: String, window: &mut Window, cx: &mut Context<Self>) {
         let (images, files) = self.uploads();
         let kept = std::mem::take(&mut self.composer.attachments);
         self.composer
@@ -582,25 +849,28 @@ impl ChatView {
                         text,
                         images,
                         files,
-                        ..Default::default()
+                        to: to.clone(),
                     },
                 )
                 .await;
-            this.update_in(cx, |this, window, cx| {
+            this.update_in(cx, |this, _window, cx| {
                 this.composer.sending = false;
                 if let Err(e) = res {
-                    // What didn't go comes back, unless something new was written.
-                    if this.text(cx).is_empty() {
-                        this.composer
-                            .input
-                            .update(cx, |s, cx| s.set_value(back, window, cx));
-                        this.composer.attachments = kept;
-                    }
-                    crate::toasts::Toast::new(
-                        crate::toasts::Kind::Error,
-                        tv("chat.composer.notSent", &[("error", e.to_string().into())]),
-                    )
-                    .show(cx);
+                    // What didn't go stays, marked, to send again or edit.
+                    let key = this
+                        .composer
+                        .failed
+                        .iter()
+                        .map(|f| f.key + 1)
+                        .max()
+                        .unwrap_or(0);
+                    this.composer.failed.push(Failed {
+                        key,
+                        text: back,
+                        attachments: kept,
+                        to,
+                        error: e.to_string(),
+                    });
                 }
                 cx.notify();
             })
@@ -608,6 +878,172 @@ impl ChatView {
         })
         .detach();
         cx.notify();
+    }
+
+    /// retry_failed sends a message that didn't go again, as it was.
+    fn retry_failed(&mut self, key: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(i) = self.composer.failed.iter().position(|f| f.key == key) else {
+            return;
+        };
+        let f = self.composer.failed.remove(i);
+        let held = std::mem::replace(&mut self.composer.attachments, f.attachments);
+        let draft = self.text(cx);
+        self.send_to(f.text, f.to, window, cx);
+        // What was being written meanwhile stays in the composer.
+        self.composer.attachments = held;
+        if !draft.is_empty() {
+            self.composer
+                .input
+                .update(cx, |s, cx| s.set_value(draft, window, cx));
+        }
+    }
+
+    /// edit_failed takes a message that didn't go back into the composer.
+    fn edit_failed(&mut self, key: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(i) = self.composer.failed.iter().position(|f| f.key == key) else {
+            return;
+        };
+        let f = self.composer.failed.remove(i);
+        let mut text = f.text;
+        let draft = self.text(cx);
+        if !draft.trim().is_empty() {
+            text = format!("{text}\n\n{draft}");
+        }
+        self.composer.attachments.extend(f.attachments);
+        if !f.to.is_empty() {
+            self.composer.target = Some(f.to);
+        }
+        self.composer
+            .input
+            .update(cx, |s, cx| s.set_value(text, window, cx));
+        self.focus_composer(window, cx);
+        cx.notify();
+    }
+
+    /// render_failed is each message that didn't go (NotSent): it, why,
+    /// and Send again and Edit.
+    fn render_failed(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        self.composer
+            .failed
+            .iter()
+            .map(|f| {
+                let (k1, k2) = (f.key, f.key);
+                v_flex()
+                    .mx_4()
+                    .mb_2()
+                    .items_end()
+                    .gap_1()
+                    .child(
+                        div()
+                            .max_w(relative(0.85))
+                            .px_3()
+                            .py_2()
+                            .rounded_xl()
+                            .bg(theme::raised())
+                            .border_1()
+                            .border_color(theme::error().opacity(0.4))
+                            .text_sm()
+                            .text_color(theme::fg())
+                            .child(f.text.clone()),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .text_xs()
+                            .child(div().text_color(theme::error()).child(tv(
+                                "chat.composer.notSent",
+                                &[("error", (&f.error).into())],
+                            )))
+                            .child(crate::app::controls::button(
+                                ("failed-retry", f.key as u64),
+                                t("chat.sending.retry"),
+                                crate::app::controls::Btn::Ghost,
+                                false,
+                                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    this.retry_failed(k1, window, cx)
+                                }),
+                            ))
+                            .child(crate::app::controls::button(
+                                ("failed-edit", f.key as u64),
+                                t("chat.sending.edit"),
+                                crate::app::controls::Btn::Ghost,
+                                false,
+                                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    this.edit_failed(k2, window, cx)
+                                }),
+                            )),
+                    )
+                    .into_any_element()
+            })
+            .collect()
+    }
+
+    /// render_target is the To: chip of a project's chat (TargetPicker): its
+    /// lead, or one of its agents, the session's first.
+    fn render_target(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (own, others) = self.targets();
+        if own.is_empty() && others.is_empty() {
+            return None;
+        }
+        let text = self.text(cx);
+        let shown = self
+            .at_target(&text)
+            .map(|(to, _)| to)
+            .or_else(|| self.composer.target.clone());
+        let label = shown.clone().unwrap_or_else(|| t("chat.target.lead"));
+        let view = cx.entity().downgrade();
+        let current = shown;
+        Some(
+            Button::new("chat-target")
+                .ghost()
+                .xsmall()
+                .label(format!("{} {label} ▾", t("chat.target.to")))
+                .when(current.is_some(), |b| b.text_color(theme::accent()))
+                .tooltip(tv("chat.target.label", &[("target", (&label).into())]))
+                .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
+                    let pick = |to: Option<String>| {
+                        let view = view.clone();
+                        move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                            view.update(cx, |this, cx| {
+                                this.composer.target = to.clone();
+                                cx.notify();
+                            })
+                            .ok();
+                        }
+                    };
+                    let mark = |on: bool| if on { "✓ " } else { "   " };
+                    let mut menu = menu.max_h(px(420.)).scrollable(true).item(
+                        PopupMenuItem::new(format!(
+                            "{}{}",
+                            mark(current.is_none()),
+                            t("chat.target.lead")
+                        ))
+                        .on_click(pick(None)),
+                    );
+                    for (title, list) in
+                        [("chat.target.own", &own), ("chat.target.others", &others)]
+                    {
+                        if list.is_empty() {
+                            continue;
+                        }
+                        menu = menu.separator().label(t(title));
+                        for (name, about) in list.iter() {
+                            let on = current.as_deref() == Some(name.as_str());
+                            let label = if about.is_empty() {
+                                name.clone()
+                            } else {
+                                format!("{name} · {about}")
+                            };
+                            menu = menu.item(
+                                PopupMenuItem::new(format!("{}{label}", mark(on)))
+                                    .on_click(pick(Some(name.clone()))),
+                            );
+                        }
+                    }
+                    menu
+                })
+                .into_any_element(),
+        )
     }
 
     /// choose_cache answers the cache card: compact first, or send as it is.
@@ -740,6 +1176,8 @@ impl ChatView {
             t("chat.composer.held")
         } else if pending {
             t("chat.composer.answerRequest")
+        } else if let Some(to) = &self.composer.target {
+            tv("chat.composer.placeholderTo", &[("name", to.into())])
         } else if self.session.turn_started_at.is_some() {
             tv("chat.composer.busy", &[("tool", tool.into())])
         } else if self.items.is_empty() && !self.older && self.is_lead() {
@@ -823,81 +1261,168 @@ impl ChatView {
                 .unwrap_or_else(|| o.value.clone())
         };
         let mut row = h_flex().gap_0p5().flex_wrap().items_center();
-        // The AI tool and account it runs on (RunnerPicker).
-        if let Some(r) = self
+        // What runs the chat, as one chip read as a sentence (SetupChip):
+        // "Claude Code · Opus · 200k", its menu a submenu for each of the
+        // tool and account, the model and the context window.
+        let runner = self
             .composer
             .runners
             .as_ref()
             .filter(|r| !r.runners.is_empty())
-        {
-            let current = format!(
-                "{}{}",
-                super::tool_label(&r.tool),
-                if r.account.is_empty() || r.account == "default" {
-                    String::new()
-                } else {
-                    format!(" · {}", r.account)
-                }
-            );
-            let view = cx.entity().downgrade();
-            let runners = r.runners.clone();
-            let (tool, account) = (r.tool.clone(), r.account.clone());
-            let lead = self.is_lead();
+            .cloned();
+        let tool = runner
+            .as_ref()
+            .map(|r| r.tool.clone())
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| self.session.tool.clone());
+        let tool_name = super::tool_label(&tool);
+        let model = find("model").cloned();
+        let window_opt = find("context_window").cloned();
+        let model_name = model.as_ref().map(name_of);
+        let size = window_opt.as_ref().map(name_of);
+        let parts: Vec<String> = [Some(tool_name.clone()), model_name.clone(), size.clone()]
+            .into_iter()
+            .flatten()
+            .filter(|p| !p.is_empty())
+            .collect();
+        let sentence = parts.join(" · ");
+        let nothing = runner.is_none() && model.is_none() && window_opt.is_none();
+        let chip_label = h_flex()
+            .gap_1p5()
+            .child(crate::icons::ai_icon(&tool, px(14.), theme::muted()))
+            .child(sentence.clone())
+            .when(!nothing, |el| {
+                el.child(div().text_color(theme::faint()).child("▾"))
+            });
+        if nothing {
             row = row.child(
-                Button::new("opt-runner")
+                div()
+                    .px_2()
+                    .text_xs()
+                    .text_color(theme::muted())
+                    .child(chip_label),
+            );
+        } else {
+            let view = cx.entity().downgrade();
+            let lead = self.is_lead();
+            let account = runner
+                .as_ref()
+                .map(|r| r.account.clone())
+                .unwrap_or_default();
+            let tool_value = if account.is_empty() || account == "default" {
+                tool_name.clone()
+            } else {
+                format!("{tool_name} · {account}")
+            };
+            row = row.child(
+                Button::new("opt-setup")
                     .ghost()
                     .xsmall()
-                    .label(format!("{current} ▾"))
-                    .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
-                        let mut menu = menu.label(if lead {
-                            t("chat.runner.title")
-                        } else {
-                            t("chat.runner.titleAgent")
-                        });
-                        for runner in &runners {
-                            if !lead && runner.tool != tool {
-                                continue;
-                            }
-                            let accounts: Vec<String> = if runner.accounts.is_empty() {
-                                vec![String::new()]
-                            } else {
-                                runner.accounts.iter().map(|a| a.name.clone()).collect()
-                            };
-                            for acc in accounts {
-                                let on = runner.tool == tool && (acc == account || acc.is_empty());
-                                let label = format!(
-                                    "{}{}{}",
-                                    if on { "✓ " } else { "   " },
-                                    runner.name,
-                                    if acc.is_empty() {
-                                        String::new()
+                    .child(chip_label)
+                    .tooltip(tv("chat.setup.label", &[("setup", sentence.into())]))
+                    .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, window, cx| {
+                        let mut menu = menu.min_w(px(240.));
+                        if let Some(r) = &runner {
+                            let (view, r, tool) = (view.clone(), r.clone(), tool.clone());
+                            let account = account.clone();
+                            menu = menu.submenu(
+                                format!("{}: {tool_value}", t("chat.setup.tool")),
+                                window,
+                                cx,
+                                move |mut menu, _, _| {
+                                    menu = menu.label(if lead {
+                                        t("chat.runner.title")
                                     } else {
-                                        format!(" · {acc}")
+                                        t("chat.runner.titleAgent")
+                                    });
+                                    for runner in &r.runners {
+                                        if !lead && runner.tool != tool {
+                                            continue;
+                                        }
+                                        let accounts: Vec<String> = if runner.accounts.is_empty() {
+                                            vec![String::new()]
+                                        } else {
+                                            runner.accounts.iter().map(|a| a.name.clone()).collect()
+                                        };
+                                        for acc in accounts {
+                                            let on = runner.tool == tool
+                                                && (acc == account || acc.is_empty());
+                                            let label = format!(
+                                                "{}{}{}",
+                                                if on { "✓ " } else { "   " },
+                                                runner.name,
+                                                if acc.is_empty() {
+                                                    String::new()
+                                                } else {
+                                                    format!(" · {acc}")
+                                                }
+                                            );
+                                            let (view, tl, a) =
+                                                (view.clone(), runner.tool.clone(), acc.clone());
+                                            menu = menu.item(
+                                                PopupMenuItem::new(label)
+                                                    .disabled(!runner.ready && runner.installed)
+                                                    .on_click(move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            this.set_runner(
+                                                                tl.clone(),
+                                                                a.clone(),
+                                                                cx,
+                                                            )
+                                                        })
+                                                        .ok();
+                                                    }),
+                                            );
+                                        }
                                     }
-                                );
-                                let (view, tl, a) =
-                                    (view.clone(), runner.tool.clone(), acc.clone());
-                                menu = menu.item(
-                                    PopupMenuItem::new(label)
-                                        .disabled(!runner.ready && runner.installed)
-                                        .on_click(move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.set_runner(tl.clone(), a.clone(), cx)
-                                            })
-                                            .ok();
-                                        }),
-                                );
-                            }
+                                    menu
+                                },
+                            );
+                        } else {
+                            menu = menu.label(tool_name.clone());
+                        }
+                        for o in [&model, &window_opt].into_iter().flatten() {
+                            let current = o
+                                .choices
+                                .iter()
+                                .find(|c| c.value == o.value)
+                                .map(|c| c.name.clone())
+                                .unwrap_or_else(|| o.value.clone());
+                            let (view, o) = (view.clone(), o.clone());
+                            menu = menu.submenu(
+                                format!("{}: {current}", o.name),
+                                window,
+                                cx,
+                                move |mut menu, _, _| {
+                                    menu = menu.max_h(px(420.)).scrollable(true);
+                                    for c in &o.choices {
+                                        let on = c.value == o.value;
+                                        let (view, id, v) =
+                                            (view.clone(), o.id.clone(), c.value.clone());
+                                        menu = menu.item(
+                                            PopupMenuItem::new(format!(
+                                                "{}{}",
+                                                if on { "✓ " } else { "   " },
+                                                c.name
+                                            ))
+                                            .on_click(move |_, _, cx| {
+                                                if on {
+                                                    return;
+                                                }
+                                                view.update(cx, |this, cx| {
+                                                    this.set_option(id.clone(), v.clone(), cx)
+                                                })
+                                                .ok();
+                                            }),
+                                        );
+                                    }
+                                    menu
+                                },
+                            );
                         }
                         menu
                     }),
             );
-        }
-        if let Some(m) = find("model") {
-            row = row.child(self.option_button(m, name_of(m), cx));
-        }
-        if let Some(c) = find("context_window") {
-            row = row.child(self.option_button(c, name_of(c), cx));
         }
         if let Some(e) = find("thought_level") {
             let label = if e.value == "default" {
@@ -1381,6 +1906,49 @@ impl ChatView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if self.closed {
+            return h_flex()
+                .flex_none()
+                .mx_4()
+                .mb_4()
+                .px_3()
+                .py_2p5()
+                .gap_2()
+                .rounded_xl()
+                .border_1()
+                .border_color(theme::border())
+                .bg(theme::raised())
+                .child(super::btn(
+                    "closed-delete",
+                    t("common.delete"),
+                    false,
+                    false,
+                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatAction::DeleteClosed)),
+                ))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .text_color(theme::muted())
+                        .child(t("sessions.readOnly")),
+                )
+                .child(super::btn(
+                    "closed-reopen",
+                    t("sessions.reopen"),
+                    false,
+                    false,
+                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatAction::ReopenClosed)),
+                ))
+                .child(super::btn(
+                    "closed-continue",
+                    t("sessions.continue"),
+                    true,
+                    false,
+                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatAction::ContinueClosed)),
+                ))
+                .into_any_element();
+        }
         if self.past {
             return h_flex()
                 .flex_none()
@@ -1435,6 +2003,11 @@ impl ChatView {
         let working = self.working() || self.session.turn_started_at.is_some();
         let view = cx.entity();
         let above = self.render_above(cx);
+        if self.is_lead() && !self.composer.asked_mentions && self.loaded {
+            self.load_mentions(cx);
+        }
+        let target = self.render_target(cx);
+        let failed = self.render_failed(cx);
         let tasks = self.render_tasks(cx);
         let (tasks_chip, tasks_list) = match tasks {
             Some((c, l)) => (Some(c), l),
@@ -1456,7 +2029,9 @@ impl ChatView {
                         .py_0p5()
                         .text_xs()
                         .text_color(theme::faint())
-                        .child(if mention {
+                        .child(if token.starts_with('$') {
+                            t("chat.composer.skills")
+                        } else if mention {
                             t("chat.composer.mentions")
                         } else {
                             t("chat.composer.commands")
@@ -1597,6 +2172,7 @@ impl ChatView {
             .pb_3()
             .border_t_1()
             .border_color(theme::border())
+            .children(failed)
             .children(tasks_list)
             .children(menu_el)
             .children(above)
@@ -1678,6 +2254,7 @@ impl ChatView {
                                         this.pick_files(cx)
                                     })),
                             )
+                            .children(target)
                             .child(div().flex_1().min_w_0().child(self.render_options(cx)))
                             .children(tasks_chip)
                             .when(working, |el| {

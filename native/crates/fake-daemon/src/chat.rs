@@ -232,6 +232,11 @@ pub fn history(agent: &str, n: usize, answer: impl Fn(usize) -> String) -> Vec<C
                 }),
                 ..item(format!("{tid}-sch"), "notice", &tid, t(1))
             }),
+            _ if i + 2 == n => out.push(ChatItem {
+                text: "agent-02 finished.".into(),
+                finished: vec!["demo/agent-02".into()],
+                ..item(format!("{tid}-fin"), "notice", &tid, t(1))
+            }),
             _ if i % 8 == 0 => tools(&mut out),
             _ => {}
         }

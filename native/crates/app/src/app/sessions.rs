@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use agentbox_api::{
     LeadSession, LeadSessionFork, LeadSessionPatch, LeadSessionSnooze, NewLeadSessionRequest,
-    SeeLeadSessionRequest, SessionOutput,
+    SeeLeadSessionRequest, SessionAgent, SessionOutput,
 };
 use agentbox_i18n::{t, tv};
 use chrono::{Datelike as _, Duration as Days, Local, TimeZone as _, Timelike as _};
@@ -43,7 +43,64 @@ pub struct Sessions {
     rename: Entity<InputState>,
     /// The projects whose snoozed sessions are open under their row.
     pub snoozed_open: HashSet<String>,
+    /// A closed session read from History, its chat read-only.
+    pub reading: Option<(LeadSession, Entity<crate::chat::ChatView>, Subscription)>,
+    /// A closed session about to be deleted, once confirmed.
+    deleting: Option<LeadSession>,
+    /// The session header's Changes: its topic and every agent's diff.
+    changes: Option<(String, Vec<ChangesOf>)>,
     _sub: Subscription,
+}
+
+/// An agent of a session and its diff, as it's read.
+type ChangesOf = (
+    SessionAgent,
+    Option<Result<Entity<crate::diff::DiffView>, String>>,
+);
+
+/// A session's tab being dragged to another place among the tabs.
+#[derive(Clone)]
+pub struct DragSession {
+    project: String,
+    id: String,
+    topic: SharedString,
+}
+
+/// What follows the pointer while a tab is dragged: its topic.
+struct TabPreview(SharedString);
+
+impl Render for TabPreview {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2p5()
+            .py_1()
+            .rounded_md()
+            .bg(theme::raised())
+            .border_1()
+            .border_color(theme::accent())
+            .text_sm()
+            .text_color(theme::fg())
+            .child(self.0.clone())
+    }
+}
+
+/// move_tab is the sessions with id dragged to where to was (lib/sessions.ts
+/// moveTab), kept on its side of the pinned ones.
+fn move_tab(sessions: &[LeadSession], id: &str, to: &str) -> Vec<LeadSession> {
+    let mut sorted: Vec<LeadSession> = sessions.to_vec();
+    sorted.sort_by_key(|s| !s.pinned);
+    let (Some(from), Some(to)) = (
+        sorted.iter().position(|s| s.id == id),
+        sorted.iter().position(|s| s.id == to),
+    ) else {
+        return sorted;
+    };
+    let moved = sorted.remove(from);
+    // Rightwards it lands after the tab it's dropped on, leftwards before.
+    let at = to.min(sorted.len());
+    sorted.insert(at, moved);
+    sorted.sort_by_key(|s| !s.pinned);
+    sorted
 }
 
 fn millis(time: &str) -> i64 {
@@ -191,6 +248,9 @@ impl Sessions {
             renaming: None,
             rename,
             snoozed_open: HashSet::new(),
+            reading: None,
+            deleting: None,
+            changes: None,
             _sub: sub,
         }
     }
@@ -415,6 +475,7 @@ impl AppView {
     ) {
         self.sessions.choose(&project, &id);
         self.sessions.history = false;
+        self.sessions.reading = None;
         if self.project.as_deref() != Some(project.as_str()) {
             self.select_project(project, window, cx);
             return;
@@ -914,8 +975,24 @@ impl AppView {
             let s2 = s.clone();
             let view = cx.entity().downgrade();
             let (pinned, menu_s) = (s.pinned, s.clone());
+            let drag = DragSession {
+                project: project.clone(),
+                id: s.id.clone(),
+                topic: topic(s).into(),
+            };
+            let target = s.id.clone();
             h_flex()
                 .id(SharedString::from(format!("session-{}", s.id)))
+                .on_drag(drag, |d: &DragSession, _, _, cx| {
+                    let name = d.topic.clone();
+                    cx.new(|_| TabPreview(name))
+                })
+                .drag_over::<DragSession>(|st, _, _, _| {
+                    st.border_l_2().border_color(theme::accent())
+                })
+                .on_drop(cx.listener(move |this, d: &DragSession, _, cx| {
+                    this.reorder_session(&d.project, &d.id, &target, cx)
+                }))
                 .h_8()
                 .max_w(px(224.))
                 .flex_none()
@@ -1149,6 +1226,7 @@ impl AppView {
                         })
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.sessions.history = !this.sessions.history;
+                            this.sessions.reading = None;
                             if let Some(p) = this.project.clone() {
                                 this.load_sessions(p, cx);
                             }
@@ -1277,6 +1355,19 @@ impl AppView {
                                 })
                         })),
                 )
+                .when(!agents.is_empty(), |el| {
+                    let (topic, agents) = (topic(&s), agents.clone());
+                    el.child(
+                        Button::new("session-changes")
+                            .ghost()
+                            .xsmall()
+                            .label(t("sessions.header.changes"))
+                            .tooltip(t("sessions.header.changesHint"))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.open_changes(topic.clone(), agents.clone(), cx)
+                            })),
+                    )
+                })
                 .child(
                     Button::new("session-snooze")
                         .ghost()
@@ -1372,7 +1463,403 @@ impl AppView {
 
     /// render_history is History: the closed sessions, to reopen or to
     /// start a new session from.
+    /// reorder_session drops a tab where another was; the daemon keeps the
+    /// order, for every computer and the phone (PUT …/sessions/order).
+    fn reorder_session(&mut self, project: &str, id: &str, to: &str, cx: &mut Context<Self>) {
+        if id == to {
+            return;
+        }
+        let Some(list) = self.sessions.lists.get(project) else {
+            return;
+        };
+        let next = move_tab(list, id, to);
+        let ids: Vec<String> = next.iter().map(|s| s.id.clone()).collect();
+        self.sessions.lists.insert(project.to_string(), next);
+        let client = self.client.clone();
+        let project = project.to_string();
+        cx.spawn(async move |this, cx| {
+            let res = client
+                .raw(
+                    agentbox_api::client::Method::PUT,
+                    &format!("/v1/projects/{project}/sessions/order"),
+                    serde_json::to_vec(&serde_json::json!({ "ids": ids })).ok(),
+                )
+                .await;
+            this.update(cx, |this, cx| {
+                if let Err(e) = res {
+                    toasts::error(cx, e.to_string());
+                }
+                this.load_sessions(project, cx);
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// open_changes shows every agent's diff of a session in one view
+    /// (SessionChanges): a live agent's against its base, a retired one's
+    /// from its kept branch.
+    fn open_changes(&mut self, topic: String, agents: Vec<SessionAgent>, cx: &mut Context<Self>) {
+        self.sessions.changes = Some((topic, agents.iter().map(|a| (a.clone(), None)).collect()));
+        for a in agents {
+            let Some((p, name)) = a.r#ref.split_once('/') else {
+                continue;
+            };
+            let path = if a.archived {
+                format!("/v1/archived-agents/{p}/{name}/diff")
+            } else {
+                format!("/v1/agents/{p}/{name}/diff")
+            };
+            let client = self.client.clone();
+            let r#ref = a.r#ref.clone();
+            cx.spawn(async move |this, cx| {
+                let res = client
+                    .raw(agentbox_api::client::Method::GET, &path, None)
+                    .await;
+                this.update(cx, |this, cx| {
+                    let view = match res {
+                        Ok(b) => {
+                            let text = String::from_utf8_lossy(&b).into_owned();
+                            let id = format!("changes-{ref}", ref = r#ref.replace('/', "-"));
+                            Ok(cx.new(|cx| crate::diff::DiffView::text(&id, &text, cx)))
+                        }
+                        Err(e) => Err(e.to_string()),
+                    };
+                    if let Some((_, list)) = &mut this.sessions.changes
+                        && let Some(slot) = list.iter_mut().find(|(a, _)| a.r#ref == r#ref)
+                    {
+                        slot.1 = Some(view);
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    pub(super) fn render_session_changes(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (topic, list) = self.sessions.changes.as_ref()?;
+        let close = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.sessions.changes = None;
+            cx.notify();
+        });
+        Some(
+            div()
+                .id("session-changes")
+                .absolute()
+                .inset_0()
+                .bg(gpui::black().opacity(0.55))
+                .flex()
+                .items_center()
+                .justify_center()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.sessions.changes = None;
+                        cx.notify();
+                    }),
+                )
+                .child(
+                    v_flex()
+                        .w(px(1024.))
+                        .max_w(relative(0.94))
+                        .h(relative(0.88))
+                        .rounded_xl()
+                        .bg(theme::panel())
+                        .border_1()
+                        .border_color(theme::border())
+                        .overflow_hidden()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            h_flex()
+                                .flex_none()
+                                .px_6()
+                                .py_4()
+                                .gap_3()
+                                .border_b_1()
+                                .border_color(theme::border())
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .child(
+                                            div()
+                                                .text_lg()
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .text_color(theme::fg())
+                                                .child(tv(
+                                                    "sessions.header.changesTitle",
+                                                    &[("topic", topic.into())],
+                                                )),
+                                        )
+                                        .child(div().text_sm().text_color(theme::muted()).child(
+                                            tv(
+                                                "sessions.header.changesDescription",
+                                                &[("count", list.len().into())],
+                                            ),
+                                        )),
+                                )
+                                .child(controls::button(
+                                    "session-changes-close",
+                                    "✕",
+                                    Btn::Ghost,
+                                    false,
+                                    close,
+                                )),
+                        )
+                        .child(
+                            v_flex()
+                                .id("session-changes-list")
+                                .flex_1()
+                                .min_h_0()
+                                .overflow_y_scroll()
+                                .children(list.iter().map(|(a, view)| {
+                                    v_flex()
+                                        .border_b_1()
+                                        .border_color(theme::border())
+                                        .child(
+                                            h_flex()
+                                                .px_5()
+                                                .py_2p5()
+                                                .gap_2()
+                                                .border_b_1()
+                                                .border_color(theme::border().opacity(0.5))
+                                                .child(
+                                                    div()
+                                                        .min_w_0()
+                                                        .truncate()
+                                                        .text_sm()
+                                                        .font_weight(FontWeight::MEDIUM)
+                                                        .text_color(theme::fg())
+                                                        .child(if a.title.is_empty() {
+                                                            a.name.clone()
+                                                        } else {
+                                                            a.title.clone()
+                                                        }),
+                                                )
+                                                .when(!a.branch.is_empty(), |el| {
+                                                    el.child(
+                                                        div()
+                                                            .min_w_0()
+                                                            .truncate()
+                                                            .font_family(crate::theme::mono())
+                                                            .text_xs()
+                                                            .text_color(theme::faint())
+                                                            .child(format!("⎇ {}", a.branch)),
+                                                    )
+                                                })
+                                                .when_some(a.pr.as_ref(), |el, pr| {
+                                                    el.child(super::work::pr_chip(pr))
+                                                })
+                                                .when(a.archived, |el| {
+                                                    el.child(
+                                                        div()
+                                                            .text_xs()
+                                                            .text_color(theme::faint())
+                                                            .child(t("sessions.header.retired")),
+                                                    )
+                                                }),
+                                        )
+                                        .child(match view {
+                                            None => div()
+                                                .p_4()
+                                                .text_sm()
+                                                .text_color(theme::faint())
+                                                .child(t("common.loading"))
+                                                .into_any_element(),
+                                            Some(Err(e)) => div()
+                                                .p_4()
+                                                .text_sm()
+                                                .text_color(theme::error())
+                                                .child(e.clone())
+                                                .into_any_element(),
+                                            Some(Ok(d)) => div()
+                                                .h(px(520.))
+                                                .child(d.clone())
+                                                .into_any_element(),
+                                        })
+                                })),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// read_closed opens a closed session's conversation, read-only.
+    fn read_closed(&mut self, s: LeadSession, window: &mut Window, cx: &mut Context<Self>) {
+        let project = s.project.clone();
+        let client = self.client.clone();
+        let chat = cx.new(|cx| {
+            let mut c = crate::chat::ChatView::new(
+                client,
+                format!("/v1/projects/{project}/sessions/{}", s.id),
+                s.r#ref.clone(),
+                topic(&s).into(),
+                window,
+                cx,
+            );
+            c.header = false;
+            c.closed = true;
+            c
+        });
+        let (p, id) = (project.clone(), s.id.clone());
+        let sub = cx.subscribe_in(
+            &chat,
+            window,
+            move |this: &mut Self, _, ev: &crate::chat::ChatAction, window, cx| match ev {
+                crate::chat::ChatAction::ContinueClosed => {
+                    this.sessions.reading = None;
+                    this.new_session(
+                        NewLeadSessionRequest {
+                            continue_from: id.clone(),
+                            ..Default::default()
+                        },
+                        None,
+                        window,
+                        cx,
+                    )
+                }
+                crate::chat::ChatAction::ReopenClosed => {
+                    this.sessions.reading = None;
+                    this.reopen_session(p.clone(), id.clone(), window, cx)
+                }
+                crate::chat::ChatAction::DeleteClosed => {
+                    this.sessions.deleting =
+                        this.sessions.reading.as_ref().map(|(s, ..)| s.clone());
+                    cx.notify();
+                }
+                _ => {}
+            },
+        );
+        self.sessions.reading = Some((s, chat, sub));
+        cx.notify();
+    }
+
+    /// delete_closed deletes a closed session for good (DELETE …/sessions/<id>).
+    fn delete_closed(&mut self, s: LeadSession, cx: &mut Context<Self>) {
+        self.sessions.deleting = None;
+        self.sessions.reading = None;
+        if let Some(list) = self.sessions.closed.get_mut(&s.project) {
+            list.retain(|x| x.id != s.id);
+        }
+        let client = self.client.clone();
+        let path = format!("/v1/projects/{}/sessions/{}", s.project, s.id);
+        cx.spawn(async move |this, cx| {
+            let res = client
+                .raw(agentbox_api::client::Method::DELETE, &path, None)
+                .await;
+            this.update(cx, |this, cx| {
+                match res {
+                    Ok(_) => Toast::new(
+                        Kind::Success,
+                        tv("sessions.deleted", &[("topic", topic(&s).into())]),
+                    )
+                    .show(cx),
+                    Err(e) => toasts::error(cx, e.to_string()),
+                }
+                this.load_sessions(s.project.clone(), cx);
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn render_reading(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (s, chat, _) = self.sessions.reading.as_ref()?;
+        let meta = [
+            s.closed_at
+                .as_deref()
+                .map(|c| tv("sessions.closedAgo", &[("when", time_ago(c).into())])),
+            (s.agents > 0).then(|| tv("sessions.agentCount", &[("count", s.agents.into())])),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
+        let deleting = self.sessions.deleting.clone().map(|d| {
+            let d2 = d.clone();
+            super::agent::modal(
+                "session-delete",
+                tv("sessions.deleteTitle", &[("topic", topic(&d).into())]),
+                Some(t("sessions.deleteDescription")),
+                Vec::new(),
+                {
+                    let me = cx.entity().downgrade();
+                    std::rc::Rc::new(move |_, cx: &mut App| {
+                        me.update(cx, |this, cx| {
+                            this.sessions.deleting = None;
+                            cx.notify();
+                        })
+                        .ok();
+                    })
+                },
+                t("common.delete"),
+                true,
+                false,
+                cx.listener(move |this, _: &ClickEvent, _, cx| this.delete_closed(d2.clone(), cx)),
+            )
+        });
+        Some(
+            v_flex()
+                .relative()
+                .size_full()
+                .child(
+                    h_flex()
+                        .flex_none()
+                        .px_6()
+                        .pt_4()
+                        .pb_3()
+                        .gap_3()
+                        .child(controls::button(
+                            "history-reading-back",
+                            format!("← {}", t("sessions.backToHistory")),
+                            Btn::Ghost,
+                            false,
+                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.sessions.reading = None;
+                                cx.notify();
+                            }),
+                        ))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_lg()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(theme::fg())
+                                        .child(topic(s)),
+                                )
+                                .child(div().text_xs().text_color(theme::faint()).child(meta)),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .mx_6()
+                        .mb_6()
+                        .rounded_xl()
+                        .border_1()
+                        .border_color(theme::border())
+                        .overflow_hidden()
+                        .child(chat.clone()),
+                )
+                .children(deleting)
+                .into_any_element(),
+        )
+    }
+
     pub(super) fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
+        if let Some(r) = self.render_reading(cx) {
+            return r;
+        }
         let project = self.project.clone().unwrap_or_default();
         let closed = self
             .sessions
@@ -1416,7 +1903,14 @@ impl AppView {
             .children(closed.into_iter().map(|s| {
                 let (p1, id1) = (project.clone(), s.id.clone());
                 let id2 = s.id.clone();
+                let read = s.clone();
                 h_flex()
+                    .id(SharedString::from(format!("history-row-{}", s.id)))
+                    .cursor_pointer()
+                    .hover(|el| el.bg(theme::hover()))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.read_closed(read.clone(), window, cx)
+                    }))
                     .gap_3()
                     .px_4()
                     .py_3()

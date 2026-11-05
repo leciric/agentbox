@@ -522,6 +522,7 @@ impl AppView {
         self.work = None;
         self.side.page = None;
         self.sessions.history = false;
+        self.sessions.reading = None;
         self.load_sessions(name.clone(), cx);
         self.project = Some(name);
         self.fleet.clear();
@@ -689,6 +690,19 @@ impl AppView {
             ChatAction::DeletePast => {
                 self.past.deleting = true;
                 cx.notify();
+            }
+            // Only the closed session's own view (History) emits these.
+            ChatAction::ContinueClosed | ChatAction::ReopenClosed | ChatAction::DeleteClosed => {}
+            ChatAction::OpenReview(item) => {
+                // Waiting for a verdict while it finished and has none
+                // (lib/work.ts awaitingReview).
+                let waiting = !item.fingerprint.is_empty() && item.verdict.is_empty();
+                let w = agentbox_api::WorkItem {
+                    status: if waiting { "review" } else { "reviewed" }.into(),
+                    item: *item,
+                    ..Default::default()
+                };
+                self.open_review(w, Vec::new(), window, cx)
             }
             ChatAction::Wake => {
                 if let Some(a) = self.open_agent() {
@@ -1079,8 +1093,14 @@ impl Render for AppView {
             .children(self.render_onboarding(cx))
             .children(self.render_usage_sent(cx))
             .children(self.render_sidebar_dialog(cx))
+            .children(self.render_session_changes(cx))
             .children(self.render_search(cx))
             .child(self.toasts.clone())
             .child(crate::webview::pages_end())
     }
+}
+
+/// pr_chip_for is a pull request as a small pill, for views outside app/.
+pub(crate) fn pr_chip_for(pr: &agentbox_api::PullRequest) -> AnyElement {
+    work::pr_chip(pr)
 }

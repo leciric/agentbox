@@ -1281,41 +1281,8 @@ impl ChatView {
             return self.render_agent_permission(it, ap, view);
         }
         if !it.finished.is_empty() {
-            // An agent's finish, as its card (EvidenceCard): who finished,
-            // with the way to it.
-            return v_flex()
-                .mb_4()
-                .gap_2()
-                .children(it.finished.iter().map(|r| {
-                    let (v, r2) = (view.clone(), r.clone());
-                    card(theme::running()).child(
-                        h_flex()
-                            .gap_2()
-                            .child(div().text_color(theme::running()).child("✓"))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
-                                    .child(tv(
-                                        "evidence.finished",
-                                        &[("agent", r.split('/').nth(1).unwrap_or(r).into())],
-                                    )),
-                            )
-                            .child(
-                                link(
-                                    SharedString::from(format!("fin-{}-{r}", it.id)),
-                                    t("chat.agentPermission.open"),
-                                )
-                                .on_click(move |_, _, cx| {
-                                    v.update(cx, |_, cx| cx.emit(ChatAction::OpenAgent(r2.clone())))
-                                }),
-                            ),
-                    )
-                }))
-                .into_any_element();
+            // An agent's finish, as its card (EvidenceCard).
+            return self.render_finished(&it.id, &it.finished, view);
         }
         if it.kind == "error" {
             return div()

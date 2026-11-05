@@ -838,6 +838,24 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             fake.notes.lock().unwrap().retain(|(who, n)| !(*who == a && n.id == id));
             json(StatusCode::OK, &serde_json::json!({}))
         }
+        (&Method::GET, ["v1", "skills"]) | (&Method::GET, ["v1", "projects", _, "skills"]) => {
+            let skill = |name: &str, description: &str| Skill {
+                name: name.into(),
+                description: description.into(),
+                enabled: true,
+                active: Some(true),
+                user_invocable: true,
+                ..Default::default()
+            };
+            json(
+                StatusCode::OK,
+                &vec![
+                    skill("review-pr", "Review a pull request and leave comments"),
+                    skill("write-tests", "Write the missing tests for a change"),
+                    skill("release-notes", "Draft the release notes from merged PRs"),
+                ],
+            )
+        }
         (&Method::GET, ["v1", "projects", p, "artifacts"]) if fake.is_fake(p) => json(
             StatusCode::OK,
             &Artifacts {
