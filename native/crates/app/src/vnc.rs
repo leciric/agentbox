@@ -109,7 +109,7 @@ impl VncView {
                 };
                 client.spawn(run(stream, fb.clone(), input_rx, frame_tx));
                 this.update(cx, |v, cx| {
-                    v.status = Some("Connecting to the desktop…".into());
+                    v.status = Some(agentbox_i18n::t("device.connecting").into());
                     cx.notify();
                 })
                 .ok();
@@ -159,7 +159,7 @@ impl VncView {
             image: None,
             stale: Vec::new(),
             size: (0, 0),
-            status: Some("Opening the desktop…".into()),
+            status: Some(agentbox_i18n::t("device.connecting").into()),
             input: Some(input_tx),
             shown: Arc::default(),
             buttons: 0,

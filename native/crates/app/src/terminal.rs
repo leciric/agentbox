@@ -83,7 +83,7 @@ impl TerminalView {
             size,
             bounds: Rc::default(),
             cell_width: None,
-            status: Some("Connecting…".into()),
+            status: Some(agentbox_i18n::t("device.connecting").into()),
             focus: cx.focus_handle(),
             _task: None,
         };

@@ -10,6 +10,22 @@ use gpui_component::text::TextView;
 use gpui_component::{h_flex, v_flex};
 
 use crate::{bench, theme};
+use agentbox_i18n::{t, tv};
+
+/// session_line is what the chat's header says of its session (chat.status.*).
+fn session_line(s: &ChatSession) -> String {
+    let key = format!("chat.status.{}", s.state);
+    if s.state.is_empty() || !agentbox_i18n::has(&key) {
+        return String::new();
+    }
+    let tool = match s.tool.as_str() {
+        "claude" => "Claude Code",
+        "codex" => "Codex",
+        "opencode" => "OpenCode",
+        other => other,
+    };
+    tv(&key, &[("tool", tool.into())])
+}
 
 /// How many messages the first page holds, as the Electron app asks.
 const PAGE: usize = 200;
@@ -43,7 +59,8 @@ impl ChatView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Message…"));
+        let input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t("chat.composer.placeholder")));
         let sub = cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
             if let InputEvent::PressEnter { .. } = ev {
                 this.send(window, cx);
@@ -323,19 +340,9 @@ impl Render for ChatView {
                             } else {
                                 theme::faint()
                             })
-                            .child(match self.session.state.as_str() {
-                                "running" => "working…".to_string(),
-                                "" => String::new(),
-                                s => s.to_string(),
-                            }),
+                            .child(session_line(&self.session)),
                     )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .child(format!("{} messages", self.items.len())),
-                    ),
+                    .child(div().flex_1()),
             )
             .child(
                 div()

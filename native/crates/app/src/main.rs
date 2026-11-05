@@ -66,3 +66,42 @@ fn main() {
         cx.activate(true);
     });
 }
+
+#[cfg(test)]
+mod tests {
+    /// Every key the app asks for by name is in the catalogs (a typo would
+    /// show the key on screen).
+    #[::core::prelude::v1::test]
+    fn every_key_is_in_the_catalogs() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut checked = 0;
+        for f in std::fs::read_dir(dir).unwrap() {
+            let src = std::fs::read_to_string(f.unwrap().path()).unwrap();
+            for call in ["t(\"", "tv(\""] {
+                let mut parts = src.split(call);
+                let mut before = parts.next().unwrap_or("");
+                for part in parts {
+                    // t( itself, not the end of expect( or format(.
+                    let word = before
+                        .chars()
+                        .last()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_');
+                    before = part;
+                    if word {
+                        continue;
+                    }
+                    let key = &part[..part.find('"').unwrap()];
+                    if key.contains('{') {
+                        continue;
+                    }
+                    assert!(
+                        agentbox_i18n::has(key),
+                        "{key} isn't in desktop/src/shared/i18n/en-US.ts"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 5);
+    }
+}

@@ -30,3 +30,4 @@ raw-window-handle = "0.6"
 gtk = "0.18"
 alacritty_terminal = "0.26"
 vnc-rs = "0.6"
+agentbox-i18n.workspace = true

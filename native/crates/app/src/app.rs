@@ -22,6 +22,17 @@ enum Tab {
     Desktop,
 }
 use crate::{bench, theme};
+use agentbox_i18n::t;
+
+/// state_label is an agent's state in the user's language (agent.state.*).
+fn state_label(state: &str) -> String {
+    let key = format!("agent.state.{state}");
+    if agentbox_i18n::has(&key) {
+        t(&key)
+    } else {
+        state.to_string()
+    }
+}
 
 pub struct AppView {
     client: Client,
@@ -60,6 +71,7 @@ impl AppView {
             tab: Tab::Chat,
             _events: events,
         };
+        this.load_settings(window, cx);
         this.load_projects(window, cx);
         if let Ok(secs) =
             std::env::var("AGENTBOX_NATIVE_SCROLL_BENCH").map(|s| s.parse::<u64>().unwrap_or(3))
@@ -98,6 +110,7 @@ impl AppView {
         let Some(ev) = msg else {
             // (Re)connected: whatever happened meanwhile is in a fresh read.
             self.connected = true;
+            self.load_settings(window, cx);
             self.load_projects(window, cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
@@ -147,6 +160,23 @@ impl AppView {
         }
     }
 
+    /// load_settings takes the language the user picked (Settings.language),
+    /// unless AGENTBOX_NATIVE_LANG overrides it.
+    fn load_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Ok(lang) = std::env::var("AGENTBOX_NATIVE_LANG") {
+            agentbox_i18n::set_language(&lang);
+            return;
+        }
+        let client = self.client.clone();
+        cx.spawn_in(window, async move |_, cx| {
+            if let Ok(s) = client.get::<agentbox_api::Settings>("/v1/settings").await {
+                agentbox_i18n::set_language(&s.language);
+                cx.update(|window, _| window.refresh()).ok();
+            }
+        })
+        .detach();
+    }
+
     fn load_projects(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let client = self.client.clone();
         cx.spawn_in(_window, async move |this, cx| {
@@ -163,7 +193,7 @@ impl AppView {
                             this.select_project(first, window, cx);
                         }
                     }
-                    Err(e) => this.error = Some(format!("Can't reach the daemon: {e}").into()),
+                    Err(e) => this.error = Some(e.to_string().into()),
                 }
                 cx.notify();
             })
@@ -287,7 +317,7 @@ impl AppView {
                     .pb_1()
                     .text_xs()
                     .text_color(theme::faint())
-                    .child("PROJECTS"),
+                    .child(t("shell.sidebar.projects").to_uppercase()),
             )
             .children(self.projects.iter().map(|p| {
                 let selected = self.project.as_deref() == Some(p.name.as_str());
@@ -365,12 +395,17 @@ impl AppView {
             .child(div().size_2().rounded_full().bg(theme::accent()))
             .child(
                 v_flex()
-                    .child(div().text_sm().text_color(theme::fg()).child("Lead"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme::fg())
+                            .child(t("v2.header.lead")),
+                    )
                     .child(
                         div()
                             .text_xs()
                             .text_color(theme::faint())
-                            .child("The project's chat"),
+                            .child(t("v2.header.openLead")),
                     ),
             );
         v_flex()
@@ -389,7 +424,7 @@ impl AppView {
                             .text_sm()
                             .text_color(theme::fg())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Agents"),
+                            .child(t("shell.home.agents")),
                     )
                     .child(div().flex_1())
                     .child(
@@ -433,7 +468,7 @@ impl AppView {
                                             div()
                                                 .text_xs()
                                                 .text_color(theme::starting())
-                                                .child("working"),
+                                                .child(t("chat.subagent.working")),
                                         )
                                     }),
                             )
@@ -448,7 +483,7 @@ impl AppView {
                                 div()
                                     .text_xs()
                                     .text_color(theme::faint())
-                                    .child(a.state.clone()),
+                                    .child(state_label(&a.state)),
                             ),
                     )
             }))
@@ -461,7 +496,7 @@ impl AppView {
 impl AppView {
     /// render_tabs is an agent's Chat | Terminal switch.
     fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let tab = |id: &'static str, label: &'static str, on: bool| {
+        let tab = |id: &'static str, label: String, on: bool| {
             div()
                 .id(id)
                 .px_3()
@@ -483,7 +518,7 @@ impl AppView {
             .border_b_1()
             .border_color(theme::border())
             .child(
-                tab("tab-chat", "Chat", self.tab == Tab::Chat).on_click(cx.listener(
+                tab("tab-chat", t("agent.tab.chat"), self.tab == Tab::Chat).on_click(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.tab = Tab::Chat;
                         cx.notify();
@@ -491,18 +526,24 @@ impl AppView {
                 )),
             )
             .child(
-                tab("tab-terminal", "Terminal", self.tab == Tab::Terminal).on_click(cx.listener(
-                    |this, _: &ClickEvent, window, cx| {
-                        this.show_terminal(window, cx);
-                    },
-                )),
+                tab(
+                    "tab-terminal",
+                    t("agent.tab.terminal"),
+                    self.tab == Tab::Terminal,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.show_terminal(window, cx);
+                })),
             )
             .child(
-                tab("tab-desktop", "Desktop", self.tab == Tab::Desktop).on_click(cx.listener(
-                    |this, _: &ClickEvent, window, cx| {
-                        this.show_desktop(window, cx);
-                    },
-                )),
+                tab(
+                    "tab-desktop",
+                    t("agent.tab.desktop"),
+                    self.tab == Tab::Desktop,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.show_desktop(window, cx);
+                })),
             )
     }
 
@@ -569,10 +610,8 @@ impl Render for AppView {
                         .items_center()
                         .justify_center()
                         .text_color(theme::faint())
-                        .child(if self.projects.is_empty() {
-                            "No projects yet"
-                        } else {
-                            "Pick a project"
+                        .when(self.projects.is_empty(), |el| {
+                            el.child(t("shell.sidebar.addFirst"))
                         })
                         .into_any_element(),
                 }),

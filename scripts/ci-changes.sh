@@ -45,9 +45,9 @@ mobile=false
 if has '^(mobile/|desktop/src/shared/(api\.ts|i18n/)|mise\.toml$)'; then mobile=true; fi
 
 # The native app (native/, Rust): Linux only, as macOS and Windows aren't
-# built for it yet.
+# built for it yet. Its build compiles in the desktop's text catalogs.
 native=false
-if has '^native/'; then native=true; fi
+if has '^(native/|desktop/src/shared/i18n/)'; then native=true; fi
 
 # The hub's npm packages (npx agentbox-hub): its Go, the protocol it imports,
 # its launcher and build script, and the toolchain that builds them. Its Go

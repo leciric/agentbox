@@ -126,10 +126,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentbox-i18n"
+version = "0.0.0"
+
+[[package]]
 name = "agentbox-native"
 version = "0.0.0"
 dependencies = [
  "agentbox-api",
+ "agentbox-i18n",
  "alacritty_terminal",
  "anyhow",
  "ffmpeg-next",
