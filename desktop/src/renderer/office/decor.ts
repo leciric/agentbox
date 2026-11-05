@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { bake } from './figures.ts';
 import type { Box, Layout } from './layout.ts';
+import { piece } from './furniture.ts';
 import { furnish } from './props.ts';
 
 export const PALETTE = {
@@ -391,10 +392,18 @@ export function diorama(l: Layout, sign: string): Diorama {
   put(keep(new THREE.CylinderGeometry(0.04, 0.035, 0.09, 14)), m('#fbfaf7', { roughness: 0.3 }), ltx + 0.35, 0.475, ltz + 0.1);
   put(keep(new THREE.CylinderGeometry(0.04, 0.035, 0.09, 14)), m('#ff7aa2', { roughness: 0.3 }), ltx + 0.15, 0.475, ltz - 0.15);
   put(rbox(0.32, 0.04, 0.24, 0.01), m('#2f5a4c', { roughness: 0.7 }), ltx - 0.35, 0.45, ltz, [0, 0.3, 0]);
-  // A floor lamp at its right end, warm.
-  put(keep(new THREE.CylinderGeometry(0.015, 0.015, 1.5, 8)), m('#3b3f46'), sf.x1 + 0.3, 0.75, sf.z1 + 0.9);
-  put(keep(new THREE.CylinderGeometry(0.16, 0.18, 0.02, 20)), m('#3b3f46'), sf.x1 + 0.3, 0.01, sf.z1 + 0.9);
-  put(keep(new THREE.ConeGeometry(0.22, 0.26, 20, 1, true)), m('#fff1d6', { emissive: '#ffd59a', emissiveIntensity: 0.6, side: THREE.DoubleSide }), sf.x1 + 0.3, 1.55, sf.z1 + 0.9);
+  // A floor lamp at its right end, warm: Kenney's, when it's there.
+  const lamp = piece('lampRoundFloor');
+  if (lamp) {
+    lamp.position.set(sf.x1 + 0.3, 0, sf.z1 + 0.9);
+    lamp.rotation.y = -Math.PI / 2;
+    g.add(lamp);
+    lamp.traverse((o) => (o as THREE.Mesh).isMesh && parts.push(o as THREE.Mesh));
+  } else {
+    put(keep(new THREE.CylinderGeometry(0.015, 0.015, 1.5, 8)), m('#3b3f46'), sf.x1 + 0.3, 0.75, sf.z1 + 0.9);
+    put(keep(new THREE.CylinderGeometry(0.16, 0.18, 0.02, 20)), m('#3b3f46'), sf.x1 + 0.3, 0.01, sf.z1 + 0.9);
+    put(keep(new THREE.ConeGeometry(0.22, 0.26, 20, 1, true)), m('#fff1d6', { emissive: '#ffd59a', emissiveIntensity: 0.6, side: THREE.DoubleSide }), sf.x1 + 0.3, 1.55, sf.z1 + 0.9);
+  }
 
   // A tall bookshelf against the left wall, at the front.
   const sh = l.shelf;

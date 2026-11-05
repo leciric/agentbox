@@ -3,7 +3,7 @@
 // its data, read from the queries the rest of the app keeps live, and the
 // overlay around the canvas: who needs you, the desk you're at, the controls.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, ChevronDown, ClipboardList, ChevronUp, Eye, Flag, GitPullRequest, Keyboard, LoaderCircle, MessageSquare, Mouse, Scan, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronRight, ClipboardList, ChevronUp, Eye, Flag, GitPullRequest, Keyboard, LoaderCircle, MessageSquare, Mouse, Scan, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -112,6 +112,8 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const scene = useRef<OfficeScene | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'unsupported'>('loading');
   const [near, setNear] = useState<string | undefined>();
+  // Which room the camera's in (none: the campus), and whether at its overview.
+  const [view, setView] = useState<{ project?: string; floor: number; floors: number; overview: boolean }>({ floor: 1, floors: 1, overview: true });
   const [hover, setHover] = useState<string | undefined>();
   const [hint, setHint] = useState(() => {
     try {
@@ -188,9 +190,11 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
 
   const boardScreen = useMemo((): BoardScreen => {
     const col = (items: BoardItem[], head: string, empty: string) => ({
-      head: `${head} · ${items.length}`,
+      // Its count is added where it's drawn (textures.ts): each room's board
+      // shows its own.
+      head,
       empty,
-      items: items.slice(0, 12).map((i) => ({ ref: i.ref, title: i.title, sub: subOf(i), tone: i.tone, failing: i.pr?.checks === 'failing' })),
+      items: items.map((i) => ({ ref: i.ref, title: i.title, sub: subOf(i), tone: i.tone, failing: i.pr?.checks === 'failing' })),
     });
     const label = (project: string) => office.model.areas.find((a) => a.project === project)?.label ?? project;
     const subOf = (i: BoardItem) =>
@@ -277,6 +281,8 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             moreLabelShort: (n) => t('office.moreShort', { count: n }),
             leadWord: t('office.lead.word'),
             onNear: setNear,
+            onView: setView,
+            floorLabel: (name, floor) => t('office.floor', { name, floor }),
             onHover: setHover,
             onActivate: (ref) => activate.current(ref),
             onNext: () => next.current(),
@@ -406,6 +412,16 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start gap-2 p-3">
         <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md" data-office-summary data-office-review={review.map((i) => i.ref).join(",")}>
           <span className="text-[13px] font-semibold text-slate-900">{t('office.title')}</span>
+          {/* In a room: its name, which goes back out to all of them. */}
+          {view.project && (
+            <button type="button" className="-my-1 flex items-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1 font-medium text-slate-700 transition hover:bg-black/5" onClick={() => scene.current?.campus()} title={t('office.campus')} data-office-room={view.project}>
+              <ChevronRight className="size-3.5 text-slate-400" />
+              {(() => {
+                const name = office.model.areas.find((a) => a.project === view.project)?.label ?? view.project;
+                return view.floors > 1 ? t('office.floor', { name, floor: view.floor }) : name;
+              })()}
+            </button>
+          )}
           {needs.length > 0 && near !== 'board' ? (
             // The count opens and folds the list of who needs you.
             <button
@@ -426,7 +442,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           <Count dot="bg-emerald-400" n={review.length} label={t('office.count.review', { count: review.length })} onClick={review.length > 0 && near !== 'board' ? () => openList('review') : undefined} open={listOpen && listKind === 'review'} />
         </div>
         <span className="flex-1" />
-        {near !== 'board' && (
+        {near !== 'board' && view.project && (
           <button
             type="button"
             className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
@@ -437,15 +453,18 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             {t('office.toBoard')}
           </button>
         )}
-        <button
-          type="button"
-          className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
-          onClick={() => scene.current?.overview()}
-          data-office-overview
-        >
-          <Scan className="size-3.5" />
-          {t('office.overview')}
-        </button>
+        {/* A step back: to the room's overview, from there to all the rooms. */}
+        {(view.project || !view.overview) && (
+          <button
+            type="button"
+            className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
+            onClick={() => scene.current?.overview()}
+            data-office-overview
+          >
+            <Scan className="size-3.5" />
+            {view.project && view.overview ? t('office.campus') : t('office.overview')}
+          </button>
+        )}
       </div>
 
       {/* Who needs you, each a walk away: open while there's room for it,

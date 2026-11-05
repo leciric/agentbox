@@ -4901,6 +4901,8 @@ export const ptBR: Messages = {
   'office.here': '{count, plural, one {# aqui} other {# aqui}}',
   'office.moreShort': '+{count} aqui',
   'office.clickToWalk': 'Clique para ir até {title}',
+  'office.campus': 'Todos os projetos',
+  'office.floor': '{name} · andar {floor}',
   'office.list.working': 'Trabalhando',
   'office.legend.needs': 'Precisa de você',
   'office.legend.working': 'Trabalhando',

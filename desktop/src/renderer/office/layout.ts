@@ -1,9 +1,10 @@
 // Where everything in the Office goes, in metres on the floor: x to the right,
-// z towards the camera, the back wall at z = 0. One area per project, a rug
-// with its agents' desks in rows and its lead's front desk at the front; the
-// wall board on the back wall, with an aisle before it; a lobby at the front,
-// where you start, with a sofa to hang out on. Pure, so it has tests, and the
-// scene (scene.ts) only draws what this says.
+// z towards the camera. The Office is a campus of rooms (campus, below), each
+// project's its own small diorama, or a few floors of it for a big one: a
+// room (roomLayout) is its project's zone of pods on terrazzo, its lead's
+// counter at the front, the board on the back wall, and its commons on the
+// wood side. Pure, so it has tests, and the scene (scene.ts) only draws what
+// this says.
 import type { OfficeModel } from './model.ts';
 
 export type Box = { x0: number; z0: number; x1: number; z1: number };
@@ -24,8 +25,9 @@ export type DeskPlace = {
 export type AreaPlace = {
   project: string;
   rug: Box;
-  // The lead's counter, its centre, and where you stand before it.
-  lead: { x: number; z: number; spot: Spot };
+  // The lead's counter, its centre, and where you stand before it; on its
+  // project's first floor only.
+  lead?: { x: number; z: number; spot: Spot };
   desks: DeskPlace[];
   // Its pods' rugs: a pod is up to four desks, two by two.
   pods: Box[];
@@ -72,7 +74,7 @@ const POD = 2;
 const POD_SPAN = 2 * DESK.w + 2.4;
 // Pod to pod across a row, and row to row; every other row is staggered by
 // half a pod, so the pods read as islands rather than a classroom's rows.
-const POD_PX = 5.0;
+const POD_PX = 4.4;
 const POD_PZ = 3.2;
 const STAGGER = POD_PX / 2;
 const FIRST = 1.5; // from an area's back to its first pods' desks
@@ -91,11 +93,11 @@ const MIN_WORK_W = 11;
 // open corner: areas wrap onto a new row at whatever width comes closest.
 const ASPECT = 2.2;
 
-// columns is how many pods an area puts side by side: a wide block, about
-// twice as many across as deep, so the room stays wide and shallow.
+// columns is how many pods an area puts side by side: a block a little wider
+// than deep, so its room stays the target's size.
 export function columns(pods: number): number {
   if (pods <= 1) return 1;
-  const rows = Math.max(1, Math.round(Math.sqrt(pods / 2)));
+  const rows = Math.max(1, Math.round(Math.sqrt(pods / 1.5)));
   return Math.ceil(pods / rows);
 }
 
@@ -105,7 +107,11 @@ const box = (x: number, z: number, w: number, d: number): Box => ({ x0: x - w / 
 // layout places a model's areas. It depends only on how many desks each area
 // has and their order, so a desk's place changes only when an agent before it
 // in its project comes or goes.
-export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
+// An area as a room lays it out: a floor of a project past the first has no
+// lead (its counter is on the first).
+type AreaIn = Pick<OfficeModel, 'areas'>['areas'][number] & { noLead?: boolean };
+
+export function roomLayout(model: { areas: AreaIn[] }): Layout {
   // Each area's size, then rows of areas, left to right.
   // Desks sit in pods of up to four, two by two, with floor between the
   // pods; an area is a block of its pods, its lead at the front.
@@ -202,7 +208,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
   }
   // Below the last row, when the room is deeper than its areas.
   if (rows.length === 0) free.push({ x0: 1.0, z0: BACK_AISLE + 0.6, x1: WALL_PAD + innerW + 0.6, z1: roomD - 0.5, low: true });
-  function placeArea(i: number, a: Pick<OfficeModel, 'areas'>['areas'][number], s: (typeof sizes)[number], rug: Box) {
+  function placeArea(i: number, a: AreaIn, s: (typeof sizes)[number], rug: Box) {
     const z = rug.z0;
     const depth = rug.z1 - rug.z0;
     const cx = (rug.x0 + rug.x1) / 2;
@@ -233,16 +239,21 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Layout {
     // Either side of it, between the pods and the rug's front: floor to
     // furnish, clear of the counter's spot.
     const podsFront = pods.reduce((m, p) => Math.max(m, p.z1), z);
+    const hasLead = !a.noLead;
     if (rug.z1 - 0.15 - (podsFront + 0.3) > 1.8) {
-      const sides = [
-        { x0: rug.x0 + 0.8, x1: cx - COUNTER.w / 2 - 2.4 },
-        { x0: cx + COUNTER.w / 2 + 0.9, x1: rug.x1 - 0.8 },
-      ];
+      const sides = hasLead
+        ? [
+            { x0: rug.x0 + 0.8, x1: cx - COUNTER.w / 2 - 2.4 },
+            { x0: cx + COUNTER.w / 2 + 0.9, x1: rug.x1 - 0.8 },
+          ]
+        : [{ x0: rug.x0 + 0.8, x1: rug.x1 - 0.8 }];
       for (const sd of sides) if (sd.x1 - sd.x0 > 2.4) free.push({ x0: sd.x0, z0: podsFront + 0.3, x1: sd.x1, z1: rug.z1 - 0.15, low: true });
     }
-    obstacles.push(box(cx, lz, COUNTER.w, COUNTER.d));
-    obstacles.push(box(cx, lz - 0.75, 0.7, 0.6));
-    areas[i] = { project: a.project, rug, pods, lead: { x: cx, z: lz, spot: { x: cx - 1.65, z: lz + 0.55, face: Math.PI / 2 } }, desks, sign: { x: cx, z } };
+    if (hasLead) {
+      obstacles.push(box(cx, lz, COUNTER.w, COUNTER.d));
+      obstacles.push(box(cx, lz - 0.75, 0.7, 0.6));
+    }
+    areas[i] = { project: a.project, rug, pods, lead: hasLead ? { x: cx, z: lz, spot: { x: cx - 1.65, z: lz + 0.55, face: Math.PI / 2 } } : undefined, desks, sign: { x: cx, z } };
     // The sign's posts, at the rug's back edge.
     obstacles.push(box(cx - 1.35, z + 0.13, 0.12, 0.12), box(cx + 1.35, z + 0.13, 0.12, 0.12));
     plants.push({ x: rug.x0 + 0.35, z: rug.z1 - 0.35 }, { x: rug.x1 - 0.35, z: rug.z1 - 0.35 });
@@ -443,7 +454,7 @@ export const footOf = (k: PropKind): [number, number] => [FOOT[k][0] * PROP_SCAL
 const ISLANDS: PropKind[] = ['tree', 'standing', 'aquarium', 'booth', 'plants', 'beanbags', 'vending', 'logo', 'printer', 'shelf', 'tree', 'whiteboard'];
 // What may stand before an area: nothing taller than a desk's monitor, nor
 // leafy, so a close-up looks over it.
-const LOW: PropKind[] = ['standing', 'beanbags', 'logo', 'shelf', 'printer'];
+const LOW: PropKind[] = ['standing', 'beanbags', 'shelf', 'printer'];
 // Corners of a few things together, on a mat, each within 5.4 by 3: where
 // each stands from the mat's middle. (Sizes are FOOT's, PROP_SCALE larger.)
 type Theme = [PropKind, number, number][];
@@ -478,16 +489,161 @@ const LOUNGE: Theme = [
 const STUDY: Theme = [
   ['shelf', -1.5, -0.85],
   ['standing', -1.2, 0.55],
-  ['logo', 1.5, 0],
+  ['printer', 1.6, -0.6],
 ];
 const THEMES: Theme[] = [COFFEE, NOOK, FOCUS, GARDEN, READING];
 const LOW_THEMES: Theme[] = [LOUNGE, STUDY];
 
-// spotOf is where you stand to look at a desk, a lead's counter or the board.
-export function spotOf(l: Layout, ref: string): Spot | undefined {
-  if (ref === 'board') return l.board.spot;
-  for (const a of l.areas) {
-    if (ref === `${a.project}/lead`) return a.lead.spot;
+// The campus: each project's room, side by side as dioramas floating on the
+// sky, a project of more desks than a room holds on floors of its own.
+export const ROOM_DESKS = 12;
+const CAMPUS_GAP = 7;
+const CAMPUS_ASPECT = 2.1;
+
+export type RoomPlace = {
+  // project#floor.
+  key: string;
+  project: string;
+  floor: number;
+  floors: number;
+  // Where its room sits in the campus, and its floor there.
+  ox: number;
+  oz: number;
+  box: Box;
+  // The room as roomLayout laid it out, in its own frame (the scene draws its
+  // diorama from it, moved to ox, oz).
+  local: Layout;
+  // Its board and where you come in, in the campus's frame.
+  board: { x: number; w: number; spot: Spot };
+  spawn: Spot;
+  // The desks in it, and whether its project's lead is.
+  desks: string[];
+  lead: boolean;
+};
+
+export type Campus = {
+  // All of it.
+  room: Box;
+  rooms: RoomPlace[];
+  // Every room's areas, obstacles and plants, in the campus's frame.
+  areas: (AreaPlace & { room: number })[];
+  obstacles: Box[];
+  plants: { x: number; z: number }[];
+  spawn: Spot;
+};
+
+const moveBox = (b: Box, ox: number, oz: number): Box => ({ x0: b.x0 + ox, z0: b.z0 + oz, x1: b.x1 + ox, z1: b.z1 + oz });
+const moveSpot = (s: Spot, ox: number, oz: number): Spot => ({ x: s.x + ox, z: s.z + oz, face: s.face });
+
+// floorsOf splits a project's desks across the floors it needs, as evenly as
+// it can, in order.
+export function floorsOf(n: number): number[] {
+  const floors = Math.max(1, Math.ceil(n / ROOM_DESKS));
+  const base = Math.floor(n / floors);
+  return Array.from({ length: floors }, (_, f) => base + (f < n % floors ? 1 : 0));
+}
+
+// layout places a model's projects as a campus of rooms. A room depends only
+// on its own project's desks, so a desk keeps its place while other projects
+// change; rooms are side by side in rows, about twice as wide as deep.
+export function layout(model: Pick<OfficeModel, 'areas'>): Campus {
+  const parts: { area: AreaIn; floor: number; floors: number }[] = [];
+  for (const a of model.areas) {
+    const sizes = floorsOf(a.desks.length);
+    let at = 0;
+    sizes.forEach((n, f) => {
+      parts.push({ area: { ...a, desks: a.desks.slice(at, at + n), noLead: f > 0 }, floor: f + 1, floors: sizes.length });
+      at += n;
+    });
+  }
+  const locals = parts.length ? parts.map((p) => roomLayout({ areas: [p.area] })) : [roomLayout({ areas: [] })];
+  // Rows of rooms: as many to a row as makes the campus closest to its aspect.
+  const place = (perRow: number) => {
+    const at: { ox: number; oz: number }[] = [];
+    let z = 0;
+    for (let r = 0; r * perRow < locals.length; r++) {
+      const row = locals.slice(r * perRow, (r + 1) * perRow);
+      let x = 0;
+      for (const l of row) {
+        at.push({ ox: x, oz: z });
+        x += l.room.x1 + CAMPUS_GAP;
+      }
+      z += Math.max(...row.map((l) => l.room.z1)) + CAMPUS_GAP;
+    }
+    const w = Math.max(...at.map((p, i) => p.ox + locals[i].room.x1));
+    const d = Math.max(...at.map((p, i) => p.oz + locals[i].room.z1));
+    return { at, w, d };
+  };
+  let best = place(locals.length);
+  for (let k = 1; k <= locals.length; k++) {
+    const c = place(k);
+    if (Math.abs(Math.log(c.w / c.d / CAMPUS_ASPECT)) < Math.abs(Math.log(best.w / best.d / CAMPUS_ASPECT)) - 1e-6) best = c;
+  }
+  const rooms: RoomPlace[] = [];
+  const areas: Campus['areas'] = [];
+  const obstacles: Box[] = [];
+  const plants: { x: number; z: number }[] = [];
+  locals.forEach((l, i) => {
+    const { ox, oz } = best.at[i];
+    const p = parts[i];
+    for (const a of l.areas)
+      areas.push({
+        ...a,
+        room: i,
+        rug: moveBox(a.rug, ox, oz),
+        pods: a.pods.map((b) => moveBox(b, ox, oz)),
+        lead: a.lead && { x: a.lead.x + ox, z: a.lead.z + oz, spot: moveSpot(a.lead.spot, ox, oz) },
+        desks: a.desks.map((d) => ({ ...d, x: d.x + ox, z: d.z + oz, spot: moveSpot(d.spot, ox, oz) })),
+        sign: { x: a.sign.x + ox, z: a.sign.z + oz },
+      });
+    for (const b of l.obstacles) obstacles.push(moveBox(b, ox, oz));
+    for (const q of l.plants) plants.push({ x: q.x + ox, z: q.z + oz });
+    rooms.push({
+      key: p ? `${p.area.project}#${p.floor}` : '#1',
+      project: p?.area.project ?? '',
+      floor: p?.floor ?? 1,
+      floors: p?.floors ?? 1,
+      ox,
+      oz,
+      box: moveBox(l.room, ox, oz),
+      local: l,
+      board: { x: l.board.x + ox, w: l.board.w, spot: moveSpot(l.board.spot, ox, oz) },
+      spawn: moveSpot(l.spawn, ox, oz),
+      desks: l.areas.flatMap((a) => a.desks.map((d) => d.id)),
+      lead: !!p && !p.area.noLead,
+    });
+  });
+  return { room: { x0: 0, z0: 0, x1: best.w, z1: best.d }, rooms, areas, obstacles, plants, spawn: rooms[0].spawn };
+}
+
+// boardRef is a room's board, as a ref.
+export const boardRef = (r: RoomPlace) => `board:${r.key}`;
+
+// roomOf is the room a ref (a desk, a lead, a board) is in.
+export function roomOf(c: Campus, ref: string): number | undefined {
+  if (ref.startsWith('board:')) {
+    const i = c.rooms.findIndex((r) => boardRef(r) === ref);
+    return i >= 0 ? i : undefined;
+  }
+  if (ref.endsWith('/lead')) {
+    const i = c.rooms.findIndex((r) => r.lead && `${r.project}/lead` === ref);
+    return i >= 0 ? i : undefined;
+  }
+  const i = c.rooms.findIndex((r) => r.desks.includes(ref));
+  return i >= 0 ? i : undefined;
+}
+
+// roomAt is the room whose floor p is on.
+export function roomAt(c: Campus, p: { x: number; z: number }, margin = 0): number | undefined {
+  const i = c.rooms.findIndex((r) => p.x >= r.box.x0 - margin && p.x <= r.box.x1 + margin && p.z >= r.box.z0 - margin && p.z <= r.box.z1 + margin);
+  return i >= 0 ? i : undefined;
+}
+
+// spotOf is where you stand to look at a desk, a lead's counter or a board.
+export function spotOf(c: Campus, ref: string): Spot | undefined {
+  if (ref.startsWith('board:')) return c.rooms.find((r) => boardRef(r) === ref)?.board.spot;
+  for (const a of c.areas) {
+    if (a.lead && ref === `${a.project}/lead`) return a.lead.spot;
     for (const d of a.desks) if (d.id === ref) return d.spot;
   }
   return undefined;
@@ -495,7 +651,7 @@ export function spotOf(l: Layout, ref: string): Spot | undefined {
 
 // nearest is what you're standing at: the desk, counter or board whose spot is
 // within reach of p, the closest one.
-export function nearest(l: Layout, p: { x: number; z: number }, reach = 1.1): string | undefined {
+export function nearest(c: Campus, p: { x: number; z: number }, reach = 1.1): string | undefined {
   let best: string | undefined;
   let bestD = reach * reach;
   const consider = (ref: string, s: Spot) => {
@@ -505,9 +661,9 @@ export function nearest(l: Layout, p: { x: number; z: number }, reach = 1.1): st
       best = ref;
     }
   };
-  consider('board', l.board.spot);
-  for (const a of l.areas) {
-    consider(`${a.project}/lead`, a.lead.spot);
+  for (const r of c.rooms) consider(boardRef(r), r.board.spot);
+  for (const a of c.areas) {
+    if (a.lead) consider(`${a.project}/lead`, a.lead.spot);
     for (const d of a.desks) consider(d.id, d.spot);
   }
   return best;
@@ -515,6 +671,6 @@ export function nearest(l: Layout, p: { x: number; z: number }, reach = 1.1): st
 
 // walkable is the obstacles grown by the walker's radius, which is what a
 // point (the walker's centre) mustn't enter.
-export function walkable(l: Layout, radius: number): Box[] {
-  return l.obstacles.map((b) => expand(b, radius));
+export function walkable(c: Pick<Campus, 'obstacles'>, radius: number): Box[] {
+  return c.obstacles.map((b) => expand(b, radius));
 }

@@ -16,8 +16,9 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { bake, hash, mascot, walker as makeWalker, type Figure } from './figures.ts';
+import { loadKit, piece } from './furniture.ts';
 import { player } from './kenney.ts';
-import { COUNTER, DESK, SEAT, layout as layOut, nearest, spotOf, walkable, type Box, type Layout } from './layout.ts';
+import { boardRef, COUNTER, DESK, SEAT, layout as layOut, nearest, roomAt, roomOf, spotOf, walkable, type Box, type Campus } from './layout.ts';
 import type { DeskTone, LeadTone, OfficeModel } from './model.ts';
 import { diorama, wallHeight } from './decor.ts';
 import { canvasTexture, drawBoard, type BoardRow, drawBubble, drawScreen, drawTag, toneColor, type BoardScreen, type Screen } from './textures.ts';
@@ -40,6 +41,9 @@ export type OfficeSceneOptions = {
   reducedMotion: boolean;
   // What you're standing at: a desk's ref, project/lead, 'board', or nothing.
   onNear(ref: string | undefined): void;
+  // Which room you're in (its project and floor), or none for the campus, and
+  // whether the camera is at that room's (or the campus's) overview.
+  onView?(view: { project?: string; floor: number; floors: number; overview: boolean }): void;
   // What the pointer is over, for the cursor and the hint.
   onHover(ref: string | undefined): void;
   // A click on what you're standing at, or E: open it.
@@ -57,6 +61,8 @@ export type OfficeSceneOptions = {
   moreLabelShort(n: number): string;
   // The word on a lead's counter, over its project's name.
   leadWord?: string;
+  // A project's floor, as its pill says it: "agentbox · 2".
+  floorLabel?(name: string, floor: number): string;
   // A marker's name for screen readers: "Walk to {title}".
   markerLabel(title: string): string;
 };
@@ -64,7 +70,10 @@ export type OfficeSceneOptions = {
 export type OfficeScene = {
   apply(input: SceneInput): void;
   walkTo(ref: string): void;
+  // A step back: from a desk or following you to the room's overview, from
+  // there to the campus. campus goes straight there.
   overview(): void;
+  campus(): void;
   setReducedMotion(on: boolean): void;
   // How much of the canvas's left edge an overlay covers, in CSS pixels: the
   // overview frames the room in the rest.
@@ -78,7 +87,10 @@ export type OfficeScene = {
 
 // Where you were when you left the Office, so coming back from an agent's
 // chat puts you back at its desk rather than at the door.
-let lastVisit: { pos: P; facing: number; follow: number; yaw: number; dist: number } | undefined;
+let lastVisit: { pos: P; facing: number; follow: number; yaw: number; dist: number; scope: number | null } | undefined;
+
+// A room's board, as a ref.
+const isBoard = (r: string | undefined): r is string => !!r && r.startsWith('board:');
 
 const RADIUS = 0.3;
 const SPEED = 3.4; // metres a second, walking
@@ -115,6 +127,23 @@ function seeThrough(root: THREE.Object3D) {
   root.traverse((o) => {
     const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
     if ((o as THREE.Sprite).isSprite || (mat && !Array.isArray(mat) && mat.transparent)) o.layers.set(SEE);
+  });
+}
+
+// press acts on a pointer's press (the camera may still be easing, and a
+// chip that moved before the release would lose the click to the floor), and
+// on a click that came without one: the keyboard's, a screen reader's.
+function press(el: HTMLElement, fn: () => void) {
+  let at = -1e9;
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    at = performance.now();
+    fn();
+  });
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (performance.now() - at > 700) fn();
   });
 }
 
@@ -213,6 +242,17 @@ function mesh(g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, 
 function plant(m: Mats, x: number, z: number, seed: number): THREE.Group {
   const g = new THREE.Group();
   g.position.set(x, 0, z);
+  // Kenney's potted plant, when the kit's there, a little bigger or smaller.
+  const k = piece('pottedPlant');
+  if (k) {
+    k.scale.multiplyScalar(0.9 + (seed % 3) * 0.14);
+    k.rotation.y = seed * 1.3;
+    k.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+    });
+    g.add(k);
+    return g;
+  }
   const parts: THREE.Mesh[] = [];
   const put = (o: THREE.Mesh) => (g.add(o), parts.push(o), o);
   put(mesh(geo.pot, m.pot, 0, 0, 0));
@@ -242,6 +282,8 @@ function sprite(w: number, h: number, scale: number): { sprite: THREE.Sprite; ct
 
 type DeskObj = {
   ref: string;
+  // The room it's in.
+  room: number;
   root: THREE.Group;
   figure: Figure;
   screen: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; data?: Screen; mat: THREE.MeshBasicMaterial };
@@ -301,42 +343,43 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   const markers = new Map<string, HTMLDivElement>();
   // Each area's label from far off, a map's: a click walks to its front desk.
   const areaChips = new Map<string, HTMLButtonElement>();
+  // Each room's pill: its project's name (and floor), its waiting count.
   function syncAreaChips(input: SceneInput) {
-    for (const [project, chip] of areaChips)
-      if (!input.areaLabels.has(project)) {
+    const keys = new Set(lay.rooms.map((r) => r.key));
+    for (const [k, chip] of areaChips)
+      if (!keys.has(k)) {
         chip.remove();
-        areaChips.delete(project);
+        areaChips.delete(k);
       }
-    for (const area of input.model.areas) {
-      const label = input.areaLabels.get(area.project);
-      if (!label) continue;
-      let chip = areaChips.get(area.project);
+    for (const [ri, rm] of lay.rooms.entries()) {
+      const label = input.areaLabels.get(rm.project);
+      const area = input.model.areas.find((a) => a.project === rm.project);
+      if (!label || !area) continue;
+      let chip = areaChips.get(rm.key);
       if (!chip) {
         chip = document.createElement('button');
         chip.type = 'button';
-        chip.dataset.officeArea = area.project;
+        chip.dataset.officeArea = rm.key;
         chip.style.cssText =
           'position:absolute;left:0;top:0;display:none;pointer-events:auto;align-items:center;gap:6px;padding:5px 14px;border-radius:999px;color:#fff;font:700 13px/1.2 var(--font-sans,system-ui),sans-serif;box-shadow:0 3px 10px rgba(40,30,20,.22);cursor:pointer;white-space:nowrap;will-change:transform';
         const name = document.createElement('span');
         const sub = document.createElement('span');
         sub.style.cssText = 'font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.28)';
         chip.append(name, sub);
-        const ref = `${area.project}/lead`;
-        chip.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          walkTo(ref);
+        const lead = rm.lead ? `${rm.project}/lead` : undefined;
+        // Over the campus it goes into its room; in the room, to its lead.
+        press(chip, () => {
+          if (scope === null || !lead) enter(ri);
+          else walkTo(lead);
         });
         markerLayer.prepend(chip);
-        areaChips.set(area.project, chip);
+        areaChips.set(rm.key, chip);
       }
-      // The pod's pill, in its project's colour, its waiting count beside.
       chip.style.background = `hsl(${area.hue} 58% 48%)`;
-      (chip.firstChild as HTMLElement).textContent = label.name;
-      (chip.lastChild as HTMLElement).textContent = label.count ? String(label.count) : '';
-      (chip.lastChild as HTMLElement).style.display = label.count ? 'inline' : 'none';
+      const name = rm.floors > 1 ? opts.floorLabel?.(label.name, rm.floor) ?? `${label.name} ${rm.floor}` : label.name;
+      (chip.firstChild as HTMLElement).textContent = name;
       chip.title = label.sub;
-      chip.setAttribute('aria-label', opts.markerLabel(label.name));
+      chip.setAttribute('aria-label', opts.markerLabel(name));
     }
   }
   // And you, from far off.
@@ -350,7 +393,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     mePulse = meMarker.animate([{ boxShadow: '0 0 0 3px rgba(167,139,250,.35)' }, { boxShadow: '0 0 0 12px rgba(167,139,250,0)' }], { duration: 1300, iterations: Infinity });
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 200);
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 900);
   const hemi = new THREE.HemisphereLight('#e0ecff', '#8a6a4c', 1.0);
   scene.add(hemi);
   const sun = new THREE.DirectionalLight('#fff3e0', 1.8);
@@ -400,7 +443,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   let room = new THREE.Group();
   scene.add(room);
   let roomDispose: (() => void)[] = [];
-  let lay: Layout = layOut({ areas: [] });
+  let lay: Campus = layOut({ areas: [] });
+  // The room you're in, and what the overview frames: a room, or the whole
+  // campus (null). The Office opens on the campus.
+  let cur = 0;
+  let scope: number | null = null;
+  const roomBounds = (i: number): Box => {
+    const b = lay.rooms[i].box;
+    return { x0: b.x0 + RADIUS, z0: b.z0 + RADIUS, x1: b.x1 - RADIUS, z1: b.z1 - RADIUS };
+  };
   let layKey = '';
   let boxes: Box[] = [];
   let bounds: Box = lay.room;
@@ -408,7 +459,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   const hits: THREE.Object3D[] = [];
   let plantObjs: THREE.Group[] = [];
   const signs: THREE.Group[] = [];
-  let board: { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; face?: THREE.Mesh; rows: BoardRow[] } | undefined;
+  // Each room's board, by its ref.
+  const boards = new Map<string, { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; face?: THREE.Mesh; rows: BoardRow[]; room: number }>();
   let sideWalls: { mat: THREE.MeshStandardMaterial; side: 'left' | 'right' }[] = [];
 
   // You.
@@ -464,6 +516,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     zoomZ = Math.max(0, Math.min(1, z));
     followTarget = Math.min(1, zoomZ * 2);
     cam.dist = zoomZ <= 0.5 ? FOLLOW_FAR : FOLLOW_FAR - (zoomZ - 0.5) * 2 * (FOLLOW_FAR - FOLLOW_NEAR);
+    tellView();
   };
   const eased = { tx: 0, ty: 0, tz: 0, dist: 20, pitch: 0.9, yaw: 0, init: false };
   let near: string | undefined;
@@ -517,45 +570,52 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     room = new THREE.Group();
     scene.add(room);
     const own = <T extends { dispose(): void }>(x: T) => (roomDispose.push(() => x.dispose()), x);
+    // What a room has is tagged with it, so a room's own view shows it alone.
+    const addTo = (ri: number, o: THREE.Object3D) => {
+      o.userData.room = ri;
+      room.add(o);
+    };
     const l = lay;
-    const W = l.room.x1;
-    const D = l.room.z1;
-
-    // The room: a diorama slab with its walls and features (decor.ts).
-    const dio = diorama(l, 'AgentBox');
-    roomDispose.push(() => dio.dispose());
-    room.add(dio.group);
+    boards.clear();
     sideWalls = [];
 
-    // The board, on the back wall.
-    {
-      const bw = l.board.w;
+    // Each room: a diorama slab with its walls and features (decor.ts), moved
+    // to its place on the campus, its project's name on its brick wall; and
+    // its board on the back wall.
+    for (const [ri, rm] of l.rooms.entries()) {
+      const label = input.model.areas.find((a) => a.project === rm.project)?.label ?? 'AgentBox';
+      const dio = diorama(rm.local, rm.floors > 1 ? `${label} ${rm.floor}` : label);
+      roomDispose.push(() => dio.dispose());
+      dio.group.position.set(rm.ox, 0, rm.oz);
+      addTo(ri, dio.group);
+      const bw = rm.board.w;
       const bh = Math.min(2.6, bw * 0.52);
       const pxW = 1024;
       const pxH = Math.round((pxW * bh) / bw);
       const { tex: btex, ctx } = canvasTexture(pxW, pxH);
       own(btex);
-      board = { ctx, tex: btex, key: '', rows: [] };
+      const b = { ctx, tex: btex, key: '', rows: [] as BoardRow[], room: ri, face: undefined as THREE.Mesh | undefined };
       const g = new THREE.Group();
-      g.position.set(l.board.x, 0.45 + bh / 2, 0.04);
+      g.position.set(rm.board.x, 0.45 + bh / 2, rm.oz + 0.04);
       // A whiteboard in a dark green frame, its columns of sticky notes.
       g.add(mesh(geo.roundTop, own(std('#2f4a3a', { roughness: 0.5 })), 0, 0, 0, bw + 0.16, bh + 0.16, 0.06, false));
       const face = mesh(geo.plane, own(new THREE.MeshBasicMaterial({ map: btex, toneMapped: false })), 0, 0, 0.045, bw, bh, 1, false);
       g.add(face);
-      board.face = face;
-      room.add(g);
+      b.face = face;
+      addTo(ri, g);
       // A ledge below it, with markers.
-      room.add(mesh(geo.roundTop, own(std('#2f4a3a')), l.board.x, 0.42, 0.1, bw * 0.6, 0.04, 0.14));
-      const hit = mesh(geo.box, mats.hit, l.board.x, 1.5, 0.3, bw, 3, 0.6, false);
-      hit.userData.ref = 'board';
-      room.add(hit);
+      addTo(ri, mesh(geo.roundTop, own(std('#2f4a3a')), rm.board.x, 0.42, rm.oz + 0.1, bw * 0.6, 0.04, 0.14));
+      const hit = mesh(geo.box, mats.hit, rm.board.x, 1.5, rm.oz + 0.3, bw, 3, 0.6, false);
+      hit.userData.ref = boardRef(rm);
+      addTo(ri, hit);
       hits.push(hit);
+      boards.set(boardRef(rm), b);
     }
 
     // Each area: its rug, its counter with the lead and the project's sign.
     for (let i = 0; i < l.areas.length; i++) {
       const place = l.areas[i];
-      const area = input.model.areas[i];
+      const area = input.model.areas.find((a) => a.project === place.project)!;
       const r = place.rug;
       // Each pod's soft pastel rug, in the project's colour, corners rounded.
       // The project's zone: a soft floor of its colour under all of it.
@@ -564,8 +624,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const zh = area.hue / 360;
         const zoneMat = own(std(new THREE.Color().setHSL(zh, 0.45, 0.88), { roughness: 0.95 }));
         const zoneEdge = own(std(new THREE.Color().setHSL(zh, 0.4, 0.76), { roughness: 0.95 }));
-        room.add(mesh(own(rug(zr.x1 - zr.x0, zr.z1 - zr.z0, 0.9, 0.008)), zoneEdge, (zr.x0 + zr.x1) / 2, 0, (zr.z0 + zr.z1) / 2, 1, 1, 1, false));
-        room.add(mesh(own(rug(zr.x1 - zr.x0 - 0.24, zr.z1 - zr.z0 - 0.24, 0.8, 0.01)), zoneMat, (zr.x0 + zr.x1) / 2, 0, (zr.z0 + zr.z1) / 2, 1, 1, 1, false));
+        addTo(place.room, mesh(own(rug(zr.x1 - zr.x0, zr.z1 - zr.z0, 0.9, 0.008)), zoneEdge, (zr.x0 + zr.x1) / 2, 0, (zr.z0 + zr.z1) / 2, 1, 1, 1, false));
+        addTo(place.room, mesh(own(rug(zr.x1 - zr.x0 - 0.24, zr.z1 - zr.z0 - 0.24, 0.8, 0.01)), zoneMat, (zr.x0 + zr.x1) / 2, 0, (zr.z0 + zr.z1) / 2, 1, 1, 1, false));
       }
       for (const [pi, pod] of place.pods.entries()) {
         // Each pod a shade of its project's colour, so pods read apart.
@@ -577,17 +637,19 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.6, 0.45), { roughness: 0.95 }));
         const pw = pod.x1 - pod.x0;
         const pd = pod.z1 - pod.z0;
-        room.add(mesh(own(rug(pw, pd, 0.5, 0.02)), rugEdge, (pod.x0 + pod.x1) / 2, 0, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
-        room.add(mesh(own(rug(pw - 0.16, pd - 0.16, 0.42, 0.024)), rugMat, (pod.x0 + pod.x1) / 2, 0, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
+        addTo(place.room, mesh(own(rug(pw, pd, 0.5, 0.02)), rugEdge, (pod.x0 + pod.x1) / 2, 0, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
+        addTo(place.room, mesh(own(rug(pw - 0.16, pd - 0.16, 0.42, 0.024)), rugMat, (pod.x0 + pod.x1) / 2, 0, (pod.z0 + pod.z1) / 2, 1, 1, 1, false));
       }
       void r;
 
-      // The lead's counter: a rounded wooden front desk, its front in the
-      // project's colour.
+      // The lead's counter, on its project's first floor: a rounded wooden
+      // front desk, its front in the project's colour.
+      for (const d of place.desks) addDesk(input, d.id, d.x, d.z, area.hue, false, d.side);
+      if (!place.lead) continue;
       const { x: lx, z: lz } = place.lead;
       const counterFront = own(std(new THREE.Color().setHSL(area.hue / 360, 0.5, 0.62), { roughness: 0.6 }));
-      room.add(mesh(geo.roundTop, mats.oak, lx, 1.0, lz, COUNTER.w + 0.1, 0.07, COUNTER.d + 0.1));
-      room.add(mesh(geo.roundSoft, counterFront, lx, 0.5, lz + 0.05, COUNTER.w, 0.96, COUNTER.d - 0.1));
+      addTo(place.room, mesh(geo.roundTop, mats.oak, lx, 1.0, lz, COUNTER.w + 0.1, 0.07, COUNTER.d + 0.1));
+      addTo(place.room, mesh(geo.roundSoft, counterFront, lx, 0.5, lz + 0.05, COUNTER.w, 0.96, COUNTER.d - 0.1));
       // Its front says whose it is: the project's lead, its front desk.
       {
         const plate = canvasTexture(512, 160);
@@ -606,31 +668,21 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         plate.tex.needsUpdate = true;
         own(plate.tex);
         const pm = own(new THREE.MeshBasicMaterial({ map: plate.tex, transparent: true, depthWrite: false }));
-        room.add(mesh(geo.plane, pm, lx, 0.52, lz + 0.05 + (COUNTER.d - 0.1) / 2 + 0.006, COUNTER.w * 0.86, COUNTER.w * 0.86 * (160 / 512), 1, false));
+        addTo(place.room, mesh(geo.plane, pm, lx, 0.52, lz + 0.05 + (COUNTER.d - 0.1) / 2 + 0.006, COUNTER.w * 0.86, COUNTER.w * 0.86 * (160 / 512), 1, false));
       }
       addDesk(input, `${area.project}/lead`, lx, lz, area.hue, true);
-      for (const d of place.desks) addDesk(input, d.id, d.x, d.z, area.hue, false, d.side);
     }
     plantObjs = l.plants.map((p, i) => {
       const o = plant(mats, p.x, p.z, i);
-      room.add(o);
+      addTo(roomAt(lay, p, 0.5) ?? 0, o);
       return o;
     });
 
-    // The sun's shadow covers the room.
-    const half = Math.max(W, D) / 2 + 2;
-    sun.shadow.camera.left = -half;
-    sun.shadow.camera.right = half;
-    sun.shadow.camera.top = half;
-    sun.shadow.camera.bottom = -half;
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 80;
-    sun.shadow.camera.updateProjectionMatrix();
-    sun.target.position.set(W / 2, 0, D / 2);
     lighting(true);
+    showScope();
     seeThrough(scene);
     boxes = walkable(l, RADIUS);
-    bounds = { x0: l.room.x0 + RADIUS, z0: l.room.z0 + RADIUS, x1: l.room.x1 - RADIUS, z1: l.room.z1 - RADIUS };
+    bounds = roomBounds(cur);
   }
 
   // addDesk puts an agent's desk at (x, z): the desk, its chair, the laptop
@@ -653,6 +705,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const disp: (() => void)[] = [];
     const g = new THREE.Group();
     g.position.set(x, 0, z);
+    const ri = roomOf(lay, ref) ?? 0;
+    g.userData.room = ri;
     room.add(g);
     const n = hash(ref);
     const rx = lead ? 0 : side * 0.48; // where the agent sits, and its chair, at the bench's end
@@ -805,6 +859,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
 
     const obj: DeskObj = {
       ref,
+      room: ri,
       root: g,
       figure: fig,
       screen: { ctx, tex, key: '', mat: screenMat },
@@ -897,9 +952,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
           'pointer-events:auto;display:none;padding:3px 9px;border-radius:999px;background:#fbbf24;border:1px solid rgba(0,0,0,.25);color:#1a1405;font:700 11px/1.25 var(--font-sans,system-ui),sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer;white-space:nowrap';
         // The "+n" opens the list of this chip's desk and the ones folded into it.
         const host = marker;
-        more.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
+        press(more, () => {
           const inside = [...markers].filter(([, el]) => el !== host && el.style.display === 'none' && chipInto.get(el) === host).map(([r]) => r);
           const box = more.getBoundingClientRect();
           const hostBox = host.getBoundingClientRect();
@@ -909,11 +962,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const ref = d.ref;
         // On press, not click: the camera may still be easing, and a chip that
         // moved before the release would lose the click to the floor.
-        walk.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          walkTo(ref);
-        });
+        press(walk, () => walkTo(ref));
         markerLayer.appendChild(marker);
         markers.set(d.ref, marker);
       }
@@ -935,11 +984,37 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // lamp-lit room at night.
   // lighting is one bright, soft day: a warm sky light, a sun from the
   // camera's side for faces and soft shadows, a little bounce.
+  // In a room's own view, only it; over the campus, all of them. (Desks and
+  // plants are also set each frame, which steps them aside too.)
+  const inScope = (o: THREE.Object3D) => scope === null || o.userData.room === undefined || o.userData.room === scope;
+  function showScope() {
+    for (const c of room.children) c.visible = inScope(c);
+  }
+
+  // scopeBox is what the overview frames: the room's floor, or the campus's.
+  const scopeBox = (): Box => (scope === null ? lay.room : lay.rooms[scope].box);
+  const scopeWall = () => (scope === null ? Math.max(...lay.rooms.map((r) => wallHeight(r.local))) : wallHeight(lay.rooms[scope].local));
+
   function lighting(force = false) {
     if (!force) return;
-    const W = lay.room.x1;
-    const D = lay.room.z1;
-    sun.position.set(W / 2 + W * 0.45, 16, D / 2 + D * 0.55);
+    // The sun from the camera's side, over what's framed; its shadow just
+    // covers it, sharp enough wherever you are.
+    const b = scopeBox();
+    const W = b.x1 - b.x0;
+    const D = b.z1 - b.z0;
+    const half = Math.max(W, D) / 2 + 3;
+    const cx = (b.x0 + b.x1) / 2;
+    const cz = (b.z0 + b.z1) / 2;
+    const far = 24 + half;
+    sun.position.set(cx + 0.55 * far, 0.65 * far, cz + 0.52 * far);
+    sun.target.position.set(cx, 0, cz);
+    sun.shadow.camera.left = -half;
+    sun.shadow.camera.right = half;
+    sun.shadow.camera.top = half;
+    sun.shadow.camera.bottom = -half;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = far + half * 2;
+    sun.shadow.camera.updateProjectionMatrix();
     hemi.color.set('#fff6ea');
     hemi.groundColor.set('#e8cfae');
     // Warm and low in contrast: much sky, a gentle sun, light shadows.
@@ -952,14 +1027,30 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     scene.background = null;
   }
 
+  // Kenney's furniture comes a moment later: the room is built again with it.
+  let lastApplied: SceneInput | undefined;
+  void loadKit().then(() => {
+    if (disposed || !lastApplied) return;
+    layKey = '';
+    apply(lastApplied);
+  });
+
   function apply(input: SceneInput) {
+    lastApplied = input;
     const key = input.model.areas.map((a) => `${a.project}:${a.label}:${a.hue}:${a.desks.map((d) => d.id).join(',')}`).join('|');
     if (key !== layKey) {
       layKey = key;
       lay = layOut(input.model);
+      cur = Math.min(placed ? (roomAt(lay, pos) ?? cur) : 0, lay.rooms.length - 1);
+      if (scope !== null) scope = Math.min(scope, lay.rooms.length - 1);
       build(input);
       if (!placed && lastVisit) {
         Object.assign(pos, lastVisit.pos);
+        cur = roomAt(lay, pos) ?? 0;
+        scope = lastVisit.scope === null ? null : Math.min(lastVisit.scope, lay.rooms.length - 1);
+        bounds = roomBounds(cur);
+        lighting(true);
+        showScope();
         facing = lastVisit.facing;
         zoomTo(lastVisit.follow / 2);
         cam.followK = lastVisit.follow;
@@ -976,10 +1067,16 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // Back from a chat a step out, gliding in to the desk again.
         if (focusRef) cam.closeK = 0;
       } else if (!placed) {
+        // In the first room, the camera over the whole campus.
+        cur = 0;
+        scope = null;
+        bounds = roomBounds(cur);
         pos.x = lay.spawn.x;
         pos.z = lay.spawn.z;
         facing = lay.spawn.face;
         placed = true;
+        lighting(true);
+        showScope();
       } else {
         // Where you stood may be a desk now: step to the nearest free floor.
         const route0 = path(boxes, bounds, pos, pos);
@@ -994,26 +1091,73 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       meTag.tex.needsUpdate = true;
     }
     syncAreaChips(input);
-    const bKey = JSON.stringify(input.board);
-    if (board && bKey !== board.key) {
-      board.key = bKey;
-      board.rows = drawBoard(board.ctx, input.board);
-      board.tex.needsUpdate = true;
+    // Each room's board: what of the Office's is in that room.
+    for (const b of boards.values()) {
+      const rm = lay.rooms[b.room];
+      const inRoom = (ref: string) => (ref.endsWith('/lead') ? rm.lead && ref === `${rm.project}/lead` : rm.desks.includes(ref));
+      const bs = { ...input.board, needs: { ...input.board.needs, items: input.board.needs.items.filter((i) => inRoom(i.ref)) }, review: { ...input.board.review, items: input.board.review.items.filter((i) => inRoom(i.ref)) } };
+      const k = JSON.stringify(bs);
+      if (k !== b.key) {
+        b.key = k;
+        b.rows = drawBoard(b.ctx, bs);
+        b.tex.needsUpdate = true;
+      }
     }
     poke();
   }
 
-  function walkTo(ref: string) {
+  // into goes into a room: you come in at its door if you were in another,
+  // and the camera frames it.
+  function into(i: number) {
+    if (i !== cur) {
+      cur = i;
+      const s0 = lay.rooms[i].spawn;
+      pos.x = s0.x;
+      pos.z = s0.z;
+      facing = s0.face;
+      route = [];
+      bounds = roomBounds(i);
+      speed = 0;
+    }
+    if (scope !== i) {
+      scope = i;
+      fitCache.key = '';
+      lighting(true);
+      showScope();
+    }
+  }
+
+  // enter shows a room from its overview, you at its door.
+  function enter(i: number) {
+    into(i);
+    zoomTo(0);
+    zoomFocus = undefined;
+    turned = false;
+    held = true;
+    cam.yaw = HOME_YAW;
+    tellView();
+    poke();
+  }
+
+  function walkTo(ref0: string) {
+    // 'board' is the board of the room you're in.
+    const ref = ref0 === 'board' ? boardRef(lay.rooms[cur]) : ref0;
+    const ri = roomOf(lay, ref);
     const spot = spotOf(lay, ref);
-    if (!spot) return;
+    if (!spot || ri === undefined) return;
+    into(ri);
     route = path(boxes, bounds, pos, spot);
     routeGoal = ref;
     zoomTo(Math.max(zoomZ, 0.5));
     started();
+    tellView();
     poke();
   }
 
   function walkToPoint(p: P) {
+    // On another room's floor: into it, from its door.
+    const ri = roomAt(lay, p);
+    if (ri !== undefined && ri !== cur) into(ri);
     route = path(boxes, bounds, pos, p);
     routeGoal = undefined;
     // From the overview a click on the floor comes halfway down, not all the
@@ -1026,6 +1170,13 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   function started() {
     held = false;
     turned = false;
+    // Moving, you're in your room's view, not the campus's.
+    if (scope !== cur) {
+      scope = cur;
+      fitCache.key = '';
+      lighting(true);
+      showScope();
+    }
     zoomFocus = undefined;
     if (moved) return;
     moved = true;
@@ -1040,13 +1191,42 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // Turned away from a close-up by a drag: still at the desk, its card up,
   // the camera stood back, until you walk on.
   let turned = false;
+  // overview steps back: to the room's overview, or from there to the campus.
   function overview() {
+    if (scope !== null && followTarget === 0 && cam.followK < 0.05 && !near) return campus();
     zoomTo(0);
     zoomFocus = undefined;
     turned = false;
     cam.yaw = HOME_YAW;
     held = true;
+    tellView();
     poke();
+  }
+
+  // campus stands back over every room.
+  function campus() {
+    scope = null;
+    fitCache.key = '';
+    lighting(true);
+    showScope();
+    zoomTo(0);
+    zoomFocus = undefined;
+    turned = false;
+    cam.yaw = HOME_YAW;
+    held = true;
+    tellView();
+    poke();
+  }
+
+  // tellView says which room the camera's in, and whether at its overview.
+  let toldView = '';
+  function tellView() {
+    const rm = scope === null ? undefined : lay.rooms[scope];
+    const v = { project: rm?.project, floor: rm?.floor ?? 1, floors: rm?.floors ?? 1, overview: followTarget === 0 };
+    const k = JSON.stringify(v);
+    if (k === toldView) return;
+    toldView = k;
+    opts.onView?.(v);
   }
 
   // The frame.
@@ -1179,7 +1359,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const at = held ? undefined : stillFor > 0.15 ? nearest(lay, pos) : routeGoal && route.length ? routeGoal : undefined;
     if (at !== near) {
       near = at;
-      opts.onNear(near);
+      opts.onNear(isBoard(near) ? 'board' : near);
       dirty = true;
     }
     return camStep(dt) || moving;
@@ -1188,20 +1368,21 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // focusOf is what the close-up looks at, standing at ref: a desk's monitor,
   // a counter's, or the board, and from how far.
   function focusOf(ref: string, aspect: number): { x: number; y: number; z: number; dist: number; pitch: number; yaw: number } | undefined {
-    if (ref === 'board') {
+    if (isBoard(ref)) {
       // From high over the first row, so no desk is in the way, the whole
       // board in the part of the view the board's list (on the right) leaves.
+      const rm = lay.rooms[roomOf(lay, ref) ?? cur];
       const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-      const bh = Math.min(2.6, lay.board.w * 0.52);
+      const bh = Math.min(2.6, rm.board.w * 0.52);
       const free = Math.max(0.5, 1 - 390 / Math.max(1, canvas.clientWidth));
       const pitch = 0.4;
       // Wide enough for you, standing at its left end, too.
-      const dist = Math.max((lay.board.w + 1.8) / (free * 2 * tan * aspect), ((bh + 0.9) * Math.cos(pitch)) / (0.7 * 2 * tan));
+      const dist = Math.max((rm.board.w + 1.8) / (free * 2 * tan * aspect), ((bh + 0.9) * Math.cos(pitch)) / (0.7 * 2 * tan));
       const vw = 2 * dist * tan * aspect;
-      return { x: lay.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: 0.1, dist, pitch, yaw: 0 };
+      return { x: rm.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: rm.oz + 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
-      if (ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
+      if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
       // From the far side from where you stand, so you never stand in the way.
       if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 13.5, pitch: 0.8, yaw: d.side < 0 ? 0.42 : -0.42 }, aspect);
@@ -1227,26 +1408,28 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   const fitProbe = new THREE.PerspectiveCamera(FOV, 1, 0.1, 400);
   let fitCache = { key: '', dist: 20, x: 0, z: 0 };
   let inset = 0;
-  function fitDistance(W: number, D: number, aspect: number, pitch: number): { dist: number; x: number; z: number } {
-    const H = wallHeight(lay);
-    const key = `${W.toFixed(2)}:${D.toFixed(2)}:${H}:${aspect.toFixed(3)}:${inset}:${HOME_YAW}`;
+  function fitDistance(bx: Box, H: number, aspect: number, pitch: number): { dist: number; x: number; z: number } {
+    const key = `${scope}:${bx.x0.toFixed(2)}:${bx.z0.toFixed(2)}:${bx.x1.toFixed(2)}:${bx.z1.toFixed(2)}:${H}:${aspect.toFixed(3)}:${inset}:${HOME_YAW}`;
     if (fitCache.key === key) return fitCache;
     // The share of the width the overlay covers: the room sits in the middle
     // of what's left.
     const cover = Math.min(0.45, inset / Math.max(1, canvas.clientWidth));
     // The window the diorama fills, in clip space: nearly all of it, the
     // top bar's and the legend's clear parts over its corners and edges.
-    const win = { x0: -0.98 + 2 * cover, x1: 0.99, y0: -0.86, y1: 0.9 };
+    // The campus keeps clear of the top bar too: its back rooms' pills.
+    const win = { x0: -0.98 + 2 * cover, x1: 0.99, y0: -0.82, y1: scope === null ? 0.78 : 0.9 };
     fitProbe.aspect = aspect;
     fitProbe.updateProjectionMatrix();
     // The diorama's outline: the slab's underside, the walls' tops where
     // there are walls (back and left), the floor's open corner.
-    const corners = [
-      ...[-0.3, W + 0.3].flatMap((x) => [-0.3, D + 0.3].map((z) => new THREE.Vector3(x, -0.72, z))),
-      new THREE.Vector3(-0.3, H, -0.3),
-      new THREE.Vector3(W + 0.1, H, -0.3),
-      new THREE.Vector3(-0.3, H, D + 0.1),
-    ];
+    // Over the campus, every room's; else the room's.
+    const outlines = scope === null ? lay.rooms.map((r) => r.box) : [bx];
+    const corners = outlines.flatMap((b) => [
+      ...[b.x0 - 0.3, b.x1 + 0.3].flatMap((x) => [b.z0 - 0.3, b.z1 + 0.3].map((z) => new THREE.Vector3(x, -0.72, z))),
+      new THREE.Vector3(b.x0 - 0.3, H, b.z0 - 0.3),
+      new THREE.Vector3(b.x1 + 0.1, H, b.z0 - 0.3),
+      new THREE.Vector3(b.x0 - 0.3, H, b.z1 + 0.1),
+    ]);
     const v = new THREE.Vector3();
     const right = new THREE.Vector3(Math.cos(HOME_YAW), 0, -Math.sin(HOME_YAW));
     const back = new THREE.Vector3(-Math.sin(HOME_YAW), 0, -Math.cos(HOME_YAW));
@@ -1267,7 +1450,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     };
     // Closer while the outline fits the window's size; then the outline is
     // centred in the window, by moving where the camera looks, and again.
-    const t = new THREE.Vector3(W / 2, 0, D / 2);
+    const t = new THREE.Vector3((bx.x0 + bx.x1) / 2, 0, (bx.z0 + bx.z1) / 2);
     let dist = 20;
     const tan = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     for (let round = 0; round < 3; round++) {
@@ -1295,8 +1478,6 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
 
   // camStep eases the camera to where it should be; true while it's easing.
   function camStep(dt: number): boolean {
-    const W = lay.room.x1;
-    const D = lay.room.z1;
     const aspect = camera.aspect || 1;
     // From the overview down to following you is a long way: taken gently.
     // Standing back is quicker than coming down to you.
@@ -1316,7 +1497,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
 
     // The overview fits the room, from the front and above.
     const oPitch = OVERVIEW_PITCH;
-    const { dist: oDist, x: oX, z: oZ } = fitDistance(W, D, aspect, oPitch);
+    const { dist: oDist, x: oX, z: oZ } = fitDistance(scopeBox(), scopeWall(), aspect, oPitch);
     // Following: behind you, looking down at you; close up at a desk, lower
     // and nearer, the monitor and the robot in view.
     // Close up, the camera looks past your shoulder at the monitor, from the
@@ -1361,7 +1542,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     camera.lookAt(eased.tx, eased.ty, eased.tz);
     // A side wall the camera is behind fades away.
     for (const w of sideWalls) {
-      const behind = w.side === 'left' ? camera.position.x < 0.5 : camera.position.x > W - 0.5;
+      const behind = w.side === 'left' ? camera.position.x < 0.5 : camera.position.x > lay.room.x1 - 0.5;
       const o = behind ? 0.08 : 1;
       w.mat.opacity += (o - w.mat.opacity) * (motion ? 0.2 : 1);
       w.mat.depthWrite = w.mat.opacity > 0.9;
@@ -1387,6 +1568,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     lighting();
     let markHere = false;
     const crowded = desks.size > 16;
+    // How far the board you're looking at is from the camera, in its close-up.
+    let boardDist = 0;
+    if (isBoard(focusRef) && cam.closeK > 0.3) {
+      const rb = lay.rooms[roomOf(lay, focusRef) ?? cur].board;
+      boardDist = camera.position.distanceTo(new THREE.Vector3(rb.x, 1.5, rb.spot.z - 2.1));
+    }
     // Where the agents' heads are on screen, which the projects' pills keep off.
     const heads: { x: number; y: number }[] = [];
     {
@@ -1446,7 +1633,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         ahead = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 150 && Math.abs(sy - p.y) < 190);
       }
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (d.root.position.distanceTo(camera.position) < 4.2 || ahead);
-      d.root.visible = !(inWay && ahead);
+      // At a board, what stands between it and the camera steps aside.
+      const boardWay = boardDist > 0 && d.root.position.distanceTo(camera.position) < boardDist - 1.5;
+      d.root.visible = inScope(d.root) && !(inWay && ahead) && !boardWay;
       d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone] && !(cam.closeK > 0.3 && d.ref !== focusRef && far < 8);
       const b = d.beacon;
       b.visible = false;
@@ -1508,80 +1697,100 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const sy = ((1 - figPos.y) / 2) * canvas.clientHeight;
         hide = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 170 && Math.abs(sy - p.y) < 220);
       }
-      o.visible = !hide;
+      o.visible = inScope(o) && !hide;
     }
     // Signs give way to the camera, and to the board's close-up over them.
-    for (const sg of signs) sg.visible = !(focusRef === 'board' && cam.closeK > 0.2) && sg.position.distanceTo(camera.position) > (cam.closeK > 0.3 ? 7 : 3.5);
+    for (const sg of signs) sg.visible = !(isBoard(focusRef) && cam.closeK > 0.2) && sg.position.distanceTo(camera.position) > (cam.closeK > 0.3 ? 7 : 3.5);
     // From far off, each area's label floats over its sign. What the labels
     // and your chip take, the desks' chips keep clear of.
     const taken: { x0: number; x1: number; y0: number; y1: number }[] = [];
     const ap = new THREE.Vector3();
-    for (const [i, place] of lay.areas.entries()) {
-      const chip = areaChips.get(place.project);
+    // Each room's waiting count, on its pill.
+    const waiting = new Map<number, number>();
+    for (const d of desks.values()) if (d.tone === 'needs' || d.tone === 'error') {
+      const ri = roomOf(lay, d.ref);
+      if (ri !== undefined) waiting.set(ri, (waiting.get(ri) ?? 0) + 1);
+    }
+    for (const [ri, rm] of lay.rooms.entries()) {
+      const chip = areaChips.get(rm.key);
       if (!chip) continue;
-      const sg = signs[i];
-      void sg;
-      // A name plate by its zone: of a few places at its edges, the one over
-      // the fewest heads (and pills), chosen as the camera comes to rest and
-      // kept while it moves.
-      const zr = place.rug;
-      const zw = zr.x1 - zr.x0;
-      // Before it first, then at its sides, inside it last.
-      const spots: [number, number][] = [
-        [(zr.x0 + zr.x1) / 2, zr.z1 + 0.75],
-        [zr.x0 + Math.min(2.6, zw / 2), zr.z1 + 0.75],
-        [zr.x1 - Math.min(2.6, zw / 2), zr.z1 + 0.75],
-        [zr.x0 - 0.5, (zr.z0 + zr.z1) / 2],
-        [zr.x1 + 0.5, (zr.z0 + zr.z1) / 2],
-        [zr.x0 + Math.min(2.6, zw / 2), zr.z1 - 0.45],
-        [zr.x1 - Math.min(2.6, zw / 2), zr.z1 - 0.45],
-      ];
-      const w0 = chip.offsetWidth || 140;
-      const h0 = chip.offsetHeight || 30;
-      const pkey = `${eased.tx.toFixed(1)}:${eased.tz.toFixed(1)}:${eased.dist.toFixed(1)}:${eased.yaw.toFixed(2)}:${heads.length}`;
-      let pick0 = pillAt.get(chip);
-      if (chipsShown && (!pick0 || pick0.key !== pkey)) {
-        let best = 0;
-        let bestN = Infinity;
-        for (const [si, [sx, sz]] of spots.entries()) {
-          ap.set(sx, 0.05, sz).project(camera);
-          const px = ((ap.x + 1) / 2) * canvas.clientWidth;
-          const py = ((1 - ap.y) / 2) * canvas.clientHeight;
-          const off = ap.z >= 1 || Math.abs(ap.x) > 0.95 || py < 100 || py > canvas.clientHeight - 96;
-          const covers = heads.filter((hd) => Math.abs(hd.x - px) < w0 / 2 + 14 && Math.abs(hd.y - py) < h0 / 2 + 22).length;
-          const clash = taken.some((r) => px + w0 / 2 > r.x0 && px - w0 / 2 < r.x1 && py + h0 / 2 > r.y0 && py - h0 / 2 < r.y1) ? 5 : 0;
-          const n = (off ? 100 : 0) + covers + clash + si * 0.3;
-          if (n < bestN) {
-            bestN = n;
-            best = si;
-          }
-        }
-        pick0 = { key: pkey, at: best };
-        pillAt.set(chip, pick0);
+      const n0 = waiting.get(ri) ?? 0;
+      const sub = chip.lastChild as HTMLElement;
+      if (sub.dataset.n !== String(n0)) {
+        sub.dataset.n = String(n0);
+        sub.textContent = n0 ? String(n0) : '';
+        sub.style.display = n0 ? 'inline' : 'none';
       }
-      const [px0, pz0] = spots[pick0?.at ?? 0];
-      ap.set(px0, 0.05, pz0);
-      const far = cam.closeK < 0.3 && cam.followK < 0.5;
-      ap.project(camera);
-      // Not under the top bar, whose 4.5rem it would hide beneath.
-      // Nor over the legend and the hint along the bottom.
+      const place = lay.areas.find((a) => a.room === ri);
+      let on = false;
+      if (scope === null) {
+        // Over the campus: at its room's front corner, the one nearest you,
+        // its name plate, clear of the rooms behind.
+        ap.set(rm.box.x1 - Math.min(5, (rm.box.x1 - rm.box.x0) / 3), -0.4, rm.box.z1 + 1.0);
+        ap.project(camera);
+        on = ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
+      } else if (place && ri === scope) {
+        // In its room: by its zone, of a few places at its edges the one over
+        // the fewest heads (and pills), chosen as the camera comes to rest
+        // and kept while it moves.
+        const zr = place.rug;
+        const zw = zr.x1 - zr.x0;
+        // Before it first, then at its sides, inside it last.
+        const spots: [number, number][] = [
+          [(zr.x0 + zr.x1) / 2, zr.z1 + 0.75],
+          [zr.x0 + Math.min(2.6, zw / 2), zr.z1 + 0.75],
+          [zr.x1 - Math.min(2.6, zw / 2), zr.z1 + 0.75],
+          [zr.x0 - 0.5, (zr.z0 + zr.z1) / 2],
+          [zr.x1 + 0.5, (zr.z0 + zr.z1) / 2],
+          [zr.x0 + Math.min(2.6, zw / 2), zr.z1 - 0.45],
+          [zr.x1 - Math.min(2.6, zw / 2), zr.z1 - 0.45],
+        ];
+        const w0 = chip.offsetWidth || 140;
+        const h0 = chip.offsetHeight || 30;
+        const pkey = `${eased.tx.toFixed(1)}:${eased.tz.toFixed(1)}:${eased.dist.toFixed(1)}:${eased.yaw.toFixed(2)}:${heads.length}`;
+        let pick0 = pillAt.get(chip);
+        if (chipsShown && (!pick0 || pick0.key !== pkey)) {
+          let best = 0;
+          let bestN = Infinity;
+          for (const [si, [sx, sz]] of spots.entries()) {
+            ap.set(sx, 0.05, sz).project(camera);
+            const px = ((ap.x + 1) / 2) * canvas.clientWidth;
+            const py = ((1 - ap.y) / 2) * canvas.clientHeight;
+            const off = ap.z >= 1 || Math.abs(ap.x) > 0.95 || py < 100 || py > canvas.clientHeight - 96;
+            const covers = heads.filter((hd) => Math.abs(hd.x - px) < w0 / 2 + 14 && Math.abs(hd.y - py) < h0 / 2 + 22).length;
+            const clash = taken.some((r) => px + w0 / 2 > r.x0 && px - w0 / 2 < r.x1 && py + h0 / 2 > r.y0 && py - h0 / 2 < r.y1) ? 5 : 0;
+            const n = (off ? 100 : 0) + covers + clash + si * 0.3;
+            if (n < bestN) {
+              bestN = n;
+              best = si;
+            }
+          }
+          pick0 = { key: pkey, at: best };
+          pillAt.set(chip, pick0);
+        }
+        const [px0, pz0] = spots[pick0?.at ?? 0];
+        ap.set(px0, 0.05, pz0);
+        ap.project(camera);
+        // From afar only: up close its counter and its tags say it.
+        on = cam.closeK < 0.3 && cam.followK < 0.5 && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
+      }
+      // Not under the top bar, nor over the legend and the hint at the bottom.
       const ay = ((1 - ap.y) / 2) * canvas.clientHeight;
-      const on = far && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1 && ay > 100 && ay < canvas.clientHeight - 96;
+      on = on && ay > 100 && ay < canvas.clientHeight - 96;
       chip.style.display = on ? 'flex' : 'none';
       if (on) {
         const cx = ((ap.x + 1) / 2) * canvas.clientWidth;
-        const cy = ((1 - ap.y) / 2) * canvas.clientHeight;
+        const cy = ay;
         const cxIn = Math.min(canvas.clientWidth - 80, Math.max(80, cx));
         chip.style.transform = `translate(${cxIn}px, ${cy}px) translate(-50%, -50%)`;
         const w = chip.offsetWidth || 140;
         const h = chip.offsetHeight || 38;
         taken.push({ x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2 });
       }
-      if (sg && on) sg.visible = false;
     }
     // You stand beside what you look at, never in front of it: always seen.
     // At the board you step out of its picture: it's the board you look at.
-    me.fade(focusRef === 'board' ? 1 - cam.closeK : 1);
+    me.fade(isBoard(focusRef) ? 1 - cam.closeK : 1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1629,11 +1838,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // From the overview a small team's all, as name tags in a room, and a
         // crowd's loud ones; coming in, everyone's near you. (They keep off
         // faces, and a quiet one with no room steps out of the way.)
-        const want = d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || !crowded || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (!crowded || dist < 17)));
+        // (None over the campus: its rooms' pills and bubbles say it.)
+        const want = scope !== null && d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || !crowded || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (!crowded || dist < 17)));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 130, ((1 - tp.y) / 2) * canvas.clientHeight);
-        const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 120 && my > face.y - 70 && my < face.y + 150);
+        const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 140 && my > face.y - 110 && my < face.y + 160);
         const show = onScreen && !underCard;
         marker.style.display = show ? 'flex' : 'none';
         if (show) shown.push({ el: marker, x: mx, y: my, loud });
@@ -1768,28 +1978,30 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     ray.setFromCamera(ndc, camera);
     // Standing at the board, its rows come first: the desks in front of it
     // mustn't take a click meant for the board.
-    if (near === 'board' && board?.face) {
-      const f = ray.intersectObject(board.face, false)[0];
+    const at = isBoard(near) ? boards.get(near) : undefined;
+    if (isBoard(near) && at?.face) {
+      const f = ray.intersectObject(at.face, false)[0];
       if (f?.uv) {
-        const { width: W, height: H } = board.ctx.canvas;
+        const { width: W, height: H } = at.ctx.canvas;
         const px = f.uv.x * W;
         const py = (1 - f.uv.y) * H;
-        const row = board.rows.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
-        return { ref: 'board', row: row?.ref };
+        const row = at.rows.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
+        return { ref: near, row: row?.ref };
       }
     }
     // Only what's shown: a hidden bubble or a desk stepped aside takes no click.
     const shownUp = (o: THREE.Object3D | null): boolean => !o || (o.visible && shownUp(o.parent));
     const hit = ray.intersectObjects(hits, false).find((h) => shownUp(h.object));
-    if (hit && hit.object.userData.ref === 'board' && board?.face) {
+    const hb = hit && isBoard(hit.object.userData.ref as string) ? boards.get(hit.object.userData.ref as string) : undefined;
+    if (hit && hb?.face) {
       // A row on the board itself: what it's about.
-      const f = ray.intersectObject(board.face, false)[0];
+      const f = ray.intersectObject(hb.face, false)[0];
       if (f?.uv) {
-        const { width: W, height: H } = board.ctx.canvas;
+        const { width: W, height: H } = hb.ctx.canvas;
         const px = f.uv.x * W;
         const py = (1 - f.uv.y) * H;
-        const row = board.rows.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
-        if (row) return { ref: 'board', row: row.ref };
+        const row = hb.rows.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
+        if (row) return { ref: hit.object.userData.ref as string, row: row.ref };
       }
     }
     if (hit) return { ref: hit.object.userData.ref as string };
@@ -1867,7 +2079,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       hoverDirty = false;
       const { ref, row } = pick(hoverAt.x, hoverAt.y);
       // At the board only its rows do something.
-      canvas.style.cursor = ref && !(ref === 'board' && near === 'board' && !row) ? 'pointer' : 'default';
+      canvas.style.cursor = ref && !(isBoard(ref) && ref === near && !row) ? 'pointer' : 'default';
       if (ref !== hover) {
         hover = ref;
         opts.onHover(ref);
@@ -1886,14 +2098,18 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // What's under the pointer as it's let go: the press's, unless the camera
     // moved between the two, when it's looked again.
     const { ref, row, floor } = p.cam === camAt() ? p.aim : pick(e.clientX, e.clientY);
-    // While the camera is still gliding, a click on the room waits (what was
-    // under it a moment ago isn't what will be), but a board row is a row.
     // A row on the board opens what it's about, from wherever you see it.
-    if (row && (near === 'board' || !row.startsWith('more:'))) opts.onBoardRow(row);
+    if (row && (isBoard(near) || !row.startsWith('more:'))) opts.onBoardRow(row);
     else if (ref) {
       if (ref === near && !route.length) opts.onActivate(ref);
       else walkTo(ref);
-    } else if (floor) walkToPoint(floor);
+    } else if (floor) {
+      // Over the campus, a click on a room goes into it; in a room, walks.
+      const ri = roomAt(lay, floor, 0.4);
+      if (scope === null) {
+        if (ri !== undefined) enter(ri);
+      } else walkToPoint(floor);
+    }
   };
   const onPointerLeave = () => {
     hoverAt = undefined;
@@ -1915,8 +2131,16 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // up so a pinch zooms about as far as it moves.
     const d = (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY) * (e.ctrlKey ? 4 : 1);
     const n = Math.max(-3, Math.min(3, Math.abs(d) >= 50 ? Math.sign(d) * Math.max(1, Math.abs(d) / 120) : d / 100));
-    // At a desk, a turn of the wheel outwards stands back from it.
-    if (cam.closeK > 0.5 && n > 0) {
+    // Over the campus, a turn inwards goes into the room under the pointer;
+    // at a room's overview, a turn outwards stands back to the campus.
+    const over = pick(e.clientX, e.clientY).floor;
+    const overRoom = over ? roomAt(lay, over, 0.4) : undefined;
+    if (scope === null && n < 0) {
+      if (overRoom !== undefined) enter(overRoom);
+    } else if (scope !== null && n > 0 && zoomZ === 0) {
+      campus();
+    } else if (cam.closeK > 0.5 && n > 0) {
+      // At a desk, a turn of the wheel outwards stands back from it.
       held = true;
       zoomTo(0.5);
     } else {
@@ -1925,12 +2149,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // overview, it lets go.
       const under = pick(e.clientX, e.clientY).floor;
       if (under && cam.closeK < 0.5) {
-        const W = lay.room.x1;
-        const D = lay.room.z1;
+        const sb = scopeBox();
         const before = { x: eased.tx, z: eased.tz, d: eased.dist };
         const z1 = Math.max(0, Math.min(1, zoomZ - n * 0.07));
         const f1 = Math.min(1, z1 * 2);
-        const { dist: oDist, x: cx, z: cz } = fitDistance(W, D, camera.aspect || 1, OVERVIEW_PITCH);
+        const { dist: oDist, x: cx, z: cz } = fitDistance(scopeBox(), scopeWall(), camera.aspect || 1, OVERVIEW_PITCH);
         const fd1 = z1 <= 0.5 ? FOLLOW_FAR : FOLLOW_FAR - (z1 - 0.5) * 2 * (FOLLOW_FAR - FOLLOW_NEAR);
         const d1 = oDist + (fd1 - oDist) * f1;
         const k = d1 / Math.max(0.01, before.d);
@@ -1956,7 +2179,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
           tz += under.z - g.z;
         }
         // ...and the focus that, blended with the overview's centre, gives it.
-        if (f1 > 0.02) zoomFocus = { x: Math.min(W, Math.max(0, cx + (tx - cx) / f1)), z: Math.min(D, Math.max(0, cz + (tz - cz) / f1)) };
+        if (f1 > 0.02) zoomFocus = { x: Math.min(sb.x1, Math.max(sb.x0, cx + (tx - cx) / f1)), z: Math.min(sb.z1, Math.max(sb.z0, cz + (tz - cz) / f1)) };
       }
       zoomTo(zoomZ - n * 0.07);
       if (zoomZ === 0) zoomFocus = undefined;
@@ -1983,8 +2206,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       keys.add(k);
       e.preventDefault();
       poke();
-    } else if (k === 'escape' && (near || followTarget > 0) && !e.repeat) {
-      // Escape stands back a step: out of a close-up, then to the overview.
+    } else if (k === 'escape' && (near || followTarget > 0 || scope !== null) && !e.repeat) {
+      // Escape stands back a step: out of a close-up, then to the room's
+      // overview, then to the campus.
       if (cam.closeK > 0.3) {
         held = true;
         zoomTo(Math.min(zoomZ, 0.5));
@@ -2033,6 +2257,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     apply,
     walkTo,
     overview,
+    campus,
     setReducedMotion(on) {
       motion = !on;
       poke();
@@ -2048,7 +2273,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       resize();
       // The new page hears where you are, as the old one had, and the keys
       // are the room's again.
-      opts.onNear(near);
+      opts.onNear(isBoard(near) ? 'board' : near);
       requestAnimationFrame(() => attached && canvas.focus({ preventScroll: true }));
       poke();
     },
@@ -2069,7 +2294,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       poke();
     },
     dispose() {
-      lastVisit = { pos: { ...pos }, facing, follow: followTarget, yaw: cam.yaw, dist: cam.dist };
+      lastVisit = { pos: { ...pos }, facing, follow: followTarget, yaw: cam.yaw, dist: cam.dist, scope };
       disposed = true;
       cancelAnimationFrame(raf);
       window.clearTimeout(nap);

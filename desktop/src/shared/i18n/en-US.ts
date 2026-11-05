@@ -4900,6 +4900,8 @@ export const enUS = {
   'office.here': '{count, plural, one {# here} other {# here}}',
   'office.moreShort': '+{count} more',
   'office.clickToWalk': 'Click to walk to {title}',
+  'office.campus': 'All projects',
+  'office.floor': '{name} · floor {floor}',
   'office.list.working': 'Working',
   'office.legend.needs': 'Needs you',
   'office.legend.working': 'Working',

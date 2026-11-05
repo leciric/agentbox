@@ -148,7 +148,7 @@ export function drawBoard(ctx: CanvasRenderingContext2D, b: BoardScreen): BoardR
     ctx.fill();
     ctx.fillStyle = '#1f2630';
     ctx.font = `700 26px ${SANS}`;
-    ctx.fillText(fit(ctx, c.head, colW - 30), x + 16, 101);
+    ctx.fillText(fit(ctx, `${c.head} · ${c.items.length}`, colW - 30), x + 16, 101);
     let y = 130;
     if (c.items.length === 0) {
       ctx.fillStyle = '#8a8f98';

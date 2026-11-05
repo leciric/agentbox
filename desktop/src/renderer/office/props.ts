@@ -6,6 +6,7 @@
 // diorama to bake, so they cost a few draws, not one each.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { piece, sizeOf, type Piece } from './furniture.ts';
 import { PROP_SCALE, type Prop } from './layout.ts';
 
 export type Kit = {
@@ -68,7 +69,17 @@ export function furnish(g: THREE.Group, props: Prop[], k: Kit): void {
       (soft ? k.soft : k.parts).push(mesh);
       return mesh;
     };
-    BUILD[p.kind](put, k, tex, i);
+    // A piece of Kenney's kit, placed in the prop's own frame, if it's loaded.
+    const kit = (name: Piece, x: number, y: number, z: number, rot = 0): boolean => {
+      const q = piece(name);
+      if (!q) return false;
+      q.position.set(x, y, z);
+      q.rotation.y = rot;
+      o.add(q);
+      q.traverse((m) => (m as THREE.Mesh).isMesh && k.parts.push(m as THREE.Mesh));
+      return true;
+    };
+    BUILD[p.kind](put, k, tex, i, kit);
   }
 }
 
@@ -94,7 +105,8 @@ function sprig(put: Put, k: Kit, x: number, y: number, z: number, i: number) {
   }
 }
 
-const BUILD: Record<Prop['kind'], (put: Put, k: Kit, t: Tex, i: number) => void> = {
+type KitPut = (name: Piece, x: number, y: number, z: number, rot?: number) => boolean;
+const BUILD: Record<Prop['kind'], (put: Put, k: Kit, t: Tex, i: number, kit: KitPut) => void> = {
   // A tall potted tree: a round pot, a slim trunk, a crown of soft leaves.
   tree(put, k, _t, i) {
     put(cyl(0.3, 0.24, 0.5, 24), k.m(POTS[i % POTS.length], { roughness: 0.6 }), 0, 0.25, 0);
@@ -205,7 +217,21 @@ const BUILD: Record<Prop['kind'], (put: Put, k: Kit, t: Tex, i: number) => void>
   },
   // The kitchen counter: cabinets, an oak top, a sink, the coffee machine,
   // a kettle and a fruit bowl; tiles behind and an open shelf of jars above.
-  kitchen(put, k, _t, i) {
+  kitchen(put, k, _t, i, kit) {
+    // Kenney's kitchen, when it's there: a drawer unit, the sink and a
+    // cabinet, the microwave and coffee machine on top, wall cabinets above,
+    // tiles behind.
+    const cw = sizeOf('kitchenCabinet')?.w;
+    const ch = sizeOf('kitchenCabinet')?.h ?? 0.9;
+    if (cw && kit('kitchenCabinetDrawer', -cw, 0, 0) && kit('kitchenSink', 0, 0, 0) && kit('kitchenCabinet', cw, 0, 0)) {
+      kit('kitchenMicrowave', -cw, ch, -0.05);
+      kit('kitchenCoffeeMachine', cw - 0.1, ch, -0.05);
+      kit('kitchenCabinetUpperDouble', -cw / 2, 1.55, -0.18);
+      kit('kitchenCabinetUpperDouble', cw / 2, 1.55, -0.18);
+      put(rbox(cw * 3, 0.55, 0.02, 0.01), k.m('#d6e8e1', { roughness: 0.3 }), 0, ch + 0.32, -0.31);
+      put(cyl(0.09, 0.11, 0.2, 18), k.m('#ff7aa2', { roughness: 0.35 }), cw * 0.55, ch + 0.1, 0.05);
+      return;
+    }
     put(rbox(2.8, 0.86, 0.64, 0.03), k.m(CREAM, { roughness: 0.5 }), 0, 0.43, 0);
     for (let j = 0; j < 4; j++) put(rbox(0.66, 0.74, 0.02, 0.01), k.m('#ebe2d4', { roughness: 0.5 }), -1.05 + j * 0.7, 0.44, 0.325);
     for (let j = 0; j < 4; j++) put(rbox(0.16, 0.02, 0.02, 0.008), k.m(STEEL, { metalness: 0.5, roughness: 0.3 }), -1.05 + j * 0.7, 0.72, 0.34);
@@ -228,7 +254,8 @@ const BUILD: Record<Prop['kind'], (put: Put, k: Kit, t: Tex, i: number) => void>
     for (let j = 0; j < 8; j++) put(cyl(0.05, 0.05, 0.12 + (j % 3) * 0.04, 14), k.m(jars[(j + i) % jars.length], { roughness: 0.35 }), -1.0 + j * 0.28, 1.86 + (j % 3) * 0.02, -0.2);
   },
   // A rounded retro fridge in mint.
-  fridge(put, k) {
+  fridge(put, k, _t, _i, kit) {
+    if (kit('kitchenFridge', 0, 0, 0)) return;
     put(rbox(0.76, 1.85, 0.66, 0.12), k.m('#bfe3d6', { roughness: 0.35 }), 0, 0.93, 0);
     put(rbox(0.7, 0.015, 0.02, 0.005), k.m('#9fc9ba', { roughness: 0.4 }), 0, 1.25, 0.335);
     for (const y of [0.85, 1.55]) put(rbox(0.03, 0.26, 0.04, 0.012), k.m(STEEL, { metalness: 0.7, roughness: 0.2 }), 0.28, y, 0.35);
