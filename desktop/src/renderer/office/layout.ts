@@ -181,6 +181,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   const areas: AreaPlace[] = Array.from({ length: model.areas.length });
   const obstacles: Box[] = [];
   const plants: { x: number; z: number }[] = [];
+  const leadMats: { x: number; z: number }[] = [];
   // Floor no area uses, which the room furnishes (fill, below). Low says
   // it's before an area, where the close-ups look across it: nothing tall.
   const free: (Box & { low?: boolean })[] = [];
@@ -257,6 +258,8 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     if (hasLead) {
       obstacles.push(box(cx, lz, COUNTER.w, COUNTER.d));
       obstacles.push(box(cx, lz - 0.75, 0.7, 0.6));
+      // A rug under it: the front desk's own patch of floor.
+      leadMats.push({ x: cx, z: lz + 0.25 });
     }
     areas[i] = { project: a.project, rug, pods, lead: hasLead ? { x: cx, z: lz, spot: { x: cx - 1.65, z: lz + 0.55, face: Math.PI / 2 } } : undefined, desks, sign: { x: cx, z } };
     // The sign's posts, at the rug's back edge.
@@ -275,6 +278,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   const planter: Box = { x0: workW, z0: Math.min(roomD - 3, Math.max(BACK_AISLE + 2.4, roomD * 0.34)), x1: workW + PLANTER, z1: roomD - 0.35 };
   obstacles.push(planter);
   const props: Prop[] = [];
+  for (const m of leadMats) props.push({ kind: 'mat', x: m.x, z: m.z, rot: 0 });
   const prop = (kind: PropKind, x: number, z: number, rot = 0) => {
     props.push({ kind, x, z, rot });
     // A mat is floor: walked over.
@@ -389,9 +393,17 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   // rolling whiteboard, each on a cell of its own with room to pass.
   let n = 0;
   let themed = 0;
+  // Is a square of floor, r about its centre, clear of everything?
+  const clearAt = (x: number, z: number, r: number) => !obstacles.some((b) => x + r > b.x0 && x - r < b.x1 && z + r > b.z0 && z - r < b.z1);
   for (const f of free) {
     const w = f.x1 - f.x0;
     const d = f.z1 - f.z0;
+    // Potted plants at its front corners, where there's floor.
+    for (const x of [f.x0 + 0.45, f.x1 - 0.45])
+      if (clearAt(x, f.z1 - 0.45, 0.55)) {
+        plants.push({ x, z: f.z1 - 0.45 });
+        obstacles.push(box(x, f.z1 - 0.45, 0.6, 0.6));
+      }
     // Room for a corner of its own: a few things together on a mat.
     if (w >= 5.8 && d >= 3.2) {
       const themes = f.low ? LOW_THEMES : THEMES;

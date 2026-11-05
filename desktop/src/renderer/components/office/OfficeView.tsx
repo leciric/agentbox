@@ -115,6 +115,9 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const [near, setNear] = useState<string | undefined>();
   // Which room the camera's in (none: the campus), and whether at its overview.
   const [view, setView] = useState<{ project?: string; floor: number; floors: number; overview: boolean; refs?: string[] }>({ floor: 1, floors: 1, overview: true });
+  // A list folds as you go to another room or out to them all.
+  const viewKey = `${view.project ?? ''}#${view.floor}`;
+  const lastViewKey = useRef(viewKey);
   const [hover, setHover] = useState<string | undefined>();
   const [hint, setHint] = useState(() => {
     try {
@@ -353,7 +356,12 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">N</kbd>
     </Button>
   );
-  const listShown = listOpen && (listKind === 'needs' ? needs.length : listKind === 'review' ? review.length : working) > 0 && near !== 'board';
+  useEffect(() => {
+    if (lastViewKey.current === viewKey) return;
+    lastViewKey.current = viewKey;
+    setListChoice(false);
+  }, [viewKey]);
+  const listShown = listOpen && (listKind === 'needs' ? needs.length : listKind === 'review' ? review.length : working) > 0;
   // Escape, or a press on the room, folds it away.
   useEffect(() => {
     if (!listShown) return;
@@ -423,7 +431,14 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       {/* The top: what's going on, and the overview. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start gap-2 p-3">
         <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md" data-office-summary data-office-review={review.map((i) => i.ref).join(",")}>
-          <span className="text-[13px] font-semibold text-slate-900">{t('office.title')}</span>
+          {view.project ? (
+            // In a room, the Office's name goes back out to all of them.
+            <button type="button" className="-my-1 -ml-1 rounded-lg px-1 py-1 text-[13px] font-semibold text-slate-900 transition hover:bg-black/5" onClick={() => scene.current?.campus()} title={t('office.campus')} data-office-crumb-campus>
+              {t('office.title')}
+            </button>
+          ) : (
+            <span className="text-[13px] font-semibold text-slate-900">{t('office.title')}</span>
+          )}
           {/* In a room: its name, which goes back out to all of them. */}
           {view.project && (
             <button type="button" className="-my-1 flex items-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1 font-medium text-slate-700 transition hover:bg-black/5" onClick={() => scene.current?.campus()} title={t('office.campus')} data-office-room={view.project}>
@@ -434,7 +449,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
               })()}
             </button>
           )}
-          {needs.length > 0 && near !== 'board' ? (
+          {needs.length > 0 ? (
             // The count opens and folds the list of who needs you.
             <button
               type="button"
@@ -450,8 +465,8 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           ) : (
             <Count dot="bg-amber-400" n={needs.length} label={t('office.count.needs', { count: needs.length })} />
           )}
-          <Count dot="bg-sky-400" n={working} label={t('office.count.working', { count: working })} onClick={working > 0 && near !== 'board' ? () => openList('working') : undefined} open={listOpen && listKind === 'working'} />
-          <Count dot="bg-emerald-400" n={review.length} label={t('office.count.review', { count: review.length })} onClick={review.length > 0 && near !== 'board' ? () => openList('review') : undefined} open={listOpen && listKind === 'review'} />
+          <Count dot="bg-sky-400" n={working} label={t('office.count.working', { count: working })} onClick={working > 0 ? () => openList('working') : undefined} open={listOpen && listKind === 'working'} />
+          <Count dot="bg-emerald-400" n={review.length} label={t('office.count.review', { count: review.length })} onClick={review.length > 0 ? () => openList('review') : undefined} open={listOpen && listKind === 'review'} />
         </div>
         <span className="flex-1" />
         {near !== 'board' && view.project && (
@@ -481,7 +496,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
 
       {/* Who needs you, each a walk away: open while there's room for it,
           folded to a pill at a desk or in a small window. */}
-      {listOpen && needs.length > 0 && near !== 'board' && (
+      {listShown && (
         <div
           className="pointer-events-auto absolute left-3 top-16 z-10 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col items-start gap-2 overflow-y-auto"
           style={listOnly && listAt ? { left: `min(${Math.round(listAt.x)}px, calc(100% - 17rem))`, top: `max(4.5rem, min(${Math.round(listAt.y)}px, calc(100% - 12rem)))` } : undefined}

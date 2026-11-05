@@ -511,7 +511,7 @@ export function mascot(ref: string, ai: string | undefined, opts: { lead?: boole
   });
   // Bigger than life: they're who you came to see.
   // Big for their desks, as a toy's people are.
-  g.scale.setScalar(opts.lead ? 2.1 : 1.95);
+  g.scale.setScalar(opts.lead ? 2.3 : 2.15);
 
   const cur = restPose();
   const T = restPose();

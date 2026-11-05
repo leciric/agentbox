@@ -367,7 +367,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const name = document.createElement('span');
         const sub = document.createElement('span');
         sub.style.cssText = 'font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.28)';
-        chip.append(name, sub);
+        const bad = document.createElement('span');
+        bad.style.cssText = 'display:none;font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:#ef4444;color:#fff';
+        chip.append(name, sub, bad);
         const lead = rm.lead ? `${rm.project}/lead` : undefined;
         // Over the campus it goes into its room; in the room, to its lead.
         press(chip, () => {
@@ -757,6 +759,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         }
       }
     }
+    // A little plant where a bench's two desks meet (Kenney's, when it's there).
+    if (!lead && side > 0) {
+      const sprig = piece((['plantSmall1', 'plantSmall2', 'plantSmall3'] as const)[n % 3]);
+      if (sprig) {
+        sprig.position.set(-0.72, DESK.h + 0.025, -0.26);
+        sprig.scale.multiplyScalar(1.3);
+        g.add(sprig);
+      }
+    }
     // An office chair under the agent, in one of the room's pastels.
     const seatMat = mats.chairs[n % mats.chairs.length];
     put(g, mesh(geo.roundSoft, seatMat, rx, 0.45, cz, 0.5, 0.08, 0.48));
@@ -956,12 +967,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const walk = document.createElement('button');
         walk.type = 'button';
         walk.style.cssText =
-          'pointer-events:auto;display:flex;align-items:center;gap:5px;max-width:var(--tag-w,170px);padding:2px 8px 2px 6px;border-radius:7px;background:#fff;color:#2b2620;font:600 11px/1.3 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(40,30,20,.18);cursor:pointer';
+          'position:relative;pointer-events:auto;display:flex;align-items:center;gap:5px;max-width:var(--tag-w,170px);padding:2px 8px 2px 6px;border-radius:7px;background:#fff;color:#2b2620;font:600 11px/1.3 var(--font-sans,system-ui),sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(40,30,20,.18);cursor:pointer';
         const dot = document.createElement('span');
         dot.style.cssText = 'flex:none;width:8px;height:8px;border-radius:50%';
         const label = document.createElement('span');
         label.style.cssText = 'overflow:hidden;text-overflow:ellipsis';
-        walk.append(dot, label);
+        // A little tail up to its agent: whose tag it is.
+        const tail = document.createElement('span');
+        tail.style.cssText = 'position:absolute;left:50%;top:-5px;margin-left:-5px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:5px solid #fff;pointer-events:none';
+        walk.append(dot, label, tail);
         const more = document.createElement('button');
         more.type = 'button';
         more.dataset.officeMore = '';
@@ -1683,7 +1697,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const loudTone = d.tone === 'needs' || d.tone === 'error';
       // Big over the campus, where they say which room needs you; in a room
       // a little, clear of each other.
-      const grow = Math.min(d.tone === 'needs' ? (crowded ? 8 : 2.2) : loudTone ? (crowded ? 4.5 : 1.8) : crowded ? 1 : 1.35, Math.max(1, (far - 8) / 12));
+      const grow = Math.min(d.tone === 'needs' ? (crowded ? 8 : 2.9) : loudTone ? (crowded ? 4.5 : 2.2) : crowded ? 1 : 1.35, Math.max(1, (far - 8) / 12));
       // A crowd's quiet bubbles show as you come in: from afar they'd bury the loud ones.
       if (crowded && !loudTone && far > 30) s.visible = false;
       const sb = (s.userData.base as THREE.Vector2 | undefined) ?? (s.userData.base = new THREE.Vector2(s.scale.x, s.scale.y));
@@ -1744,23 +1758,32 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const taken: { x0: number; x1: number; y0: number; y1: number }[] = [];
     const ap = new THREE.Vector3();
     // Each room's waiting count, on its pill.
+    // Who needs you, in amber; what failed, in red beside it.
     const waiting = new Map<number, number>();
-    for (const d of desks.values()) if (d.tone === 'needs' || d.tone === 'error') {
+    const failed = new Map<number, number>();
+    for (const d of desks.values()) {
+      if (d.tone !== 'needs' && d.tone !== 'error') continue;
       const ri = roomOf(lay, d.ref);
-      if (ri !== undefined) waiting.set(ri, (waiting.get(ri) ?? 0) + 1);
+      if (ri === undefined) continue;
+      const m = d.tone === 'needs' ? waiting : failed;
+      m.set(ri, (m.get(ri) ?? 0) + 1);
     }
     for (const [ri, rm] of lay.rooms.entries()) {
       const chip = areaChips.get(rm.key);
       if (!chip) continue;
       const n0 = waiting.get(ri) ?? 0;
-      const sub = chip.lastChild as HTMLElement;
-      if (sub.dataset.n !== String(n0)) {
-        sub.dataset.n = String(n0);
+      const f0 = failed.get(ri) ?? 0;
+      const sub = chip.children[1] as HTMLElement;
+      const bad = chip.children[2] as HTMLElement;
+      if (sub.dataset.n !== `${n0}:${f0}`) {
+        sub.dataset.n = `${n0}:${f0}`;
         sub.textContent = n0 ? String(n0) : '';
         sub.style.display = n0 ? 'inline' : 'none';
         // Amber, as everything that needs you is.
         sub.style.background = '#fbbf24';
         sub.style.color = '#3a2a05';
+        bad.textContent = f0 ? `× ${f0}` : '';
+        bad.style.display = f0 ? 'inline' : 'none';
       }
       let on = false;
       if (scope === null) {
@@ -1810,6 +1833,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     }
     // Small from afar, as name tags are; wider as you come in to read them.
     const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '150px' : '170px';
+    const smallRoom = scope !== null && lay.rooms[scope].desks.length <= 8;
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
@@ -1835,7 +1859,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // crowd's loud ones; coming in, everyone's near you. (They keep off
         // faces, and a quiet one with no room steps out of the way.)
         // (None over the campus: its rooms' pills and bubbles say it.)
-        const want = scope !== null && d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && dist < 17));
+        // A small room shows everyone's from its overview, as the target does;
+        // a full one its loud ones, the rest as you come in.
+        const want = scope !== null && d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || smallRoom || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (smallRoom || dist < 17)));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 130, ((1 - tp.y) / 2) * canvas.clientHeight);
@@ -2107,6 +2133,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // What's under the pointer as it's let go: the press's, unless the camera
     // moved between the two, when it's looked again.
     const { ref, row, floor } = p.cam === camAt() ? p.aim : pick(e.clientX, e.clientY);
+    // On the way to a board, a click on what's in front of it waits: its notes
+    // (buttons of their own) are what's meant.
+    if (ref && isBoard(routeGoal) && (route.length || cam.closeK < 0.95)) return;
     // Over the campus, a click anywhere on a room goes into it.
     if (scope === null) {
       const ri = ref ? roomOf(lay, ref) : floor ? roomAt(lay, floor, 0.4) : undefined;
