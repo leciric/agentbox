@@ -253,7 +253,9 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       obstacles.push(box(dx + side * 0.48, dz - SEAT, 1.2, 1.1));
       // You stand at the bench's end, beside the agent, as you'd stop by a
       // colleague's, turned half to the room: the close-up sees your face too.
-      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.85, z: dz - 0.45, face: side < 0 ? Math.PI / 2.4 : -Math.PI / 2.4 } };
+      // You stand beside the agent, a little behind its chair, facing it:
+      // never between it and the camera, nor pressed against it.
+      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.9, z: dz - 0.95, face: -side * 1.34 } };
     });
     // The counter sits at the area's front, its lead behind it facing you.
     const lz = z + depth - LEAD_DEPTH / 2 - 0.1;
@@ -276,7 +278,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       // A rug under it: the front desk's own patch of floor.
       leadMats.push({ x: cx, z: lz + 0.25 });
     }
-    areas[i] = { project: a.project, rug, pods, lead: hasLead ? { x: cx, z: lz, spot: { x: cx - 1.65, z: lz + 0.55, face: Math.PI / 2 } } : undefined, desks, sign: { x: cx, z } };
+    areas[i] = { project: a.project, rug, pods, lead: hasLead ? { x: cx, z: lz, spot: { x: cx - 1.95, z: lz + 0.55, face: Math.PI / 2 } } : undefined, desks, sign: { x: cx, z } };
     // The sign's posts, at the rug's back edge.
     obstacles.push(box(cx - 1.35, z + 0.13, 0.12, 0.12), box(cx + 1.35, z + 0.13, 0.12, 0.12));
     plants.push({ x: rug.x0 + 0.35, z: rug.z1 - 0.35 }, { x: rug.x1 - 0.35, z: rug.z1 - 0.35 });
@@ -494,15 +496,27 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
         }
       }
   }
+  // You come in on the commons' free floor: the nearest spot clear of
+  // everything to where its lounge ends, never inside a piece of furniture.
+  const want = { x: wx + 2.4, z: lounge.z1 + 1.1 };
+  let spawn = { ...want, face: -0.5 };
+  const around: { x: number; z: number; d: number }[] = [];
+  for (let dx = -5; dx <= 5; dx += 0.25) for (let dz = -4; dz <= 5; dz += 0.25) around.push({ x: want.x + dx, z: want.z + dz, d: dx * dx + dz * dz });
+  around.sort((a, b) => a.d - b.d);
+  for (const p of around)
+    if (p.x > 0.8 && p.x < roomW - 0.8 && p.z > 0.8 && p.z < roomD - 0.8 && clearAt(p.x, p.z, 0.75)) {
+      spawn = { x: p.x, z: p.z, face: -0.5 };
+      break;
+    }
   return {
     room: { x0: 0, z0: 0, x1: roomW, z1: roomD },
     areas,
     // You stand at the board's left end, out of the way of reading it and of
     // its list, which is on the right.
-    board: { x: boardX, w: boardW, spot: { x: boardX - boardW / 2 - 0.7, z: 1.1, face: Math.PI / 2 } },
+    board: { x: boardX, w: boardW, spot: { x: Math.max(boardX - boardW / 2 - 0.7, meeting.x1 + 0.8), z: 1.1, face: Math.PI / 2 } },
     lobby: wood,
     wood,
-    spawn: { x: wx + 2.4, z: lounge.z1 + 1.1, face: -0.5 },
+    spawn,
     sofa,
     shelf,
     obstacles,

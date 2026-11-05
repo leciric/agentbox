@@ -160,9 +160,6 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  useEffect(() => {
-    if (near) setListChoice(null);
-  }, [near]);
   const office = useOffice();
   const openReview = useOpenReview();
 
@@ -298,14 +295,20 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
   next.current = () => {
     const list = round;
     if (list.length === 0) return;
+    // From a chat, the next one's chat opens as you get there.
+    const go = (ref: string) => {
+      if (chat) chatNext.current = ref;
+      walkTo(ref);
+    };
     // Off the round, in a room where someone needs you: them first.
     if (!list.some((i) => i.ref === near) && view.project) {
       const here = list.find((i) => i.project === view.project && floorOfRef(i.project, i.ref) === view.floor);
-      if (here) return walkTo(here.ref);
+      if (here) return go(here.ref);
     }
     const to = list[(roundAt() + 1) % list.length];
-    if (to.ref !== near) walkTo(to.ref);
+    if (to.ref !== near) go(to.ref);
   };
+  const chatNext = useRef<string | null>(null);
   // Which of its project's floors a desk is on (layout.ts splits them so, in order).
   const floorOfRef = (project: string, ref: string) => {
     const a = office.model.areas.find((x) => x.project === project);
@@ -399,10 +402,9 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
   const chatAgent = chat && !chat.endsWith('/lead') ? office.agents.get(chat) : undefined;
   const chatProject = chat?.endsWith('/lead') ? projects.data?.find((p) => p.name === chat.split('/')[0]) : undefined;
   const chatOpen = !!(chatAgent || chatProject);
-  // The tray of who needs you: the user's choice, or else open while the
-  // window is wide and nothing's up on the right. Arriving somewhere new
-  // forgets the choice.
-  const trayOpen = listChoice ?? (wide && !nearDesk && !nearArea && !chatOpen);
+  // The tray of who needs you: folded to its counts until you open it;
+  // going to another room folds it again.
+  const trayOpen = listChoice ?? false;
   const hasNext = needs.some((i) => i.ref !== near);
   const nextButton = hasNext && (
     <Button size="sm" variant="secondary" onClick={() => next.current()} data-office-next>
@@ -439,9 +441,13 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
   useEffect(() => {
     if (!trayOpen) setListOnly(null);
   }, [trayOpen]);
-  // The chat closes as you walk away from it.
+  // The chat closes as you walk away from it, and one asked for by Next
+  // opens as you arrive.
   useEffect(() => {
-    if (chat && near !== chat) setChat(null);
+    if (near && chatNext.current === near) {
+      chatNext.current = null;
+      setChat(near);
+    } else if (chat && near !== chat) setChat(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [near]);
   // A close-up keeps what it looks at clear of what's up on the right.
@@ -450,11 +456,6 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
     const w = host.current?.clientWidth ?? 0;
     scene.current?.setCover(chatOpen ? Math.min(w - 24, 480) + 24 : 0);
   }, [chatOpen, status]);
-  // The room is framed in what the tray leaves of the window.
-  const trayShown = status === 'ready' && !empty && !(chatOpen && !wide) && trayOpen;
-  useEffect(() => {
-    if (status === 'ready') scene.current?.setInset(trayShown && wide ? 352 + 24 : 0);
-  }, [trayShown, wide, status]);
   // The controls, shown a while and then folded to a button.
   useEffect(() => {
     if (!hint) return;
@@ -479,13 +480,18 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
   const hoverText = hoverTitle ? (hover === near && hover !== 'board' ? t('office.clickToOpen', { title: hoverTitle }) : hover === near ? undefined : t('office.clickToWalk', { title: hoverTitle })) : undefined;
   const roomName = view.project ? (office.model.areas.find((a) => a.project === view.project)?.label ?? view.project) : undefined;
   const chatTitle = chatAgent ? (deskOf(office.model, chatAgent.ref)?.title ?? chatAgent.ref) : chatProject ? t('office.lead.title', { project: office.model.areas.find((a) => a.project === chatProject.name)?.label ?? chatProject.name }) : '';
+  const chatDesk = chatAgent ? deskOf(office.model, chatAgent.ref) : undefined;
+  const chatQuestion = chatDesk?.question && (chatDesk.tone === 'needs' || chatDesk.tone === 'error') ? plain(readable(chatDesk.question)) : undefined;
   const chatTone: DeskTone = chatAgent ? (deskOf(office.model, chatAgent.ref)?.tone ?? 'idle') : nearArea?.lead.tone === 'needs' ? 'needs' : nearArea?.lead.tone === 'working' ? 'working' : 'idle';
 
   return createPortal(
     <div
       // The whole window, the app's chrome under it: a pale sky for the
       // diorama to float on.
-      className="fixed inset-0 z-40 overflow-hidden bg-[linear-gradient(180deg,#e9f2f7_0%,#d5e5ee_100%)]"
+      className="fixed inset-0 z-40 overflow-hidden bg-[linear-gradient(180deg,#e9f2f7_0%,#d5e5ee_100%)] text-primary"
+      // The app's light tokens, whatever its theme: the room is a bright
+      // diorama, and what's over it white, as the target's pills are.
+      data-appearance-scope="light"
       data-office
       // After a click on a button over the room, the keys walk again.
       onClickCapture={(e) => {
@@ -573,17 +579,9 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
       {status === 'ready' && !empty && !(chatOpen && !wide) && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex w-[min(22rem,calc(100%-1.5rem))] flex-col items-start" data-office-needs={trayOpen ? 'open' : 'folded'}>
           <div className={cn(PANEL, 'pointer-events-auto flex w-full min-h-0 flex-col')}>
-            <div className="flex items-center gap-1 p-1.5" role="tablist" aria-label={t('office.tray')}>
-              <TrayTab dot="bg-amber-400" pulse={needs.length > 0} n={needs.length} label={t('office.legend.needs')} on={trayOpen && listKind === 'needs'} onClick={() => openList('needs')} data-office-unfold />
-              <TrayTab dot="bg-sky-400" n={working} label={t('office.list.working')} on={trayOpen && listKind === 'working'} onClick={() => openList('working')} />
-              <TrayTab dot="bg-emerald-400" n={review.length} label={t('office.tray.review')} on={trayOpen && listKind === 'review'} onClick={() => openList('review')} />
-              <span className="flex-1" />
-              <button type="button" aria-label={trayOpen ? t('office.fold') : t('office.unfold')} title={trayOpen ? t('office.fold') : t('office.unfold')} onClick={() => setListChoice(!trayOpen)} className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-strong hover:text-primary" aria-expanded={trayOpen} data-office-fold>
-                {trayOpen ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
-              </button>
-            </div>
+            {/* The list over its tabs: the tabs stay where they are as it opens. */}
             {trayOpen && (
-              <div className="max-h-[min(22rem,calc(100vh-12rem))] min-h-0 overflow-y-auto border-t border-line px-1.5 pb-1.5 pt-1" role="tabpanel">
+              <div className="max-h-[min(22rem,calc(100vh-12rem))] min-h-0 overflow-y-auto border-b border-line px-1.5 pb-1 pt-1.5" role="tabpanel">
                 {listed.length === 0 && <div className="px-2 py-3 text-ui text-muted">{listKind === 'needs' ? t('office.board.needsEmpty') : listKind === 'review' ? t('office.board.reviewEmpty') : t('office.tray.noneWorking')}</div>}
                 {listed.map((i) => (
                   <WalkRow
@@ -605,6 +603,15 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
                 )}
               </div>
             )}
+            <div className="flex items-center gap-1 p-1.5" role="tablist" aria-label={t('office.tray')}>
+              <TrayTab dot="bg-amber-400" pulse={needs.length > 0} n={needs.length} label={t('office.legend.needs')} on={trayOpen && listKind === 'needs'} onClick={() => openList('needs')} data-office-unfold />
+              <TrayTab dot="bg-sky-400" n={working} label={t('office.list.working')} on={trayOpen && listKind === 'working'} onClick={() => openList('working')} />
+              <TrayTab dot="bg-emerald-400" n={review.length} label={t('office.tray.review')} on={trayOpen && listKind === 'review'} onClick={() => openList('review')} />
+              <span className="flex-1" />
+              <button type="button" aria-label={trayOpen ? t('office.fold') : t('office.unfold')} title={trayOpen ? t('office.fold') : t('office.unfold')} onClick={() => setListChoice(!trayOpen)} className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-strong hover:text-primary" aria-expanded={trayOpen} data-office-fold>
+                {trayOpen ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -696,7 +703,21 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
             </Button>
           </header>
           <div className="flex min-h-0 flex-1 flex-col bg-chat">
-            {chatAgent && <ChatTab key={chatAgent.ref} agent={chatAgent} starting={agentAction.isPending} onStart={() => agentAction.mutate({ ref: chatAgent.ref, name: chatAgent.state === 'paused' ? 'resume' : 'start' })} />}
+            {chatAgent && (
+              <ChatTab
+                key={chatAgent.ref}
+                agent={chatAgent}
+                starting={agentAction.isPending}
+                onStart={() => agentAction.mutate({ ref: chatAgent.ref, name: chatAgent.state === 'paused' ? 'resume' : 'start' })}
+                // What it asks, over the composer you answer it in.
+                aboveComposer={chatQuestion && (
+                  <div className="mb-2 flex max-h-32 min-w-0 gap-2 overflow-y-auto rounded-xl bg-amber-400/10 px-3 py-2 text-ui text-amber-200 ring-1 ring-amber-400/40 [overflow-wrap:anywhere]" data-office-chat-question>
+                    <span className="mt-1.5 size-2 shrink-0 animate-pulse rounded-full bg-amber-400" />
+                    <span className="min-w-0">{chatQuestion}</span>
+                  </div>
+                )}
+              />
+            )}
             {chatProject && <ProjectChatPanel key={chatProject.name} project={chatProject} />}
           </div>
         </section>

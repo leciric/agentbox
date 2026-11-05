@@ -113,7 +113,8 @@ test('every room is furnished, and nothing stands on anything else', () => {
 for (const sizes of [[5, 1, 10], [30, 4, 2]])
   test(`every spot is free floor, and you can walk to each from its room's door (${sizes})`, () => {
     const c = layout({ areas: sizes.map((k, i) => area(`p${i}`, k)) });
-    const r = 0.3;
+    // As the scene walks you (scene.ts's RADIUS).
+    const r = 0.45;
     const boxes = walkable(c, r);
     const spots = [...c.rooms.map(boardRef), ...c.areas.flatMap((a) => [...(a.lead ? [`${a.project}/lead`] : []), ...a.desks.map((d) => d.id)])];
     for (const ref of spots) {
@@ -127,5 +128,9 @@ for (const sizes of [[5, 1, 10], [30, 4, 2]])
       assert.deepEqual(route[route.length - 1], s);
       assert.equal(nearest(c, s), ref, `standing at ${ref} is at it`);
     }
-    for (const room of c.rooms) assert.equal(nearest(c, room.spawn), undefined);
+    for (const room of c.rooms) {
+      assert.equal(nearest(c, room.spawn), undefined);
+      const bounds = { x0: room.box.x0 + r, z0: room.box.z0 + r, x1: room.box.x1 - r, z1: room.box.z1 - r };
+      assert.ok(!blocked(boxes, bounds, room.spawn), `${room.key}'s door is free floor`);
+    }
   });

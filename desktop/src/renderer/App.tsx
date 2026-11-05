@@ -221,7 +221,8 @@ export function App({ initial }: { initial?: View } = {}) {
   const select = (next: View) => {
     setSettingsLink(undefined);
     // The Office covers the window; its Back returns to where you were.
-    if (next.kind === "office" && view.kind !== "office") beforeOffice.current = view;
+    // (Coming back to it from a page it opened keeps where you were before.)
+    if (next.kind === "office" && view.kind !== "office" && !("from" in view && view.from === "office")) beforeOffice.current = view;
     // An agent's page has no tabs: the ones that were become the right
     // panel's, targeted at the agent, and the page stays on its chat.
     const kind = next.kind === "agent" && next.tab ? agentPanelKind[next.tab as string] : undefined;

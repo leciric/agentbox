@@ -94,21 +94,69 @@ export function seedOffice(queryClient: QueryClient, opts: { typical?: boolean }
   };
 }
 
-// stubProjectChats answers the chats of seedV2's extra projects (Storefront,
-// Quill, Courier…), their leads' and their agents', with empty threads: the
-// dev bridge has none, and a chat that can't be read shows an error where a
-// quiet chat belongs.
+// stubProjectChats answers the chats the dev bridge has none of: seedV2's
+// extra projects' (Storefront, Quill, Courier…), their leads' and agents',
+// and, in the Office, the fixture project's agents beyond the few it has a
+// conversation for. A chat that can't be read shows an error where a quiet
+// chat belongs. Each agent's opens on its task and, when it's asking, its
+// question; what you send stays in it, as the daemon keeps it.
 export function stubProjectChats(): void {
   type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  type Reply = { status: number; body: string; contentType: string };
   const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
   const inner = bridge.request;
+  const threads = new Map<string, T.ChatThread>();
+  let agents: Promise<T.Agent[]> | undefined;
+  const agentList = () =>
+    (agents ??= (inner('GET', '/v1/agents') as Promise<Reply>).then((r) => {
+      try {
+        return JSON.parse(r.body) as T.Agent[];
+      } catch {
+        return [];
+      }
+    }));
+  const item = (id: string, kind: string, text: string, at: number): T.ChatItem => ({ id, turn: id, kind, text, createdAt: ago(at), updatedAt: ago(at) }) as T.ChatItem;
+  const threadOf = async (ref: string): Promise<T.ChatThread> => {
+    const had = threads.get(ref);
+    if (had) return had;
+    const session: T.ChatSession = { state: 'off', tool: 'claude', options: [], commands: [] } as unknown as T.ChatSession;
+    const items: T.ChatItem[] = [];
+    if (!ref.endsWith('/lead')) {
+      const a = (await agentList()).find((x) => x.ref === ref);
+      if (a?.title) items.push(item(`${ref}#task`, 'user', a.title, 30 * min));
+      if (a?.outcome === 'asking' && a.outcomeNote) items.push(item(`${ref}#ask`, 'assistant', a.outcomeNote, 5 * min));
+      else if (a?.title) items.push(item(`${ref}#on`, 'assistant', 'On it: reading the code first, then a plan.', 20 * min));
+    }
+    const t: T.ChatThread = { agent: ref, seq: items.length, session, items };
+    threads.set(ref, t);
+    return t;
+  };
+  const reply = (v: unknown): Reply => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
   bridge.request = async (method, path, body) => {
-    const chat = method === 'GET' && /^\/v1\/(?:projects\/([^/]+)(?:\/sessions\/[^/]+)?|agents\/([^/]+)\/([^/?]+))\/chat(?:\?|$)/.exec(path);
-    const project = chat ? decodeURIComponent(chat[1] ?? chat[2]) : '';
-    if (chat && project !== PROJECT) {
-      const ref = chat[1] ? `${project}/lead` : `${project}/${decodeURIComponent(chat[3])}`;
-      const thread: T.ChatThread = { agent: ref, seq: 0, session: { state: 'off', tool: 'claude', options: [], commands: [] }, items: [] };
-      return { status: 200, body: JSON.stringify(thread), contentType: 'application/json' };
+    const m = /^\/v1\/(?:projects\/([^/]+)(?:\/sessions\/[^/]+)?|agents\/([^/]+)\/([^/?]+))\/chat(\/messages)?(?:\?|$)/.exec(path);
+    if (!m) return inner(method, path, body);
+    const project = decodeURIComponent(m[1] ?? m[2]);
+    const ref = m[1] ? `${project}/lead` : `${project}/${decodeURIComponent(m[3])}`;
+    if (method === 'GET' && !m[4]) {
+      // The fixture project's own conversations, where it has them.
+      if (project === PROJECT && !threads.has(ref)) {
+        const r = (await inner(method, path, body)) as Reply;
+        try {
+          if (Array.isArray((JSON.parse(r.body) as T.ChatThread).items)) return r;
+        } catch {
+          // Not one: made up below.
+        }
+      }
+      return reply(await threadOf(ref));
+    }
+    // Sent to a chat made up here: it stays in it.
+    if (method === 'POST' && m[4] && (project !== PROJECT || threads.has(ref))) {
+      const t = await threadOf(ref);
+      const text = (body as { text?: string } | undefined)?.text ?? '';
+      const sent = item(`${ref}#${t.items.length}`, 'user', text, 0);
+      t.items = [...t.items, sent];
+      t.seq += 1;
+      return reply(sent);
     }
     return inner(method, path, body);
   };

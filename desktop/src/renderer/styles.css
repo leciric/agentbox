@@ -185,7 +185,8 @@
    text is still quieter than primary. The window is near-white, surfaces are a
    tint of near-black over it (a panel settles rather than lifts), and the rail,
    the wells and the menus go the other way and become white. */
-:root[data-appearance="light"] {
+:root[data-appearance="light"],
+[data-appearance-scope="light"] {
   --ab-ink: #f4f4f6;
   /* The brand as text on near-white: violet's 900 to 600, so text-brand-300
      reads 6.5:1 here rather than 1.8:1. 500 stays the button's fill. */
@@ -575,7 +576,8 @@
     color-scheme: dark;
   }
 
-  :root[data-appearance="light"] {
+  :root[data-appearance="light"],
+  [data-appearance-scope="light"] {
     color-scheme: light;
   }
 
@@ -1178,7 +1180,8 @@ html[data-blurred] :is(.animate-glow, .nightly-sky)::after {
   --ab-star: rgb(255 255 255 / 0.7);
   --ab-night: rgb(99 102 241 / 0.16);
 }
-:root[data-appearance="light"] {
+:root[data-appearance="light"],
+[data-appearance-scope="light"] {
   --ab-star: rgb(79 70 229 / 0.75);
   --ab-night: rgb(99 102 241 / 0.14);
 }
@@ -1559,7 +1562,8 @@ html[data-blurred] .ab-monitor * {
   --ab-session-peach: #dcaa86;
   --ab-session-line: 80%;
 }
-:root[data-appearance="light"] {
+:root[data-appearance="light"],
+[data-appearance-scope="light"] {
   --ab-session-rose: #cc7189;
   --ab-session-sky: #5b97cb;
   --ab-session-mint: #50a47b;
@@ -1602,4 +1606,76 @@ html[data-blurred] .ab-monitor * {
     outline: 2px solid var(--color-brand-400);
     outline-offset: 3px;
   }
+}
+
+/* A part of the app in the light theme whatever the app's (the Office, over
+   its bright room): the theme's values are set on it by the light blocks
+   above, and Tailwind's colours, which @theme resolves once on :root, are
+   resolved again here so they take them. */
+[data-appearance-scope] {
+  --color-brand-100: var(--ab-brand-100);
+  --color-brand-200: var(--ab-brand-200);
+  --color-brand-300: var(--ab-brand-300);
+  --color-brand-400: var(--ab-brand-400);
+  --color-brand-500: var(--ab-brand-500);
+  --color-brand-600: var(--ab-brand-600);
+  --color-brand-700: var(--ab-brand-700);
+  --color-on-brand: var(--ab-on-brand);
+  --color-ink: var(--ab-ink);
+  --color-indigo-500: var(--ab-brand-mid);
+  --color-indigo-600: var(--ab-brand-deep);
+  --color-title: var(--ab-title);
+  --color-primary: var(--ab-primary);
+  --color-secondary: var(--ab-secondary);
+  --color-tertiary: var(--ab-tertiary);
+  --color-muted: var(--ab-muted);
+  --color-subtle: var(--ab-subtle);
+  --color-faint: var(--ab-faint);
+  --color-ghost: var(--ab-ghost);
+  --color-surface-faint: var(--ab-surface-faint);
+  --color-surface: var(--ab-surface);
+  --color-surface-raised: var(--ab-surface-raised);
+  --color-surface-strong: var(--ab-surface-strong);
+  --color-surface-vivid: var(--ab-surface-vivid);
+  --color-line-faint: var(--ab-line-faint);
+  --color-line: var(--ab-line);
+  --color-line-strong: var(--ab-line-strong);
+  --color-line-vivid: var(--ab-line-vivid);
+  --color-line-heavy: var(--ab-line-heavy);
+  --color-rail: var(--ab-rail);
+  --color-sunken: var(--ab-sunken);
+  --color-well: var(--ab-well);
+  --color-overlay: var(--ab-overlay);
+  --color-modal: var(--ab-modal);
+  --color-scrim: var(--ab-scrim);
+  --color-gloss: var(--ab-gloss);
+  --color-chat: var(--ab-chat);
+  --color-composer: var(--ab-composer);
+  --color-stage: var(--ab-stage);
+  --color-terminal: var(--ab-term-background);
+  --color-attached-warning: var(--ab-attached-warning);
+  --color-attached-danger: var(--ab-attached-danger);
+  --color-attached-neutral: var(--ab-attached-neutral);
+  --color-inverted: var(--ab-inverted);
+  --color-inverted-hover: var(--ab-inverted-hover);
+  --color-on-inverted: var(--ab-on-inverted);
+  --color-on-bright: var(--ab-on-bright);
+  --color-emerald-200: var(--ab-emerald-200);
+  --color-emerald-300: var(--ab-emerald-300);
+  --color-emerald-400: var(--ab-emerald-400);
+  --color-amber-50: var(--ab-amber-50);
+  --color-amber-100: var(--ab-amber-100);
+  --color-amber-200: var(--ab-amber-200);
+  --color-amber-300: var(--ab-amber-300);
+  --color-amber-400: var(--ab-amber-400);
+  --color-rose-100: var(--ab-rose-100);
+  --color-rose-200: var(--ab-rose-200);
+  --color-rose-300: var(--ab-rose-300);
+  --color-rose-400: var(--ab-rose-400);
+  --color-sky-50: var(--ab-sky-50);
+  --color-sky-200: var(--ab-sky-200);
+  --color-sky-300: var(--ab-sky-300);
+  --color-sky-400: var(--ab-sky-400);
+  --color-violet-300: var(--ab-violet-300);
+  --color-violet-400: var(--ab-violet-400);
 }

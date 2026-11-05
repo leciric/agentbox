@@ -100,7 +100,9 @@ let lastVisit: { pos: P; facing: number; follow: number; yaw: number; dist: numb
 // A room's board, as a ref.
 const isBoard = (r: string | undefined): r is string => !!r && r.startsWith('board:');
 
-const RADIUS = 0.3;
+// How far you keep from things: Kenney's chibi is broad, its head and arms
+// well over a metre across.
+const RADIUS = 0.45;
 // Metres a second: walking (the keys, a short click), and running, for a
 // long walk or one you asked for by name. The figure's walk and run play at
 // these, feet planted (kenney.ts).
@@ -1791,10 +1793,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (d.root.position.distanceTo(camera.position) < 4.2 || ahead);
       // At a board, what stands between it and the camera steps aside.
       const boardWay = boardDist > 0 && d.root.position.distanceTo(camera.position) < boardDist - 1.5;
-      // A lead in the way only stands aside itself: its counter stays, and
-      // takes clicks.
-      const isLeadDesk = d.ref.endsWith('/lead');
-      d.root.visible = inScope(d.root) && (isLeadDesk || !(inWay && ahead)) && !boardWay;
+      // Nobody leaves their desk for the camera, gliding or close up: one who
+      // vanished would read as gone. Only standing at the board, still, do
+      // the desks between it and you stand aside.
+      d.root.visible = inScope(d.root) && !(boardWay && cam.closeK > 0.9);
       // A lead never leaves its counter: the close-up looks down over it.
       d.figure.group.visible = true;
       d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone] && !(cam.closeK > 0.3 && d.ref !== focusRef && far < 8);
@@ -1811,7 +1813,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // Big over the campus, where they say which room needs you; in a room
       // a badge on its own head's corner, as an app's icon wears one: never
       // floating over whoever sits behind.
-      const grow = Math.min(d.tone === 'needs' ? (crowded ? 5 : 1.7) : loudTone ? (crowded ? 3 : 1.45) : crowded ? 1 : 1.2, Math.max(1, (far - 8) / 12));
+      const grow = Math.min(d.tone === 'needs' ? (crowded ? 5 : 2.3) : loudTone ? (crowded ? 3 : 1.9) : crowded ? 1 : 1.5, Math.max(1, (far - 8) / 12));
       // A crowd's quiet bubbles show as you come in: from afar they'd bury the loud ones.
       if (crowded && !loudTone && far > 30) s.visible = false;
       const sb = (s.userData.base as THREE.Vector2 | undefined) ?? (s.userData.base = new THREE.Vector2(s.scale.x, s.scale.y));
@@ -1967,7 +1969,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       face = { x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight };
     }
     // Small from afar, as name tags are; wider as you come in to read them.
-    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '128px' : '170px';
+    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '150px' : '170px';
     const smallRoom = scope !== null && lay.rooms[scope].desks.length <= 8;
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
@@ -2051,9 +2053,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const clash = (x: number, y: number) => placed.some((p) => inside(x) - w / 2 < p.x1 + 4 && inside(x) + w / 2 > p.x0 - 4 && Math.abs(p.y - y) < h);
       // Where to try, nearest first: above and below, then a little aside.
       const tries: [number, number][] = [];
-      // Who needs you or failed looks further: its tag is never folded away.
-      const dys = m.needs ? [0, -h, h, -2 * h, 2 * h, 3 * h, -3 * h] : [0, -h, h, -2 * h, 2 * h];
-      const dxs = m.needs ? [0, w * 0.4, -w * 0.4, w * 0.8, -w * 0.8] : [0, w * 0.4, -w * 0.4];
+      // Straight under its agent, a row or two lower at most: a tag that
+      // wandered aside would name someone else. Who needs you or failed
+      // looks a row further; its tag is never folded away.
+      const dys = m.needs ? [0, h, 2 * h, 3 * h] : [0, h, 2 * h];
+      const dxs = [0];
       for (const dy of dys) for (const dx of dxs) tries.push([dx, dy]);
       tries.sort((a, b) => Math.abs(a[1]) + Math.abs(a[0]) / 2 - (Math.abs(b[1]) + Math.abs(b[0]) / 2));
       let off = chipDy.get(m.el);
