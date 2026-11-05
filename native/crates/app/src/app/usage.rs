@@ -408,7 +408,11 @@ impl AppView {
             .hover(move |s| s.bg(ring.opacity(0.16)))
             .cursor_pointer()
             .text_xs()
-            .child(div().text_color(base).child(if codex { "◎" } else { "✳" }))
+            .child(div().text_color(base).child(crate::icons::of(if codex {
+                "◎"
+            } else {
+                "✳"
+            })))
             .child(
                 div()
                     .font_weight(FontWeight::MEDIUM)
@@ -471,11 +475,13 @@ impl AppView {
                                     .gap_2()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .child(div().text_color(base).child(if codex {
-                                        "◎"
-                                    } else {
-                                        "✳"
-                                    }))
+                                    .child(
+                                        div().text_color(base).child(crate::icons::of(if codex {
+                                            "◎"
+                                        } else {
+                                            "✳"
+                                        })),
+                                    )
                                     .child(tv(
                                         if codex {
                                             "shell.top.codexTitle"
@@ -616,7 +622,9 @@ impl AppView {
         } else {
             theme::starting()
         };
-        let trigger = chip("disk-pill", color).child("⚠").child(label);
+        let trigger = chip("disk-pill", color)
+            .child(crate::icons::of("⚠"))
+            .child(label);
         let guard = guard.clone();
         Some(self.with_pop(
             "disk",

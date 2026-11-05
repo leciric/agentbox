@@ -752,7 +752,7 @@ impl AppView {
             .text_xs()
             .font_weight(FontWeight::MEDIUM)
             .text_color(theme::muted())
-            .child("⏰")
+            .child(crate::icons::of("⏰"))
             .child(t("panel.view.schedules"))
             .child(
                 div()
@@ -798,12 +798,9 @@ impl AppView {
                         .border_1()
                         .border_dashed()
                         .border_color(theme::border())
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(format!("⏰ {}", t("schedules.empty.title"))),
-                        )
+                        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(
+                            crate::icons::lead("alarm-clock", t("schedules.empty.title")),
+                        ))
                         .child(
                             div()
                                 .text_xs()
@@ -891,7 +888,7 @@ impl AppView {
                 .into_any_element()
         } else if s.kind == "event" {
             div()
-                .child(format!("⚡ {}", t("schedules.watching")))
+                .child(crate::icons::lead("zap", t("schedules.watching")))
                 .into_any_element()
         } else if let Some(n) = &s.next_run {
             let tip: SharedString = local_time(n).into();
@@ -1111,7 +1108,11 @@ impl AppView {
                         el.child(controls::badge(l, theme::starting()))
                     })
                     .when(!run.event.is_empty(), |el| {
-                        el.child(div().truncate().child(format!("⚡ {}", run.event)))
+                        el.child(
+                            div()
+                                .truncate()
+                                .child(crate::icons::lead("zap", run.event.to_string())),
+                        )
                     })
                     .child(div().flex_1())
                     .when_some(agent, |el, a| {

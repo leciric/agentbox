@@ -365,7 +365,7 @@ impl WorkView {
                     .min_w_0()
                     .truncate()
                     .font_family(crate::theme::mono())
-                    .child(format!("⎇ {}", i.branch))
+                    .child(crate::icons::lead("git-branch", i.branch.to_string()))
                     .into_any_element(),
             );
         }
@@ -393,7 +393,7 @@ impl WorkView {
             meta.push(
                 div()
                     .flex_none()
-                    .child(format!("▣ {}", w.screenshots))
+                    .child(crate::icons::lead("image", w.screenshots.to_string()))
                     .into_any_element(),
             );
         }
@@ -401,7 +401,7 @@ impl WorkView {
             meta.push(
                 div()
                     .flex_none()
-                    .child(format!("▶ {}", w.recordings))
+                    .child(crate::icons::lead("play", w.recordings.to_string()))
                     .into_any_element(),
             );
         }
@@ -579,7 +579,11 @@ impl Render for WorkView {
                                                 this.open_recap(window, cx)
                                             },
                                         ))
-                                        .child(div().text_color(theme::accent()).child("✦"))
+                                        .child(
+                                            div()
+                                                .text_color(theme::accent())
+                                                .child(crate::icons::of("✦")),
+                                        )
                                         .child(t("recap.open")),
                                 )
                                 .child(controls::select(

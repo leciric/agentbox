@@ -110,7 +110,7 @@ pub(super) fn step_mark(status: &str) -> AnyElement {
         .text_xs()
         .font_weight(FontWeight::BOLD)
         .text_color(color)
-        .child(mark)
+        .child(crate::icons::of(mark))
         .into_any_element()
 }
 

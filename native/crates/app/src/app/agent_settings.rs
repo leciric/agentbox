@@ -213,11 +213,11 @@ impl AppView {
             .children(SECTIONS.iter().map(|sec| {
                 let on = s.section == *sec;
                 let glyph = match *sec {
-                    "machine" => "▣",
-                    "code" => "⎇",
-                    "ai" => "❯",
-                    "secrets" => "◈",
-                    _ => "⚇",
+                    "machine" => "monitor",
+                    "code" => "folder-git-2",
+                    "ai" => "square-terminal",
+                    "secrets" => "key-round",
+                    _ => "wrench",
                 };
                 h_flex()
                     .id(SharedString::from(format!("agent-settings-{sec}")))
@@ -237,7 +237,7 @@ impl AppView {
                         this.load_agent_settings(cx);
                         cx.notify();
                     }))
-                    .child(div().w(px(16.)).child(glyph))
+                    .child(div().w(px(16.)).child(crate::icons::of(glyph)))
                     .child(t(&format!("agent.section.{sec}")))
             }));
         let body = match s.section {

@@ -222,7 +222,7 @@ impl AppView {
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.open_settings_at("setup".into(), window, cx)
                 }))
-                .child("⚠")
+                .child(crate::icons::of("⚠"))
                 .child(t("shell.home.finishSetup"))
                 .into_any_element(),
         )
@@ -303,7 +303,7 @@ impl AppView {
                         .on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_pop("image", cx)),
                         )
-                        .child(if failed { "⚠" } else { "↻" })
+                        .child(crate::icons::of(if failed { "⚠" } else { "↻" }))
                         .child(label)
                         .when(!failed && i.waiting > 0, |el| {
                             el.child(

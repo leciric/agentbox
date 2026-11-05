@@ -578,7 +578,7 @@ impl AppView {
                                             .items_center()
                                             .justify_center()
                                             .text_color(theme::muted())
-                                            .child("✎"),
+                                            .child(crate::icons::of("✎")),
                                     )
                                     .child(
                                         div()
@@ -787,7 +787,7 @@ impl AppView {
                 toggle(&mut this.side);
                 cx.notify();
             }))
-            .child(if open { "▾" } else { "▸" })
+            .child(crate::icons::of(if open { "▾" } else { "▸" }))
             .child(label)
     }
 
@@ -810,7 +810,7 @@ impl AppView {
                     .rounded_md()
                     .bg(theme::raised())
                     .text_color(theme::muted())
-                    .child("⌂"),
+                    .child(crate::icons::of("⌂")),
             )
             .child(
                 v_flex()
@@ -963,7 +963,7 @@ impl AppView {
                                         .tooltip(move |w, cx| {
                                             Tooltip::new(tip.clone()).build(w, cx)
                                         })
-                                        .child("✎"),
+                                        .child(crate::icons::of("✎")),
                                 )
                             })
                             .when(c.working > 0 || s_working, |el| {

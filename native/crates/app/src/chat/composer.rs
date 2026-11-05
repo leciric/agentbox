@@ -1218,7 +1218,7 @@ impl ChatView {
                                         .w(px(12.))
                                         .flex_none()
                                         .text_color(theme::accent())
-                                        .child(if on { "✓" } else { "" }),
+                                        .child(crate::icons::of(if on { "✓" } else { "" })),
                                 )
                                 .child(v_flex().child(div().text_sm().child(name.clone())).when(
                                     !about.is_empty(),
@@ -1292,7 +1292,11 @@ impl ChatView {
             .child(crate::icons::ai_icon(&tool, px(14.), theme::muted()))
             .child(sentence.clone())
             .when(!nothing, |el| {
-                el.child(div().text_color(theme::faint()).child("▾"))
+                el.child(
+                    div()
+                        .text_color(theme::faint())
+                        .child(crate::icons::of("▾")),
+                )
             });
         if nothing {
             row = row.child(
@@ -1550,7 +1554,7 @@ impl ChatView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child("☾")
+                            .child(crate::icons::of("☾"))
                             .child(
                                 div()
                                     .flex_1()
@@ -1704,7 +1708,7 @@ impl ChatView {
                         h_flex()
                             .gap_2()
                             .text_xs()
-                            .child("⌛")
+                            .child(crate::icons::of("⌛"))
                             .child(
                                 div()
                                     .flex_1()
@@ -1885,7 +1889,12 @@ impl ChatView {
                     };
                     h_flex()
                         .gap_2()
-                        .child(div().flex_none().text_color(color).child(mark))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(color)
+                                .child(crate::icons::of(mark)),
+                        )
                         .child(
                             div()
                                 .text_color(if e.status == "completed" {
@@ -2100,7 +2109,7 @@ impl ChatView {
                         .cursor_pointer()
                         .text_xs()
                         .text_color(theme::muted())
-                        .child("✕")
+                        .child(crate::icons::of("✕"))
                         .on_click(remove);
                     match &a.image {
                         Some(im) => div()
@@ -2132,7 +2141,11 @@ impl ChatView {
                                     .border_1()
                                     .border_color(theme::border())
                                     .bg(theme::panel())
-                                    .child(div().text_color(theme::muted()).child("▤"))
+                                    .child(
+                                        div()
+                                            .text_color(theme::muted())
+                                            .child(crate::icons::of("▤")),
+                                    )
                                     .child(
                                         v_flex()
                                             .min_w_0()

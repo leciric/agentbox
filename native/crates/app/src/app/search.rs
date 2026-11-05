@@ -1468,7 +1468,7 @@ impl AppView {
                     .flex_none()
                     .text_xs()
                     .text_color(theme::faint())
-                    .child(if c.setting { "⚙" } else { "⚡" }),
+                    .child(crate::icons::of(if c.setting { "⚙" } else { "⚡" })),
             )
             .child(
                 v_flex()

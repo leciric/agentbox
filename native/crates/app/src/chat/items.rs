@@ -63,7 +63,7 @@ fn icon(g: &'static str, color: Hsla) -> Div {
         .flex()
         .justify_center()
         .text_color(color)
-        .child(g)
+        .child(crate::icons::of(g))
 }
 
 fn chevron(open: bool) -> Div {
@@ -71,7 +71,7 @@ fn chevron(open: bool) -> Div {
         .flex_none()
         .text_xs()
         .text_color(theme::faint())
-        .child(if open { "▾" } else { "▸" })
+        .child(crate::icons::of(if open { "▾" } else { "▸" }))
 }
 
 fn card(tint: Hsla) -> Div {
@@ -292,7 +292,7 @@ impl ChatView {
                     .gap_2()
                     .text_sm()
                     .text_color(theme::faint())
-                    .child("⏰")
+                    .child(crate::icons::of("⏰"))
                     .child(if it.text.is_empty() {
                         t("chat.timeline.woken")
                     } else {
@@ -311,7 +311,7 @@ impl ChatView {
                 .gap_2()
                 .text_sm()
                 .text_color(theme::faint())
-                .child("⌛")
+                .child(crate::icons::of("⌛"))
                 .child(tv(
                     "chat.timeline.background",
                     &[("tasks", tasks.join(", ").into())],
@@ -659,7 +659,7 @@ impl ChatView {
                     .rounded_lg()
                     .bg(theme::raised())
                     .text_color(theme::muted())
-                    .child("▤"),
+                    .child(crate::icons::of("▤")),
             )
             .child(
                 v_flex()
@@ -858,7 +858,7 @@ impl ChatView {
                 el.cursor_pointer().hover(|el| el.bg(theme::panel()))
             })
             .child(icon(
-                if page.is_some() { "▣" } else { glyph(it) },
+                if page.is_some() { "globe" } else { glyph(it) },
                 if failed {
                     theme::error()
                 } else if page.is_some() {
@@ -1003,7 +1003,9 @@ impl ChatView {
                 .text_xs()
                 .text_color(theme::faint())
                 .child(t("chat.subagent.working")),
-            "completed" => div().text_color(theme::running()).child("✓"),
+            "completed" => div()
+                .text_color(theme::running())
+                .child(crate::icons::of("✓")),
             "failed" => div().text_color(theme::error()).child("!"),
             _ => div()
                 .text_xs()
@@ -1145,7 +1147,7 @@ impl ChatView {
                 .child(
                     card(theme::muted())
                         .child(
-                            h_flex().gap_2().child("⟳").child(
+                            h_flex().gap_2().child(crate::icons::of("⟳")).child(
                                 div()
                                     .text_color(theme::fg())
                                     .child(t("chat.compaction.running")),
@@ -1173,7 +1175,7 @@ impl ChatView {
                     h_flex()
                         .items_start()
                         .gap_2()
-                        .child(if failed { "!" } else { "▤" })
+                        .child(crate::icons::of(if failed { "!" } else { "▤" }))
                         .child(
                             div()
                                 .min_w_0()
@@ -1311,7 +1313,7 @@ impl ChatView {
                 .gap_2()
                 .text_sm()
                 .text_color(theme::muted())
-                .child("◎")
+                .child(crate::icons::of("◎"))
                 .child(div().min_w_0().truncate().child(g.objective.clone()))
                 .child(
                     div()
@@ -1731,7 +1733,7 @@ impl ChatView {
                             .cursor_pointer()
                             .text_color(gpui::white())
                             .hover(|el| el.bg(gpui::white().opacity(0.1)))
-                            .child("✕")
+                            .child(crate::icons::of("✕"))
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.zoom = None;
                                 cx.notify();

@@ -109,7 +109,7 @@ pub fn split(
         .rounded(ButtonRounded::None)
         .h(px(30.))
         .px_1p5()
-        .label("▾")
+        .icon(crate::icons::ic("chevron-down"))
         .disabled(disabled)
         .dropdown_menu_with_anchor(Anchor::BottomRight, move |mut menu, _, _| {
             menu = menu.min_w(px(200.)).label(t("memory.pulls.method"));
@@ -123,7 +123,7 @@ pub fn split(
                                 .w(px(12.))
                                 .text_sm()
                                 .text_color(theme::accent())
-                                .child(if on { "✓" } else { "" }),
+                                .child(crate::icons::of(if on { "✓" } else { "" })),
                         )
                         .child(div().text_sm().child(name.clone()))
                 });

@@ -573,10 +573,14 @@ pub(super) fn pr_chip(id: impl Into<ElementId>, pr: &PullRequest) -> AnyElement 
         })
         .child(format!("#{}", pr.number))
         .when(!mark.is_empty(), |el| {
-            el.child(div().text_color(mark_color).child(mark))
+            el.child(div().text_color(mark_color).child(crate::icons::of(mark)))
         })
         .when(pr.conflict, |el| {
-            el.child(div().text_color(theme::error()).child("⚠"))
+            el.child(
+                div()
+                    .text_color(theme::error())
+                    .child(crate::icons::of("⚠")),
+            )
         })
         .into_any_element()
 }
@@ -1071,7 +1075,7 @@ impl AppView {
                                 cx.stop_propagation();
                                 this.toggle_label(number, label.clone(), false, cx)
                             }))
-                            .child("✕"),
+                            .child(crate::icons::of("✕")),
                     )
             }))
             .child(
@@ -1181,7 +1185,7 @@ impl AppView {
                                 .flex_none()
                                 .text_xs()
                                 .text_color(theme::accent())
-                                .child(if on { "✓" } else { "" }),
+                                .child(crate::icons::of(if on { "✓" } else { "" })),
                         )
                         .child(
                             div()
@@ -1505,7 +1509,7 @@ impl AppView {
                                 .tooltip(move |window, cx| {
                                     Tooltip::new(refresh_tip.clone()).build(window, cx)
                                 })
-                                .child("↻"),
+                                .child(crate::icons::of("↻")),
                         ),
                 ),
         );
@@ -1594,7 +1598,12 @@ impl AppView {
                     .items_start()
                     .gap_1p5()
                     .when(depth > 0, |el| {
-                        el.child(div().flex_none().text_color(theme::faint()).child("↳"))
+                        el.child(
+                            div()
+                                .flex_none()
+                                .text_color(theme::faint())
+                                .child(crate::icons::of("↳")),
+                        )
                     })
                     .child(
                         div()
@@ -1623,7 +1632,7 @@ impl AppView {
                                 cx.stop_propagation();
                                 cx.open_url(&url)
                             })
-                            .child("↗"),
+                            .child(crate::icons::of("↗")),
                     ),
             )
             .child(
@@ -1921,7 +1930,7 @@ impl AppView {
                                                             div()
                                                                 .w(px(12.))
                                                                 .text_color(color)
-                                                                .child(mark),
+                                                                .child(crate::icons::of(mark)),
                                                         )
                                                         .child(
                                                             div()
@@ -1950,7 +1959,7 @@ impl AppView {
                                                                     .on_click(move |_, _, cx| {
                                                                         cx.open_url(&url)
                                                                     })
-                                                                    .child("↗"),
+                                                                    .child(crate::icons::of("↗")),
                                                             )
                                                         })
                                                 },
@@ -2013,7 +2022,7 @@ impl AppView {
                             .on_click(
                                 cx.listener(|this, _: &ClickEvent, _, cx| this.close_pull(cx)),
                             )
-                            .child("✕"),
+                            .child(crate::icons::of("✕")),
                     ),
             )
             .child(
@@ -2412,7 +2421,7 @@ impl AppView {
         let menu = Button::new("project-menu")
             .ghost()
             .small()
-            .label("⋯")
+            .icon(crate::icons::ic("ellipsis"))
             .tooltip(menu_tip)
             .dropdown_menu_with_anchor(Anchor::TopRight, {
                 let view = cx.entity().downgrade();
@@ -2582,9 +2591,18 @@ impl AppView {
                         .hover(|s| s.text_color(theme::fg()))
                         .tooltip(move |window, cx| Tooltip::new(copy_tip.clone()).build(window, cx))
                         .on_click(move |e, w, cx| copy(e, w, cx))
-                        .child(if self.pulls.copied { "✓" } else { "❐" }),
+                        .child(crate::icons::of(if self.pulls.copied {
+                            "✓"
+                        } else {
+                            "❐"
+                        })),
                 )
-                .child(div().text_sm().text_color(theme::faint()).child("›"))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(theme::faint())
+                        .child(crate::icons::of("›")),
+                )
                 .child(
                     div()
                         .flex_shrink_0()
@@ -2651,7 +2669,7 @@ impl AppView {
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.open_settings_at(format!("project:{p_settings}"), window, cx)
                         }))
-                        .child("⚙"),
+                        .child(crate::icons::of("⚙")),
                 )
                 .child(div().flex_none().child(menu))
                 .child(self.render_panel_button(cx))

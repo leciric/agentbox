@@ -874,6 +874,20 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 }],
             },
         ),
+        // A page's HTML as artifactPage serves it: framed under the
+        // daemon's policy (artifacts.go defaultPagePolicy).
+        (&Method::GET, ["v1", "projects", p, "artifacts", _, "page"]) if fake.is_fake(p) => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/html; charset=utf-8")
+                .header(
+                    "content-security-policy",
+                    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; sandbox allow-scripts allow-popups",
+                )
+                .header("cache-control", "no-store")
+                .body(Full::new(Bytes::from_static(FAKE_PAGE.as_bytes())).boxed())
+                .unwrap()
+        }
         (&Method::POST, ["v1", "agents", p, a, "review" | "request-changes"])
             if fake_agent(p, a) =>
         {
@@ -1545,3 +1559,14 @@ async fn main() -> Result<()> {
         });
     }
 }
+
+/// The Hatch page agent-02 published, as Hatch would serve its HTML.
+const FAKE_PAGE: &str = r#"<!doctype html><html><head><meta charset="utf-8"><title>Settings: before and after</title>
+<style>body{margin:0;font:15px system-ui,sans-serif;color:#1c1c22;background:#fafafa}main{max-width:720px;margin:0 auto;padding:40px 24px}
+h1{font-size:26px;margin:0 0 6px}p{color:#55555f;line-height:1.5}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px}
+.card{background:#fff;border:1px solid #e4e4ea;border-radius:12px;padding:16px}.card b{display:block;margin-bottom:8px}
+.bar{height:10px;border-radius:5px;background:#7c8cff;margin:6px 0}.bar.o{background:#f87171;width:70%}.bar.n{background:#34d399;width:40%}</style></head>
+<body><main><h1>Settings: before and after</h1><p>The Settings page now loads in 40% of the time it took, and the language picker remembers its choice.</p>
+<div class="grid"><div class="card"><b>Before</b><div class="bar o"></div><p>1.8 s to first paint</p></div>
+<div class="card"><b>After</b><div class="bar n"></div><p>0.7 s to first paint</p></div></div>
+<p id="js">Scripts are off.</p><script>document.getElementById('js').textContent='Scripts run in the page, sandboxed.'</script></main></body></html>"#;

@@ -79,14 +79,14 @@ impl PView {
 
     pub fn glyph(self) -> &'static str {
         match self {
-            PView::Desktop => "▣",
-            PView::Terminal => "❯",
-            PView::Files => "▤",
-            PView::Evidence => "◫",
-            PView::Timeline => "≡",
-            PView::Browser => "◍",
-            PView::Android => "▯",
-            PView::Schedules => "⏰",
+            PView::Desktop => "monitor",
+            PView::Terminal => "square-terminal",
+            PView::Files => "folder-tree",
+            PView::Evidence => "images",
+            PView::Timeline => "chart-gantt",
+            PView::Browser => "globe",
+            PView::Android => "smartphone",
+            PView::Schedules => "alarm-clock",
         }
     }
 
@@ -1122,7 +1122,7 @@ impl AppView {
             .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
             .on_click(cx.listener(|this, _: &ClickEvent, w, cx| this.toggle_panel(w, cx)))
-            .child("◨")
+            .child(crate::icons::of("◨"))
             .into_any_element()
     }
 
@@ -1177,7 +1177,7 @@ impl AppView {
                     .text_xs()
                     .font_weight(FontWeight::MEDIUM)
                     .relative()
-                    .child(v.glyph())
+                    .child(crate::icons::of(v.glyph()))
                     .when(on, |el| el.child(v.label()))
                     // Android, once its emulator has booted.
                     .when(v == PView::Android && booted, |el| {
@@ -1273,7 +1273,7 @@ impl AppView {
                             this.panel.idle_open = !this.panel.idle_open;
                             cx.notify();
                         }))
-                        .child(if open { "▾" } else { "▸" })
+                        .child(crate::icons::of(if open { "▾" } else { "▸" }))
                 })
                 .child(g.group_label())
                 .child(
@@ -1348,7 +1348,7 @@ impl AppView {
                             let p = this.project.clone().unwrap_or_default();
                             this.open_work(p, String::new(), w, cx)
                         }))
-                        .child("▤")
+                        .child(crate::icons::of("▤"))
                         .child(t("pastAgents.title"))
                         .child(div().text_color(theme::faint()).child(format!(
                             "· {}",
@@ -1537,7 +1537,7 @@ impl AppView {
                             .gap_1()
                             .text_xs()
                             .text_color(r.color)
-                            .when(r.approval, |el| el.child("⚠"))
+                            .when(r.approval, |el| el.child(crate::icons::of("⚠")))
                             .child(div().min_w_0().truncate().child(r.reason.clone())),
                     )
                     .when(
@@ -1640,7 +1640,7 @@ impl AppView {
                     .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
                     .tooltip(move |w, cx| Tooltip::new(unfold.clone()).build(w, cx))
                     .on_click(cx.listener(|this, _: &ClickEvent, w, cx| this.toggle_panel(w, cx)))
-                    .child("«"),
+                    .child(crate::icons::of("«")),
             )
             .children(ordered.iter().enumerate().map(|(i, r)| {
                 let dup = labels.iter().filter(|l| **l == labels[i]).count() > 1;
@@ -1735,7 +1735,7 @@ impl AppView {
                     .justify_center()
                     .text_lg()
                     .text_color(theme::muted())
-                    .child("⏻"),
+                    .child(crate::icons::of("⏻")),
             )
             .child(
                 div()
@@ -1869,7 +1869,11 @@ impl AppView {
                     })
                     .when(!connected || self.panel.shooting, |el| el.opacity(0.4))
                     .tooltip(move |w, cx| Tooltip::new(shot_tip.clone()).build(w, cx))
-                    .child(if self.panel.shooting { "…" } else { "⌾" }),
+                    .child(crate::icons::of(if self.panel.shooting {
+                        "…"
+                    } else {
+                        "⌾"
+                    })),
             )
             .child(self.render_pick_button(a, connected, cx))
             .child(
@@ -1939,7 +1943,7 @@ impl AppView {
                                 theme::muted()
                             })
                             .tooltip(move |w, cx| Tooltip::new(control_tip.clone()).build(w, cx))
-                            .child("⌖"),
+                            .child(crate::icons::of("⌖")),
                     ),
             );
         let screen = div()
@@ -1963,7 +1967,12 @@ impl AppView {
                         .justify_center()
                         .gap_2p5()
                         .px_4()
-                        .child(div().text_lg().text_color(theme::faint()).child("▣"))
+                        .child(
+                            div()
+                                .text_lg()
+                                .text_color(theme::faint())
+                                .child(crate::icons::of("▣")),
+                        )
                         .child(
                             div()
                                 .text_xs()
@@ -2041,7 +2050,7 @@ impl AppView {
                             .border_color(theme::border())
                             .text_xs()
                             .text_color(theme::faint())
-                            .child("◫")
+                            .child(crate::icons::of("◫"))
                             .child(if self.panel.media.is_none() {
                                 t("common.loading")
                             } else {
@@ -2123,7 +2132,11 @@ impl AppView {
                     .items_center()
                     .justify_center()
                     .text_color(theme::faint())
-                    .child(if m.kind == "recording" { "▶" } else { "…" }),
+                    .child(crate::icons::of(if m.kind == "recording" {
+                        "▶"
+                    } else {
+                        "…"
+                    })),
             })
             .child(
                 div()
@@ -2135,7 +2148,11 @@ impl AppView {
                     .bg(gpui::black().opacity(0.6))
                     .text_color(gpui::white())
                     .text_xs()
-                    .child(if m.kind == "recording" { "▶" } else { "▣" }),
+                    .child(crate::icons::of(if m.kind == "recording" {
+                        "▶"
+                    } else {
+                        "▣"
+                    })),
             )
             .into_any_element()
     }
@@ -2163,7 +2180,12 @@ impl AppView {
                 .justify_center()
                 .gap_2()
                 .px_6()
-                .child(div().text_lg().text_color(theme::faint()).child("◫"))
+                .child(
+                    div()
+                        .text_lg()
+                        .text_color(theme::faint())
+                        .child(crate::icons::of("◫")),
+                )
                 .child(
                     div()
                         .max_w(px(300.))
@@ -2242,11 +2264,9 @@ impl AppView {
                         .mb_1p5()
                         .gap_1p5()
                         .text_xs()
-                        .child(
-                            div()
-                                .text_color(theme::muted())
-                                .child(if m.kind == "recording" { "▶" } else { "▣" }),
-                        )
+                        .child(div().text_color(theme::muted()).child(crate::icons::of(
+                            if m.kind == "recording" { "▶" } else { "▣" },
+                        )))
                         .child(
                             div()
                                 .min_w_0()
@@ -2419,7 +2439,7 @@ impl AppView {
                                                 .items_center()
                                                 .justify_center()
                                                 .text_color(theme::muted())
-                                                .child("✎"),
+                                                .child(crate::icons::of("✎")),
                                         )
                                         .child(
                                             v_flex()
@@ -2800,7 +2820,7 @@ fn monitor(ai: &str, st: St, running: bool, label: Option<String>, active: bool)
                 .text_xs()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(if running { color } else { theme::faint() })
-                .child(mark),
+                .child(crate::icons::of(mark)),
         )
         .child(div().w(px(10.)).h(px(3.)).bg(theme::border()))
         .into_any_element()
@@ -2839,5 +2859,5 @@ pub(super) fn icon_button(id: &'static str, glyph: &'static str, tip: String) ->
         .cursor_pointer()
         .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-        .child(glyph)
+        .child(crate::icons::of(glyph))
 }

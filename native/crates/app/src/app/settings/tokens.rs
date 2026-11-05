@@ -892,11 +892,11 @@ impl AppView {
                                 .min_w_0()
                                 .items_start()
                                 .gap_1p5()
-                                .child(div().text_color(theme::faint()).child(if open {
-                                    "▾"
-                                } else {
-                                    "▸"
-                                }))
+                                .child(
+                                    div()
+                                        .text_color(theme::faint())
+                                        .child(crate::icons::of(if open { "▾" } else { "▸" })),
+                                )
                                 .child(
                                     v_flex()
                                         .flex_1()

@@ -154,6 +154,32 @@ impl Client {
         .await
     }
 
+    /// fetch GETs a path as it is, whatever its status, with its headers: a
+    /// page the daemon serves for a webview (a Hatch page's HTML and its
+    /// Content-Security-Policy), as the Electron app's protocol relays it.
+    pub async fn fetch(&self, path: &str) -> Result<(u16, Vec<(String, String)>, Bytes)> {
+        let socket = self.socket.clone();
+        let path = path.to_string();
+        self.on_rt(async move {
+            let mut sender = connect(&socket).await?;
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri(&path)
+                .header("host", "agentbox")
+                .body(Full::new(Bytes::new()))?;
+            let res = sender.send_request(req).await?;
+            let status = res.status().as_u16();
+            let headers = res
+                .headers()
+                .iter()
+                .filter_map(|(k, v)| Some((k.to_string(), v.to_str().ok()?.to_string())))
+                .collect();
+            let bytes = res.into_body().collect().await?.to_bytes();
+            Ok((status, headers, bytes))
+        })
+        .await
+    }
+
     /// events follows GET /v1/events for as long as the receiver is kept,
     /// reconnecting after a dropped connection. Each (re)connect sends
     /// `None` first, so the caller knows to reload what it shows.

@@ -90,7 +90,7 @@ fn glyph_button(id: impl Into<ElementId>, glyph: &'static str, tip: String) -> S
         .cursor_pointer()
         .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
         .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
-        .child(glyph)
+        .child(crate::icons::of(glyph))
 }
 
 impl AppView {
@@ -217,7 +217,7 @@ impl AppView {
                 this.side.filter_open = !this.side.filter_open;
                 cx.notify();
             }))
-            .child("☰")
+            .child(crate::icons::of("☰"))
             .when(on > 0, |el| {
                 el.child(
                     div()
@@ -303,7 +303,7 @@ impl AppView {
                                                 this.save_filters(cx);
                                             },
                                         ))
-                                        .child("×"),
+                                        .child(crate::icons::of("×")),
                                 )
                         }))
                         .child(
@@ -353,7 +353,7 @@ impl AppView {
                 .text_color(if on { theme::fg() } else { theme::muted() })
                 .cursor_pointer()
                 .hover(|el| el.text_color(theme::fg()))
-                .when(on, |el| el.child("✓"))
+                .when(on, |el| el.child(crate::icons::of("✓")))
                 .child(div().max_w(px(180.)).truncate().child(label))
                 .when_some(count, |el, n| {
                     el.child(div().text_color(theme::faint()).child(n.to_string()))
@@ -556,7 +556,7 @@ impl AppView {
                 let id = id.clone();
                 move |this, d: &DragSection, _, cx| this.move_section(&d.id, &id, cx)
             }))
-            .child(if collapsed { "▸" } else { "▾" })
+            .child(crate::icons::of(if collapsed { "▸" } else { "▾" }))
             .child(
                 div()
                     .min_w_0()
@@ -570,7 +570,7 @@ impl AppView {
                 Button::new(SharedString::from(format!("section-menu-{}", s.id)))
                     .ghost()
                     .xsmall()
-                    .label("⋯")
+                    .icon(crate::icons::ic("ellipsis"))
                     .dropdown_menu_with_anchor(Anchor::TopRight, menu.clone()),
             )
             .context_menu(menu)
@@ -1234,7 +1234,7 @@ impl AppView {
                 .when(on, |el| el.bg(theme::hover()))
                 .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
                 .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
-                .child(glyph)
+                .child(crate::icons::of(glyph))
         };
         let settings = self.settings;
         let work = self.work.is_some() && !settings && page.is_none();
@@ -1250,7 +1250,7 @@ impl AppView {
                 ),
             )
             .child(
-                item("foot-work", "▤", t("work.title"), work).on_click(cx.listener(
+                item("foot-work", "briefcase", t("work.title"), work).on_click(cx.listener(
                     |this, _: &ClickEvent, window, cx| {
                         this.open_work(String::new(), String::new(), window, cx)
                     },
@@ -1259,7 +1259,7 @@ impl AppView {
             .child(
                 item(
                     "foot-media",
-                    "▣",
+                    "images",
                     t("shell.nav.media"),
                     page == Some(FootPage::Media) && !settings,
                 )
@@ -1270,7 +1270,7 @@ impl AppView {
             .child(
                 item(
                     "foot-jobs",
-                    "☷",
+                    "list-checks",
                     t("shell.nav.jobs"),
                     page == Some(FootPage::Jobs) && !settings,
                 )

@@ -853,11 +853,12 @@ impl DiffView {
                                 }
                                 cx.notify();
                             }))
-                            .child(div().flex_none().w(px(10.)).child(if folded {
-                                "▸"
-                            } else {
-                                "▾"
-                            }))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .w(px(10.))
+                                    .child(crate::icons::of(if folded { "▸" } else { "▾" })),
+                            )
                             .child(div().min_w_0().truncate().child(name.clone()))
                             .into_any_element(),
                     );
@@ -1101,7 +1102,7 @@ impl Render for DiffView {
                                 .flex_none()
                                 .w(px(10.))
                                 .text_color(theme::muted())
-                                .child(if open { "▾" } else { "▸" }),
+                                .child(crate::icons::of(if open { "▾" } else { "▸" })),
                         )
                         .children(summary(f))
                         .into_any_element();

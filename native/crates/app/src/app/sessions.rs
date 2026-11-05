@@ -200,7 +200,7 @@ fn mark(s: &LeadSession, unread: bool) -> Option<AnyElement> {
                 .flex_none()
                 .text_xs()
                 .text_color(theme::error())
-                .child("⚠")
+                .child(crate::icons::of("⚠"))
                 .into_any_element(),
         ),
         "working" => Some(
@@ -208,7 +208,7 @@ fn mark(s: &LeadSession, unread: bool) -> Option<AnyElement> {
                 .flex_none()
                 .text_xs()
                 .text_color(theme::accent())
-                .child("◌")
+                .child(crate::icons::of("◌"))
                 .into_any_element(),
         ),
         _ if unread => Some(
@@ -1019,7 +1019,7 @@ impl AppView {
                             .flex_none()
                             .text_xs()
                             .text_color(theme::faint())
-                            .child("📌"),
+                            .child(crate::icons::of("📌")),
                     )
                 })
                 .child(div().min_w_0().truncate().child(topic(s)))
@@ -1044,7 +1044,7 @@ impl AppView {
                         .text_xs()
                         .text_color(theme::faint())
                         .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
-                        .child("✕")
+                        .child(crate::icons::of("✕"))
                         .tooltip(move |w, cx| {
                             gpui_component::tooltip::Tooltip::new(t("sessions.close")).build(w, cx)
                         })
@@ -1207,7 +1207,7 @@ impl AppView {
                         .text_color(theme::muted())
                         .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
                         .when(self.sessions.history, |el| el.bg(theme::hover()))
-                        .child("🕘")
+                        .child(crate::icons::of("🕘"))
                         .when(closed > 0, |el| {
                             el.child(
                                 div()
@@ -1333,9 +1333,13 @@ impl AppView {
                                     theme::muted()
                                 })
                                 .when(a.working, |el| {
-                                    el.child(div().text_color(theme::accent()).child("◌"))
+                                    el.child(
+                                        div()
+                                            .text_color(theme::accent())
+                                            .child(crate::icons::of("◌")),
+                                    )
                                 })
-                                .when(a.archived, |el| el.child("▤"))
+                                .when(a.archived, |el| el.child(crate::icons::of("▤")))
                                 .child(div().max_w(px(160.)).truncate().child(name))
                                 .when_some(a.pr.as_ref().filter(|p| p.number > 0), |el, pr| {
                                     el.child(
@@ -1648,7 +1652,10 @@ impl AppView {
                                                             .font_family(crate::theme::mono())
                                                             .text_xs()
                                                             .text_color(theme::faint())
-                                                            .child(format!("⎇ {}", a.branch)),
+                                                            .child(crate::icons::lead(
+                                                                "git-branch",
+                                                                a.branch.clone(),
+                                                            )),
                                                     )
                                                 })
                                                 .when_some(a.pr.as_ref(), |el, pr| {
@@ -2011,8 +2018,8 @@ impl AppView {
                         .text_xs()
                         .text_color(theme::faint())
                         .hover(|el| el.bg(theme::raised()).text_color(theme::muted()))
-                        .child(if open { "▾" } else { "▸" })
-                        .child("⏰")
+                        .child(crate::icons::of(if open { "▾" } else { "▸" }))
+                        .child(crate::icons::of("⏰"))
                         .child(div().truncate().child(tv(
                             "sessions.snoozed.count",
                             &[("count", snoozed.len().into())],

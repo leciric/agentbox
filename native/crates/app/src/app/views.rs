@@ -311,8 +311,9 @@ impl AppView {
                     };
                     let (view, r) = (view.clone(), r.clone());
                     menu = menu.item(
-                        PopupMenuItem::new(format!("{}  {label}", v.glyph())).on_click(
-                            move |_, window, cx| {
+                        PopupMenuItem::new(label)
+                            .icon(crate::icons::ic(v.glyph()))
+                            .on_click(move |_, window, cx| {
                                 view.update(cx, |this, cx| {
                                     this.set_view(&r, v, window, cx);
                                     if v == PView::Android {
@@ -320,8 +321,7 @@ impl AppView {
                                     }
                                 })
                                 .ok();
-                            },
-                        ),
+                            }),
                     );
                 }
                 menu
@@ -410,7 +410,7 @@ impl AppView {
                     .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
                     .tooltip(move |w, cx| Tooltip::new(reload_tip.clone()).build(w, cx))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.browser_go(cx)))
-                    .child("↻"),
+                    .child(crate::icons::of("↻")),
             )
             .child(
                 h_flex()
@@ -464,7 +464,7 @@ impl AppView {
                             .on_click(move |_, _, cx| cx.open_url(&open_url))
                     })
                     .tooltip(move |w, cx| Tooltip::new(out_tip.clone()).build(w, cx))
-                    .child("↗"),
+                    .child(crate::icons::of("↗")),
             );
         let pages = (!ports.is_empty()).then(|| {
             h_flex()
@@ -502,7 +502,7 @@ impl AppView {
                             this.views.shown_port = port.clone();
                             cx.notify();
                         }))
-                        .child("◍")
+                        .child(crate::icons::of("◍"))
                         .child(div().truncate().child(if p.title.is_empty() {
                             format!(":{}", p.port)
                         } else {
@@ -521,7 +521,12 @@ impl AppView {
                     .bg(theme::panel())
                     .text_sm()
                     .text_color(theme::muted())
-                    .child(div().text_2xl().text_color(theme::faint()).child("◍"))
+                    .child(
+                        div()
+                            .text_2xl()
+                            .text_color(theme::faint())
+                            .child(crate::icons::of("◍")),
+                    )
                     .child(div().text_center().child(
                         if self.views.preview.as_deref() == Some("") {
                             t("panel.browser.proxyOff")
@@ -822,7 +827,7 @@ impl AppView {
                         .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
                 })
                 .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
-                .child(glyph)
+                .child(crate::icons::of(glyph))
         };
         let view = cx.entity().downgrade();
         let menu_running = status.as_ref().is_some_and(|s| s.running);
@@ -831,7 +836,7 @@ impl AppView {
         let menu = Button::new("android-menu")
             .ghost()
             .small()
-            .label("⋯")
+            .icon(crate::icons::ic("ellipsis"))
             .tooltip(t("agent.android.actions"))
             .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                 let v1 = view.clone();
@@ -903,14 +908,14 @@ impl AppView {
                     .text_xs()
                     .text_color(if booted { theme::fg() } else { theme::muted() })
                     .child(div().size(px(6.)).rounded_full().bg(dot))
-                    .child("▯")
+                    .child(crate::icons::of("▯"))
                     .child(div().truncate().child(device_name)),
             )
             .child(div().flex_1())
             .child(
                 icon_btn(
                     "android-shot",
-                    "⌾".into(),
+                    "camera".into(),
                     t("agent.android.screenshotTip"),
                     booted,
                 )
@@ -1018,7 +1023,7 @@ impl AppView {
                             .items_center()
                             .justify_center()
                             .text_color(theme::muted())
-                            .child(if starting { "…" } else { "▯" }),
+                            .child(crate::icons::of(if starting { "…" } else { "▯" })),
                     );
                 if !running {
                     col = col.child(div().text_sm().text_color(theme::muted()).child(tv(
@@ -1048,11 +1053,10 @@ impl AppView {
                         ));
                 } else if let Some(s) = status.as_ref().filter(|s| !s.available) {
                     col = col
-                        .child(
-                            div()
-                                .text_sm()
-                                .child(format!("⚠ {}", t("agent.android.unavailable"))),
-                        )
+                        .child(div().text_sm().child(crate::icons::lead(
+                            "triangle-alert",
+                            t("agent.android.unavailable"),
+                        )))
                         .child(
                             div()
                                 .text_xs()
@@ -1301,7 +1305,7 @@ impl AppView {
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_pick(cx)))
             })
             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
-            .child("⬚")
+            .child(crate::icons::of("⬚"))
             .into_any_element()
     }
 }

@@ -243,6 +243,92 @@ pub fn render_pdf(bytes: Vec<u8>) -> Result<PdfPages, String> {
     Ok(out)
 }
 
+/// page_stage is a Hatch page on a stage, framed as the Electron app's
+/// PageFrame frames it: its HTML from the daemon (…/artifacts/{id}/page,
+/// with the page's own Content-Security-Policy) in a webview; the stage's
+/// bar has Open in browser. Where a child webview can't be made (Wayland)
+/// it is the page pictured offscreen, and without GTK the page's card. `shown` is false while something is drawn over it.
+pub fn page_stage(project: &str, page: &agentbox_api::Artifact, shown: bool) -> AnyElement {
+    let url = page.url.clone();
+    let open = (!url.is_empty()).then(|| {
+        crate::app::controls::button(
+            SharedString::from(format!("page-open-{}", page.id)),
+            t("review.openPage"),
+            crate::app::controls::Btn::Secondary,
+            false,
+            move |_, _, cx| cx.open_url(&url),
+        )
+    });
+    let path = format!(
+        "/v1/projects/{}/artifacts/{}/page",
+        crate::files::encode(project).replace('/', "%2F"),
+        crate::files::encode(&page.id).replace('/', "%2F"),
+    );
+    // No child webviews here (Wayland): the page as WebKit pictures it
+    // offscreen, a still.
+    #[cfg(target_os = "linux")]
+    if !crate::webview::available()
+        && crate::webview::gtk_ready()
+        && let Some(client) = crate::webview::client()
+    {
+        return div()
+            .id(SharedString::from(format!("page-still-{}", page.id)))
+            .size_full()
+            .rounded_lg()
+            .overflow_y_scroll()
+            .bg(gpui::white())
+            .child(crate::snapshot::page_snapshot(
+                format!("hatch-{}", page.id),
+                &path,
+                client,
+            ))
+            .into_any_element();
+    }
+    if !crate::webview::available() {
+        return v_flex()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .rounded_lg()
+            .bg(theme::bg())
+            .child(
+                div()
+                    .text_3xl()
+                    .text_color(theme::faint())
+                    .child(crate::icons::ic("globe")),
+            )
+            .child(
+                div()
+                    .text_lg()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::fg())
+                    .child(page.title.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(theme::muted())
+                    .child(crate::dates::date_time_of(&page.updated_at)),
+            )
+            .children(open)
+            .into_any_element();
+    }
+    div()
+        .size_full()
+        .rounded_lg()
+        .overflow_hidden()
+        .border_1()
+        .border_color(theme::border())
+        .bg(gpui::white())
+        .child(crate::webview::page(
+            format!("hatch-{}", page.id),
+            crate::webview::daemon_url(&path),
+            shown,
+        ))
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{is_number, parse_delimited};

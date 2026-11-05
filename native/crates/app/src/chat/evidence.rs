@@ -132,7 +132,7 @@ impl ChatView {
                         .gap_1p5()
                         .text_sm()
                         .text_color(theme::faint())
-                        .child("✓")
+                        .child(crate::icons::of("✓"))
                         .child(tv("evidence.finishedEarlier", &[("title", title.into())]))
                         .into_any_element();
                 }
@@ -233,7 +233,7 @@ impl ChatView {
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(theme::fg()))
                                 .on_click(open.clone())
-                                .child(format!("▶ {}", media::readable(&t.media.name))),
+                                .child(crate::icons::lead("play", media::readable(&t.media.name))),
                         )
                     })
                     .map(|el| {
@@ -242,7 +242,11 @@ impl ChatView {
                                 chapters.iter().take(5).map(|c| {
                                     h_flex()
                                         .gap_1p5()
-                                        .child(div().text_color(theme::running()).child("✓"))
+                                        .child(
+                                            div()
+                                                .text_color(theme::running())
+                                                .child(crate::icons::of("✓")),
+                                        )
                                         .child(
                                             div()
                                                 .min_w_0()

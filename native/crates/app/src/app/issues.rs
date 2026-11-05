@@ -235,7 +235,11 @@ impl AppView {
                     .border_1()
                     .border_color(theme::border())
                     .bg(theme::raised())
-                    .child(div().text_color(theme::muted()).child("✦"))
+                    .child(
+                        div()
+                            .text_color(theme::muted())
+                            .child(crate::icons::of("✦")),
+                    )
                     .child(
                         v_flex()
                             .flex_1()
@@ -338,7 +342,7 @@ impl AppView {
                         .on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| this.load_issues(true, cx)),
                         )
-                        .child("↻"),
+                        .child(crate::icons::of("↻")),
                 ),
         );
         let visible = filtered(&d.issues, f);
@@ -365,7 +369,7 @@ impl AppView {
         let hand_tip: SharedString = tv("issues.handTip", &[("number", n.into())]).into();
         let agent_line = h.clone().map(|h| {
             let r = format!("{project}/{}", h.agent);
-            let mut el = h_flex().gap_1p5().child("◎");
+            let mut el = h_flex().gap_1p5().child(crate::icons::of("◎"));
             el = if h.agent.is_empty() {
                 el.child(t("issues.starting"))
             } else if !h.retired {
@@ -398,7 +402,11 @@ impl AppView {
                 h_flex()
                     .items_start()
                     .gap_3()
-                    .child(div().text_color(theme::running()).child("◉"))
+                    .child(
+                        div()
+                            .text_color(theme::running())
+                            .child(crate::icons::of("◉")),
+                    )
                     .child(
                         v_flex()
                             .flex_1()

@@ -327,6 +327,71 @@ pub fn pages_end() -> impl IntoElement {
     .size_0()
 }
 
+static CLIENT: std::sync::OnceLock<agentbox_api::Client> = std::sync::OnceLock::new();
+
+/// set_client is the daemon pages' `agentbox:` URLs are read from.
+pub fn set_client(client: agentbox_api::Client) {
+    let _ = CLIENT.set(client);
+}
+
+/// client is the daemon's client, once main set it.
+#[cfg(target_os = "linux")]
+pub fn client() -> Option<agentbox_api::Client> {
+    CLIENT.get().cloned()
+}
+
+/// daemon_url is a path of the daemon's API as a page loads it: the
+/// Electron app's agentbox-media:// protocol, which relays the socket. wry
+/// serves custom schemes as http://<scheme>.localhost on Windows.
+pub fn daemon_url(path: &str) -> String {
+    if cfg!(windows) {
+        format!("http://agentbox.localhost{path}")
+    } else {
+        format!("agentbox://localhost{path}")
+    }
+}
+
+/// with_daemon serves `agentbox:` from the daemon's socket, its status,
+/// headers (a Hatch page's Content-Security-Policy) and body as they are.
+fn with_daemon(b: wry::WebViewBuilder<'_>) -> wry::WebViewBuilder<'_> {
+    b.with_asynchronous_custom_protocol("agentbox".into(), |_, req, responder| {
+        let path = req
+            .uri()
+            .path_and_query()
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_default();
+        let Some(client) = CLIENT.get().cloned() else {
+            responder.respond(
+                wry::http::Response::builder()
+                    .status(503)
+                    .body(Vec::new())
+                    .unwrap(),
+            );
+            return;
+        };
+        client.clone().spawn(async move {
+            let res = match client.fetch(&path).await {
+                Ok((status, headers, body)) => {
+                    let mut r = wry::http::Response::builder().status(status);
+                    for (k, v) in headers {
+                        if k != "content-length" && k != "transfer-encoding" {
+                            r = r.header(k, v);
+                        }
+                    }
+                    r.body(body.to_vec())
+                }
+                Err(e) => wry::http::Response::builder()
+                    .status(502)
+                    .header("content-type", "text/plain; charset=utf-8")
+                    .body(e.to_string().into_bytes()),
+            };
+            if let Ok(r) = res {
+                responder.respond(r);
+            }
+        });
+    })
+}
+
 /// page is a live web page filling its box: `url`, loaded again whenever it
 /// (or the reload key in it, after a #) changes. Unlike a preview it goes
 /// to the network and follows links: it is a page of the agent's machine
@@ -363,7 +428,7 @@ fn place_page(id: &str, url: &str, bounds: Bounds<Pixels>, window: &mut Window) 
             *at = frame;
             return;
         }
-        let built = wry::WebViewBuilder::new()
+        let built = with_daemon(wry::WebViewBuilder::new())
             .with_url(url.split('#').next().unwrap_or(url))
             .with_bounds(rect(bounds))
             .with_incognito(true)

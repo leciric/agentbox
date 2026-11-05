@@ -140,7 +140,7 @@ pub(super) fn check(
                 .justify_center()
                 .text_color(gpui::white())
                 .text_size(px(10.))
-                .when(on, |el| el.child("✓")),
+                .when(on, |el| el.child(crate::icons::of("✓"))),
         )
         .child(div().flex_1().min_w_0().child(label))
         .into_any_element()

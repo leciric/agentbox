@@ -1216,7 +1216,7 @@ impl ReviewView {
                                 .min_w_0()
                                 .truncate()
                                 .font_family(crate::theme::mono())
-                                .child(format!("⎇ {}", i.branch)),
+                                .child(crate::icons::lead("git-branch", i.branch.to_string())),
                         )
                     })
                     .when_some(self.merge_block().filter(|_| self.awaiting()), |el, why| {
@@ -1576,40 +1576,7 @@ impl ReviewView {
                 )
                 .into_any_element(),
             Shown::Pair(p) => self.render_pair(p, cx),
-            Shown::Page(page) => {
-                let url = page.url.clone();
-                v_flex()
-                    .size_full()
-                    .items_center()
-                    .justify_center()
-                    .gap_3()
-                    .rounded_lg()
-                    .bg(theme::bg())
-                    .child(div().text_3xl().text_color(theme::faint()).child("◰"))
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::fg())
-                            .child(page.title.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::muted())
-                            .child(crate::dates::date_time_of(&page.updated_at)),
-                    )
-                    .when(!url.is_empty(), |el| {
-                        el.child(controls::button(
-                            "review-open-page",
-                            t("review.openPage"),
-                            Btn::Secondary,
-                            false,
-                            move |_, _, cx| cx.open_url(&url),
-                        ))
-                    })
-                    .into_any_element()
-            }
+            Shown::Page(page) => crate::viewers::page_stage(&self.item.item.project, page, true),
         }
     }
 
@@ -2039,10 +2006,10 @@ impl ReviewView {
                     .children(self.gallery.iter().enumerate().map(|(ix, s)| {
                         let on = ix == self.at;
                         let kind = match s {
-                            Shown::Pair(_) => "⇆",
-                            Shown::Recording(_) => "▶",
-                            Shown::Screenshot(_) => "▣",
-                            Shown::Page(_) => "◰",
+                            Shown::Pair(_) => "arrow-left-right",
+                            Shown::Recording(_) => "film",
+                            Shown::Screenshot(_) => "image",
+                            Shown::Page(_) => "globe",
                         };
                         let thumb = s.thumb().and_then(|m| self.files.get(&m.id)).cloned();
                         v_flex()
@@ -2078,7 +2045,7 @@ impl ReviewView {
                                     .map(|el| match thumb {
                                         Some(p) => el
                                             .child(img(p).size_full().object_fit(ObjectFit::Cover)),
-                                        None => el.child(kind),
+                                        None => el.child(crate::icons::of(kind)),
                                     })
                                     .child(
                                         div()
@@ -2090,7 +2057,7 @@ impl ReviewView {
                                             .bg(gpui::black().opacity(0.6))
                                             .text_xs()
                                             .text_color(gpui::white())
-                                            .child(kind),
+                                            .child(crate::icons::of(kind)),
                                     ),
                             )
                             .child(
@@ -2471,7 +2438,7 @@ impl ReviewView {
                 .border_color(theme::border())
                 .text_xs()
                 .text_color(color)
-                .child(if failed { "⚠" } else { "◷" })
+                .child(crate::icons::of(if failed { "⚠" } else { "◷" }))
                 .child(div().flex_1().min_w_0().truncate().child(text))
                 .child(controls::button(
                     "review-green-cancel",

@@ -1107,7 +1107,7 @@ impl AppView {
                             .text_xs()
                             .font_weight(FontWeight::BOLD)
                             .text_color(color)
-                            .child(mark),
+                            .child(crate::icons::of(mark)),
                     )
                     .child(
                         v_flex()

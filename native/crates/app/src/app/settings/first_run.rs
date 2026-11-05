@@ -384,7 +384,7 @@ impl AppView {
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .map(|el| {
                                     if done {
-                                        el.text_color(theme::running()).child("✓")
+                                        el.text_color(theme::running()).child(crate::icons::of("✓"))
                                     } else if active {
                                         el.bg(theme::accent())
                                             .text_color(gpui::white())
@@ -742,7 +742,11 @@ impl AppView {
                     h_flex()
                         .gap_2()
                         .text_sm()
-                        .child(div().text_color(theme::running()).child("✓"))
+                        .child(
+                            div()
+                                .text_color(theme::running())
+                                .child(crate::icons::of("✓")),
+                        )
                         .child(if p.display_name.is_empty() {
                             p.name.clone()
                         } else {
@@ -820,12 +824,9 @@ impl AppView {
                                     this.settings_page.first_run.repo = Some(repo.clone());
                                     cx.notify();
                                 }))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme::faint())
-                                        .child(if r.private { "🔒" } else { "⎇" }),
-                                )
+                                .child(div().text_xs().text_color(theme::faint()).child(
+                                    crate::icons::of(if r.private { "🔒" } else { "⎇" }),
+                                ))
                                 .child(
                                     v_flex()
                                         .min_w_0()

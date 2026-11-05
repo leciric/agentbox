@@ -74,9 +74,52 @@ pub fn failed(id: &str) -> bool {
     PAGES.with_borrow(|p| p.get(id).is_some_and(|p| p.failed))
 }
 
-/// take_dirty is whether a picture came in since it was last asked.
+/// take_dirty is whether a picture (or a page's HTML) came in since it was
+/// last asked.
 pub fn take_dirty() -> bool {
-    DIRTY.with(|d| d.replace(false))
+    DIRTY.with(|d| d.replace(false)) | FETCHED.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Daemon pages' HTML read so far, by path (None while it is on its way).
+static HTML: std::sync::Mutex<Option<HashMap<String, Option<String>>>> =
+    std::sync::Mutex::new(None);
+static FETCHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// page_snapshot is a daemon page (a Hatch page's HTML, …/artifacts/{id}/page)
+/// as a picture, where no child webview can show it live: its HTML read once
+/// from the daemon, then pictured as a preview is.
+pub fn page_snapshot(
+    id: impl Into<String>,
+    path: &str,
+    client: agentbox_api::Client,
+) -> AnyElement {
+    let html = {
+        let mut cache = HTML.lock().unwrap();
+        let cache = cache.get_or_insert_with(HashMap::new);
+        match cache.get(path) {
+            Some(h) => h.clone(),
+            None => {
+                cache.insert(path.to_string(), None);
+                let path = path.to_string();
+                client.clone().spawn(async move {
+                    let text = match client.fetch(&path).await {
+                        Ok((200, _, body)) => String::from_utf8_lossy(&body).into_owned(),
+                        _ => String::new(),
+                    };
+                    HTML.lock()
+                        .unwrap()
+                        .get_or_insert_with(HashMap::new)
+                        .insert(path, Some(text));
+                    FETCHED.store(true, std::sync::atomic::Ordering::Relaxed);
+                });
+                None
+            }
+        }
+    };
+    match html {
+        Some(h) if !h.is_empty() => html_snapshot(id, h).into_any_element(),
+        _ => div().into_any_element(),
+    }
 }
 
 /// html_snapshot is a block showing `html` as a picture, as tall as the page

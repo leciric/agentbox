@@ -305,11 +305,9 @@ impl AppView {
                                 .text_xs()
                                 .text_color(theme::muted())
                                 .when(!a.branch.is_empty(), |el| {
-                                    el.child(
-                                        div()
-                                            .font_family(theme::mono())
-                                            .child(format!("⎇ {}", a.branch)),
-                                    )
+                                    el.child(div().font_family(theme::mono()).child(
+                                        crate::icons::lead("git-branch", a.branch.to_string()),
+                                    ))
                                 })
                                 .child(tv(
                                     "pastAgents.archived",
@@ -446,7 +444,7 @@ impl AppView {
                     .text_xs()
                     .text_color(theme::faint())
                     .tooltip(move |w, cx| Tooltip::new(freed.clone()).build(w, cx))
-                    .child("⏏"),
+                    .child(crate::icons::of("⏏")),
             )
             .child(
                 div()
@@ -490,7 +488,7 @@ impl AppView {
                                         cx.notify();
                                     }))
                             })
-                            .child(v.glyph())
+                            .child(crate::icons::of(v.glyph()))
                             .when(on, |el| el.child(v.label()))
                     })),
             )

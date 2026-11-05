@@ -265,7 +265,7 @@ impl AppView {
                 .tooltip(move |w, cx| {
                     gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
                 })
-                .child(label)
+                .child(crate::icons::glyph(label))
         };
         let body: AnyElement = if let Some(e) = v.error.as_ref().filter(|_| v.text.is_none()) {
             div()
@@ -512,10 +512,10 @@ impl AppView {
                 .filter(|p| !p.as_os_str().is_empty())
                 .cloned();
             let glyph = match m.kind.as_str() {
-                "recording" => "▶",
-                "report" => "▤",
-                "note" => "✎",
-                _ => "▣",
+                "recording" => "film",
+                "report" => "file-text",
+                "note" => "sticky-note",
+                _ => "image",
             };
             let who = if m.agent_title.is_empty() {
                 m.agent_name.clone()
@@ -546,7 +546,7 @@ impl AppView {
                         .text_color(theme::faint())
                         .map(|el| match file {
                             Some(p) => el.child(img(p).size_full().object_fit(ObjectFit::Cover)),
-                            None => el.child(glyph),
+                            None => el.child(crate::icons::of(glyph)),
                         }),
                 )
                 .child(
@@ -571,7 +571,7 @@ impl AppView {
                                         theme::accent(),
                                     ))
                                 })
-                                .when(m.favorite, |el| el.child("★")),
+                                .when(m.favorite, |el| el.child(crate::icons::of("★"))),
                         )
                         .child(
                             div()

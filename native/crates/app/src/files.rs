@@ -1183,7 +1183,7 @@ fn icon_button(id: &'static str, glyph: &'static str, tip: String) -> Stateful<D
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
         })
-        .child(glyph)
+        .child(crate::icons::of(glyph))
 }
 
 /// encode escapes a query value.

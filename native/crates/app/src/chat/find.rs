@@ -152,7 +152,7 @@ impl ChatView {
                 .cursor_pointer()
                 .text_color(theme::muted())
                 .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
-                .child(label)
+                .child(crate::icons::of(label))
                 .tooltip(move |w, cx| {
                     gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
                 })
@@ -205,7 +205,7 @@ impl ChatView {
                         .cursor_pointer()
                         .text_color(theme::muted())
                         .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
-                        .child("✕")
+                        .child(crate::icons::of("✕"))
                         .tooltip(|w, cx| {
                             gpui_component::tooltip::Tooltip::new(t("chat.find.close")).build(w, cx)
                         })

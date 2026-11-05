@@ -1127,7 +1127,7 @@ impl AppView {
                             cx.notify();
                         }))
                 })
-                .child(if show_advanced { "▾" } else { "▸" })
+                .child(crate::icons::of(if show_advanced { "▾" } else { "▸" }))
                 .child(t("settings.page.advanced"))
                 .into_any_element(),
         );
@@ -1398,7 +1398,7 @@ impl AppView {
                         this.settings_page.advanced = !this.settings_page.advanced;
                         cx.notify();
                     }))
-                    .child(if open { "▾" } else { "▸" })
+                    .child(crate::icons::of(if open { "▾" } else { "▸" }))
                     .child(tv(
                         "settings.page.advancedSections",
                         &[("count", total.into()), ("sections", sections.len().into())],
@@ -1479,7 +1479,11 @@ impl AppView {
                                             }),
                                     )
                                 })
-                                .child(div().text_color(theme::faint()).child("›"))
+                                .child(
+                                    div()
+                                        .text_color(theme::faint())
+                                        .child(crate::icons::of("›")),
+                                )
                         })),
                 )
             })

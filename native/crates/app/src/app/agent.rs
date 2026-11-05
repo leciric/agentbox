@@ -914,7 +914,7 @@ impl AppView {
         let menu = Button::new("agent-menu")
             .ghost()
             .small()
-            .label("⋯")
+            .icon(crate::icons::ic("ellipsis"))
             .tooltip(menu_tip)
             .dropdown_menu_with_anchor(Anchor::TopRight, self.agent_menu(&a, true, cx));
         let info_ref = r.clone();
@@ -961,7 +961,11 @@ impl AppView {
                                 .bg(theme::state_color(&a.state)),
                         )
                         .child(text)
-                        .child(div().text_color(theme::faint()).child("▾"))
+                        .child(
+                            div()
+                                .text_color(theme::faint())
+                                .child(crate::icons::of("▾")),
+                        )
                         .when(info_open, |el| {
                             el.child(deferred(
                                 anchored()
@@ -987,7 +991,7 @@ impl AppView {
                             .font_family(theme::mono())
                             .text_color(theme::muted())
                             .tooltip(move |w, cx| Tooltip::new(branch_tip.clone()).build(w, cx))
-                            .child(format!("⎇ {}", a.branch)),
+                            .child(crate::icons::lead("git-branch", a.branch.to_string())),
                     ),
                 })
                 .child(div().flex_1())
@@ -1326,7 +1330,7 @@ impl AppView {
                                 .items_center()
                                 .justify_center()
                                 .text_color(theme::faint())
-                                .child(if asleep { "⏸" } else { "▣" }),
+                                .child(crate::icons::of(if asleep { "⏸" } else { "▣" })),
                         }),
                 )
                 .child(
@@ -1374,7 +1378,7 @@ impl AppView {
                         .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                             this.show_panel_view(&r, v, w, cx)
                         }))
-                        .child(v.glyph())
+                        .child(crate::icons::of(v.glyph()))
                         .child(v.label())
                 }))
                 .into_any_element(),

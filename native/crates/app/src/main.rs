@@ -53,40 +53,43 @@ fn main() {
         }
     }
     let client = agentbox_api::Client::new(socket);
+    webview::set_client(client.clone());
 
-    gpui_platform::application().run(move |cx: &mut App| {
-        gpui_component::init(cx);
-        gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
-        webview::init(cx);
-        // Where it was last time, on a display there is now (alerts.rs).
-        let options = WindowOptions {
-            window_bounds: Some(app::initial_bounds(cx)),
-            window_min_size: Some(size(px(480.), px(480.))),
-            app_id: Some("agentbox-native".into()),
-            ..Default::default()
-        };
-        #[cfg(feature = "video")]
-        if let Some(path) = play {
-            // agentbox-native --play FILE: one recording in a window of its own.
+    gpui_platform::application()
+        .with_assets(icons::Assets)
+        .run(move |cx: &mut App| {
+            gpui_component::init(cx);
+            gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
+            webview::init(cx);
+            // Where it was last time, on a display there is now (alerts.rs).
+            let options = WindowOptions {
+                window_bounds: Some(app::initial_bounds(cx)),
+                window_min_size: Some(size(px(480.), px(480.))),
+                app_id: Some("agentbox-native".into()),
+                ..Default::default()
+            };
+            #[cfg(feature = "video")]
+            if let Some(path) = play {
+                // agentbox-native --play FILE: one recording in a window of its own.
+                cx.open_window(options, |window, cx| {
+                    window.set_window_title("Recording");
+                    let view = cx.new(|cx| video::VideoPlayer::new(path, cx));
+                    cx.new(|cx| Root::new(view, window, cx))
+                })
+                .expect("open the window");
+                cx.activate(true);
+                return;
+            }
+            #[cfg(not(feature = "video"))]
+            let _ = play;
             cx.open_window(options, |window, cx| {
-                window.set_window_title("Recording");
-                let view = cx.new(|cx| video::VideoPlayer::new(path, cx));
+                window.set_window_title("AgentBox");
+                let view = cx.new(|cx| app::AppView::new(client.clone(), window, cx));
                 cx.new(|cx| Root::new(view, window, cx))
             })
             .expect("open the window");
             cx.activate(true);
-            return;
-        }
-        #[cfg(not(feature = "video"))]
-        let _ = play;
-        cx.open_window(options, |window, cx| {
-            window.set_window_title("AgentBox");
-            let view = cx.new(|cx| app::AppView::new(client.clone(), window, cx));
-            cx.new(|cx| Root::new(view, window, cx))
-        })
-        .expect("open the window");
-        cx.activate(true);
-    });
+        });
 }
 
 #[cfg(test)]

@@ -652,7 +652,7 @@ impl AppView {
                                 .text_xs()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(theme::fg())
-                                .child(mark),
+                                .child(crate::icons::of(mark)),
                         )
                         .child(
                             div()

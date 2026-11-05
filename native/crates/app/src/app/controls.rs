@@ -151,7 +151,7 @@ pub fn button(
                 })
                 .on_click(on_click)
         })
-        .child(label.into())
+        .child(crate::icons::glyph(label))
         .into_any_element()
 }
 
@@ -279,7 +279,7 @@ pub fn select_at(
                                 .flex_none()
                                 .text_sm()
                                 .text_color(theme::accent())
-                                .child(if on { "✓" } else { "" }),
+                                .child(crate::icons::of(if on { "✓" } else { "" })),
                         )
                         .child(
                             v_flex()
