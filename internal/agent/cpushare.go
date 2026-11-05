@@ -168,7 +168,7 @@ func (m *Manager) BalanceCPU(ctx context.Context) (changed int, err error) {
 
 // workersScript sets the worker counts of the tools that don't follow the
 // machine's share by themselves: make, which runs one job unless told, and
-// the explicit counts go, cargo and vitest (VITEST_MAX_WORKERS, the only one
+// the explicit counts go, cargo (also capped by available memory) and vitest (VITEST_MAX_WORKERS, the only one
 // vitest 4 still reads; it otherwise follows os.availableParallelism(), which
 // the cpuset caps) read, which agents' commands and projects' scripts often
 // pass on, and how many packages a monorepo's task runner runs at once (turbo,
@@ -181,10 +181,26 @@ func (m *Manager) BalanceCPU(ctx context.Context) (changed int, err error) {
 const workersScript = `# Worker counts follow this machine's share of the VM's cores (nproc).
 _ab_n=$(nproc 2>/dev/null)
 if [ -n "$_ab_n" ]; then
-  for _ab_v in GOMAXPROCS CARGO_BUILD_JOBS VITEST_MAX_WORKERS; do
+  for _ab_v in GOMAXPROCS VITEST_MAX_WORKERS; do
     eval "_ab_c=\${$_ab_v-}"
     if [ -z "$_ab_c" ] || [ "$_ab_c" = "${AGENTBOX_CPUS-}" ]; then export "$_ab_v=$_ab_n"; fi
   done
+  # A rustc takes a gigabyte or two, so cargo's jobs are also capped by the
+  # memory available now: min(cores, max(1, MemAvailable / 1.5 GiB)). A value
+  # this script set earlier (AGENTBOX_CARGO_JOBS, or the core count older
+  # shells set) is replaced; one somebody else set stays.
+  _ab_j=$_ab_n
+  _ab_m=
+  while read -r _ab_k _ab_x _ab_y; do
+    if [ "$_ab_k" = "MemAvailable:" ]; then _ab_m=$_ab_x; break; fi
+  done < "${AGENTBOX_MEMINFO:-/proc/meminfo}" 2>/dev/null
+  case $_ab_m in ''|*[!0-9]*) ;; *)
+    _ab_m=$((_ab_m / 1572864)); [ "$_ab_m" -ge 1 ] || _ab_m=1
+    [ "$_ab_m" -ge "$_ab_j" ] || _ab_j=$_ab_m ;;
+  esac
+  if [ -z "${CARGO_BUILD_JOBS-}" ] || [ "$CARGO_BUILD_JOBS" = "${AGENTBOX_CARGO_JOBS-none}" ] || [ "$CARGO_BUILD_JOBS" = "${AGENTBOX_CPUS-none}" ]; then
+    export CARGO_BUILD_JOBS="$_ab_j" AGENTBOX_CARGO_JOBS="$_ab_j"
+  fi
   # Task runners start one package per slot, each with a worker pool of its
   # own, so they get half the share (at least one): turbo's default is 10.
   _ab_h=$((_ab_n / 2)); [ "$_ab_h" -ge 1 ] || _ab_h=1
@@ -203,7 +219,7 @@ if [ -n "$_ab_n" ]; then
   export GOFLAGS="${_ab_f# }"
   export AGENTBOX_CPUS="$_ab_n"
 fi
-unset _ab_n _ab_h _ab_o _ab_v _ab_c _ab_f _ab_w
+unset _ab_n _ab_h _ab_o _ab_v _ab_c _ab_f _ab_w _ab_j _ab_m _ab_k _ab_x _ab_y
 `
 
 // BashEnvPath is the file BASH_ENV names in an agent's Claude Code, which
