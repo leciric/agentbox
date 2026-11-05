@@ -1,5 +1,5 @@
 // You, as Kenney's Mini Characters "character-female-b": a blocky chibi with
-// real walk, sprint and idle animations, which suit the logo cube's toy room
+// its own walk, sprint and idle, played at the speed you move, which suit the logo cube's toy room
 // better than anything drawn in code. CC0 (assets/kenney/License.txt), so it
 // may be bundled; it's inlined into the Office's lazy chunk (about 340 kB),
 // and the hand-drawn walker stands in until it has loaded.
@@ -90,6 +90,9 @@ async function load(): Promise<Loaded> {
   const g = new THREE.Group();
   g.add(model);
 
+  // Its walk and sprint as they are, but for their hop: the root's bounce
+  // goes, so you glide over the floor rather than skip along it.
+  for (const c of gltf.animations) c.tracks = c.tracks.filter((tr) => !(tr.name.startsWith('root.') && tr.name.endsWith('.position')));
   const mixer = new THREE.AnimationMixer(model);
   const clip = (name: string) => gltf.animations.find((a) => a.name === name);
   const act = (name: string) => {
@@ -103,23 +106,60 @@ async function load(): Promise<Loaded> {
   const idle = act('idle');
   const walk = act('walk');
   const sprint = act('sprint');
+  // How far each cycle carries you, in metres, from its legs' swing (60° a
+  // side walking, 90° running) and their length: playing it at speed over
+  // that, the feet stay where they're put.
+  const leg = 0.176 * k;
+  const WALK_CYCLE = 4 * leg * Math.sin(Math.PI / 3);
+  const RUN_CYCLE = 4 * leg;
   let lastT: number | undefined;
-  let k1 = 0;
+  // Moving (0 standing, 1 moving), running (0 walking, 1 running), where in
+  // the cycle the feet are, the idle's time, and the lean.
+  let moveK = 0;
+  let runK = 0;
+  let phase = 0;
+  let idleT = 0;
+  let lastYaw: number | undefined;
+  let roll = 0;
   return {
     group: g,
     stride(speed, t, motion) {
       const dt = lastT === undefined ? 0 : Math.min(0.1, Math.max(0, t - lastT));
       lastT = t;
-      // Walking blends in with speed, and sprinting past a brisk walk.
-      const want = Math.min(1, speed / 2.2);
-      k1 = motion ? k1 + (want - k1) * (1 - Math.exp(-dt * 10)) : want;
-      const run = Math.max(0, Math.min(1, (speed - 2.6) / 1.2));
-      idle?.setEffectiveWeight(1 - k1);
-      walk?.setEffectiveWeight(k1 * (1 - run));
-      sprint?.setEffectiveWeight(k1 * run);
-      if (walk) walk.timeScale = 0.8 + speed * 0.25;
-      // With reduced motion it stands, its idle's first frame.
-      mixer.update(motion ? dt : 0);
+      // Crossfades, eased: standing to walking with speed, walking to
+      // running past a brisk walk.
+      const ease = (from: number, to: number, rate: number) => (motion ? from + (to - from) * (1 - Math.exp(-dt * rate)) : to);
+      moveK = ease(moveK, Math.min(1, speed / 0.9), 9);
+      runK = ease(runK, Math.max(0, Math.min(1, (speed - 3.4) / 1.4)), 6);
+      // Both cycles share one phase, so blending them never crosses the feet.
+      const cycle = WALK_CYCLE + (RUN_CYCLE - WALK_CYCLE) * runK;
+      if (motion) phase = (phase + (speed * dt) / cycle) % 1;
+      idleT += motion ? dt : 0;
+      if (idle) {
+        idle.time = idleT % idle.getClip().duration;
+        idle.setEffectiveWeight(1 - moveK);
+      }
+      if (walk) {
+        walk.time = phase * walk.getClip().duration;
+        walk.setEffectiveWeight(moveK * (1 - runK));
+      }
+      if (sprint) {
+        sprint.time = phase * sprint.getClip().duration;
+        sprint.setEffectiveWeight(moveK * runK);
+      }
+      mixer.update(0);
+      // A small lean into a turn, and forward into a run.
+      const yaw = g.parent?.rotation.y ?? 0;
+      let turnRate = 0;
+      if (lastYaw !== undefined && dt > 0) {
+        let d = yaw - lastYaw;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        turnRate = d / dt;
+      }
+      lastYaw = yaw;
+      roll = ease(roll, Math.max(-0.16, Math.min(0.16, -turnRate * speed * 0.012)), 8);
+      model.rotation.z = motion ? roll : 0;
+      model.rotation.x = motion ? moveK * (0.04 + 0.08 * runK) : 0;
     },
     fade(opacity) {
       g.visible = opacity > 0.2;

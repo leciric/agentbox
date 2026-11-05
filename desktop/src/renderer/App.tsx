@@ -110,6 +110,7 @@ export type View =
 export function App({ initial }: { initial?: View } = {}) {
   const t = useT();
   const [view, setView] = useState<View>(initial ?? { kind: "home" });
+  const beforeOffice = useRef<View>({ kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   // "clone" opens the dialog on its Clone from link tab.
   const [addingProject, setAddingProject] = useState<boolean | "clone">(false);
@@ -219,6 +220,8 @@ export function App({ initial }: { initial?: View } = {}) {
 
   const select = (next: View) => {
     setSettingsLink(undefined);
+    // The Office covers the window; its Back returns to where you were.
+    if (next.kind === "office" && view.kind !== "office") beforeOffice.current = view;
     // An agent's page has no tabs: the ones that were become the right
     // panel's, targeted at the agent, and the page stays on its chat.
     const kind = next.kind === "agent" && next.tab ? agentPanelKind[next.tab as string] : undefined;
@@ -725,7 +728,7 @@ export function App({ initial }: { initial?: View } = {}) {
                   />
                 )}
                 {view.kind === "jobs" && <JobsView />}
-                {view.kind === "office" && <OfficeView onSelect={select} />}
+                {view.kind === "office" && <OfficeView onSelect={select} onBack={() => select(beforeOffice.current.kind === "office" ? { kind: "home" } : beforeOffice.current)} />}
                 {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
                 {view.kind === "media" && <MediaView heading onSelect={select} />}
                 {view.kind === "work" && <WorkPage project={view.project} filter={view.filter} onSelect={select} />}

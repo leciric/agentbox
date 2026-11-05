@@ -253,7 +253,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       obstacles.push(box(dx + side * 0.48, dz - SEAT, 1.2, 1.1));
       // You stand at the bench's end, beside the agent, as you'd stop by a
       // colleague's, turned half to the room: the close-up sees your face too.
-      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.75, z: dz - 0.1, face: side < 0 ? Math.PI / 3 : -Math.PI / 3 } };
+      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.85, z: dz - 0.45, face: side < 0 ? Math.PI / 2.4 : -Math.PI / 2.4 } };
     });
     // The counter sits at the area's front, its lead behind it facing you.
     const lz = z + depth - LEAD_DEPTH / 2 - 0.1;

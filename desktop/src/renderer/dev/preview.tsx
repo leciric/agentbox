@@ -766,12 +766,14 @@ if (appView) {
   if (appView === 'office' || params.get('office') === '1') seedOffice(queryClient, { typical: params.get('fleet') === 'typical' });
   // ?app=office&walk=<ref>: once the Office is up, walk to that desk (or a
   // project's lead, project/lead), and with &then=room step back to its
-  // room's view: screenshots of a room without clicking through the campus.
+  // room's view, or with &then=e open it: screenshots without clicking through.
   const walk = params.get('walk');
   if (walk)
     (window as unknown as { officeHook?: (s: { walkTo(ref: string): void; overview(): void }) => void }).officeHook = (office) => {
       setTimeout(() => office.walkTo(walk), 1500);
       if (params.get('then') === 'room') setTimeout(() => office.overview(), 7000);
+      // &then=e: and open what you walked to, as E does.
+      if (params.get('then') === 'e') setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' })), 6500);
     };
   // The other projects' chats, empty rather than failing.
   stubProjectChats();

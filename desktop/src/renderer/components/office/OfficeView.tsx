@@ -1,10 +1,12 @@
 // The Office: a 3D room with a desk for every agent of every project, where
 // you can walk about and watch them work (office/scene.ts draws it). This is
-// its data, read from the queries the rest of the app keeps live, and the
-// overlay around the canvas: who needs you, the desk you're at, the controls.
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, ChevronDown, ChevronRight, ClipboardList, ChevronUp, Eye, Flag, GitPullRequest, Keyboard, LoaderCircle, MessageSquare, Mouse, Scan, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+// its data, read from the queries the rest of the app keeps live, and what's
+// over the canvas: a top bar, a tray of who needs you, the desk you're at
+// and its chat in place, and the controls. It covers the whole window.
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, ChevronUp, ClipboardList, Flag, GitPullRequest, Keyboard, LoaderCircle, Maximize2, MessageSquare, Scan, X } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
@@ -19,6 +21,8 @@ import { floorsOf } from '../../office/layout';
 import { deskOf, leadRef, officeModel, plain, readable, type BoardItem, type DeskModel, type DeskTone, type OfficeModel, type PrLook } from '../../office/model';
 import type { OfficeScene } from '../../office/scene';
 import type { BoardScreen, Screen } from '../../office/textures';
+import { ChatTab } from '../chat/ChatTab';
+import { ProjectChatPanel } from '../ProjectChatPanel';
 import { PullRequestModal } from '../PullRequestModal';
 import { Button } from '../ui/button';
 import { useOpenReview } from '../v2/ReviewV2';
@@ -106,7 +110,7 @@ const LEGEND = [
   ['z', '#94a3b8', 'office.legend.stopped'],
 ] as const;
 
-export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
+export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => void; onBack: () => void }) {
   const t = useT();
   const qc = useQueryClient();
   const host = useRef<HTMLDivElement>(null);
@@ -127,6 +131,18 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     }
   });
   const [viewingPr, setViewingPr] = useState<{ project: string; pr: T.PullRequest } | null>(null);
+  // The chat open in place, over the room: an agent's or a project's (its lead's ref).
+  const [chat, setChat] = useState<string | null>(null);
+  // The controls and the legend, asked for.
+  const [help, setHelp] = useState(false);
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  // Starting or waking an agent from its chat's composer, as its page does.
+  const agentAction = useMutation({
+    mutationFn: ({ ref, name }: { ref: string; name: 'start' | 'resume' }) => api.agentAction(ref, name),
+    onSuccess: (updated) => qc.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === updated.ref ? updated : a))),
+  });
+  const leave = useRef(onBack);
+  leave.current = onBack;
   const reduced = useReducedMotion();
   // The needs list: the user's choice, or else open while the window is wide
   // and you're not at a desk. Arriving somewhere new forgets the choice.
@@ -136,8 +152,6 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   // Which list the summary's counts opened: who needs you, who's working,
   // what waits for review.
   const [listKind, setListKind] = useState<'needs' | 'working' | 'review'>('needs');
-  // Where a "+n more" was pressed: its list opens there.
-  const [listAt, setListAt] = useState<{ x: number; y: number } | null>(null);
   const [wide, setWide] = useState(true);
   useEffect(() => {
     const el = host.current;
@@ -222,12 +236,12 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     return out;
   }, [office.model, t]);
 
-  // Opening what you're at: an agent's chat, a project's chat, or the board's list.
+  // Opening what you're at: an agent's chat or a project's, in place over
+  // the room.
   const activate = useRef<(ref: string) => void>(() => {});
   activate.current = (ref: string) => {
     if (ref === 'board') return;
-    if (ref.endsWith('/lead')) onSelect({ kind: 'project', project: ref.split('/')[0], tab: 'chat', from: 'office' });
-    else onSelect({ kind: 'agent', ref, tab: 'chat', from: 'office' });
+    setChat(ref);
   };
 
   // A row on the board: who needs you opens their chat, what waits for
@@ -284,8 +298,23 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   next.current = () => {
     const list = round;
     if (list.length === 0) return;
+    // Off the round, in a room where someone needs you: them first.
+    if (!list.some((i) => i.ref === near) && view.project) {
+      const here = list.find((i) => i.project === view.project && floorOfRef(i.project, i.ref) === view.floor);
+      if (here) return walkTo(here.ref);
+    }
     const to = list[(roundAt() + 1) % list.length];
     if (to.ref !== near) walkTo(to.ref);
+  };
+  // Which of its project's floors a desk is on (layout.ts splits them so, in order).
+  const floorOfRef = (project: string, ref: string) => {
+    const a = office.model.areas.find((x) => x.project === project);
+    if (!a || ref.endsWith('/lead')) return 1;
+    const sizes = floorsOf(a.desks.length);
+    let at = a.desks.findIndex((d) => d.id === ref);
+    let floor = 0;
+    while (floor < sizes.length - 1 && at >= sizes[floor]) at -= sizes[floor++];
+    return floor + 1;
   };
 
   // The scene, loaded with three.js only when the Office opens.
@@ -309,11 +338,12 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             onActivate: (ref) => activate.current(ref),
             onNext: () => next.current(),
             onBoardRow: (ref) => boardRow.current(ref),
-            onMore: (refs, at) => {
+            onMore: (refs) => {
               setListOnly(refs);
-              setListAt(at);
+              setListKind('needs');
               setListChoice(true);
             },
+            onLeave: () => leave.current(),
             onMoved: () => {
               setHint(false);
               try {
@@ -366,19 +396,25 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const empty = office.loaded && office.model.areas.length === 0;
   const nearDesk = nearAgent ? deskOf(office.model, nearAgent.ref) : undefined;
   const nearArea = near?.endsWith('/lead') ? office.model.areas.find((a) => leadRef(a.project) === near) : undefined;
-  const listOpen = listChoice ?? (wide && !nearDesk && !nearArea);
+  const chatAgent = chat && !chat.endsWith('/lead') ? office.agents.get(chat) : undefined;
+  const chatProject = chat?.endsWith('/lead') ? projects.data?.find((p) => p.name === chat.split('/')[0]) : undefined;
+  const chatOpen = !!(chatAgent || chatProject);
+  // The tray of who needs you: the user's choice, or else open while the
+  // window is wide and nothing's up on the right. Arriving somewhere new
+  // forgets the choice.
+  const trayOpen = listChoice ?? (wide && !nearDesk && !nearArea && !chatOpen);
   const hasNext = needs.some((i) => i.ref !== near);
   const nextButton = hasNext && (
-    <Button size="sm" variant="secondary" className="bg-slate-100 text-slate-800 shadow-none hover:bg-slate-200" onClick={() => next.current()} data-office-next>
-      <ArrowRight className="size-3.5" />
+    <Button size="sm" variant="secondary" onClick={() => next.current()} data-office-next>
+      <ArrowRight />
       {t('office.next')}
       {/* Where you are in the round, or at a desk not in it how many wait. */}
       {needs.length > 1 && (
-        <span className="tabular-nums text-[11px] opacity-70">
+        <span className="tabular-nums text-caption text-muted">
           {round.some((i) => i.ref === near) ? t('office.nextOf', { at: roundAt() + 1, count: needs.length }) : t('office.nextCount', { count: needs.length })}
         </span>
       )}
-      <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">N</kbd>
+      <Kbd>N</Kbd>
     </Button>
   );
   useEffect(() => {
@@ -386,102 +422,124 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     lastViewKey.current = viewKey;
     setListChoice(false);
   }, [viewKey]);
-  const listShown = listOpen && (listKind === 'needs' ? needs.length : listKind === 'review' ? review.length : working) > 0;
-  // Escape, or a press on the room, folds it away.
+  // Escape closes what's open over the room first: the chat, then the tray.
+  // Taken, so it doesn't step back in the room too.
   useEffect(() => {
-    if (!listShown) return;
-    // First, and taken: the Escape that folds the list doesn't step back too.
+    if (!chatOpen && !(trayOpen && listChoice)) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"]:not([data-office-chat])')) return;
       e.preventDefault();
-      setListChoice(false);
+      if (chatOpen) setChat(null);
+      else setListChoice(false);
     };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [listShown]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [chatOpen, trayOpen, listChoice]);
   useEffect(() => {
-    if (!listOpen) {
-      setListOnly(null);
-      setListAt(null);
-      setListKind('needs');
-    }
-  }, [listOpen]);
+    if (!trayOpen) setListOnly(null);
+  }, [trayOpen]);
+  // The chat closes as you walk away from it.
+  useEffect(() => {
+    if (chat && near !== chat) setChat(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [near]);
+  // A close-up keeps what it looks at clear of what's up on the right.
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const w = host.current?.clientWidth ?? 0;
+    scene.current?.setCover(chatOpen ? Math.min(w - 24, 480) + 24 : 0);
+  }, [chatOpen, status]);
+  // The room is framed in what the tray leaves of the window.
+  const trayShown = status === 'ready' && !empty && !(chatOpen && !wide) && trayOpen;
+  useEffect(() => {
+    if (status === 'ready') scene.current?.setInset(trayShown && wide ? 352 + 24 : 0);
+  }, [trayShown, wide, status]);
+  // The controls, shown a while and then folded to a button.
+  useEffect(() => {
+    if (!hint) return;
+    const id = window.setTimeout(() => setHint(false), 9000);
+    return () => window.clearTimeout(id);
+  }, [hint]);
   const workingItems: BoardItem[] = office.model.areas.flatMap((a) => a.desks.filter((d) => d.tone === 'working').map((d) => ({ ref: d.id, project: a.project, title: d.title, tone: d.tone, pr: d.pr })));
   const listed = listOnly ? needs.filter((i) => listOnly.includes(i.ref)) : listKind === 'working' ? workingItems : listKind === 'review' ? review : round;
   const areaLabel = (project: string, ref?: string) => {
     const a = office.model.areas.find((x) => x.project === project);
     const name = a?.label ?? project;
-    // With floors, which one it's on (layout.ts splits them so, in order).
-    if (!a || !ref || ref.endsWith('/lead')) return name;
-    const sizes = floorsOf(a.desks.length);
-    if (sizes.length < 2) return name;
-    let at = a.desks.findIndex((d) => d.id === ref);
-    let floor = 0;
-    while (floor < sizes.length - 1 && at >= sizes[floor]) at -= sizes[floor++];
-    return t('office.floor', { name, floor: floor + 1 });
+    // With floors, which one it's on.
+    if (!a || !ref || ref.endsWith('/lead') || floorsOf(a.desks.length).length < 2) return name;
+    return t('office.floor', { name, floor: floorOfRef(project, ref) });
   };
   const openList = (kind: 'needs' | 'working' | 'review') => {
     setListOnly(null);
-    setListAt(null);
-    setListChoice(kind === listKind ? !listOpen : true);
+    setListChoice(kind === listKind ? !trayOpen : true);
     setListKind(kind);
   };
   const hoverTitle = hover ? titleOf(office.model, hover, t('office.board.title')) : undefined;
   const hoverText = hoverTitle ? (hover === near && hover !== 'board' ? t('office.clickToOpen', { title: hoverTitle }) : hover === near ? undefined : t('office.clickToWalk', { title: hoverTitle })) : undefined;
+  const roomName = view.project ? (office.model.areas.find((a) => a.project === view.project)?.label ?? view.project) : undefined;
+  const chatTitle = chatAgent ? (deskOf(office.model, chatAgent.ref)?.title ?? chatAgent.ref) : chatProject ? t('office.lead.title', { project: office.model.areas.find((a) => a.project === chatProject.name)?.label ?? chatProject.name }) : '';
+  const chatTone: DeskTone = chatAgent ? (deskOf(office.model, chatAgent.ref)?.tone ?? 'idle') : nearArea?.lead.tone === 'needs' ? 'needs' : nearArea?.lead.tone === 'working' ? 'working' : 'idle';
 
-  return (
+  return createPortal(
     <div
-      // A pale sky for the diorama to float on.
-      className="relative h-full min-h-0 w-full overflow-hidden bg-[linear-gradient(180deg,#e9f2f7_0%,#d5e5ee_100%)]"
+      // The whole window, the app's chrome under it: a pale sky for the
+      // diorama to float on.
+      className="fixed inset-0 z-40 overflow-hidden bg-[linear-gradient(180deg,#e9f2f7_0%,#d5e5ee_100%)]"
       data-office
       // After a click on a button over the room, the keys walk again.
       onClickCapture={(e) => {
-        if ((e.target as HTMLElement).closest('button')) requestAnimationFrame(() => host.current?.querySelector<HTMLCanvasElement>('canvas')?.focus({ preventScroll: true }));
+        const el = e.target as HTMLElement;
+        if (el.closest('button') && !el.closest('[data-office-chat]')) requestAnimationFrame(() => host.current?.querySelector<HTMLCanvasElement>('canvas')?.focus({ preventScroll: true }));
       }}
     >
-      <div ref={host} className="absolute inset-0" aria-label={t('office.canvas')} role="application" onPointerDownCapture={() => listShown && setListChoice(false)} />
+      <div ref={host} className="absolute inset-0" aria-label={t('office.canvas')} role="application" onPointerDownCapture={() => listChoice && !wide && setListChoice(false)} />
 
       {(status === 'loading' || (status === 'ready' && !office.loaded)) && (
-        <div className="absolute inset-0 flex items-center justify-center gap-2 text-[13px] text-slate-600">
-          <LoaderCircle className="size-4 animate-spin" />
-          {t('office.loading')}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className={cn(PANEL, 'flex items-center gap-2 px-4 py-2.5 text-ui text-secondary')}>
+            <LoaderCircle className="size-4 animate-spin" />
+            {t('office.loading')}
+          </div>
         </div>
       )}
       {status === 'unsupported' && (
         <div className="absolute inset-0 flex items-center justify-center p-6">
-          <div className="max-w-sm rounded-xl border border-black/5 bg-slate-900/90 p-5 text-center text-[13px] text-slate-700">{t('office.unsupported')}</div>
+          <div className={cn(PANEL, 'max-w-sm p-5 text-center text-ui text-secondary')}>{t('office.unsupported')}</div>
         </div>
       )}
 
-      {/* The top: what's going on, and the overview. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start gap-2 p-3">
-        <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md" data-office-summary data-office-review={review.map((i) => i.ref).join(",")}>
+      {/* The top bar: out of the Office, where you are, and the way back to all the rooms. */}
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex items-center gap-2">
+        <nav className={cn(PANEL, 'pointer-events-auto flex h-10 min-w-0 items-center gap-1 px-1.5 text-ui')} aria-label={t('office.title')} data-office-summary data-office-review={review.map((i) => i.ref).join(',')}>
+          <BarButton onClick={onBack} title={t('office.leaveHint')} data-office-leave>
+            <ArrowLeft />
+            {t('office.leave')}
+          </BarButton>
+          <span className="mx-0.5 h-5 w-px shrink-0 bg-line-strong" />
           {view.project ? (
-            // In a room, the Office's name goes back out to all of them.
-            <button type="button" className="-my-1 -ml-1 rounded-lg px-1 py-1 text-[13px] font-semibold text-slate-900 transition hover:bg-black/5" onClick={() => scene.current?.campus()} title={t('office.campus')} data-office-crumb-campus>
-              {t('office.title')}
-            </button>
+            <BarButton onClick={() => scene.current?.campus()} title={t('office.campus')} data-office-crumb-campus>
+              <span className="font-semibold text-primary">{t('office.title')}</span>
+            </BarButton>
           ) : (
-            <span className="text-[13px] font-semibold text-slate-900">{t('office.title')}</span>
+            <span className="px-2 font-semibold text-primary">{t('office.title')}</span>
           )}
-          {/* In a room: its name, which goes back out to all of them. */}
           {view.project && (
-            <button type="button" className="-my-1 flex items-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1 font-medium text-slate-700 transition hover:bg-black/5" onClick={() => scene.current?.campus()} title={t('office.campus')} data-office-room={view.project}>
-              <ChevronRight className="size-3.5 text-slate-400" />
-              {(() => {
-                const name = office.model.areas.find((a) => a.project === view.project)?.label ?? view.project;
-                return view.floors > 1 ? t('office.floor', { name, floor: view.floor }) : name;
-              })()}
-            </button>
+            <>
+              <ChevronRight className="size-3.5 shrink-0 text-faint" />
+              <span className="min-w-0 truncate px-1 font-medium text-primary" data-office-room={view.project}>
+                {view.floors > 1 ? t('office.floor', { name: roomName ?? '', floor: view.floor }) : roomName}
+              </span>
+            </>
           )}
           {/* A project on floors: straight to another, without the campus. */}
           {view.project && view.floors > 1 && (
-            <div className="-my-1 flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5" role="group" aria-label={t('office.floors')} data-office-floors>
+            <div className="ml-1 flex items-center gap-0.5 rounded-lg bg-surface p-0.5" role="group" aria-label={t('office.floors')} data-office-floors>
               {Array.from({ length: view.floors }, (_, i) => i + 1).map((f) => (
                 <button
                   key={f}
                   type="button"
-                  className={cn('min-w-6 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold tabular-nums transition', f === view.floor ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:bg-white/60 hover:text-slate-800')}
+                  className={cn('h-6 min-w-6 rounded-md px-1.5 text-caption font-semibold tabular-nums transition-colors', f === view.floor ? 'bg-surface-vivid text-primary' : 'text-muted hover:bg-surface-strong hover:text-primary')}
                   aria-current={f === view.floor ? 'true' : undefined}
                   aria-label={t('office.toFloor', { floor: f })}
                   title={t('office.toFloor', { floor: f })}
@@ -492,90 +550,72 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
               ))}
             </div>
           )}
-          {needs.length > 0 ? (
-            // The count opens and folds the list of who needs you.
-            <button
-              type="button"
-              className="-my-1 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1 font-medium text-amber-800 ring-1 ring-amber-300/30 transition hover:bg-amber-400/10"
-              onClick={() => openList('needs')}
-              aria-expanded={listOpen && listKind === 'needs'}
-              data-office-unfold
-            >
-              <span className="size-2 animate-pulse rounded-full bg-amber-400" />
-              {t('office.count.needs', { count: needs.length })}
-              {listOpen && listKind === 'needs' ? <ChevronUp className="size-3.5 text-amber-700/70" /> : <ChevronDown className="size-3.5 text-amber-700/70" />}
-            </button>
-          ) : (
-            <Count dot="bg-amber-400" n={needs.length} label={t('office.count.needs', { count: needs.length })} />
-          )}
-          <Count dot="bg-sky-400" n={working} label={t('office.count.working', { count: working })} onClick={working > 0 ? () => openList('working') : undefined} open={listOpen && listKind === 'working'} />
-          <Count dot="bg-emerald-400" n={review.length} label={t('office.count.review', { count: review.length })} onClick={review.length > 0 ? () => openList('review') : undefined} open={listOpen && listKind === 'review'} />
-        </div>
+        </nav>
         <span className="flex-1" />
-        {near !== 'board' && view.project && (
-          <button
-            type="button"
-            className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
-            onClick={() => walkTo('board')}
-            data-office-to-board
-          >
-            <ClipboardList className="size-3.5" />
-            {t('office.toBoard')}
-          </button>
-        )}
-        {/* A step back: to the room's overview, from there to all the rooms. */}
         {(view.project || !view.overview) && (
-          <button
-            type="button"
-            className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
-            onClick={() => (view.project ? scene.current?.campus() : scene.current?.overview())}
-            data-office-overview
-          >
-            <Scan className="size-3.5" />
-            {view.project ? t('office.campus') : t('office.overview')}
-          </button>
+          <div className={cn(PANEL, 'pointer-events-auto flex h-10 items-center gap-1 px-1.5 text-ui')}>
+            {near !== 'board' && view.project && (
+              <BarButton onClick={() => walkTo('board')} data-office-to-board>
+                <ClipboardList />
+                {t('office.toBoard')}
+              </BarButton>
+            )}
+            {/* A step back: to the room's overview, from there to all the rooms. */}
+            <BarButton onClick={() => (view.project ? scene.current?.campus() : scene.current?.overview())} data-office-overview>
+              <Scan />
+              {view.project ? t('office.campus') : t('office.overview')}
+            </BarButton>
+          </div>
         )}
       </div>
 
-      {/* Who needs you, each a walk away: open while there's room for it,
-          folded to a pill at a desk or in a small window. */}
-      {listShown && (
-        <div
-          className="pointer-events-auto absolute left-3 top-16 z-10 flex max-h-[calc(100%-9rem)] w-[min(16rem,calc(100%-1.5rem))] flex-col items-start gap-2 overflow-y-auto"
-          style={listOnly && listAt ? { left: `min(${Math.round(listAt.x)}px, calc(100% - 17rem))`, top: `max(4.5rem, min(${Math.round(listAt.y)}px, calc(100% - 12rem)))` } : undefined}
-          data-office-needs="open"
-        >
-          <ListCard
-            title={listOnly ? t('office.here', { count: listed.length }) : listKind === 'working' ? t('office.list.working') : listKind === 'review' ? t('office.board.review') : t('office.board.needs')}
-            accent={listKind === 'working' && !listOnly ? 'text-sky-600' : listKind === 'review' && !listOnly ? 'text-emerald-600' : 'text-amber-600'}
-            onFold={() => setListChoice(false)}
-            foldLabel={t('office.fold')}
-          >
-            {listed.map((i) => (
-              <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${areaLabel(i.project, i.ref)} · ${i.text}` : i.pr ? `${areaLabel(i.project, i.ref)} · #${i.pr.number}` : areaLabel(i.project, i.ref)} label={t('office.walkTo', { title: i.title })} onClick={() => {
-                setListChoice(false);
-                walkTo(i.ref);
-              }} />
-            ))}
-            {listOnly && (
-              <button type="button" className="w-full rounded-lg px-2 py-1.5 text-left text-[12px] text-amber-700 hover:bg-black/5" onClick={() => {
-                setListOnly(null);
-                setListAt(null);
-              }} data-office-list-all>
-                {t('office.showAll')} · {needs.length}
+      {/* Who needs you, who's working, what waits for review: a tray, each row a walk away. */}
+      {status === 'ready' && !empty && !(chatOpen && !wide) && (
+        <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex w-[min(22rem,calc(100%-1.5rem))] flex-col items-start" data-office-needs={trayOpen ? 'open' : 'folded'}>
+          <div className={cn(PANEL, 'pointer-events-auto flex w-full min-h-0 flex-col')}>
+            <div className="flex items-center gap-1 p-1.5" role="tablist" aria-label={t('office.tray')}>
+              <TrayTab dot="bg-amber-400" pulse={needs.length > 0} n={needs.length} label={t('office.legend.needs')} on={trayOpen && listKind === 'needs'} onClick={() => openList('needs')} data-office-unfold />
+              <TrayTab dot="bg-sky-400" n={working} label={t('office.list.working')} on={trayOpen && listKind === 'working'} onClick={() => openList('working')} />
+              <TrayTab dot="bg-emerald-400" n={review.length} label={t('office.tray.review')} on={trayOpen && listKind === 'review'} onClick={() => openList('review')} />
+              <span className="flex-1" />
+              <button type="button" aria-label={trayOpen ? t('office.fold') : t('office.unfold')} title={trayOpen ? t('office.fold') : t('office.unfold')} onClick={() => setListChoice(!trayOpen)} className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-strong hover:text-primary" aria-expanded={trayOpen} data-office-fold>
+                {trayOpen ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
               </button>
+            </div>
+            {trayOpen && (
+              <div className="max-h-[min(22rem,calc(100vh-12rem))] min-h-0 overflow-y-auto border-t border-line px-1.5 pb-1.5 pt-1" role="tabpanel">
+                {listed.length === 0 && <div className="px-2 py-3 text-ui text-muted">{listKind === 'needs' ? t('office.board.needsEmpty') : listKind === 'review' ? t('office.board.reviewEmpty') : t('office.tray.noneWorking')}</div>}
+                {listed.map((i) => (
+                  <WalkRow
+                    key={i.ref}
+                    item={i}
+                    active={i.ref === near}
+                    sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${areaLabel(i.project, i.ref)} · ${i.text}` : i.pr ? `${areaLabel(i.project, i.ref)} · #${i.pr.number}` : areaLabel(i.project, i.ref)}
+                    label={t('office.walkTo', { title: i.title })}
+                    onClick={() => {
+                      if (!wide) setListChoice(false);
+                      walkTo(i.ref);
+                    }}
+                  />
+                ))}
+                {listOnly && (
+                  <button type="button" className="w-full rounded-lg px-2 py-1.5 text-left text-caption text-amber-300 transition-colors hover:bg-surface-strong" onClick={() => setListOnly(null)} data-office-list-all>
+                    {t('office.showAll')} · {needs.length}
+                  </button>
+                )}
+              </div>
             )}
-          </ListCard>
+          </div>
         </div>
       )}
 
-      {/* The desk you're at. */}
-      {nearDesk && nearAgent && (
+      {/* The desk you're at: what it's doing, and its chat a key away. */}
+      {!chatOpen && nearDesk && nearAgent && (
         <DeskCard
           tone={nearDesk.tone}
           toneLabel={toneLabel(nearDesk.tone)}
           title={nearDesk.title}
-          project={office.model.areas.find((a) => a.project === nearDesk.project)?.label ?? nearDesk.project}
+          project={areaLabel(nearDesk.project, nearDesk.id)}
           facts={[nearDesk.branch, [nearAgent.ai, modelOf(nearThread)].filter(Boolean).join(' · ')]}
           activity={nearThread ? agentChatStatus(nearAgent, nearThread).text : undefined}
           question={nearDesk.question ? plain(readable(nearDesk.question)) : nearDesk.tone === 'needs' || nearDesk.tone === 'error' ? agentChatStatus(nearAgent, nearThread).text : undefined}
@@ -583,21 +623,21 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           pr={nearDesk.pr ? prLine(nearDesk.pr).text : undefined}
           prTone={nearDesk.pr?.checks === 'failing' ? 'bad' : 'ok'}
         >
-          <Button size="sm" className="bg-violet-600 text-white shadow-sm hover:bg-violet-500" onClick={() => activate.current(nearDesk.id)} data-office-open>
-            <MessageSquare className="size-3.5" />
-            {t('office.openChat')}
-            <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">E</kbd>
+          <Button size="sm" variant="primary" onClick={() => activate.current(nearDesk.id)} data-office-open>
+            <MessageSquare />
+            {nearDesk.tone === 'needs' ? t('office.answer') : t('office.openChat')}
+            <Kbd onBrand>E</Kbd>
           </Button>
           {nextButton}
           {nearDesk.pr && (
-            <Button size="sm" variant="secondary" className="bg-slate-100 text-slate-800 shadow-none hover:bg-slate-200" onClick={() => openPr(nearDesk)} data-office-pr>
-              <GitPullRequest className="size-3.5" />
+            <Button size="sm" variant="secondary" onClick={() => openPr(nearDesk)} data-office-pr>
+              <GitPullRequest />
               {t('office.openPr', { number: nearDesk.pr.number })}
             </Button>
           )}
         </DeskCard>
       )}
-      {nearArea && (
+      {!chatOpen && nearArea && (
         <DeskCard
           tone={nearArea.lead.tone === 'needs' ? 'needs' : nearArea.lead.tone === 'working' ? 'working' : 'idle'}
           toneLabel={t(`office.lead.${nearArea.lead.tone}`)}
@@ -606,57 +646,128 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           facts={[]}
           last={nearArea.lead.line ? plain(nearArea.lead.line) : nearArea.lead.line}
         >
-          <Button size="sm" className="bg-violet-600 text-white shadow-sm hover:bg-violet-500" onClick={() => activate.current(leadRef(nearArea.project))} data-office-open>
-            <MessageSquare className="size-3.5" />
+          <Button size="sm" variant="primary" onClick={() => activate.current(leadRef(nearArea.project))} data-office-open>
+            <MessageSquare />
             {t('office.openProjectChat')}
-            <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">E</kbd>
+            <Kbd onBrand>E</Kbd>
           </Button>
           {nextButton}
         </DeskCard>
       )}
-      {/* At a board its notes are buttons themselves (scene.ts). */}
 
-      {/* The controls, until you've moved; after that a line. */}
-      {status === 'ready' && !empty && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3">
-          {/* What the bubbles over the agents and the flags on their desks mean; not while a card's up, which it would crowd. */}
-          {!nearDesk && !nearArea && near !== 'board' && (
-          <div className="flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-full bg-white/80 px-3 py-1 text-[11.5px] text-slate-600 shadow-sm backdrop-blur-md" data-office-legend>
-            {LEGEND.map(([glyph, color, key]) => (
-              <span key={key} className="flex items-center gap-1">
-                <span className="grid size-4 place-items-center rounded-full text-[10px] font-bold leading-none text-white" style={{ background: color }}>{glyph}</span>
-                {t(key)}
-              </span>
-            ))}
-            <span className="flex items-center gap-1">
-              <Flag className="size-3.5 text-emerald-500" />
-              {t('office.legend.pr')}
-            </span>
-          </div>
-          )}
-          {/* One bar: what a click on what's under the pointer does, or else the controls. */}
-          {hoverText && !hint ? (
-            <div className="rounded-lg bg-white/90 px-3 py-1 text-[12.5px] font-medium text-slate-900 shadow-lg backdrop-blur-md" data-office-hover>{hoverText}</div>
-          ) : hint ? (
-            <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-5 gap-y-1.5 rounded-xl border border-violet-300/30 bg-white/90 px-4 py-2.5 text-[13px] font-medium text-slate-900 shadow-xl ring-1 ring-violet-400/20 backdrop-blur-md" data-office-hint>
-              <span className="flex items-center gap-1.5"><Mouse className="size-3.5 text-violet-300" />{t('office.hint.click')}</span>
-              <span className="flex items-center gap-1.5"><Keyboard className="size-3.5 text-violet-300" />{t('office.hint.keys')}</span>
-              <span className="flex items-center gap-1.5"><Eye className="size-3.5 text-violet-300" />{t('office.hint.look')}</span>
-              <button type="button" aria-label={t('common.close')} className="rounded p-0.5 text-slate-500 hover:text-slate-900" onClick={() => setHint(false)}>
-                <X className="size-3.5" />
-              </button>
+      {/* Its chat, in place: the app's own, over the room. */}
+      {chatOpen && (
+        <section
+          className={cn(PANEL, 'pointer-events-auto absolute bottom-3 right-3 top-16 z-20 flex w-[min(30rem,calc(100%-1.5rem))] flex-col overflow-hidden')}
+          // Not modal: the room stays in view; but the room's keys rest while you type.
+          role="dialog"
+          aria-modal="false"
+          aria-label={chatTitle}
+          data-office-chat={chat ?? ''}
+        >
+          <header className="flex min-w-0 items-center gap-2 border-b border-line px-3 py-2">
+            <span className={cn('size-2 shrink-0 rounded-full', toneDot[chatTone], chatTone === 'needs' && 'animate-pulse')} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-ui font-semibold text-primary">{chatTitle}</div>
+              <div className="truncate text-caption text-muted">{chatAgent ? areaLabel(chatAgent.project, chatAgent.ref) : t('office.lead.agents', { count: nearArea?.desks.length ?? 0 })}</div>
             </div>
-          ) : (
-            <div className="rounded-lg bg-white/90 px-3 py-1 text-[12px] text-slate-700 backdrop-blur-md" data-office-hint-short>{view.project ? t('office.hint.short') : t('office.hint.campus')}</div>
+            {hasNext && (
+              <Button size="icon-sm" variant="ghost" title={t('office.next')} aria-label={t('office.next')} onClick={() => next.current()} data-office-next>
+                <ArrowRight />
+              </Button>
+            )}
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              title={t('office.chat.openInApp')}
+              aria-label={t('office.chat.openInApp')}
+              onClick={() => {
+                const ref = chat!;
+                setChat(null);
+                if (ref.endsWith('/lead')) onSelect({ kind: 'project', project: ref.split('/')[0], tab: 'chat', from: 'office' });
+                else onSelect({ kind: 'agent', ref, tab: 'chat', from: 'office' });
+              }}
+              data-office-chat-full
+            >
+              <Maximize2 />
+            </Button>
+            <Button size="icon-sm" variant="ghost" title={t('office.chat.close')} aria-label={t('office.chat.close')} onClick={() => setChat(null)} data-office-chat-close>
+              <X />
+            </Button>
+          </header>
+          <div className="flex min-h-0 flex-1 flex-col bg-chat">
+            {chatAgent && <ChatTab key={chatAgent.ref} agent={chatAgent} starting={agentAction.isPending} onStart={() => agentAction.mutate({ ref: chatAgent.ref, name: chatAgent.state === 'paused' ? 'resume' : 'start' })} />}
+            {chatProject && <ProjectChatPanel key={chatProject.name} project={chatProject} />}
+          </div>
+        </section>
+      )}
+
+      {/* What a click on what's under the pointer would do. */}
+      {hoverText && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3">
+          <div className={cn(PANEL, 'px-3 py-1.5 text-ui font-medium text-primary')} data-office-hover>
+            {hoverText}
+          </div>
+        </div>
+      )}
+
+      {/* The controls, a while, then a button that shows them and the legend. */}
+      {status === 'ready' && !empty && !chatOpen && !nearDesk && !nearArea && (
+        <div className="pointer-events-none absolute bottom-3 right-3 z-10 flex flex-col items-end gap-2">
+          {(hint || help) && (
+            <div className={cn(PANEL, 'pointer-events-auto w-[min(19rem,calc(100vw-1.5rem))] p-3 text-caption text-secondary transition-opacity duration-500')} data-office-hint>
+              <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5">
+                {(view.project ? KEYS_ROOM : KEYS_CAMPUS).map(([keys, what]) => (
+                  <Fragment key={what}>
+                    <span className="flex justify-end gap-1">
+                      {keys.map((k) => (
+                        <Kbd key={k}>{k.startsWith('=') ? k.slice(1) : t(k as Message)}</Kbd>
+                      ))}
+                    </span>
+                    <span>{t(what)}</span>
+                  </Fragment>
+                ))}
+              </div>
+              {help && (
+                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-line pt-3" data-office-legend>
+                  {LEGEND.map(([glyph, color, key]) => (
+                    <span key={key} className="flex items-center gap-1.5">
+                      <span className="grid size-4 shrink-0 place-items-center rounded-full text-[10px] font-bold leading-none text-white" style={{ background: color }}>
+                        {glyph}
+                      </span>
+                      {t(key)}
+                    </span>
+                  ))}
+                  <span className="col-span-2 flex items-center gap-1.5">
+                    <Flag className="size-3.5 shrink-0 text-emerald-400" />
+                    {t('office.legend.pr')}
+                  </span>
+                </div>
+              )}
+            </div>
           )}
+          <button
+            type="button"
+            className={cn(PANEL, 'pointer-events-auto grid size-9 place-items-center text-muted transition-colors hover:text-primary', help && 'text-primary')}
+            aria-label={t('office.help')}
+            title={t('office.help')}
+            aria-expanded={help}
+            onClick={() => {
+              setHint(false);
+              setHelp(!help);
+            }}
+            data-office-help
+          >
+            <Keyboard className="size-4" />
+          </button>
         </div>
       )}
 
       {empty && (
         <div className="absolute inset-0 flex items-center justify-center p-6">
-          <div className="max-w-sm rounded-xl border border-black/5 bg-white/90 p-5 text-center shadow-xl backdrop-blur-md" data-office-empty>
-            <div className="text-[14px] font-semibold text-slate-900">{t('office.empty.title')}</div>
-            <div className="mt-1 text-[12.5px] text-slate-600">{t('office.empty.body')}</div>
+          <div className={cn(PANEL, 'max-w-sm p-5 text-center')} data-office-empty>
+            <div className="text-body font-semibold text-primary">{t('office.empty.title')}</div>
+            <div className="mt-1 text-ui text-muted">{t('office.empty.body')}</div>
           </div>
         </div>
       )}
@@ -674,7 +785,59 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           onOpenAgent={viewingPr.pr.agent ? () => onSelect({ kind: 'agent', ref: `${viewingPr.project}/${viewingPr.pr.agent}` }) : undefined}
         />
       )}
-    </div>
+    </div>,
+    document.body,
+  );
+}
+
+// One look for everything over the room, the app's own floating panel.
+const PANEL = 'rounded-xl border border-line-strong bg-overlay shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur';
+
+// The controls, as keys and what they do: in a room, and over the campus. A
+// key is a message's (a word, translated) or the key's own name.
+type Message = Parameters<ReturnType<typeof useT>>[0];
+const KEYS_ROOM: [(Message | `=${string}`)[], Message][] = [
+  [['office.keys.click'], 'office.keys.walk'],
+  [['=W', '=A', '=S', '=D'], 'office.keys.walkKeys'],
+  [['office.keys.drag'], 'office.keys.turn'],
+  [['office.keys.scroll'], 'office.keys.zoom'],
+  [['=E'], 'office.keys.open'],
+  [['=N'], 'office.keys.next'],
+  [['=Esc'], 'office.keys.back'],
+];
+const KEYS_CAMPUS: [(Message | `=${string}`)[], Message][] = [
+  [['office.keys.click'], 'office.keys.enter'],
+  [['office.keys.scroll'], 'office.keys.zoomIn'],
+  [['=N'], 'office.keys.next'],
+  [['=Esc'], 'office.keys.leave'],
+];
+
+function Kbd({ children, onBrand }: { children: ReactNode; onBrand?: boolean }) {
+  return <kbd className={cn('rounded-md border px-1.5 py-px font-mono text-[10.5px] leading-4', onBrand ? 'border-white/25 bg-white/15 text-on-brand' : 'border-line-strong bg-surface-strong text-secondary')}>{children}</kbd>;
+}
+
+function BarButton({ children, className, ...props }: React.ComponentProps<'button'>) {
+  return (
+    <button type="button" className={cn('flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-secondary transition-colors hover:bg-surface-strong hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 [&_svg]:size-4 [&_svg]:shrink-0', className)} {...props}>
+      {children}
+    </button>
+  );
+}
+
+function TrayTab({ dot, n, label, on, onClick, pulse, ...props }: { dot: string; n: number; label: string; on: boolean; onClick: () => void; pulse?: boolean } & Record<`data-${string}`, unknown>) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={on}
+      onClick={onClick}
+      className={cn('flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-caption transition-colors', on ? 'bg-surface-vivid text-primary' : 'text-secondary hover:bg-surface-strong hover:text-primary', n === 0 && !on && 'text-muted')}
+      {...props}
+    >
+      <span className={cn('size-2 rounded-full', dot, pulse && 'animate-pulse')} />
+      <span className="font-semibold tabular-nums">{n}</span>
+      {label}
+    </button>
   );
 }
 
@@ -682,41 +845,6 @@ function titleOf(model: OfficeModel, ref: string, board: string): string | undef
   if (ref === 'board') return board;
   if (ref.endsWith('/lead')) return model.areas.find((a) => leadRef(a.project) === ref)?.label;
   return deskOf(model, ref)?.title;
-}
-
-function Count({ dot, n, label, onClick, open }: { dot: string; n: number; label: string; onClick?: () => void; open?: boolean }) {
-  const inner = (
-    <>
-      <span className={cn('size-2 rounded-full', dot, n > 0 && dot === 'bg-amber-400' && 'animate-pulse')} />
-      {label}
-    </>
-  );
-  // With a list to show, a button that opens it.
-  if (onClick)
-    return (
-      <button type="button" className="-my-1 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1 transition hover:bg-black/5" onClick={onClick} aria-expanded={!!open}>
-        {inner}
-        {open ? <ChevronUp className="size-3.5 opacity-60" /> : <ChevronDown className="size-3.5 opacity-60" />}
-      </button>
-    );
-  return <span className={cn('flex items-center gap-1.5 whitespace-nowrap', n === 0 && 'opacity-50')}>{inner}</span>;
-}
-
-// fill makes it a column whose rows scroll inside it, in a panel of several.
-function ListCard({ title, accent, children, onFold, foldLabel, list, fill }: { title: string; accent: string; children: ReactNode; onFold?: () => void; foldLabel?: string; list?: string; fill?: string }) {
-  return (
-    <div className={cn('w-full rounded-xl border border-black/5 bg-white/90 p-1.5 shadow-xl backdrop-blur-md', fill && `flex min-h-0 flex-col ${fill}`)} data-office-board-list={list}>
-      <div className="flex items-center px-2 pb-1 pt-1">
-        <span className={cn('flex-1 text-[10.5px] font-semibold uppercase tracking-[0.08em]', accent)}>{title}</span>
-        {onFold && (
-          <button type="button" aria-label={foldLabel} title={foldLabel} onClick={onFold} className="rounded p-0.5 text-slate-500 hover:text-slate-900" aria-expanded data-office-fold>
-            <ChevronUp className="size-3.5" />
-          </button>
-        )}
-      </div>
-      {fill ? <div className="min-h-0 overflow-y-auto">{children}</div> : children}
-    </div>
-  );
 }
 
 // RowTitle is a row's title; an agent told apart from another of the same
@@ -727,8 +855,8 @@ function RowTitle({ item }: { item: BoardItem }) {
   const named = item.title.endsWith(suffix);
   return (
     <span className="flex min-w-0 items-baseline gap-1.5">
-      <span className="truncate text-[12.5px] font-medium text-slate-900">{named ? item.title.slice(0, -suffix.length) : item.title}</span>
-      {named && <span className="shrink-0 font-mono text-[10.5px] text-slate-500">{name}</span>}
+      <span className="truncate text-ui font-medium text-primary">{named ? item.title.slice(0, -suffix.length) : item.title}</span>
+      {named && <span className="shrink-0 font-mono text-[10.5px] text-muted">{name}</span>}
     </span>
   );
 }
@@ -740,16 +868,16 @@ function WalkRow({ item, sub, label, onClick, active }: { item: BoardItem; sub?:
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={cn('group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60', active && 'bg-black/5 ring-1 ring-amber-300/40')}
+      className={cn('group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400', active && 'bg-surface-strong ring-1 ring-amber-300/40')}
       aria-current={active ? 'true' : undefined}
       data-office-walk={item.ref}
     >
       <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', toneDot[item.tone])} />
       <span className="min-w-0 flex-1">
         <RowTitle item={item} />
-        {sub && <span className="line-clamp-2 text-[11.5px] text-slate-500">{sub}</span>}
+        {sub && <span className="line-clamp-2 text-caption text-muted">{sub}</span>}
       </span>
-      <ArrowRight className="mt-1 size-3.5 shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-slate-900" />
+      <ArrowRight className="mt-1 size-3.5 shrink-0 text-faint transition group-hover:translate-x-0.5 group-hover:text-primary" />
     </button>
   );
 }
@@ -780,29 +908,36 @@ function DeskCard({
   children: ReactNode;
 }) {
   return (
-    <div className="pointer-events-auto absolute bottom-16 right-3 w-[min(21rem,calc(100%-1.5rem))] rounded-2xl border border-black/5 bg-white/90 p-4 text-slate-700 shadow-2xl backdrop-blur-md" data-office-desk={tone}>
-      <div className="flex items-center gap-2 text-[11.5px] font-semibold uppercase tracking-[0.06em]">
+    <div className={cn(PANEL, 'pointer-events-auto absolute right-3 top-16 z-20 w-[min(21rem,calc(100%-1.5rem))] p-4')} data-office-desk={tone}>
+      <div className="flex items-center gap-2 text-caption font-semibold uppercase tracking-[0.06em]">
         <span className={cn('size-2 rounded-full', toneDot[tone], tone === 'needs' && 'animate-pulse')} />
-        <span className="text-slate-600">{toneLabel}</span>
-        <span className="ml-auto truncate font-normal normal-case tracking-normal text-slate-500">{project}</span>
+        <span className="text-secondary">{toneLabel}</span>
+        <span className="ml-auto truncate font-normal normal-case tracking-normal text-muted">{project}</span>
       </div>
-      <div className="mt-1.5 line-clamp-2 text-[14.5px] font-semibold leading-snug text-slate-900">{title}</div>
+      <div className="mt-1.5 line-clamp-2 text-body font-semibold leading-snug text-primary">{title}</div>
       {facts.filter(Boolean).length > 0 && (
-        <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 text-[11.5px] text-slate-500">
+        <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 text-caption text-muted">
           {facts.filter(Boolean).map((f) => (
-            <span key={f} className="max-w-full truncate font-mono">{f}</span>
+            <span key={f} className="max-w-full truncate font-mono">
+              {f}
+            </span>
           ))}
         </div>
       )}
-      {question && <div className="mt-2.5 max-h-28 overflow-y-auto rounded-lg bg-amber-400/10 px-2.5 py-2 text-[12.5px] text-amber-800 ring-1 ring-amber-400/50 [overflow-wrap:anywhere]">{question}</div>}
+      {question && <div className="mt-2.5 max-h-28 overflow-y-auto rounded-lg bg-amber-400/10 px-2.5 py-2 text-ui text-amber-200 ring-1 ring-amber-400/40 [overflow-wrap:anywhere]">{question}</div>}
       {activity && (
-        <div className={cn('mt-2.5 flex min-w-0 items-center gap-1.5 text-[12px]', tone === 'working' ? 'text-sky-700' : tone === 'finished' ? 'text-emerald-700' : tone === 'needs' ? 'text-amber-700' : tone === 'error' ? 'text-red-600' : 'text-slate-500')}>
+        <div className={cn('mt-2.5 flex min-w-0 items-center gap-1.5 text-caption', tone === 'working' ? 'text-sky-300' : tone === 'finished' ? 'text-emerald-300' : tone === 'needs' ? 'text-amber-300' : tone === 'error' ? 'text-rose-300' : 'text-muted')}>
           <span className={cn('size-1.5 shrink-0 rounded-full', toneDot[tone])} />
           <span className="min-w-0 truncate">{activity}</span>
         </div>
       )}
-      {last && <div className="mt-1.5 line-clamp-3 text-[12.5px] text-slate-600 [overflow-wrap:anywhere]">{last}</div>}
-      {pr && <div className={cn('mt-2 flex items-center gap-1.5 text-[12px]', prTone === 'bad' ? 'text-red-600' : 'text-slate-600')}><GitPullRequest className="size-3.5" />{pr}</div>}
+      {last && <div className="mt-1.5 line-clamp-3 text-ui text-secondary [overflow-wrap:anywhere]">{last}</div>}
+      {pr && (
+        <div className={cn('mt-2 flex items-center gap-1.5 text-caption', prTone === 'bad' ? 'text-rose-300' : 'text-secondary')}>
+          <GitPullRequest className="size-3.5" />
+          {pr}
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">{children}</div>
     </div>
   );

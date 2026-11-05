@@ -52,6 +52,9 @@ export type OfficeSceneOptions = {
   onMoved(): void;
   // N: on to the next desk that needs you.
   onNext(): void;
+  // Escape over the campus, with nothing left to step back from: out of the
+  // Office.
+  onLeave?(): void;
   // A chip's "+n": show the list of who needs you.
   onMore(refs: string[], at: { x: number; y: number }): void;
   // A click on a row of the board, standing at it: the desk it's about.
@@ -80,6 +83,9 @@ export type OfficeScene = {
   // How much of the canvas's left edge an overlay covers, in CSS pixels: the
   // overview frames the room in the rest.
   setInset(left: number): void;
+  // How much of its right edge a panel covers (the desk's card or its chat),
+  // in CSS pixels: a close-up keeps what it looks at clear of it.
+  setCover(right: number): void;
   // attach puts the room, as it is, into a page again, with that page's
   // handlers; detach takes it out and stops drawing, keeping it built.
   attach(host: HTMLElement, opts: OfficeSceneOptions): void;
@@ -95,7 +101,14 @@ let lastVisit: { pos: P; facing: number; follow: number; yaw: number; dist: numb
 const isBoard = (r: string | undefined): r is string => !!r && r.startsWith('board:');
 
 const RADIUS = 0.3;
-const SPEED = 3.4; // metres a second, walking
+// Metres a second: walking (the keys, a short click), and running, for a
+// long walk or one you asked for by name. The figure's walk and run play at
+// these, feet planted (kenney.ts).
+const SPEED = 3.0;
+const RUN = 6.0;
+// How quickly you get going and come to a stop, metres a second a second.
+const ACCEL = 9;
+const BRAKE = 8;
 const FOV = 24;
 // The overview's 3/4 view: from the front right, over the open corner.
 const HOME_YAW = 0.5;
@@ -528,6 +541,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   const pos: P = { x: 0, z: 0 };
   let facing = Math.PI;
   let speed = 0;
+  // The pace you're moving at, eased, and which way the keys last sent you.
+  let pace = 0;
+  let keyDir: P | undefined;
   let route: P[] = [];
   let routeGoal: string | undefined;
   let placed = false;
@@ -1375,6 +1391,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     if (keys.has('d') || keys.has('arrowright')) kx += 1;
     let vx = 0;
     let vz = 0;
+    let stepped = 0;
+    // Speeds ease up and down: you set off and come to a stop, not jump to
+    // a pace.
+    const toward = (v: number, want: number) => (motion ? (want > v ? Math.min(want, v + ACCEL * dt) : Math.max(want, v - BRAKE * 1.6 * dt)) : want);
     if (kx || kz) {
       route = [];
       routeGoal = undefined;
@@ -1383,23 +1403,28 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const len = Math.hypot(kx, kz);
       const c = Math.cos(eased.yaw);
       const s = Math.sin(eased.yaw);
-      vx = ((kx * c + kz * s) / len) * SPEED;
-      vz = ((-kx * s + kz * c) / len) * SPEED;
+      pace = toward(pace, SPEED);
+      keyDir = { x: (kx * c + kz * s) / len, z: (-kx * s + kz * c) / len };
+      vx = keyDir.x * pace;
+      vz = keyDir.z * pace;
     } else if (route.length) {
       const goal = route[0];
       const dx = goal.x - pos.x;
       const dz = goal.z - pos.z;
       const dist = Math.hypot(dx, dz);
-      // A long walk is a jog, so a desk across the room is a moment away.
       const left = dist + pathLengthFrom(route);
-      // A walk you asked for by name (a chip, N, the list) is quick.
-      // To a desk by name, briskly: its card is what you came for.
-      const pace = Math.min(22, Math.max(routeGoal ? 9 : SPEED, left / (routeGoal ? 0.4 : 0.6)));
+      // A long walk, or one you asked for by name (a chip, N, the list), is
+      // a run; a short one a walk. Slowing in time to stop where it ends.
+      const top = routeGoal || left > 7 ? RUN : SPEED;
+      pace = toward(pace, Math.min(top, Math.max(0.9, Math.sqrt(2 * BRAKE * left))));
       const stepLen = pace * dt;
       if (dist <= stepLen) {
         pos.x = goal.x;
         pos.z = goal.z;
         route.shift();
+        // Past a corner you keep walking; at the end you've stopped.
+        stepped = dist;
+        if (!route.length) pace = 0;
         if (!route.length && routeGoal) {
           const spot = spotOf(lay, routeGoal);
           if (spot) facing = motion ? facing : spot.face;
@@ -1409,13 +1434,27 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         vz = (dz / dist) * pace;
       }
     }
+    else if (keyDir && pace > 0.05) {
+      // The keys let go: a few steps' stop.
+      pace = toward(pace, 0);
+      vx = keyDir.x * pace;
+      vz = keyDir.z * pace;
+    }
+    if (!route.length && !(kx || kz) && pace <= 0.05) {
+      pace = 0;
+      keyDir = undefined;
+    }
     if (vx || vz) {
-      const next = kx || kz ? slide(boxes, bounds, pos, { x: vx * dt, z: vz * dt }) : { x: pos.x + vx * dt, z: pos.z + vz * dt };
+      const next = keyDir && !route.length ? slide(boxes, bounds, pos, { x: vx * dt, z: vz * dt }) : { x: pos.x + vx * dt, z: pos.z + vz * dt };
       const moved1 = Math.hypot(next.x - pos.x, next.z - pos.z);
       pos.x = next.x;
       pos.z = next.z;
       speed = moved1 / Math.max(dt, 1e-3);
       facing = turn(facing, Math.atan2(vx, vz), motion ? dt * 12 : Math.PI);
+      moving = true;
+      stillFor = 0;
+    } else if (stepped > 0 && route.length) {
+      speed = stepped / Math.max(dt, 1e-3);
       moving = true;
       stillFor = 0;
     } else {
@@ -1470,7 +1509,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // One angle for every desk, a little from the right as the room's view
       // is: N from desk to desk doesn't swing the room round. You stand at
       // the bench's end, beside the agent, clear of it either side.
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.8, yaw: 0.4 }, aspect);
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.95, yaw: 0.4 }, aspect);
     }
     return undefined;
   }
@@ -1478,11 +1517,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // aside moves a close-up's centre right, so what it looks at sits in the
   // middle of the part of the view the desk's card (bottom right) leaves.
   const CARD = 336 + 24;
+  let cover = 0;
   function aside(f: { x: number; y: number; z: number; dist: number; pitch: number; yaw: number }, aspect: number) {
     const w = Math.max(1, canvas.clientWidth);
-    const cover = Math.min(0.5, CARD / w);
+    const share = Math.min(0.6, (cover || CARD) / w);
     const vw = 2 * f.dist * Math.tan(THREE.MathUtils.degToRad(FOV / 2)) * aspect;
-    const shift = (vw * cover) / 2;
+    const shift = (vw * share) / 2;
     return { ...f, x: f.x + Math.cos(f.yaw) * shift, z: f.z - Math.sin(f.yaw) * shift };
   }
 
@@ -1620,7 +1660,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       Object.assign(eased, { tx, ty, tz, dist, pitch, yaw, init: true });
     } else {
       // Standing back for the overview settles quickly; following you, gently.
-      const e = motion ? 1 - Math.exp(-dt * (held ? 10 : 8)) : 1;
+      // At the board quicker still: its notes are what you'll click.
+      const e = motion ? 1 - Math.exp(-dt * (isBoard(focusRef) && cam.closeK > 0.5 ? 14 : held ? 10 : 8)) : 1;
       eased.tx += (tx - eased.tx) * e;
       eased.ty += (ty - eased.ty) * e;
       eased.tz += (tz - eased.tz) * e;
@@ -1739,7 +1780,6 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // Any desk nearer the camera than the one you're at, on screen over it
       // or you, steps out of the way.
       let ahead = false;
-      let leadHidesFace = false;
       if (lookAt && d.ref !== focusRef) {
         figPos.y += 1.0;
         const nearer = figPos.distanceTo(camera.position) < lookAt.dist - 0.8;
@@ -1747,10 +1787,6 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const sx = ((figPos.x + 1) / 2) * canvas.clientWidth;
         const sy = ((1 - figPos.y) / 2) * canvas.clientHeight;
         ahead = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 190 && Math.abs(sy - p.y) < 230);
-        // A lead goes from its counter only when it'd hide the face itself:
-        // an empty counter reads as a lead gone.
-        const f0 = lookAt.spots[0];
-        leadHidesFace = ahead && Math.abs(sx - f0.x) < 110 && Math.abs(sy - f0.y) < 150;
       }
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (d.root.position.distanceTo(camera.position) < 4.2 || ahead);
       // At a board, what stands between it and the camera steps aside.
@@ -1759,7 +1795,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // takes clicks.
       const isLeadDesk = d.ref.endsWith('/lead');
       d.root.visible = inScope(d.root) && (isLeadDesk || !(inWay && ahead)) && !boardWay;
-      d.figure.group.visible = !(isLeadDesk && inWay && ahead && leadHidesFace);
+      // A lead never leaves its counter: the close-up looks down over it.
+      d.figure.group.visible = true;
       d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone] && !(cam.closeK > 0.3 && d.ref !== focusRef && far < 8);
       const b = d.beacon;
       b.visible = false;
@@ -1772,14 +1809,21 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // Only the loud ones (needs you, failed) grow: the overview shows those.
       const loudTone = d.tone === 'needs' || d.tone === 'error';
       // Big over the campus, where they say which room needs you; in a room
-      // a little, clear of each other.
-      const grow = Math.min(d.tone === 'needs' ? (crowded ? 8 : 2.9) : loudTone ? (crowded ? 4.5 : 2.2) : crowded ? 1 : 1.35, Math.max(1, (far - 8) / 12));
+      // a badge on its own head's corner, as an app's icon wears one: never
+      // floating over whoever sits behind.
+      const grow = Math.min(d.tone === 'needs' ? (crowded ? 5 : 1.7) : loudTone ? (crowded ? 3 : 1.45) : crowded ? 1 : 1.2, Math.max(1, (far - 8) / 12));
       // A crowd's quiet bubbles show as you come in: from afar they'd bury the loud ones.
       if (crowded && !loudTone && far > 30) s.visible = false;
       const sb = (s.userData.base as THREE.Vector2 | undefined) ?? (s.userData.base = new THREE.Vector2(s.scale.x, s.scale.y));
       s.scale.set(sb.x * grow, sb.y * grow, 1);
-      // Clear of the head and whatever it wears.
-      s.position.y = 0.49 + 1.18 * k + lift * 0.5 + (grow - 1) * 0.2 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 * grow : 0);
+      // Over the campus clear of the head and whatever it wears; in a room on
+      // its top corner, to the camera's right.
+      const bob = motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * (crowded ? 0.12 * grow : 0.06) : 0;
+      const home = (s.userData.home as THREE.Vector2 | undefined) ?? (s.userData.home = new THREE.Vector2(s.position.x, s.position.z));
+      const side = crowded ? 0 : 0.27 * k;
+      s.position.x = home.x + Math.cos(eased.yaw) * side;
+      s.position.z = home.y - Math.sin(eased.yaw) * side;
+      s.position.y = (crowded ? 0.49 + 1.18 * k + lift * 0.5 + (grow - 1) * 0.2 : 0.49 + 0.86 * k + 0.12 * grow) + bob;
       if (d.ref === near) {
         atMark.sprite.visible = cam.closeK > 0.2 || cam.followK > 0.3;
         // A lead's just over its own head, in front of whoever sits behind it.
@@ -1853,8 +1897,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     for (const [ri, rm] of lay.rooms.entries()) {
       const chip = areaChips.get(rm.key);
       if (!chip) continue;
-      const n0 = waiting.get(ri) ?? 0;
-      const f0 = failed.get(ri) ?? 0;
+      // Amber is everything that needs you, the failed too, as the summary
+      // counts them: the rooms' add up to it.
+      const n0 = (waiting.get(ri) ?? 0) + (failed.get(ri) ?? 0);
+      const f0 = 0;
       const w0 = busy.get(ri) ?? 0;
       const sub = chip.children[1] as HTMLElement;
       const bad = chip.children[2] as HTMLElement;
@@ -1896,20 +1942,16 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     }
     // You stand beside what you look at, never in front of it: always seen.
     // Never over the face of the agent you're at: there, you're see-through.
-    let meOver = false;
-    if (lookAt && focusDesk && cam.closeK > 0.3 && lookAt.spots.length > 1) {
-      const [faceAt, meAt] = lookAt.spots;
-      const nearer = new THREE.Vector3(pos.x, 0.9, pos.z).distanceTo(camera.position) < lookAt.dist;
-      meOver = nearer && Math.abs(faceAt.x - meAt.x) < 75 && Math.abs(faceAt.y - meAt.y) < 140;
-    }
-    me.fade(meOver ? 0.4 : 1);
+    // You stand beside the agent you're at (layout.ts), never faded: a
+    // see-through you reads as a glitch.
+    me.fade(1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
     const tp = new THREE.Vector3();
     const shown: { el: HTMLDivElement; x: number; y: number; loud: boolean; needs?: boolean }[] = [];
     // Where the overlay's card or board list is: no chip shows under it.
-    const cardEl = document.querySelector('[data-office-desk], [data-office-board]');
+    const cardEl = document.querySelector('[data-office-desk], [data-office-board], [data-office-chat]');
     const cr = canvas.getBoundingClientRect();
     const cardBox = cardEl ? (() => {
       const r = cardEl.getBoundingClientRect();
@@ -2353,6 +2395,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         tellView();
         poke();
       } else overview();
+    } else if (k === 'escape' && scope === null && !e.repeat) {
+      opts.onLeave?.();
     } else if (k === 'n' && !e.repeat) {
       e.preventDefault();
       opts.onNext();
@@ -2437,6 +2481,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     setInset(left) {
       inset = left;
       fitCache.key = '';
+      poke();
+    },
+    setCover(right) {
+      if (right === cover) return;
+      cover = right;
       poke();
     },
     dispose() {
