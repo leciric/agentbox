@@ -807,7 +807,11 @@ impl FileBrowser {
     fn render_content(&self, c: &FileContent, cx: &mut Context<Self>) -> AnyElement {
         if self.show_diff && (!c.base_text.is_empty() || c.base_missing) {
             let lines = line_diff(&c.base_text, &c.text);
-            return diff::table("file-diff-table", &lines);
+            return diff::table(
+                "file-diff-table",
+                &lines,
+                crate::highlight::lang_of(&c.path),
+            );
         }
         if let Some(image) = &self.image {
             return div()
@@ -854,6 +858,12 @@ impl FileBrowser {
     fn render_text(&self, c: &FileContent, cx: &mut Context<Self>) -> AnyElement {
         let lines: Vec<&str> = c.text.split('\n').collect();
         let shown = lines.len().min(MAX_SHOWN);
+        let text: Vec<String> = lines[..shown]
+            .iter()
+            .map(|l| l.replace('\t', "    "))
+            .collect();
+        let colours =
+            crate::highlight::lang_of(&c.path).map(|lang| crate::highlight::line_runs(lang, &text));
         let width = shown.to_string().len() as f32 * 7.5 + 16.;
         v_flex()
             .child(
@@ -865,7 +875,7 @@ impl FileBrowser {
                         .font_family(theme::mono())
                         .text_xs()
                         .line_height(px(18.))
-                        .children(lines[..shown].iter().enumerate().map(|(i, l)| {
+                        .children(text.iter().enumerate().map(|(i, l)| {
                             h_flex()
                                 .child(
                                     div()
@@ -883,9 +893,12 @@ impl FileBrowser {
                                         .whitespace_nowrap()
                                         .text_color(theme::fg())
                                         .child(if l.is_empty() {
-                                            " ".to_string()
+                                            " ".into_any_element()
                                         } else {
-                                            l.replace('\t', "    ")
+                                            crate::highlight::styled(
+                                                l.clone(),
+                                                colours.as_ref().and_then(|c| c.get(i)),
+                                            )
                                         }),
                                 )
                         })),

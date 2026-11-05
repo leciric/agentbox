@@ -12,6 +12,7 @@ mod chat;
 mod device;
 mod diff;
 mod files;
+mod highlight;
 mod media;
 mod mermaid;
 mod prefs;

@@ -14,7 +14,13 @@ video = ["dep:ffmpeg-next"]
 [dependencies]
 agentbox-api.workspace = true
 gpui.workspace = true
-gpui-component.workspace = true
+# Syntax colours in chat's code blocks (gpui-component's syntect backend),
+# the diff and the file viewer (highlight.rs, with the same syntect and
+# syntax set). Pure Rust, so the Windows check cross-compiles; tree-sitter's
+# grammars are C and added 7.5 MB against syntect's 1.2 MB.
+gpui-component = { workspace = true, features = ["syntect"] }
+syntect = { version = "5.3", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
+two-face = { version = "0.4.5", default-features = false, features = ["syntect-fancy"] }
 gpui_platform.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

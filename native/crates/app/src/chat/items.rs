@@ -175,7 +175,11 @@ pub(super) fn diff_block(id: String, d: &ChatDiff) -> AnyElement {
                         .child(format!("−{removed}")),
                 ),
         )
-        .child(crate::diff::table(SharedString::from(id), &diff_lines(d)))
+        .child(crate::diff::table(
+            SharedString::from(id),
+            &diff_lines(d),
+            crate::highlight::lang_of(&d.path),
+        ))
         .into_any_element()
 }
 

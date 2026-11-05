@@ -628,8 +628,13 @@ fn summary(f: &PullFile) -> Vec<AnyElement> {
     out
 }
 
-/// table is one file's lines (DiffTable), scrolling sideways when long.
-pub fn table(id: impl Into<ElementId>, lines: &[DiffLine]) -> AnyElement {
+/// table is one file's lines (DiffTable), scrolling sideways when long, the
+/// code coloured in its language when it has one highlighted.
+pub fn table(
+    id: impl Into<ElementId>,
+    lines: &[DiffLine],
+    lang: Option<&'static str>,
+) -> AnyElement {
     let num = |n: Option<u32>| {
         div()
             .flex_none()
@@ -640,7 +645,26 @@ pub fn table(id: impl Into<ElementId>, lines: &[DiffLine]) -> AnyElement {
             .child(n.map(|n| n.to_string()).unwrap_or_default())
     };
     let shown = lines.len().min(MAX_LINES);
+    let is_code =
+        |l: &DiffLine| matches!(l.kind, LineKind::Add | LineKind::Del | LineKind::Context);
+    let expand = |t: &str| t.replace('\t', "    ");
+    // The code lines, old and new in their order, coloured as one text.
+    let colours = lang.map(|lang| {
+        let code: Vec<String> = lines[..shown]
+            .iter()
+            .filter(|l| is_code(l))
+            .map(|l| expand(&l.text))
+            .collect();
+        crate::highlight::line_runs(lang, &code)
+    });
+    let mut nth = 0;
     let rows = lines[..shown].iter().map(|l| {
+        let runs = if is_code(l) {
+            nth += 1;
+            colours.as_ref().and_then(|c| c.get(nth - 1))
+        } else {
+            None
+        };
         let (bg, sign) = match l.kind {
             LineKind::Add => (theme::running().opacity(0.12), "+"),
             LineKind::Del => (theme::error().opacity(0.12), "−"),
@@ -670,9 +694,9 @@ pub fn table(id: impl Into<ElementId>, lines: &[DiffLine]) -> AnyElement {
                         _ => el.text_color(theme::fg()),
                     })
                     .child(if l.text.is_empty() {
-                        " ".to_string()
+                        " ".into_any_element()
                     } else {
-                        l.text.replace('\t', "    ")
+                        crate::highlight::styled(expand(&l.text), runs)
                     }),
             )
     });
@@ -719,9 +743,11 @@ impl DiffView {
             return note(t("pulls.detail.noDiff"), theme::muted());
         }
         match self.patches.get(&f.path) {
-            Some(Patch::Ready(lines)) => {
-                table((SharedString::from(format!("{}-t", self.id)), ix), lines)
-            }
+            Some(Patch::Ready(lines)) => table(
+                (SharedString::from(format!("{}-t", self.id)), ix),
+                lines,
+                crate::highlight::lang_of(&f.path),
+            ),
             Some(Patch::Failed(e)) => note(
                 tv("pulls.detail.diffFailed", &[("error", e.into())]),
                 theme::error(),
