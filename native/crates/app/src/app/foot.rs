@@ -1,6 +1,6 @@
 //! The sidebar foot's pages across every project: Media (media/MediaView.tsx,
 //! every agent's screenshots, recordings, reports and notes, newest first,
-//! by project, unseen or favorites) and Jobs (JobsView.tsx: what the daemon
+//! by project, unseen or favorites, each opened in the app's own viewer) and Jobs (JobsView.tsx: what the daemon
 //! ran, each with its log, a running one cancelled and rolled back).
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -38,6 +38,23 @@ pub struct Foot {
     jobs: Vec<Job>,
     job: Option<String>,
     log: String,
+    /// The item open in the viewer, over the page.
+    viewing: Option<Viewing>,
+}
+
+/// ViewerClick is what a button over the viewer does.
+type ViewerClick = Box<dyn Fn(&mut AppView, &mut Window, &mut Context<AppView>)>;
+
+/// Viewing is an item shown in the app (MediaParts.tsx MediaViewer): a
+/// screenshot as itself, a recording in the player, a report or a note read.
+struct Viewing {
+    item: MediaItem,
+    path: Option<PathBuf>,
+    text: Option<String>,
+    error: Option<String>,
+    #[cfg(feature = "video")]
+    player: Option<Entity<crate::video::VideoPlayer>>,
+    focus: FocusHandle,
 }
 
 const PAGE: usize = 40;
@@ -121,14 +138,282 @@ impl AppView {
         }
     }
 
-    /// open_media opens an item's file in this computer's own viewer.
-    fn open_media(&mut self, item: MediaItem, cx: &mut Context<Self>) {
+    /// open_media shows an item in the viewer over the page; its file comes
+    /// from the daemon's cache on disk.
+    fn open_media(&mut self, item: MediaItem, window: &mut Window, cx: &mut Context<Self>) {
+        let focus = cx.focus_handle();
+        focus.focus(window, cx);
+        let text = (!item.text.is_empty()).then(|| item.text.clone());
+        self.side.foot.viewing = Some(Viewing {
+            item: item.clone(),
+            path: None,
+            text,
+            error: None,
+            #[cfg(feature = "video")]
+            player: None,
+            focus,
+        });
+        cx.notify();
         let client = self.client.clone();
-        cx.spawn(async move |_, cx| match media::fetch(client, item).await {
-            Ok(p) => cx.update(|cx| cx.open_with_system(&p)),
-            Err(e) => cx.update(|cx| toasts::error(cx, e.to_string())),
+        let id = item.id.clone();
+        cx.spawn(async move |this, cx| {
+            let res = media::fetch(client, item.clone()).await;
+            // A report or a note is read as text.
+            let text = match &res {
+                Ok(p) if (item.kind == "report" || item.kind == "note") && item.text.is_empty() => {
+                    std::fs::read_to_string(p).ok()
+                }
+                _ => None,
+            };
+            this.update(cx, |this, cx| {
+                let Some(v) = this.side.foot.viewing.as_mut().filter(|v| v.item.id == id) else {
+                    return;
+                };
+                match res {
+                    Ok(p) => {
+                        #[cfg(feature = "video")]
+                        if v.item.kind == "recording" {
+                            let path = p.clone();
+                            v.player = Some(cx.new(|cx| {
+                                let mut pl = crate::video::VideoPlayer::new(path, cx);
+                                pl.play(cx);
+                                pl
+                            }));
+                        }
+                        v.path = Some(p);
+                        if text.is_some() {
+                            v.text = text;
+                        }
+                    }
+                    Err(e) => v.error = Some(e.to_string()),
+                }
+                cx.notify();
+            })
+            .ok();
         })
         .detach();
+    }
+
+    /// step_media opens the item before or after in the page's list.
+    fn step_media(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(v) = &self.side.foot.viewing else {
+            return;
+        };
+        let list = &self.side.foot.media;
+        let Some(i) = list.iter().position(|m| m.id == v.item.id) else {
+            return;
+        };
+        let j = i as isize + by;
+        if j < 0 || j as usize >= list.len() {
+            return;
+        }
+        let next = list[j as usize].clone();
+        self.open_media(next, window, cx);
+    }
+
+    fn close_media(&mut self, cx: &mut Context<Self>) {
+        self.side.foot.viewing = None;
+        cx.notify();
+    }
+
+    /// render_viewer is the open item over the page, with its name, where
+    /// it's from and when, the arrows to the next, and its own viewer.
+    fn render_media_viewer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let v = self.side.foot.viewing.as_ref()?;
+        let m = &v.item;
+        let list = &self.side.foot.media;
+        let at = list.iter().position(|x| x.id == m.id);
+        let first = at.is_none_or(|i| i == 0);
+        let last = at.is_none_or(|i| i + 1 >= list.len());
+        let who = if m.agent_title.is_empty() {
+            m.agent_name.clone()
+        } else {
+            m.agent_title.clone()
+        };
+        let from = t(if m.source == "agent" {
+            "agent.mediaTab.fromAgent"
+        } else {
+            "agent.mediaTab.fromYou"
+        });
+        let sub = [who, from, crate::dates::date_time_of(&m.created_at)]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let icon = |id: &'static str,
+                    label: &'static str,
+                    tip: String,
+                    disabled: bool,
+                    click: ViewerClick| {
+            div()
+                .id(id)
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .text_color(if disabled {
+                    theme::faint()
+                } else {
+                    theme::muted()
+                })
+                .when(!disabled, |el| {
+                    el.cursor_pointer()
+                        .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                        .on_click(
+                            cx.listener(move |this, _: &ClickEvent, w, cx| click(this, w, cx)),
+                        )
+                })
+                .tooltip(move |w, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
+                })
+                .child(label)
+        };
+        let body: AnyElement = if let Some(e) = v.error.as_ref().filter(|_| v.text.is_none()) {
+            div()
+                .text_color(theme::error())
+                .child(e.clone())
+                .into_any_element()
+        } else if m.kind == "screenshot" {
+            match &v.path {
+                Some(p) => img(p.clone())
+                    .size_full()
+                    .object_fit(ObjectFit::Contain)
+                    .into_any_element(),
+                None => div()
+                    .text_color(theme::faint())
+                    .child(t("common.loading"))
+                    .into_any_element(),
+            }
+        } else if m.kind == "recording" {
+            self.viewer_player(v)
+        } else {
+            match &v.text {
+                Some(text) => div()
+                    .id("media-viewer-text")
+                    .size_full()
+                    .overflow_y_scroll()
+                    .p_6()
+                    .rounded_lg()
+                    .bg(theme::panel())
+                    .text_sm()
+                    .child(gpui_component::text::TextView::markdown(
+                        SharedString::from(format!("media-text-{}", m.id)),
+                        text.clone(),
+                    ))
+                    .into_any_element(),
+                None => div()
+                    .text_color(theme::faint())
+                    .child(t("common.loading"))
+                    .into_any_element(),
+            }
+        };
+        let path = v.path.clone();
+        Some(
+            v_flex()
+                .id("media-viewer")
+                .absolute()
+                .inset_0()
+                .bg(theme::bg())
+                .track_focus(&v.focus)
+                .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                    match e.keystroke.key.as_str() {
+                        "escape" => this.close_media(cx),
+                        "left" => this.step_media(-1, window, cx),
+                        "right" => this.step_media(1, window, cx),
+                        _ => return,
+                    }
+                    cx.stop_propagation();
+                }))
+                .child(
+                    h_flex()
+                        .px_4()
+                        .py_2()
+                        .gap_2()
+                        .border_b_1()
+                        .border_color(theme::border())
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_sm()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(theme::fg())
+                                        .child(media::readable(&m.name)),
+                                )
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_xs()
+                                        .text_color(theme::faint())
+                                        .child(sub),
+                                ),
+                        )
+                        .child(icon(
+                            "media-prev",
+                            "‹",
+                            t("agent.mediaTab.previous"),
+                            first,
+                            Box::new(|this, w, cx| this.step_media(-1, w, cx)),
+                        ))
+                        .child(icon(
+                            "media-next",
+                            "›",
+                            t("common.next"),
+                            last,
+                            Box::new(|this, w, cx| this.step_media(1, w, cx)),
+                        ))
+                        .child(icon(
+                            "media-system",
+                            "↗",
+                            t("agent.mediaTab.openDefault"),
+                            path.is_none(),
+                            Box::new(move |_, _, cx| {
+                                if let Some(p) = &path {
+                                    cx.open_with_system(p);
+                                }
+                            }),
+                        ))
+                        .child(icon(
+                            "media-close",
+                            "✕",
+                            t("common.close"),
+                            false,
+                            Box::new(|this, _, cx| this.close_media(cx)),
+                        )),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .p_4()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(body),
+                )
+                .into_any_element(),
+        )
+    }
+
+    #[cfg(feature = "video")]
+    fn viewer_player(&self, v: &Viewing) -> AnyElement {
+        match &v.player {
+            Some(p) => div().size_full().child(p.clone()).into_any_element(),
+            None => div()
+                .text_color(theme::faint())
+                .child(t("common.loading"))
+                .into_any_element(),
+        }
+    }
+
+    #[cfg(not(feature = "video"))]
+    fn viewer_player(&self, _v: &Viewing) -> AnyElement {
+        div()
+            .text_color(theme::faint())
+            .child(t("native.video.unavailable"))
+            .into_any_element()
     }
 
     fn load_jobs(&mut self, cx: &mut Context<Self>) {
@@ -187,7 +472,12 @@ impl AppView {
     pub(super) fn render_foot_page(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.side.page {
             Some(FootPage::Jobs) => self.render_jobs(cx),
-            _ => self.render_media_page(cx),
+            _ => div()
+                .relative()
+                .size_full()
+                .child(self.render_media_page(cx))
+                .children(self.render_media_viewer(cx))
+                .into_any_element(),
         }
     }
 
@@ -242,11 +532,9 @@ impl AppView {
                 .bg(theme::raised())
                 .cursor_pointer()
                 .hover(|el| el.border_color(theme::muted()))
-                .on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.open_media(item.clone(), cx)
-                    }),
-                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.open_media(item.clone(), window, cx)
+                }))
                 .child(
                     div()
                         .h(px(124.))
