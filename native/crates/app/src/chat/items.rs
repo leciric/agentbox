@@ -190,7 +190,8 @@ impl ChatView {
 
     pub(super) fn render_row(&self, ix: usize, view: Entity<Self>) -> AnyElement {
         let Some(r) = self.rows.get(ix) else {
-            return div().into_any_element();
+            // After the rows, the messages that didn't go.
+            return self.failed_row(ix - self.rows.len(), &view);
         };
         let body = match &r.row {
             Row::User(i) => self.render_user(*i, &view),

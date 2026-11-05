@@ -80,6 +80,9 @@ pub enum ChatAction {
     ContinueClosed,
     /// Open the review on a finished agent's work (its card's Review).
     OpenReview(Box<agentbox_api::ReviewItem>),
+    /// Merge a finished agent's pull request, once confirmed (its card's
+    /// Merge): the project and the number.
+    Merge(String, i64),
     ReopenClosed,
     DeleteClosed,
 }
@@ -539,7 +542,8 @@ impl ChatView {
                         this.newer = t.newer;
                         this.rows.clear();
                         this.rebuild(cx);
-                        this.list.reset(this.rows.len());
+                        this.list
+                            .reset(this.rows.len() + this.composer.failed.len());
                         this.loaded = true;
                         this.error = None;
                         match reveal.and_then(|id| this.row_of(&id)) {
@@ -597,7 +601,8 @@ impl ChatView {
             &self.checkpoints,
         );
         self.rows = new;
-        self.list.reset(self.rows.len());
+        self.list
+            .reset(self.rows.len() + self.composer.failed.len());
         find(&self.rows)
     }
 
@@ -905,6 +910,12 @@ impl Render for ChatView {
                 let k = &ev.keystroke;
                 if k.modifiers.control && !k.modifiers.shift && k.key == "f" {
                     this.open_find(window, cx);
+                    cx.stop_propagation();
+                }
+                // Mod+. and Mod+Shift+. move a project chat's To: on.
+                if k.modifiers.secondary(cx) && (k.key == "." || k.key == ">") {
+                    let back = k.modifiers.shift || k.key == ">";
+                    this.cycle_target(if back { -1 } else { 1 }, window, cx);
                     cx.stop_propagation();
                 }
             }))

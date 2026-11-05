@@ -25,7 +25,7 @@ mod new_agent;
 mod new_task;
 mod panel;
 mod past;
-mod pulls;
+pub(crate) mod pulls;
 mod recap;
 mod review;
 mod schedules;
@@ -695,6 +695,7 @@ impl AppView {
             }
             // Only the closed session's own view (History) emits these.
             ChatAction::ContinueClosed | ChatAction::ReopenClosed | ChatAction::DeleteClosed => {}
+            ChatAction::Merge(project, number) => self.ask_merge(project, number, cx),
             ChatAction::OpenReview(item) => {
                 // Waiting for a verdict while it finished and has none
                 // (lib/work.ts awaitingReview).

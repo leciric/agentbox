@@ -325,7 +325,7 @@ fn stack_order(prs: &[PullRequest]) -> Vec<(usize, usize, Option<i64>, Vec<i64>)
 /// merge_block is why an open pull request can't be merged (lib/review.ts
 /// mergeBlockReason), or None when it can; merged and closed ones aren't
 /// offered at all.
-pub(super) fn merge_block(pr: &PullRequest, list: Option<&ProjectPullRequests>) -> Option<String> {
+pub(crate) fn merge_block(pr: &PullRequest, list: Option<&ProjectPullRequests>) -> Option<String> {
     if pr.state != "open" {
         return None;
     }
@@ -763,6 +763,40 @@ impl AppView {
             pr,
         });
         cx.notify();
+    }
+
+    /// ask_merge asks before merging a project's pull request from outside
+    /// the list (a finished agent's card): with the project's list as read,
+    /// read first when it isn't.
+    pub(super) fn ask_merge(&mut self, project: String, number: i64, cx: &mut Context<Self>) {
+        if self.pulls.project == project && self.pulls.pr(number).is_some() {
+            self.request_merge(number, cx);
+            return;
+        }
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(list) = client
+                .get::<ProjectPullRequests>(&format!("/v1/projects/{project}/pulls"))
+                .await
+            else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                let Some(pr) = list.pull_requests.iter().find(|p| p.number == number) else {
+                    return;
+                };
+                let methods = merge::offered(&list.merge_methods);
+                this.pulls.confirm = Some(merge::Confirm {
+                    method: merge::default_method(&methods, &project),
+                    project: project.clone(),
+                    methods,
+                    pr: pr.clone(),
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// merge_pull merges, shown merged at once and put back if GitHub refuses.

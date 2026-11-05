@@ -24,6 +24,14 @@ pub struct Evidence {
     pub files: HashMap<String, PathBuf>,
 }
 
+/// Merged is whether a finish's pull request was merged: merged finishes
+/// are folded away unless shown (lib/finished.ts visibleFinishes).
+fn merged(e: Option<&Evidence>) -> bool {
+    e.and_then(|e| e.item.as_ref())
+        .and_then(|i| i.pr.as_ref())
+        .is_some_and(|p| p.state == "merged")
+}
+
 #[derive(Default)]
 pub struct Evidences {
     pub by_ref: HashMap<String, Evidence>,
@@ -31,6 +39,11 @@ pub struct Evidences {
     /// The item each agent finished in last: only it gets the whole card.
     latest: HashMap<String, String>,
     scanned: usize,
+    /// The items whose merged finishes are shown.
+    show_merged: HashSet<String>,
+    /// Each card's recording, playing muted and looped.
+    #[cfg(feature = "video")]
+    players: HashMap<String, Entity<crate::video::VideoPlayer>>,
 }
 
 impl ChatView {
@@ -84,12 +97,32 @@ impl ChatView {
                     .cloned()
                     .collect();
                 let mut files = HashMap::new();
+                // The first recording plays on the card.
+                let rec = gallery.iter().find_map(|s| match s {
+                    Shown::Recording(t) => Some(t.media.clone()),
+                    _ => None,
+                });
+                let rec_path = match rec.filter(|_| cfg!(feature = "video")) {
+                    Some(m) => media::fetch(client.clone(), m).await.ok(),
+                    None => None,
+                };
                 for m in shots {
                     if let Ok(p) = media::fetch(client.clone(), m.clone()).await {
                         files.insert(m.id.clone(), p);
                     }
                 }
                 this.update(cx, |this, cx| {
+                    #[cfg(feature = "video")]
+                    if let Some(path) = rec_path {
+                        let player = cx.new(|cx| {
+                            let mut p = crate::video::VideoPlayer::new(path, cx);
+                            p.set_bare();
+                            p
+                        });
+                        this.evidence.players.insert(r2.clone(), player);
+                    }
+                    #[cfg(not(feature = "video"))]
+                    let _ = rec_path;
                     this.evidence.by_ref.insert(
                         r2,
                         Evidence {
@@ -114,30 +147,68 @@ impl ChatView {
         refs: &[String],
         view: &Entity<Self>,
     ) -> AnyElement {
+        // Merged finishes fold into a line that shows them again
+        // (FinishedCards' merged toggle).
+        let show = self.evidence.show_merged.contains(item_id);
+        let merged_n = refs
+            .iter()
+            .filter(|r| merged(self.evidence.by_ref.get(*r)))
+            .count();
+        let hidden = if show { 0 } else { merged_n };
+        let toggle = (hidden > 0 || (show && merged_n > 0)).then(|| {
+            let (v, id) = (view.clone(), item_id.to_string());
+            h_flex()
+                .id(SharedString::from(format!("finished-merged-{item_id}")))
+                .px_1()
+                .gap_1p5()
+                .text_xs()
+                .text_color(theme::faint())
+                .cursor_pointer()
+                .hover(|s| s.text_color(theme::fg()))
+                .child(crate::icons::ic("git-merge"))
+                .child(if show {
+                    t("evidence.hideMerged")
+                } else {
+                    tv("evidence.mergedHidden", &[("count", hidden.into())])
+                })
+                .on_click(move |_, _, cx| {
+                    v.update(cx, |this, cx| {
+                        if !this.evidence.show_merged.remove(&id) {
+                            this.evidence.show_merged.insert(id.clone());
+                        }
+                        cx.notify();
+                    })
+                })
+        });
         v_flex()
             .mb_4()
             .gap_3()
-            .children(refs.iter().map(|r| {
-                if self.evidence.latest.get(r).is_some_and(|l| l != item_id) {
-                    let title = self
-                        .evidence
-                        .by_ref
-                        .get(r)
-                        .and_then(|e| e.item.as_ref())
-                        .map(|i| i.title.clone())
-                        .filter(|t| !t.is_empty())
-                        .unwrap_or_else(|| r.split('/').nth(1).unwrap_or(r).to_string());
-                    return h_flex()
-                        .px_1()
-                        .gap_1p5()
-                        .text_sm()
-                        .text_color(theme::faint())
-                        .child(crate::icons::of("✓"))
-                        .child(tv("evidence.finishedEarlier", &[("title", title.into())]))
-                        .into_any_element();
-                }
-                self.render_evidence(item_id, r, view)
-            }))
+            .children(
+                refs.iter()
+                    .filter(|r| show || !merged(self.evidence.by_ref.get(*r)))
+                    .map(|r| {
+                        if self.evidence.latest.get(r).is_some_and(|l| l != item_id) {
+                            let title = self
+                                .evidence
+                                .by_ref
+                                .get(r)
+                                .and_then(|e| e.item.as_ref())
+                                .map(|i| i.title.clone())
+                                .filter(|t| !t.is_empty())
+                                .unwrap_or_else(|| r.split('/').nth(1).unwrap_or(r).to_string());
+                            return h_flex()
+                                .px_1()
+                                .gap_1p5()
+                                .text_sm()
+                                .text_color(theme::faint())
+                                .child(crate::icons::of("✓"))
+                                .child(tv("evidence.finishedEarlier", &[("title", title.into())]))
+                                .into_any_element();
+                        }
+                        self.render_evidence(item_id, r, view)
+                    }),
+            )
+            .children(toggle)
             .into_any_element()
     }
 
@@ -189,12 +260,33 @@ impl ChatView {
                 }
             }
         };
+        // Its recording plays on the card, muted and looped; a click
+        // reviews it.
+        #[cfg(feature = "video")]
+        let video = self.evidence.players.get(r).cloned().map(|p| {
+            div()
+                .id(SharedString::from(format!("ev-video-{item_id}-{r}")))
+                .w_full()
+                .h(px(220.))
+                .bg(gpui::black())
+                .overflow_hidden()
+                .cursor_pointer()
+                .on_click(open.clone())
+                .child(p)
+        });
+        #[cfg(not(feature = "video"))]
+        let video: Option<Div> = None;
+        let merge_pr = pr.clone().filter(|p| p.state == "open");
+        let block = merge_pr
+            .as_ref()
+            .and_then(|p| crate::app::pulls::merge_block(p, None));
         v_flex()
             .rounded_xl()
             .border_1()
             .border_color(theme::border())
             .bg(theme::panel())
             .overflow_hidden()
+            .children(video)
             .child(
                 v_flex()
                     .p_3p5()
@@ -274,7 +366,7 @@ impl ChatView {
                                 .text_xs()
                                 .text_color(theme::muted())
                                 .truncate()
-                                .child(format!("◰ {p}")),
+                                .child(crate::icons::lead("globe", p)),
                         )
                     })
                     .child(
@@ -357,14 +449,6 @@ impl ChatView {
                                 )
                             }),
                     )
-                    .when(pr.as_ref().is_some_and(|p| p.state == "merged"), |el| {
-                        el.child(
-                            div()
-                                .text_sm()
-                                .text_color(theme::accent())
-                                .child(t("evidence.merged")),
-                        )
-                    })
                     .when(review.is_some(), |el| {
                         el.child(crate::app::controls::button(
                             SharedString::from(format!("ev-review-{item_id}-{r}")),
@@ -373,6 +457,48 @@ impl ChatView {
                             false,
                             open.clone(),
                         ))
+                    })
+                    .when(pr.as_ref().is_some_and(|p| p.state == "merged"), |el| {
+                        el.child(
+                            h_flex()
+                                .gap_1p5()
+                                .px_2()
+                                .text_sm()
+                                .text_color(theme::accent())
+                                .child(crate::icons::ic("git-merge"))
+                                .child(t("evidence.merged")),
+                        )
+                    })
+                    // Merge, asked first as in the Pull requests list.
+                    .when_some(merge_pr, |el, p| {
+                        let (v, project, number) = (
+                            view.clone(),
+                            item.map(|i| i.project.clone()).unwrap_or_default(),
+                            p.number,
+                        );
+                        let tip = block.clone();
+                        el.child(
+                            div()
+                                .id(SharedString::from(format!("ev-merge-wrap-{item_id}-{r}")))
+                                .when_some(tip, |el, tip| {
+                                    el.tooltip(move |w, cx| {
+                                        gpui_component::tooltip::Tooltip::new(tip.clone())
+                                            .build(w, cx)
+                                    })
+                                })
+                                .child(crate::app::controls::button(
+                                    SharedString::from(format!("ev-merge-{item_id}-{r}")),
+                                    t("evidence.merge"),
+                                    crate::app::controls::Btn::Primary,
+                                    block.is_some(),
+                                    move |_, _, cx| {
+                                        let project = project.clone();
+                                        v.update(cx, |_, cx| {
+                                            cx.emit(ChatAction::Merge(project, number))
+                                        })
+                                    },
+                                )),
+                        )
                     })
                     .child(
                         div()

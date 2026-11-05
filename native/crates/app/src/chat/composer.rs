@@ -80,7 +80,7 @@ pub struct Composer {
     target: Option<String>,
     /// Messages that didn't reach the daemon, to send again or edit
     /// (lib/sending.ts): their text, files, target and why.
-    failed: Vec<Failed>,
+    pub(super) failed: Vec<Failed>,
     asked_mentions: bool,
     /// The skills "/" and "$" offer (Settings → Skills), read once.
     skills: Option<Vec<agentbox_api::Skill>>,
@@ -774,6 +774,32 @@ impl ChatView {
 
     /// targets are what this project chat can write to besides its lead
     /// (targetsOf): the agents its session made, then the project's others.
+    /// cycle_target moves the To: chip on to the next agent (or back with
+    /// `step` -1), round to the lead (Mod+. and Mod+Shift+., messageTarget
+    /// cycleTarget); one no longer there starts again from the lead.
+    pub(super) fn cycle_target(
+        &mut self,
+        step: isize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (own, others) = self.targets();
+        if own.is_empty() && others.is_empty() {
+            return;
+        }
+        let order: Vec<Option<String>> = std::iter::once(None)
+            .chain(own.into_iter().chain(others).map(|(n, _)| Some(n)))
+            .collect();
+        let at = order
+            .iter()
+            .position(|o| *o == self.composer.target)
+            .unwrap_or(0) as isize;
+        let len = order.len() as isize;
+        self.composer.target = order[((at + step + len) % len) as usize].clone();
+        self.focus_composer(window, cx);
+        cx.notify();
+    }
+
     fn targets(&self) -> (Vec<Target>, Vec<Target>) {
         if !self.is_lead() {
             return (Vec::new(), Vec::new());
@@ -871,6 +897,7 @@ impl ChatView {
                         to,
                         error: e.to_string(),
                     });
+                    this.failed_changed(this.composer.failed.len() - 1);
                 }
                 cx.notify();
             })
@@ -886,6 +913,7 @@ impl ChatView {
             return;
         };
         let f = self.composer.failed.remove(i);
+        self.failed_changed(self.composer.failed.len() + 1);
         let held = std::mem::replace(&mut self.composer.attachments, f.attachments);
         let draft = self.text(cx);
         self.send_to(f.text, f.to, window, cx);
@@ -904,6 +932,7 @@ impl ChatView {
             return;
         };
         let f = self.composer.failed.remove(i);
+        self.failed_changed(self.composer.failed.len() + 1);
         let mut text = f.text;
         let draft = self.text(cx);
         if !draft.trim().is_empty() {
@@ -920,62 +949,81 @@ impl ChatView {
         cx.notify();
     }
 
-    /// render_failed is each message that didn't go (NotSent): it, why,
-    /// and Send again and Edit.
-    fn render_failed(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        self.composer
-            .failed
-            .iter()
-            .map(|f| {
-                let (k1, k2) = (f.key, f.key);
-                v_flex()
-                    .mx_4()
-                    .mb_2()
-                    .items_end()
-                    .gap_1()
+    /// failed_row is a message that didn't go, in the timeline where it
+    /// was sent (Timeline NotSent): it, why, and Send again and Edit.
+    pub(super) fn failed_row(&self, n: usize, view: &Entity<Self>) -> AnyElement {
+        let Some(f) = self.composer.failed.get(n) else {
+            return div().into_any_element();
+        };
+        let (k1, k2) = (f.key, f.key);
+        let (v1, v2) = (view.downgrade(), view.downgrade());
+        v_flex()
+            .px_4()
+            .py_2()
+            .items_end()
+            .gap_1()
+            .child(
+                div()
+                    .max_w(relative(0.85))
+                    .px_3()
+                    .py_2()
+                    .rounded_xl()
+                    .bg(theme::raised())
+                    .border_1()
+                    .border_color(theme::error().opacity(0.4))
+                    .text_sm()
+                    .text_color(theme::fg())
+                    .child(f.text.clone()),
+            )
+            .child(
+                h_flex()
+                    .max_w(relative(0.85))
+                    .flex_wrap()
+                    .justify_end()
+                    .items_center()
+                    .gap_2()
+                    .text_xs()
                     .child(
                         div()
-                            .max_w(relative(0.85))
-                            .px_3()
-                            .py_2()
-                            .rounded_xl()
-                            .bg(theme::raised())
-                            .border_1()
-                            .border_color(theme::error().opacity(0.4))
-                            .text_sm()
-                            .text_color(theme::fg())
-                            .child(f.text.clone()),
+                            .text_color(theme::error())
+                            .child(crate::icons::ic("circle-alert")),
                     )
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .text_xs()
-                            .child(div().text_color(theme::error()).child(tv(
-                                "chat.composer.notSent",
-                                &[("error", (&f.error).into())],
-                            )))
-                            .child(crate::app::controls::button(
-                                ("failed-retry", f.key as u64),
-                                t("chat.sending.retry"),
-                                crate::app::controls::Btn::Ghost,
-                                false,
-                                cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                    this.retry_failed(k1, window, cx)
-                                }),
-                            ))
-                            .child(crate::app::controls::button(
-                                ("failed-edit", f.key as u64),
-                                t("chat.sending.edit"),
-                                crate::app::controls::Btn::Ghost,
-                                false,
-                                cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                    this.edit_failed(k2, window, cx)
-                                }),
-                            )),
+                        div()
+                            .text_color(theme::error())
+                            .child(tv("chat.composer.notSent", &[("error", (&f.error).into())])),
                     )
-                    .into_any_element()
-            })
-            .collect()
+                    .child(crate::app::controls::button(
+                        ("failed-retry", f.key as u64),
+                        t("chat.sending.retry"),
+                        crate::app::controls::Btn::Ghost,
+                        false,
+                        move |_, window, cx| {
+                            v1.update(cx, |this, cx| this.retry_failed(k1, window, cx))
+                                .ok();
+                        },
+                    ))
+                    .child(crate::app::controls::button(
+                        ("failed-edit", f.key as u64),
+                        t("chat.sending.edit"),
+                        crate::app::controls::Btn::Ghost,
+                        false,
+                        move |_, window, cx| {
+                            v2.update(cx, |this, cx| this.edit_failed(k2, window, cx))
+                                .ok();
+                        },
+                    )),
+            )
+            .into_any_element()
+    }
+
+    /// failed_changed has the timeline's rows follow the messages that
+    /// didn't go, last in it, of which there were `before`.
+    fn failed_changed(&mut self, before: usize) {
+        let at = self.rows.len();
+        self.list
+            .splice(at..at + before, self.composer.failed.len());
+        self.list.scroll_to_end();
     }
 
     /// render_target is the To: chip of a project's chat (TargetPicker): its
@@ -2016,7 +2064,6 @@ impl ChatView {
             self.load_mentions(cx);
         }
         let target = self.render_target(cx);
-        let failed = self.render_failed(cx);
         let tasks = self.render_tasks(cx);
         let (tasks_chip, tasks_list) = match tasks {
             Some((c, l)) => (Some(c), l),
@@ -2185,7 +2232,6 @@ impl ChatView {
             .pb_3()
             .border_t_1()
             .border_color(theme::border())
-            .children(failed)
             .children(tasks_list)
             .children(menu_el)
             .children(above)
@@ -2235,6 +2281,11 @@ impl ChatView {
                     .capture_action(cx.listener(move |this, _: &Escape, _, cx| {
                         if menu_len > 0 {
                             this.composer.dismissed = Some(token.clone());
+                            cx.stop_propagation();
+                            cx.notify();
+                        } else if this.composer.target.is_some() && this.text(cx).is_empty() {
+                            // Esc in an empty composer points it back at the lead.
+                            this.composer.target = None;
                             cx.stop_propagation();
                             cx.notify();
                         }

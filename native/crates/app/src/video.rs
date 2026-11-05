@@ -40,6 +40,9 @@ pub struct VideoPlayer {
     /// The review's zoom (1 fits the frame) and the scroll its zoomed
     /// pictures pan by, shared so a pair's halves pan together.
     zoom: Option<(Rc<Cell<f32>>, ScrollHandle)>,
+    /// A card's recording (EvidenceCard): it plays again from the start
+    /// when it ends, and is only its frame, a click on which is the card's.
+    bare: bool,
     _task: Option<Task<()>>,
 }
 
@@ -57,6 +60,7 @@ impl VideoPlayer {
             marks: Vec::new(),
             bar: Rc::default(),
             zoom: None,
+            bare: false,
             _task: None,
         };
         this.play(cx);
@@ -66,6 +70,11 @@ impl VideoPlayer {
     /// set_zoom has the frame follow a review's zoom and pan.
     pub fn set_zoom(&mut self, zoom: Rc<Cell<f32>>, pan: ScrollHandle) {
         self.zoom = Some((zoom, pan));
+    }
+
+    /// set_bare makes it a card's recording: looped, frame only.
+    pub fn set_bare(&mut self) {
+        self.bare = true;
     }
 
     /// set_marks puts marks on the bar at these seconds.
@@ -167,6 +176,9 @@ impl VideoPlayer {
                 this.playing = false;
                 this.position = this.duration;
                 bench::report();
+                if this.bare && this.error.is_none() && this.shown > 0 {
+                    this.start(0., true, cx);
+                }
                 cx.notify();
             })
             .ok();
@@ -261,6 +273,15 @@ impl Render for VideoPlayer {
         };
         let bar = self.bar.clone();
         let duration = self.duration;
+        if self.bare {
+            return div()
+                .size_full()
+                .bg(gpui::black())
+                .when_some(self.frame.clone(), |el, f| {
+                    el.child(img(f).size_full().object_fit(ObjectFit::Cover))
+                })
+                .into_any_element();
+        }
         v_flex()
             .size_full()
             .gap_2()
@@ -381,6 +402,7 @@ impl Render for VideoPlayer {
                         el.child(div().text_color(theme::error()).child(e))
                     }),
             )
+            .into_any_element()
     }
 }
 
