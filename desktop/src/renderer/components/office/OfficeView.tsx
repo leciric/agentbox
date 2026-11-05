@@ -31,6 +31,8 @@ const hintKey = 'agentbox.office.hintSeen';
 
 // The Office's scene, kept between visits (see the effect that makes it).
 let kept: OfficeScene | null = null;
+// The chat open in place as you left for its page, to open again on return.
+let keptChat: string | null = null;
 
 const toneDot: Record<DeskTone, string> = {
   needs: 'bg-amber-400',
@@ -267,8 +269,9 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
       setListChoice(true);
       return;
     }
-    // Walk there, as everywhere else: its card up, with the question, E to
-    // open its chat and its pull request a button away.
+    // Walk there, as everywhere else. A question's note opens its chat as
+    // you arrive, there to answer; a review's, its card, its PR a button away.
+    if (office.model.board.needs.some((i) => i.ref === ref)) chatNext.current = ref;
     walkTo(ref);
   };
 
@@ -317,7 +320,10 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
     const to = list[(roundAt() + 1) % list.length];
     if (to.ref !== near) go(to.ref);
   };
-  const chatNext = useRef<string | null>(null);
+  const chatNext = useRef<string | null>(keptChat);
+  useEffect(() => {
+    keptChat = null;
+  }, []);
   // Which of its project's floors a desk is on (layout.ts splits them so, in order).
   const floorOfRef = (project: string, ref: string) => {
     const a = office.model.areas.find((x) => x.project === project);
@@ -717,6 +723,8 @@ export function OfficeView({ onSelect, onBack }: { onSelect: (view: View) => voi
               aria-label={t('office.chat.openInApp')}
               onClick={() => {
                 const ref = chat!;
+                // Coming back, its chat opens again where you left it.
+                keptChat = ref;
                 setChat(null);
                 if (ref.endsWith('/lead')) onSelect({ kind: 'project', project: ref.split('/')[0], tab: 'chat', from: 'office' });
                 else onSelect({ kind: 'agent', ref, tab: 'chat', from: 'office' });

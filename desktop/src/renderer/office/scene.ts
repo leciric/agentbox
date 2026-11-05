@@ -406,7 +406,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       chip.style.background = `hsl(${ph} 62% 50%)`;
       const name = rm.floors > 1 ? opts.floorLabel?.(label.name, rm.floor) ?? `${label.name} ${rm.floor}` : label.name;
       (chip.firstChild as HTMLElement).textContent = name;
-      chip.title = label.sub;
+      // (A floor's pill says its own counts; its project's totals are the
+      // project's, not the floor's.)
+      chip.title = rm.floors > 1 ? '' : label.sub;
       chip.setAttribute('aria-label', opts.markerLabel(name));
     }
   }
@@ -665,6 +667,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       boards.set(boardRef(rm), b);
     }
 
+    // The campus's ground: a soft green under all of it, so its buildings
+    // stand somewhere rather than float apart. (Over the campus only.)
+    {
+      const b = l.room;
+      const ground = mesh(geo.roundTop, own(std('#dfeadb', { roughness: 0.95 })), (b.x0 + b.x1) / 2, -1.32, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 14, 0.24, b.z1 - b.z0 + 12);
+      ground.receiveShadow = true;
+      addTo(-1, ground);
+      addTo(-1, mesh(geo.roundTop, own(std('#c9d9c4', { roughness: 0.95 })), (b.x0 + b.x1) / 2, -1.5, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 14.6, 0.2, b.z1 - b.z0 + 12.6));
+    }
     // A project on floors: a building. A plinth under its first floor, its
     // floors over it on posts, a glass lift up its side. (Over the campus only.)
     {
@@ -1617,7 +1628,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   let fitCache = { key: '', dist: 20, x: 0, z: 0 };
   let inset = 0;
   function fitDistance(bx: Box, H: number, aspect: number, pitch: number): { dist: number; x: number; z: number } {
-    const yaw0 = homeYaw();
+    // Over the campus, as it's turned: after a drag every building's in view.
+    const yaw0 = scope === null ? cam.yaw : homeYaw();
     const key = `${scope}:${bx.x0.toFixed(2)}:${bx.z0.toFixed(2)}:${bx.x1.toFixed(2)}:${bx.z1.toFixed(2)}:${H}:${aspect.toFixed(3)}:${inset}:${yaw0}`;
     if (fitCache.key === key) return fitCache;
     // The share of the width the overlay covers: the room sits in the middle
@@ -2414,9 +2426,15 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // Over the campus, a turn inwards goes into the room under the pointer;
     // at a room's overview, a turn outwards stands back to the campus.
     const over = floorAt(e.clientX, e.clientY);
-    const overRoom = over ? roomAt(lay, over, 0.4) : undefined;
+    // Over the campus, what's under the pointer: a floor on its building
+    // (its slab, or one of its agents) or a room on the ground.
+    const hit = scope === null ? pick(e.clientX, e.clientY) : undefined;
+    const overRoom = hit?.ref?.startsWith('room:') ? Number(hit.ref.slice(5)) : hit?.ref ? roomOf(lay, hit.ref) : over ? roomAt(lay, over, 0.4) : undefined;
     if (scope === null && n < 0) {
       if (overRoom !== undefined) enter(overRoom);
+    } else if (scope === null && n > 0) {
+      // Outwards over the campus: back to its whole view, however it was turned.
+      campus();
     } else if (scope !== null && n > 0 && zoomZ === 0) {
       campus();
     } else if (cam.closeK > 0.5 && n > 0) {
@@ -2496,7 +2514,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         zoomTo(0);
         tellView();
         poke();
-      } else overview();
+      } else if (!near && scope !== null) campus();
+      else overview();
     } else if (k === 'escape' && scope === null && !e.repeat) {
       opts.onLeave?.();
     } else if (k === 'n' && !e.repeat) {

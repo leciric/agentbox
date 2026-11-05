@@ -18,11 +18,18 @@ const HEIGHT = 1.95;
 export function player(standIn: Walker, onReady: () => void): Walker {
   const g = new THREE.Group();
   g.add(standIn.group);
+  // The stand-in only if the figure's slow to come: a moment's wait shows
+  // nobody rather than someone else.
+  standIn.group.visible = false;
+  const late = window.setTimeout(() => {
+    if (!ready && !disposed) standIn.group.visible = true;
+  }, 4000);
   let ready: Loaded | undefined;
   let disposed = false;
   let opacity = 1;
   load()
     .then((l) => {
+      window.clearTimeout(late);
       if (disposed) return l.dispose();
       ready = l;
       // The stand-in's children (your name tag) move over to you.
@@ -82,6 +89,46 @@ async function load(): Promise<Loaded> {
       mats.add(s);
     }
   });
+  // A silhouette that shows where you're hidden behind something: drawn only
+  // where something nearer covers you, violet, as your tag is.
+  // Drawn among the solid things, before you and after everything else (its
+  // render order), so it's tested against what's in front of you, never
+  // against your own parts; blended by hand, as a solid thing isn't.
+  const xray = new THREE.MeshBasicMaterial({
+    color: '#8b5cf6',
+    opacity: 0.45,
+    depthFunc: THREE.GreaterDepth,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+  });
+  const solids: THREE.Mesh[] = [];
+  model.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) solids.push(o as THREE.Mesh);
+  });
+  for (const m of solids) {
+    const sk = m as THREE.SkinnedMesh;
+    let x: THREE.Mesh;
+    if (sk.isSkinnedMesh) {
+      const xs = new THREE.SkinnedMesh(m.geometry, xray);
+      xs.bind(sk.skeleton, sk.bindMatrix);
+      x = xs;
+      x.position.copy(m.position);
+      x.quaternion.copy(m.quaternion);
+      x.scale.copy(m.scale);
+      m.parent?.add(x);
+    } else {
+      x = new THREE.Mesh(m.geometry, xray);
+      m.add(x);
+    }
+    x.frustumCulled = false;
+    x.renderOrder = 9;
+    m.renderOrder = 10;
+    // (The see-through layer, which the ambient occlusion leaves alone.)
+    x.layers.set(1);
+    x.castShadow = false;
+  }
   const box = new THREE.Box3().setFromObject(model);
   const h = Math.max(0.01, box.max.y - box.min.y);
   const k = HEIGHT / h;
