@@ -113,7 +113,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'unsupported'>('loading');
   const [near, setNear] = useState<string | undefined>();
   // Which room the camera's in (none: the campus), and whether at its overview.
-  const [view, setView] = useState<{ project?: string; floor: number; floors: number; overview: boolean }>({ floor: 1, floors: 1, overview: true });
+  const [view, setView] = useState<{ project?: string; floor: number; floors: number; overview: boolean; refs?: string[] }>({ floor: 1, floors: 1, overview: true });
   const [hover, setHover] = useState<string | undefined>();
   const [hint, setHint] = useState(() => {
     try {
@@ -372,6 +372,9 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
       setListKind('needs');
     }
   }, [listOpen]);
+  // At a room's board, its list is that room's, as the board is.
+  const roomNeeds = view.refs ? needs.filter((i) => view.refs!.includes(i.ref)) : needs;
+  const roomReview = view.refs ? review.filter((i) => view.refs!.includes(i.ref)) : review;
   const workingItems: BoardItem[] = office.model.areas.flatMap((a) => a.desks.filter((d) => d.tone === 'working').map((d) => ({ ref: d.id, project: a.project, title: d.title, tone: d.tone, pr: d.pr })));
   const listed = listOnly ? needs.filter((i) => listOnly.includes(i.ref)) : listKind === 'working' ? workingItems : listKind === 'review' ? review : needs;
   const areaLabel = (project: string) => office.model.areas.find((a) => a.project === project)?.label ?? project;
@@ -458,11 +461,11 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           <button
             type="button"
             className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-black/5 bg-white/90 px-3 py-2 text-[12.5px] text-slate-700 shadow-lg backdrop-blur-md transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60"
-            onClick={() => scene.current?.overview()}
+            onClick={() => (view.project ? scene.current?.campus() : scene.current?.overview())}
             data-office-overview
           >
             <Scan className="size-3.5" />
-            {view.project && view.overview ? t('office.campus') : t('office.overview')}
+            {view.project ? t('office.campus') : t('office.overview')}
           </button>
         )}
       </div>
@@ -548,14 +551,14 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
         <div className="pointer-events-auto absolute bottom-16 right-3 top-16 flex w-[min(18rem,calc(100%-1.5rem))] flex-col gap-2" data-office-board>
           {/* Both lists in view, each scrolling on its own. */}
           <ListCard title={t('office.board.needs')} accent="text-amber-600" list="needs" fill="shrink">
-            {needs.length === 0 && <Empty>{t('office.board.needsEmpty')}</Empty>}
-            {needs.map((i) => (
+            {roomNeeds.length === 0 && <Empty>{t('office.board.needsEmpty')}</Empty>}
+            {roomNeeds.map((i) => (
               <WalkRow key={i.ref} item={i} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${areaLabel(i.project)} · ${i.text}` : areaLabel(i.project)} label={t('office.walkTo', { title: i.title })} onClick={() => walkTo(i.ref)} />
             ))}
           </ListCard>
           <ListCard title={t('office.board.review')} accent="text-emerald-600" list="review" fill="max-h-[45%] shrink-0">
-            {review.length === 0 && <Empty>{t('office.board.reviewEmpty')}</Empty>}
-            {review.map((i) => {
+            {roomReview.length === 0 && <Empty>{t('office.board.reviewEmpty')}</Empty>}
+            {roomReview.map((i) => {
               return (
                 <WalkRow
                   key={i.ref}

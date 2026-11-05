@@ -43,7 +43,7 @@ export type OfficeSceneOptions = {
   onNear(ref: string | undefined): void;
   // Which room you're in (its project and floor), or none for the campus, and
   // whether the camera is at that room's (or the campus's) overview.
-  onView?(view: { project?: string; floor: number; floors: number; overview: boolean }): void;
+  onView?(view: { project?: string; floor: number; floors: number; overview: boolean; refs?: string[] }): void;
   // What the pointer is over, for the cursor and the hint.
   onHover(ref: string | undefined): void;
   // A click on what you're standing at, or E: open it.
@@ -97,6 +97,8 @@ const SPEED = 3.4; // metres a second, walking
 const FOV = 24;
 // The overview's 3/4 view: from the front right, over the open corner.
 const HOME_YAW = 0.76;
+// Over the campus, more from the front: its rows of rooms read left to right.
+const CAMPUS_YAW = 0.3;
 const OVERVIEW_PITCH = 0.62;
 // Following you, the camera looks down this steeply.
 const FOLLOW_PITCH = 0.7;
@@ -460,7 +462,26 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   let plantObjs: THREE.Group[] = [];
   const signs: THREE.Group[] = [];
   // Each room's board, by its ref.
-  const boards = new Map<string, { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; face?: THREE.Mesh; rows: BoardRow[]; room: number }>();
+  const boards = new Map<string, { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; face?: THREE.Mesh; rows: BoardRow[]; room: number; titles?: Map<string, string> }>();
+  // The rows of the board you're at, as buttons laid over them on screen: a
+  // click on a note is exactly that note, and the keys reach them too.
+  const rowBtns: HTMLButtonElement[] = [];
+  const rowBtn = (i: number) => {
+    let b = rowBtns[i];
+    if (!b) {
+      b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.officeBoardRow = '';
+      b.style.cssText = 'position:absolute;left:0;top:0;display:none;padding:0;border:0;border-radius:8px;background:transparent;cursor:pointer;pointer-events:auto';
+      const el = b;
+      press(el, () => el.dataset.ref && opts.onBoardRow(el.dataset.ref));
+      el.addEventListener('pointerenter', () => (el.style.background = 'rgba(124,58,237,.08)'));
+      el.addEventListener('pointerleave', () => (el.style.background = 'transparent'));
+      markerLayer.appendChild(el);
+      rowBtns[i] = el;
+    }
+    return b;
+  };
   let sideWalls: { mat: THREE.MeshStandardMaterial; side: 'left' | 'right' }[] = [];
 
   // You.
@@ -531,8 +552,6 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // Each chip's offset from its desk, or null when it has no room.
   const chipDy = new WeakMap<HTMLElement, [number, number] | null>();
   const chipInto = new WeakMap<HTMLElement, HTMLDivElement>();
-  // Where each project's pill went, and for which view.
-  const pillAt = new WeakMap<HTMLElement, { key: string; at: number }>();
   let stillFor = 0;
 
   // Input.
@@ -992,6 +1011,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   }
 
   // scopeBox is what the overview frames: the room's floor, or the campus's.
+  const homeYaw = () => (scope === null ? CAMPUS_YAW : HOME_YAW);
   const scopeBox = (): Box => (scope === null ? lay.room : lay.rooms[scope].box);
   const scopeWall = () => (scope === null ? Math.max(...lay.rooms.map((r) => wallHeight(r.local))) : wallHeight(lay.rooms[scope].local));
 
@@ -1070,6 +1090,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // In the first room, the camera over the whole campus.
         cur = 0;
         scope = null;
+        cam.yaw = CAMPUS_YAW;
         bounds = roomBounds(cur);
         pos.x = lay.spawn.x;
         pos.z = lay.spawn.z;
@@ -1100,6 +1121,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (k !== b.key) {
         b.key = k;
         b.rows = drawBoard(b.ctx, bs);
+        b.titles = new Map([...bs.needs.items, ...bs.review.items].map((i) => [i.ref, i.title]));
         b.tex.needsUpdate = true;
       }
     }
@@ -1122,6 +1144,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     if (scope !== i) {
       scope = i;
       fitCache.key = '';
+      cam.yaw = HOME_YAW;
       lighting(true);
       showScope();
     }
@@ -1174,6 +1197,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     if (scope !== cur) {
       scope = cur;
       fitCache.key = '';
+      cam.yaw = HOME_YAW;
       lighting(true);
       showScope();
     }
@@ -1212,7 +1236,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     zoomTo(0);
     zoomFocus = undefined;
     turned = false;
-    cam.yaw = HOME_YAW;
+    cam.yaw = CAMPUS_YAW;
     held = true;
     tellView();
     poke();
@@ -1222,7 +1246,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   let toldView = '';
   function tellView() {
     const rm = scope === null ? undefined : lay.rooms[scope];
-    const v = { project: rm?.project, floor: rm?.floor ?? 1, floors: rm?.floors ?? 1, overview: followTarget === 0 };
+    const v = { project: rm?.project, floor: rm?.floor ?? 1, floors: rm?.floors ?? 1, overview: followTarget === 0, refs: rm ? [...rm.desks, ...(rm.lead ? [`${rm.project}/lead`] : [])] : undefined };
     const k = JSON.stringify(v);
     if (k === toldView) return;
     toldView = k;
@@ -1385,7 +1409,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
       // From the far side from where you stand, so you never stand in the way.
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 13.5, pitch: 0.8, yaw: d.side < 0 ? 0.42 : -0.42 }, aspect);
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 16, pitch: 0.8, yaw: d.side < 0 ? 0.42 : -0.42 }, aspect);
     }
     return undefined;
   }
@@ -1409,7 +1433,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   let fitCache = { key: '', dist: 20, x: 0, z: 0 };
   let inset = 0;
   function fitDistance(bx: Box, H: number, aspect: number, pitch: number): { dist: number; x: number; z: number } {
-    const key = `${scope}:${bx.x0.toFixed(2)}:${bx.z0.toFixed(2)}:${bx.x1.toFixed(2)}:${bx.z1.toFixed(2)}:${H}:${aspect.toFixed(3)}:${inset}:${HOME_YAW}`;
+    const yaw0 = homeYaw();
+    const key = `${scope}:${bx.x0.toFixed(2)}:${bx.z0.toFixed(2)}:${bx.x1.toFixed(2)}:${bx.z1.toFixed(2)}:${H}:${aspect.toFixed(3)}:${inset}:${yaw0}`;
     if (fitCache.key === key) return fitCache;
     // The share of the width the overlay covers: the room sits in the middle
     // of what's left.
@@ -1417,7 +1442,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // The window the diorama fills, in clip space: nearly all of it, the
     // top bar's and the legend's clear parts over its corners and edges.
     // The campus keeps clear of the top bar too: its back rooms' pills.
-    const win = { x0: -0.98 + 2 * cover, x1: 0.99, y0: -0.82, y1: scope === null ? 0.78 : 0.9 };
+    const win = scope === null ? { x0: -0.94 + 2 * cover, x1: 0.9, y0: -0.74, y1: 0.78 } : { x0: -0.98 + 2 * cover, x1: 0.99, y0: -0.82, y1: 0.9 };
     fitProbe.aspect = aspect;
     fitProbe.updateProjectionMatrix();
     // The diorama's outline: the slab's underside, the walls' tops where
@@ -1431,10 +1456,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       new THREE.Vector3(b.x0 - 0.3, H, b.z1 + 0.1),
     ]);
     const v = new THREE.Vector3();
-    const right = new THREE.Vector3(Math.cos(HOME_YAW), 0, -Math.sin(HOME_YAW));
-    const back = new THREE.Vector3(-Math.sin(HOME_YAW), 0, -Math.cos(HOME_YAW));
+    const right = new THREE.Vector3(Math.cos(yaw0), 0, -Math.sin(yaw0));
+    const back = new THREE.Vector3(-Math.sin(yaw0), 0, -Math.cos(yaw0));
     const bounds = (t: THREE.Vector3, d: number) => {
-      fitProbe.position.set(t.x + Math.sin(HOME_YAW) * Math.cos(pitch) * d, Math.sin(pitch) * d, t.z + Math.cos(HOME_YAW) * Math.cos(pitch) * d);
+      fitProbe.position.set(t.x + Math.sin(yaw0) * Math.cos(pitch) * d, Math.sin(pitch) * d, t.z + Math.cos(yaw0) * Math.cos(pitch) * d);
       fitProbe.lookAt(t);
       fitProbe.updateMatrixWorld();
       const b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity, behind: false };
@@ -1623,8 +1648,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // Any desk nearer the camera than the one you're at, on screen over it
       // or you, steps out of the way.
       let ahead = false;
-      // (A lead stays: its counter is there either way, and takes clicks.)
-      if (lookAt && d.ref !== focusRef && !d.ref.endsWith('/lead')) {
+      if (lookAt && d.ref !== focusRef) {
         figPos.y += 1.0;
         const nearer = figPos.distanceTo(camera.position) < lookAt.dist - 0.8;
         figPos.project(camera);
@@ -1635,7 +1659,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (d.root.position.distanceTo(camera.position) < 4.2 || ahead);
       // At a board, what stands between it and the camera steps aside.
       const boardWay = boardDist > 0 && d.root.position.distanceTo(camera.position) < boardDist - 1.5;
-      d.root.visible = inScope(d.root) && !(inWay && ahead) && !boardWay;
+      // A lead in the way only stands aside itself: its counter stays, and
+      // takes clicks.
+      const isLeadDesk = d.ref.endsWith('/lead');
+      d.root.visible = inScope(d.root) && (isLeadDesk || !(inWay && ahead)) && !boardWay;
+      d.figure.group.visible = !(isLeadDesk && inWay && ahead);
       d.bubble.sprite.visible = !inWay && !!bubbleOf[d.tone] && !(cam.closeK > 0.3 && d.ref !== focusRef && far < 8);
       const b = d.beacon;
       b.visible = false;
@@ -1721,7 +1749,6 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         sub.textContent = n0 ? String(n0) : '';
         sub.style.display = n0 ? 'inline' : 'none';
       }
-      const place = lay.areas.find((a) => a.room === ri);
       let on = false;
       if (scope === null) {
         // Over the campus: at its room's front corner, the one nearest you,
@@ -1729,51 +1756,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         ap.set(rm.box.x1 - Math.min(5, (rm.box.x1 - rm.box.x0) / 3), -0.4, rm.box.z1 + 1.0);
         ap.project(camera);
         on = ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
-      } else if (place && ri === scope) {
-        // In its room: by its zone, of a few places at its edges the one over
-        // the fewest heads (and pills), chosen as the camera comes to rest
-        // and kept while it moves.
-        const zr = place.rug;
-        const zw = zr.x1 - zr.x0;
-        // Before it first, then at its sides, inside it last.
-        const spots: [number, number][] = [
-          [(zr.x0 + zr.x1) / 2, zr.z1 + 0.75],
-          [zr.x0 + Math.min(2.6, zw / 2), zr.z1 + 0.75],
-          [zr.x1 - Math.min(2.6, zw / 2), zr.z1 + 0.75],
-          [zr.x0 - 0.5, (zr.z0 + zr.z1) / 2],
-          [zr.x1 + 0.5, (zr.z0 + zr.z1) / 2],
-          [zr.x0 + Math.min(2.6, zw / 2), zr.z1 - 0.45],
-          [zr.x1 - Math.min(2.6, zw / 2), zr.z1 - 0.45],
-        ];
-        const w0 = chip.offsetWidth || 140;
-        const h0 = chip.offsetHeight || 30;
-        const pkey = `${eased.tx.toFixed(1)}:${eased.tz.toFixed(1)}:${eased.dist.toFixed(1)}:${eased.yaw.toFixed(2)}:${heads.length}`;
-        let pick0 = pillAt.get(chip);
-        if (chipsShown && (!pick0 || pick0.key !== pkey)) {
-          let best = 0;
-          let bestN = Infinity;
-          for (const [si, [sx, sz]] of spots.entries()) {
-            ap.set(sx, 0.05, sz).project(camera);
-            const px = ((ap.x + 1) / 2) * canvas.clientWidth;
-            const py = ((1 - ap.y) / 2) * canvas.clientHeight;
-            const off = ap.z >= 1 || Math.abs(ap.x) > 0.95 || py < 100 || py > canvas.clientHeight - 96;
-            const covers = heads.filter((hd) => Math.abs(hd.x - px) < w0 / 2 + 14 && Math.abs(hd.y - py) < h0 / 2 + 22).length;
-            const clash = taken.some((r) => px + w0 / 2 > r.x0 && px - w0 / 2 < r.x1 && py + h0 / 2 > r.y0 && py - h0 / 2 < r.y1) ? 5 : 0;
-            const n = (off ? 100 : 0) + covers + clash + si * 0.3;
-            if (n < bestN) {
-              bestN = n;
-              best = si;
-            }
-          }
-          pick0 = { key: pkey, at: best };
-          pillAt.set(chip, pick0);
-        }
-        const [px0, pz0] = spots[pick0?.at ?? 0];
-        ap.set(px0, 0.05, pz0);
-        ap.project(camera);
-        // From afar only: up close its counter and its tags say it.
-        on = cam.closeK < 0.3 && cam.followK < 0.5 && ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
       }
+      // (In a room, its name is in the breadcrumb and on its lead's counter.)
       // Not under the top bar, nor over the legend and the hint at the bottom.
       const ay = ((1 - ap.y) / 2) * canvas.clientHeight;
       on = on && ay > 100 && ay < canvas.clientHeight - 96;
@@ -1789,8 +1773,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       }
     }
     // You stand beside what you look at, never in front of it: always seen.
-    // At the board you step out of its picture: it's the board you look at.
-    me.fade(isBoard(focusRef) ? 1 - cam.closeK : 1);
+    me.fade(1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1949,6 +1932,30 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       more.style.display = n ? 'inline' : 'none';
       if (n) more.textContent = opts.moreLabelShort(n);
     }
+    // The board you're at: a button over each of its rows.
+    const atBoard = isBoard(near) && cam.closeK > 0.6 && chipsShown ? boards.get(near) : undefined;
+    let usedRows = 0;
+    if (atBoard?.face) {
+      const { width: W, height: H } = atBoard.ctx.canvas;
+      const face = atBoard.face;
+      face.updateWorldMatrix(true, false);
+      const corner = (px: number, py: number) => {
+        const v = new THREE.Vector3(px / W - 0.5, 0.5 - py / H, 0).applyMatrix4(face.matrixWorld).project(camera);
+        return { x: ((v.x + 1) / 2) * canvas.clientWidth, y: ((1 - v.y) / 2) * canvas.clientHeight };
+      };
+      for (const r of atBoard.rows) {
+        const a = corner(r.x, r.y);
+        const b = corner(r.x + r.w, r.y + r.h);
+        const btn = rowBtn(usedRows++);
+        btn.dataset.ref = r.ref;
+        btn.setAttribute('aria-label', r.ref.startsWith('more:') ? opts.moreLabel : opts.markerLabel(atBoard.titles?.get(r.ref) ?? r.ref));
+        btn.style.display = 'block';
+        btn.style.transform = `translate(${Math.min(a.x, b.x)}px, ${Math.min(a.y, b.y)}px)`;
+        btn.style.width = `${Math.abs(b.x - a.x)}px`;
+        btn.style.height = `${Math.abs(b.y - a.y)}px`;
+      }
+    }
+    for (let i = usedRows; i < rowBtns.length; i++) rowBtns[i].style.display = 'none';
     const ringO = 0.55 + (motion ? Math.sin(t * 2.5) * 0.25 : 0.2);
     (meRing.material as THREE.MeshBasicMaterial).opacity = ringO;
     // From afar your ring grows, so you're found at a glance.
@@ -1978,32 +1985,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     ray.setFromCamera(ndc, camera);
     // Standing at the board, its rows come first: the desks in front of it
     // mustn't take a click meant for the board.
-    const at = isBoard(near) ? boards.get(near) : undefined;
-    if (isBoard(near) && at?.face) {
-      const f = ray.intersectObject(at.face, false)[0];
-      if (f?.uv) {
-        const { width: W, height: H } = at.ctx.canvas;
-        const px = f.uv.x * W;
-        const py = (1 - f.uv.y) * H;
-        const row = at.rows.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
-        return { ref: near, row: row?.ref };
-      }
-    }
     // Only what's shown: a hidden bubble or a desk stepped aside takes no click.
     const shownUp = (o: THREE.Object3D | null): boolean => !o || (o.visible && shownUp(o.parent));
     const hit = ray.intersectObjects(hits, false).find((h) => shownUp(h.object));
-    const hb = hit && isBoard(hit.object.userData.ref as string) ? boards.get(hit.object.userData.ref as string) : undefined;
-    if (hit && hb?.face) {
-      // A row on the board itself: what it's about.
-      const f = ray.intersectObject(hb.face, false)[0];
-      if (f?.uv) {
-        const { width: W, height: H } = hb.ctx.canvas;
-        const px = f.uv.x * W;
-        const py = (1 - f.uv.y) * H;
-        const row = hb.rows.find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
-        if (row) return { ref: hit.object.userData.ref as string, row: row.ref };
-      }
-    }
     if (hit) return { ref: hit.object.userData.ref as string };
     const p = new THREE.Vector3();
     if (ray.ray.intersectPlane(floorPlane, p)) return { floor: { x: p.x, z: p.z } };
@@ -2056,7 +2040,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
           turned = true;
           cam.yaw = eased.yaw;
         }
-        cam.yaw = Math.max(HOME_YAW - 0.7, Math.min(HOME_YAW + 0.5, cam.yaw - e.movementX * 0.0035));
+        cam.yaw = Math.max(homeYaw() - 0.7, Math.min(homeYaw() + 0.5, cam.yaw - e.movementX * 0.0035));
         canvas.style.cursor = 'grabbing';
         poke();
         return;
@@ -2082,7 +2066,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       canvas.style.cursor = ref && !(isBoard(ref) && ref === near && !row) ? 'pointer' : 'default';
       if (ref !== hover) {
         hover = ref;
-        opts.onHover(ref);
+        opts.onHover(isBoard(ref) ? 'board' : ref);
         poke();
       }
     });
@@ -2101,7 +2085,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // A row on the board opens what it's about, from wherever you see it.
     if (row && (isBoard(near) || !row.startsWith('more:'))) opts.onBoardRow(row);
     else if (ref) {
-      if (ref === near && !route.length) opts.onActivate(ref);
+      if (ref === near && !route.length) {
+        if (!isBoard(ref)) opts.onActivate(ref);
+      }
       else walkTo(ref);
     } else if (floor) {
       // Over the campus, a click on a room goes into it; in a room, walks.
@@ -2211,7 +2197,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // overview, then to the campus.
       if (cam.closeK > 0.3) {
         held = true;
-        zoomTo(Math.min(zoomZ, 0.5));
+        zoomTo(0);
+        tellView();
         poke();
       } else overview();
     } else if (k === 'n' && !e.repeat) {
@@ -2220,7 +2207,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     } else if ((k === 'e' || k === 'enter') && near && !e.repeat) {
       if (k === 'enter' && document.activeElement !== canvas) return;
       e.preventDefault();
-      opts.onActivate(near);
+      if (!isBoard(near)) opts.onActivate(near);
     }
   };
   const onKeyUp = (e: KeyboardEvent) => {
@@ -2271,9 +2258,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       attached = true;
       ro.observe(host);
       resize();
-      // The new page hears where you are, as the old one had, and the keys
-      // are the room's again.
+      // The new page hears where you are and which room, as the old one had,
+      // and the keys are the room's again.
       opts.onNear(isBoard(near) ? 'board' : near);
+      toldView = '';
+      tellView();
       requestAnimationFrame(() => attached && canvas.focus({ preventScroll: true }));
       poke();
     },

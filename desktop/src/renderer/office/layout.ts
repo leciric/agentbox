@@ -87,8 +87,8 @@ const WALL_PAD = 1.6;
 const PLANTER = 0.5;
 // The wood-floored side, the commons: about a third of the work's width.
 const woodOf = (workW: number) => Math.min(9.2, Math.max(7.4, workW * 0.32));
-const MIN_ROOM_D = 13;
-const MIN_WORK_W = 11;
+const MIN_ROOM_D = 12;
+const MIN_WORK_W = 8.5;
 // The room is about twice as wide as it's deep, as a diorama seen from its
 // open corner: areas wrap onto a new row at whatever width comes closest.
 const ASPECT = 2.2;
@@ -294,11 +294,26 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   if (fridge) prop('fridge', roomW - fw / 2 - 0.05, fd / 2 + 0.02);
   prop('kitchen', kx, kd / 2 + 0.02);
   prop('island', Math.min(kx + 0.3, roomW - footOf('island')[0] / 2 - 0.05), kd + 0.9 + footOf('island')[1] / 2);
-  // Ping-pong past the lounge, arcade cabinets beside it, against the edge.
+  // Past the lounge, each project's commons its own: ping-pong and arcade
+  // cabinets, or a coffee corner, or a quiet corner with a fish tank.
   const zp = Math.max(lounge.z1 + 2.6, roomD * 0.42);
-  prop('pingpong', Math.min(wx + 4.6, roomW - 1.15 - footOf('pingpong')[0] / 2), zp);
-  prop('arcade', roomW - 0.6, zp - 0.5, -Math.PI / 2);
-  prop('arcade', roomW - 0.6, zp + 0.45, -Math.PI / 2);
+  const project = model.areas[0]?.project ?? '';
+  let h = 0;
+  for (let i = 0; i < project.length; i++) h = (h * 31 + project.charCodeAt(i)) >>> 0;
+  const kind = h % 3;
+  if (kind === 0) {
+    prop('pingpong', Math.min(wx + 4.6, roomW - 1.15 - footOf('pingpong')[0] / 2), zp);
+    prop('arcade', roomW - 0.6, zp - 0.5, -Math.PI / 2);
+    prop('arcade', roomW - 0.6, zp + 0.45, -Math.PI / 2);
+  } else if (kind === 1) {
+    prop('standing', wx + 2.6, zp);
+    prop('plants', wx + 5.2, zp);
+    prop('vending', roomW - 0.75, zp, -Math.PI / 2);
+  } else {
+    prop('aquarium', wx + 2.8, zp - 0.4);
+    prop('booth', wx + 5.6, zp);
+    prop('plants', roomW - 1.2, zp + 1.6);
+  }
   // Bean bags round a little table, at the front.
   const zb = Math.min(roomD - 2.0, zp + 3.8);
   prop('beanbags', wx + 2.7, zb);
@@ -497,7 +512,9 @@ const LOW_THEMES: Theme[] = [LOUNGE, STUDY];
 // The campus: each project's room, side by side as dioramas floating on the
 // sky, a project of more desks than a room holds on floors of its own.
 export const ROOM_DESKS = 12;
-const CAMPUS_GAP = 7;
+// Between rooms on the campus: wider front to back, where the walls rise.
+const CAMPUS_GAP = 8;
+const CAMPUS_GAP_Z = 13;
 const CAMPUS_ASPECT = 2.1;
 
 export type RoomPlace = {
@@ -568,7 +585,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Campus {
         at.push({ ox: x, oz: z });
         x += l.room.x1 + CAMPUS_GAP;
       }
-      z += Math.max(...row.map((l) => l.room.z1)) + CAMPUS_GAP;
+      z += Math.max(...row.map((l) => l.room.z1)) + CAMPUS_GAP_Z;
     }
     const w = Math.max(...at.map((p, i) => p.ox + locals[i].room.x1));
     const d = Math.max(...at.map((p, i) => p.oz + locals[i].room.z1));
