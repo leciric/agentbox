@@ -688,6 +688,11 @@ impl ChatView {
         .detach();
     }
 
+    /// lead_runners is the tool and account the chat's composer runs on.
+    pub fn lead_runners(&self) -> Option<&LeadRunners> {
+        self.composer.runners.as_ref()
+    }
+
     fn load_runners(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();
         let path = format!("{}/chat/runners", self.prefix);

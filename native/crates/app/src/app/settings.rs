@@ -22,6 +22,7 @@ mod project;
 mod sent;
 mod setup;
 mod skills;
+mod tokens;
 mod transfer;
 
 use std::collections::{HashMap, HashSet};
@@ -104,6 +105,7 @@ pub struct SettingsPage {
     /// first_run is the first run's page (first_run.rs).
     pub(super) first_run: first_run::FirstRun,
     sent: sent::Sent,
+    tokens: tokens::Tokens,
     transfer: transfer::Transfer,
     phone: phone::Phone,
     project: project::ProjectPage,
@@ -197,6 +199,7 @@ impl SettingsPage {
             setup: Default::default(),
             first_run: first_run::FirstRun::new(window, cx),
             sent: Default::default(),
+            tokens: Default::default(),
             transfer: Default::default(),
             phone: Default::default(),
             project: Default::default(),
@@ -1482,6 +1485,7 @@ impl AppView {
             "skills" => self.skills_card(&e.scope, cx),
             "connectors" => self.connectors_card(cx),
             "p-secrets" => self.secrets_card(&e.scope, cx),
+            "p-tokens" => self.tokens_card(&e.scope, cx),
             "diagnostics" => self.diagnostics_card(cx),
             "doctor" => self.doctor_card(cx),
             "checklist" => self.checklist_card(cx),
@@ -1497,6 +1501,7 @@ impl AppView {
         if let Some(name) = id.strip_prefix("project:") {
             self.load_accounts(window, cx);
             self.load_project(name.to_string(), window, cx);
+            self.load_tokens(name.to_string(), cx);
             return;
         }
         match id {

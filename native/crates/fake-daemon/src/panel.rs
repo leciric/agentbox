@@ -885,7 +885,10 @@ pub async fn route(
                 ..Default::default()
             },
         ),
-        (&Method::GET, ["v1", "tokens"]) if fake.is_fake(&q("project")) => {
+        // An agent's own spend; the project's ledger is the real daemon's.
+        (&Method::GET, ["v1", "tokens"])
+            if fake.is_fake(&q("project")) && !q("agent").is_empty() =>
+        {
             let agent = q("agent");
             let total = 2_400_000 + (agent.len() as i64 * 13_000);
             json(

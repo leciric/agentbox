@@ -28,6 +28,7 @@ mod settings;
 mod sidebar;
 mod topbar;
 mod tour;
+mod usage;
 mod views;
 mod width;
 mod work;
@@ -73,6 +74,8 @@ pub struct AppView {
     topbar: topbar::TopBar,
     /// The welcome tour and What's new (tour.rs).
     onboarding: tour::Onboarding,
+    /// The top bar's meters (usage.rs).
+    meters: usage::Meters,
     /// Which chat is open: "lead" or an agent's name.
     open: String,
     chat: Option<Entity<ChatView>>,
@@ -170,6 +173,7 @@ impl AppView {
             conn: Default::default(),
             topbar: Default::default(),
             onboarding: Default::default(),
+            meters: Default::default(),
             open: "lead".into(),
             chat: None,
             terminal: None,

@@ -616,6 +616,21 @@ impl AppView {
                 )],
             },
             Group {
+                id: "p-tokens",
+                title: t("project.view.section.tokens"),
+                description: String::new(),
+                cards: true,
+                entries: vec![Entry {
+                    id: "p-tokens",
+                    label: t("project.view.section.tokens"),
+                    description: t("vm.tokens.intro"),
+                    keywords: String::new(),
+                    essential: false,
+                    modified: false,
+                    scope: n.to_string(),
+                }],
+            },
+            Group {
                 id: "p-skills",
                 title: t("skills.projectTitle"),
                 description: String::new(),

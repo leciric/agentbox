@@ -96,6 +96,9 @@ impl AppView {
                     if let Some(s) = setup {
                         this.topbar.setup = s;
                     }
+                    if tick.is_multiple_of(5) {
+                        this.watch_meters(tick, cx);
+                    }
                     cx.notify();
                 });
                 if more.is_err() {
@@ -129,7 +132,7 @@ impl AppView {
         self.topbar.image = image;
     }
 
-    fn toggle_pop(&mut self, which: &'static str, cx: &mut Context<Self>) {
+    pub(super) fn toggle_pop(&mut self, which: &'static str, cx: &mut Context<Self>) {
         // The click that closed it by landing outside isn't one that opens it.
         if self
             .topbar
@@ -179,6 +182,7 @@ impl AppView {
             .gap_2()
             .children(self.finish_setup_chip(cx))
             .children(self.image_chip(cx))
+            .children(self.usage_chips(cx))
             .into_any_element()
     }
 
