@@ -8,9 +8,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use agentbox_api::{
-    AddProjectRequest, AuthStatus, CreateAgentRequest, FanOutRequest, FanOutResult, FanOutVariant,
-    Job, Project, ProjectIcon, ProjectIconCandidate, SetProjectIconRequest, Settings,
-    UpdateSectionRequest,
+    AuthStatus, FanOutRequest, FanOutResult, FanOutVariant, ProjectIcon, ProjectIconCandidate,
+    SetProjectIconRequest, Settings, UpdateSectionRequest,
 };
 use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
@@ -35,13 +34,7 @@ const SUGGESTED: [&str; 16] = [
 const MAX_ICON: usize = 512 * 1024;
 
 pub enum Dialog {
-    AddProject {
-        creating: bool,
-        path: Entity<InputState>,
-        name: Entity<InputState>,
-        busy: bool,
-        error: Option<String>,
-    },
+    AddProject(Box<super::add_project::AddProject>),
     Icon {
         project: String,
         emoji: Entity<InputState>,
@@ -76,15 +69,7 @@ pub enum Dialog {
         busy: bool,
         error: Option<String>,
     },
-    NewAgent {
-        project: String,
-        title: Entity<InputState>,
-        name: Entity<InputState>,
-        ai: String,
-        tools: Vec<String>,
-        busy: bool,
-        error: Option<String>,
-    },
+    NewAgent(Box<super::new_agent::NewAgent>),
     Keys,
     /// The project chat's New chat: its conversation cleared, confirmed.
     NewChat {
@@ -124,104 +109,6 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
         cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
-    }
-
-    // ——— Add project ———
-
-    pub(super) fn open_add_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let path = self.dialog_input(String::new(), window, cx);
-        let name = self.dialog_input(String::new(), window, cx);
-        path.update(cx, |s, cx| s.focus(window, cx));
-        self.side.dialog = Some(Dialog::AddProject {
-            creating: false,
-            path,
-            name,
-            busy: false,
-            error: None,
-        });
-        cx.notify();
-    }
-
-    fn browse_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = pick(t("project.add.browse"), true, cx);
-        cx.spawn_in(window, async move |this, cx| {
-            let Some(path) = rx.await.ok().flatten().and_then(|p| p.into_iter().next()) else {
-                return;
-            };
-            this.update_in(cx, |this, window, cx| {
-                if let Some(Dialog::AddProject { path: input, .. }) = &this.side.dialog {
-                    input.update(cx, |s, cx| {
-                        s.set_value(path.display().to_string(), window, cx);
-                    });
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    fn submit_add_project(&mut self, cx: &mut Context<Self>) {
-        let Some(Dialog::AddProject {
-            creating,
-            path,
-            name,
-            busy,
-            error,
-        }) = &mut self.side.dialog
-        else {
-            return;
-        };
-        let (dir, label) = (
-            path.read(cx).value().trim().to_string(),
-            name.read(cx).value().trim().to_string(),
-        );
-        if dir.is_empty() || (*creating && label.is_empty()) {
-            return;
-        }
-        // A new repository is the name's folder under the parent.
-        let req = if *creating {
-            AddProjectRequest {
-                path: PathBuf::from(&dir).join(&label).display().to_string(),
-                create: true,
-                ..Default::default()
-            }
-        } else {
-            AddProjectRequest {
-                path: dir,
-                name: label,
-                ..Default::default()
-            }
-        };
-        *busy = true;
-        *error = None;
-        cx.notify();
-        let client = self.client.clone();
-        cx.spawn(async move |this, cx| {
-            let res = client.post::<_, Project>("/v1/projects", &req).await;
-            this.update(cx, |this, cx| match res {
-                Ok(p) => {
-                    this.side.dialog = None;
-                    toasts::info(
-                        cx,
-                        tv("project.add.added", &[("name", label_of(&p).into())]),
-                    );
-                    this.projects.push(p);
-                    this.reload_projects(cx);
-                    this.load_sections(cx);
-                    cx.notify();
-                }
-                Err(e) => {
-                    if let Some(Dialog::AddProject { busy, error, .. }) = &mut this.side.dialog {
-                        *busy = false;
-                        *error = Some(e.to_string());
-                    }
-                    cx.notify();
-                }
-            })
-            .ok();
-        })
-        .detach();
     }
 
     // ——— A project's icon ———
@@ -567,110 +454,6 @@ impl AppView {
         .detach();
     }
 
-    // ——— Start an agent yourself ———
-
-    pub(super) fn open_new_agent(
-        &mut self,
-        project: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let title = self.dialog_input(t("project.newAgent.workPlaceholder"), window, cx);
-        let name = self.dialog_input(t("project.newAgent.nameHint"), window, cx);
-        title.update(cx, |s, cx| s.focus(window, cx));
-        self.side.dialog = Some(Dialog::NewAgent {
-            project,
-            title,
-            name,
-            ai: String::new(),
-            tools: vec!["claude".into()],
-            busy: false,
-            error: None,
-        });
-        cx.notify();
-        let client = self.client.clone();
-        cx.spawn(async move |this, cx| {
-            let Ok(auth) = client.get::<AuthStatus>("/v1/auth").await else {
-                return;
-            };
-            let tools: Vec<String> = [
-                ("claude", auth.claude),
-                ("codex", auth.codex),
-                ("opencode", auth.opencode),
-                ("cursor", auth.cursor),
-                ("gemini", auth.gemini),
-            ]
-            .into_iter()
-            .filter(|(_, on)| *on)
-            .map(|(n, _)| n.to_string())
-            .collect();
-            this.update(cx, |this, cx| {
-                if let Some(Dialog::NewAgent { tools: t, .. }) = &mut this.side.dialog {
-                    *t = tools;
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    fn create_agent(&mut self, cx: &mut Context<Self>) {
-        let Some(Dialog::NewAgent {
-            project,
-            title,
-            name,
-            ai,
-            busy,
-            error,
-            ..
-        }) = &mut self.side.dialog
-        else {
-            return;
-        };
-        let req = CreateAgentRequest {
-            project: project.clone(),
-            title: title.read(cx).value().trim().to_string(),
-            name: name.read(cx).value().trim().to_string(),
-            ai: ai.clone(),
-            ..Default::default()
-        };
-        *busy = true;
-        *error = None;
-        cx.notify();
-        let client = self.client.clone();
-        cx.spawn(async move |this, cx| {
-            let res = client.post::<_, Job>("/v1/agents", &req).await;
-            this.update(cx, |this, cx| {
-                match res {
-                    Ok(_) => {
-                        this.side.dialog = None;
-                        toasts::info(
-                            cx,
-                            if req.title.is_empty() {
-                                t("project.newAgent.creating")
-                            } else {
-                                tv(
-                                    "project.newAgent.creatingTitled",
-                                    &[("title", (&req.title).into())],
-                                )
-                            },
-                        );
-                    }
-                    Err(e) => {
-                        if let Some(Dialog::NewAgent { busy, error, .. }) = &mut this.side.dialog {
-                            *busy = false;
-                            *error = Some(e.to_string());
-                        }
-                    }
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
     // ——— Drawing them ———
 
     pub(super) fn render_sidebar_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -701,89 +484,7 @@ impl AppView {
                 .collect()
         };
         Some(match d {
-            Dialog::AddProject {
-                creating,
-                path,
-                name,
-                busy,
-                error: err,
-            } => {
-                let creating = *creating;
-                let mode = controls::segmented(
-                    "add-mode",
-                    vec![
-                        ("existing".into(), t("project.add.existing")),
-                        ("new".into(), t("project.add.new")),
-                    ],
-                    Some(if creating { "new" } else { "existing" }),
-                    *busy,
-                    Rc::new({
-                        let view = cx.entity().downgrade();
-                        move |v: &str, _, cx| {
-                            let new = v == "new";
-                            view.update(cx, |this, cx| {
-                                if let Some(Dialog::AddProject { creating, .. }) =
-                                    &mut this.side.dialog
-                                {
-                                    *creating = new;
-                                }
-                                cx.notify();
-                            })
-                            .ok();
-                        }
-                    }),
-                );
-                let folder = h_flex()
-                    .gap_2()
-                    .child(div().flex_1().min_w_0().child(Input::new(path)))
-                    .child(controls::button(
-                        "add-browse",
-                        t("project.add.browse"),
-                        Btn::Secondary,
-                        *busy,
-                        cx.listener(|this, _: &ClickEvent, w, cx| this.browse_folder(w, cx)),
-                    ))
-                    .into_any_element();
-                let mut body = vec![
-                    mode,
-                    field(
-                        t(if creating {
-                            "project.add.parentLabel"
-                        } else {
-                            "project.add.folderLabel"
-                        }),
-                        folder,
-                        None,
-                    ),
-                    field(
-                        t("project.add.nameLabel"),
-                        Input::new(name).into_any_element(),
-                        Some(t(if creating {
-                            "project.add.newHintEmpty"
-                        } else {
-                            "project.add.nameHint"
-                        })),
-                    ),
-                ];
-                body.extend(error(err));
-                modal(
-                    "add-project",
-                    t("project.add.title"),
-                    None,
-                    body,
-                    cancel,
-                    t(if *busy {
-                        "project.add.creating"
-                    } else if creating {
-                        "project.add.createAndAdd"
-                    } else {
-                        "project.add.submit"
-                    }),
-                    false,
-                    *busy || path.read(cx).value().trim().is_empty(),
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.submit_add_project(cx)),
-                )
-            }
+            Dialog::AddProject(d) => self.render_add_project(d, cancel, cx),
             Dialog::Icon {
                 project,
                 emoji,
@@ -1196,90 +897,7 @@ impl AppView {
                     cx.listener(|this, _: &ClickEvent, _, cx| this.start_fan_out(cx)),
                 )
             }
-            Dialog::NewAgent {
-                project,
-                title,
-                name,
-                ai,
-                tools,
-                busy,
-                error: err,
-            } => {
-                let label = self
-                    .projects
-                    .iter()
-                    .find(|p| &p.name == project)
-                    .map_or_else(|| project.clone(), label_of);
-                let default_tool = self
-                    .projects
-                    .iter()
-                    .find(|p| &p.name == project)
-                    .map(|p| p.agent_tool.clone())
-                    .unwrap_or_default();
-                let mut options: Vec<(SharedString, String)> = vec![(
-                    "".into(),
-                    tv(
-                        "project.newAgent.defaultOption",
-                        &[("value", tool_label(&default_tool).into())],
-                    ),
-                )];
-                options.extend(tools.iter().map(|t| (t.clone().into(), tool_label(t))));
-                let view = cx.entity().downgrade();
-                let mut body = vec![
-                    field(
-                        t("project.newAgent.projectLabel"),
-                        div().text_sm().child(label).into_any_element(),
-                        None,
-                    ),
-                    field(
-                        t("project.newAgent.workLabel"),
-                        Input::new(title).into_any_element(),
-                        Some(t("project.newAgent.workHint")),
-                    ),
-                    field(
-                        t("project.newAgent.nameLabel"),
-                        Input::new(name).into_any_element(),
-                        None,
-                    ),
-                    field(
-                        t("project.newAgent.aiTool"),
-                        controls::segmented(
-                            "new-agent-ai",
-                            options,
-                            Some(ai),
-                            *busy,
-                            Rc::new(move |v: &str, _, cx| {
-                                let v = v.to_string();
-                                view.update(cx, |this, cx| {
-                                    if let Some(Dialog::NewAgent { ai, .. }) = &mut this.side.dialog
-                                    {
-                                        *ai = v;
-                                    }
-                                    cx.notify();
-                                })
-                                .ok();
-                            }),
-                        ),
-                        None,
-                    ),
-                ];
-                body.extend(error(err));
-                modal(
-                    "new-agent",
-                    t("project.newAgent.title"),
-                    Some(t("project.newAgent.description")),
-                    body,
-                    cancel,
-                    t(if *busy {
-                        "project.newAgent.creating"
-                    } else {
-                        "project.newAgent.create"
-                    }),
-                    false,
-                    *busy,
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.create_agent(cx)),
-                )
-            }
+            Dialog::NewAgent(d) => self.render_new_agent(d, cancel, cx),
             Dialog::NewChat { project } => {
                 let p = project.clone();
                 let label = self
@@ -1512,7 +1130,7 @@ fn default_picks(options: &[(String, String)]) -> Vec<String> {
 
 /// pick asks for files, or with folders a folder, with the system's own
 /// dialog (as the composer's attach does).
-fn pick(
+pub(super) fn pick(
     title: String,
     folders: bool,
     cx: &mut App,

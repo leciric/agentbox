@@ -552,7 +552,11 @@ impl AppView {
                     r.groups
                         .iter()
                         .filter(|g| p.kind.is_empty() || g.kind == p.kind)
-                        .flat_map(|g| g.hits.iter().map(|h| Row::Hit(g.kind.clone(), Box::new(h.clone()))))
+                        .flat_map(|g| {
+                            g.hits
+                                .iter()
+                                .map(|h| Row::Hit(g.kind.clone(), Box::new(h.clone())))
+                        })
                         .collect()
                 })
                 .unwrap_or_default()
@@ -1705,7 +1709,7 @@ impl AppView {
                             &h.project,
                             if h.agent.is_empty() { "lead" } else { &h.agent },
                         );
-                        
+
                         v_flex()
                             .gap_3()
                             .children(

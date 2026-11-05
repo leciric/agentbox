@@ -13,6 +13,30 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::mpsc;
 
 use crate::sse;
+
+/// DaemonError is an error the daemon answered with: what it said, and its
+/// code (ApiError.code) for the answers a caller acts on.
+#[derive(Debug)]
+pub struct DaemonError {
+    text: String,
+    pub message: String,
+    pub code: String,
+}
+
+impl std::fmt::Display for DaemonError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl std::error::Error for DaemonError {}
+
+/// code_of is the daemon's code for an error, empty for any other.
+pub fn code_of(e: &anyhow::Error) -> &str {
+    e.downcast_ref::<DaemonError>()
+        .map_or("", |d| d.code.as_str())
+}
+
 use crate::types::{ApiError, Event};
 
 /// Client talks to one daemon. Its methods are futures that can be awaited on
@@ -113,10 +137,17 @@ impl Client {
                 return Err(anyhow!("connecting to the daemon: {why}"));
             }
             if !status.is_success() {
-                let msg = serde_json::from_slice::<ApiError>(&bytes)
-                    .map(|e| e.error)
-                    .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned());
-                return Err(anyhow!("{path}: {status}: {msg}"));
+                let (msg, code) = serde_json::from_slice::<ApiError>(&bytes)
+                    .map(|e| (e.error, e.code))
+                    .unwrap_or_else(|_| {
+                        (String::from_utf8_lossy(&bytes).into_owned(), String::new())
+                    });
+                return Err(DaemonError {
+                    text: format!("{path}: {status}: {msg}"),
+                    message: msg,
+                    code,
+                }
+                .into());
             }
             Ok(bytes)
         })

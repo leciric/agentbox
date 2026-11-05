@@ -10,6 +10,7 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
+mod add_project;
 pub(crate) mod agent;
 mod alerts;
 pub use alerts::initial_bounds;
@@ -20,6 +21,7 @@ pub(crate) mod controls;
 mod foot;
 mod issues;
 mod merge;
+mod new_agent;
 mod new_task;
 mod panel;
 mod past;

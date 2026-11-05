@@ -120,7 +120,7 @@ fn size_field(n: i64) -> String {
 }
 
 /// format_tokens reads a count of tokens as chat.ts's: 200k, 1M, 1.5M.
-pub(super) fn format_tokens(n: i64) -> String {
+pub(in crate::app) fn format_tokens(n: i64) -> String {
     if n >= 1_000_000 {
         let digits = if n % 1_000_000 == 0 { 0 } else { 1 };
         let m = decimal(n as f64 / 1e6, digits);
