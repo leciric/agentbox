@@ -8,7 +8,8 @@
 //! Electron app's frame: a Content-Security-Policy allows nothing from the
 //! network, and navigating away is refused.
 //!
-//! On Linux only X11 is supported (wry can't make child webviews on Wayland).
+//! On Linux child webviews work on X11 only (wry can't make them on
+//! Wayland): elsewhere snapshot.rs shows the page as a picture.
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -41,6 +42,14 @@ pub fn set_clip(bounds: Option<Bounds<Pixels>>) {
 /// show their source.
 static UNAVAILABLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Set once GTK started: snapshot.rs can render pages offscreen.
+static GTK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "linux")]
+pub fn gtk_ready() -> bool {
+    GTK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn available() -> bool {
     !UNAVAILABLE.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -64,7 +73,7 @@ pub fn set_scroller(list: ListState) {
 static FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The app's palette as the CSS variables the Electron app's previews use.
-const PRELUDE: &str = r#"<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:">
+pub(crate) const PRELUDE: &str = r#"<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:">
 <style>:root{color-scheme:dark;--foreground:#ededf0;--muted-foreground:#9a9aa3;--border:#26262c;--background:#1a1a1f;--chart-1:#7c8cff;--chart-2:#34d399;--chart-3:#fbbf24;--chart-4:#f87171;--chart-5:#a78bfa;--chart-6:#38bdf8}html,body{margin:0;background:var(--background);color:var(--foreground);font:14px system-ui,sans-serif}</style>"#;
 
 /// init starts GTK (on Linux) and pumps its events from GPUI's loop, and
@@ -88,6 +97,10 @@ pub fn init(cx: &mut App) {
         UNAVAILABLE.store(true, std::sync::atomic::Ordering::Relaxed);
         return;
     }
+    GTK.store(
+        cfg!(target_os = "linux"),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     cx.spawn(async move |cx| {
         loop {
             cx.background_executor()
@@ -96,6 +109,10 @@ pub fn init(cx: &mut App) {
             #[cfg(target_os = "linux")]
             while gtk::events_pending() {
                 gtk::main_iteration_do(false);
+            }
+            #[cfg(target_os = "linux")]
+            if crate::snapshot::take_dirty() {
+                cx.update(|cx| cx.refresh_windows());
             }
             let dy = std::mem::take(&mut *WHEEL.lock().unwrap());
             if dy != 0. {

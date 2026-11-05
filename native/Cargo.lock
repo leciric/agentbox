@@ -150,6 +150,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "vnc-rs",
+ "webkit2gtk",
  "wry",
 ]
 

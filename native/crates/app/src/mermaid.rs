@@ -81,7 +81,7 @@ pub fn with_mermaid(view: TextView) -> TextView {
                 .into_any_element(),
         }
     })
-    .markdown_block_renderer(HTML, |node, _, _| {
+    .markdown_block_renderer(HTML, |node, window, _| {
         use std::hash::{Hash as _, Hasher as _};
         let src = node.as_text().to_string();
         let card = div()
@@ -91,8 +91,20 @@ pub fn with_mermaid(view: TextView) -> TextView {
             .border_1()
             .border_color(theme::border())
             .bg(theme::raised());
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        src.hash(&mut h);
+        let id = format!("html-{:x}", h.finish());
+        // Wayland (or no child webviews): the page as a picture, drawn offscreen.
+        #[cfg(target_os = "linux")]
+        if crate::snapshot::wanted(window) && !crate::snapshot::failed(&id) {
+            return card
+                .child(crate::snapshot::html_snapshot(id, src))
+                .into_any_element();
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = window;
         if !crate::webview::available() {
-            // No webview here (Wayland, no GTK): the page's source instead.
+            // No webview here (no GTK, or the page failed): its source instead.
             return card
                 .child(
                     div()
@@ -107,14 +119,8 @@ pub fn with_mermaid(view: TextView) -> TextView {
                 .child(src)
                 .into_any_element();
         }
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        src.hash(&mut h);
-        card.child(crate::webview::html_preview(
-            format!("html-{:x}", h.finish()),
-            src,
-            px(260.),
-        ))
-        .into_any_element()
+        card.child(crate::webview::html_preview(id, src, px(260.)))
+            .into_any_element()
     })
 }
 

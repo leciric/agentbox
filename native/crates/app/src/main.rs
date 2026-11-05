@@ -9,6 +9,8 @@ mod app;
 mod bench;
 mod chat;
 mod mermaid;
+#[cfg(target_os = "linux")]
+mod snapshot;
 mod terminal;
 mod theme;
 #[cfg(feature = "video")]
