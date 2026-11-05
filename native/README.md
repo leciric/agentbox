@@ -19,7 +19,8 @@ Rust comes from rustup (`rustup default stable`). On Linux GPUI needs the X11/Wa
 development packages:
 
 ```bash
-sudo apt-get install libxkbcommon-x11-dev libwayland-dev libvulkan-dev libfontconfig-dev libfreetype-dev libx11-xcb-dev mesa-vulkan-drivers
+sudo apt-get install libxkbcommon-x11-dev libwayland-dev libvulkan-dev libfontconfig-dev libfreetype-dev libx11-xcb-dev mesa-vulkan-drivers \
+  libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libclang-dev
 cargo run --release -p agentbox-native                       # against this machine's daemon
 cargo run --release -p agentbox-native -- --socket /path.sock # or another socket (also AGENTBOX_SOCKET)
 ```

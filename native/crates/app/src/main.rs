@@ -10,6 +10,7 @@ mod bench;
 mod chat;
 mod mermaid;
 mod theme;
+mod video;
 
 use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
 use gpui_component::Root;
@@ -17,10 +18,12 @@ use gpui_component::Root;
 fn main() {
     bench::start();
     let mut socket = agentbox_api::client::default_socket();
+    let mut play = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--socket" => socket = args.next().expect("--socket PATH").into(),
+            "--play" => play = Some(std::path::PathBuf::from(args.next().expect("--play FILE"))),
             "--help" | "-h" => {
                 println!("agentbox-native [--socket PATH]");
                 return;
@@ -39,6 +42,17 @@ fn main() {
             app_id: Some("agentbox-native".into()),
             ..Default::default()
         };
+        if let Some(path) = play {
+            // agentbox-native --play FILE: one recording in a window of its own.
+            cx.open_window(options, |window, cx| {
+                window.set_window_title("Recording");
+                let view = cx.new(|cx| video::VideoPlayer::new(path, cx));
+                cx.new(|cx| Root::new(view, window, cx))
+            })
+            .expect("open the window");
+            cx.activate(true);
+            return;
+        }
         cx.open_window(options, |window, cx| {
             window.set_window_title("AgentBox");
             let view = cx.new(|cx| app::AppView::new(client.clone(), window, cx));

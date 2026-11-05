@@ -17,3 +17,7 @@ tokio.workspace = true
 mermaid-rs-renderer = { version = "0.3.1", default-features = false }
 # The Markdown AST gpui-component parses into, for custom blocks.
 markdown = "1"
+# Review's recordings (H.264 High in MP4): decoded by FFmpeg's own decoder.
+ffmpeg-next = { version = "8", default-features = false, features = ["codec", "format", "software-scaling"] }
+# The frame type GPUI's RenderImage takes (gpui-pre uses image 0.25).
+image = { version = "0.25", default-features = false }
