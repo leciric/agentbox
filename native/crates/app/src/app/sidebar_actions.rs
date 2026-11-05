@@ -652,6 +652,11 @@ impl AppView {
             label: display.to_string(),
         };
         let target = p.name.clone();
+        let after = self
+            .side
+            .drop_edge
+            .as_ref()
+            .is_some_and(|(n, a)| *n == p.name && *a);
         div()
             .id(SharedString::from(format!("dnd-{}", p.name)))
             .when(place != Place::Hidden, |el| {
@@ -660,17 +665,42 @@ impl AppView {
                     let label: SharedString = d.label.clone().into();
                     cx.new(|_| DragPreview(label))
                 })
-                .drag_over::<DragProject>(|s, _, _, _| s.border_t_2().border_color(theme::accent()))
+                .on_drag_move::<DragProject>(cx.listener({
+                    let target = target.clone();
+                    move |this, e: &DragMoveEvent<DragProject>, _, cx| {
+                        if !e.bounds.contains(&e.event.position) {
+                            return;
+                        }
+                        let after = e.event.position.y > e.bounds.center().y;
+                        let now = Some((target.clone(), after));
+                        if this.side.drop_edge != now {
+                            this.side.drop_edge = now;
+                            cx.notify();
+                        }
+                    }
+                }))
+                .drag_over::<DragProject>(move |s, _, _, _| {
+                    if after {
+                        s.border_b_2().border_color(theme::accent())
+                    } else {
+                        s.border_t_2().border_color(theme::accent())
+                    }
+                })
                 .on_drop(cx.listener(move |this, d: &DragProject, _, cx| {
+                    let after = this
+                        .side
+                        .drop_edge
+                        .take()
+                        .is_some_and(|(n, a)| n == target && a);
                     if d.name == target {
                         return;
                     }
                     match &place {
-                        Place::Pinned => this.move_pin(&d.name, &target, cx),
+                        Place::Pinned => this.move_pin(&d.name, &target, after, cx),
                         Place::Section(s) => this.move_project(
                             d.name.clone(),
                             Some(s.clone()),
-                            Some(target.clone()),
+                            Some((target.clone(), after)),
                             cx,
                         ),
                         Place::Rest => this.move_project(d.name.clone(), None, None, cx),
@@ -838,17 +868,19 @@ impl AppView {
         cx.notify();
     }
 
-    /// move_pin puts a pin where another is: after it moving down, before
-    /// it moving up; a project not pinned yet is pinned there.
-    fn move_pin(&mut self, name: &str, target: &str, cx: &mut Context<Self>) {
+    /// move_pin puts a pin before or after another, by the half it was
+    /// dropped on (projectOrder.ts movePin); a project not pinned yet is
+    /// pinned there.
+    fn move_pin(&mut self, name: &str, target: &str, after: bool, cx: &mut Context<Self>) {
         let pins = &mut self.side.pins;
-        let from = pins.iter().position(|p| p == name);
+        if !pins.iter().any(|p| p == target) {
+            return;
+        }
         pins.retain(|p| p != name);
         let Some(at) = pins.iter().position(|p| p == target) else {
             return;
         };
-        let to = from.filter(|&f| f <= at).map_or(at, |_| at + 1);
-        pins.insert(to, name.to_string());
+        pins.insert(if after { at + 1 } else { at }, name.to_string());
         save_strings(PINS, &self.side.pins);
         cx.notify();
     }
@@ -918,24 +950,22 @@ impl AppView {
     }
 
     /// move_project puts a project in a section (None: in none), where
-    /// another is or at the end (PUT /v1/projects/layout). It leaves the pins.
+    /// before or after another (by the half it was dropped on) or at the end
+    /// (PUT /v1/projects/layout). It leaves the pins.
     pub(super) fn move_project(
         &mut self,
         name: String,
         to: Option<String>,
-        at: Option<String>,
+        at: Option<(String, bool)>,
         cx: &mut Context<Self>,
     ) {
         let mut layout = self.layout_now();
-        let mut from = None;
         for s in &mut layout.sections {
             if let Some(i) = s.projects.iter().position(|p| *p == name) {
-                from = Some((Some(s.id.clone()), i));
                 s.projects.remove(i);
             }
         }
         if let Some(i) = layout.loose.iter().position(|p| *p == name) {
-            from = Some((None, i));
             layout.loose.remove(i);
         }
         let list = match &to {
@@ -946,12 +976,12 @@ impl AppView {
             None => &mut layout.loose,
         };
         let i = at
-            .and_then(|a| list.iter().position(|p| *p == a))
-            .map_or(list.len(), |i| match &from {
-                // Down the same list it goes after the one it's dropped on.
-                Some((s, f)) if *s == to && *f <= i => i + 1,
-                _ => i,
-            });
+            .and_then(|(a, after)| {
+                list.iter()
+                    .position(|p| *p == a)
+                    .map(|i| i + usize::from(after))
+            })
+            .unwrap_or(list.len());
         list.insert(i.min(list.len()), name.clone());
         if self.side.pins.contains(&name) && to.is_some() {
             self.toggle_pin(&name, cx);

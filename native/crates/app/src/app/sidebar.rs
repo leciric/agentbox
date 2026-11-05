@@ -94,6 +94,9 @@ pub struct Sidebar {
     pub(super) st: Vec<String>,
     pub(super) only: Vec<String>,
     pub(super) filter_open: bool,
+    /// The row a project is dragged over and whether onto its lower half
+    /// (useSections.ts edge): it lands after that row, else before.
+    pub(super) drop_edge: Option<(String, bool)>,
     /// Each project's icon, by the icon_version it was read at.
     pub(super) icons: HashMap<String, (i64, Shown)>,
     /// The language the placeholders were written in.
@@ -154,6 +157,7 @@ impl Sidebar {
             st: strings(FILTER_ST),
             only: strings(FILTER_PROJECTS),
             filter_open: false,
+            drop_edge: None,
             icons: HashMap::new(),
             lang: agentbox_i18n::language(),
             drafts: crate::prefs::get(DRAFTS)
@@ -500,18 +504,39 @@ impl AppView {
                 rest.push(p);
             }
         }
+        // As Electron's orderProjects: by name (what the user calls it) with
+        // group-idle off, most recent first with it on; then byAttention moves
+        // what needs you, then what finished, then what's working to the top,
+        // keeping that order within each.
+        let label = |p: &Project| {
+            if p.display_name.is_empty() {
+                p.name.to_lowercase()
+            } else {
+                p.display_name.to_lowercase()
+            }
+        };
+        let recent = |p: &Project| self.last(&p.name).max(p.created_at.clone());
+        let by_name =
+            |a: &&Project, b: &&Project| label(a).cmp(&label(b)).then_with(|| a.name.cmp(&b.name));
         if group_idle {
-            rest.sort_by(|a, b| {
-                let (ca, cb) = (self.counts(&a.name), self.counts(&b.name));
-                (cb.asks + cb.failed, cb.working)
-                    .cmp(&(ca.asks + ca.failed, ca.working))
-                    .then_with(|| self.last(&b.name).cmp(&self.last(&a.name)))
-            });
+            rest.sort_by(|a, b| recent(b).cmp(&recent(a)).then_with(|| by_name(a, b)));
         } else {
-            // Off (the default), a stable order that activity never moves.
-            rest.sort_by_key(|p| (p.position, p.name.clone()));
+            rest.sort_by(by_name);
         }
-        idle.sort_by_key(|p| std::cmp::Reverse(self.last(&p.name)));
+        let rank = |p: &Project| {
+            let c = self.counts(&p.name);
+            if c.asks + c.failed > 0 {
+                0
+            } else if self.to_review(&p.name) > 0 {
+                1
+            } else if c.working > 0 {
+                2
+            } else {
+                3
+            }
+        };
+        rest.sort_by_key(|p| rank(p));
+        idle.sort_by(|a, b| recent(b).cmp(&recent(a)).then_with(|| by_name(a, b)));
         // A search or a filter shows only the sections with a match.
         sections.retain(|(_, ps)| !filtering || !ps.is_empty());
         let nothing_else =
