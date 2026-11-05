@@ -39,7 +39,7 @@ fn depends_on(id: &str) -> Option<&'static str> {
 }
 
 /// usable is a step agents can go on with: done, under way, or a caveat.
-fn usable(status: &str) -> bool {
+pub(super) fn usable(status: &str) -> bool {
     matches!(status, "ok" | "updating" | "building" | "warn")
 }
 
@@ -72,7 +72,7 @@ pub(super) struct SetupPage {
     polling: bool,
 }
 
-fn step_title(c: &SetupCheck) -> String {
+pub(super) fn step_title(c: &SetupCheck) -> String {
     let key = format!("settings.setup.title.{}", c.id);
     if agentbox_i18n::has(&key) {
         t(&key)
@@ -91,7 +91,7 @@ fn step_description(id: &str) -> String {
 }
 
 /// step_mark is StepIcon: a tick, a ring, dots, or a warning.
-fn step_mark(status: &str) -> AnyElement {
+pub(super) fn step_mark(status: &str) -> AnyElement {
     let (mark, color) = match status {
         "ok" => ("✓", theme::running()),
         "optional" => ("○", theme::faint()),
@@ -284,7 +284,7 @@ impl AppView {
     }
 
     /// follow_job reads a job and its log once a second until it ends.
-    pub(super) fn follow_job(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(in crate::app) fn follow_job(&mut self, id: String, cx: &mut Context<Self>) {
         let v = self.settings_page.setup.jobs.entry(id.clone()).or_default();
         if v.polling {
             return;
@@ -329,7 +329,7 @@ impl AppView {
     }
 
     /// job_progress is JobProgress: a job's state and the end of its log.
-    pub(super) fn job_progress(&self, id: &str) -> AnyElement {
+    pub(in crate::app) fn job_progress(&self, id: &str) -> AnyElement {
         let v = self.settings_page.setup.jobs.get(id);
         let job = v.and_then(|v| v.job.as_ref());
         let (label, color) = job_status(job.map_or(JOB_RUNNING, |j| j.status.as_str()));
@@ -367,7 +367,7 @@ impl AppView {
     }
 
     /// command_box is CommandBox: a command to run, and a way to copy it.
-    pub(super) fn command_box(
+    pub(in crate::app) fn command_box(
         &self,
         id: &str,
         command: &str,
@@ -753,7 +753,7 @@ impl AppView {
     }
 
     /// step_body is what a step offers to do about itself.
-    fn step_body(&self, c: &SetupCheck, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn step_body(&self, c: &SetupCheck, cx: &mut Context<Self>) -> Option<AnyElement> {
         let p = &self.settings_page.setup;
         match c.id.as_str() {
             "claude" => Some(
@@ -833,6 +833,7 @@ impl AppView {
                                     el.child(note_in(im.error.clone(), theme::error()))
                                 })
                         })
+                        .children(self.image_downloads(cx))
                         .when_some(job, |el, j| el.child(self.job_progress(&j)))
                         .into_any_element(),
                 )

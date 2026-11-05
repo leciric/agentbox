@@ -13,11 +13,13 @@ mod accounts;
 pub(super) mod connectors;
 pub(super) mod defaults;
 mod diagnostics;
+pub(super) mod first_run;
 pub(super) mod kit;
 mod memory;
 mod notify;
 mod phone;
 mod project;
+mod sent;
 mod setup;
 mod skills;
 mod transfer;
@@ -34,7 +36,7 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
-use super::controls::{Row, note, segmented, toggle};
+use super::controls::{Btn, Row, button, note, segmented, toggle};
 use crate::{prefs, theme};
 
 const ESSENTIALS: &str = "essentials";
@@ -99,6 +101,9 @@ pub struct SettingsPage {
     connectors: connectors::Connectors,
     diagnostics: diagnostics::Diagnostics,
     setup: setup::SetupPage,
+    /// first_run is the first run's page (first_run.rs).
+    pub(super) first_run: first_run::FirstRun,
+    sent: sent::Sent,
     transfer: transfer::Transfer,
     phone: phone::Phone,
     project: project::ProjectPage,
@@ -190,6 +195,8 @@ impl SettingsPage {
             connectors: Default::default(),
             diagnostics: Default::default(),
             setup: Default::default(),
+            first_run: first_run::FirstRun::new(window, cx),
+            sent: Default::default(),
             transfer: Default::default(),
             phone: Default::default(),
             project: Default::default(),
@@ -1732,6 +1739,17 @@ impl AppView {
                         &[("reason", (&reason).into())],
                     )));
                 }
+                row.body.push(
+                    h_flex()
+                        .child(button(
+                            "usage-see",
+                            t("settings.usageStats.see"),
+                            Btn::Ghost,
+                            false,
+                            cx.listener(|this, _: &ClickEvent, _, cx| this.see_sent(cx)),
+                        ))
+                        .into_any_element(),
+                );
                 row
             }
             "error-reports" => self.switch_row(

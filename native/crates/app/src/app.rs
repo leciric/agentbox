@@ -13,6 +13,7 @@ use gpui_component::{h_flex, v_flex};
 mod agent;
 mod agent_settings;
 mod agent_status;
+mod connection;
 mod controls;
 mod issues;
 mod merge;
@@ -25,6 +26,8 @@ mod schedules;
 mod sessions;
 mod settings;
 mod sidebar;
+mod topbar;
+mod tour;
 mod views;
 mod width;
 mod work;
@@ -64,6 +67,12 @@ pub struct AppView {
     fleet_error: Option<SharedString>,
     error: Option<SharedString>,
     connected: bool,
+    /// The daemon's connection, and its start (connection.rs).
+    conn: connection::Conn,
+    /// The top bar's chips (topbar.rs).
+    topbar: topbar::TopBar,
+    /// The welcome tour and What's new (tour.rs).
+    onboarding: tour::Onboarding,
     /// Which chat is open: "lead" or an agent's name.
     open: String,
     chat: Option<Entity<ChatView>>,
@@ -127,6 +136,18 @@ impl AppView {
             || self.schedules.dialog_open()
             || self.settings
             || self.work.is_some()
+            || self.first_run_open()
+            || self.onboarding_open()
+    }
+
+    /// first_run_open is whether the first run is the page.
+    fn first_run_open(&self) -> bool {
+        self.connected && self.settings_page.first_run.active
+    }
+
+    /// cut_off is the daemon never having answered: its page is the window.
+    fn cut_off(&self) -> bool {
+        !self.connected && !self.conn.answered
     }
 
     pub fn new(client: Client, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -146,6 +167,9 @@ impl AppView {
             fleet_error: None,
             error: None,
             connected: false,
+            conn: Default::default(),
+            topbar: Default::default(),
+            onboarding: Default::default(),
             open: "lead".into(),
             chat: None,
             terminal: None,
@@ -177,6 +201,8 @@ impl AppView {
         this.load_settings(window, cx);
         this.load_theme(window, cx);
         this.load_projects(window, cx);
+        this.watch_connection(window, cx);
+        this.watch_topbar(cx);
         if let Ok(secs) =
             std::env::var("AGENTBOX_NATIVE_SCROLL_BENCH").map(|s| s.parse::<u64>().unwrap_or(3))
         {
@@ -848,6 +874,7 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         bench::mark("first-render");
+        self.focus_tour(window, cx);
         self.widths.window = f32::from(window.viewport_size().width);
         if std::mem::take(&mut self.reopen_lead) && self.open == "lead" {
             cx.defer_in(window, |this, window, cx| {
@@ -855,8 +882,12 @@ impl Render for AppView {
             });
         }
         let overlay = self.render_new_task(cx);
-        let lead_view =
-            self.open == "lead" && !self.settings && self.work.is_none() && self.project.is_some();
+        let full_page = self.cut_off() || self.first_run_open();
+        let lead_view = self.open == "lead"
+            && !self.settings
+            && self.work.is_none()
+            && self.project.is_some()
+            && !full_page;
         let no_session = lead_view
             && self.project.as_ref().is_some_and(|p| {
                 self.sessions.lists.contains_key(p) && self.sessions.current(p).is_none()
@@ -910,10 +941,14 @@ impl Render for AppView {
                     .flex_1()
                     .min_w_0()
                     .h_full()
+                    .when(!self.connected && self.conn.answered, |el| {
+                        el.child(self.render_offline_notice())
+                    })
                     .when(
-                        !self.settings && self.work.is_none() && self.chat.is_some(),
+                        !self.settings && self.work.is_none() && self.chat.is_some() && !full_page,
                         |el| {
-                            el.children(self.render_project_header(cx))
+                            el.children(self.render_home_bar(cx))
+                                .children(self.render_project_header(cx))
                                 .children(self.render_agent_header(cx))
                                 .children(self.render_past_header(cx))
                                 .children(self.render_machine_bar(cx))
@@ -925,6 +960,8 @@ impl Render for AppView {
                     )
                     .child(
                         div().flex_1().min_h_0().child(match &self.chat {
+                            _ if self.cut_off() => self.render_unreachable(cx),
+                            _ if self.first_run_open() => self.render_first_run(cx),
                             _ if self.settings => self.render_settings(cx),
                             _ if self.work.is_some() => self.render_work(cx),
                             Some(_) if lead_view && self.sessions.history => {
@@ -957,10 +994,12 @@ impl Render for AppView {
                         }),
                     ),
             )
-            .child(if self.is_home() || self.project.is_none() {
-                self.render_rail(cx).into_any_element()
-            } else {
-                self.render_panel(cx)
+            .when(!full_page, |el| {
+                el.child(if self.is_home() || self.project.is_none() {
+                    self.render_rail(cx).into_any_element()
+                } else {
+                    self.render_panel(cx)
+                })
             })
             // Last, so it draws over the rest.
             .children(self.render_drawer(cx))
@@ -971,6 +1010,8 @@ impl Render for AppView {
             .children(self.render_agent_dialogs(cx))
             .children(self.render_past_dialogs(cx))
             .children(self.render_schedule_dialogs(cx))
+            .children(self.render_onboarding(cx))
+            .children(self.render_usage_sent(cx))
             .child(self.toasts.clone())
             .child(crate::webview::pages_end())
     }

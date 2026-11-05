@@ -25,4 +25,6 @@ export const enUSNative = {
   'native.day.short.6': 'Sat',
   'native.day.long.6': 'Saturday',
   'native.pdf.external': 'Open it in your PDF viewer',
+  'native.setup.runIt': 'This app can\'t make the VM itself: run this in a terminal. The app carries on once AgentBox answers.',
+  'native.setup.startIt': 'The command-line tool isn\'t on PATH, so this app can\'t start AgentBox itself. Start it in a terminal:',
 };

@@ -28,6 +28,7 @@ mod chat;
 mod panel;
 mod pulls;
 mod review;
+mod setup;
 
 type Body = BoxBody<Bytes, Infallible>;
 
@@ -538,6 +539,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
     let fake_agent = |p: &str, a: &str| fake.is_fake(p) && review::Review::is_agent(a);
     let pick_up = upstream_pick_up(fake.clone());
     let req = match panel::route(&fake, req, &query, pick_up).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
+    let req = match setup::route(&fake, req, &query).await {
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };
@@ -1271,6 +1276,15 @@ async fn proxy(up: &PathBuf, req: Request<Incoming>) -> Result<Response<Body>> {
     if !res.status().is_success() {
         eprintln!("upstream {what}: {}", res.status());
     }
+    let (parts, body) = res.into_parts();
+    let body = body.collect().await?.to_bytes();
+    Ok(Response::from_parts(parts, Full::new(body).boxed()))
+}
+
+/// proxy_full is proxy for a request whose body is already read.
+async fn proxy_full(up: &PathBuf, req: Request<Full<Bytes>>) -> Result<Response<Body>> {
+    let mut sender = connect(up).await?;
+    let res = sender.send_request(req).await?;
     let (parts, body) = res.into_parts();
     let body = body.collect().await?.to_bytes();
     Ok(Response::from_parts(parts, Full::new(body).boxed()))

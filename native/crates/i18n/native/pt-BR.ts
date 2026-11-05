@@ -23,4 +23,6 @@ export const ptBRNative = {
   'native.day.short.6': 'sáb.',
   'native.day.long.6': 'sábado',
   'native.pdf.external': 'Abrir no seu leitor de PDF',
+  'native.setup.runIt': 'Este app não consegue criar a VM sozinho: rode isto em um terminal. O app continua assim que o AgentBox responder.',
+  'native.setup.startIt': 'A ferramenta de linha de comando não está no PATH, então este app não consegue iniciar o AgentBox sozinho. Inicie-o em um terminal:',
 };

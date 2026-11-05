@@ -2411,6 +2411,7 @@ impl AppView {
                     )
                 })
                 .child(div().flex_1())
+                .child(self.render_top_chips(cx))
                 .when(!counts.is_empty(), |el| {
                     el.child(
                         div()
