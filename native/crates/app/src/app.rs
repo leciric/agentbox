@@ -15,6 +15,7 @@ mod agent_settings;
 mod agent_status;
 mod connection;
 mod controls;
+mod foot;
 mod issues;
 mod merge;
 mod new_task;
@@ -23,9 +24,12 @@ mod past;
 mod pulls;
 mod review;
 mod schedules;
+mod search;
 mod sessions;
 mod settings;
 mod sidebar;
+mod sidebar_actions;
+mod sidebar_dialogs;
 mod topbar;
 mod tour;
 mod usage;
@@ -498,6 +502,7 @@ impl AppView {
     fn select_project(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
         self.settings = false;
         self.work = None;
+        self.side.page = None;
         self.sessions.history = false;
         self.load_sessions(name.clone(), cx);
         self.project = Some(name);
@@ -553,6 +558,7 @@ impl AppView {
                 format!("{who} · {t}"),
             )
         };
+        self.keep_draft(cx);
         self.open = who;
         self.terminal = None;
         self.desktop = None;
@@ -568,10 +574,14 @@ impl AppView {
         } else {
             self.open.clone()
         };
+        let draft = self.side.drafts.get(&agent).cloned();
         let chat = cx.new(|cx| {
             let mut c = ChatView::new(client, prefix, agent, title.into(), window, cx);
             c.header = header;
             c.agent_name = name;
+            if let Some(d) = &draft {
+                c.set_draft(d, window, cx);
+            }
             c
         });
         self._chat_sub = Some(cx.subscribe_in(&chat, window, Self::on_chat_action));
@@ -879,6 +889,16 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         bench::mark("first-render");
         self.focus_tour(window, cx);
+        if window.focused(cx).is_none() {
+            self.side.root_focus.focus(window, cx);
+        }
+        // The sidebar's search follows a language switch.
+        if self.side.lang != agentbox_i18n::language() {
+            self.side.lang = agentbox_i18n::language();
+            self.side.search.update(cx, |s, cx| {
+                s.set_placeholder(t("v2.filters.search"), window, cx)
+            });
+        }
         self.widths.window = f32::from(window.viewport_size().width);
         if std::mem::take(&mut self.reopen_lead) && self.open == "lead" {
             cx.defer_in(window, |this, window, cx| {
@@ -890,6 +910,7 @@ impl Render for AppView {
         let lead_view = self.open == "lead"
             && !self.settings
             && self.work.is_none()
+            && self.side.page.is_none()
             && self.project.is_some()
             && !full_page;
         let no_session = lead_view
@@ -898,6 +919,7 @@ impl Render for AppView {
             });
         h_flex()
             .id("app")
+            .track_focus(&self.side.root_focus)
             .relative()
             // Ctrl+N anywhere opens New task.
             // A session's keys go first: Ctrl+Tab and Ctrl+W are a text box's too.
@@ -912,6 +934,23 @@ impl Render for AppView {
                     && this.new_task.is_none()
                 {
                     this.open_new_task(window, cx);
+                    cx.stop_propagation();
+                }
+                // Ctrl+K searches everything; Ctrl+/ lists the shortcuts.
+                if ev.keystroke.modifiers.control
+                    && ev.keystroke.key == "k"
+                    && this.side.palette.is_none()
+                {
+                    this.open_search(window, cx);
+                    cx.stop_propagation();
+                }
+                if ev.keystroke.modifiers.control && ev.keystroke.key == "," {
+                    this.open_settings(window, cx);
+                    cx.stop_propagation();
+                }
+                if ev.keystroke.modifiers.control && ev.keystroke.key == "/" {
+                    this.side.dialog = Some(sidebar_dialogs::Dialog::Keys);
+                    cx.notify();
                     cx.stop_propagation();
                 }
                 // Ctrl+D folds the panel to its strip and back (a terminal's
@@ -949,7 +988,11 @@ impl Render for AppView {
                         el.child(self.render_offline_notice())
                     })
                     .when(
-                        !self.settings && self.work.is_none() && self.chat.is_some() && !full_page,
+                        !self.settings
+                            && self.work.is_none()
+                            && self.side.page.is_none()
+                            && self.chat.is_some()
+                            && !full_page,
                         |el| {
                             el.children(self.render_home_bar(cx))
                                 .children(self.render_project_header(cx))
@@ -968,6 +1011,7 @@ impl Render for AppView {
                             _ if self.first_run_open() => self.render_first_run(cx),
                             _ if self.settings => self.render_settings(cx),
                             _ if self.work.is_some() => self.render_work(cx),
+                            _ if self.side.page.is_some() => self.render_foot_page(cx),
                             Some(_) if lead_view && self.sessions.history => {
                                 self.render_history(cx)
                             }
@@ -1016,6 +1060,8 @@ impl Render for AppView {
             .children(self.render_schedule_dialogs(cx))
             .children(self.render_onboarding(cx))
             .children(self.render_usage_sent(cx))
+            .children(self.render_sidebar_dialog(cx))
+            .children(self.render_search(cx))
             .child(self.toasts.clone())
             .child(crate::webview::pages_end())
     }

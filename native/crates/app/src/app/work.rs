@@ -664,6 +664,7 @@ impl AppView {
         cx: &mut Context<Self>,
     ) {
         self.settings = false;
+        self.side.page = None;
         match &self.work {
             Some(w) => w.update(cx, |w, cx| w.open_on(project, filter, cx)),
             None => {

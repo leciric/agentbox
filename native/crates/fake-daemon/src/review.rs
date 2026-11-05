@@ -350,6 +350,22 @@ impl Review {
 
     /// media is an agent's media (GET /v1/agents/{p}/{a}/media), with its
     /// times placed around its recording, as `agentbox media` saves them.
+    /// all_media is every fixture agent's media, newest first, with its
+    /// agent's name, for GET /v1/media.
+    pub fn all_media(&self, project: &str) -> Vec<MediaItem> {
+        let mut out: Vec<MediaItem> = FIXTURES
+            .iter()
+            .flat_map(|f| {
+                self.media(project, f.agent).into_iter().map(|mut m| {
+                    m.agent_name = f.agent.into();
+                    m
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out
+    }
+
     pub fn media(&self, _project: &str, agent: &str) -> Vec<MediaItem> {
         let Some(f) = FIXTURES.iter().find(|f| f.agent == agent) else {
             return Vec::new();

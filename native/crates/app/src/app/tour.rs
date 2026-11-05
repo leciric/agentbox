@@ -100,6 +100,20 @@ impl AppView {
         }
     }
 
+    /// replay_tour plays the tour again, from Help.
+    pub(super) fn replay_tour(&mut self, cx: &mut Context<Self>) {
+        self.onboarding.tour = Some(0);
+        self.onboarding.focus = Some(cx.focus_handle());
+        self.onboarding.focused = false;
+        cx.notify();
+    }
+
+    /// show_whats_new opens What's new for this version, from Help.
+    pub(super) fn show_whats_new(&mut self, version: String, cx: &mut Context<Self>) {
+        self.onboarding.news = Some(version);
+        cx.notify();
+    }
+
     fn tour_to(&mut self, step: Option<usize>, cx: &mut Context<Self>) {
         match step {
             Some(i) if i < STEPS.len() => self.onboarding.tour = Some(i),

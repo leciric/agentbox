@@ -463,6 +463,46 @@ fn rand_id() -> u64 {
         .as_nanos() as u64
 }
 
+/// fake_jobs are what the Jobs page lists.
+fn fake_jobs() -> Vec<Job> {
+    let at = |mins: u64| {
+        humantime::format_rfc3339_seconds(
+            std::time::SystemTime::now() - Duration::from_secs(mins * 60),
+        )
+        .to_string()
+    };
+    vec![
+        Job {
+            id: "j-0006".into(),
+            kind: "create".into(),
+            target: "demo/agent-06".into(),
+            status: "running".into(),
+            created_at: at(1),
+            ai: "claude".into(),
+            ..Default::default()
+        },
+        Job {
+            id: "j-0005".into(),
+            kind: "snapshot".into(),
+            target: "demo/agent-02".into(),
+            status: "succeeded".into(),
+            created_at: at(42),
+            finished_at: Some(at(41)),
+            ..Default::default()
+        },
+        Job {
+            id: "j-0004".into(),
+            kind: "create".into(),
+            target: "demo/agent-03".into(),
+            status: "failed".into(),
+            error: "the base image is missing".into(),
+            created_at: at(95),
+            finished_at: Some(at(94)),
+            ..Default::default()
+        },
+    ]
+}
+
 fn json<T: serde::Serialize>(status: StatusCode, v: &T) -> Response<Body> {
     Response::builder()
         .status(status)
@@ -673,6 +713,19 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             let a = &query["agent"];
             json(StatusCode::OK, &fake.review.lock().unwrap().media(p, a))
         }
+        // Every project's media (the Media page), a page at a time.
+        (&Method::GET, ["v1", "media"]) if query.contains_key("limit") => {
+            let items = fake.review.lock().unwrap().all_media(&fake.opts.project);
+            json(StatusCode::OK, &MediaPage { items, next: String::new() })
+        }
+        // The jobs the fake agents' creation and a snapshot ran (the Jobs page).
+        (&Method::GET, ["v1", "jobs"]) => json(StatusCode::OK, &fake_jobs()),
+        (&Method::GET, ["v1", "jobs", id, "log"]) => Response::builder()
+            .header("content-type", "text/plain; charset=utf-8")
+            .body(Full::new(Bytes::from(format!(
+                "job {id}\n→ creating the machine\n→ cloning the worktree on its branch\n→ starting Claude Code\n✓ done\n"
+            ))).boxed())
+            .unwrap(),
         (&Method::GET, ["v1", "media", id, "file"])
             if fake.review.lock().unwrap().file(id).is_some() =>
         {
