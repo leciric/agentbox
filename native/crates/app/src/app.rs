@@ -10,6 +10,7 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
+mod new_task;
 mod sidebar;
 
 use crate::chat::ChatView;
@@ -62,6 +63,8 @@ pub struct AppView {
     desktop: Option<Entity<VncView>>,
     tab: Tab,
     side: sidebar::Sidebar,
+    /// The New task picker, while it's open.
+    new_task: Option<new_task::NewTask>,
     _events: Task<()>,
 }
 
@@ -82,6 +85,7 @@ impl AppView {
             desktop: None,
             tab: Tab::Chat,
             side: sidebar::Sidebar::new(window, cx),
+            new_task: None,
             _events: events,
         };
         this.load_settings(window, cx);
@@ -602,7 +606,20 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         bench::mark("first-render");
+        let overlay = self.render_new_task(cx);
         h_flex()
+            .id("app")
+            .relative()
+            // Ctrl+N anywhere opens New task.
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                if ev.keystroke.modifiers.control
+                    && ev.keystroke.key == "n"
+                    && this.new_task.is_none()
+                {
+                    this.open_new_task(window, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .size_full()
             .bg(theme::bg())
             .text_color(theme::fg())
@@ -634,5 +651,7 @@ impl Render for AppView {
                 }),
             )
             .child(self.render_rail(cx))
+            // Last, so it draws over the rest.
+            .children(overlay)
     }
 }

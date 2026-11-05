@@ -148,6 +148,11 @@ impl ChatView {
         .detach();
     }
 
+    /// focus_composer puts the cursor in the message box.
+    pub fn focus_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |s, cx| s.focus(window, cx));
+    }
+
     /// stop ends the turn in progress (POST …/chat/cancel).
     fn stop(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();

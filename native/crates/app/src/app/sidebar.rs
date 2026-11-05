@@ -307,6 +307,32 @@ impl AppView {
                     .child(
                         v_flex()
                             .pb_4()
+                            .child(
+                                self.row("new-task", false, cx)
+                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                        this.open_new_task(window, cx)
+                                    }))
+                                    .child(
+                                        div()
+                                            .flex_none()
+                                            .size_6()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .text_color(theme::muted())
+                                            .child("✎"),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .text_sm()
+                                            .text_color(theme::muted())
+                                            .child(t("v2.sidebar.newTask")),
+                                    )
+                                    .child(
+                                        div().text_xs().text_color(theme::faint()).child("Ctrl N"),
+                                    ),
+                            )
                             .child(self.home_row(cx))
                             .child(
                                 div()
