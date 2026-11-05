@@ -89,12 +89,12 @@ const SMALL_W = 5.6;
 const SMALL_D = 4.3;
 const SMALL_BACK = 2.7;
 const ROWS = 2;
-const PAD_L = 1.3; // the left wall's strip: its window, moss, lockers and racks
+const PAD_L = 2.0; // the left wall's strip: its window, moss, lockers and racks, and room beside them
 const PAD_R = 0.6;
 const BACK = 3.1; // the back aisle, before the board
 const FRONT = 0.5;
 // From a cell's back to its pod's desks.
-const DESK_IN = 1.9;
+const DESK_IN = 2.2;
 
 // columns is how many pods an area puts side by side: a block a little wider
 // than deep, so its room stays the target's size.
@@ -149,9 +149,14 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   // more than it holds where there's room.
   // (A small room's first pod at the back, under its board.)
   const p0 = meetIn ? (meetFront ? 0 : 1) : 0;
+  // Fewer pods than the checkerboard has room for: spread evenly along it,
+  // not bunched at one end.
+  const checker = cells.filter(([c, r]) => (c + r) % 2 === p0 && !kinds[c][r]);
   const podCells: [number, number][] = [];
-  for (const [c, r] of cells) if (podCells.length < P && (c + r) % 2 === p0 && !kinds[c][r]) podCells.push([c, r]);
+  if (P > 0 && P < checker.length) for (let i = 0; i < P; i++) podCells.push(checker[P === 1 ? 0 : Math.round((i * (checker.length - 1)) / (P - 1))]);
+  else podCells.push(...checker.slice(0, P));
   for (const [c, r] of cells) if (podCells.length < P && (c + r) % 2 !== p0 && !kinds[c][r]) podCells.push([c, r]);
+  podCells.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
   for (const [c, r] of podCells) kinds[c][r] = 'pod';
   // The lead's counter in the front row, nearest its middle: who you see first.
   let leadCell: [number, number] | undefined;
@@ -167,11 +172,26 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   // (Over four floors, with the meeting room's turn, no two alike.)
   const swap = ((h >> 2) + (floor >> 1)) % 2 === 0;
   const backOpen = () => open(0).filter(([c]) => c !== boardCol).sort((p, q) => (swap ? p[0] - q[0] : q[0] - p[0]));
-  const kitchenCell = backOpen()[0] ?? open()[0];
-  if (kitchenCell) kinds[kitchenCell[0]][kitchenCell[1]] = 'kitchen';
-  // (Never the board's: its sofa would stand under the board.)
-  const loungeCell = backOpen()[0] ?? open(1)[0] ?? open().filter(([c, r]) => !(r === 0 && c === boardCol))[0];
-  if (loungeCell) kinds[loungeCell[0]][loungeCell[1]] = 'lounge';
+  // (Neither ever the board's: its counters or sofa would stand before it.)
+  const notBoard = () => open().filter(([c, r]) => !(r === 0 && c === boardCol));
+  // Floor to floor, the kitchen or the lounge has the back wall first.
+  let kitchenCell: [number, number] | undefined;
+  let loungeCell: [number, number] | undefined;
+  const takeKitchen = () => {
+    kitchenCell = backOpen()[0] ?? notBoard()[0];
+    if (kitchenCell) kinds[kitchenCell[0]][kitchenCell[1]] = 'kitchen';
+  };
+  const takeLounge = () => {
+    loungeCell = backOpen()[0] ?? open(1)[0] ?? notBoard()[0];
+    if (loungeCell) kinds[loungeCell[0]][loungeCell[1]] = 'lounge';
+  };
+  if (swap && !compact) {
+    takeLounge();
+    takeKitchen();
+  } else {
+    takeKitchen();
+    takeLounge();
+  }
   // The rest: a games corner, then corners of things.
   let games = false;
   for (const [c, r] of open()) {
@@ -214,8 +234,17 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       obstacles.push(box(dx + side * 0.48, dz - SEAT, 1.2, 1.1));
       // You stand beside the agent, level with it, facing it, a good step
       // out: seen from the front, clear of it either side, never over it.
-      desks.push({ id: d.id, x: dx, z: dz, side: side as -1 | 1, spot: { x: Math.min(roomW - PAD_R - 0.1, Math.max(PAD_L + 0.15, dx + side * 2.3)), z: dz - SEAT + 0.05, face: -side * (Math.PI / 2) } });
+      desks.push({ id: d.id, x: dx, z: dz, side: side as -1 | 1, spot: { x: Math.min(roomW - PAD_R - 0.1, Math.max(1.6, dx + side * 2.3)), z: dz - SEAT + 0.05, face: -side * (Math.PI / 2) } });
     }
+  }
+  // A potted plant at each pod's cell's front corner, one side or the other:
+  // a desk's own green.
+  for (const [p, [c, r]] of podCells.entries()) {
+    const cb = cellBox(c, r);
+    const x = p % 2 ? cb.x1 - 0.55 : cb.x0 + 0.55;
+    const z = cb.z1 - 0.45;
+    plants.push({ x, z });
+    obstacles.push(box(x, z, 0.55, 0.55));
   }
   // The lead's counter, its lead behind it facing the room, on a mat.
   let lead: AreaPlace['lead'];
@@ -250,7 +279,8 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       prop('island', cx, cb.z0 + 0.3 + id / 2);
       kitchenBox = { x0: kx - kw / 2, z0: 0, x1: fridge ? kx + kw / 2 + 0.1 + fw : kx + kw / 2, z1: 1 };
     } else {
-      prop('vending', cb.x1 - footOf('vending')[0] / 2 - 0.5, cb.z0 + 0.3 + footOf('vending')[1] / 2);
+      // (Clear of the spot at the pod next door.)
+      prop('vending', cb.x1 - footOf('vending')[0] / 2 - 0.85, cb.z0 + 0.3 + footOf('vending')[1] / 2);
       prop('island', cx - 0.4, cb.z0 + 1.6 + id / 2);
     }
     woods.push({ x0: cb.x0 + 0.15, z0: kitchenCell[1] === 0 ? 0 : cb.z0 + 0.15, x1: cb.x1 - 0.15, z1: kitchenCell[1] === 1 ? roomD : cb.z1 - 0.15 });
@@ -398,6 +428,12 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     }
   }
 
+  // You read the board from beside its end, in the picture with it: its left
+  // end, or its right where the left is taken; else before its left part.
+  const boardSpot: Spot = [
+    { x: boardX - boardW / 2 - 0.75, z: 1.1, face: Math.PI / 2 },
+    { x: boardX + boardW / 2 + 0.75, z: 1.1, face: -Math.PI / 2 },
+  ].find((p) => clearAt(p.x, p.z, 0.6)) ?? { x: boardX - boardW / 2 + 0.8, z: 1.3, face: Math.PI / 2 };
   // You come in at the front, by the middle, in full view: the nearest spot
   // clear of everything, never inside a piece of furniture.
   const want = { x: roomW * 0.55, z: roomD - 1.3 };
@@ -416,7 +452,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   return {
     room: { x0: 0, z0: 0, x1: roomW, z1: roomD },
     areas,
-    board: { x: boardX, w: boardW, spot: { x: boardX - boardW / 2 + 0.8, z: 1.3, face: Math.PI / 2 } },
+    board: { x: boardX, w: boardW, spot: boardSpot },
     lobby: wood,
     wood,
     woods,
@@ -435,7 +471,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     rack,
     lounge,
     variant: kinds.flat().filter((k) => k === 'games').length ? h % 3 : 3 + (h % 3),
-    finish: (h + floor - 1 + Math.floor((floor - 1) / 3)) % 3,
+    finish: (h + floor - 1) % 3,
   };
 }
 
@@ -522,8 +558,8 @@ const CAMPUS_GAP_Z = 13;
 const CAMPUS_ASPECT = 1.6;
 // A project's floors stand on each other over the campus, one building, each
 // this far over the one below and a little back.
-export const FLOOR_LIFT = 6.5;
-const FLOOR_STEP = 1.5;
+export const FLOOR_LIFT = 7.5;
+const FLOOR_STEP = 3;
 // Where a floor past the first really is, for walking in it: far behind the
 // campus, clear of every other room (the campus shows it on its building).
 const FLOOR_AWAY = 400;

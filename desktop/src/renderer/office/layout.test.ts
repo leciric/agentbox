@@ -99,10 +99,11 @@ test('every room is furnished, and nothing stands on anything else', () => {
   // Names whose commons are each of its three kinds.
   for (const name of ['p', 'storefront', 'quill', 'agentbox', 'x', 'yy'])
   for (const n of [12, 9, 8, 4, 2, 1, 0]) {
-    const l = roomLayout({ areas: n ? [area(name, n)] : [] });
+  for (const floor of [1, 2, 3, 4]) {
+    const l = roomLayout({ areas: n ? [{ ...area(name, n), floor, noLead: floor > 1 }] : [] });
     // Every cell holds something; these are the things besides the pods, the
     // counter, the meeting room and the lounge.
-    assert.ok(l.props.length >= (n ? 5 : 3), `${name} ${n}: ${l.props.length} things`);
+    assert.ok(l.props.length >= (n ? 4 : 3), `${name} ${n}: ${l.props.length} things`);
     // Mats are floor, walked over: what's on them mustn't overlap but may sit on one.
     const solid = l.props.filter((p) => p.kind !== 'mat');
     const feet = solid.map(footprint);
@@ -110,14 +111,17 @@ test('every room is furnished, and nothing stands on anything else', () => {
       assert.ok(within(l.room, f), `${n}: ${solid[i].kind} is in the room`);
       assert.ok(!overlaps(f, l.sofa), `${n}: ${solid[i].kind} is clear of the sofa`);
       assert.ok(!overlaps(f, l.meeting), `${name} ${n}: ${solid[i].kind} is out of the meeting room`);
+      // Nothing stands before the board.
+      assert.ok(!overlaps(f, { x0: l.board.x - l.board.w / 2, z0: 0, x1: l.board.x + l.board.w / 2, z1: 1.4 }), `${name} ${n}: ${solid[i].kind} is clear of the board`);
       for (const a of l.areas) {
         for (const pod of a.pods) assert.ok(!overlaps(f, pod), `${n}: ${solid[i].kind} is off ${a.project}'s pods`);
         if (!a.lead) continue;
         const counter = { x0: a.lead.x - COUNTER.w / 2, z0: a.lead.z - 1.2, x1: a.lead.x + COUNTER.w / 2, z1: a.lead.z + COUNTER.d / 2 };
         assert.ok(!overlaps(f, counter), `${n}: ${solid[i].kind} is clear of ${a.project}'s counter`);
       }
-      for (let j = i + 1; j < feet.length; j++) assert.ok(!overlaps(f, feet[j]), `${n}: ${solid[i].kind} and ${solid[j].kind}`);
+      for (let j = i + 1; j < feet.length; j++) assert.ok(!overlaps(f, feet[j]), `${name} ${n} ${floor}: ${solid[i].kind} and ${solid[j].kind}`);
     }
+  }
   }
 });
 

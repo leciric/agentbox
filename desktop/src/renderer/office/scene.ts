@@ -116,7 +116,7 @@ const ACCEL = 9;
 const BRAKE = 8;
 const FOV = 24;
 // The overview's 3/4 view: from the front right, over the open corner.
-const HOME_YAW = 0.5;
+const HOME_YAW = 0.4;
 // Over the campus, more from the front: its rows of rooms read left to right.
 const CAMPUS_YAW = 0.3;
 const OVERVIEW_PITCH = 0.62;
@@ -670,11 +670,16 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // The campus's ground: a soft green under all of it, so its buildings
     // stand somewhere rather than float apart. (Over the campus only.)
     {
-      const b = l.room;
-      const ground = mesh(geo.roundTop, own(std('#dfeadb', { roughness: 0.95 })), (b.x0 + b.x1) / 2, -1.32, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 14, 0.24, b.z1 - b.z0 + 12);
-      ground.receiveShadow = true;
-      addTo(-1, ground);
-      addTo(-1, mesh(geo.roundTop, own(std('#c9d9c4', { roughness: 0.95 })), (b.x0 + b.x1) / 2, -1.5, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 14.6, 0.2, b.z1 - b.z0 + 12.6));
+      const top = own(std('#dfeadb', { roughness: 0.95 }));
+      const edge = own(std('#c9d9c4', { roughness: 0.95 }));
+      for (const rm of l.rooms) {
+        if (rm.floor !== 1) continue;
+        const b = rm.box;
+        const g0 = mesh(geo.roundTop, top, (b.x0 + b.x1) / 2 + 0.6, -1.32, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 7, 0.24, b.z1 - b.z0 + 6);
+        g0.receiveShadow = true;
+        addTo(-1, g0);
+        addTo(-1, mesh(geo.roundTop, edge, (b.x0 + b.x1) / 2 + 0.6, -1.5, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 7.6, 0.2, b.z1 - b.z0 + 6.6));
+      }
     }
     // A project on floors: a building. A plinth under its first floor, its
     // floors over it on posts, a glass lift up its side. (Over the campus only.)
@@ -701,8 +706,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
             addTo(-1, mesh(geo.roundTop, frame, px, below + h / 2, pz, 0.22, h, 0.22));
         }
         // The lift, glass, beside the building, from its plinth to its top.
-        const lx = b.x1 + 1.1;
-        const lz = (b.z0 + b.z1) / 2;
+        // Against the building's right side, at its back.
+        const lx = b.x1 + 0.75;
+        const lz = b.z0 + 1.6;
         const lh = top + 4.2;
         const glassShaft = mesh(geo.box, shaft, lx, -0.9 + lh / 2, lz, 1.4, lh, 1.8, false);
         glassShaft.renderOrder = 3;
@@ -725,7 +731,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const shade = [0, 30, -30, 15, -15][(pi + 2 * (lay.rooms[place.room]?.floor ?? 1) - 2) % 5];
         const hh = ((area.hue + shade + 360) % 360) / 360;
         // Saturated, as a toy's rugs: the pods read as coloured islands.
-        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.72, pi % 2 ? 0.55 : 0.6), { roughness: 0.95 }));
+        const rugMat = own(std(new THREE.Color().setHSL(hh, 0.8, pi % 2 ? 0.5 : 0.55), { roughness: 0.95 }));
         const rugEdge = own(std(new THREE.Color().setHSL(hh, 0.6, 0.45), { roughness: 0.95 }));
         const pw = pod.x1 - pod.x0;
         const pd = pod.z1 - pod.z0;
@@ -2026,7 +2032,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (scope === null) {
         // Over the campus: at its room's front corner, the one nearest you,
         // its name plate, clear of the rooms behind.
-        ap.set(rm.box.x1 - Math.min(5, (rm.box.x1 - rm.box.x0) / 3) + rm.shown.dx, -0.4 + rm.shown.dy, rm.box.z1 + 1.0 + rm.shown.dz);
+        // A building's floors' pills beside them, each at its own floor, as
+        // a building's directory; a single room's at its front corner.
+        if (rm.floors > 1) ap.set(rm.box.x1 + 1.2 + rm.shown.dx, 0.6 + rm.shown.dy, rm.box.z1 - 1.2 + rm.shown.dz);
+        else ap.set(rm.box.x1 - Math.min(5, (rm.box.x1 - rm.box.x0) / 3) + rm.shown.dx, -0.4 + rm.shown.dy, rm.box.z1 + 1.0 + rm.shown.dz);
         ap.project(camera);
         on = ap.z < 1 && Math.abs(ap.x) < 1 && Math.abs(ap.y) < 1;
       }
@@ -2051,7 +2060,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // see-through you reads as a glitch.
     me.fade(1);
     // Reading the board, you stand at its end, out of the picture.
-    me.group.visible = !(isBoard(near) && cam.closeK > 0.5);
+    me.group.visible = true;
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -2133,8 +2142,16 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     shown.sort((a, b) => Number(b.loud) - Number(a.loud) || b.y - a.y);
     const h = 24;
     const folded = new Map<HTMLElement, number>();
-    // The agents are taken too: a tag never covers one, head or body.
+    // The agents are taken too: a tag never covers one, head or body; nor
+    // you, head to feet.
     const bodyRects = bodies.map((b) => ({ x0: b.x0, x1: b.x1, y0: b.z0, y1: b.z1 }));
+    if (scope !== null && me.group.visible) {
+      const top = new THREE.Vector3(pos.x, 2.1, pos.z).project(camera);
+      const foot = new THREE.Vector3(pos.x, 0.15, pos.z).project(camera);
+      const half = (0.55 * canvas.clientHeight) / (2 * Math.max(1, camera.position.distanceTo(me.group.position)) * tanHalf);
+      const ux = ((top.x + 1) / 2) * canvas.clientWidth;
+      if (top.z < 1) bodyRects.push({ x0: ux - half, x1: ux + half, y0: ((1 - top.y) / 2) * canvas.clientHeight, y1: ((1 - foot.y) / 2) * canvas.clientHeight });
+    }
     const placed: { x0: number; x1: number; y: number }[] = [...taken, ...bodyRects].flatMap((r) => {
       // As the anchors of chips that would cover it (a chip's box runs from
       // 7px below its anchor to 31 below), a row every 20px.
@@ -2178,7 +2195,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // room nobody's: with nowhere clear, a tag stays at its desk. In a full
       // room a quiet one with no room of its own waits for you to come in,
       // rather than pile onto its neighbours.
-      if (!off && (m.needs || tinyRoom)) off = [0, 0];
+      // With nowhere clear, where it covers least.
+      if (!off && (m.needs || tinyRoom)) {
+        const covers = ([dx, dy]: [number, number]) => placed.filter((p) => inside(m.x + dx) - w / 2 < p.x1 + 4 && inside(m.x + dx) + w / 2 > p.x0 - 4 && Math.abs(p.y - (m.y + dy)) < h).length;
+        off = tries.reduce((b, t) => (covers(t) < covers(b) ? t : b), [0, 0] as [number, number]);
+      }
       if (!off && !m.loud) {
         // A quiet label with no room simply steps out of the way.
         m.el.style.display = 'none';
@@ -2433,8 +2454,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     if (scope === null && n < 0) {
       if (overRoom !== undefined) enter(overRoom);
     } else if (scope === null && n > 0) {
-      // Outwards over the campus: back to its whole view, however it was turned.
+      // Outwards over the campus: back to its whole view, as it's turned.
+      const yaw = cam.yaw;
       campus();
+      cam.yaw = yaw;
     } else if (scope !== null && n > 0 && zoomZ === 0) {
       campus();
     } else if (cam.closeK > 0.5 && n > 0) {
