@@ -83,12 +83,12 @@ const FIRST = 1.5; // from an area's back to its first pods' desks
 const AREA_PAD = 0.5; // the area's margin around its pods
 const LEAD_DEPTH = 3.0; // the counter's strip at the front of an area, clear of the pods
 const AISLE = 2.0; // between areas
-const BACK_AISLE = 3.4; // before the board
-const FRONT = 1.0; // floor before the front areas
-const WALL_PAD = 1.6;
+const BACK_AISLE = 3.1; // before the board
+const FRONT = 0.6; // floor before the front areas
+const WALL_PAD = 1.3;
 const PLANTER = 0.5;
 // The wood-floored side, the commons: about a third of the work's width.
-const woodOf = (workW: number) => Math.min(9.2, Math.max(7.4, workW * 0.32));
+const woodOf = (workW: number) => Math.min(8.6, Math.max(7.4, workW * 0.3));
 const MIN_ROOM_D = 12;
 const MIN_WORK_W = 8.5;
 const COMPACT_WOOD = 5.8;
@@ -330,8 +330,10 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     prop('booth', wx + 5.6, zp);
     prop('plants', roomW - 1.2, zp + 1.6);
   }
-  // Bean bags round a little table, at the front.
+  // A big soft rug under the commons' games and bean bags: no bare boards.
   const zb = Math.min(roomD - 2.0, zp + 3.8);
+  props.push({ kind: 'mat', x: (wx + roomW) / 2, z: (zp + zb) / 2 + 0.2, rot: 0 });
+  // Bean bags round a little table, at the front.
   prop('beanbags', wx + 2.7, zb);
   if (!compact) prop('whiteboard', roomW - 1.3, zb);
   // A tree in the commons' front corner.
@@ -616,9 +618,10 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Campus {
         // More floors than a row holds: rows of their own, a block on its
         // plinth, nothing else in them.
         if (row.length) rows.push([]);
-        for (let k = 0; k < group.length; k += perRow) {
+        const chunk = Math.ceil(group.length / Math.ceil(group.length / perRow));
+        for (let k = 0; k < group.length; k += chunk) {
           if (rows[rows.length - 1].length) rows.push([]);
-          rows[rows.length - 1].push(...group.slice(k, k + perRow));
+          rows[rows.length - 1].push(...group.slice(k, k + chunk));
         }
         rows.push([]);
       } else if (row.length && row.length + group.length > perRow) rows.push([...group]);

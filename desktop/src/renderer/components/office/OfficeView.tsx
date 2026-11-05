@@ -770,7 +770,12 @@ function DeskCard({
         </div>
       )}
       {question && <div className="mt-2.5 max-h-28 overflow-y-auto rounded-lg bg-amber-400/10 px-2.5 py-2 text-[12.5px] text-amber-800 ring-1 ring-amber-400/50 [overflow-wrap:anywhere]">{question}</div>}
-      {activity && <div className="mt-2.5 flex min-w-0 items-center gap-1.5 text-[12px] text-emerald-600"><span className="size-1.5 shrink-0 rounded-full bg-emerald-400" /><span className="min-w-0 truncate">{activity}</span></div>}
+      {activity && (
+        <div className={cn('mt-2.5 flex min-w-0 items-center gap-1.5 text-[12px]', tone === 'working' ? 'text-sky-700' : tone === 'finished' ? 'text-emerald-700' : tone === 'needs' ? 'text-amber-700' : tone === 'error' ? 'text-red-600' : 'text-slate-500')}>
+          <span className={cn('size-1.5 shrink-0 rounded-full', toneDot[tone])} />
+          <span className="min-w-0 truncate">{activity}</span>
+        </div>
+      )}
       {last && <div className="mt-1.5 line-clamp-3 text-[12.5px] text-slate-600 [overflow-wrap:anywhere]">{last}</div>}
       {pr && <div className={cn('mt-2 flex items-center gap-1.5 text-[12px]', prTone === 'bad' ? 'text-red-600' : 'text-slate-600')}><GitPullRequest className="size-3.5" />{pr}</div>}
       <div className="mt-3 flex flex-wrap gap-2">{children}</div>

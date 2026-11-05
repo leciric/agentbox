@@ -11,7 +11,7 @@ import colormapUrl from './assets/kenney/colormap.png?inline';
 import type { Walker } from './figures.ts';
 
 // How tall you stand, in metres: about a seated Boxie's height, a toy among toys.
-const HEIGHT = 1.6;
+const HEIGHT = 1.95;
 
 // player wraps a stand-in walker and swaps the Kenney figure in once it has
 // loaded; onReady asks for a frame.

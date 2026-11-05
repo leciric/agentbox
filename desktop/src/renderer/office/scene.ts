@@ -369,7 +369,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         sub.style.cssText = 'font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.28)';
         const bad = document.createElement('span');
         bad.style.cssText = 'display:none;font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:#fff;color:#dc2626';
-        chip.append(name, sub, bad);
+        const work = document.createElement('span');
+        work.style.cssText = 'display:none;font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:#fff;color:#2563eb';
+        chip.append(name, sub, bad, work);
         const lead = rm.lead ? `${rm.project}/lead` : undefined;
         // Over the campus it goes into its room; in the room, to its lead.
         press(chip, () => {
@@ -729,7 +731,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const ri = roomOf(lay, ref) ?? 0;
       const n = perRoom.get(ri) ?? 0;
       perRoom.set(ri, n + 1);
-      variants.set(ref, n);
+      // Each room starts somewhere else in the looks: no two rooms' first
+      // agents alike.
+      variants.set(ref, n + ri * 3);
       variantTool.set(ref, ai || 'claude');
     }
     return variants.get(ref)!;
@@ -1437,7 +1441,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const free = 1;
       const pitch = 0.4;
       // Wide enough for you, standing at its left end, too.
-      const dist = Math.max((rm.board.w + 1.8) / (free * 2 * tan * aspect), ((bh + 0.9) * Math.cos(pitch)) / (0.7 * 2 * tan));
+      const dist = Math.max((rm.board.w + 3.6) / (free * 2 * tan * aspect), ((bh + 0.9) * Math.cos(pitch)) / (0.7 * 2 * tan));
       const vw = 2 * dist * tan * aspect;
       return { x: rm.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: rm.oz + 0.1, dist, pitch, yaw: 0 };
     }
@@ -1613,9 +1617,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // sliding under the pointer would send a click somewhere else.
     // Moving is moving visibly, not the easing's last hair.
     // As a speed, so it means the same at any frame rate.
-    const moving = Math.abs(after - before) / Math.max(dt, 1e-3) > 0.2;
+    const moving = Math.abs(after - before) / Math.max(dt, 1e-3) > 0.45;
     settledFor = moving ? 0 : settledFor + dt;
-    const show = settledFor > 0.25;
+    const show = settledFor > 0.15;
     if (show !== chipsShown) {
       chipsShown = show;
       // Away while it moves, and back once laid out where they'll stay: a tag
@@ -1705,7 +1709,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const sx = ((figPos.x + 1) / 2) * canvas.clientWidth;
         const sy = ((1 - figPos.y) / 2) * canvas.clientHeight;
         ahead = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 190 && Math.abs(sy - p.y) < 230);
-        leadHidesFace = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 110 && Math.abs(sy - p.y) < 140);
+        leadHidesFace = ahead;
       }
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (d.root.position.distanceTo(camera.position) < 4.2 || ahead);
       // At a board, what stands between it and the camera steps aside.
@@ -1792,6 +1796,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // Who needs you, in amber; what failed, in red beside it.
     const waiting = new Map<number, number>();
     const failed = new Map<number, number>();
+    const busy = new Map<number, number>();
+    for (const d of desks.values()) {
+      if (d.tone !== 'working') continue;
+      const ri = roomOf(lay, d.ref);
+      if (ri !== undefined) busy.set(ri, (busy.get(ri) ?? 0) + 1);
+    }
     for (const d of desks.values()) {
       if (d.tone !== 'needs' && d.tone !== 'error') continue;
       const ri = roomOf(lay, d.ref);
@@ -1804,10 +1814,14 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (!chip) continue;
       const n0 = waiting.get(ri) ?? 0;
       const f0 = failed.get(ri) ?? 0;
+      const w0 = busy.get(ri) ?? 0;
       const sub = chip.children[1] as HTMLElement;
       const bad = chip.children[2] as HTMLElement;
-      if (sub.dataset.n !== `${n0}:${f0}`) {
-        sub.dataset.n = `${n0}:${f0}`;
+      const work = chip.children[3] as HTMLElement;
+      if (sub.dataset.n !== `${n0}:${f0}:${w0}`) {
+        sub.dataset.n = `${n0}:${f0}:${w0}`;
+        work.textContent = w0 ? `● ${w0}` : '';
+        work.style.display = w0 && !n0 && !f0 ? 'inline' : 'none';
         sub.textContent = n0 ? String(n0) : '';
         sub.style.display = n0 ? 'inline' : 'none';
         // Amber, as everything that needs you is.
@@ -1845,7 +1859,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
     const tp = new THREE.Vector3();
-    const shown: { el: HTMLDivElement; x: number; y: number; loud: boolean }[] = [];
+    const shown: { el: HTMLDivElement; x: number; y: number; loud: boolean; needs?: boolean }[] = [];
     // Where the overlay's card or board list is: no chip shows under it.
     const cardEl = document.querySelector('[data-office-desk], [data-office-board]');
     const cr = canvas.getBoundingClientRect();
@@ -1898,10 +1912,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 130, ((1 - tp.y) / 2) * canvas.clientHeight);
-        const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 140 && my > face.y - 110 && my < face.y + 160);
+        const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 140 && my > face.y - 200 && my < face.y + 160);
         const show = onScreen && !underCard;
         marker.style.display = show ? 'flex' : 'none';
-        if (show) shown.push({ el: marker, x: mx, y: my, loud });
+        if (show) shown.push({ el: marker, x: mx, y: my, loud, needs: d.tone === 'needs' });
       }
     }
     // You, from far off: a chip in your colour over your head, or under your
@@ -1974,6 +1988,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         m.el.style.display = 'none';
         continue;
       }
+      // Who needs you is never folded away: its tag stays where it belongs.
+      if (!off && m.needs) off = [0, 0];
       if (!off) {
         // No room: folded into the chip in its way, if there's one nearby;
         // else it stays where it belongs.

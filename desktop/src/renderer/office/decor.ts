@@ -40,9 +40,9 @@ function canvas(w: number, h: number) {
 }
 
 // terrazzo: cream with chips of warm colour, the floor of the work area.
-function terrazzo(): THREE.CanvasTexture {
+function terrazzo(base: string = PALETTE.terrazzo): THREE.CanvasTexture {
   const { ctx, tex } = canvas(512, 512);
-  ctx.fillStyle = PALETTE.terrazzo;
+  ctx.fillStyle = base;
   ctx.fillRect(0, 0, 512, 512);
   let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -198,7 +198,8 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
 
   // The floors: terrazzo for the work, planks for the wood side.
   const WX = l.wood.x0;
-  const tz = keep(terrazzo());
+  // Each room's finish: warm, stone or mint terrazzo.
+  const tz = keep(terrazzo(['#f3e1cb', '#ebe5dc', '#e2ece2'][l.variant % 3]));
   tz.repeat.set(WX / 3, D / 3);
   const tzFloor = new THREE.Mesh(keep(new THREE.PlaneGeometry(WX, D)), m('#ffffff', { map: tz, roughness: 0.55 }));
   tzFloor.rotation.x = -Math.PI / 2;
