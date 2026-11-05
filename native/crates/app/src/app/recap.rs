@@ -3,7 +3,10 @@
 //! their hours of work and how much of it while you were away, the agents,
 //! pull requests, lines, streak, longest agent and busiest project, each day
 //! and each hour, and tokens and cost by model. Opened from Work's "Your week"
-//! over the page. The card to share (a PNG drawn on a canvas) isn't here.
+//! over the page, with the card to share the week (recap_card.rs), copied or
+//! saved as a PNG.
+use std::sync::Arc;
+
 use agentbox_api::{Client, Recap};
 use agentbox_i18n::{t, tv};
 use chrono::{Datelike as _, Duration, NaiveDate};
@@ -23,6 +26,11 @@ pub struct RecapView {
     focus: FocusHandle,
     weeks: i64,
     recap: Option<Result<Recap, String>>,
+    /// The share card's options, and the card drawn for them.
+    card_opts: super::recap_card::Opts,
+    card: Option<(super::recap_card::Opts, Arc<Image>)>,
+    /// "copied" or "saved", for a moment after.
+    done: Option<&'static str>,
 }
 
 impl EventEmitter<RecapEvent> for RecapView {}
@@ -54,7 +62,7 @@ pub fn compact(n: i64) -> String {
 }
 
 /// model_label is a model as people call it: claude-opus-4-5 is Opus 4.5.
-fn model_label(model: &str) -> String {
+pub(super) fn model_label(model: &str) -> String {
     let Some(rest) = model.strip_prefix("claude-") else {
         return model.to_string();
     };
@@ -98,6 +106,12 @@ impl RecapView {
             focus,
             weeks: 0,
             recap: None,
+            card_opts: super::recap_card::Opts {
+                square: false,
+                names: false,
+            },
+            card: None,
+            done: None,
         };
         this.load(cx);
         this
@@ -114,6 +128,8 @@ impl RecapView {
             this.update(cx, |this, cx| {
                 if this.weeks == weeks {
                     this.recap = Some(res.map_err(|e| e.to_string()));
+                    this.card = None;
+                    this.draw_card(cx);
                     cx.notify();
                 }
             })
@@ -123,13 +139,263 @@ impl RecapView {
         cx.notify();
     }
 
+    /// draw_card draws the share card for the options set, off the main
+    /// thread (drawCard).
+    fn draw_card(&mut self, cx: &mut Context<Self>) {
+        let Some(Ok(r)) = &self.recap else { return };
+        let (r, o, range) = (r.clone(), self.card_opts, Self::range(r));
+        cx.spawn(async move |this, cx| {
+            let png = cx
+                .background_spawn(async move { super::recap_card::png(&r, o, &range) })
+                .await;
+            this.update(cx, |this, cx| {
+                match png {
+                    Ok(bytes) if this.card_opts == o => {
+                        this.card = Some((o, Arc::new(Image::from_bytes(ImageFormat::Png, bytes))));
+                    }
+                    Ok(_) => {}
+                    Err(e) => crate::toasts::error(cx, e.to_string()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn set_card(&mut self, o: super::recap_card::Opts, cx: &mut Context<Self>) {
+        if self.card_opts != o {
+            self.card_opts = o;
+            self.draw_card(cx);
+            cx.notify();
+        }
+    }
+
+    fn flash(&mut self, what: &'static str, cx: &mut Context<Self>) {
+        self.done = Some(what);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1800))
+                .await;
+            this.update(cx, |this, cx| {
+                if this.done == Some(what) {
+                    this.done = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// copy_card puts the card on the clipboard as a PNG.
+    fn copy_card(&mut self, cx: &mut Context<Self>) {
+        let Some((_, img)) = &self.card else { return };
+        cx.write_to_clipboard(ClipboardItem::new_image(img));
+        // GPUI's X11 clipboard holds text only: there xclip, where it is
+        // installed, holds the PNG.
+        #[cfg(target_os = "linux")]
+        if std::env::var_os("WAYLAND_DISPLAY").is_none() {
+            use std::io::Write as _;
+            if let Ok(mut child) = std::process::Command::new("xclip")
+                .args(["-selection", "clipboard", "-t", "image/png", "-i"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(img.bytes());
+                }
+                std::thread::spawn(move || child.wait());
+            }
+        }
+        self.flash("copied", cx);
+    }
+
+    /// save_card asks where, then writes the card's PNG there.
+    fn save_card(&mut self, cx: &mut Context<Self>) {
+        let (Some((o, img)), Some(Ok(r))) = (&self.card, &self.recap) else {
+            return;
+        };
+        let name = super::recap_card::file_name(r, o.square);
+        let bytes = img.bytes().to_vec();
+        let dir = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+        let rx = cx.prompt_for_new_path(&dir, Some(&name));
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(path))) = rx.await else { return };
+            let res = std::fs::write(&path, bytes);
+            this.update(cx, |this, cx| match res {
+                Ok(()) => this.flash("saved", cx),
+                Err(e) => crate::toasts::error(cx, e.to_string()),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// render_share is Share your week (RecapView ShareCard): the card's
+    /// shape and names, the card, and Copy image and Save PNG.
+    fn render_share(&self, cx: &mut Context<Self>) -> AnyElement {
+        let o = self.card_opts;
+        let card = self
+            .card
+            .as_ref()
+            .filter(|(at, _)| *at == o)
+            .map(|(_, i)| i.clone());
+        let (w, h) = super::recap_card::size(o.square);
+        let max_w = if o.square { 544. } else { 896. };
+        v_flex()
+            .mt_6()
+            .p_5()
+            .gap_4()
+            .rounded_xl()
+            .border_1()
+            .border_color(theme::border())
+            .bg(theme::panel())
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .gap_3()
+                    .child(
+                        v_flex()
+                            .min_w_0()
+                            .child(
+                                h_flex()
+                                    .gap_1p5()
+                                    .text_base()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme::fg())
+                                    .child(
+                                        div()
+                                            .text_color(theme::accent())
+                                            .child(crate::icons::ic("sparkles")),
+                                    )
+                                    .child(t("recap.share.title")),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme::muted())
+                                    .child(t("recap.share.description")),
+                            ),
+                    )
+                    .child(div().flex_1())
+                    .child(controls::segmented(
+                        "recap-shape",
+                        vec![
+                            ("landscape".into(), t("recap.share.landscape")),
+                            ("square".into(), t("recap.share.square")),
+                        ],
+                        Some(if o.square { "square" } else { "landscape" }),
+                        false,
+                        std::rc::Rc::new(cx.listener(move |this, v: &str, _, cx| {
+                            this.set_card(
+                                super::recap_card::Opts {
+                                    square: v == "square",
+                                    ..this.card_opts
+                                },
+                                cx,
+                            )
+                        })),
+                    ))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .text_sm()
+                            .text_color(theme::fg())
+                            .child(controls::toggle(
+                                "recap-names",
+                                o.names,
+                                false,
+                                cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.set_card(
+                                        super::recap_card::Opts {
+                                            names: !this.card_opts.names,
+                                            ..this.card_opts
+                                        },
+                                        cx,
+                                    )
+                                }),
+                            ))
+                            .child(t("recap.share.names")),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .justify_center()
+                    .p_4()
+                    .rounded_2xl()
+                    .border_1()
+                    .border_color(theme::border())
+                    .bg(theme::bg())
+                    .child(
+                        div()
+                            .w_full()
+                            .max_w(px(max_w))
+                            .aspect_ratio(w as f32 / h as f32)
+                            .rounded_xl()
+                            .overflow_hidden()
+                            .bg(theme::raised())
+                            .when_some(card, |el, c| {
+                                el.child(img(c).size_full().object_fit(ObjectFit::Contain))
+                            }),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(theme::faint())
+                            .child(if o.names {
+                                t("recap.share.namesOn")
+                            } else {
+                                t("recap.share.namesOff")
+                            }),
+                    )
+                    .child(controls::button(
+                        "recap-copy",
+                        if self.done == Some("copied") {
+                            t("recap.share.copied")
+                        } else {
+                            t("recap.share.copy")
+                        },
+                        Btn::Secondary,
+                        self.card.is_none(),
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.copy_card(cx)),
+                    ))
+                    .child(controls::button(
+                        "recap-save",
+                        if self.done == Some("saved") {
+                            t("recap.share.saved")
+                        } else {
+                            t("recap.share.save")
+                        },
+                        Btn::Primary,
+                        self.card.is_none(),
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.save_card(cx)),
+                    )),
+            )
+            .into_any_element()
+    }
+
     fn go(&mut self, by: i64, cx: &mut Context<Self>) {
         self.weeks = (self.weeks + by).max(0);
         self.load(cx);
     }
 
     /// range is the week's dates: Oct 18 – Oct 24.
-    fn range(r: &Recap) -> String {
+    pub(super) fn range(r: &Recap) -> String {
         let (Some(start), Some(end)) = (crate::dates::local(&r.start), crate::dates::local(&r.end))
         else {
             return String::new();
@@ -587,6 +853,9 @@ impl Render for RecapView {
                             .child(e.clone())
                             .into_any_element(),
                         Some(Ok(r)) => self.body(r),
+                    })
+                    .when(matches!(&self.recap, Some(Ok(r)) if r.work_seconds > 0 || r.agents > 0 || r.tokens > 0), |el| {
+                        el.child(self.render_share(cx))
                     }),
             )
     }

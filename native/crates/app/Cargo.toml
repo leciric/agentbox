@@ -25,6 +25,9 @@ gpui_platform.workspace = true
 # Lucide's icons (the Electron app's lucide-react), as gpui-component ships
 # them; icons.rs builds in only those the app draws.
 gpui-kit-assets = "0.9.0"
+# The recap's share card, an SVG rasterised to the PNG that is copied and
+# saved (recap_card.rs): the resvg GPUI already draws its icons with.
+resvg = { version = "0.46", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
 serde_json.workspace = true
 anyhow.workspace = true
 tokio.workspace = true

@@ -27,6 +27,7 @@ mod panel;
 mod past;
 pub(crate) mod pulls;
 mod recap;
+mod recap_card;
 mod review;
 mod schedules;
 mod search;
@@ -923,6 +924,7 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         bench::mark("first-render");
+        controls::set_viewport(window.viewport_size());
         self.focus_tour(window, cx);
         // The tour's spotlight reads where its anchors were drawn last.
         crate::spot::measure(self.onboarding_touring());

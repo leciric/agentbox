@@ -153,6 +153,7 @@ dependencies = [
  "mermaid-rs-renderer",
  "notify-rust",
  "raw-window-handle",
+ "resvg 0.46.0",
  "serde_json",
  "sha2 0.10.9",
  "syntect",
