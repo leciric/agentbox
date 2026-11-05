@@ -29,3 +29,6 @@ pub mod model;
 pub mod walk;
 pub mod figures;
 pub mod player;
+pub mod desks;
+pub mod textures;
+pub mod engine;
