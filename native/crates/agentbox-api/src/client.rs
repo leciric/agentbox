@@ -8,6 +8,7 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 pub use hyper::Method;
 use hyper::Request;
+#[cfg(unix)]
 use hyper_util::rt::TokioIo;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::mpsc;

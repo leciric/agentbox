@@ -5,6 +5,12 @@ license.workspace = true
 version.workspace = true
 publish.workspace = true
 
+[features]
+# Playing agents' recordings needs FFmpeg's libraries; checks for other
+# platforms (CI's cross-target cargo check) build without it.
+default = ["video"]
+video = ["dep:ffmpeg-next"]
+
 [dependencies]
 agentbox-api.workspace = true
 gpui.workspace = true
@@ -18,17 +24,17 @@ mermaid-rs-renderer = { version = "0.3.1", default-features = false }
 # The Markdown AST gpui-component parses into, for custom blocks.
 markdown = "1"
 # Review's recordings (H.264 High in MP4): decoded by FFmpeg's own decoder.
-ffmpeg-next = { version = "8", default-features = false, features = ["codec", "format", "software-scaling"] }
+ffmpeg-next = { version = "8", default-features = false, features = ["codec", "format", "software-scaling"], optional = true }
 # The frame type GPUI's RenderImage takes (gpui-pre uses image 0.25).
 image = { version = "0.25", default-features = false }
 # ```html preview blocks: a webview (WebKitGTK, WKWebView, WebView2) as a
 # child of the GPUI window.
 wry = "0.57"
 raw-window-handle = "0.6"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-gtk = "0.18"
 alacritty_terminal = "0.26"
 vnc-rs = "0.6"
 agentbox-i18n.workspace = true
 humantime = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"

@@ -11,6 +11,7 @@ mod chat;
 mod mermaid;
 mod terminal;
 mod theme;
+#[cfg(feature = "video")]
 mod video;
 mod vnc;
 mod webview;
@@ -46,6 +47,7 @@ fn main() {
             app_id: Some("agentbox-native".into()),
             ..Default::default()
         };
+        #[cfg(feature = "video")]
         if let Some(path) = play {
             // agentbox-native --play FILE: one recording in a window of its own.
             cx.open_window(options, |window, cx| {
@@ -57,6 +59,8 @@ fn main() {
             cx.activate(true);
             return;
         }
+        #[cfg(not(feature = "video"))]
+        let _ = play;
         cx.open_window(options, |window, cx| {
             window.set_window_title("AgentBox");
             let view = cx.new(|cx| app::AppView::new(client.clone(), window, cx));
