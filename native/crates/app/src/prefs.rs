@@ -136,3 +136,21 @@ pub fn review_volume() -> i64 {
         .unwrap_or(60)
         .clamp(0, 100)
 }
+
+/// may_notify is notifyPrefs.ts's mayNotify: whether a kind may use a
+/// channel now, which Do not disturb overrides.
+pub fn may_notify(kind: &str, channel: &str) -> bool {
+    dnd_until() <= chrono::Local::now().timestamp_millis() && notify_on(kind, channel)
+}
+
+/// TRAY_KEEP_RUNNING is the tray's "Keep running when the window is closed"
+/// (Electron's tray.json keepRunning), off by default.
+pub const TRAY_KEEP_RUNNING: &str = "trayKeepRunning";
+
+pub fn tray_keep_running() -> bool {
+    get_bool(TRAY_KEEP_RUNNING, false)
+}
+
+/// WINDOW is the window's place and size and whether it was maximised
+/// (Electron's window.json): {x, y, width, height, maximized}.
+pub const WINDOW: &str = "window";

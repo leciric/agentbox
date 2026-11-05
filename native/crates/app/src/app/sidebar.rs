@@ -83,7 +83,7 @@ pub struct Sidebar {
     /// Each project's lead's last line (GET /v1/projects/<p>/lead).
     lines: HashMap<String, ChatLine>,
     /// Every project's agents ready to review (GET /v1/review).
-    review: Vec<ReviewItem>,
+    pub(super) review: Vec<ReviewItem>,
     pub(super) search: Entity<InputState>,
     idle_open: bool,
     hidden_open: bool,
@@ -228,6 +228,7 @@ impl AppView {
                 this.side.sections.sort_by_key(|s| s.position);
                 this.side.hidden = layout.hidden.into_iter().collect();
                 this.side.agents = agents;
+                this.check_agents(cx);
                 cx.notify();
             })
             .ok();
@@ -286,6 +287,7 @@ impl AppView {
             if let Ok(p) = client.get::<ReviewPage>("/v1/review?limit=200").await {
                 this.update(cx, |this, cx| {
                     this.side.review = p.items;
+                    this.check_ready(cx);
                     cx.notify();
                 })
                 .ok();

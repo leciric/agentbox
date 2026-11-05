@@ -704,6 +704,13 @@ impl AppView {
                             "settings.entry.group-idle.keywords",
                         )
                         .modified(prefs::group_idle()),
+                        entry(
+                            "tray",
+                            "settings.entry.tray.label",
+                            "settings.tray.description",
+                            "settings.entry.tray.keywords",
+                        )
+                        .modified(prefs::tray_keep_running()),
                     ],
                 ),
                 group(
@@ -1621,6 +1628,21 @@ impl AppView {
                     false,
                     cx.listener(move |_, _: &ClickEvent, _, cx| {
                         prefs::set_bool(prefs::GROUP_IDLE, !on);
+                        cx.notify();
+                    }),
+                ));
+                row
+            }
+            "tray" => {
+                let on = prefs::tray_keep_running();
+                let mut row = self.more_row(e, None, cx);
+                row.control = Some(toggle(
+                    "switch-tray",
+                    on,
+                    false,
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        prefs::set_bool(prefs::TRAY_KEEP_RUNNING, !on);
+                        this.tray_changed();
                         cx.notify();
                     }),
                 ));

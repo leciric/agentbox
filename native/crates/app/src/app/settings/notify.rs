@@ -2,9 +2,8 @@
 //! which notices give a system notification and which a sound, Do not
 //! disturb, and the chime's volume. They're this computer's, as Electron
 //! keeps them in localStorage (lib/notifyPrefs.ts), so they live in
-//! crate::prefs. This app keeps the choices; giving the notices themselves
-//! comes with its notifications, which it doesn't have yet, and so the
-//! chime's "Test sound" isn't offered.
+//! crate::prefs; app/alerts.rs reads them before each sound and system
+//! notification.
 use std::rc::Rc;
 
 use agentbox_i18n::{t, tv};
@@ -222,17 +221,33 @@ impl AppView {
                     .iter()
                     .any(|k| prefs::notify_on(k, "sound"));
                 let mut row: Row = self.more_row(e, None, cx);
-                row.control = Some(stepper(
-                    "notify-volume",
-                    prefs::review_volume(),
-                    (0, 100, 10),
-                    "%",
-                    !any_sound,
-                    Rc::new(cx.listener(|_, v: &i64, _, cx| {
-                        prefs::set(prefs::REVIEW_VOLUME, (*v).into());
-                        cx.notify();
-                    })),
-                ));
+                row.control = Some(
+                    h_flex()
+                        .gap_2()
+                        .child(stepper(
+                            "notify-volume",
+                            prefs::review_volume(),
+                            (0, 100, 10),
+                            "%",
+                            !any_sound,
+                            Rc::new(cx.listener(|_, v: &i64, _, cx| {
+                                prefs::set(prefs::REVIEW_VOLUME, (*v).into());
+                                cx.notify();
+                            })),
+                        ))
+                        .child(button(
+                            "notify-test-sound",
+                            t("settings.reviewSound.test"),
+                            Btn::Secondary,
+                            !any_sound,
+                            move |_, _, _| {
+                                if any_sound {
+                                    crate::notices::chime(prefs::review_volume());
+                                }
+                            },
+                        ))
+                        .into_any_element(),
+                );
                 Some(row.render())
             }
             _ => None,

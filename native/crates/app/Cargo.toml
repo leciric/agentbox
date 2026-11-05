@@ -47,9 +47,21 @@ base64 = "0.22"
 hayro = "=0.8.0"
 # Do not disturb ends at 8 tomorrow morning, the user's own time.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# The tray icon and its menu (muda), as Electron's Tray. On Linux it is an
+# AppIndicator (libayatana-appindicator3, loaded at run time) over the GTK
+# webview::init already pumps.
+tray-icon = { version = "0.21", default-features = false }
+# OS notifications: D-Bus on Linux (gpui-pre-linux already builds it),
+# Notification Center and WinRT toasts elsewhere.
+notify-rust = "4.18"
+# The chime, synthesised (no sound file): just an output stream, ALSA on
+# Linux, CoreAudio, WASAPI.
+cpal = { version = "0.16", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+# The launcher icon's count (Unity's LauncherEntry signal); notify-rust's zbus.
+zbus = "5"
 # The same WebKitGTK wry uses (pinned as wry pins it): pages drawn offscreen
 # for ```html preview where child webviews can't be made (Wayland).
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }

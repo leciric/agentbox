@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 
 mod agents;
 mod chat;
+mod notify;
 mod panel;
 mod pulls;
 mod review;
@@ -579,6 +580,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
     let fake_agent = |p: &str, a: &str| fake.is_fake(p) && review::Review::is_agent(a);
     let pick_up = upstream_pick_up(fake.clone());
     let req = match panel::route(&fake, req, &query, pick_up).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
+    let req = match notify::route(&fake, req, &query).await {
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };

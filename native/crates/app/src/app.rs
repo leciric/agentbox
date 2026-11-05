@@ -11,6 +11,8 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 mod agent;
+mod alerts;
+pub use alerts::initial_bounds;
 mod agent_settings;
 mod agent_status;
 mod connection;
@@ -113,6 +115,8 @@ pub struct AppView {
     /// The open project's pull requests, and the one open over the window.
     pulls: pulls::Pulls,
     toasts: Entity<crate::toasts::Toasts>,
+    /// The notices, the tray and the window's place (alerts.rs).
+    alerts: alerts::Alerts,
     /// The lead's chat sessions, every project's.
     sessions: sessions::Sessions,
     /// The lead's chat should show another session: opened on the next frame.
@@ -198,6 +202,7 @@ impl AppView {
             review: None,
             pulls,
             toasts: crate::toasts::init(cx),
+            alerts: Default::default(),
             sessions: sessions::Sessions::new(window, cx),
             reopen_lead: false,
             asking_home: None,
@@ -211,6 +216,7 @@ impl AppView {
         this.load_projects(window, cx);
         this.watch_connection(window, cx);
         this.watch_topbar(cx);
+        this.start_alerts(window, cx);
         if let Ok(secs) =
             std::env::var("AGENTBOX_NATIVE_SCROLL_BENCH").map(|s| s.parse::<u64>().unwrap_or(3))
         {
@@ -248,6 +254,7 @@ impl AppView {
         let Some(ev) = msg else {
             // (Re)connected: whatever happened meanwhile is in a fresh read.
             self.connected = true;
+            self.tray_soon();
             self.load_settings(window, cx);
             self.load_theme(window, cx);
             if self.settings {
@@ -265,6 +272,9 @@ impl AppView {
             }
             return;
         };
+        if alerts::moves_tray(&ev.r#type) {
+            self.tray_soon();
+        }
         match ev.r#type.as_str() {
             EVENT_AGENT => {
                 let Ok(change) = serde_json::from_value::<AgentChange>(ev.data) else {
@@ -277,6 +287,7 @@ impl AppView {
                 {
                     self.load_sidebar(cx);
                 }
+                self.check_agents(cx);
                 cx.notify();
                 let mine = self
                     .project
@@ -306,6 +317,7 @@ impl AppView {
                 if let Some(s) = &chat_ev.session
                     && self.side.apply_agent(&chat_ev.agent, None, Some(&s.state))
                 {
+                    self.check_agents(cx);
                     cx.notify();
                 }
                 if let Some(s) = &chat_ev.session {
@@ -383,6 +395,11 @@ impl AppView {
             agentbox_api::EVENT_REVIEW => self.reload_review(cx),
             agentbox_api::EVENT_THEME => self.load_theme(window, cx),
             agentbox_api::EVENT_UPDATE => self.reload_update(cx),
+            agentbox_api::EVENT_NOTIFICATION => {
+                if let Ok(n) = serde_json::from_value::<agentbox_api::Notification>(ev.data) {
+                    self.on_notification(n, cx);
+                }
+            }
             agentbox_api::EVENT_QUESTION => {
                 if let Some(p) = ev.data.get("project").and_then(|v| v.as_str()) {
                     self.load_questions(p.to_string(), cx);

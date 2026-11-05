@@ -15,19 +15,21 @@ mod files;
 mod highlight;
 mod media;
 mod mermaid;
+mod notices;
 mod prefs;
 #[cfg(target_os = "linux")]
 mod snapshot;
 mod terminal;
 mod theme;
 mod toasts;
+mod tray;
 #[cfg(feature = "video")]
 mod video;
 mod viewers;
 mod vnc;
 mod webview;
 
-use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui::{App, AppContext as _, WindowOptions, px, size};
 use gpui_component::Root;
 
 fn main() {
@@ -52,9 +54,10 @@ fn main() {
         gpui_component::init(cx);
         gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
         webview::init(cx);
-        let bounds = Bounds::centered(None, size(px(1400.), px(900.)), cx);
+        // Where it was last time, on a display there is now (alerts.rs).
         let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_bounds: Some(app::initial_bounds(cx)),
+            window_min_size: Some(size(px(480.), px(480.))),
             app_id: Some("agentbox-native".into()),
             ..Default::default()
         };

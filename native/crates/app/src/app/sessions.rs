@@ -78,7 +78,7 @@ pub fn status(s: &LeadSession) -> &'static str {
     }
 }
 
-fn topic(s: &LeadSession) -> String {
+pub(super) fn topic(s: &LeadSession) -> String {
     if s.untitled || s.topic.is_empty() {
         t("sessions.untitled")
     } else {
@@ -355,6 +355,10 @@ impl AppView {
         sessions: Vec<LeadSession>,
         cx: &mut Context<Self>,
     ) {
+        let prev = self.sessions.lists.get(&project).cloned();
+        if let Some(prev) = &prev {
+            self.check_sessions(&project, prev, &sessions, cx);
+        }
         if let Some(list) = self.sessions.lists.get_mut(&project) {
             for s in sessions {
                 match list.iter_mut().find(|x| x.id == s.id) {
