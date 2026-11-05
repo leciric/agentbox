@@ -257,14 +257,32 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   // Off the round (at another desk), it carries on from the last one on it.
   const lastNeed = useRef<string | undefined>(undefined);
   if (near && office.model.board.needs.some((i) => i.ref === near)) lastNeed.current = near;
+  // N's round goes room by room: each project's floors in turn, in each who
+  // needs you before what failed, so it finishes a room before moving on.
+  const round = useMemo(() => {
+    const placeOf = (i: BoardItem) => {
+      const ai = office.model.areas.findIndex((a) => a.project === i.project);
+      const a = office.model.areas[ai];
+      let floor = 0;
+      if (a && !i.ref.endsWith('/lead')) {
+        const sizes = floorsOf(a.desks.length);
+        let at = a.desks.findIndex((d) => d.id === i.ref);
+        while (floor < sizes.length - 1 && at >= sizes[floor]) at -= sizes[floor++];
+      }
+      return [ai, floor, i.tone === 'needs' ? 0 : 1];
+    };
+    const keyed = office.model.board.needs.map((i, k) => ({ i, k, p: placeOf(i) }));
+    keyed.sort((a, b) => a.p[0] - b.p[0] || a.p[1] - b.p[1] || a.p[2] - b.p[2] || a.k - b.k);
+    return keyed.map((x) => x.i);
+  }, [office.model]);
   const roundAt = () => {
-    const list = office.model.board.needs;
+    const list = round;
     const here = list.findIndex((i) => i.ref === near);
     return here >= 0 ? here : list.findIndex((i) => i.ref === lastNeed.current);
   };
   const next = useRef<() => void>(() => {});
   next.current = () => {
-    const list = office.model.board.needs;
+    const list = round;
     if (list.length === 0) return;
     const to = list[(roundAt() + 1) % list.length];
     if (to.ref !== near) walkTo(to.ref);
@@ -352,7 +370,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     <Button size="sm" variant="secondary" className="bg-slate-100 text-slate-800 shadow-none hover:bg-slate-200" onClick={() => next.current()} data-office-next>
       <ArrowRight className="size-3.5" />
       {t('office.next')}
-      {needs.length > 1 && needs.some((i) => i.ref === near) && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: needs.findIndex((i) => i.ref === near) + 1, count: needs.length })}</span>}
+      {needs.length > 1 && needs.some((i) => i.ref === near) && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: round.findIndex((i) => i.ref === near) + 1, count: needs.length })}</span>}
       <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">N</kbd>
     </Button>
   );

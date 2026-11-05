@@ -157,7 +157,13 @@ function turned(r: Ramp, deg: number): Ramp {
     // A little softer than the logo's own, so a room of them stays calm.
     return new THREE.Color().setHSL((hsl.h + deg / 360 + 1) % 1, hsl.s * (deg ? 0.9 : 1), hsl.l);
   };
-  return { light: t(r.light), mid: t(r.mid), dark: t(r.dark) };
+  // The gradient a little stronger than the logo's own: it shows across a room.
+  const lighten = (c: THREE.Color, dl: number) => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    c.getHSL(hsl);
+    return new THREE.Color().setHSL(hsl.h, hsl.s, Math.max(0.2, Math.min(0.88, hsl.l + dl)));
+  };
+  return { light: lighten(t(r.light), deg ? 0.08 : 0), mid: t(r.mid), dark: lighten(t(r.dark), deg ? -0.1 : 0) };
 }
 
 // gradient paints a geometry's vertex colours from the ramp's light at its

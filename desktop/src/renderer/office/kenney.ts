@@ -10,8 +10,8 @@ import glbUrl from './assets/kenney/character-female-b.glb?inline';
 import colormapUrl from './assets/kenney/colormap.png?inline';
 import type { Walker } from './figures.ts';
 
-// How tall you stand, in metres: a head shorter than Boxie on its chair.
-const HEIGHT = 1.12;
+// How tall you stand, in metres: about a seated Boxie's height, a toy among toys.
+const HEIGHT = 1.6;
 
 // player wraps a stand-in walker and swaps the Kenney figure in once it has
 // loaded; onReady asks for a frame.

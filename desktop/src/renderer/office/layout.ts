@@ -112,7 +112,7 @@ const box = (x: number, z: number, w: number, d: number): Box => ({ x0: x - w / 
 // in its project comes or goes.
 // An area as a room lays it out: a floor of a project past the first has no
 // lead (its counter is on the first).
-type AreaIn = Pick<OfficeModel, 'areas'>['areas'][number] & { noLead?: boolean };
+type AreaIn = Pick<OfficeModel, 'areas'>['areas'][number] & { noLead?: boolean; floor?: number };
 
 export function roomLayout(model: { areas: AreaIn[] }): Layout {
   // Each area's size, then rows of areas, left to right.
@@ -312,7 +312,8 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   const project = model.areas[0]?.project ?? '';
   let h = 0;
   for (let i = 0; i < project.length; i++) h = (h * 31 + project.charCodeAt(i)) >>> 0;
-  const kind = compact ? 3 : h % 3;
+  // Each floor of a project its own too.
+  const kind = compact ? 3 : (h + (model.areas[0]?.floor ?? 1) - 1) % 3;
   if (kind === 3) {
     prop('plants', wx + 1.6, zp);
     prop('standing', roomW - footOf('standing')[0] / 2 - 0.6, zp);
@@ -540,8 +541,8 @@ const LOW_THEMES: Theme[] = [LOUNGE, STUDY];
 export const ROOM_DESKS = 12;
 // Between rooms on the campus: wider front to back, where the walls rise.
 const CAMPUS_GAP = 8;
-const CAMPUS_GAP_Z = 13;
-const FLOOR_GAP = 5;
+const CAMPUS_GAP_Z = 16;
+const FLOOR_GAP = 7;
 const CAMPUS_ASPECT = 2.1;
 
 export type RoomPlace = {
@@ -596,7 +597,7 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Campus {
     const sizes = floorsOf(a.desks.length);
     let at = 0;
     sizes.forEach((n, f) => {
-      parts.push({ area: { ...a, desks: a.desks.slice(at, at + n), noLead: f > 0 }, floor: f + 1, floors: sizes.length });
+      parts.push({ area: { ...a, desks: a.desks.slice(at, at + n), noLead: f > 0, floor: f + 1 }, floor: f + 1, floors: sizes.length });
       at += n;
     });
   }

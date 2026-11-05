@@ -368,7 +368,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const sub = document.createElement('span');
         sub.style.cssText = 'font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.28)';
         const bad = document.createElement('span');
-        bad.style.cssText = 'display:none;font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:#ef4444;color:#fff';
+        bad.style.cssText = 'display:none;font-weight:700;font-size:10.5px;padding:0 6px;border-radius:999px;background:#fff;color:#dc2626';
         chip.append(name, sub, bad);
         const lead = rm.lead ? `${rm.project}/lead` : undefined;
         // Over the campus it goes into its room; in the room, to its lead.
@@ -559,7 +559,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // Input.
   const keys = new Set<string>();
   let hover: string | undefined;
-  let pointer: { x: number; y: number; id: number; dragged: boolean; button: number; aim: { ref?: string; row?: string; floor?: P }; cam: string } | undefined;
+  let pointer: { x: number; y: number; id: number; dragged: boolean; button: number; aim: { ref?: string; row?: string; floor?: P; bubble?: boolean }; cam: string } | undefined;
   // Where the camera is, to tell whether it moved between a press and its release.
   const camAt = () => `${eased.tx.toFixed(2)}:${eased.tz.toFixed(2)}:${eased.dist.toFixed(2)}:${eased.pitch.toFixed(3)}:${eased.yaw.toFixed(3)}`;
   const ndc = new THREE.Vector2();
@@ -633,6 +633,22 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       addTo(ri, hit);
       hits.push(hit);
       boards.set(boardRef(rm), b);
+    }
+
+    // A project on floors: a plinth under them all, so the campus reads them
+    // as one place. (Over the campus only.)
+    {
+      const groups = new Map<string, Box>();
+      for (const rm of l.rooms) {
+        if (rm.floors < 2) continue;
+        const b = groups.get(rm.project);
+        groups.set(rm.project, b ? { x0: Math.min(b.x0, rm.box.x0), z0: Math.min(b.z0, rm.box.z0), x1: Math.max(b.x1, rm.box.x1), z1: Math.max(b.z1, rm.box.z1) } : rm.box);
+      }
+      for (const [project, b] of groups) {
+        const hue = input.model.areas.find((a) => a.project === project)?.hue ?? 260;
+        const plinth = mesh(geo.roundTop, own(std(new THREE.Color().setHSL(hue / 360, 0.35, 0.8), { roughness: 0.9 })), (b.x0 + b.x1) / 2, -1.0, (b.z0 + b.z1) / 2, b.x1 - b.x0 + 3.2, 0.2, b.z1 - b.z0 + 3.2);
+        addTo(-1, plinth);
+      }
     }
 
     // Each area: its rug, its counter with the lead and the project's sign.
@@ -1421,7 +1437,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
       // From the far side from where you stand, so you never stand in the way.
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 16, pitch: 0.8, yaw: d.side < 0 ? 0.42 : -0.42 }, aspect);
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 19, pitch: 0.8, yaw: d.side < 0 ? 0.42 : -0.42 }, aspect);
     }
     return undefined;
   }
@@ -1637,6 +1653,13 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const a = scr(v.clone());
       const me0 = scr(new THREE.Vector3(pos.x, 0.7, pos.z));
       lookAt = { dist, spots: [a, me0] };
+    } else if (scope !== null && cam.followK > 0.5) {
+      // Following you: whoever stands between you and the camera steps aside.
+      const v = new THREE.Vector3(pos.x, 0.8, pos.z);
+      const dist = v.distanceTo(camera.position);
+      v.project(camera);
+      const me0 = { x: ((v.x + 1) / 2) * canvas.clientWidth, y: ((1 - v.y) / 2) * canvas.clientHeight };
+      lookAt = { dist, spots: [me0] };
     }
     for (const d of desks.values()) {
       // Where you are, from the robot: near enough, it turns to look at you.
@@ -1809,7 +1832,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       }
     }
     // You stand beside what you look at, never in front of it: always seen.
-    me.fade(1);
+    // At the board you're there, but see-through: it's the board you look at.
+    me.fade(isBoard(focusRef) ? 1 - cam.closeK * 0.65 : 1);
     meTag.sprite.visible = cam.closeK < 0.3;
     // Name tags grow with distance to stay readable, up to a point; from far
     // off only the ones that need you stay, and up close they get out of the way.
@@ -1843,7 +1867,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // The labels: the loud ones from anywhere, the rest only near enough
       // to mean something; none for the desk you're at (its card says it)
       // or one stepped aside for the close-up.
-      const loud = marker?.dataset.loud === '1';
+      // From a room's overview only who needs you; what failed (its red ✕
+      // says it) as you come in.
+      const loud = marker?.dataset.loud === '1' && (d.tone === 'needs' || cam.followK > 0.2 || cam.closeK > 0.3);
       tag.visible = false;
       if (marker) {
         tp.project(camera);
@@ -1874,7 +1900,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // You, from far off: a chip in your colour over your head, or under your
     // feet when a label is there. Placed first: the desks' chips keep clear of it.
     meTag.sprite.getWorldPosition(tp);
-    const meFar = tp.distanceTo(camera.position) > 15 && cam.closeK < 0.3 && cam.followK < 0.3;
+    const meFar = scope !== null && tp.distanceTo(camera.position) > 15 && cam.closeK < 0.3 && cam.followK < 0.3;
     tp.project(camera);
     meMarker.style.display = meFar && tp.z < 1 ? 'block' : 'none';
     if (meFar) {
@@ -2030,7 +2056,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     return ray.ray.intersectPlane(floorPlane, p) ? { x: p.x, z: p.z } : undefined;
   }
 
-  function pick(clientX: number, clientY: number): { ref?: string; row?: string; floor?: P } {
+  function pick(clientX: number, clientY: number): { ref?: string; row?: string; floor?: P; bubble?: boolean } {
     const r = canvas.getBoundingClientRect();
     ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
@@ -2039,7 +2065,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // Only what's shown: a hidden bubble or a desk stepped aside takes no click.
     const shownUp = (o: THREE.Object3D | null): boolean => !o || (o.visible && shownUp(o.parent));
     const hit = ray.intersectObjects(hits, false).find((h) => shownUp(h.object));
-    if (hit) return { ref: hit.object.userData.ref as string };
+    if (hit) return { ref: hit.object.userData.ref as string, bubble: (hit.object as THREE.Sprite).isSprite === true };
     const p = new THREE.Vector3();
     if (ray.ray.intersectPlane(floorPlane, p)) return { floor: { x: p.x, z: p.z } };
     return {};
@@ -2132,12 +2158,14 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     if (p.dragged || p.button !== 0) return;
     // What's under the pointer as it's let go: the press's, unless the camera
     // moved between the two, when it's looked again.
-    const { ref, row, floor } = p.cam === camAt() ? p.aim : pick(e.clientX, e.clientY);
+    const { ref, row, floor, bubble } = p.cam === camAt() ? p.aim : pick(e.clientX, e.clientY);
     // On the way to a board, a click on what's in front of it waits: its notes
     // (buttons of their own) are what's meant.
     if (ref && isBoard(routeGoal) && (route.length || cam.closeK < 0.95)) return;
     // Over the campus, a click anywhere on a room goes into it.
+    // (A "!" over a room's agent goes to that agent: that's what it says.)
     if (scope === null) {
+      if (ref && bubble) return walkTo(ref);
       const ri = ref ? roomOf(lay, ref) : floor ? roomAt(lay, floor, 0.4) : undefined;
       if (ri !== undefined) enter(ri);
       return;
