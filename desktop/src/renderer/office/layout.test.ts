@@ -16,7 +16,7 @@ const overlaps = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 &
 const within = (outer: Box, inner: Box) => inner.x0 >= outer.x0 && inner.x1 <= outer.x1 && inner.z0 >= outer.z0 && inner.z1 <= outer.z1;
 
 test('pods go a little wider than deep', () => {
-  assert.deepEqual([0, 1, 2, 3, 4, 6, 8, 12, 18].map(columns), [1, 1, 2, 3, 2, 3, 4, 4, 6]);
+  assert.deepEqual([0, 1, 2, 3, 4, 6, 8, 12, 18].map(columns), [1, 1, 2, 2, 2, 3, 3, 4, 5]);
 });
 
 test('a project of more desks than a room holds gets floors, evenly', () => {

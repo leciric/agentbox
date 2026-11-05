@@ -764,6 +764,15 @@ if (appView) {
   seedV2(queryClient, params.get('pins'));
   // ?app=office: more projects' agents, at their desks (dev/office.ts).
   if (appView === 'office' || params.get('office') === '1') seedOffice(queryClient, { typical: params.get('fleet') === 'typical' });
+  // ?app=office&walk=<ref>: once the Office is up, walk to that desk (or a
+  // project's lead, project/lead), and with &then=room step back to its
+  // room's view: screenshots of a room without clicking through the campus.
+  const walk = params.get('walk');
+  if (walk)
+    (window as unknown as { officeHook?: (s: { walkTo(ref: string): void; overview(): void }) => void }).officeHook = (office) => {
+      setTimeout(() => office.walkTo(walk), 1500);
+      if (params.get('then') === 'room') setTimeout(() => office.overview(), 7000);
+    };
   // The other projects' chats, empty rather than failing.
   stubProjectChats();
   // &ios=…, after seedV2's projects: the project is an iOS one.

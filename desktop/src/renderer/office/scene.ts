@@ -537,7 +537,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // The wheel's one scale, 0 (the overview) to 1 (close behind you): the
   // first half comes down from the overview, the second half closer.
   let zoomZ = 0;
-  const FOLLOW_FAR = 23;
+  const FOLLOW_FAR = 26;
   const FOLLOW_NEAR = 10.5;
   const zoomTo = (z: number) => {
     zoomZ = Math.max(0, Math.min(1, z));
@@ -857,6 +857,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     disp.push(() => fig.dispose());
     // Scaled up, so seated on the seat from below.
     fig.group.position.set(rx, lead ? -0.36 : -0.3, cz + 0.1);
+    // Its whole figure, big head and all, in the desk's space, seated as the
+    // frame loop seats it: a click on its head is a click on it, not on the
+    // floor or the board behind it.
+    fig.group.position.y = 0.49 * (1 - fig.group.scale.x);
+    fig.group.updateMatrixWorld(true);
+    const figBox = new THREE.Box3().setFromObject(fig.group);
     g.add(fig.group);
 
     // Its beacon and bubble above it, its name tag, and a ring and a beam of
@@ -907,6 +913,14 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     hit.userData.ref = ref;
     g.add(hit);
     hits.push(hit);
+    {
+      const c = figBox.getCenter(new THREE.Vector3());
+      const sz = figBox.getSize(new THREE.Vector3());
+      const head = mesh(geo.box, mats.hit, c.x, c.y, c.z, sz.x * 0.9, sz.y, sz.z * 0.9, false);
+      head.userData.ref = ref;
+      g.add(head);
+      hits.push(head);
+    }
 
     const obj: DeskObj = {
       ref,
@@ -1227,7 +1241,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     routeGoal = undefined;
     // From the overview a click on the floor comes halfway down, not all the
     // way behind you.
-    if (zoomZ === 0) zoomTo(0.28);
+    if (zoomZ === 0) zoomTo(0.24);
     started();
     poke();
   }
@@ -1448,7 +1462,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       return { x: rm.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: rm.oz + 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
-      if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 12.5, pitch: 0.58, yaw: 0.3 }, aspect);
+      if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 17, pitch: 0.62, yaw: 0.3 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
       // From the far side from where you stand, so you never stand in the way.
       if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.8, yaw: d.side < 0 ? 0.5 : 0.08 }, aspect);
@@ -1650,6 +1664,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     }
     // Where the agents' heads are on screen, which the projects' pills keep off.
     const heads: { x: number; y: number }[] = [];
+    // And their whole figures, head to seat, which no name tag covers.
+    const bodies: Box[] = [];
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     {
       const yv = new THREE.Vector3(pos.x, 0.8, pos.z).project(camera);
       heads.push({ x: ((yv.x + 1) / 2) * canvas.clientWidth, y: ((1 - yv.y) / 2) * canvas.clientHeight });
@@ -1698,6 +1715,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (d.root.visible) {
         const hv = new THREE.Vector3(fx, 0.49 + 0.75 * k, fz).project(camera);
         heads.push({ x: ((hv.x + 1) / 2) * canvas.clientWidth, y: ((1 - hv.y) / 2) * canvas.clientHeight });
+        const top = new THREE.Vector3(fx, 0.49 + 0.82 * k, fz).project(camera);
+        const seat = new THREE.Vector3(fx, 0.62, fz).project(camera);
+        // Half its head's width, on screen, at its distance.
+        const hw = (0.27 * k * canvas.clientHeight) / (2 * far * tanHalf);
+        const bx = ((top.x + 1) / 2) * canvas.clientWidth;
+        bodies.push({ x0: bx - hw, x1: bx + hw, z0: ((1 - top.y) / 2) * canvas.clientHeight, z1: ((1 - seat.y) / 2) * canvas.clientHeight });
       }
       // Up close, what floats over the desks beside the camera would be in
       // the way of the one you're looking at.
@@ -1714,7 +1737,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const sx = ((figPos.x + 1) / 2) * canvas.clientWidth;
         const sy = ((1 - figPos.y) / 2) * canvas.clientHeight;
         ahead = nearer && lookAt.spots.some((p) => Math.abs(sx - p.x) < 190 && Math.abs(sy - p.y) < 230);
-        leadHidesFace = ahead;
+        // A lead goes from its counter only when it'd hide the face itself:
+        // an empty counter reads as a lead gone.
+        const f0 = lookAt.spots[0];
+        leadHidesFace = ahead && Math.abs(sx - f0.x) < 110 && Math.abs(sy - f0.y) < 150;
       }
       const inWay = cam.closeK > 0.3 && d.ref !== focusRef && (d.root.position.distanceTo(camera.position) < 4.2 || ahead);
       // At a board, what stands between it and the camera steps aside.
@@ -1877,7 +1903,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const cr = canvas.getBoundingClientRect();
     const cardBox = cardEl ? (() => {
       const r = cardEl.getBoundingClientRect();
-      return { x0: r.left - cr.left - 60, x1: r.right - cr.left + 8, y0: r.top - cr.top - 8, y1: r.bottom - cr.top + 34 };
+      return { x0: r.left - cr.left - 95, x1: r.right - cr.left + 8, y0: r.top - cr.top - 8, y1: r.bottom - cr.top + 34 };
     })() : undefined;
     // The face of the agent you're at, on screen: no one else's tag covers it.
     const atDesk = near ? desks.get(near) : undefined;
@@ -1891,35 +1917,24 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     // Small from afar, as name tags are; wider as you come in to read them.
     const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '150px' : '170px';
     const smallRoom = scope !== null && lay.rooms[scope].desks.length <= 8;
+    const tinyRoom = scope !== null && lay.rooms[scope].desks.length <= 4;
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
       tag.getWorldPosition(tp);
       const dist = tp.distanceTo(camera.position);
       const marker = markers.get(d.ref);
-      // The labels: the loud ones from anywhere, the rest only near enough
-      // to mean something; none for the desk you're at (its card says it)
-      // or one stepped aside for the close-up.
-      // From a room's overview only who needs you; what failed (its red ✕
-      // says it) as you come in.
+      // Loud: who needs you from anywhere; what failed (its red ✕ says it
+      // from afar) as you come in.
       const loud = marker?.dataset.loud === '1' && (d.tone === 'needs' || cam.followK > 0.2 || cam.closeK > 0.3);
       tag.visible = false;
       if (marker) {
         tp.project(camera);
-        // Every character wears its name tag, as in a real office; up close
-        // only the loud ones.
-        // From the overview only the ones that need you; nearer, everyone's.
-        // The overview shows the pods' pills and counts and the bubbles over
-        // heads; the tags come as you come in.
-        // Quiet ones only near enough to read, so a mid view isn't a wall of tags.
-        // From the overview a small team's loud ones only, a crowd's none (its
-        // bubbles say it); coming in, the loud ones, then everyone's near you.
-        // From the overview a small team's all, as name tags in a room, and a
-        // crowd's loud ones; coming in, everyone's near you. (They keep off
-        // faces, and a quiet one with no room steps out of the way.)
-        // (None over the campus: its rooms' pills and bubbles say it.)
-        // A small room shows everyone's from its overview, as the target does;
-        // a full one its loud ones, the rest as you come in.
+        // In a room of up to eight, everyone's tag from its overview, as name
+        // tags in an office; in a bigger one the loud ones, the rest as you
+        // come in. None over the campus (its pills and bubbles say it), none
+        // for the desk you're at (its card says it). They keep off the
+        // agents (below), and a quiet one with no room steps out of the way.
         const want = scope !== null && d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || smallRoom || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (smallRoom || dist < 17)));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
@@ -1959,9 +1974,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     shown.sort((a, b) => Number(b.loud) - Number(a.loud) || b.y - a.y);
     const h = 24;
     const folded = new Map<HTMLElement, number>();
-    // Heads are taken too: a tag never covers a face.
-    const headRects = heads.slice(1).map((hd) => ({ x0: hd.x - 20, x1: hd.x + 20, y0: hd.y - 26, y1: hd.y + 12 }));
-    const placed: { x0: number; x1: number; y: number }[] = [...taken, ...headRects].flatMap((r) => {
+    // The agents are taken too: a tag never covers one, head or body.
+    const bodyRects = bodies.map((b) => ({ x0: b.x0, x1: b.x1, y0: b.z0, y1: b.z1 }));
+    const placed: { x0: number; x1: number; y: number }[] = [...taken, ...bodyRects].flatMap((r) => {
       // As the anchors of chips that would cover it (a chip's box runs from
       // 7px below its anchor to 31 below), a row every 20px.
       const rows: { x0: number; x1: number; y: number }[] = [];
@@ -1995,7 +2010,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         off = tries.find(([dx, dy]) => !clash(m.x + dx, m.y + dy)) ?? null;
         chipDy.set(m.el, off);
       }
-      if (!off && !m.loud && smallRoom) off = [0, 0];
+      // In a small team's room every tag shows, where it belongs.
+      if (!off && !m.loud && tinyRoom) off = [0, 0];
       if (!off && !m.loud) {
         // A quiet label with no room simply steps out of the way.
         m.el.style.display = 'none';

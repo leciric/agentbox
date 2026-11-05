@@ -329,6 +329,8 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
           else kept = mod.createOfficeScene(host.current, handlers);
           made = kept;
           scene.current = made;
+          // The preview drives it from its URL (dev/preview.tsx, ?walk=).
+          (window as unknown as { officeHook?: (s: OfficeScene) => void }).officeHook?.(made);
           setStatus('ready');
         } catch {
           setStatus('unsupported');
@@ -370,7 +372,8 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     <Button size="sm" variant="secondary" className="bg-slate-100 text-slate-800 shadow-none hover:bg-slate-200" onClick={() => next.current()} data-office-next>
       <ArrowRight className="size-3.5" />
       {t('office.next')}
-      {needs.length > 1 && needs.some((i) => i.ref === near) && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: round.findIndex((i) => i.ref === near) + 1, count: needs.length })}</span>}
+      {/* Where you are in the round, or, at a desk not in it (a lead's), where N takes you. */}
+      {needs.length > 1 && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: (round.some((i) => i.ref === near) ? roundAt() : (roundAt() + 1) % round.length) + 1, count: needs.length })}</span>}
       <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">N</kbd>
     </Button>
   );

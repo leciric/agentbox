@@ -92,6 +92,14 @@ const woodOf = (workW: number) => Math.min(8.6, Math.max(7.4, workW * 0.3));
 const MIN_ROOM_D = 12;
 const MIN_WORK_W = 8.5;
 const COMPACT_WOOD = 5.8;
+// A small team's room is its own size, not a big room's with its floor bare:
+// the target's density whatever the team.
+const COMPACT_D = 9.8;
+const COMPACT_WORK_W = 8.0;
+const COMPACT_PAD = 1.0;
+// A floor with no counter keeps a strip of rug before its pods, not the
+// counter's.
+const NO_LEAD_DEPTH = 1.2;
 // The room is about twice as wide as it's deep, as a diorama seen from its
 // open corner: areas wrap onto a new row at whatever width comes closest.
 const ASPECT = 2.2;
@@ -100,7 +108,8 @@ const ASPECT = 2.2;
 // than deep, so its room stays the target's size.
 export function columns(pods: number): number {
   if (pods <= 1) return 1;
-  const rows = Math.max(1, Math.round(Math.sqrt(pods / 1.5)));
+  // Three pods are two and one staggered behind them: a cluster, not a row.
+  const rows = Math.max(1, Math.round(Math.sqrt(pods / 1.2)));
   return Math.ceil(pods / rows);
 }
 
@@ -120,13 +129,14 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   // pods; an area is a block of its pods, its lead at the front.
   // A small team's room is small, its commons a lounge and a corner.
   const compact = model.areas.length > 0 && model.areas.reduce((n, a) => n + a.desks.length, 0) <= 4;
+  const pad = compact ? COMPACT_PAD : WALL_PAD;
   const sizes = model.areas.map((a) => {
     const pods = Math.ceil(a.desks.length / POD);
     const cols = columns(pods);
     const rows = Math.ceil(pods / cols);
     const inner = POD_SPAN + Math.max(0, cols - 1) * POD_PX + (rows > 1 ? STAGGER : 0);
     const w = Math.max(inner, COUNTER.w + 1.2) + AREA_PAD * 2;
-    const d = AREA_PAD + FIRST + Math.max(0, rows - 1) * POD_PZ + 1.0 + LEAD_DEPTH;
+    const d = AREA_PAD + FIRST + Math.max(0, rows - 1) * POD_PZ + 1.0 + (a.noLead ? NO_LEAD_DEPTH : LEAD_DEPTH);
     return { cols, rows, w, d, inner };
   });
   // Rows of columns of areas: an area stacks under the one before it when
@@ -150,10 +160,10 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     return rows;
   };
   const dims = (rows: Row[]) => {
-    const innerW = Math.max(MIN_WORK_W - WALL_PAD * 2, ...rows.map(rowW));
-    const workW = innerW + WALL_PAD * 2;
+    const innerW = Math.max((compact ? COMPACT_WORK_W : MIN_WORK_W) - pad * 2, ...rows.map(rowW));
+    const workW = innerW + pad * 2;
     const deep = rows.reduce((sum, r) => sum + rowD(r), 0) + AISLE * Math.max(0, rows.length - 1);
-    const D = Math.max(MIN_ROOM_D, BACK_AISLE + deep + FRONT);
+    const D = Math.max(compact ? COMPACT_D : MIN_ROOM_D, BACK_AISLE + deep + FRONT);
     return { innerW, workW, W: workW + PLANTER + (compact ? COMPACT_WOOD : woodOf(workW)), D };
   };
   // The row width whose room comes closest to the aspect with the least bare
@@ -191,10 +201,10 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     const last = r === rows.length - 1;
     const below = last ? roomD - 0.5 : z + depth + AISLE / 2;
     // Centred across the work side.
-    let x = WALL_PAD + (innerW - rowW(row)) / 2;
+    let x = pad + (innerW - rowW(row)) / 2;
     if (x - AISLE / 2 - 1.0 > 2) free.push({ x0: 1.0, z0: z, x1: x - AISLE / 2, z1: z + depth, low: true });
     const end = x + rowW(row);
-    if (WALL_PAD + innerW + 0.6 - (end + AISLE / 2) > 2) free.push({ x0: end + AISLE / 2, z0: z, x1: WALL_PAD + innerW + 0.6, z1: z + depth, low: true });
+    if (pad + innerW + 0.6 - (end + AISLE / 2) > 2) free.push({ x0: end + AISLE / 2, z0: z, x1: pad + innerW + 0.6, z1: z + depth, low: true });
     for (const col of row) {
       const cw = colW(col);
       let cz = z;
@@ -213,7 +223,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     z += depth + AISLE;
   }
   // Below the last row, when the room is deeper than its areas.
-  if (rows.length === 0) free.push({ x0: 1.0, z0: BACK_AISLE + 0.6, x1: WALL_PAD + innerW + 0.6, z1: roomD - 0.5, low: true });
+  if (rows.length === 0) free.push({ x0: 1.0, z0: BACK_AISLE + 0.6, x1: pad + innerW + 0.6, z1: roomD - 0.5, low: true });
   function placeArea(i: number, a: AreaIn, s: (typeof sizes)[number], rug: Box) {
     const z = rug.z0;
     const depth = rug.z1 - rug.z0;
@@ -239,7 +249,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       obstacles.push(box(dx + side * 0.48, dz - SEAT, 1.2, 1.1));
       // You stand at the bench's end, beside the agent, as you'd stop by a
       // colleague's, turned half to the room: the close-up sees your face too.
-      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.75, z: dz + 0.15, face: side < 0 ? Math.PI / 3 : -Math.PI / 3 } };
+      return { id: d.id, x: dx, z: dz, side, spot: { x: dx + side * 1.75, z: dz - 0.1, face: side < 0 ? Math.PI / 3 : -Math.PI / 3 } };
     });
     // The counter sits at the area's front, its lead behind it facing you.
     const lz = z + depth - LEAD_DEPTH / 2 - 0.1;
@@ -314,10 +324,23 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   let h = 0;
   for (let i = 0; i < project.length; i++) h = (h * 31 + project.charCodeAt(i)) >>> 0;
   // Each floor of a project its own too.
-  const kind = compact ? 3 : (h + (model.areas[0]?.floor ?? 1) - 1) % 3;
+  // A small room's commons is one of three of its own, before its lounge.
+  const kind = compact ? 3 + (h % 3) : (h + (model.areas[0]?.floor ?? 1) - 1) % 3;
+  const zf = (lounge.z1 + roomD) / 2 + 0.2;
   if (kind === 3) {
-    prop('plants', wx + 1.6, zp);
-    prop('standing', roomW - footOf('standing')[0] / 2 - 0.6, zp);
+    // Bean bags round a little table, and a plant by them.
+    prop('beanbags', wx + 2.4, zf);
+    prop('plants', roomW - footOf('plants')[1] / 2 - 0.1, zf - 0.6, Math.PI / 2);
+  } else if (kind === 4) {
+    // A ping-pong table and two arcade cabinets.
+    prop('pingpong', wx + 2.5, zf);
+    prop('arcade', roomW - 0.6, zf - 0.5, -Math.PI / 2);
+    prop('arcade', roomW - 0.6, zf + 0.45, -Math.PI / 2);
+  } else if (kind === 5) {
+    // A fish tank, a couch before it, and a phone booth.
+    prop('aquarium', wx + 1.9, zf - 1.1);
+    for (const [k, dx, dz] of COUCH) prop(k, wx + 1.9 + dx, zf + 0.5 + dz);
+    prop('booth', roomW - footOf('booth')[0] / 2 - 0.35, zf - 0.2);
   } else if (kind === 0) {
     prop('pingpong', Math.min(wx + 4.6, roomW - 1.15 - footOf('pingpong')[0] / 2), zp);
     prop('arcade', roomW - 0.6, zp - 0.5, -Math.PI / 2);
@@ -333,8 +356,10 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   }
   const zb = Math.min(roomD - 2.0, zp + 3.8);
   // Bean bags round a little table, at the front.
-  prop('beanbags', wx + 2.7, zb);
-  if (!compact) prop('whiteboard', roomW - 1.3, zb);
+  if (!compact) {
+    prop('beanbags', wx + 2.7, zb);
+    prop('whiteboard', roomW - 1.3, zb);
+  }
   // A tree in the commons' front corner.
   prop('tree', roomW - footOf('tree')[0] / 2 - 0.1, roomD - footOf('tree')[1] / 2 - 0.1);
   if (roomD > 18) {
@@ -656,6 +681,12 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Campus {
     }
     const w = Math.max(...at.map((p, i) => p.ox + locals[i].room.x1));
     const d = Math.max(...at.map((p, i) => p.oz + locals[i].room.z1));
+    // A row narrower than the widest is centred under it: no hole in a corner.
+    for (const row of rows) {
+      if (!row.length) continue;
+      const end = Math.max(...row.map((k) => at[k].ox + locals[k].room.x1));
+      for (const k of row) at[k] = { ox: at[k].ox + (w - end) / 2, oz: at[k].oz };
+    }
     return { at, w, d };
   };
   let best = place(locals.length);
