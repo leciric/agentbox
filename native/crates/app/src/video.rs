@@ -221,11 +221,11 @@ impl Render for VideoPlayer {
                             .bg(theme::raised())
                             .cursor_pointer()
                             .text_color(theme::fg())
-                            .child(if self.playing {
-                                "Playing"
+                            .child(agentbox_i18n::t(if self.playing {
+                                "native.video.play"
                             } else {
-                                "Play again"
-                            })
+                                "native.video.playAgain"
+                            }))
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 if !this.playing {
                                     this.play(cx);

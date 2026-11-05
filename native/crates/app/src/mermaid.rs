@@ -94,6 +94,12 @@ pub fn with_mermaid(view: TextView) -> TextView {
         if !crate::webview::available() {
             // No webview here (Wayland, no GTK): the page's source instead.
             return card
+                .child(
+                    div()
+                        .pb_2()
+                        .text_color(theme::faint())
+                        .child(agentbox_i18n::t("native.preview.source")),
+                )
                 .p_3()
                 .text_xs()
                 .font_family("monospace")

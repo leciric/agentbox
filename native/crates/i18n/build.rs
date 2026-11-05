@@ -16,6 +16,19 @@ fn main() {
         let src =
             std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let mut entries = parse(&src).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        // The native app's own few messages (native/*.ts), all native.* keys.
+        let own = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .join("native")
+            .join(file);
+        println!("cargo:rerun-if-changed={}", own.display());
+        let own = parse(&std::fs::read_to_string(&own).unwrap()).unwrap();
+        for (k, _) in &own {
+            assert!(
+                k.starts_with("native."),
+                "{k}: the native catalog only holds native.* keys"
+            );
+        }
+        entries.extend(own);
         entries.sort();
         entries.dedup_by(|a, b| a.0 == b.0);
         writeln!(out, "pub(crate) static {name}: &[(&str, &str)] = &[").unwrap();
