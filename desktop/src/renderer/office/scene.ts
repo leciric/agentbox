@@ -531,7 +531,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
   // The wheel's one scale, 0 (the overview) to 1 (close behind you): the
   // first half comes down from the overview, the second half closer.
   let zoomZ = 0;
-  const FOLLOW_FAR = 19;
+  const FOLLOW_FAR = 23;
   const FOLLOW_NEAR = 10.5;
   const zoomTo = (z: number) => {
     zoomZ = Math.max(0, Math.min(1, z));
@@ -1515,7 +1515,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (rem < 8) closeTarget = 1 - rem / 8;
     }
     if (closeTarget > 0) focusRef = near ?? routeGoal;
-    cam.closeK += (closeTarget - cam.closeK) * (motion ? 1 - Math.exp(-dt * 4.8) : 1);
+    cam.closeK += (closeTarget - cam.closeK) * (motion ? 1 - Math.exp(-dt * 6.5) : 1);
     if (Math.abs(closeTarget - cam.closeK) < 1e-3) cam.closeK = closeTarget;
 
     // The overview fits the room, from the front and above.
@@ -1552,7 +1552,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       Object.assign(eased, { tx, ty, tz, dist, pitch, yaw, init: true });
     } else {
       // Standing back for the overview settles quickly; following you, gently.
-      const e = motion ? 1 - Math.exp(-dt * (held ? 9 : 6)) : 1;
+      const e = motion ? 1 - Math.exp(-dt * (held ? 10 : 8)) : 1;
       eased.tx += (tx - eased.tx) * e;
       eased.ty += (ty - eased.ty) * e;
       eased.tz += (tz - eased.tz) * e;
@@ -1636,7 +1636,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const base = (fg.userData.base as number | undefined) ?? (fg.userData.base = fg.scale.x);
       const far = fg.getWorldPosition(figPos).distanceTo(camera.position);
       // Not while the camera follows you: grown, they'd hide you.
-      const k = base * (1 + Math.min(crowded ? 0.65 : 0.9, Math.max(0, (far - 12) / 36)) * (1 - cam.followK));
+      // Over the campus they grow to be seen; in a room, already at its
+      // scale, hardly: grown, they'd crowd and stand out of their chairs.
+      const k = base * (1 + Math.min(crowded ? 0.65 : 0.15, Math.max(0, (far - 12) / 36)) * (1 - cam.followK));
       fg.scale.setScalar(k);
       fg.position.y = 0.49 * (1 - k);
       if (d.root.visible) {
@@ -1681,13 +1683,13 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const loudTone = d.tone === 'needs' || d.tone === 'error';
       // Big over the campus, where they say which room needs you; in a room
       // a little, clear of each other.
-      const grow = Math.min(d.tone === 'needs' ? (crowded ? 4.6 : 2.2) : loudTone ? (crowded ? 2.6 : 1.8) : crowded ? 1 : 1.35, Math.max(1, (far - 8) / 12));
+      const grow = Math.min(d.tone === 'needs' ? (crowded ? 8 : 2.2) : loudTone ? (crowded ? 4.5 : 1.8) : crowded ? 1 : 1.35, Math.max(1, (far - 8) / 12));
       // A crowd's quiet bubbles show as you come in: from afar they'd bury the loud ones.
       if (crowded && !loudTone && far > 30) s.visible = false;
       const sb = (s.userData.base as THREE.Vector2 | undefined) ?? (s.userData.base = new THREE.Vector2(s.scale.x, s.scale.y));
       s.scale.set(sb.x * grow, sb.y * grow, 1);
       // Clear of the head and whatever it wears.
-      s.position.y = 2.32 + lift * 0.5 + (k / base - 1) * 1.45 + (grow - 1) * 0.2 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 * grow : 0);
+      s.position.y = 0.49 + 1.18 * k + lift * 0.5 + (grow - 1) * 0.2 + (motion && d.tone === 'needs' ? Math.abs(Math.sin(t * 3.5)) * 0.12 * grow : 0);
       if (d.ref === near) {
         atMark.sprite.visible = cam.closeK > 0.2 || cam.followK > 0.3;
         // A lead's just over its own head, in front of whoever sits behind it.
@@ -1833,7 +1835,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         // crowd's loud ones; coming in, everyone's near you. (They keep off
         // faces, and a quiet one with no room steps out of the way.)
         // (None over the campus: its rooms' pills and bubbles say it.)
-        const want = scope !== null && d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || !crowded || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && (!crowded || dist < 17)));
+        const want = scope !== null && d.root.visible && !(d.ref === focusRef && cam.closeK > 0.3) && dist > 2.6 && (loud || cam.followK > 0.4) && (loud || (cam.closeK < 0.3 && dist < 17));
         const onScreen = want && tp.z < 1 && Math.abs(tp.x) < 1.05 && Math.abs(tp.y) < 1.05 && ((1 - tp.y) / 2) * canvas.clientHeight > 110;
         const mx = ((tp.x + 1) / 2) * canvas.clientWidth;
         const my = Math.min(canvas.clientHeight - 130, ((1 - tp.y) / 2) * canvas.clientHeight);

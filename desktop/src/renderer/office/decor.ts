@@ -13,8 +13,8 @@ import { piece } from './furniture.ts';
 import { furnish } from './props.ts';
 
 export const PALETTE = {
-  wall: '#f2dcc0',
-  wallTop: '#faeedd',
+  wall: '#ecd1ad',
+  wallTop: '#c98f58',
   wallEdge: '#e7c9a4',
   slab: '#e2b27f',
   slabDark: '#c39262',
@@ -293,15 +293,40 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
   for (let i = 0; i <= cols; i++) put(rbox(0.05, 1.8, 0.05, 0.015), frame, 0.03, 1.55, win.at - win.w / 2 + (i * win.w) / cols);
   for (const y of [0.7, 1.55, 2.4]) put(rbox(0.05, 0.05, win.w + 0.05, 0.015), frame, 0.03, y, win.at);
   put(rbox(0.16, 0.05, win.w + 0.1, 0.02), m('#f7e2c4'), 0.08, 0.66, win.at);
-  // The moss wall: a dark frame full of soft green tufts.
+  // The left wall's feature, each room's own: a moss wall, a wall of books,
+  // or a second window.
   const moss = l.moss;
-  put(rbox(0.08, 1.9, moss.w + 0.12, 0.03), frame, 0.04, 1.45, moss.at);
+  const v = l.variant % 3;
   const tuft = keep(new THREE.SphereGeometry(1, 10, 8));
   const mossMats = PALETTE.moss.map((c) => m(c, { roughness: 0.95 }));
   let seed = 17;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const tufts: THREE.Mesh[] = [];
-  for (let i = 0; i < Math.round(moss.w * 55); i++) {
+  if (v === 1) {
+    // Shelves of books, floor to above head height.
+    put(rbox(0.34, 2.4, moss.w, 0.03), m('#c08b5c', { roughness: 0.6 }), 0.17, 1.2, moss.at);
+    const spines = ['#c4622d', '#2f5a4c', '#e9b44c', '#7c8bd6', '#f4efe6', '#a8502f', '#5aaef0'].map((c) => m(c, { roughness: 0.7 }));
+    for (let row = 0; row < 5; row++) {
+      put(rbox(0.32, 0.03, moss.w - 0.06, 0.01), m('#a87648', { roughness: 0.6 }), 0.2, 0.1 + row * 0.46, moss.at);
+      const n = Math.floor((moss.w - 0.2) / 0.1);
+      for (let i = 0; i < n; i++) {
+        if ((i * 7 + row * 3) % 9 === 4) continue;
+        const hgt = 0.26 + ((i * 5 + row) % 4) * 0.035;
+        put(rbox(0.22, hgt, 0.08, 0.01), spines[(i + row * 2) % spines.length], 0.22, 0.12 + row * 0.46 + hgt / 2, moss.at - moss.w / 2 + 0.12 + i * 0.1);
+      }
+    }
+  } else if (v === 2) {
+    // A second window, as tall as the first.
+    const pane2 = new THREE.Mesh(keep(new THREE.PlaneGeometry(moss.w, 1.7)), keep(new THREE.MeshBasicMaterial({ map: sky.tex })));
+    pane2.rotation.y = Math.PI / 2;
+    pane2.position.set(0.012, 1.55, moss.at);
+    g.add(pane2);
+    const cols2 = Math.max(3, Math.round(moss.w / 0.55));
+    for (let i = 0; i <= cols2; i++) put(rbox(0.05, 1.8, 0.05, 0.015), frame, 0.03, 1.55, moss.at - moss.w / 2 + (i * moss.w) / cols2);
+    for (const y of [0.7, 1.55, 2.4]) put(rbox(0.05, 0.05, moss.w + 0.05, 0.015), frame, 0.03, y, moss.at);
+  }
+  if (v === 0) put(rbox(0.08, 1.9, moss.w + 0.12, 0.03), frame, 0.04, 1.45, moss.at);
+  for (let i = 0; i < (v === 0 ? Math.round(moss.w * 55) : 0); i++) {
     const t = new THREE.Mesh(tuft, mossMats[i % mossMats.length]);
     const r = 0.05 + rnd() * 0.06;
     t.scale.set(r * 0.6, r, r);
@@ -312,9 +337,18 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
 
   // The back wall: a brick feature wall with a framed sign.
   const br = l.brick;
-  const brickTex = keep(bricks());
-  brickTex.repeat.set(br.w / 1.2, 2.4);
-  put(rbox(br.w, WALL - 0.06, 0.05, 0.01), m('#ffffff', { map: brickTex, roughness: 0.9 }), br.at, (WALL - 0.06) / 2, 0.025);
+  // Brick, or warm wooden slats, or a wall painted in the project's colour.
+  if (v === 1) {
+    const slat = m('#c98f58', { roughness: 0.6 });
+    const n = Math.floor(br.w / 0.16);
+    for (let i = 0; i < n; i++) put(rbox(0.11, WALL - 0.1, 0.06, 0.02), i % 2 ? slat : m('#d9a46c', { roughness: 0.6 }), br.at - br.w / 2 + 0.08 + i * 0.16, (WALL - 0.1) / 2, 0.035);
+  } else if (v === 2 && hue !== undefined) {
+    put(rbox(br.w, WALL - 0.06, 0.05, 0.01), m(new THREE.Color().setHSL(hue / 360, 0.45, 0.62), { roughness: 0.85 }), br.at, (WALL - 0.06) / 2, 0.025);
+  } else {
+    const brickTex = keep(bricks());
+    brickTex.repeat.set(br.w / 1.2, 2.4);
+    put(rbox(br.w, WALL - 0.06, 0.05, 0.01), m('#ffffff', { map: brickTex, roughness: 0.9 }), br.at, (WALL - 0.06) / 2, 0.025);
+  }
   const signC = canvas(512, 256);
   signC.ctx.fillStyle = '#1f2a3a';
   signC.ctx.fillRect(0, 0, 512, 256);

@@ -15,6 +15,7 @@ import { useReviewHead } from '../../lib/inboxPages';
 import { useReviewing } from '../../lib/reviewAlert';
 import { useAgentCounts } from '../../lib/useAgentCounts';
 import { cn } from '../../lib/utils';
+import { floorsOf } from '../../office/layout';
 import { deskOf, leadRef, officeModel, plain, readable, type BoardItem, type DeskModel, type DeskTone, type OfficeModel, type PrLook } from '../../office/model';
 import type { OfficeScene } from '../../office/scene';
 import type { BoardScreen, Screen } from '../../office/textures';
@@ -374,7 +375,18 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
   }, [listOpen]);
   const workingItems: BoardItem[] = office.model.areas.flatMap((a) => a.desks.filter((d) => d.tone === 'working').map((d) => ({ ref: d.id, project: a.project, title: d.title, tone: d.tone, pr: d.pr })));
   const listed = listOnly ? needs.filter((i) => listOnly.includes(i.ref)) : listKind === 'working' ? workingItems : listKind === 'review' ? review : needs;
-  const areaLabel = (project: string) => office.model.areas.find((a) => a.project === project)?.label ?? project;
+  const areaLabel = (project: string, ref?: string) => {
+    const a = office.model.areas.find((x) => x.project === project);
+    const name = a?.label ?? project;
+    // With floors, which one it's on (layout.ts splits them so, in order).
+    if (!a || !ref || ref.endsWith('/lead')) return name;
+    const sizes = floorsOf(a.desks.length);
+    if (sizes.length < 2) return name;
+    let at = a.desks.findIndex((d) => d.id === ref);
+    let floor = 0;
+    while (floor < sizes.length - 1 && at >= sizes[floor]) at -= sizes[floor++];
+    return t('office.floor', { name, floor: floor + 1 });
+  };
   const openList = (kind: 'needs' | 'working' | 'review') => {
     setListOnly(null);
     setListAt(null);
@@ -482,7 +494,7 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
             foldLabel={t('office.fold')}
           >
             {listed.map((i) => (
-              <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${areaLabel(i.project)} · ${i.text}` : i.pr ? `${areaLabel(i.project)} · #${i.pr.number}` : areaLabel(i.project)} label={t('office.walkTo', { title: i.title })} onClick={() => {
+              <WalkRow key={i.ref} item={i} active={i.ref === near} sub={i.ref.endsWith('/lead') ? t('office.board.leadWaiting') : i.text ? `${areaLabel(i.project, i.ref)} · ${i.text}` : i.pr ? `${areaLabel(i.project, i.ref)} · #${i.pr.number}` : areaLabel(i.project, i.ref)} label={t('office.walkTo', { title: i.title })} onClick={() => {
                 setListChoice(false);
                 walkTo(i.ref);
               }} />

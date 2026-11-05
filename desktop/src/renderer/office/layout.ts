@@ -59,6 +59,8 @@ export type Layout = {
   meeting: Box;
   // The commons' lounge, on the wood side.
   lounge: Box;
+  // Which of its finishes the room has (decor.ts): each project's its own.
+  variant: number;
   window: { at: number; w: number };
   moss: { at: number; w: number };
   brick: { at: number; w: number };
@@ -79,7 +81,7 @@ const POD_PZ = 3.8;
 const STAGGER = POD_PX / 2;
 const FIRST = 1.5; // from an area's back to its first pods' desks
 const AREA_PAD = 0.5; // the area's margin around its pods
-const LEAD_DEPTH = 2.3; // the counter's strip at the front of an area
+const LEAD_DEPTH = 3.0; // the counter's strip at the front of an area, clear of the pods
 const AISLE = 2.0; // between areas
 const BACK_AISLE = 3.4; // before the board
 const FRONT = 1.0; // floor before the front areas
@@ -327,6 +329,8 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   const zb = Math.min(roomD - 2.0, zp + 3.8);
   prop('beanbags', wx + 2.7, zb);
   if (!compact) prop('whiteboard', roomW - 1.3, zb);
+  // A tree in the commons' front corner.
+  prop('tree', roomW - footOf('tree')[0] / 2 - 0.1, roomD - footOf('tree')[1] / 2 - 0.1);
   if (roomD > 18) {
     prop('tree', roomW - 0.7, (zp + zb) / 2 + 0.8);
     prop('standing', roomW - 2.6, zp + 2.0 + (zb - zp - 3.8) / 2);
@@ -352,7 +356,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   prop('rack', footOf('rack')[1] / 2 + 0.03, shelf.z0 - 1.3, Math.PI / 2);
   // The board, right of the meeting room, on the work's back wall.
   const boardW = Math.min(5.2, workW - meeting.x1 - 2);
-  const boardX = Math.min(workW - boardW / 2 - 0.8, Math.max(workW / 2, meeting.x1 + boardW / 2 + 1));
+  const boardX = Math.min(workW - boardW / 2 - 0.8, Math.max(workW / 2, meeting.x1 + boardW / 2 + 2.2));
   obstacles.push(box(boardX, 0.2, boardW, 0.4));
   // Along the back wall either side of the board, low shelves of plants,
   // and a tree in the work's back right corner.
@@ -444,6 +448,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     planter,
     rack,
     lounge,
+    variant: kind,
   };
 }
 
