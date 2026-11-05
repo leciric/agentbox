@@ -74,7 +74,7 @@ export function AllAgentsPanel({ project, onSelect, onNewAgent }: { project?: st
         <span className="w-10 shrink-0" />
         {columns.project && <span className="w-24 shrink-0 md:w-32 lg:w-40">{t('project.all.project')}</span>}
         <span className="min-w-0 flex-1">{t('project.all.agent')}</span>
-        <span className="w-[124px] shrink-0">{t('project.all.status')}</span>
+        <span className="w-[124px] shrink-0 lg:w-[176px]">{t('project.all.status')}</span>
         {columns.activity && <span className="hidden w-[200px] shrink-0 md:block">{t('project.all.activity')}</span>}
         <span className="w-4 shrink-0" />
       </div>
@@ -139,7 +139,7 @@ function AgentFleetRowSkeleton({ width }: { width: string }) {
       <span className="min-w-0 flex-1">
         <Skeleton className={cn('h-3.5', width)} />
       </span>
-      <span className="w-[124px] shrink-0">
+      <span className="w-[124px] shrink-0 lg:w-[176px]">
         <Skeleton className="h-3 w-20" />
       </span>
       <span className="hidden w-[200px] shrink-0 md:block">
@@ -207,11 +207,11 @@ function AgentFleetRow({
           </span>
         )}
       </span>
-      <span className="flex w-[124px] shrink-0 items-center gap-1.5 text-xs">
+      <span className="flex w-[124px] shrink-0 lg:w-[176px] items-center gap-1.5 text-xs">
         {status.tone === 'urgent' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />}
         {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
         <span
-          title={memoryHold(agent)?.tip}
+          title={memoryHold(agent)?.tip ?? status.text}
           className={cn(
             'truncate',
             status.tone === 'urgent' && 'font-medium text-amber-300',
