@@ -8,6 +8,8 @@
 mod app;
 mod bench;
 mod chat;
+#[cfg(feature = "video")]
+mod device;
 mod diff;
 mod files;
 mod media;
@@ -20,6 +22,7 @@ mod theme;
 mod toasts;
 #[cfg(feature = "video")]
 mod video;
+mod viewers;
 mod vnc;
 mod webview;
 

@@ -37,6 +37,8 @@ agentbox-i18n.workspace = true
 humantime = "2"
 # A file the viewer shows as an image comes base64 in its JSON (FileContent.data).
 base64 = "0.22"
+# PDFs in Files, drawn page by page in pure Rust (no runtime library).
+hayro = "=0.8.0"
 # Do not disturb ends at 8 tomorrow morning, the user's own time.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 

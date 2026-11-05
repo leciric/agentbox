@@ -43,6 +43,8 @@ pub type OnCancel = Rc<dyn Fn(&mut Window, &mut App)>;
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
     Snapshots,
+    /// Its Settings (agent_settings.rs).
+    Settings,
 }
 
 /// A confirmation waiting for its yes.
@@ -87,6 +89,9 @@ pub struct AgentPage {
     /// right after, mustn't open it again.
     info_closed: Option<std::time::Instant>,
     disk: Option<(String, AgentDisk)>,
+    /// The info card's chat session (model, effort, context) and tokens.
+    session: Option<(String, agentbox_api::ChatSession)>,
+    tokens: Option<(String, agentbox_api::AgentTokens)>,
     pub destroy: Option<Destroy>,
     pub confirm: Option<Confirm>,
     pub fork: Option<Fork>,
@@ -113,6 +118,8 @@ impl AgentPage {
             info: None,
             info_closed: None,
             disk: None,
+            session: None,
+            tokens: None,
             destroy: None,
             confirm: None,
             fork: None,
@@ -413,6 +420,10 @@ impl AppView {
                         .on_click(move |_, _, cx| cx.open_with_system(std::path::Path::new(&wt))),
                 );
                 menu = menu.item(item(
+                    t("agent.tab.settings"),
+                    Rc::new(move |this, _, cx| this.open_agent_settings(cx)),
+                ));
+                menu = menu.item(item(
                     t("agent.tab.snapshots"),
                     Rc::new(move |this, _, cx| this.open_snapshots(cx)),
                 ));
@@ -550,6 +561,34 @@ impl AppView {
         self.agent.info = Some(r#ref.clone());
         let (p, a) = split(&r#ref);
         let client = self.client.clone();
+        {
+            // What its chat runs on, and what it has spent.
+            let (p, a, r, client) = (p.clone(), a.clone(), r#ref.clone(), client.clone());
+            cx.spawn(async move |this, cx| {
+                let thread = client
+                    .get::<agentbox_api::ChatThread>(&format!("/v1/agents/{p}/{a}/chat?limit=1"))
+                    .await
+                    .ok();
+                let spend = client
+                    .get::<agentbox_api::TokenReport>(&format!(
+                        "/v1/tokens?project={}&agent={}",
+                        crate::files::encode(&p),
+                        crate::files::encode(&a)
+                    ))
+                    .await
+                    .ok()
+                    .and_then(|t| t.agents.into_iter().next());
+                this.update(cx, |this, cx| {
+                    if let Some(th) = thread {
+                        this.agent.session = Some((r.clone(), th.session));
+                    }
+                    this.agent.tokens = spend.map(|s| (r.clone(), s));
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
         cx.spawn(async move |this, cx| {
             if let Ok(d) = client
                 .get::<AgentDisk>(&format!("/v1/agents/{p}/{a}/disk"))
@@ -1079,6 +1118,11 @@ impl AppView {
                 ),
                 false,
             ))
+            .children(
+                self.info_session_rows(a)
+                    .into_iter()
+                    .map(|(l, v)| row(l, v, false)),
+            )
             .child(row(
                 tv(
                     "agent.info.toolAccount",
@@ -1122,6 +1166,7 @@ impl AppView {
                 size(disk.as_ref().and_then(|d| d.worktree)),
                 false,
             ))
+            .child(row(t("agent.info.tokens"), self.info_tokens(a), false))
             .when_some(a.pr.as_ref().filter(|p| p.number > 0), |el, pr| {
                 let state = if pr.draft {
                     t("agent.pr.draft")
@@ -1140,6 +1185,82 @@ impl AppView {
                 ))
             })
             .into_any_element()
+    }
+
+    /// info_session_rows are the info card's model, effort, context and
+    /// speed, from its chat's session and its tokens (AgentInfoCard).
+    fn info_session_rows(&self, a: &FleetAgent) -> Vec<(String, String)> {
+        let session = self
+            .agent
+            .session
+            .as_ref()
+            .filter(|(r, _)| *r == a.r#ref)
+            .map(|(_, s)| s);
+        let pick = |category: &str| {
+            let o = session?
+                .options
+                .iter()
+                .find(|o| o.category == category && o.r#type == "select")?;
+            Some(
+                o.choices
+                    .iter()
+                    .find(|c| c.value == o.value)
+                    .map(|c| c.name.replace("(recommended)", "").trim().to_string())
+                    .unwrap_or_else(|| o.value.clone()),
+            )
+        };
+        let mut rows = Vec::new();
+        if let Some(m) = pick("model") {
+            rows.push((t("agent.info.model"), m));
+        }
+        if let Some(e) = pick("thought_level") {
+            rows.push((t("agent.info.effort"), e));
+        }
+        if let Some(s) = session.filter(|s| s.context_size > 0) {
+            rows.push((
+                t("agent.info.context"),
+                tv(
+                    "agent.info.contextOf",
+                    &[
+                        ("used", crate::chat::tokens(s.context_used).into()),
+                        ("size", crate::chat::tokens(s.context_size).into()),
+                    ],
+                ),
+            ));
+        }
+        let mine = self
+            .agent
+            .tokens
+            .as_ref()
+            .filter(|(r, _)| *r == a.r#ref)
+            .map(|(_, t)| t);
+        let tps = mine.map(|m| m.avg_tps).unwrap_or(0.);
+        rows.push((
+            t("agent.info.avgTps"),
+            if tps <= 0. {
+                "—".into()
+            } else if tps >= 100. {
+                format!("{} tok/s", tps.round())
+            } else {
+                format!("{tps:.1} tok/s")
+            },
+        ));
+        rows
+    }
+
+    /// info_tokens is what the agent has spent: tokens · dollars.
+    fn info_tokens(&self, a: &FleetAgent) -> String {
+        let Some((_, m)) = self.agent.tokens.as_ref().filter(|(r, _)| *r == a.r#ref) else {
+            return "0".into();
+        };
+        let usd = if m.cost_usd <= 0. {
+            "—".to_string()
+        } else if m.cost_usd < 0.01 {
+            "<$0.01".into()
+        } else {
+            format!("${:.2}", m.cost_usd)
+        };
+        format!("{} · {usd}", crate::chat::tokens(m.total))
     }
 
     /// render_machine_bar is the strip that says the agent has a computer of

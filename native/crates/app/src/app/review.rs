@@ -887,8 +887,13 @@ impl ReviewView {
                             cx.listener(|this, _: &ClickEvent, _, cx| this.go_next(cx)),
                         ))
                     })
-                    .when(!self.item.past, |el| {
-                        let r#ref = i.r#ref.clone();
+                    .map(|el| {
+                        // A past agent's chat opens read-only (PastAgentView).
+                        let r#ref = if self.item.past {
+                            format!("past:{}", i.r#ref)
+                        } else {
+                            i.r#ref.clone()
+                        };
                         el.child(controls::button(
                             "review-chat",
                             t("review.chat"),

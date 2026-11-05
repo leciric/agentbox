@@ -21,7 +21,7 @@ use hyper::{Method, Request, Response, StatusCode};
 use crate::{Body, Fake, bad_request, json, not_found, now, rand_id};
 
 /// Folders a checkout's .gitignore leaves out, never listed.
-const IGNORED: &[&str] = &[".git", "target", "node_modules", "bin", "dist", ".cache"];
+pub const IGNORED: &[&str] = &[".git", "target", "node_modules", "bin", "dist", ".cache"];
 
 /// The files the fixtures' worktrees changed since their base, and how.
 const CHANGES: &[(&str, &str)] = &[
@@ -126,24 +126,40 @@ pub fn fleet_extras(a: &mut FleetAgent, root: &Path, i: usize) {
 }
 
 /// list is a folder's entries, folders first, each group by name (FileList).
-fn list(root: &Path, path: &str, extra: &[&str]) -> Option<FileList> {
+fn list(root: &Path, path: &str, extra: &[&str], ignored: bool) -> Option<FileList> {
+    if path == "samples" {
+        return Some(FileList {
+            path: path.into(),
+            entries: crate::panel::SAMPLES
+                .iter()
+                .map(|n| FileEntry {
+                    name: n.to_string(),
+                    path: format!("samples/{n}"),
+                    size: crate::panel::sample(n).map_or(0, |c| c.size),
+                    ..Default::default()
+                })
+                .collect(),
+            truncated: false,
+        });
+    }
     let dir = root.join(path);
     let mut entries: Vec<FileEntry> = std::fs::read_dir(&dir)
         .ok()?
         .filter_map(Result::ok)
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            if IGNORED.contains(&name.as_str()) {
+            let hidden = IGNORED.contains(&name.as_str());
+            if hidden && !ignored {
                 return None;
             }
             let meta = e.metadata().ok()?;
             Some(FileEntry {
                 path: join(path, &name),
                 name,
+                ignored: hidden,
                 dir: meta.is_dir(),
                 size: if meta.is_dir() { 0 } else { meta.len() as i64 },
                 symlink: e.file_type().is_ok_and(|t| t.is_symlink()),
-                ..Default::default()
             })
         })
         .collect();
@@ -158,6 +174,14 @@ fn list(root: &Path, path: &str, extra: &[&str]) -> Option<FileList> {
                 ..Default::default()
             });
         }
+    }
+    if path.is_empty() {
+        entries.push(FileEntry {
+            name: "samples".into(),
+            path: "samples".into(),
+            dir: true,
+            ..Default::default()
+        });
     }
     entries.sort_by(|a, b| b.dir.cmp(&a.dir).then(a.name.cmp(&b.name)));
     let truncated = entries.len() > 2000;
@@ -203,6 +227,9 @@ fn read(
     with_base: bool,
     touched: bool,
 ) -> Option<FileContent> {
+    if let Some(name) = path.strip_prefix("samples/") {
+        return crate::panel::sample(name);
+    }
     let change = CHANGES.iter().find(|(p, _)| *p == path).map(|(_, c)| *c);
     let bytes = if path == "docs/notes-from-agent.md" {
         let mut n = NOTES.to_string();
@@ -379,6 +406,7 @@ pub async fn route(
         fake.is_fake(p) && fake.fleet.lock().unwrap().iter().any(|x| x.name == a)
     };
     let q = |k: &str| query.get(k).map(|v| crate::decode(v)).unwrap_or_default();
+    let past = |p: &str, a: &str| fake.is_fake(p) && crate::review::Review::is_agent(a);
     let res = match (&method, parts.as_slice()) {
         // What the machines use: only the fake's agents have any.
         (&Method::GET, ["v1", "usage", "cpu"]) => {
@@ -781,19 +809,23 @@ pub async fn route(
             json(StatusCode::OK, &item)
         }
         // The worktree's files.
-        (&Method::GET, ["v1", "agents", p, a, "files", "list"]) if in_fleet(p, a) => {
+        (&Method::GET, ["v1", "agents" | "archived-agents", p, a, "files", "list"])
+            if in_fleet(p, a) || past(p, a) =>
+        {
             let m = fake.machines.lock().unwrap();
             let extra: Vec<&str> = CHANGES
                 .iter()
                 .filter(|(_, c)| *c != FILE_MODIFIED)
                 .map(|(p, _)| *p)
                 .collect();
-            match list(&m.root, &q("path"), &extra) {
+            match list(&m.root, &q("path"), &extra, !q("ignored").is_empty()) {
                 Some(l) => json(StatusCode::OK, &l),
                 None => not_found(&path),
             }
         }
-        (&Method::GET, ["v1", "agents", p, a, "files", "status"]) if in_fleet(p, a) => {
+        (&Method::GET, ["v1", "agents" | "archived-agents", p, a, "files", "status"])
+            if in_fleet(p, a) || past(p, a) =>
+        {
             let touched = fake.machines.lock().unwrap().touched;
             let mut changes: BTreeMap<String, String> = CHANGES
                 .iter()
@@ -814,7 +846,9 @@ pub async fn route(
                 },
             )
         }
-        (&Method::GET, ["v1", "agents", p, a, "files", "read"]) if in_fleet(p, a) => {
+        (&Method::GET, ["v1", "agents" | "archived-agents", p, a, "files", "read"])
+            if in_fleet(p, a) || past(p, a) =>
+        {
             let m = fake.machines.lock().unwrap();
             let file = q("path");
             let mut c = read(
@@ -871,8 +905,8 @@ mod tests {
     #[test]
     fn a_folder_lists_folders_first_without_the_ignored() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let l = list(root, "", &["notes.md"]).unwrap();
-        assert_eq!(l.entries[0].name, "src");
+        let l = list(root, "", &["notes.md"], false).unwrap();
+        assert!(l.entries[0].dir && l.entries.iter().any(|e| e.name == "src" && e.dir));
         assert!(l.entries.iter().any(|e| e.name == "Cargo.toml" && !e.dir));
         assert!(l.entries.iter().any(|e| e.name == "notes.md"));
         assert!(!l.entries.iter().any(|e| e.name == "target"));

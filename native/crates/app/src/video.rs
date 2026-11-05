@@ -360,3 +360,49 @@ fn clock(secs: f64) -> String {
     let s = secs.max(0.).round() as u64;
     format!("{}:{:02}", s / 60, s % 60)
 }
+
+/// first_frame is a recording's first picture, `width` wide, for its
+/// thumbnail (BGRA, as GPUI draws it).
+pub fn first_frame(path: &std::path::Path, width: u32) -> Result<image::RgbaImage> {
+    let mut input = ff::format::input(path)?;
+    let stream = input
+        .streams()
+        .best(ff::media::Type::Video)
+        .ok_or_else(|| anyhow!("no video in {}", path.display()))?;
+    let index = stream.index();
+    let mut decoder = ff::codec::context::Context::from_parameters(stream.parameters())?
+        .decoder()
+        .video()?;
+    let (w, h) = (decoder.width(), decoder.height());
+    let width = width.min(w).max(2);
+    let height = ((h as u64 * width as u64 / w.max(1) as u64) as u32 & !1).max(2);
+    let mut scaler = ff::software::scaling::Context::get(
+        decoder.format(),
+        w,
+        h,
+        ff::format::Pixel::BGRA,
+        width,
+        height,
+        ff::software::scaling::Flags::BILINEAR,
+    )?;
+    let mut frame = ff::frame::Video::empty();
+    for (s, packet) in input.packets() {
+        if s.index() != index {
+            continue;
+        }
+        decoder.send_packet(&packet)?;
+        if decoder.receive_frame(&mut frame).is_ok() {
+            let mut bgra = ff::frame::Video::empty();
+            scaler.run(&frame, &mut bgra)?;
+            let stride = bgra.stride(0);
+            let data = bgra.data(0);
+            let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+            for row in 0..height as usize {
+                pixels.extend_from_slice(&data[row * stride..row * stride + width as usize * 4]);
+            }
+            return image::RgbaImage::from_raw(width, height, pixels)
+                .ok_or_else(|| anyhow!("frame size"));
+        }
+    }
+    Err(anyhow!("no frame in {}", path.display()))
+}

@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 
 mod agents;
 mod chat;
+mod panel;
 mod pulls;
 mod review;
 
@@ -54,6 +55,35 @@ struct Fake {
     review: Mutex<review::Review>,
     /// The agents' machines: files, snapshots, recordings (agents.rs).
     machines: Mutex<agents::Machines>,
+}
+
+/// chat_options are the model and effort an agent's chat runs with.
+fn chat_options() -> Vec<ChatOption> {
+    let choice = |v: &str, n: &str| ChatOptionChoice {
+        value: v.into(),
+        name: n.into(),
+        ..Default::default()
+    };
+    vec![
+        ChatOption {
+            id: "model".into(),
+            name: "Model".into(),
+            category: "model".into(),
+            r#type: "select".into(),
+            value: "opus".into(),
+            choices: vec![choice("opus", "Opus 4.1"), choice("sonnet", "Sonnet 4.5")],
+            ..Default::default()
+        },
+        ChatOption {
+            id: "effort".into(),
+            name: "Effort".into(),
+            category: "thought_level".into(),
+            r#type: "select".into(),
+            value: "high".into(),
+            choices: vec![choice("medium", "Medium"), choice("high", "High")],
+            ..Default::default()
+        },
+    ]
 }
 
 fn now() -> String {
@@ -293,6 +323,9 @@ impl Fake {
                 ChatSession {
                     state: CHAT_READY.into(),
                     tool: "claude".into(),
+                    options: chat_options(),
+                    context_used: 84_200,
+                    context_size: 200_000,
                     ..Default::default()
                 },
                 items,
@@ -503,6 +536,11 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         })
         .collect();
     let fake_agent = |p: &str, a: &str| fake.is_fake(p) && review::Review::is_agent(a);
+    let pick_up = upstream_pick_up(fake.clone());
+    let req = match panel::route(&fake, req, &query, pick_up).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
     let req = match agents::route(&fake, req, &query).await {
         Ok(res) => return Ok(res),
         Err(req) => *req,
@@ -1202,6 +1240,26 @@ async fn connect(socket: &PathBuf) -> Result<Sender> {
     Ok(sender)
 }
 
+/// upstream_pick_up is whether the real daemon's project picks up issues
+/// (PATCH /v1/projects/{p} goes to it).
+async fn upstream_pick_up(fake: Arc<Fake>) -> bool {
+    let Some(up) = fake.opts.upstream.clone() else {
+        return false;
+    };
+    let get = async {
+        let mut sender = connect(&up).await?;
+        let res = sender
+            .send_request(Request::get("/v1/projects").body(Full::new(Bytes::new()))?)
+            .await?;
+        let body = res.into_body().collect().await?.to_bytes();
+        anyhow::Ok(serde_json::from_slice::<Vec<Project>>(&body)?)
+    };
+    get.await
+        .ok()
+        .and_then(|ps| ps.into_iter().find(|p| p.name == fake.opts.project))
+        .is_some_and(|p| p.pick_up_issues)
+}
+
 async fn proxy(up: &PathBuf, req: Request<Incoming>) -> Result<Response<Body>> {
     let (parts, body) = req.into_parts();
     let body = body.collect().await?.to_bytes();
@@ -1263,6 +1321,7 @@ async fn main() -> Result<()> {
     let fake = Fake::new(opts);
     tokio::spawn(fake.clone().churn());
     tokio::spawn(agents::touch(fake.clone()));
+    tokio::spawn(panel::serve_preview());
     loop {
         let (stream, _) = listener.accept().await?;
         let fake = fake.clone();

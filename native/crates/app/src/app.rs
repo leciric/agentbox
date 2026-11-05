@@ -11,16 +11,22 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 mod agent;
+mod agent_settings;
 mod agent_status;
 mod controls;
+mod issues;
 mod merge;
 mod new_task;
 mod panel;
+mod past;
 mod pulls;
 mod review;
+mod schedules;
 mod sessions;
 mod settings;
 mod sidebar;
+mod views;
+mod width;
 mod work;
 
 use crate::chat::{ChatAction, ChatView};
@@ -69,6 +75,15 @@ pub struct AppView {
     panel: panel::Panel,
     /// The open agent's page: its Snapshots, dialogs and info card.
     agent: agent::AgentPage,
+    /// The panel's Browser, Android and picker (views.rs).
+    views: views::Views,
+    schedules: schedules::Schedules,
+    issues: issues::Issues,
+    agent_settings: agent_settings::AgentSettings,
+    /// The past agent open (past.rs).
+    past: past::Past,
+    /// The panel's widths, and its drawer (width.rs).
+    widths: width::Widths,
     side: sidebar::Sidebar,
     /// The New task picker, while it's open.
     new_task: Option<new_task::NewTask>,
@@ -95,6 +110,25 @@ pub struct AppView {
 }
 
 impl AppView {
+    /// overlaid is whether something is drawn over the window, which a
+    /// page's webview (a child window, drawn over everything) must not hide.
+    fn overlaid(&self) -> bool {
+        self.new_task.is_some()
+            || self.review.is_some()
+            || self.pulls.open()
+            || self.pulls.confirm.is_some()
+            || self.agent.destroy.is_some()
+            || self.agent.confirm.is_some()
+            || self.agent.fork.is_some()
+            || self.agent.rename.is_some()
+            || self.agent.info.is_some()
+            || self.past.continuing
+            || self.past.deleting
+            || self.schedules.dialog_open()
+            || self.settings
+            || self.work.is_some()
+    }
+
     pub fn new(client: Client, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let events = Self::follow(client.clone(), window, cx);
         let pulls = pulls::Pulls::new(window, cx);
@@ -103,6 +137,7 @@ impl AppView {
             window,
             |this, _, ev: &gpui_component::input::InputEvent, _, cx| pulls::on_search(this, ev, cx),
         );
+        let (views, views_sub) = views::Views::new(window, cx);
         let mut this = Self {
             client,
             projects: Vec::new(),
@@ -117,6 +152,12 @@ impl AppView {
             desktop: None,
             panel: panel::Panel::new(cx),
             agent: agent::AgentPage::new(window, cx),
+            views,
+            schedules: schedules::Schedules::new(window, cx),
+            issues: issues::Issues::default(),
+            agent_settings: agent_settings::AgentSettings::new(window, cx),
+            past: past::Past::new(window, cx),
+            widths: width::Widths::load(),
             side: sidebar::Sidebar::new(window, cx),
             new_task: None,
             settings: false,
@@ -129,7 +170,7 @@ impl AppView {
             reopen_lead: false,
             asking_home: None,
             _chat_sub: None,
-            _subs: vec![search_sub],
+            _subs: vec![search_sub, views_sub],
             _review_sub: None,
             _events: events,
         };
@@ -486,6 +527,8 @@ impl AppView {
         self.terminal = None;
         self.desktop = None;
         self.panel.forget();
+        self.views.forget(window, cx);
+        self.past.agent = None;
         self.agent.reset();
         let client = self.client.clone();
         // Under the project's header, the chat draws no title of its own.
@@ -526,9 +569,22 @@ impl AppView {
 
     /// open_agent_ref opens an agent's chat, in its own project.
     fn open_agent_ref(&mut self, r#ref: String, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(past) = r#ref.strip_prefix("past:") {
+            return self.open_past(past.to_string(), window, cx);
+        }
         let Some((p, a)) = r#ref.split_once('/') else {
             return;
         };
+        // An agent no longer running anywhere is a past agent's record.
+        let live = self.fleet.iter().any(|x| x.r#ref == r#ref)
+            || self
+                .side
+                .agents
+                .iter()
+                .any(|x| x.project == p && x.name == a);
+        if !live && self.panel.past_agent(&r#ref).is_some() {
+            return self.open_past(r#ref, window, cx);
+        }
         if self.project.as_deref() != Some(p) {
             self.select_project(p.to_string(), window, cx);
         }
@@ -568,6 +624,14 @@ impl AppView {
             ChatAction::OpenProject(p) => self.select_project(p, window, cx),
             ChatAction::ForkSession(item) => self.fork_session(item, window, cx),
             ChatAction::NewSession { text } => self.session_with_message(text, window, cx),
+            ChatAction::ContinuePast => {
+                self.past.continuing = true;
+                cx.notify();
+            }
+            ChatAction::DeletePast => {
+                self.past.deleting = true;
+                cx.notify();
+            }
             ChatAction::Wake => {
                 if let Some(a) = self.open_agent() {
                     let action = if a.state == "paused" {
@@ -784,6 +848,7 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         bench::mark("first-render");
+        self.widths.window = f32::from(window.viewport_size().width);
         if std::mem::take(&mut self.reopen_lead) && self.open == "lead" {
             cx.defer_in(window, |this, window, cx| {
                 this.open_chat("lead".into(), window, cx)
@@ -828,6 +893,17 @@ impl Render for AppView {
             .size_full()
             .bg(theme::bg())
             .text_color(theme::fg())
+            .child(crate::webview::pages_begin())
+            .when(self.widths.dragging(), |el| {
+                el.cursor_col_resize()
+                    .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+                        this.drag_to(ev.position.x, cx)
+                    }))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseUpEvent, _, cx| this.drag_end(cx)),
+                    )
+            })
             .child(self.render_sidebar(cx))
             .child(
                 v_flex()
@@ -839,6 +915,7 @@ impl Render for AppView {
                         |el| {
                             el.children(self.render_project_header(cx))
                                 .children(self.render_agent_header(cx))
+                                .children(self.render_past_header(cx))
                                 .children(self.render_machine_bar(cx))
                                 .children(self.render_session_tabs(cx))
                                 .when(!no_session, |el| {
@@ -860,6 +937,12 @@ impl Render for AppView {
                             {
                                 self.render_snapshots(cx)
                             }
+                            Some(_)
+                                if self.open != "lead"
+                                    && self.agent.page == Some(agent::Page::Settings) =>
+                            {
+                                self.render_agent_settings(cx)
+                            }
                             Some(chat) => chat.clone().into_any_element(),
                             None => div()
                                 .size_full()
@@ -880,11 +963,15 @@ impl Render for AppView {
                 self.render_panel(cx)
             })
             // Last, so it draws over the rest.
+            .children(self.render_drawer(cx))
             .children(overlay)
             .children(self.review.clone())
             .children(self.render_pull(cx))
             .children(self.render_merge_confirm(cx))
             .children(self.render_agent_dialogs(cx))
+            .children(self.render_past_dialogs(cx))
+            .children(self.render_schedule_dialogs(cx))
             .child(self.toasts.clone())
+            .child(crate::webview::pages_end())
     }
 }

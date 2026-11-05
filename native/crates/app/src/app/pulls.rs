@@ -59,8 +59,10 @@ impl Filter {
 pub(super) enum RailTab {
     Agents,
     Pulls,
+    Issues,
     Files,
     Evidence,
+    Schedules,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -110,7 +112,7 @@ pub(super) struct Pulls {
     next_edit: u64,
     running: HashSet<i64>,
     failed: HashMap<i64, String>,
-    confirm: Option<merge::Confirm>,
+    pub(super) confirm: Option<merge::Confirm>,
     viewing: Option<Viewing>,
     /// The label picker, open on this pull request.
     picker: Option<i64>,
@@ -124,6 +126,11 @@ pub(super) struct Pulls {
 }
 
 impl Pulls {
+    /// open is whether a pull request is open over the window.
+    pub(super) fn open(&self) -> bool {
+        self.viewing.is_some()
+    }
+
     pub(super) fn new(window: &mut Window, cx: &mut Context<AppView>) -> Self {
         let search =
             cx.new(|cx| InputState::new(window, cx).placeholder(t("memory.pulls.labels.search")));
@@ -268,7 +275,7 @@ pub(super) fn merge_block(pr: &PullRequest, list: Option<&ProjectPullRequests>) 
 
 /// github_sentence says why the pull requests couldn't be read (utils.ts
 /// githubErrorSentence).
-fn github_sentence(e: &GitHubError) -> String {
+pub(super) fn github_sentence(e: &GitHubError) -> String {
     let account = if e.login.is_empty() {
         e.account.clone()
     } else {
@@ -305,7 +312,7 @@ fn github_sentence(e: &GitHubError) -> String {
 }
 
 /// github_fix is what to do about it, if this app can (GitHubErrorFix).
-fn github_fix(e: &GitHubError) -> Option<String> {
+pub(super) fn github_fix(e: &GitHubError) -> Option<String> {
     let key = match e.kind.as_str() {
         GIT_HUB_NO_ACCESS => "memory.pulls.fix.another",
         GIT_HUB_NO_ACCOUNT if !e.account.is_empty() => "memory.pulls.fix.another",
@@ -317,7 +324,7 @@ fn github_fix(e: &GitHubError) -> Option<String> {
 }
 
 /// hex is a label's colour, grey when GitHub sent something else (labelHex).
-fn hex(color: &str) -> Hsla {
+pub(super) fn hex(color: &str) -> Hsla {
     match u32::from_str_radix(color, 16) {
         Ok(v) if color.len() == 6 => rgb(v).into(),
         _ => rgb(0x8b949e).into(),
@@ -325,7 +332,7 @@ fn hex(color: &str) -> Hsla {
 }
 
 /// mix is a, with t of b in it.
-fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
+pub(super) fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
     let (a, b) = (Rgba::from(a), Rgba::from(b));
     Rgba {
         r: a.r + (b.r - a.r) * t,
@@ -336,7 +343,7 @@ fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
     .into()
 }
 
-fn state_badge(pr_state: &str, draft: bool) -> AnyElement {
+pub(super) fn state_badge(pr_state: &str, draft: bool) -> AnyElement {
     if draft {
         return controls::badge(t("memory.pulls.draft"), theme::muted());
     }
@@ -472,7 +479,7 @@ fn number_link(id: impl Into<ElementId>, pr: &PullRequest) -> AnyElement {
         .into_any_element()
 }
 
-fn link(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
+pub(super) fn link(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
     div()
         .id(id)
         .flex_none()
@@ -484,7 +491,7 @@ fn link(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div
         .child(text.into())
 }
 
-fn notice(text: impl Into<SharedString>, color: Hsla) -> Div {
+pub(super) fn notice(text: impl Into<SharedString>, color: Hsla) -> Div {
     div()
         .px_3()
         .py_2()
@@ -497,7 +504,7 @@ fn notice(text: impl Into<SharedString>, color: Hsla) -> Div {
         .child(text.into())
 }
 
-fn empty_state(title: String, body: String) -> AnyElement {
+pub(super) fn empty_state(title: String, body: String) -> AnyElement {
     v_flex()
         .items_center()
         .gap_2()
@@ -524,7 +531,7 @@ fn empty_state(title: String, body: String) -> AnyElement {
         .into_any_element()
 }
 
-fn chip(id: &str, label: String, count: Option<usize>, on: bool) -> Stateful<Div> {
+pub(super) fn chip(id: &str, label: String, count: Option<usize>, on: bool) -> Stateful<Div> {
     h_flex()
         .id(SharedString::from(id.to_string()))
         .gap_1p5()
@@ -2147,12 +2154,19 @@ impl AppView {
             )
             .children(
                 [
+                    ("rail-tab-issues", RailTab::Issues, "panel.view.issues", "◉"),
                     ("rail-tab-files", RailTab::Files, "panel.view.files", "▤"),
                     (
                         "rail-tab-evidence",
                         RailTab::Evidence,
                         "panel.view.evidence",
                         "◫",
+                    ),
+                    (
+                        "rail-tab-schedules",
+                        RailTab::Schedules,
+                        "panel.view.schedules",
+                        "⏰",
                     ),
                 ]
                 .into_iter()

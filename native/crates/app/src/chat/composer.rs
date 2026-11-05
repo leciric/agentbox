@@ -1376,6 +1376,42 @@ impl ChatView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if self.past {
+            return h_flex()
+                .flex_none()
+                .mx_4()
+                .mb_4()
+                .px_3()
+                .py_2p5()
+                .gap_2()
+                .rounded_xl()
+                .border_1()
+                .border_color(theme::border())
+                .bg(theme::raised())
+                .child(super::btn(
+                    "past-delete",
+                    t("common.delete"),
+                    false,
+                    false,
+                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatAction::DeletePast)),
+                ))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .text_color(theme::muted())
+                        .child(t("pastAgents.readOnly")),
+                )
+                .child(super::btn(
+                    "past-continue",
+                    t("pastAgents.continue"),
+                    true,
+                    false,
+                    cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatAction::ContinuePast)),
+                ))
+                .into_any_element();
+        }
         let placeholder = self.placeholder();
         if placeholder != self.composer.placeholder {
             self.composer.placeholder = placeholder.clone();

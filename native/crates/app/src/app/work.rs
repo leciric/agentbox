@@ -714,11 +714,8 @@ impl AppView {
                 ReviewEvent::Changed => this.reload_review(cx),
                 ReviewEvent::Chat(r#ref) => {
                     this.review = None;
-                    if let Some((project, agent)) = r#ref.split_once('/') {
-                        let agent = agent.to_string();
-                        this.select_project(project.to_string(), window, cx);
-                        this.open_chat(agent, window, cx);
-                    }
+                    this.work = None;
+                    this.open_agent_ref(r#ref.clone(), window, cx);
                 }
             },
         ));

@@ -10,7 +10,7 @@
 //! live on this computer (crate::prefs). A section opens at its top, and
 //! reads what it shows as it opens (load_section).
 mod accounts;
-mod connectors;
+pub(super) mod connectors;
 pub(super) mod defaults;
 mod diagnostics;
 pub(super) mod kit;

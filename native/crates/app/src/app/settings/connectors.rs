@@ -179,7 +179,7 @@ fn secret_name_for(connector: &str) -> String {
     }
 }
 
-fn status(c: &Connector) -> (String, Hsla) {
+pub(crate) fn status(c: &Connector) -> (String, Hsla) {
     match c.status.as_str() {
         CONNECTOR_CONNECTED => (t("project.connectors.status.connected"), theme::running()),
         CONNECTOR_CONNECTING => (t("project.connectors.status.connecting"), theme::starting()),
@@ -189,7 +189,7 @@ fn status(c: &Connector) -> (String, Hsla) {
 }
 
 /// time_until is utils.ts's timeUntil: in 5 minutes, in 3 hours, in 2 days.
-fn time_until(iso: &str) -> String {
+pub(crate) fn time_until(iso: &str) -> String {
     let Ok(at) = chrono::DateTime::parse_from_rfc3339(iso) else {
         return String::new();
     };

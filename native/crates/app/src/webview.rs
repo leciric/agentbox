@@ -284,3 +284,99 @@ fn place(id: &str, html: &str, bounds: Bounds<Pixels>, inside: bool, window: &mu
     });
     flush();
 }
+
+thread_local! {
+    /// Pages of an agent's machine (the panel's Browser), by id: the
+    /// webview, the URL it was last sent to, and the frame it was placed in.
+    static PAGES: RefCell<HashMap<String, (wry::WebView, String, u64)>> = RefCell::new(HashMap::new());
+}
+
+static PAGE_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// pages_begin and pages_end go first and last in the window: a page not
+/// placed between them this frame (its view closed, something drawn over
+/// it) is hidden.
+pub fn pages_begin() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        |_, _, _, _| {
+            PAGE_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        },
+    )
+    .absolute()
+    .size_0()
+}
+
+pub fn pages_end() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        |_, _, _, _| {
+            let now = PAGE_FRAME.load(std::sync::atomic::Ordering::Relaxed);
+            PAGES.with_borrow_mut(|pages| {
+                for (view, _, frame) in pages.values_mut() {
+                    if *frame != now && *frame != 0 {
+                        let _ = view.set_visible(false);
+                        *frame = 0;
+                    }
+                }
+            });
+            flush();
+        },
+    )
+    .absolute()
+    .size_0()
+}
+
+/// page is a live web page filling its box: `url`, loaded again whenever it
+/// (or the reload key in it, after a #) changes. Unlike a preview it goes
+/// to the network and follows links: it is a page of the agent's machine
+/// through the daemon's preview proxy, the Electron app's iframe.
+pub fn page(id: impl Into<String>, url: impl Into<String>, shown: bool) -> impl IntoElement {
+    let id = id.into();
+    let url = url.into();
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            if shown {
+                place_page(&id, &url, bounds, window)
+            }
+        },
+    )
+    .size_full()
+}
+
+fn place_page(id: &str, url: &str, bounds: Bounds<Pixels>, window: &mut Window) {
+    if !available() {
+        return;
+    }
+    let frame = PAGE_FRAME.load(std::sync::atomic::Ordering::Relaxed);
+    PAGES.with_borrow_mut(|pages| {
+        if let Some((view, loaded, at)) = pages.get_mut(id) {
+            if loaded != url {
+                let _ = view.load_url(url.split('#').next().unwrap_or(url));
+                *loaded = url.to_string();
+            }
+            let _ = view.set_bounds(rect(bounds));
+            if *at == 0 {
+                let _ = view.set_visible(true);
+            }
+            *at = frame;
+            return;
+        }
+        let built = wry::WebViewBuilder::new()
+            .with_url(url.split('#').next().unwrap_or(url))
+            .with_bounds(rect(bounds))
+            .with_incognito(true)
+            .build_as_child(&Parent(window));
+        match built {
+            Ok(view) => {
+                pages.insert(id.to_string(), (view, url.to_string(), frame));
+            }
+            Err(e) => {
+                eprintln!("webviews are off: {e}");
+                UNAVAILABLE.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    });
+    flush();
+}

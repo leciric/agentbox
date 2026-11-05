@@ -8,6 +8,7 @@
 //! Each agent keeps the view it was last shown in.
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use agentbox_api::{
@@ -38,18 +39,25 @@ use crate::vnc::VncView;
 pub enum PView {
     Desktop,
     Terminal,
+    Browser,
+    Android,
     Files,
     Evidence,
     Timeline,
+    /// The project's schedules, picked on an agent's switch: its header stays.
+    Schedules,
 }
 
 impl PView {
-    pub const ALL: [PView; 5] = [
+    pub const ALL: [PView; 8] = [
         PView::Desktop,
         PView::Terminal,
+        PView::Browser,
+        PView::Android,
         PView::Files,
         PView::Evidence,
         PView::Timeline,
+        PView::Schedules,
     ];
 
     pub fn key(self) -> &'static str {
@@ -59,6 +67,9 @@ impl PView {
             PView::Files => "files",
             PView::Evidence => "evidence",
             PView::Timeline => "timeline",
+            PView::Browser => "browser",
+            PView::Android => "android",
+            PView::Schedules => "schedules",
         }
     }
 
@@ -73,12 +84,18 @@ impl PView {
             PView::Files => "▤",
             PView::Evidence => "◫",
             PView::Timeline => "≡",
+            PView::Browser => "◍",
+            PView::Android => "▯",
+            PView::Schedules => "⏰",
         }
     }
 
     /// machine views need the agent's machine up.
     fn machine(self) -> bool {
-        matches!(self, PView::Desktop | PView::Terminal)
+        matches!(
+            self,
+            PView::Desktop | PView::Terminal | PView::Browser | PView::Android
+        )
     }
 }
 
@@ -91,6 +108,8 @@ pub enum Whose {
     List,
     /// An agent, by ref.
     Agent(String),
+    /// A past agent, by ref: its views that need no machine.
+    Past(String),
 }
 
 pub struct Panel {
@@ -108,6 +127,8 @@ pub struct Panel {
     media: Option<Result<Vec<MediaItem>, String>>,
     files_cache: HashMap<String, PathBuf>,
     fetching: HashSet<String>,
+    /// Recordings' first frames, for their thumbnails.
+    posters: HashMap<String, Arc<RenderImage>>,
     featured: Option<String>,
     viewer: Option<String>,
     #[cfg(feature = "video")]
@@ -146,6 +167,7 @@ impl Panel {
             media: None,
             files_cache: HashMap::new(),
             fetching: HashSet::new(),
+            posters: HashMap::new(),
             featured: None,
             viewer: None,
             #[cfg(feature = "video")]
@@ -199,6 +221,24 @@ impl Panel {
         }
     }
 
+    pub fn browser_status(&self) -> Option<&BrowserStatus> {
+        self.browser.as_ref()
+    }
+
+    pub fn recording_status(&self) -> Option<RecordingStatus> {
+        self.recording.clone()
+    }
+
+    /// past_agent is a past agent of the list's, by ref.
+    pub fn past_agent(&self, r#ref: &str) -> Option<ArchivedAgent> {
+        self.past.iter().find(|a| a.r#ref == r#ref).cloned()
+    }
+
+    /// has_media is whether whose (a ref) has media in Evidence.
+    pub fn has_media(&self, whose: &str) -> bool {
+        self.media_for == whose && matches!(&self.media, Some(Ok(m)) if !m.is_empty())
+    }
+
     fn items(&self) -> Vec<MediaItem> {
         let mut items = match &self.media {
             Some(Ok(m)) => m.clone(),
@@ -214,7 +254,7 @@ fn is_capture(m: &MediaItem) -> bool {
 }
 
 /// clock is seconds as m:ss.
-fn clock(secs: f64) -> String {
+pub(super) fn clock(secs: f64) -> String {
     let s = secs.max(0.).round() as u64;
     format!("{}:{:02}", s / 60, s % 60)
 }
@@ -234,6 +274,9 @@ impl AppView {
     pub(super) fn panel_whose(&self) -> Whose {
         if self.open == "lead" {
             return Whose::Lead;
+        }
+        if let Some(r) = self.past_ref() {
+            return Whose::Past(r);
         }
         if self.panel.list_beside {
             return Whose::List;
@@ -276,6 +319,14 @@ impl AppView {
     }
 
     pub(super) fn toggle_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.narrow() {
+            // Where it doesn't fit beside the chat, it opens over it.
+            self.widths.drawer = !self.widths.drawer;
+            self.panel.folded = false;
+            self.panel_sync(window, cx);
+            cx.notify();
+            return;
+        }
         self.panel.folded = !self.panel.folded;
         self.panel_sync(window, cx);
         cx.notify();
@@ -293,13 +344,16 @@ impl AppView {
         match self.panel_whose() {
             Whose::Lead => match self.pulls.tab {
                 RailTab::Files => {
-                    self.ensure_files(format!("/v1/projects/{project}/files"), lead, cx)
+                    self.ensure_files(format!("/v1/projects/{project}/files"), lead, window, cx)
                 }
                 RailTab::Evidence => self.load_media(lead, false, cx),
                 RailTab::Agents => self.load_list_data(cx),
                 RailTab::Pulls => {}
+                RailTab::Issues => self.load_issues(false, cx),
+                RailTab::Schedules => self.load_schedules(cx),
             },
             Whose::List => self.load_list_data(cx),
+            Whose::Past(r) => self.past_sync(&r, window, cx),
             Whose::Agent(r) => {
                 let (p, a) = split(&r);
                 let view = self.panel.view_of(&r);
@@ -313,12 +367,32 @@ impl AppView {
                         self.load_desktop_status(cx);
                     }
                     PView::Terminal => self.show_terminal(window, cx),
-                    PView::Files => {
-                        self.ensure_files(format!("/v1/agents/{p}/{a}/files"), r.clone(), cx)
-                    }
+                    PView::Files => self.ensure_files(
+                        format!("/v1/agents/{p}/{a}/files"),
+                        r.clone(),
+                        window,
+                        cx,
+                    ),
                     PView::Evidence => {}
                     PView::Timeline => self.load_timeline(r.clone(), cx),
+                    PView::Browser => {
+                        self.load_desktop_status(cx);
+                        self.load_preview(cx);
+                    }
+                    PView::Android => {
+                        self.load_android(cx);
+                        self.load_desktop_status(cx);
+                    }
+                    PView::Schedules => self.load_schedules(cx),
                 }
+                if view != PView::Desktop && view != PView::Browser {
+                    // What the switch offers: the browser's pages, the emulator.
+                    self.load_desktop_status(cx);
+                }
+                if view != PView::Android {
+                    self.load_android(cx);
+                }
+                self.sync_device(cx);
             }
         }
         self.sync_player(cx);
@@ -360,7 +434,13 @@ impl AppView {
         .detach();
     }
 
-    fn ensure_files(&mut self, base: String, r#ref: String, cx: &mut Context<Self>) {
+    pub(super) fn ensure_files(
+        &mut self,
+        base: String,
+        r#ref: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self
             .panel
             .files
@@ -370,7 +450,7 @@ impl AppView {
             return;
         }
         let client = self.client.clone();
-        self.panel.files = Some(cx.new(|cx| FileBrowser::new(client, base, r#ref, cx)));
+        self.panel.files = Some(cx.new(|cx| FileBrowser::new(client, base, r#ref, window, cx)));
     }
 
     /// panel_tick runs every second: the recording's clock, and every few
@@ -388,11 +468,24 @@ impl AppView {
             match self.panel_whose() {
                 Whose::Lead if self.pulls.tab == RailTab::Agents => self.load_usage(cx),
                 Whose::List => self.load_usage(cx),
-                Whose::Agent(r) if self.panel.view_of(&r) == PView::Desktop => {
+                Whose::Agent(r)
+                    if matches!(self.panel.view_of(&r), PView::Desktop | PView::Browser) =>
+                {
+                    self.load_desktop_status(cx)
+                }
+                Whose::Agent(r) if self.panel.view_of(&r) == PView::Android => {
+                    self.load_android(cx);
                     self.load_desktop_status(cx)
                 }
                 _ => {}
             }
+        }
+        if n.is_multiple_of(15)
+            && let Whose::Agent(r) = self.panel_whose()
+            && self.panel.view_of(&r) != PView::Android
+        {
+            self.load_android(cx);
+            self.load_desktop_status(cx);
         }
         if n.is_multiple_of(30) {
             self.load_fleet_now(cx);
@@ -461,7 +554,7 @@ impl AppView {
         .detach();
     }
 
-    fn load_desktop_status(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn load_desktop_status(&mut self, cx: &mut Context<Self>) {
         let Some(a) = self.open_agent() else { return };
         if a.state != "running" {
             return;
@@ -552,6 +645,7 @@ impl AppView {
                 this.update(cx, |this, cx| {
                     this.panel.fetching.remove(&id);
                     if let Ok(p) = res {
+                        this.make_poster(&id, &p, cx);
                         this.panel.files_cache.insert(id, p);
                     }
                     this.sync_player(cx);
@@ -563,6 +657,37 @@ impl AppView {
         }
         self.sync_player(cx);
     }
+
+    /// make_poster draws a fetched recording's first frame, on a thread.
+    #[cfg(feature = "video")]
+    fn make_poster(&mut self, id: &str, path: &std::path::Path, cx: &mut Context<Self>) {
+        if !path
+            .extension()
+            .is_some_and(|e| e == "mp4" || e == "webm" || e == "mkv")
+            || self.panel.posters.contains_key(id)
+        {
+            return;
+        }
+        let (id, path) = (id.to_string(), path.to_path_buf());
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::video::first_frame(&path, 320).ok());
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Some(img)) = rx.await {
+                let image = Arc::new(RenderImage::new(vec![image::Frame::new(img)]));
+                this.update(cx, |this, cx| {
+                    this.panel.posters.insert(id, image);
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    #[cfg(not(feature = "video"))]
+    fn make_poster(&mut self, _id: &str, _path: &std::path::Path, _cx: &mut Context<Self>) {}
 
     /// featured is Evidence's large item: the one picked, else the latest recording.
     fn featured(&self) -> Option<MediaItem> {
@@ -579,6 +704,7 @@ impl AppView {
         match self.panel_whose() {
             Whose::Lead => self.pulls.tab == RailTab::Evidence,
             Whose::Agent(r) => self.panel.view_of(&r) == PView::Evidence,
+            Whose::Past(_) => self.past.view == PView::Evidence,
             Whose::List => false,
         }
     }
@@ -625,7 +751,7 @@ impl AppView {
     #[cfg(not(feature = "video"))]
     fn sync_player(&mut self, _cx: &mut Context<Self>) {}
 
-    fn load_timeline(&mut self, r#ref: String, cx: &mut Context<Self>) {
+    pub(super) fn load_timeline(&mut self, r#ref: String, cx: &mut Context<Self>) {
         let (p, a) = split(&r#ref);
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
@@ -693,7 +819,7 @@ impl AppView {
     }
 
     /// saved says a capture was saved, with a way to see it in Evidence.
-    fn saved(&mut self, r#ref: String, m: MediaItem, cx: &mut Context<Self>) {
+    pub(super) fn saved(&mut self, r#ref: String, m: MediaItem, cx: &mut Context<Self>) {
         let view = cx.entity().downgrade();
         let id = m.id.clone();
         Toast::new(
@@ -854,23 +980,27 @@ impl AppView {
 
     /// render_panel is the right-hand panel beside a project's chat.
     pub(super) fn render_panel(&self, cx: &mut Context<Self>) -> AnyElement {
-        let whose = self.panel_whose();
-        if self.panel.folded {
+        if self.panel.folded || self.narrow() {
             return self.render_strip(cx);
         }
-        let width = match &whose {
-            Whose::Lead => match self.pulls.tab {
-                RailTab::Agents => 352.,
-                RailTab::Pulls => 400.,
-                _ => 560.,
-            },
-            Whose::List => 352.,
-            Whose::Agent(_) => 560.,
-        };
+        let width = self.panel_box().width;
+        div()
+            .relative()
+            .flex_none()
+            .h_full()
+            .child(self.render_panel_body(width, cx))
+            .child(self.width_handle(width, cx))
+            .into_any_element()
+    }
+
+    /// render_panel_body is the panel at a width: its header and its view.
+    pub(super) fn render_panel_body(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
+        let whose = self.panel_whose();
         let header = match &whose {
             Whose::Lead => self.lead_header(cx),
             Whose::List => self.list_header(cx),
             Whose::Agent(r) => self.agent_panel_header(r, cx),
+            Whose::Past(r) => self.past_panel_header(r, cx),
         };
         let body: AnyElement = match &whose {
             Whose::Lead => match self.pulls.tab {
@@ -878,9 +1008,12 @@ impl AppView {
                 RailTab::Pulls => self.render_pulls_panel(cx),
                 RailTab::Files => self.render_files(),
                 RailTab::Evidence => self.render_evidence(None, cx),
+                RailTab::Issues => self.render_issues(cx),
+                RailTab::Schedules => self.render_schedules(cx),
             },
             Whose::List => self.render_list(cx),
             Whose::Agent(r) => self.render_agent_view(r, cx),
+            Whose::Past(r) => self.render_past_view(r, cx),
         };
         v_flex()
             .w(px(width))
@@ -994,6 +1127,12 @@ impl AppView {
         let asleep = st::asleep(&a.state);
         let view = self.panel.view_of(r);
         let busy = a.busy || a.chat == "running";
+        let (shown, hidden) = self.agent_views(&a, view);
+        let booted = self
+            .views
+            .android
+            .as_ref()
+            .is_some_and(|(r, s)| *r == a.r#ref && s.booted);
         let dot_tip: SharedString = t(if asleep {
             "panel.machine.asleep"
         } else {
@@ -1006,7 +1145,7 @@ impl AppView {
             .border_1()
             .border_color(theme::border())
             .bg(theme::bg())
-            .children(PView::ALL.into_iter().map(|v| {
+            .children(shown.into_iter().map(|v| {
                 let on = v == view;
                 let r = r.to_string();
                 let tip: SharedString = v.label().into();
@@ -1031,8 +1170,21 @@ impl AppView {
                     .rounded_md()
                     .text_xs()
                     .font_weight(FontWeight::MEDIUM)
+                    .relative()
                     .child(v.glyph())
                     .when(on, |el| el.child(v.label()))
+                    // Android, once its emulator has booted.
+                    .when(v == PView::Android && booted, |el| {
+                        el.child(
+                            div()
+                                .absolute()
+                                .top(px(4.))
+                                .right(px(4.))
+                                .size(px(5.))
+                                .rounded_full()
+                                .bg(theme::running()),
+                        )
+                    })
             }));
         self.header_row()
             .child(
@@ -1067,6 +1219,7 @@ impl AppView {
                     ),
             )
             .child(switch)
+            .child(self.render_more_views(r, hidden, cx))
             .child(div().flex_1())
             .child(
                 icon_button("panel-close", "✕", t("panel.back")).on_click(cx.listener(
@@ -1457,7 +1610,7 @@ impl AppView {
             .into_any_element()
     }
 
-    fn render_files(&self) -> AnyElement {
+    pub(super) fn render_files(&self) -> AnyElement {
         match &self.panel.files {
             Some(f) => f.clone().into_any_element(),
             None => note(t("common.loading")),
@@ -1481,6 +1634,9 @@ impl AppView {
             PView::Files => self.render_files(),
             PView::Evidence => self.render_evidence(Some(&a), cx),
             PView::Timeline => self.render_timeline(r),
+            PView::Browser => self.render_browser(&a, self.overlaid(), cx),
+            PView::Android => self.render_android(&a, cx),
+            PView::Schedules => self.render_schedules(cx),
         }
     }
 
@@ -1647,6 +1803,7 @@ impl AppView {
                     .tooltip(move |w, cx| Tooltip::new(shot_tip.clone()).build(w, cx))
                     .child(if self.panel.shooting { "…" } else { "⌾" }),
             )
+            .child(self.render_pick_button(a, connected, cx))
             .child(
                 h_flex()
                     .id("desktop-record")
@@ -1888,9 +2045,12 @@ impl AppView {
             .border_color(theme::border())
             .bg(theme::bg())
             .hover(|s| s.border_color(theme::accent()))
-            .map(|el| match path {
-                Some(p) => el.child(img(p).size_full().object_fit(ObjectFit::Cover)),
-                None => el
+            .map(|el| match (path, self.panel.posters.get(&m.id)) {
+                (Some(p), _) => el.child(img(p).size_full().object_fit(ObjectFit::Cover)),
+                (None, Some(poster)) => {
+                    el.child(img(poster.clone()).size_full().object_fit(ObjectFit::Cover))
+                }
+                (None, None) => el
                     .flex()
                     .items_center()
                     .justify_center()
@@ -1914,7 +2074,11 @@ impl AppView {
 
     /// render_evidence is what whose left to show (Evidence): a recording
     /// large with its chapters, the other captures, then the reports.
-    fn render_evidence(&self, agent: Option<&FleetAgent>, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_evidence(
+        &self,
+        agent: Option<&FleetAgent>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let lead = agent.is_none();
         let name = agent.map(|a| a.name.clone()).unwrap_or_default();
         match &self.panel.media {
@@ -2319,7 +2483,7 @@ impl AppView {
     fn seek_player(&mut self, _at: f64, _cx: &mut Context<Self>) {}
 
     /// render_timeline is what the agent did, step by step (TimelinePanel).
-    fn render_timeline(&self, r: &str) -> AnyElement {
+    pub(super) fn render_timeline(&self, r: &str) -> AnyElement {
         let Some((of, res)) = &self.panel.timeline else {
             return note(t("common.loading"));
         };
@@ -2585,7 +2749,7 @@ fn count_pill(n: usize) -> AnyElement {
         .into_any_element()
 }
 
-fn note(text: String) -> AnyElement {
+pub(super) fn note(text: String) -> AnyElement {
     div()
         .p_4()
         .text_xs()
@@ -2594,7 +2758,7 @@ fn note(text: String) -> AnyElement {
         .into_any_element()
 }
 
-fn icon_button(id: &'static str, glyph: &'static str, tip: String) -> Stateful<Div> {
+pub(super) fn icon_button(id: &'static str, glyph: &'static str, tip: String) -> Stateful<Div> {
     let tip: SharedString = tip.into();
     div()
         .id(id)

@@ -19,7 +19,7 @@ mod find;
 mod items;
 pub mod rows;
 
-pub use composer::Composer;
+pub use composer::{Composer, match_files, tokens};
 
 /// session_line is what the chat's header says of its session (chat.status.*).
 fn session_line(s: &ChatSession) -> String {
@@ -49,9 +49,15 @@ const PAGE: usize = 200;
 #[derive(Clone, Debug)]
 pub enum ChatAction {
     /// Roll the agent back to a turn's checkpoint, once confirmed.
-    Rollback { checkpoint: String, n: i64 },
+    Rollback {
+        checkpoint: String,
+        n: i64,
+    },
     /// Fork a new agent from a turn's checkpoint.
-    Fork { checkpoint: String, n: i64 },
+    Fork {
+        checkpoint: String,
+        n: i64,
+    },
     /// Open an agent by its ref.
     OpenAgent(String),
     /// Open a project.
@@ -62,7 +68,12 @@ pub enum ChatAction {
     Wake,
     /// A new lead session, from the composer (the prompt cache card): with
     /// a first message to send there.
-    NewSession { text: String },
+    NewSession {
+        text: String,
+    },
+    /// A past agent's chat: continue it in a new agent, or delete it.
+    ContinuePast,
+    DeletePast,
 }
 
 /// The picture shown over everything, zoomed.
@@ -125,6 +136,11 @@ pub struct ChatView {
     pub agent_name: String,
     /// The agent's machine is stopped or paused: a message wakes it.
     pub asleep: Option<String>,
+    /// A past agent's chat: read-only, Continue and Delete where the
+    /// composer was (ChatTab's readOnly).
+    pub past: bool,
+    /// Text to add to the composer's on the next frame (a picked element).
+    append: Vec<String>,
     items: Vec<ChatItem>,
     rows: Vec<rows::Keyed>,
     session: ChatSession,
@@ -215,6 +231,8 @@ impl ChatView {
             agent,
             agent_name: String::new(),
             asleep: None,
+            past: false,
+            append: Vec::new(),
             items: Vec::new(),
             rows: Vec::new(),
             session: ChatSession::default(),
@@ -426,6 +444,17 @@ impl ChatView {
         self.composer
             .input
             .update(cx, |s, cx| s.set_value(text, window, cx));
+    }
+
+    /// draft_text is what the composer holds, not sent.
+    pub fn draft_text(&self, cx: &App) -> String {
+        self.composer.input.read(cx).value().to_string()
+    }
+
+    /// append_draft adds text after the draft, on the next frame.
+    pub fn append_draft(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.append.push(text.to_string());
+        cx.notify();
     }
 
     /// focus_composer puts the cursor in the message box.
@@ -799,6 +828,18 @@ impl ChatView {
 
 impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.append.is_empty() {
+            let mut text = self.draft_text(cx);
+            for more in std::mem::take(&mut self.append) {
+                if !text.trim().is_empty() {
+                    text.push_str("\n\n");
+                }
+                text.push_str(&more);
+            }
+            self.composer
+                .input
+                .update(cx, |s, cx| s.set_value(text, window, cx));
+        }
         let viewport = self.list.viewport_bounds();
         crate::webview::set_scroller(self.list.clone());
         crate::webview::set_clip((viewport.size.height > px(0.)).then_some(viewport));
