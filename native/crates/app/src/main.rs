@@ -23,6 +23,7 @@ mod media;
 mod mermaid;
 mod motion;
 mod notices;
+mod office;
 mod prefs;
 #[cfg(target_os = "linux")]
 mod snapshot;

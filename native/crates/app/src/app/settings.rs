@@ -717,6 +717,13 @@ impl AppView {
                             "settings.entry.tray.keywords",
                         )
                         .modified(prefs::tray_keep_running()),
+                        entry(
+                            "office",
+                            "native.settings.entry.office.label",
+                            "native.settings.office.description",
+                            "native.settings.entry.office.keywords",
+                        )
+                        .modified(crate::office::enabled()),
                     ],
                 ),
                 group(
@@ -1815,6 +1822,21 @@ impl AppView {
                     false,
                     cx.listener(move |_, _: &ClickEvent, _, cx| {
                         prefs::set_bool(prefs::GROUP_IDLE, !on);
+                        cx.notify();
+                    }),
+                ));
+                row
+            }
+            "office" => {
+                // The Office (#668) in the sidebar: off by default.
+                let on = crate::office::enabled();
+                let mut row = self.more_row(e, None, cx);
+                row.control = Some(toggle(
+                    "switch-office",
+                    on,
+                    false,
+                    cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        prefs::set_bool(crate::office::PREF, !on);
                         cx.notify();
                     }),
                 ));

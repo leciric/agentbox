@@ -591,6 +591,7 @@ impl AppView {
                                     .child(theme::kbd("Ctrl N")),
                             )
                             .child(self.home_row(cx))
+                            .children(self.office_row(cx))
                             .child(self.filter_bar(cx))
                             .when(self.projects.is_empty(), |el| {
                                 el.child(

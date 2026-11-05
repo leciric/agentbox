@@ -15,7 +15,7 @@ pub(crate) mod agent;
 mod alerts;
 pub use alerts::initial_bounds;
 mod agent_settings;
-mod agent_status;
+pub(crate) mod agent_status;
 mod connection;
 pub(crate) mod controls;
 mod foot;
@@ -23,6 +23,7 @@ mod issues;
 mod merge;
 mod new_agent;
 mod new_task;
+mod office_entry;
 mod panel;
 mod past;
 mod presence;
@@ -120,6 +121,10 @@ pub struct AppView {
     settings_page: settings::SettingsPage,
     /// The Work page, while it's open in the main area.
     work: Option<Entity<work::WorkView>>,
+    /// The Office (crate::office), made the first time it's opened and kept,
+    /// and whether it's open over the window now.
+    office: Option<Entity<crate::office::OfficeView>>,
+    office_open: bool,
     /// The review, over everything, while it's open.
     review: Option<Entity<review::ReviewView>>,
     /// The open project's pull requests, and the one open over the window.
@@ -157,6 +162,7 @@ impl AppView {
             || self.schedules.dialog_open()
             || self.settings
             || self.work.is_some()
+            || self.office_open
             || self.first_run_open()
             || self.onboarding_open()
     }
@@ -211,6 +217,8 @@ impl AppView {
             settings: false,
             settings_page: settings::SettingsPage::new(window, cx),
             work: None,
+            office: None,
+            office_open: false,
             review: None,
             pulls,
             toasts: crate::toasts::init(cx),
@@ -286,6 +294,7 @@ impl AppView {
             }
             return;
         };
+        self.office_poke(cx);
         if alerts::moves_tray(&ev.r#type) {
             self.tray_soon();
         }
@@ -479,6 +488,10 @@ impl AppView {
                             // AGENTBOX_NATIVE_SETTINGS=<section> opens Settings there (checks).
                             if let Ok(id) = std::env::var("AGENTBOX_NATIVE_SETTINGS") {
                                 this.open_settings_at(id, window, cx);
+                            }
+                            // AGENTBOX_NATIVE_OFFICE=1 opens the Office at start (checks, recordings).
+                            if std::env::var_os("AGENTBOX_NATIVE_OFFICE").is_some() {
+                                this.open_office(window, cx);
                             }
                         }
                     }
@@ -1103,6 +1116,7 @@ impl Render for AppView {
                     self.render_panel(cx)
                 })
             })
+            .children(self.render_office())
             // Last, so it draws over the rest.
             .children(self.render_drawer(cx))
             .children(overlay)
