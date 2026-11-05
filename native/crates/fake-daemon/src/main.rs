@@ -23,6 +23,7 @@ use hyper_util::rt::TokioIo;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
 
+mod pulls;
 mod review;
 
 type Body = BoxBody<Bytes, Infallible>;
@@ -238,6 +239,21 @@ impl Fake {
         ));
     }
 
+    /// fleet_with_pulls is the fleet, each agent with its pull request (the
+    /// newest one its branch has, as the daemon's sessionPRs finds it).
+    fn fleet_with_pulls(&self) -> Vec<FleetAgent> {
+        let list = self.review.lock().unwrap().pulls().list(&self.opts.project);
+        let mut fleet = self.fleet.lock().unwrap().clone();
+        for a in &mut fleet {
+            a.pr = list
+                .pull_requests
+                .iter()
+                .find(|p| p.agent == a.name)
+                .cloned();
+        }
+        fleet
+    }
+
     fn is_fake(&self, project: &str) -> bool {
         project == self.opts.project
     }
@@ -402,6 +418,47 @@ fn not_found(path: &str) -> Response<Body> {
             ..Default::default()
         },
     )
+}
+
+fn bad_request(error: String) -> Response<Body> {
+    json(
+        StatusCode::BAD_REQUEST,
+        &ApiError {
+            error,
+            ..Default::default()
+        },
+    )
+}
+
+/// pulls_change is the pulls event the daemon sends when a project's list
+/// changed (api.PullsChange).
+fn pulls_change(project: &str) -> PullsChange {
+    PullsChange {
+        project: project.into(),
+        github: "leciric/agentbox".into(),
+        fetched_at: now(),
+        ..Default::default()
+    }
+}
+
+/// decode undoes a query value's percent-escapes.
+fn decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(v);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body>, Infallible> {
@@ -601,27 +658,110 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                     .unwrap()
             }
         }
+        // Pull requests (pulls.rs): the real daemon here has no GitHub.
+        (&Method::GET, ["v1", "projects", p, "pulls"]) if fake.is_fake(p) => {
+            json(StatusCode::OK, &fake.review.lock().unwrap().pulls().list(p))
+        }
+        (&Method::GET, ["v1", "projects", p, "labels"]) if fake.is_fake(p) => json(
+            StatusCode::OK,
+            &fake.review.lock().unwrap().pulls().all_labels(),
+        ),
+        (&Method::GET, ["v1", "projects", p, "pulls", n, rest @ ..])
+            if fake.is_fake(p) && n.parse::<i64>().is_ok() =>
+        {
+            let n: i64 = n.parse().unwrap();
+            let review = fake.review.lock().unwrap();
+            let pulls = review.pulls();
+            let found = match rest {
+                [] => pulls.detail(n).map(|d| json(StatusCode::OK, &d)),
+                ["files"] => pulls.files_of(n).map(|f| json(StatusCode::OK, &f)),
+                ["diff"] => {
+                    let path = decode(query.get("path").map(String::as_str).unwrap_or(""));
+                    pulls.diff(n, &path).map(|d| json(StatusCode::OK, &d))
+                }
+                _ => None,
+            };
+            found.unwrap_or_else(|| not_found(&path))
+        }
         (&Method::POST, ["v1", "projects", p, "pulls", n, "merge"]) if fake.is_fake(p) => {
-            let merged = n
-                .parse()
-                .ok()
-                .and_then(|n| fake.review.lock().unwrap().merge(p, n));
-            match merged {
-                Some(pr) => {
+            let n: i64 = n.parse().unwrap_or(0);
+            let res = fake.review.lock().unwrap().pulls_mut().merge(n);
+            match res {
+                Ok(pr) => {
                     fake.emit(EVENT_REVIEW, &p.to_string());
+                    fake.emit(EVENT_PULLS, &pulls_change(p));
                     json(StatusCode::OK, &pr)
+                }
+                Err(e) => bad_request(e),
+            }
+        }
+        (&Method::POST, ["v1", "projects", p, "pulls", n, "labels"]) if fake.is_fake(p) => {
+            let n: i64 = n.parse().unwrap_or(0);
+            let body = req
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            let edit = serde_json::from_slice::<EditLabelsRequest>(&body).unwrap_or_default();
+            let res = fake
+                .review
+                .lock()
+                .unwrap()
+                .pulls_mut()
+                .edit_labels(n, &edit);
+            match res {
+                Some(labels) => {
+                    fake.emit(EVENT_PULLS, &pulls_change(p));
+                    json(StatusCode::OK, &labels)
                 }
                 None => not_found(&path),
             }
         }
-        // Every agent, as GET /v1/agents lists them (a FleetAgent is an Agent and more).
-        (&Method::GET, ["v1", "agents"]) => {
-            json(StatusCode::OK, &fake.fleet.lock().unwrap().clone())
+        (&Method::POST, ["v1", "projects", p, "pulls", n, "merge-when-green"])
+            if fake.is_fake(p) =>
+        {
+            let n: i64 = n.parse().unwrap_or(0);
+            let body = req
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            let mark = serde_json::from_slice::<MergeWhenGreenRequest>(&body).unwrap_or_default();
+            let res = {
+                let mut review = fake.review.lock().unwrap();
+                let res = review.pulls_mut().mark(n, &mark.method);
+                if res.is_ok() && !mark.agent.is_empty() {
+                    review.verdict(&format!("{p}/{}", mark.agent), "reviewed");
+                }
+                res
+            };
+            match res {
+                Ok(m) => {
+                    fake.emit(EVENT_REVIEW, &p.to_string());
+                    json(StatusCode::OK, &m)
+                }
+                Err(e) => bad_request(e),
+            }
         }
+        (&Method::DELETE, ["v1", "projects", p, "pulls", n, "merge-when-green"])
+            if fake.is_fake(p) =>
+        {
+            let n: i64 = n.parse().unwrap_or(0);
+            fake.review.lock().unwrap().pulls_mut().unmark(n);
+            fake.emit(EVENT_REVIEW, &p.to_string());
+            Response::builder()
+                .status(StatusCode::NO_CONTENT)
+                .body(Full::new(Bytes::new()).boxed())
+                .unwrap()
+        }
+        // Every agent, as GET /v1/agents lists them (a FleetAgent is an Agent and more).
+        (&Method::GET, ["v1", "agents"]) => json(StatusCode::OK, &fake.fleet_with_pulls()),
         (&Method::GET, ["v1", "projects", p, "fleet"]) if fake.is_fake(p) => {
             let fleet = Fleet {
                 project: p.to_string(),
-                agents: fake.fleet.lock().unwrap().clone(),
+                agents: fake.fleet_with_pulls(),
                 ..Default::default()
             };
             json(StatusCode::OK, &fleet)

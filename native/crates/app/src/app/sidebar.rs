@@ -202,7 +202,7 @@ impl AppView {
 
     /// to_review is how many of a project's agents wait for review ("" for
     /// every project's), as the counts read it.
-    fn to_review(&self, project: &str) -> usize {
+    pub(super) fn to_review(&self, project: &str) -> usize {
         let held = self.held_agents();
         self.side
             .review

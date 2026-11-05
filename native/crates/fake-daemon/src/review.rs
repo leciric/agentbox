@@ -97,7 +97,7 @@ const FIXTURES: &[Fixture] = &[
         status: "review",
         verdict: "",
         past: false,
-        pr: Some((712, "open", "success")),
+        pr: Some((712, "open", "passing")),
         changes: (4, 128, 31),
         ago: 25,
         report: Some((
@@ -150,7 +150,7 @@ const FIXTURES: &[Fixture] = &[
         status: "done",
         verdict: "",
         past: true,
-        pr: Some((699, "merged", "success")),
+        pr: Some((699, "merged", "passing")),
         changes: (7, 340, 95),
         ago: 60 * 30,
         report: Some(("done", "Per-subagent rows land in token_usage.", &[])),
@@ -162,7 +162,8 @@ const FIXTURES: &[Fixture] = &[
 #[derive(Default)]
 pub struct Review {
     verdicts: HashMap<String, String>,
-    merged: Vec<i64>,
+    /// The project's pull requests (pulls.rs), the fixtures' among them.
+    pub pulls: Option<crate::pulls::Pulls>,
     media_dir: PathBuf,
     /// When the fixtures were made, so their times stay put.
     epoch: Option<SystemTime>,
@@ -173,6 +174,7 @@ impl Review {
         make_files(&media_dir);
         Self {
             media_dir,
+            pulls: Some(crate::pulls::Pulls::new()),
             epoch: Some(SystemTime::now()),
             ..Default::default()
         }
@@ -217,21 +219,20 @@ impl Review {
                 deletions: f.changes.2,
                 dirty: false,
             }),
-            pr: f.pr.map(|(number, state, checks)| PullRequest {
-                number,
-                title: f.title.into(),
-                state: if self.merged.contains(&number) {
-                    "merged".into()
-                } else {
-                    state.into()
-                },
-                checks: checks.into(),
-                url: format!("https://github.com/leciric/agentbox/pull/{number}"),
-                base_branch: "main".into(),
-                head_branch: r#ref.clone(),
-                additions: f.changes.1,
-                deletions: f.changes.2,
-                ..Default::default()
+            merge_when_green: f.pr.and_then(|(n, ..)| self.pulls().mark_of(n)),
+            pr: f.pr.map(|(number, state, checks)| {
+                self.pulls().pr(number).unwrap_or(PullRequest {
+                    number,
+                    title: f.title.into(),
+                    state: state.into(),
+                    checks: checks.into(),
+                    url: format!("https://github.com/leciric/agentbox/pull/{number}"),
+                    base_branch: "main".into(),
+                    head_branch: r#ref.clone(),
+                    additions: f.changes.1,
+                    deletions: f.changes.2,
+                    ..Default::default()
+                })
             }),
             finished_at: if f.status == "working" {
                 String::new()
@@ -258,7 +259,12 @@ impl Review {
         {
             Some("changes") => "working".into(),
             Some(_) => "reviewed".into(),
-            None if f.pr.is_some_and(|(n, ..)| self.merged.contains(&n)) => "reviewed".into(),
+            None if f
+                .pr
+                .is_some_and(|(n, ..)| self.pulls().pr(n).is_some_and(|p| p.state == "merged")) =>
+            {
+                "reviewed".into()
+            }
             None => f.status.into(),
         }
     }
@@ -461,12 +467,12 @@ impl Review {
     }
 
     /// merge merges a pull request (POST .../pulls/{n}/merge), and answers it.
-    pub fn merge(&mut self, project: &str, number: i64) -> Option<PullRequest> {
-        let f = FIXTURES
-            .iter()
-            .find(|f| f.pr.is_some_and(|(n, ..)| n == number))?;
-        self.merged.push(number);
-        self.item(project, f).pr
+    pub fn pulls(&self) -> &crate::pulls::Pulls {
+        self.pulls.as_ref().expect("made in new")
+    }
+
+    pub fn pulls_mut(&mut self) -> &mut crate::pulls::Pulls {
+        self.pulls.as_mut().expect("made in new")
     }
 
     /// diff is an agent's diff against its base (GET .../diff), as git prints it.

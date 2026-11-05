@@ -35,6 +35,8 @@ pub struct ChatView {
     /// The API prefix of this chat: /v1/projects/<p> (the lead) or /v1/agents/<p>/<a>.
     prefix: String,
     title: SharedString,
+    /// Whether it draws its own title bar: not under the project's header.
+    pub header: bool,
     /// The chat's ref, as chat events name it (project/lead, project/agent-01).
     pub agent: String,
     items: Vec<ChatItem>,
@@ -58,6 +60,16 @@ pub struct ChatView {
 }
 
 impl ChatView {
+    /// status_line is what its session is doing, in words.
+    pub fn status_line(&self) -> String {
+        session_line(&self.session)
+    }
+
+    /// working is whether a turn runs.
+    pub fn working(&self) -> bool {
+        matches!(self.session.state.as_str(), "running" | "starting")
+    }
+
     pub fn new(
         client: Client,
         prefix: String,
@@ -86,6 +98,7 @@ impl ChatView {
             client,
             prefix,
             title,
+            header: true,
             agent,
             items: Vec::new(),
             session: ChatSession::default(),
@@ -605,32 +618,34 @@ impl Render for ChatView {
         v_flex()
             .size_full()
             .bg(theme::bg())
-            .child(
-                h_flex()
-                    .h_12()
-                    .flex_none()
-                    .px_6()
-                    .gap_3()
-                    .border_b_1()
-                    .border_color(theme::border())
-                    .child(
-                        div()
-                            .text_color(theme::fg())
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(self.title.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(if working {
-                                theme::starting()
-                            } else {
-                                theme::faint()
-                            })
-                            .child(session_line(&self.session)),
-                    )
-                    .child(div().flex_1()),
-            )
+            .when(self.header, |el| {
+                el.child(
+                    h_flex()
+                        .h_12()
+                        .flex_none()
+                        .px_6()
+                        .gap_3()
+                        .border_b_1()
+                        .border_color(theme::border())
+                        .child(
+                            div()
+                                .text_color(theme::fg())
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(self.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(if working {
+                                    theme::starting()
+                                } else {
+                                    theme::faint()
+                                })
+                                .child(session_line(&self.session)),
+                        )
+                        .child(div().flex_1()),
+                )
+            })
             .child(
                 div()
                     .flex_1()

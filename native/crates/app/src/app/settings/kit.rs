@@ -222,7 +222,7 @@ pub(super) fn enc(s: &str) -> String {
 
 /// plain drops a rich message's tags (<url>, <mono>, <code>), keeping what's
 /// inside them, for a line drawn in one style.
-pub(super) fn plain(text: &str) -> String {
+pub(crate) fn plain(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(i) = rest.find('<') {

@@ -9,4 +9,5 @@ export const enUSNative = {
   'native.preview.source': 'Shown as source: no web view on this desktop',
   'native.settings.later': 'This app doesn\'t have these settings yet: change them in the AgentBox desktop app for now.',
   'native.settings.openCodePage': 'Open that page',
+  'native.diff.moreLines': '{count, plural, one {# more line} other {# more lines}} not shown here',
 };

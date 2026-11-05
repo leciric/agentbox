@@ -133,7 +133,7 @@ pub(super) fn format_tokens(n: i64) -> String {
 }
 
 /// time_ago is utils.ts's timeAgo: just now, 5m ago, 3h ago, 2d ago.
-pub(super) fn time_ago(time: &str) -> String {
+pub(crate) fn time_ago(time: &str) -> String {
     let Ok(at) =
         humantime::parse_rfc3339_weak(time.split('.').next().unwrap_or(time).trim_end_matches('Z'))
     else {
@@ -812,8 +812,8 @@ impl AppView {
                         this.settings_page.settings = Some(s);
                         this.error = None;
                     }
-                    Ok(Err(e)) => this.error = Some(e.to_string().into()),
-                    Err(e) => this.error = Some(e.to_string().into()),
+                    Ok(Err(e)) => crate::toasts::error(cx, e.to_string()),
+                    Err(e) => crate::toasts::error(cx, e.to_string()),
                 }
                 this.sync_fields(window, cx);
                 cx.notify();
@@ -910,7 +910,7 @@ impl AppView {
                         }
                         st.said = Some(said.join(" "));
                     }
-                    Err(e) => this.error = Some(e.to_string().into()),
+                    Err(e) => crate::toasts::error(cx, e.to_string()),
                 }
                 this.load_stopped(cx);
                 cx.notify();

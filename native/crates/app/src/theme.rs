@@ -121,6 +121,16 @@ pub fn state_color(state: &str) -> Hsla {
     }
 }
 
+/// MONO is a monospaced font this platform has, for code laid out in
+/// columns (a diff): GPUI doesn't resolve the generic "monospace" on Linux.
+pub const MONO: &str = if cfg!(target_os = "macos") {
+    "Menlo"
+} else if cfg!(windows) {
+    "Consolas"
+} else {
+    "DejaVu Sans Mono"
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

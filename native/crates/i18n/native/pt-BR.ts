@@ -7,4 +7,5 @@ export const ptBRNative = {
   'native.preview.source': 'Mostrado como código: sem visualização web nesta área de trabalho',
   'native.settings.later': 'Este app ainda não tem estas configurações: por enquanto, mude-as no app AgentBox para desktop.',
   'native.settings.openCodePage': 'Abrir essa página',
+  'native.diff.moreLines': '{count, plural, one {Mais # linha} other {Mais # linhas}} não mostradas aqui',
 };

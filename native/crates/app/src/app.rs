@@ -11,7 +11,9 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 mod controls;
+mod merge;
 mod new_task;
+mod pulls;
 mod review;
 mod settings;
 mod sidebar;
@@ -28,6 +30,7 @@ struct RailRow {
     title: String,
     state: String,
     busy: bool,
+    pr: Option<agentbox_api::PullRequest>,
 }
 
 /// What the main area shows of an agent.
@@ -76,6 +79,9 @@ pub struct AppView {
     work: Option<Entity<work::WorkView>>,
     /// The review, over everything, while it's open.
     review: Option<Entity<review::ReviewView>>,
+    /// The open project's pull requests, and the one open over the window.
+    pulls: pulls::Pulls,
+    toasts: Entity<crate::toasts::Toasts>,
     _subs: Vec<Subscription>,
     _review_sub: Option<Subscription>,
     _events: Task<()>,
@@ -84,6 +90,12 @@ pub struct AppView {
 impl AppView {
     pub fn new(client: Client, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let events = Self::follow(client.clone(), window, cx);
+        let pulls = pulls::Pulls::new(window, cx);
+        let search_sub = cx.subscribe_in(
+            &pulls.search,
+            window,
+            |this, _, ev: &gpui_component::input::InputEvent, _, cx| pulls::on_search(this, ev, cx),
+        );
         let mut this = Self {
             client,
             projects: Vec::new(),
@@ -103,7 +115,9 @@ impl AppView {
             settings_page: settings::SettingsPage::new(window, cx),
             work: None,
             review: None,
-            _subs: Vec::new(),
+            pulls,
+            toasts: crate::toasts::init(cx),
+            _subs: vec![search_sub],
             _review_sub: None,
             _events: events,
         };
@@ -154,6 +168,7 @@ impl AppView {
             }
             self.load_projects(window, cx);
             self.reload_review(cx);
+            self.load_pulls(false, cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
             }
@@ -219,6 +234,21 @@ impl AppView {
                 }
             }
             EVENT_PROJECT => self.load_projects(window, cx),
+            agentbox_api::EVENT_PULLS => {
+                let Ok(change) = serde_json::from_value::<agentbox_api::PullsChange>(ev.data)
+                else {
+                    return;
+                };
+                if self.project.as_deref() == Some(change.project.as_str()) {
+                    self.load_pulls(false, cx);
+                    if !change.unchanged {
+                        self.load_fleet(window, cx);
+                    }
+                }
+                if !change.unchanged {
+                    self.reload_review(cx);
+                }
+            }
             agentbox_api::EVENT_REVIEW => self.reload_review(cx),
             agentbox_api::EVENT_THEME => self.load_theme(window, cx),
             agentbox_api::EVENT_UPDATE => self.reload_update(cx),
@@ -334,6 +364,7 @@ impl AppView {
         self.project = Some(name);
         self.fleet.clear();
         self.load_fleet(window, cx);
+        self.load_pulls(false, cx);
         self.open_chat("lead".into(), window, cx);
     }
 
@@ -384,8 +415,13 @@ impl AppView {
         self.desktop = None;
         self.tab = Tab::Chat;
         let client = self.client.clone();
-        self.chat =
-            Some(cx.new(|cx| ChatView::new(client, prefix, agent, title.into(), window, cx)));
+        // Under the project's header, the chat draws no title of its own.
+        let header = self.is_home();
+        self.chat = Some(cx.new(|cx| {
+            let mut c = ChatView::new(client, prefix, agent, title.into(), window, cx);
+            c.header = header;
+            c
+        }));
         cx.notify();
     }
 
@@ -407,6 +443,7 @@ impl AppView {
                     title: format!("{} · {}", a.project, a.title),
                     state: a.state.clone(),
                     busy: a.chat == "running",
+                    pr: None,
                 })
                 .collect();
         }
@@ -418,11 +455,12 @@ impl AppView {
                 title: a.title.clone(),
                 state: a.state.clone(),
                 busy: a.busy,
+                pr: a.pr.clone().filter(|p| p.number > 0),
             })
             .collect()
     }
 
-    fn render_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_rail(&self, cx: &mut Context<Self>) -> Div {
         let row = |id: String, selected: bool| {
             h_flex()
                 .id(SharedString::from(id))
@@ -455,8 +493,9 @@ impl AppView {
                             .child(t("v2.header.openLead")),
                     ),
             );
-        v_flex()
-            .w(px(300.))
+        let pulls_tab = !self.is_home() && self.pulls.tab == pulls::RailTab::Pulls;
+        let rail = v_flex()
+            .w(px(if pulls_tab { 400. } else { 300. }))
             .flex_none()
             .h_full()
             .bg(theme::panel())
@@ -465,23 +504,32 @@ impl AppView {
             .child(
                 h_flex()
                     .h_12()
-                    .px_4()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme::fg())
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(t("shell.home.agents")),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .child(format!("{}", self.rail_rows().len())),
-                    ),
-            )
-            .child(lead)
+                    .px_3()
+                    .when(!self.is_home(), |el| {
+                        el.child(self.render_rail_switch(self.rail_rows().len(), cx))
+                    })
+                    .when(self.is_home(), |el| {
+                        el.px_4()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme::fg())
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(t("shell.home.agents")),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme::faint())
+                                    .child(format!("{}", self.rail_rows().len())),
+                            )
+                    }),
+            );
+        if pulls_tab {
+            return rail.child(self.render_pulls_panel(cx));
+        }
+        rail.child(lead)
             .child(div().mx_4().my_1().h(px(1.)).bg(theme::border()))
             .children(self.rail_rows().into_iter().map(|a| {
                 let (name, project) = (a.name.clone(), a.project.clone());
@@ -518,6 +566,15 @@ impl AppView {
                                         .text_color(theme::fg())
                                         .child(a.name.clone()),
                                 )
+                                .when_some(a.pr.as_ref(), |el, pr| {
+                                    el.child(pulls::pr_chip(
+                                        SharedString::from(format!(
+                                            "rail-pr-{}-{}",
+                                            a.project, a.name
+                                        )),
+                                        pr,
+                                    ))
+                                })
                                 .when(busy, |el| {
                                     el.child(
                                         div()
@@ -659,36 +716,49 @@ impl Render for AppView {
             .text_color(theme::fg())
             .child(self.render_sidebar(cx))
             .child(
-                div().flex_1().min_w_0().h_full().child(match &self.chat {
-                    _ if self.settings => self.render_settings(cx),
-                    _ if self.work.is_some() => self.render_work(cx),
-                    Some(chat) if self.open != "lead" => v_flex()
-                        .size_full()
-                        .child(self.render_tabs(cx))
-                        .child(div().flex_1().min_h_0().child(
-                            match (self.tab, &self.terminal, &self.desktop) {
-                                (Tab::Terminal, Some(t), _) => t.clone().into_any_element(),
-                                (Tab::Desktop, _, Some(d)) => d.clone().into_any_element(),
-                                _ => chat.clone().into_any_element(),
-                            },
-                        ))
-                        .into_any_element(),
-                    Some(chat) => chat.clone().into_any_element(),
-                    None => div()
-                        .size_full()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_color(theme::faint())
-                        .when(self.projects.is_empty(), |el| {
-                            el.child(t("shell.sidebar.addFirst"))
-                        })
-                        .into_any_element(),
-                }),
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .when(
+                        !self.settings && self.work.is_none() && self.chat.is_some(),
+                        |el| el.children(self.render_project_header(cx)),
+                    )
+                    .child(
+                        div().flex_1().min_h_0().child(match &self.chat {
+                            _ if self.settings => self.render_settings(cx),
+                            _ if self.work.is_some() => self.render_work(cx),
+                            Some(chat) if self.open != "lead" => v_flex()
+                                .size_full()
+                                .child(self.render_tabs(cx))
+                                .child(div().flex_1().min_h_0().child(
+                                    match (self.tab, &self.terminal, &self.desktop) {
+                                        (Tab::Terminal, Some(t), _) => t.clone().into_any_element(),
+                                        (Tab::Desktop, _, Some(d)) => d.clone().into_any_element(),
+                                        _ => chat.clone().into_any_element(),
+                                    },
+                                ))
+                                .into_any_element(),
+                            Some(chat) => chat.clone().into_any_element(),
+                            None => div()
+                                .size_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_color(theme::faint())
+                                .when(self.projects.is_empty(), |el| {
+                                    el.child(t("shell.sidebar.addFirst"))
+                                })
+                                .into_any_element(),
+                        }),
+                    ),
             )
             .child(self.render_rail(cx))
             // Last, so it draws over the rest.
             .children(overlay)
             .children(self.review.clone())
+            .children(self.render_pull(cx))
+            .children(self.render_merge_confirm(cx))
+            .child(self.toasts.clone())
     }
 }

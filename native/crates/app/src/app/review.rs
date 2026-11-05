@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use agentbox_api::{
-    Client, MediaItem, MergePullRequestRequest, PullRequest, RequestChangesRequest, ReviewRequest,
-    WorkItem,
+    Client, MediaItem, MergePullRequestRequest, MergeWhenGreen, MergeWhenGreenRequest,
+    ProjectPullRequests, PullRequest, RequestChangesRequest, ReviewRequest, Settings, WorkItem,
 };
 use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
@@ -24,9 +24,12 @@ use gpui_component::text::TextView;
 use gpui_component::{h_flex, v_flex};
 
 use super::controls::{self, Btn};
+use super::merge;
 use super::work::{outcome_badge, pr_chip};
+use crate::diff::DiffView;
 use crate::media::{self, Shown};
 use crate::theme;
+use crate::toasts::{self, Kind, Toast};
 #[cfg(feature = "video")]
 use crate::video::VideoPlayer;
 
@@ -72,7 +75,14 @@ pub struct ReviewView {
     compare: Compare,
     flipped: bool,
     pane: Option<Pane>,
-    diff: Option<Result<String, String>>,
+    diff: Option<Result<Entity<DiffView>, String>>,
+    /// The project's pull requests, for the methods its repository allows
+    /// and whether its account may merge.
+    pulls: Option<ProjectPullRequests>,
+    /// The method Merge uses, picked from its ▾.
+    method: Option<String>,
+    /// Settings' "Resolved — merge when CI is green" is on.
+    green: bool,
     report_open: bool,
     changing: bool,
     changes: Entity<TextareaState>,
@@ -126,6 +136,9 @@ impl ReviewView {
             flipped: false,
             pane: None,
             diff: None,
+            pulls: None,
+            method: None,
+            green: false,
             report_open: false,
             changing: false,
             changes,
@@ -135,6 +148,17 @@ impl ReviewView {
             _sub: sub,
         };
         this.show(item, cx);
+        let client = this.client.clone();
+        cx.spawn(async move |this, cx| {
+            if let Ok(s) = client.get::<Settings>("/v1/settings").await {
+                this.update(cx, |this, cx| {
+                    this.green = s.merge_when_green;
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
         this
     }
 
@@ -154,6 +178,22 @@ impl ReviewView {
         self.armed = false;
         self.flipped = false;
         let i = &self.item.item;
+        if self.pulls.as_ref().is_none_or(|p| p.project != i.project) {
+            self.pulls = None;
+            self.method = None;
+            let client = self.client.clone();
+            let path = format!("/v1/projects/{}/pulls", i.project);
+            cx.spawn(async move |this, cx| {
+                if let Ok(p) = client.get::<ProjectPullRequests>(&path).await {
+                    this.update(cx, |this, cx| {
+                        this.pulls = Some(p);
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            })
+            .detach();
+        }
         // A past agent's media is the project's under its name: its own
         // routes went with its machine.
         let path = if self.item.past {
@@ -297,10 +337,13 @@ impl ReviewView {
                 .raw(agentbox_api::client::Method::GET, &path, None)
                 .await;
             this.update(cx, |this, cx| {
-                this.diff = Some(
-                    res.map(|b| String::from_utf8_lossy(&b).into_owned())
-                        .map_err(|e| e.to_string()),
-                );
+                this.diff = Some(match res {
+                    Ok(b) => {
+                        let text = String::from_utf8_lossy(&b).into_owned();
+                        Ok(cx.new(|cx| DiffView::text("review-diff", &text, cx)))
+                    }
+                    Err(e) => Err(e.to_string()),
+                });
                 cx.notify();
             })
             .ok();
@@ -368,7 +411,10 @@ impl ReviewView {
         self.trail.retain(|w| w.item.r#ref != done);
         match next {
             Some(n) => self.show(n, cx),
-            None => cx.emit(ReviewEvent::Close),
+            None => {
+                toasts::info(cx, t("review.allDone"));
+                cx.emit(ReviewEvent::Close)
+            }
         }
     }
 
@@ -403,7 +449,44 @@ impl ReviewView {
         };
         self.changes.update(cx, |s, cx| s.set_value("", window, cx));
         self.focus.focus(window, cx);
-        self.send(path, serde_json::to_vec(&req).unwrap_or_default(), cx);
+        // The review goes on as soon as they're sent: the daemon may have
+        // to start the agent's machine first. If they don't go, what was
+        // written is in the toast, to copy.
+        let agent = i.agent.clone();
+        let text = req.text.clone();
+        let client = self.client.clone();
+        let body = serde_json::to_vec(&req).unwrap_or_default();
+        Toast::new(
+            Kind::Info,
+            tv("review.changesSent", &[("agent", (&agent).into())]),
+        )
+        .show(cx);
+        cx.spawn(async move |this, cx| {
+            let res = client
+                .raw(agentbox_api::client::Method::POST, &path, Some(body))
+                .await;
+            this.update(cx, |_, cx| {
+                cx.emit(ReviewEvent::Changed);
+                if let Err(e) = res {
+                    let copy = text.clone();
+                    Toast::new(
+                        Kind::Error,
+                        tv(
+                            "review.changesFailed",
+                            &[("error", (&e.to_string()).into())],
+                        ),
+                    )
+                    .description(text)
+                    .action(t("common.copy"), move |_, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                    })
+                    .show(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+        self.advance(cx);
     }
 
     /// send posts a verdict and goes on when it's taken.
@@ -419,10 +502,10 @@ impl ReviewView {
                 this.busy = false;
                 match res {
                     Ok(_) => this.advance(cx),
-                    Err(e) => {
-                        this.error =
-                            Some(tv("review.failed", &[("error", (&e.to_string()).into())]).into())
-                    }
+                    Err(e) => toasts::error(
+                        cx,
+                        tv("review.failed", &[("error", (&e.to_string()).into())]),
+                    ),
                 }
                 cx.notify();
             })
@@ -442,17 +525,87 @@ impl ReviewView {
         let Some(pr) = self.pr() else {
             return Some(t("review.mergeBlocked.none"));
         };
-        Some(match pr.state.as_str() {
-            "merged" => t("review.mergeBlocked.merged"),
-            "closed" => t("review.mergeBlocked.closed"),
-            _ if pr.draft => t("review.mergeBlocked.draft"),
-            _ if pr.checks == "failure" => t("review.mergeBlocked.failing"),
-            _ if pr.conflict => tv(
-                "review.mergeBlocked.conflict",
-                &[("base", (&pr.base_branch).into())],
-            ),
-            _ => return None,
+        match pr.state.as_str() {
+            "merged" => Some(t("review.mergeBlocked.merged")),
+            "closed" => Some(t("review.mergeBlocked.closed")),
+            _ => super::pulls::merge_block(pr, self.pulls.as_ref()),
+        }
+    }
+
+    /// methods is what the repository allows; method the one Merge uses:
+    /// picked here, else the project's remembered one.
+    fn methods(&self) -> Vec<String> {
+        merge::offered(self.pulls.as_ref().map_or(&[][..], |p| &p.merge_methods))
+    }
+
+    fn method(&self) -> String {
+        let methods = self.methods();
+        self.method
+            .clone()
+            .filter(|m| methods.contains(m))
+            .unwrap_or_else(|| merge::default_method(&methods, &self.item.item.project))
+    }
+
+    /// merge_when_green resolves the work and has the daemon merge its pull
+    /// request once its checks pass; the review goes on, and the toast can
+    /// take it back.
+    fn merge_when_green(&mut self, cx: &mut Context<Self>) {
+        if self.busy || !self.awaiting() || self.merge_block().is_some() {
+            return;
+        }
+        let Some(pr) = self.pr().cloned() else {
+            return;
+        };
+        let i = self.item.item.clone();
+        let req = MergeWhenGreenRequest {
+            method: self.method(),
+            agent: i.agent.clone(),
+            fingerprint: i.fingerprint.clone(),
+        };
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let res = client
+                .post::<_, MergeWhenGreen>(
+                    &format!(
+                        "/v1/projects/{}/pulls/{}/merge-when-green",
+                        i.project, pr.number
+                    ),
+                    &req,
+                )
+                .await;
+            this.update(cx, |_, cx| {
+                cx.emit(ReviewEvent::Changed);
+                match res {
+                    Ok(mark) => {
+                        let (client, project, number) =
+                            (client.clone(), i.project.clone(), mark.number);
+                        Toast::new(
+                            Kind::Info,
+                            tv("review.mergeWhenGreen.queued", &[("number", number.into())]),
+                        )
+                        .description(if i.title.is_empty() {
+                            i.agent.clone()
+                        } else {
+                            i.title.clone()
+                        })
+                        .action(t("review.mergeWhenGreen.cancel"), move |_, cx| {
+                            cancel_green(client.clone(), project.clone(), number, false, cx)
+                        })
+                        .show(cx);
+                    }
+                    Err(e) => toasts::error(
+                        cx,
+                        tv(
+                            "review.mergeWhenGreen.failed",
+                            &[("error", (&e.to_string()).into())],
+                        ),
+                    ),
+                }
+            })
+            .ok();
         })
+        .detach();
+        self.advance(cx);
     }
 
     /// merge merges the pull request (squash: the daemon's default when the
@@ -466,6 +619,7 @@ impl ReviewView {
         };
         let i = self.item.item.clone();
         let client = self.client.clone();
+        let method = self.method();
         self.busy = true;
         self.armed = false;
         self.error = None;
@@ -474,7 +628,7 @@ impl ReviewView {
                 .post::<_, PullRequest>(
                     &format!("/v1/projects/{}/pulls/{}/merge", i.project, pr.number),
                     &MergePullRequestRequest {
-                        method: "squash".into(),
+                        method: method.clone(),
                         confirmed: false,
                     },
                 )
@@ -495,7 +649,27 @@ impl ReviewView {
             this.update(cx, |this, cx| {
                 this.busy = false;
                 match res {
-                    Ok(_) => this.advance(cx),
+                    Ok(merged) => {
+                        let base = if merged.base_branch.is_empty() {
+                            pr.base_branch.clone()
+                        } else {
+                            merged.base_branch.clone()
+                        };
+                        Toast::new(
+                            Kind::Success,
+                            tv(
+                                "review.merged",
+                                &[
+                                    ("number", merged.number.into()),
+                                    ("agent", (&i.agent).into()),
+                                    ("base", (&base).into()),
+                                ],
+                            ),
+                        )
+                        .description(merged.title.clone())
+                        .show(cx);
+                        this.advance(cx)
+                    }
                     Err(e) => {
                         this.error = Some(
                             tv(
@@ -1336,7 +1510,7 @@ impl ReviewView {
     }
 
     fn render_diff(&self) -> AnyElement {
-        let body = match &self.diff {
+        match &self.diff {
             None => div()
                 .p_6()
                 .text_sm()
@@ -1349,54 +1523,8 @@ impl ReviewView {
                 .text_color(theme::error())
                 .child(tv("review.diffUnavailable", &[("error", e.into())]))
                 .into_any_element(),
-            Some(Ok(text)) => v_flex()
-                .p_4()
-                .font_family("monospace")
-                .text_xs()
-                .children(text.lines().map(|l| {
-                    let file = l.starts_with("diff --git");
-                    let (fg, bg) = if file {
-                        (theme::fg(), theme::raised())
-                    } else if l.starts_with("+++")
-                        || l.starts_with("---")
-                        || l.starts_with("index ")
-                    {
-                        (theme::faint(), transparent_black())
-                    } else if l.starts_with('+') {
-                        (theme::running(), theme::running().opacity(0.08))
-                    } else if l.starts_with('-') {
-                        (theme::error(), theme::error().opacity(0.08))
-                    } else if l.starts_with("@@") {
-                        (theme::accent(), transparent_black())
-                    } else {
-                        (theme::muted(), transparent_black())
-                    };
-                    div()
-                        .px_2()
-                        .when(file, |el| {
-                            el.mt_3()
-                                .py_1()
-                                .rounded_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                        })
-                        .text_color(fg)
-                        .bg(bg)
-                        .whitespace_nowrap()
-                        .child(if l.is_empty() {
-                            " ".to_string()
-                        } else {
-                            l.replace('\t', "    ")
-                        })
-                }))
-                .into_any_element(),
-        };
-        div()
-            .id("review-diff")
-            .size_full()
-            .overflow_y_scroll()
-            .bg(theme::bg())
-            .child(body)
-            .into_any_element()
+            Some(Ok(view)) => div().size_full().child(view.clone()).into_any_element(),
+        }
     }
 
     fn render_details(&self) -> AnyElement {
@@ -1511,6 +1639,67 @@ impl ReviewView {
             .into_any_element()
     }
 
+    /// render_green_note is the strip over the footer while the pull request
+    /// waits to merge when green, and on what, or why it didn't
+    /// (MergeWhenGreenNote).
+    fn render_green_note(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let mark = self.item.item.merge_when_green.clone()?;
+        let failed = !mark.error.is_empty();
+        let text = if failed {
+            tv(
+                "review.mergeWhenGreen.notMerged",
+                &[("error", (&mark.error).into())],
+            )
+        } else if let Some(wait) = wait_text(&mark) {
+            tv(
+                "review.mergeWhenGreen.waiting",
+                &[("number", mark.number.into()), ("wait", (&wait).into())],
+            )
+        } else {
+            tv(
+                "review.mergeWhenGreen.pending",
+                &[("number", mark.number.into())],
+            )
+        };
+        let color = if failed {
+            theme::error()
+        } else {
+            theme::starting()
+        };
+        let (client, project, number) = (
+            self.client.clone(),
+            self.item.item.project.clone(),
+            mark.number,
+        );
+        Some(
+            h_flex()
+                .gap_2()
+                .px_4()
+                .py_2()
+                .border_t_1()
+                .border_color(theme::border())
+                .text_xs()
+                .text_color(color)
+                .child(if failed { "⚠" } else { "◷" })
+                .child(div().flex_1().min_w_0().truncate().child(text))
+                .child(controls::button(
+                    "review-green-cancel",
+                    t(if failed {
+                        "review.mergeWhenGreen.dismiss"
+                    } else {
+                        "review.mergeWhenGreen.cancel"
+                    }),
+                    Btn::Ghost,
+                    false,
+                    cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cancel_green(client.clone(), project.clone(), number, failed, cx);
+                        cx.emit(ReviewEvent::Changed);
+                    }),
+                ))
+                .into_any_element(),
+        )
+    }
+
     fn render_footer(&self, cx: &mut Context<Self>) -> AnyElement {
         let i = &self.item.item;
         let block = self.merge_block();
@@ -1594,29 +1783,36 @@ impl ReviewView {
                         .text_xs()
                         .when_some(note, |el, (s, c)| el.text_color(c).child(s)),
                 )
-                .child(
-                    h_flex()
-                        .id("review-merge")
-                        .gap_2()
-                        .px_3()
-                        .py(px(5.))
-                        .rounded_md()
-                        .bg(theme::accent())
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(gpui::white())
-                        .when(block.is_some() || self.busy, |el| el.opacity(0.45))
-                        .when(block.is_none() && !self.busy, |el| {
-                            el.cursor_pointer()
-                                .hover(|s| s.opacity(0.9))
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)))
-                        })
-                        .child(match self.pr() {
-                            Some(pr) => tv("review.mergeNumber", &[("number", pr.number.into())]),
-                            None => t("review.noPullRequest"),
-                        })
-                        .when(block.is_none(), |el| el.child(hint("M"))),
+                .when(
+                    self.green && self.pr().is_some_and(|p| p.state == "open"),
+                    |el| {
+                        el.child(controls::button(
+                            "review-merge-when-green",
+                            format!("◷ {}", t("review.mergeWhenGreen.short")),
+                            Btn::Secondary,
+                            block.is_some() || self.busy,
+                            cx.listener(|this, _: &ClickEvent, _, cx| this.merge_when_green(cx)),
+                        ))
+                    },
                 )
+                .child(merge::split(
+                    "review-merge",
+                    match self.pr() {
+                        Some(pr) => tv("review.mergeNumber", &[("number", pr.number.into())]),
+                        None => t("review.noPullRequest"),
+                    },
+                    block.is_none().then(|| hint("M")),
+                    &self.method(),
+                    &self.methods(),
+                    block.is_some() || self.busy,
+                    cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)),
+                    std::rc::Rc::new(cx.listener(|this, m: &str, _, cx| {
+                        merge::remember(&this.item.item.project, m);
+                        this.method = Some(m.to_string());
+                        cx.notify();
+                    })),
+                    cx,
+                ))
             })
             .into_any_element()
     }
@@ -1661,6 +1857,7 @@ impl Render for ReviewView {
                     .children(self.render_report(cx))
                     .child(div().flex_1().min_h_0().child(body))
                     .when(self.changing, |el| el.child(self.render_changes(cx)))
+                    .children(self.render_green_note(cx))
                     .child(self.render_footer(cx)),
             )
     }
@@ -1670,4 +1867,46 @@ impl Render for ReviewView {
 fn clock(secs: f64) -> String {
     let s = secs.max(0.).round() as u64;
     format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// cancel_green takes a merge-when-green mark back, or dismisses a given-up
+/// one (MergeWhenGreen.tsx cancelMergeWhenGreen); quiet says nothing when
+/// it went.
+fn cancel_green(client: Client, project: String, number: i64, quiet: bool, cx: &mut App) {
+    cx.spawn(async move |cx| {
+        let res = client
+            .raw(
+                agentbox_api::client::Method::DELETE,
+                &format!("/v1/projects/{project}/pulls/{number}/merge-when-green"),
+                None,
+            )
+            .await;
+        cx.update(|cx| match res {
+            Ok(_) if !quiet => toasts::info(
+                cx,
+                tv(
+                    "review.mergeWhenGreen.cancelled",
+                    &[("number", number.into())],
+                ),
+            ),
+            Ok(_) => {}
+            Err(e) => toasts::error(cx, e.to_string()),
+        });
+    })
+    .detach();
+}
+
+/// wait_text is what a pending mark waits on, in words (waitText).
+fn wait_text(mark: &MergeWhenGreen) -> Option<String> {
+    let word = match mark.waiting.as_str() {
+        "checks" | "failing" | "conflict" | "draft" | "retry" => {
+            t(&format!("mergeWhenGreen.wait.{}", mark.waiting))
+        }
+        _ => return None,
+    };
+    Some(if !mark.detail.is_empty() && mark.waiting != "conflict" {
+        format!("{word} ({})", mark.detail)
+    } else {
+        word
+    })
 }

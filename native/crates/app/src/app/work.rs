@@ -610,26 +610,9 @@ pub fn outcome_badge(outcome: &str) -> AnyElement {
     controls::badge(label, color)
 }
 
-/// pr_chip is a pull request's number, coloured by its state (PrChip).
+/// pr_chip is a pull request as a small pill (PrChip), its id by its number.
 pub fn pr_chip(pr: &agentbox_api::PullRequest) -> AnyElement {
-    let color = match pr.state.as_str() {
-        "merged" => hsla(0.75, 0.6, 0.7, 1.),
-        "closed" => theme::error(),
-        _ if pr.draft => theme::muted(),
-        _ => theme::running(),
-    };
-    h_flex()
-        .flex_none()
-        .gap_1()
-        .px_1p5()
-        .rounded_md()
-        .border_1()
-        .border_color(color.opacity(0.4))
-        .text_xs()
-        .font_family("monospace")
-        .text_color(color)
-        .child(format!("#{}", pr.number))
-        .into_any_element()
+    super::pulls::pr_chip(("pr-chip", pr.number as u64), pr)
 }
 
 fn local(time: &str) -> Option<chrono::DateTime<chrono::Local>> {

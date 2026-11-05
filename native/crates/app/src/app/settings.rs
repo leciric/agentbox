@@ -11,9 +11,9 @@
 //! reads what it shows as it opens (load_section).
 mod accounts;
 mod connectors;
-mod defaults;
+pub(super) mod defaults;
 mod diagnostics;
-mod kit;
+pub(super) mod kit;
 mod memory;
 mod notify;
 mod phone;
@@ -604,8 +604,9 @@ impl AppView {
                         this.settings_page.settings = Some(s);
                         this.error = None;
                     }
-                    Ok(Err(e)) => this.error = Some(e.to_string().into()),
-                    Err(e) => this.error = Some(e.to_string().into()),
+                    // A save that fails says why in a toast (SettingsView's onError).
+                    Ok(Err(e)) => crate::toasts::error(cx, e.to_string()),
+                    Err(e) => crate::toasts::error(cx, e.to_string()),
                 }
                 // The daemon checks again on a new channel; read what it found.
                 if channel {
@@ -630,8 +631,8 @@ impl AppView {
             this.update_in(cx, |this, window, cx| {
                 match res.map(|b| serde_json::from_slice::<Theme>(&b)) {
                     Ok(Ok(th)) => this.wear(th, window, cx),
-                    Ok(Err(e)) => this.error = Some(e.to_string().into()),
-                    Err(e) => this.error = Some(e.to_string().into()),
+                    Ok(Err(e)) => crate::toasts::error(cx, e.to_string()),
+                    Err(e) => crate::toasts::error(cx, e.to_string()),
                 }
                 cx.notify();
             })

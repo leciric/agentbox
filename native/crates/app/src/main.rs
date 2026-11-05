@@ -8,6 +8,7 @@
 mod app;
 mod bench;
 mod chat;
+mod diff;
 mod media;
 mod mermaid;
 mod prefs;
@@ -15,6 +16,7 @@ mod prefs;
 mod snapshot;
 mod terminal;
 mod theme;
+mod toasts;
 #[cfg(feature = "video")]
 mod video;
 mod vnc;
