@@ -199,7 +199,7 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
   // The floors: terrazzo for the work, planks for the wood side.
   const WX = l.wood.x0;
   // Each room's finish: warm, stone or mint terrazzo.
-  const tz = keep(terrazzo(['#f3e1cb', '#ebe5dc', '#e2ece2'][l.variant % 3]));
+  const tz = keep(terrazzo(['#f3e1cb', '#ebe5dc', '#e2ece2'][l.finish]));
   tz.repeat.set(WX / 3, D / 3);
   const tzFloor = new THREE.Mesh(keep(new THREE.PlaneGeometry(WX, D)), m('#ffffff', { map: tz, roughness: 0.55 }));
   tzFloor.rotation.x = -Math.PI / 2;
@@ -297,7 +297,7 @@ export function diorama(l: Layout, sign: string, hue?: number): Diorama {
   // The left wall's feature, each room's own: a moss wall, a wall of books,
   // or a second window.
   const moss = l.moss;
-  const v = l.variant % 3;
+  const v = l.finish;
   const tuft = keep(new THREE.SphereGeometry(1, 10, 8));
   const mossMats = PALETTE.moss.map((c) => m(c, { roughness: 0.95 }));
   let seed = 17;

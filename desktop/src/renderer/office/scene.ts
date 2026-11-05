@@ -74,6 +74,8 @@ export type OfficeScene = {
   // there to the campus. campus goes straight there.
   overview(): void;
   campus(): void;
+  // floor goes to another floor of the project whose room you're in, its view.
+  floor(floor: number): void;
   setReducedMotion(on: boolean): void;
   // How much of the canvas's left edge an overlay covers, in CSS pixels: the
   // overview frames the room in the rest.
@@ -96,7 +98,7 @@ const RADIUS = 0.3;
 const SPEED = 3.4; // metres a second, walking
 const FOV = 24;
 // The overview's 3/4 view: from the front right, over the open corner.
-const HOME_YAW = 0.76;
+const HOME_YAW = 0.5;
 // Over the campus, more from the front: its rows of rooms read left to right.
 const CAMPUS_YAW = 0.3;
 const OVERVIEW_PITCH = 0.62;
@@ -825,8 +827,9 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const screenMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
     disp.push(() => screenMat.dispose());
     const mon = new THREE.Group();
-    // A lead's to its left, clear of its face from the camera's side.
-    mon.position.set(lead ? -0.62 : rx - side * 0.55, top, lead ? 0.05 : 0.2);
+    // A lead's at the counter's left end, clear of its face and body from
+    // the camera's side.
+    mon.position.set(lead ? -0.9 : rx - side * 0.55, top, lead ? -0.05 : 0.2);
     mon.rotation.y = lead ? 2.45 : side * (Math.PI - 0.59);
     g.add(mon);
     const mw = lead ? 0.86 : 0.76;
@@ -1462,10 +1465,12 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       return { x: rm.board.x + (vw * (1 - free)) / 2, y: 0.45 + bh / 2, z: rm.oz + 0.1, dist, pitch, yaw: 0 };
     }
     for (const a of lay.areas) {
-      if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 17, pitch: 0.62, yaw: 0.3 }, aspect);
+      if (a.lead && ref === `${a.project}/lead`) return aside({ x: a.lead.x - 0.4, y: 1.1, z: a.lead.z - 0.2, dist: 17, pitch: 0.62, yaw: 0.4 }, aspect);
       const d = a.desks.find((x) => x.id === ref);
-      // From the far side from where you stand, so you never stand in the way.
-      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.8, yaw: d.side < 0 ? 0.5 : 0.08 }, aspect);
+      // One angle for every desk, a little from the right as the room's view
+      // is: N from desk to desk doesn't swing the room round. You stand at
+      // the bench's end, beside the agent, clear of it either side.
+      if (d) return aside({ x: d.x + d.side * 0.35, y: 0.9, z: d.z - 0.3, dist: 22, pitch: 0.8, yaw: 0.4 }, aspect);
     }
     return undefined;
   }
@@ -1589,8 +1594,13 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     const fDist = cam.dist;
     const f = cam.followK;
     // Following you, or the spot the wheel zoomed in on.
-    const fx = zoomFocus ? zoomFocus.x : pos.x;
-    const fz = zoomFocus ? zoomFocus.z : pos.z;
+    // Kept over the room near its walls, so the view isn't half sky.
+    const sb = scope !== null ? lay.rooms[scope].box : undefined;
+    const clampTo = (v: number, a: number, b: number, m: number) => (b - a < 2 * m ? (a + b) / 2 : Math.min(b - m, Math.max(a + m, v)));
+    const fx0 = zoomFocus ? zoomFocus.x : pos.x;
+    const fz0 = zoomFocus ? zoomFocus.z : pos.z;
+    const fx = sb ? clampTo(fx0, sb.x0, sb.x1, 5) : fx0;
+    const fz = sb ? clampTo(fz0, sb.z0, sb.z1, 3.5) : fz0;
     let tx = oX + (fx - oX) * f;
     let tz = oZ + (fz - oZ) * f;
     let ty = 0.9 * f;
@@ -1709,7 +1719,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       // Not while the camera follows you: grown, they'd hide you.
       // Over the campus they grow to be seen; in a room, already at its
       // scale, hardly: grown, they'd crowd and stand out of their chairs.
-      const k = base * (1 + Math.min(crowded ? 0.65 : 0.15, Math.max(0, (far - 12) / 36)) * (1 - cam.followK));
+      const k = base * (1 + Math.min(crowded ? 0.35 : 0.15, Math.max(0, (far - 12) / 36)) * (1 - cam.followK));
       fg.scale.setScalar(k);
       fg.position.y = 0.49 * (1 - k);
       if (d.root.visible) {
@@ -1852,7 +1862,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       if (sub.dataset.n !== `${n0}:${f0}:${w0}`) {
         sub.dataset.n = `${n0}:${f0}:${w0}`;
         work.textContent = w0 ? `● ${w0}` : '';
-        work.style.display = w0 && !n0 && !f0 ? 'inline' : 'none';
+        work.style.display = w0 ? 'inline' : 'none';
         sub.textContent = n0 ? String(n0) : '';
         sub.style.display = n0 ? 'inline' : 'none';
         // Amber, as everything that needs you is.
@@ -1915,9 +1925,8 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       face = { x: ((tp.x + 1) / 2) * canvas.clientWidth, y: ((1 - tp.y) / 2) * canvas.clientHeight };
     }
     // Small from afar, as name tags are; wider as you come in to read them.
-    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '150px' : '170px';
+    const tagW = cam.followK < 0.3 && cam.closeK < 0.3 ? '128px' : '170px';
     const smallRoom = scope !== null && lay.rooms[scope].desks.length <= 8;
-    const tinyRoom = scope !== null && lay.rooms[scope].desks.length <= 4;
     if (markerLayer.style.getPropertyValue('--tag-w') !== tagW) markerLayer.style.setProperty('--tag-w', tagW);
     for (const d of desks.values()) {
       const tag = d.tag.sprite;
@@ -1942,7 +1951,7 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         const underCard = (!!cardBox && mx > cardBox.x0 && mx < cardBox.x1 && my > cardBox.y0 && my < cardBox.y1) || (!!face && Math.abs(mx - face.x) < 140 && my > face.y - 200 && my < face.y + 160);
         const show = onScreen && !underCard;
         marker.style.display = show ? 'flex' : 'none';
-        if (show) shown.push({ el: marker, x: mx, y: my, loud, needs: d.tone === 'needs' });
+        if (show) shown.push({ el: marker, x: mx, y: my, loud, needs: d.tone === 'needs' || d.tone === 'error' });
       }
     }
     // You, from far off: a chip in your colour over your head, or under your
@@ -2000,7 +2009,10 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
       const clash = (x: number, y: number) => placed.some((p) => inside(x) - w / 2 < p.x1 + 4 && inside(x) + w / 2 > p.x0 - 4 && Math.abs(p.y - y) < h);
       // Where to try, nearest first: above and below, then a little aside.
       const tries: [number, number][] = [];
-      for (const dy of [0, -h, h, -2 * h, 2 * h]) for (const dx of [0, w * 0.4, -w * 0.4]) tries.push([dx, dy]);
+      // Who needs you or failed looks further: its tag is never folded away.
+      const dys = m.needs ? [0, -h, h, -2 * h, 2 * h, 3 * h, -3 * h] : [0, -h, h, -2 * h, 2 * h];
+      const dxs = m.needs ? [0, w * 0.4, -w * 0.4, w * 0.8, -w * 0.8] : [0, w * 0.4, -w * 0.4];
+      for (const dy of dys) for (const dx of dxs) tries.push([dx, dy]);
       tries.sort((a, b) => Math.abs(a[1]) + Math.abs(a[0]) / 2 - (Math.abs(b[1]) + Math.abs(b[0]) / 2));
       let off = chipDy.get(m.el);
       // Kept while the camera moves, unless where it was is taken now.
@@ -2010,15 +2022,14 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
         off = tries.find(([dx, dy]) => !clash(m.x + dx, m.y + dy)) ?? null;
         chipDy.set(m.el, off);
       }
-      // In a small team's room every tag shows, where it belongs.
-      if (!off && !m.loud && tinyRoom) off = [0, 0];
+      // Who needs you (or failed) is never folded away: with nowhere clear,
+      // its tag stays where it belongs.
+      if (!off && m.needs) off = [0, 0];
       if (!off && !m.loud) {
         // A quiet label with no room simply steps out of the way.
         m.el.style.display = 'none';
         continue;
       }
-      // Who needs you is never folded away: its tag stays where it belongs.
-      if (!off && m.needs) off = [0, 0];
       if (!off) {
         // No room: folded into the chip in its way, if there's one nearby;
         // else it stays where it belongs.
@@ -2386,6 +2397,11 @@ export function createOfficeScene(host0: HTMLElement, opts0: OfficeSceneOptions)
     walkTo,
     overview,
     campus,
+    floor(f) {
+      const here = lay.rooms[cur];
+      const i = lay.rooms.findIndex((r) => r.project === here?.project && r.floor === f);
+      if (i >= 0 && i !== scope) enter(i);
+    },
     setReducedMotion(on) {
       motion = !on;
       poke();

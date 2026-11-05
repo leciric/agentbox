@@ -59,8 +59,10 @@ export type Layout = {
   meeting: Box;
   // The commons' lounge, on the wood side.
   lounge: Box;
-  // Which of its finishes the room has (decor.ts): each project's its own.
+  // Which of its commons it has (0-2 a big room's, 3-5 a small one's), and
+  // which of its finishes (decor.ts, 0-2): each project's, each floor's, its own.
   variant: number;
+  finish: number;
   window: { at: number; w: number };
   moss: { at: number; w: number };
   brick: { at: number; w: number };
@@ -76,8 +78,8 @@ const POD = 2;
 const POD_SPAN = 2 * DESK.w + 2.4;
 // Pod to pod across a row, and row to row; every other row is staggered by
 // half a pod, so the pods read as islands rather than a classroom's rows.
-const POD_PX = 5.2;
-const POD_PZ = 3.8;
+const POD_PX = 5.6;
+const POD_PZ = 4.4;
 const STAGGER = POD_PX / 2;
 const FIRST = 1.5; // from an area's back to its first pods' desks
 const AREA_PAD = 0.5; // the area's margin around its pods
@@ -194,7 +196,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   const leadMats: { x: number; z: number }[] = [];
   // Floor no area uses, which the room furnishes (fill, below). Low says
   // it's before an area, where the close-ups look across it: nothing tall.
-  const free: (Box & { low?: boolean })[] = [];
+  const free: (Box & { low?: boolean; slot?: boolean })[] = [];
   let z = BACK_AISLE;
   for (const [r, row] of rows.entries()) {
     const depth = rowD(row);
@@ -238,6 +240,8 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
       // The rug under its bench and chairs, and where you stand at its ends.
       pods.push({ x0: px - 1.95, z0: pz - 1.35, x1: n > 1 ? px + 1.95 : px + 0.45, z1: pz + 0.75 });
     }
+    // A row a pod short: its place a corner of bean bags, not bare floor.
+    for (let p = pods.length; p < s.cols * s.rows; p++) free.push({ x0: podX(p) - 2.4, z0: podZ(p) - 1.7, x1: podX(p) + 2.4, z1: podZ(p) + 1.2, low: true, slot: true });
     const desks: DeskPlace[] = a.desks.map((d, k) => {
       const p = Math.floor(k / POD);
       const side = k % POD ? 1 : -1;
@@ -298,11 +302,22 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     const turned = Math.abs(Math.sin(rot)) > 0.5;
     obstacles.push(box(x, z, turned ? d : w, turned ? w : d));
   };
+  const project = model.areas[0]?.project ?? '';
+  let h = 0;
+  for (let i = 0; i < project.length; i++) h = (h * 31 + project.charCodeAt(i)) >>> 0;
+  const floor = model.areas[0]?.floor ?? 1;
+  // A big room's kitchen and lounge change ends floor to floor.
+  const swap = !compact && (floor + (h >> 2)) % 2 === 0;
   const [kw, kd] = footOf('kitchen');
   const [fw, fd] = footOf('fridge');
   // A fridge beside the kitchen when the lounge keeps room for its sofa.
   const fridge = !compact && roomW - fw - 0.2 - kw - 0.3 - (wx + 0.8) >= 3.2;
-  const lounge: Box = compact ? { x0: wx + 0.5, z0: 0.5, x1: wx + 4.1, z1: 4.6 } : { x0: wx + 0.8, z0: 0.5, x1: Math.min(wx + 4.6, roomW - kw - 0.4 - (fridge ? fw + 0.1 : 0)), z1: 4.6 };
+  const loungeW = Math.min(3.8, roomW - wx - kw - 1.2 - (fridge ? fw + 0.1 : 0));
+  const lounge: Box = compact
+    ? { x0: wx + 0.5, z0: 0.5, x1: wx + 4.1, z1: 4.6 }
+    : swap
+      ? { x0: roomW - 0.5 - loungeW, z0: 0.5, x1: roomW - 0.5, z1: 4.6 }
+      : { x0: wx + 0.8, z0: 0.5, x1: wx + 0.8 + loungeW, z1: 4.6 };
   // The sectional along the brick wall, facing the room, its chaise on the
   // left; a low table before it.
   const sofa: Box = { x0: lounge.x0 + 0.3, z0: lounge.z0 + 0.1, x1: lounge.x1 - 0.3, z1: lounge.z0 + 1.05 };
@@ -311,7 +326,13 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   // The kitchen: a counter and a fridge against the back wall, an island
   // before them with three stools; a small room's, a vending machine.
   if (compact) prop('vending', roomW - footOf('vending')[0] / 2 - 0.05, footOf('vending')[1] / 2 + 0.05);
-  else {
+  else if (swap) {
+    // By the planter: the fridge, the counter, the island before them.
+    if (fridge) prop('fridge', wx + 0.15 + fw / 2, fd / 2 + 0.02);
+    const kx = wx + 0.15 + (fridge ? fw + 0.1 : 0) + kw / 2;
+    prop('kitchen', kx, kd / 2 + 0.02);
+    prop('island', Math.max(kx - 0.3, wx + 0.9 + footOf('island')[0] / 2), kd + 0.9 + footOf('island')[1] / 2);
+  } else {
     const kx = roomW - (fridge ? fw + 0.1 : 0) - 0.05 - kw / 2;
     if (fridge) prop('fridge', roomW - fw / 2 - 0.05, fd / 2 + 0.02);
     prop('kitchen', kx, kd / 2 + 0.02);
@@ -320,12 +341,9 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
   // Past the lounge, each project's commons its own: ping-pong and arcade
   // cabinets, or a coffee corner, or a quiet corner with a fish tank.
   const zp = Math.max(lounge.z1 + 2.6, roomD * 0.42);
-  const project = model.areas[0]?.project ?? '';
-  let h = 0;
-  for (let i = 0; i < project.length; i++) h = (h * 31 + project.charCodeAt(i)) >>> 0;
   // Each floor of a project its own too.
   // A small room's commons is one of three of its own, before its lounge.
-  const kind = compact ? 3 + (h % 3) : (h + (model.areas[0]?.floor ?? 1) - 1) % 3;
+  const kind = compact ? 3 + (h % 3) : (h + floor - 1) % 3;
   const zf = (lounge.z1 + roomD) / 2 + 0.2;
   if (kind === 3) {
     // Bean bags round a little table, and a plant by them.
@@ -431,6 +449,10 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
         plants.push({ x, z: f.z1 - 0.45 });
         obstacles.push(box(x, f.z1 - 0.45, 0.6, 0.6));
       }
+    if (f.slot) {
+      prop('beanbags', (f.x0 + f.x1) / 2, (f.z0 + f.z1) / 2);
+      continue;
+    }
     // Room for a corner of its own: a few things together on a mat.
     if (w >= 5.8 && d >= 3.2) {
       const themes = f.low ? LOW_THEMES : THEMES;
@@ -495,6 +517,7 @@ export function roomLayout(model: { areas: AreaIn[] }): Layout {
     rack,
     lounge,
     variant: kind,
+    finish: (h + floor - 1 + Math.floor((floor - 1) / 3)) % 3,
   };
 }
 
@@ -582,7 +605,7 @@ const LOW_THEMES: Theme[] = [LOUNGE, STUDY];
 export const ROOM_DESKS = 8;
 // Between rooms on the campus: wider front to back, where the walls rise.
 const CAMPUS_GAP = 8;
-const CAMPUS_GAP_Z = 16;
+const CAMPUS_GAP_Z = 13;
 const FLOOR_GAP = 7;
 const CAMPUS_ASPECT = 1.6;
 
@@ -689,10 +712,18 @@ export function layout(model: Pick<OfficeModel, 'areas'>): Campus {
     }
     return { at, w, d };
   };
+  // As many to a row as shows the rooms biggest in a window of about the
+  // app's shape, seen as the campus's view sees them (a little from the
+  // right, from above); a wider one when it's about as good.
+  const size = (c: { w: number; d: number }) => {
+    const pw = c.w * Math.cos(0.3) + c.d * Math.sin(0.3);
+    const ph = (c.w * Math.sin(0.3) + c.d * Math.cos(0.3)) * 0.6 + 3;
+    return Math.max(pw / CAMPUS_ASPECT, ph);
+  };
   let best = place(locals.length);
-  for (let k = 1; k <= locals.length; k++) {
+  for (let k = locals.length - 1; k >= 1; k--) {
     const c = place(k);
-    if (Math.abs(Math.log(c.w / c.d / CAMPUS_ASPECT)) < Math.abs(Math.log(best.w / best.d / CAMPUS_ASPECT)) - 1e-6) best = c;
+    if (size(c) < size(best) * 0.92) best = c;
   }
   const rooms: RoomPlace[] = [];
   const areas: Campus['areas'] = [];

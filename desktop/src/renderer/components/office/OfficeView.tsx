@@ -372,8 +372,12 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
     <Button size="sm" variant="secondary" className="bg-slate-100 text-slate-800 shadow-none hover:bg-slate-200" onClick={() => next.current()} data-office-next>
       <ArrowRight className="size-3.5" />
       {t('office.next')}
-      {/* Where you are in the round, or, at a desk not in it (a lead's), where N takes you. */}
-      {needs.length > 1 && <span className="tabular-nums text-[11px] opacity-70">{t('office.nextOf', { at: (round.some((i) => i.ref === near) ? roundAt() : (roundAt() + 1) % round.length) + 1, count: needs.length })}</span>}
+      {/* Where you are in the round, or at a desk not in it how many wait. */}
+      {needs.length > 1 && (
+        <span className="tabular-nums text-[11px] opacity-70">
+          {round.some((i) => i.ref === near) ? t('office.nextOf', { at: roundAt() + 1, count: needs.length }) : t('office.nextCount', { count: needs.length })}
+        </span>
+      )}
       <kbd className="ml-1 rounded bg-black/15 px-1 font-mono text-[10.5px]">N</kbd>
     </Button>
   );
@@ -469,6 +473,24 @@ export function OfficeView({ onSelect }: { onSelect: (view: View) => void }) {
                 return view.floors > 1 ? t('office.floor', { name, floor: view.floor }) : name;
               })()}
             </button>
+          )}
+          {/* A project on floors: straight to another, without the campus. */}
+          {view.project && view.floors > 1 && (
+            <div className="-my-1 flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5" role="group" aria-label={t('office.floors')} data-office-floors>
+              {Array.from({ length: view.floors }, (_, i) => i + 1).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  className={cn('min-w-6 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold tabular-nums transition', f === view.floor ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:bg-white/60 hover:text-slate-800')}
+                  aria-current={f === view.floor ? 'true' : undefined}
+                  aria-label={t('office.toFloor', { floor: f })}
+                  title={t('office.toFloor', { floor: f })}
+                  onClick={() => scene.current?.floor(f)}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
           )}
           {needs.length > 0 ? (
             // The count opens and folds the list of who needs you.
