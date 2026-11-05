@@ -21,3 +21,10 @@ markdown = "1"
 ffmpeg-next = { version = "8", default-features = false, features = ["codec", "format", "software-scaling"] }
 # The frame type GPUI's RenderImage takes (gpui-pre uses image 0.25).
 image = { version = "0.25", default-features = false }
+# ```html preview blocks: a webview (WebKitGTK, WKWebView, WebView2) as a
+# child of the GPUI window.
+wry = "0.57"
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"

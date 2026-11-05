@@ -20,7 +20,8 @@ development packages:
 
 ```bash
 sudo apt-get install libxkbcommon-x11-dev libwayland-dev libvulkan-dev libfontconfig-dev libfreetype-dev libx11-xcb-dev mesa-vulkan-drivers \
-  libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libclang-dev
+  libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libclang-dev \
+  libwebkit2gtk-4.1-dev libgtk-3-dev
 cargo run --release -p agentbox-native                       # against this machine's daemon
 cargo run --release -p agentbox-native -- --socket /path.sock # or another socket (also AGENTBOX_SOCKET)
 ```

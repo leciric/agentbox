@@ -60,6 +60,11 @@ const TITLES: &[&str] = &[
 
 const DIAGRAM: &str = "```mermaid\nsequenceDiagram\n  participant App\n  participant Daemon\n  participant Claude\n  App->>Daemon: POST /chat/messages\n  Daemon->>Claude: prompt (ACP)\n  Claude-->>Daemon: chunks\n  Daemon-->>App: SSE chat events\n```";
 
+const PREVIEW: &str = "```html preview\n<div style=\"padding:16px\"><b>Tokens this week</b><div style=\"display:flex;gap:8px;align-items:flex-end;height:150px;margin-top:12px\">\
+<div style=\"flex:1;height:40%;background:var(--chart-1)\"></div><div style=\"flex:1;height:75%;background:var(--chart-2)\"></div>\
+<div style=\"flex:1;height:55%;background:var(--chart-3)\"></div><div style=\"flex:1;height:90%;background:var(--chart-1)\"></div>\
+<div style=\"flex:1;height:30%;background:var(--chart-4)\"></div></div><p style=\"color:var(--muted-foreground)\">Rendered in a webview, offline.</p></div>\n```";
+
 const LOREM: &str = "The daemon owns the state, and every client is a thin one: it asks over the socket and \
 shows what comes back. This reply is **streamed** a few words at a time, the way an agent's answer arrives, \
 with `inline code`, lists and a block of code so the renderer has real work to do.";
@@ -83,6 +88,11 @@ fn history_item(agent: &str, i: usize) -> ChatItem {
     };
     let text = if i % 10 == 9 {
         format!("{text}\n\n{DIAGRAM}")
+    } else {
+        text
+    };
+    let text = if i % 10 == 7 {
+        format!("{text}\n\n{PREVIEW}")
     } else {
         text
     };

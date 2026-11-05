@@ -278,6 +278,8 @@ impl ChatView {
 
 impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let viewport = self.list.viewport_bounds();
+        crate::webview::set_clip((viewport.size.height > px(0.)).then_some(viewport));
         if bench::on() {
             if let Some(at) = self.arrived.take() {
                 window.on_next_frame(move |_, _| {
@@ -336,12 +338,17 @@ impl Render for ChatView {
                     ),
             )
             .child(
-                div().flex_1().min_h_0().child(
-                    list(self.list.clone(), move |ix, _window, cx| {
-                        view.read(cx).render_item(ix)
-                    })
-                    .size_full(),
-                ),
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(crate::webview::begin())
+                    .child(
+                        list(self.list.clone(), move |ix, _window, cx| {
+                            view.read(cx).render_item(ix)
+                        })
+                        .size_full(),
+                    )
+                    .child(crate::webview::end()),
             )
             .when_some(self.error.clone(), |el, e| {
                 el.child(
