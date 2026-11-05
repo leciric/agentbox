@@ -16,10 +16,9 @@ pub fn take_clicks() -> Vec<String> {
     std::mem::take(&mut *CLICKS.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
-/// show hands a notification to the OS, the click on it reported by its id.
-/// Linux's notification servers report the click (the "default" action); a
-/// Mac's and Windows' notify-rust backends only show it, and the click
-/// brings the app forward by itself.
+/// show hands a notification to the OS, the click on it reported by its id:
+/// Linux's notification servers as the "default" action, a Mac's and
+/// Windows' as the default response, so each goes where it points.
 pub fn show(id: String, title: String, body: String) {
     std::thread::spawn(move || {
         let mut n = notify_rust::Notification::new();
@@ -36,11 +35,23 @@ pub fn show(id: String, title: String, body: String) {
                 Err(e) => eprintln!("notification: {e}"),
             }
         }
+        // A Mac's (NSUserNotificationCenter, its delegate answered on the
+        // main run loop GPUI keeps turning) and Windows' toasts report a
+        // click on the notification's body as its default response.
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = id;
-            if let Err(e) = n.show() {
-                eprintln!("notification: {e}");
+            let clicked = move |r: &notify_rust::NotificationResponse| {
+                if matches!(r, notify_rust::NotificationResponse::Default) {
+                    CLICKS.lock().unwrap_or_else(|e| e.into_inner()).push(id);
+                }
+            };
+            match n.show() {
+                Ok(handle) => {
+                    if let Err(e) = handle.wait_for_response(clicked) {
+                        eprintln!("notification: {e}");
+                    }
+                }
+                Err(e) => eprintln!("notification: {e}"),
             }
         }
     });

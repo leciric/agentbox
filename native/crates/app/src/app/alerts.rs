@@ -52,6 +52,8 @@ const POLL: Duration = Duration::from_millis(150);
 const SETTLE: Duration = Duration::from_secs(1);
 const TRAY_EVERY: Duration = Duration::from_secs(60);
 const PAGE: &str = "50";
+/// READY_BATCH is how close together finishes are told as one.
+const READY_BATCH: Duration = Duration::from_millis(1500);
 
 pub struct Alerts {
     tray: Option<Tray>,
@@ -69,6 +71,10 @@ pub struct Alerts {
     /// The finishes already known (ref:fingerprint): the first list is the
     /// baseline, not news.
     ready: Option<HashSet<String>>,
+    /// What landed in Ready to review in the last moment, told together
+    /// once nothing more arrives for READY_BATCH (reviewAlert.ts batch).
+    ready_batch: Vec<ReviewItem>,
+    _ready_timer: Option<Task<()>>,
     badge: i64,
     /// The window's bounds, saved half a second after they last changed.
     bounds_due: Option<Instant>,
@@ -89,6 +95,8 @@ impl Default for Alerts {
             chats: None,
             errored: None,
             ready: None,
+            ready_batch: Vec::new(),
+            _ready_timer: None,
             badge: 0,
             bounds_due: None,
             _subs: Vec::new(),
@@ -591,10 +599,23 @@ impl AppView {
     }
 
     /// check_ready tells you when agents newly land in Ready to review: the
-    /// chime and one OS notification for all that arrive together.
+    /// chime and one OS notification for all that arrive within 1.5 s of
+    /// each other.
     pub(super) fn check_ready(&mut self, cx: &mut Context<Self>) {
         let items = self.side.review.clone();
         let fresh = newly_ready(&mut self.alerts.ready, &items);
+        if fresh.is_empty() {
+            return;
+        }
+        self.alerts.ready_batch.extend(fresh.into_iter().cloned());
+        self.alerts._ready_timer = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(READY_BATCH).await;
+            this.update(cx, |this, cx| this.tell_ready(cx)).ok();
+        }));
+    }
+
+    fn tell_ready(&mut self, cx: &mut Context<Self>) {
+        let fresh = std::mem::take(&mut self.alerts.ready_batch);
         let Some(first) = fresh.first() else {
             return;
         };
