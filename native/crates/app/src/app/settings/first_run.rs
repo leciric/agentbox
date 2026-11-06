@@ -426,6 +426,11 @@ impl AppView {
                         h_flex()
                             .items_end()
                             .gap_4()
+                            .child(crate::motion::enter(
+                                theme::logo(px(44.)),
+                                "first-run-logo",
+                                0,
+                            ))
                             .child(
                                 v_flex()
                                     .min_w_0()
@@ -433,8 +438,9 @@ impl AppView {
                                     .gap_1()
                                     .child(
                                         div()
-                                            .text_2xl()
+                                            .text_size(px(24.))
                                             .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(theme::title())
                                             .child(t("firstRun.heading")),
                                     )
                                     .child(
@@ -474,30 +480,34 @@ impl AppView {
         body: AnyElement,
         footer: Vec<AnyElement>,
     ) -> AnyElement {
+        let card = v_flex()
+            .p_5()
+            .rounded(theme::radius::XXL)
+            .bg(theme::linear_panel())
+            .border_1()
+            .border_color(theme::line())
+            .shadow(theme::shadow_card());
         v_flex()
             .gap_4()
-            .child(
-                v_flex()
-                    .p_5()
-                    .rounded_xl()
-                    .bg(theme::card())
-                    .border_1()
-                    .border_color(theme::line())
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(title.unwrap_or_else(|| t(&format!("firstRun.{step}.title")))),
-                    )
-                    .child(
-                        div()
-                            .mt_1()
-                            .text_sm()
-                            .text_color(theme::muted())
-                            .child(t(&format!("firstRun.{step}.intro"))),
-                    )
-                    .child(div().mt_4().child(body)),
-            )
+            .child(crate::motion::enter(
+                card.child(
+                    div()
+                        .text_size(theme::text::HEADING)
+                        .text_color(theme::title())
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title.unwrap_or_else(|| t(&format!("firstRun.{step}.title")))),
+                )
+                .child(
+                    div()
+                        .mt_1()
+                        .text_sm()
+                        .text_color(theme::muted())
+                        .child(t(&format!("firstRun.{step}.intro"))),
+                )
+                .child(div().mt_4().child(body)),
+                SharedString::from(format!("first-run-panel-{step}")),
+                0,
+            ))
             .when(!footer.is_empty(), |el| {
                 el.child(h_flex().justify_end().gap_2().children(footer))
             })
@@ -539,10 +549,10 @@ impl AppView {
         match step {
             "tool" => {
                 let picked = fr.picked;
-                let cards = TOOLS.iter().map(|tool| {
+                let cards = TOOLS.iter().enumerate().map(|(i, tool)| {
                     let tool: &'static str = tool;
                     let on = picked == tool;
-                    v_flex()
+                    let card = v_flex()
                         .id(SharedString::from(format!("first-run-tool-{tool}")))
                         .w(relative(0.48))
                         .flex_1()
@@ -553,11 +563,15 @@ impl AppView {
                         .cursor_pointer()
                         .map(|el| {
                             if on {
-                                el.border_color(theme::accent())
-                                    .bg(theme::accent().opacity(0.1))
+                                el.border_color(theme::brand(400))
+                                    .bg(theme::brand(400).opacity(0.1))
+                                    .shadow(theme::glow(theme::brand(400), 0.5))
                             } else {
                                 el.border_color(theme::line())
-                                    .hover(|s| s.bg(theme::surface_strong()))
+                                    .hover(|s| {
+                                        s.bg(theme::surface()).border_color(theme::line_strong())
+                                    })
+                                    .active(|s| s.bg(theme::surface_strong()))
                             }
                         })
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -565,17 +579,36 @@ impl AppView {
                             cx.notify();
                         }))
                         .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(ai_label(tool)),
+                            h_flex()
+                                .gap_2()
+                                .child(crate::icons::ai_icon(
+                                    tool,
+                                    px(16.),
+                                    if on {
+                                        theme::brand(300)
+                                    } else {
+                                        theme::muted()
+                                    },
+                                ))
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(theme::title())
+                                        .child(ai_label(tool)),
+                                ),
                         )
                         .child(
                             div()
                                 .text_xs()
                                 .text_color(theme::muted())
                                 .child(t(&format!("firstRun.tool.needs.{tool}"))),
-                        )
+                        );
+                    crate::motion::enter(
+                        card,
+                        SharedString::from(format!("first-run-tool-in-{tool}")),
+                        i + 1,
+                    )
                 });
                 let body = v_flex()
                     .gap_3()

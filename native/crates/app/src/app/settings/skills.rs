@@ -1021,7 +1021,7 @@ impl AppView {
                                 div()
                                     .text_xs()
                                     .text_color(theme::faint())
-                                    .child(t("skills.whenToUse").to_uppercase()),
+                                    .child(t("skills.whenToUse")),
                             )
                             .child(
                                 div()

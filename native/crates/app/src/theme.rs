@@ -732,6 +732,16 @@ pub fn state_color(state: &str) -> Hsla {
     }
 }
 
+/// linear_panel is Electron's `.panel` ground: a faint lift at its top
+/// easing toward its bottom.
+pub fn linear_panel() -> gpui::Background {
+    gpui::linear_gradient(
+        180.,
+        gpui::linear_color_stop(panel_top(), 0.),
+        gpui::linear_color_stop(panel_bottom(), 1.),
+    )
+}
+
 // ── Elevation ─────────────────────────────────────────────────────────────
 /// shadow_card is a resting card's lift: a hairline of light along its top
 /// edge (the `.panel` inset) and a soft drop.

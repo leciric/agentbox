@@ -1097,10 +1097,10 @@ impl AppView {
                 .px_2p5()
                 .pt_4()
                 .pb_1()
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::faint())
-                .child(text.to_uppercase())
+                .text_size(theme::text::CAPTION)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::muted())
+                .child(text)
                 .into_any_element()
         };
 
