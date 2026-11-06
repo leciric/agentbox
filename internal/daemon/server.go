@@ -412,6 +412,8 @@ type Server struct {
 	// view (viewing.go) is the agent the app shows.
 	view           viewingState
 	machineCgroups machineCgroups
+	// fleetChatBusy is chat.Manager.Busy for syncFleet, or a test's.
+	fleetChatBusy  func(state.Agent) bool
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups

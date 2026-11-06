@@ -427,3 +427,26 @@ func TestFleetKeepsTheFrozenListWhileTheDatabaseIsBusy(t *testing.T) {
 		t.Fatalf("saving %v, saved %v, want %v", fl.saving, fl.saved, fl.want)
 	}
 }
+
+// Whether an agent's chat runs a turn is asked before the fleet's lock is
+// taken: Busy waits on the chat's own lock, which a chat storing its items
+// holds while the database is slow, and the pressure loop can't freeze
+// anything while the fleet's lock is held.
+func TestSyncFleetAsksTheChatsOutsideTheFleetsLock(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, true)
+	var asked, locked bool
+	f.srv.fleetChatBusy = func(state.Agent) bool {
+		asked = true
+		if f.srv.frozen.mu.TryLock() {
+			f.srv.frozen.mu.Unlock()
+		} else {
+			locked = true
+		}
+		return true
+	}
+	f.step(t)
+	if !asked || locked {
+		t.Fatalf("asked the chats %t, with the fleet's lock held %t", asked, locked)
+	}
+}
