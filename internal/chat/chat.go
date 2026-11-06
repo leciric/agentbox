@@ -1475,6 +1475,11 @@ type conversation struct {
 	goal     *api.AgentGoal
 	goalRead bool
 	echoID   string
+	// goalOut are goal changes not yet told to the daemon (GoalChanged), in
+	// the order they happened; goalSending is whether a sender is telling
+	// them, one at a time, so a quick set then met can't arrive met first.
+	goalOut     []api.AgentGoal
+	goalSending bool
 	// queued holds notices that arrived mid-turn, or during a rollover;
 	// finishTurn and rollover deliver them.
 	queued []queuedNotice
