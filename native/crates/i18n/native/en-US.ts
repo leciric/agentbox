@@ -164,4 +164,11 @@ export const enUSNative = {
   'native.office.software.mac': 'This Mac’s graphics should be used: update macOS, and restart the app.',
   'native.office.software.dismiss': 'Dismiss',
   'native.office.unsupported': 'This computer can’t draw the Office: no graphics adapter (Vulkan, Metal or DirectX 12) is available.',
+  'native.vnc.cantShow': 'Can’t show the desktop',
+  'native.vnc.retrying': 'Trying again by itself.',
+  'native.vnc.retryNow': 'Retry now',
+  'native.vnc.closed': 'The connection to the desktop ended.',
+  'native.vnc.ended': 'The desktop’s connection ended: {reason}',
+  'native.vnc.noAnswer': 'The desktop’s VNC server didn’t answer.',
+  'native.vnc.fullHere': 'The desktop is open full screen.',
 };
