@@ -947,6 +947,7 @@ func (s *Server) removeBase(w http.ResponseWriter, r *http.Request) error {
 		}
 		return err
 	}
+	s.trim.Kick()
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
