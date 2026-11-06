@@ -6,8 +6,10 @@ name: CI
 # which of Go, the desktop app and the phone app a change touches, and the
 # jobs for the rest skip. macOS and Windows run on a push to main, or on a PR
 # labelled ci:full, when the change reaches what they test. govulncheck runs
-# weekly, on main, and on a PR that changes go.mod or go.sum. A change to this
-# file or to scripts/ci-changes.sh runs everything.
+# weekly, on main, and on a PR that changes go.mod or go.sum. The native app
+# (native/) is checked on Linux, Windows cross-checked there too; its macOS
+# check runs on main, or once when a PR is labelled ci:native-mac. A change to
+# this file or to scripts/ci-changes.sh runs everything.
 on:
   push:
     branches: [main]
@@ -50,13 +52,14 @@ jobs:
   # as one verbatim.
   changes:
     name: Changes and PR title
-    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:full')
+    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:full' || github.event.label.name == 'ci:native-mac')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       go: ${{ steps.paths.outputs.go }}
       desktop: ${{ steps.paths.outputs.desktop }}
       mobile: ${{ steps.paths.outputs.mobile }}
+      native: ${{ steps.paths.outputs.native }}
       hub: ${{ steps.paths.outputs.hub }}
       vuln: ${{ steps.paths.outputs.vuln }}
       macos: ${{ steps.paths.outputs.macos }}
@@ -101,6 +104,7 @@ jobs:
         id: paths
         env:
           GH_TOKEN: ${{ github.token }}
+          LABEL: ${{ github.event.label.name }}
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
           PR: ${{ github.event.pull_request.number || inputs.pr }}
@@ -132,7 +136,7 @@ jobs:
           esac
           if ! $ok || [ ! -s "$files" ]; then
             echo "Can't tell what changed: running everything"
-            go=true desktop=true mobile=true hub=true vuln=true macos=true windows=true
+            go=true desktop=true mobile=true native=true hub=true vuln=true macos=true windows=true
           else
             sed 's/^/  /' "$files"
             # Lines of key=true|false.
@@ -141,10 +145,10 @@ jobs:
           # On main, govulncheck follows Go. Labelling a PR ci:full runs
           # macOS and Windows whatever the change, and nothing else.
           [ "$EVENT" = push ] && vuln=$go
-          if [ "$EVENT/$ACTION" = pull_request/labeled ] || { [ "$EVENT" = workflow_dispatch ] && [ -z "$PR" ]; }; then
+          if [ "$EVENT/$ACTION/$LABEL" = pull_request/labeled/ci:full ] || { [ "$EVENT" = workflow_dispatch ] && [ -z "$PR" ]; }; then
             macos=true windows=true
           fi
-          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "hub=$hub" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
+          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "native=$native" "hub=$hub" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
 
   # The Go test suite, once, with coverage: scripts/check-coverage.sh fails
   # below the floor in .github/coverage-floor.txt. This includes
@@ -369,6 +373,85 @@ jobs:
             echo "::error::Run npm --prefix desktop run build:machines-view and commit internal/machinesweb/static/vnc.js"
             exit 1
           }
+
+  # The native app (native/, Rust and GPUI): check, clippy and its tests, on
+  # Linux only. It is a proof of concept beside desktop/; macOS and Windows
+  # builds of it aren't set up.
+  native:
+    name: Native app
+    needs: changes
+    if: needs.changes.outputs.native == 'true' && github.event.action != 'labeled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    defaults:
+      run:
+        working-directory: native
+    steps:
+      - uses: actions/checkout@v7
+
+      # GPUI's Linux backends link against X11, Wayland and the Vulkan
+      # loader; the video player against FFmpeg (bindgen needs libclang),
+      # HTML previews against WebKitGTK, the notification chime against ALSA.
+      - run: >-
+          sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends
+          libxkbcommon-x11-dev libwayland-dev libvulkan-dev libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev
+          libavformat-dev libavcodec-dev libswscale-dev libavutil-dev libclang-dev pkg-config
+          libwebkit2gtk-4.1-dev libgtk-3-dev libasound2-dev
+
+      - run: rustup toolchain install stable --profile minimal -c clippy,rustfmt && rustup default stable
+
+      # Dependencies' build artifacts only (rust-cache drops the workspace's own
+      # and anything stale): all of native/target, debuginfo and incremental
+      # state included, grew past 3 GiB and killed the runner restoring it.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - run: cargo fmt --check
+
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - run: cargo test --workspace --locked
+
+      # Windows, type-checked from Linux: cheap, and the app's Windows code
+      # (WebView2, the platform layer) gets compiled. Without the video
+      # feature, whose FFmpeg isn't there for a cross target; GPUI's resource
+      # manifest wants llvm-rc.
+      - run: sudo apt-get install -yq --no-install-recommends llvm && rustup target add x86_64-pc-windows-msvc
+      - run: cargo check -p agentbox-native --locked --target x86_64-pc-windows-msvc --no-default-features
+
+  # The native app on macOS: GPUI's Mac backend needs the SDK (Metal shaders,
+  # Objective-C), so it can't be checked from Linux. macOS bills 10x, so this
+  # is a cargo check only, on pushes to main that change native/, and once on
+  # a PR when it's labelled ci:native-mac (remove and re-add it to run again).
+  native-macos:
+    name: Native app on macOS
+    needs: changes
+    if: >-
+      (github.event_name == 'push' && needs.changes.outputs.native == 'true') ||
+      (github.event.action == 'labeled' && github.event.label.name == 'ci:native-mac')
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    defaults:
+      run:
+        working-directory: native
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - run: cargo check -p agentbox-native --locked --no-default-features
 
   # The phone app (mobile/): lint, typecheck and its tests. Its typecheck
   # reads the desktop's shared/ (the API's types and the text's catalogs),

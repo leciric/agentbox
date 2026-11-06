@@ -140,6 +140,10 @@ func (f *Forward) tick(ctx context.Context) {
 			f.Logf("phones: port %d open, passed on to the daemon", st.Port)
 		}
 	}
+	// Report first: asking the firewall (PowerShell, on Windows) can take many
+	// seconds, and the port is open meanwhile. What it says comes in a second
+	// report when it changes the warning.
+	f.report(ctx)
 	every := firewallQuiet
 	if f.warning != "" {
 		every = firewallEvery
@@ -147,10 +151,17 @@ func (f *Forward) tick(ctx context.Context) {
 	if f.srv != nil && f.Firewall != nil && time.Since(f.asked) >= every {
 		was := f.warning
 		f.warning, f.asked = f.Firewall(ctx, f.port), time.Now()
-		if f.warning != "" && f.warning != was {
-			f.Logf("phones: %s", f.warning)
+		if f.warning != was {
+			if f.warning != "" {
+				f.Logf("phones: %s", f.warning)
+			}
+			f.report(ctx)
 		}
 	}
+}
+
+// report tells the daemon how phones' port is (PUT /v1/lan/host).
+func (f *Forward) report(ctx context.Context) {
 	report := api.LANHostReport{Port: f.port, Listening: f.srv != nil, Error: f.err, Warning: f.warning, Addresses: f.Addresses()}
 	if report.Addresses == nil {
 		report.Addresses = []string{}

@@ -1,0 +1,447 @@
+//! ```html preview blocks: each in a real webview (wry: WebKitGTK on Linux,
+//! WKWebView on macOS, WebView2 on Windows), a child window of the GPUI
+//! window, kept over the block's place in the layout every frame.
+//!
+//! A child window draws over everything, so a webview is only shown while its
+//! block is wholly inside the area it scrolls in; otherwise it is hidden and
+//! the block shows what GPUI drew underneath. Pages are offline, as in the
+//! Electron app's frame: a Content-Security-Policy allows nothing from the
+//! network, and navigating away is refused.
+//!
+//! On Linux child webviews work on X11 only (wry can't make them on
+//! Wayland): elsewhere snapshot.rs shows the page as a picture.
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::time::Duration;
+
+use gpui::*;
+
+thread_local! {
+    static VIEWS: RefCell<HashMap<String, Placed>> = RefCell::new(HashMap::new());
+}
+
+struct Placed {
+    view: wry::WebView,
+    /// The frame it was last placed in; one not placed in a frame is hidden.
+    frame: u64,
+    shown: bool,
+    bounds: Option<Bounds<Pixels>>,
+}
+
+thread_local! {
+    /// Where webviews may show this frame: the scrolling area they're in.
+    static CLIP: std::cell::Cell<Option<Bounds<Pixels>>> = const { std::cell::Cell::new(None) };
+}
+
+/// set_clip says where the blocks drawn next are visible.
+pub fn set_clip(bounds: Option<Bounds<Pixels>>) {
+    CLIP.with(|c| c.set(bounds));
+}
+
+/// Set when a webview can't be made here (Wayland, no GTK): previews then
+/// show their source.
+static UNAVAILABLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set once GTK started: snapshot.rs can render pages offscreen.
+static GTK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "linux")]
+pub fn gtk_ready() -> bool {
+    GTK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn available() -> bool {
+    !UNAVAILABLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Wheel deltas from pages, in pixels: a page doesn't scroll, the chat does.
+static WHEEL: std::sync::Mutex<f32> = std::sync::Mutex::new(0.);
+
+/// The script every page gets: its wheel goes to the app.
+const FORWARD_WHEEL: &str = "addEventListener('wheel', e => { e.preventDefault(); window.ipc.postMessage(String(e.deltaY)); }, { passive: false });";
+
+thread_local! {
+    /// The list the webviews in view belong to, which a page's wheel scrolls.
+    static SCROLLER: RefCell<Option<ListState>> = const { RefCell::new(None) };
+}
+
+/// set_scroller names the list the next frame's webviews scroll.
+pub fn set_scroller(list: ListState) {
+    SCROLLER.with_borrow_mut(|s| *s = Some(list));
+}
+
+static FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The app's palette as the CSS variables the Electron app's previews use.
+pub(crate) const PRELUDE: &str = r#"<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:">
+<style>:root{color-scheme:dark;--foreground:#ededf0;--muted-foreground:#9a9aa3;--border:#26262c;--background:#1a1a1f;--chart-1:#7c8cff;--chart-2:#34d399;--chart-3:#fbbf24;--chart-4:#f87171;--chart-5:#a78bfa;--chart-6:#38bdf8}html,body{margin:0;background:var(--background);color:var(--foreground);font:14px system-ui,sans-serif}</style>"#;
+
+/// init starts GTK (on Linux) and pumps its events from GPUI's loop, and
+/// hides webviews whose block wasn't drawn in the last frame.
+pub fn init(cx: &mut App) {
+    #[cfg(target_os = "linux")]
+    // WebKitGTK's DMA-BUF renderer draws nothing without a GPU it can share
+    // buffers with (software rendering, VMs); the shared-memory path works.
+    for var in [
+        "WEBKIT_DISABLE_DMABUF_RENDERER",
+        "WEBKIT_DISABLE_COMPOSITING_MODE",
+    ] {
+        if std::env::var_os(var).is_none() {
+            // SAFETY: set before any other thread reads the environment.
+            unsafe { std::env::set_var(var, "1") };
+        }
+    }
+    #[cfg(target_os = "linux")]
+    if let Err(e) = gtk::init() {
+        eprintln!("webviews are off: gtk: {e}");
+        UNAVAILABLE.store(true, std::sync::atomic::Ordering::Relaxed);
+        return;
+    }
+    GTK.store(
+        cfg!(target_os = "linux"),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(16))
+                .await;
+            #[cfg(target_os = "linux")]
+            while gtk::events_pending() {
+                gtk::main_iteration_do(false);
+            }
+            #[cfg(target_os = "linux")]
+            if crate::snapshot::take_dirty() {
+                cx.update(|cx| cx.refresh_windows());
+            }
+            let dy = std::mem::take(&mut *WHEEL.lock().unwrap());
+            if dy != 0. {
+                SCROLLER.with_borrow(|s| {
+                    if let Some(list) = s {
+                        list.scroll_by(px(dy));
+                    }
+                });
+                cx.update(|cx| cx.refresh_windows());
+            }
+        }
+    })
+    .detach();
+}
+
+/// begin goes before the blocks that may hold webviews, and end after them:
+/// both are painted every frame the window draws, so a webview whose block
+/// wasn't painted between them (scrolled out of a virtual list, gone) is
+/// hidden by end.
+pub fn begin() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        |_, _, _, _| {
+            FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        },
+    )
+    .absolute()
+    .size_0()
+}
+
+pub fn end() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        |_, _, _, _| {
+            let now = FRAME.load(std::sync::atomic::Ordering::Relaxed);
+            VIEWS.with_borrow_mut(|views| {
+                for p in views.values_mut() {
+                    if p.shown && p.frame != now {
+                        let _ = p.view.set_visible(false);
+                        p.shown = false;
+                    }
+                }
+            });
+            flush();
+        },
+    )
+    .absolute()
+    .size_0()
+}
+
+/// html_preview is a block of `height` that shows `html` in a webview.
+pub fn html_preview(
+    id: impl Into<String>,
+    html: impl Into<String>,
+    height: Pixels,
+) -> impl IntoElement {
+    let id = id.into();
+    let html = html.into();
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let clip = CLIP
+                .with(|c| c.get())
+                .unwrap_or(window.content_mask().bounds);
+            let inside = clip.contains(&bounds.origin)
+                && clip.contains(&bounds.bottom_right().map(|v| v - px(1.)));
+            place(&id, &html, bounds, inside, window);
+        },
+    )
+    .w_full()
+    .h(height)
+}
+
+/// Parent is the GPUI window as wry takes it. GPUI's X11 backend hands out an
+/// XCB handle and wry wants Xlib's: the window is the same X resource either
+/// way, so it is passed on as an Xlib one.
+struct Parent<'a>(&'a Window);
+
+impl raw_window_handle::HasWindowHandle for Parent<'_> {
+    fn window_handle(
+        &self,
+    ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+        let handle = raw_window_handle::HasWindowHandle::window_handle(self.0)?;
+        #[cfg(target_os = "linux")]
+        if let raw_window_handle::RawWindowHandle::Xcb(xcb) = handle.as_raw() {
+            let xlib = raw_window_handle::XlibWindowHandle::new(xcb.window.get().into());
+            // SAFETY: the X window outlives the webview, a child of it.
+            return Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(xlib.into()) });
+        }
+        Ok(handle)
+    }
+}
+
+/// flush sends what wry asked of X (mapping, moving the child window): wry
+/// calls Xlib on GTK's connection, which buffers it until GTK flushes.
+fn flush() {
+    #[cfg(target_os = "linux")]
+    if let Some(d) = gtk::gdk::Display::default() {
+        d.flush();
+    }
+}
+
+fn rect(b: Bounds<Pixels>) -> wry::Rect {
+    wry::Rect {
+        position: wry::dpi::LogicalPosition::new(
+            f32::from(b.origin.x) as f64,
+            f32::from(b.origin.y) as f64,
+        )
+        .into(),
+        size: wry::dpi::LogicalSize::new(
+            f32::from(b.size.width) as f64,
+            f32::from(b.size.height) as f64,
+        )
+        .into(),
+    }
+}
+
+fn place(id: &str, html: &str, bounds: Bounds<Pixels>, inside: bool, window: &mut Window) {
+    let frame = FRAME.load(std::sync::atomic::Ordering::Relaxed);
+    VIEWS.with_borrow_mut(|views| {
+        if !views.contains_key(id) {
+            let built = wry::WebViewBuilder::new()
+                .with_html(format!("{PRELUDE}{html}"))
+                .with_bounds(rect(bounds))
+                .with_visible(inside)
+                .with_incognito(true)
+                .with_navigation_handler(|url| url == "about:blank" || url.starts_with("data:"))
+                .with_initialization_script(FORWARD_WHEEL)
+                .with_ipc_handler(|req| {
+                    if let Ok(dy) = req.body().parse::<f32>() {
+                        *WHEEL.lock().unwrap() += dy;
+                    }
+                })
+                .build_as_child(&Parent(window));
+            match built {
+                Ok(view) => {
+                    // wry maps its X11 container at creation whatever
+                    // with_visible says: unmap it when it starts hidden.
+                    if !inside {
+                        let _ = view.set_visible(false);
+                    }
+                    views.insert(
+                        id.to_string(),
+                        Placed {
+                            view,
+                            frame,
+                            shown: inside,
+                            bounds: Some(bounds),
+                        },
+                    );
+                }
+                Err(e) => {
+                    eprintln!("webviews are off: {e}");
+                    UNAVAILABLE.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+            return;
+        }
+        let p = views.get_mut(id).unwrap();
+        p.frame = frame;
+        if p.bounds != Some(bounds) {
+            let _ = p.view.set_bounds(rect(bounds));
+            p.bounds = Some(bounds);
+        }
+        if p.shown != inside {
+            let _ = p.view.set_visible(inside);
+            p.shown = inside;
+        }
+    });
+    flush();
+}
+
+thread_local! {
+    /// Pages of an agent's machine (the panel's Browser), by id: the
+    /// webview, the URL it was last sent to, and the frame it was placed in.
+    static PAGES: RefCell<HashMap<String, (wry::WebView, String, u64)>> = RefCell::new(HashMap::new());
+}
+
+static PAGE_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// pages_begin and pages_end go first and last in the window: a page not
+/// placed between them this frame (its view closed, something drawn over
+/// it) is hidden.
+pub fn pages_begin() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        |_, _, _, _| {
+            PAGE_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        },
+    )
+    .absolute()
+    .size_0()
+}
+
+pub fn pages_end() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        |_, _, _, _| {
+            let now = PAGE_FRAME.load(std::sync::atomic::Ordering::Relaxed);
+            PAGES.with_borrow_mut(|pages| {
+                for (view, _, frame) in pages.values_mut() {
+                    if *frame != now && *frame != 0 {
+                        let _ = view.set_visible(false);
+                        *frame = 0;
+                    }
+                }
+            });
+            flush();
+        },
+    )
+    .absolute()
+    .size_0()
+}
+
+static CLIENT: std::sync::OnceLock<agentbox_api::Client> = std::sync::OnceLock::new();
+
+/// set_client is the daemon pages' `agentbox:` URLs are read from.
+pub fn set_client(client: agentbox_api::Client) {
+    let _ = CLIENT.set(client);
+}
+
+/// client is the daemon's client, once main set it.
+#[cfg(target_os = "linux")]
+pub fn client() -> Option<agentbox_api::Client> {
+    CLIENT.get().cloned()
+}
+
+/// daemon_url is a path of the daemon's API as a page loads it: the
+/// Electron app's agentbox-media:// protocol, which relays the socket. wry
+/// serves custom schemes as http://<scheme>.localhost on Windows.
+pub fn daemon_url(path: &str) -> String {
+    if cfg!(windows) {
+        format!("http://agentbox.localhost{path}")
+    } else {
+        format!("agentbox://localhost{path}")
+    }
+}
+
+/// with_daemon serves `agentbox:` from the daemon's socket, its status,
+/// headers (a Hatch page's Content-Security-Policy) and body as they are.
+fn with_daemon(b: wry::WebViewBuilder<'_>) -> wry::WebViewBuilder<'_> {
+    b.with_asynchronous_custom_protocol("agentbox".into(), |_, req, responder| {
+        let path = req
+            .uri()
+            .path_and_query()
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_default();
+        let Some(client) = CLIENT.get().cloned() else {
+            responder.respond(
+                wry::http::Response::builder()
+                    .status(503)
+                    .body(Vec::new())
+                    .unwrap(),
+            );
+            return;
+        };
+        client.clone().spawn(async move {
+            let res = match client.fetch(&path).await {
+                Ok((status, headers, body)) => {
+                    let mut r = wry::http::Response::builder().status(status);
+                    for (k, v) in headers {
+                        if k != "content-length" && k != "transfer-encoding" {
+                            r = r.header(k, v);
+                        }
+                    }
+                    r.body(body.to_vec())
+                }
+                Err(e) => wry::http::Response::builder()
+                    .status(502)
+                    .header("content-type", "text/plain; charset=utf-8")
+                    .body(e.to_string().into_bytes()),
+            };
+            if let Ok(r) = res {
+                responder.respond(r);
+            }
+        });
+    })
+}
+
+/// page is a live web page filling its box: `url`, loaded again whenever it
+/// (or the reload key in it, after a #) changes. Unlike a preview it goes
+/// to the network and follows links: it is a page of the agent's machine
+/// through the daemon's preview proxy, the Electron app's iframe.
+pub fn page(id: impl Into<String>, url: impl Into<String>, shown: bool) -> impl IntoElement {
+    let id = id.into();
+    let url = url.into();
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            if shown {
+                place_page(&id, &url, bounds, window)
+            }
+        },
+    )
+    .size_full()
+}
+
+fn place_page(id: &str, url: &str, bounds: Bounds<Pixels>, window: &mut Window) {
+    if !available() {
+        return;
+    }
+    let frame = PAGE_FRAME.load(std::sync::atomic::Ordering::Relaxed);
+    PAGES.with_borrow_mut(|pages| {
+        if let Some((view, loaded, at)) = pages.get_mut(id) {
+            if loaded != url {
+                let _ = view.load_url(url.split('#').next().unwrap_or(url));
+                *loaded = url.to_string();
+            }
+            let _ = view.set_bounds(rect(bounds));
+            if *at == 0 {
+                let _ = view.set_visible(true);
+            }
+            *at = frame;
+            return;
+        }
+        let built = with_daemon(wry::WebViewBuilder::new())
+            .with_url(url.split('#').next().unwrap_or(url))
+            .with_bounds(rect(bounds))
+            .with_incognito(true)
+            .build_as_child(&Parent(window));
+        match built {
+            Ok(view) => {
+                pages.insert(id.to_string(), (view, url.to_string(), frame));
+            }
+            Err(e) => {
+                eprintln!("webviews are off: {e}");
+                UNAVAILABLE.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    });
+    flush();
+}
