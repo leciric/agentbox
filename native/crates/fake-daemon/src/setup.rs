@@ -14,7 +14,7 @@
 //! account's limits from a few minutes ago, its windows still open.
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use agentbox_api::*;
 use http_body_util::BodyExt;
