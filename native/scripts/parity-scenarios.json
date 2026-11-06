@@ -1,0 +1,6 @@
+[
+  { "id": "home", "view": { "kind": "homeChat" } },
+  { "id": "project-lead", "view": { "kind": "project", "project": "demo" }, "native": { "AGENTBOX_NATIVE_VIEW": "project:demo" } },
+  { "id": "agent-chat", "view": { "kind": "agent", "ref": "demo/agent-01", "tab": "chat" }, "native": { "AGENTBOX_NATIVE_OPEN": "agent-01" } },
+  { "id": "settings", "view": { "kind": "settings" }, "native": { "AGENTBOX_NATIVE_SETTINGS": "essentials" } }
+]

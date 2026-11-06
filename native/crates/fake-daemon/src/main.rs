@@ -98,6 +98,11 @@ fn chat_options() -> Vec<ChatOption> {
     ]
 }
 
+/// still says FAKE_STILL is set: fixtures that never change on their own.
+fn still() -> bool {
+    std::env::var_os("FAKE_STILL").is_some()
+}
+
 fn now() -> String {
     humantime::format_rfc3339_millis(std::time::SystemTime::now()).to_string()
 }
@@ -659,6 +664,15 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         // On its own, it's the daemon too: up, and set up with defaults.
         (&Method::GET, ["v1", "version"]) if fake.opts.upstream.is_none() => {
             json(StatusCode::OK, &serde_json::json!({ "version": "fake", "api": 1 }))
+        }
+        // FAKE_APPEARANCE=light|dark|dracula picks the theme both apps wear.
+        (&Method::GET, ["v1", "theme"]) if fake.opts.upstream.is_none() => {
+            let appearance = std::env::var("FAKE_APPEARANCE").unwrap_or_else(|_| "dark".into());
+            let mode = if appearance == "light" { "light" } else { "dark" };
+            json(
+                StatusCode::OK,
+                &Theme { appearance, mode: mode.into(), ..Default::default() },
+            )
         }
         (&Method::GET, ["v1", "settings"]) if fake.opts.upstream.is_none() => {
             json(StatusCode::OK, &serde_json::json!({}))
@@ -1620,9 +1634,13 @@ async fn main() -> Result<()> {
         opts.upstream
     );
     let fake = Fake::new(opts);
-    tokio::spawn(fake.clone().churn());
-    tokio::spawn(agents::touch(fake.clone()));
-    tokio::spawn(resources::sample(fake.clone()));
+    // FAKE_STILL=1 keeps the fixtures still: no agent starts or stops, no
+    // files change, for screenshots that must match (native/scripts/parity.sh).
+    if !still() {
+        tokio::spawn(fake.clone().churn());
+        tokio::spawn(agents::touch(fake.clone()));
+        tokio::spawn(resources::sample(fake.clone()));
+    }
     tokio::spawn(panel::serve_preview());
     loop {
         let (stream, _) = listener.accept().await?;

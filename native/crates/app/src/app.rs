@@ -489,6 +489,25 @@ impl AppView {
                             if let Ok(id) = std::env::var("AGENTBOX_NATIVE_SETTINGS") {
                                 this.open_settings_at(id, window, cx);
                             }
+                            // AGENTBOX_NATIVE_VIEW=project:<name>|media|jobs|work
+                            // opens that page at start (native/scripts/parity.sh).
+                            if let Ok(v) = std::env::var("AGENTBOX_NATIVE_VIEW") {
+                                match v.split_once(':') {
+                                    Some(("project", p)) => {
+                                        this.select_project(p.to_string(), window, cx)
+                                    }
+                                    _ if v == "media" => {
+                                        this.open_foot_page(foot::FootPage::Media, window, cx)
+                                    }
+                                    _ if v == "jobs" => {
+                                        this.open_foot_page(foot::FootPage::Jobs, window, cx)
+                                    }
+                                    _ if v == "work" => {
+                                        this.open_work(String::new(), String::new(), window, cx)
+                                    }
+                                    _ => {}
+                                }
+                            }
                             // AGENTBOX_NATIVE_OFFICE=1 opens the Office at start (checks, recordings).
                             if std::env::var_os("AGENTBOX_NATIVE_OFFICE").is_some() {
                                 this.open_office(window, cx);
