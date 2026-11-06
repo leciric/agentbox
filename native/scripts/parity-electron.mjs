@@ -7,7 +7,7 @@
 //
 // Playwright only reaches into the renderer here (no person watches the
 // harness); the native half plays the same actions with xdotool.
-import { mkdirSync, readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,13 @@ const scenarios = JSON.parse(readFileSync(scenariosPath, 'utf8')).filter((s) => 
 mkdirSync(out, { recursive: true });
 
 const userData = join(process.env.TMPDIR || '/tmp', `parity-electron-${process.pid}`);
+// Electron's main process asks the agentbox command about the VM (vmpower.ts)
+// and the host; the native app asks only the daemon. A stub that answers as a
+// host-mode install keeps what the machine happens to have out of both.
+mkdirSync(userData, { recursive: true });
+const stub = join(userData, 'agentbox');
+writeFileSync(stub, '#!/bin/sh\ncase "$*" in *"vm power"*) echo \'{"mode":"host"}\' ;; *) echo \'{}\' ;; esac\n');
+chmodSync(stub, 0o755);
 const app = await electron.launch({
   executablePath: join(desktop, 'node_modules/electron/dist/electron'),
   args: [desktop, '--no-sandbox', `--user-data-dir=${userData}`, '--force-device-scale-factor=1'],
@@ -31,6 +38,7 @@ const app = await electron.launch({
     AGENTBOX_SOCKET: socket,
     AGENTBOX_NO_AUTOSTART: '1',
     AGENTBOX_NO_HOME_HOST: '1',
+    AGENTBOX_BIN: stub,
     ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
   },
 });

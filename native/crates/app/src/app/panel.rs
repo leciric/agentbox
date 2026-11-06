@@ -1164,9 +1164,12 @@ impl AppView {
         div()
             .id("panel-toggle")
             .flex_none()
-            .px_1p5()
-            .rounded_md()
-            .text_sm()
+            // Button size="icon" variant="ghost": size-9, rounded-lg, a 16px icon.
+            .size_9()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_lg()
             .cursor_pointer()
             .text_color(if open {
                 theme::primary()
@@ -1174,10 +1177,11 @@ impl AppView {
                 theme::muted()
             })
             .when(open, |el| el.bg(theme::surface_raised()))
-            .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
+            .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+            .active(|el| el.bg(theme::surface_strong()))
             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
             .on_click(cx.listener(|this, _: &ClickEvent, w, cx| this.toggle_panel(w, cx)))
-            .child(crate::icons::of("◨"))
+            .child(crate::icons::ic("panel-right").size(px(16.)))
             .into_any_element()
     }
 

@@ -1064,6 +1064,9 @@ impl Render for AppView {
             .bg(theme::ink())
             .text_color(theme::primary())
             .font_family(theme::SANS)
+            .font_features(theme::sans_features())
+            // Electron's line height (Tailwind's preflight: 1.5), not GPUI's φ.
+            .line_height(relative(1.5))
             .child(theme::window_washes(window))
             .child(crate::webview::pages_begin())
             .when(self.widths.dragging(), |el| {
@@ -1077,7 +1080,19 @@ impl Render for AppView {
                     )
             })
             .child(self.render_sidebar(cx))
+            // TopBar over the page and the panel, as Electron's shell.
             .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(self.render_top_bar(cx))
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .min_h_0()
+                            .min_w_0()
+                            .child(
                 v_flex()
                     .flex_1()
                     .min_w_0()
@@ -1092,9 +1107,7 @@ impl Render for AppView {
                             && self.chat.is_some()
                             && !full_page,
                         |el| {
-                            el.children(self.render_home_bar(cx))
-                                .children(self.render_project_header(cx))
-                                .children(self.render_agent_header(cx))
+                            el.children(self.render_agent_header(cx))
                                 .children(self.render_past_header(cx))
                                 .children(self.render_machine_bar(cx))
                                 .children(self.render_session_tabs(cx))
@@ -1139,14 +1152,14 @@ impl Render for AppView {
                                 .into_any_element(),
                         }),
                     ),
+            
+                            )
+                            // Home has no panel (its agents are its Status tab).
+                            .when(!full_page && !self.is_home() && self.project.is_some(), |el| {
+                                el.child(self.render_panel(cx))
+                            }),
+                    ),
             )
-            .when(!full_page, |el| {
-                el.child(if self.is_home() || self.project.is_none() {
-                    self.render_rail(cx).into_any_element()
-                } else {
-                    self.render_panel(cx)
-                })
-            })
             // Last, so it draws over the rest.
             .children(self.render_drawer(cx))
             .children(overlay)

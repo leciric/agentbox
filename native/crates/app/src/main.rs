@@ -65,6 +65,10 @@ fn main() {
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
+            // Greyscale antialiasing, as Electron draws its text (Chromium
+            // on Linux, -webkit-font-smoothing: antialiased): no colour
+            // fringes, the same weight.
+            cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);
             theme::init(cx);
             motion::init(cx);
             webview::init(cx);

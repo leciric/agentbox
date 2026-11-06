@@ -2720,8 +2720,11 @@ impl AppView {
         let menu_project = name.clone();
         let menu = Button::new("project-menu")
             .ghost()
-            .small()
-            .icon(crate::icons::ic("ellipsis"))
+            .compact()
+            .size(px(32.))
+            .rounded(gpui_component::button::ButtonRounded::Size(px(8.)))
+            .text_color(theme::muted())
+            .icon(crate::icons::ic("ellipsis").size(px(15.)))
             .tooltip(menu_tip)
             .dropdown_menu_with_anchor(Anchor::TopRight, {
                 let view = cx.entity().downgrade();
@@ -2821,164 +2824,124 @@ impl AppView {
                     })
                 }
             });
-        let p_settings = name.clone();
-        Some(
-            h_flex()
-                .flex_none()
-                .h(px(44.))
-                .px_4()
-                .gap_2()
-                .bg(theme::card())
-                .border_b_1()
-                .border_color(theme::line())
-                .child(
-                    h_flex()
-                        .id("project-crumb")
-                        .gap_1p5()
-                        .px_1()
-                        .py_0p5()
-                        .rounded_md()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::surface_raised()))
-                        .tooltip(move |window, cx| Tooltip::new(root_tip.clone()).build(window, cx))
-                        .map(|el| {
-                            if lead {
-                                {
-                                    let copy = copy.clone();
-                                    el.on_click(move |e, w, cx| copy(e, w, cx))
-                                }
-                            } else {
-                                el.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                    this.open_chat("lead".into(), window, cx)
-                                }))
-                            }
-                        })
-                        .child(
-                            div()
-                                .flex_none()
-                                .size(px(20.))
-                                .rounded_md()
-                                .bg(theme::accent().opacity(0.25))
-                                .text_color(theme::primary())
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(initial),
-                        )
-                        .child(
-                            div()
-                                .max_w(px(256.))
-                                .truncate()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::primary())
-                                .child(display.clone()),
-                        ),
-                )
-                .child(
+        let _ = (status, working, counts, settings_tip);
+        let back_tip: SharedString = t("v2.header.backToLead").into();
+        let crumbs = h_flex()
+            .min_w_0()
+            .gap(px(6.))
+            // In an agent's chat, the way back to its lead's.
+            .when(!lead, |el| {
+                el.child(
                     div()
-                        .id("project-copy-path")
-                        .px_0p5()
-                        .text_xs()
-                        .text_color(if self.pulls.copied {
-                            theme::running()
-                        } else {
-                            theme::faint()
-                        })
-                        .cursor_pointer()
-                        .hover(|s| s.text_color(theme::primary()))
-                        .tooltip(move |window, cx| Tooltip::new(copy_tip.clone()).build(window, cx))
-                        .on_click(move |e, w, cx| copy(e, w, cx))
-                        .child(crate::icons::of(if self.pulls.copied {
-                            "✓"
-                        } else {
-                            "❐"
-                        })),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme::faint())
-                        .child(crate::icons::of("›")),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .max_w(px(200.))
-                        .truncate()
-                        .text_base()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if lead {
-                            theme::muted()
-                        } else {
-                            theme::primary()
-                        })
-                        .child(then),
-                )
-                .when(!status.is_empty(), |el| {
-                    el.child(
-                        div()
-                            .ml_2()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(if working {
-                                theme::starting()
-                            } else {
-                                theme::faint()
-                            })
-                            .child(status),
-                    )
-                })
-                .child(div().flex_1())
-                .child(self.render_top_chips(cx))
-                .when(!counts.is_empty(), |el| {
-                    el.child(
-                        div()
-                            .id("project-pulls-counts")
-                            .min_w_0()
-                            .truncate()
-                            .px_2()
-                            .py_0p5()
-                            .rounded_full()
-                            .border_1()
-                            .border_color(theme::line())
-                            .text_xs()
-                            .text_color(theme::muted())
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.pulls.tab = RailTab::Pulls;
-                                this.load_pulls(false, cx);
-                                cx.notify();
-                            }))
-                            .child(counts.join(" · ")),
-                    )
-                })
-                .child(
-                    div()
-                        .id("project-settings")
+                        .id("back-to-lead")
                         .flex_none()
-                        .px_1p5()
+                        .ml(px(-4.))
+                        .p_1()
                         .rounded_md()
-                        .text_sm()
                         .text_color(theme::muted())
                         .cursor_pointer()
                         .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
-                        .tooltip(move |window, cx| {
-                            Tooltip::new(settings_tip.clone()).build(window, cx)
-                        })
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.open_settings_at(format!("project:{p_settings}"), window, cx)
+                        .tooltip(move |w, cx| Tooltip::new(back_tip.clone()).build(w, cx))
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.open_chat("lead".into(), window, cx)
                         }))
-                        .child(crate::icons::of("⚙")),
+                        .child(crate::icons::ic("arrow-left").size(px(16.))),
                 )
-                .child(div().flex_none().child(menu))
-                .child(self.render_panel_button(cx))
-                .into_any_element(),
-        )
+            })
+            // ProjectCrumb (components/v2/ProjectHeader.tsx).
+            .child(
+                h_flex()
+                    .id("project-crumb")
+                    .min_w_0()
+                    .mx(px(-4.))
+                    .px_1()
+                    .py_0p5()
+                    .gap(px(6.))
+                    .rounded_md()
+                    .text_color(theme::primary())
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::surface_raised()))
+                    .tooltip(move |window, cx| Tooltip::new(root_tip.clone()).build(window, cx))
+                    .map(|el| {
+                        if lead {
+                            let copy = copy.clone();
+                            el.on_click(move |e, w, cx| copy(e, w, cx))
+                        } else {
+                            el.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.open_chat("lead".into(), window, cx)
+                            }))
+                        }
+                    })
+                    .child(
+                        div()
+                            .flex_none()
+                            .size_5()
+                            .rounded_md()
+                            .bg(theme::surface_strong())
+                            .text_color(theme::secondary())
+                            .text_size(theme::text::CAPTION)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(initial),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(256.))
+                            .truncate()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(display.clone()),
+                    ),
+            )
+            // Its copy button, seen on hover; it holds its place meanwhile.
+            .child(
+                div()
+                    .id("project-copy")
+                    .flex_none()
+                    .p_0p5()
+                    .rounded(px(4.))
+                    .opacity(if self.pulls.copied { 1. } else { 0. })
+                    .text_color(if self.pulls.copied {
+                        theme::running()
+                    } else {
+                        theme::faint()
+                    })
+                    .cursor_pointer()
+                    .hover(|s| s.opacity(1.).text_color(theme::primary()))
+                    .tooltip(move |window, cx| Tooltip::new(copy_tip.clone()).build(window, cx))
+                    .on_click(move |e, w, cx| copy(e, w, cx))
+                    .child(
+                        crate::icons::ic(if self.pulls.copied { "check" } else { "copy" })
+                            .size(px(12.)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(theme::faint())
+                    .child(crate::icons::ic("chevron-right").size(px(14.))),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(theme::text::HEADING)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if lead {
+                        theme::secondary()
+                    } else {
+                        theme::title()
+                    })
+                    .child(then),
+            );
+        // TopEndSlot: the project's ⋯ (icon-sm) and the panel's button.
+        let end = h_flex()
+            .flex_none()
+            .gap_1()
+            .child(div().flex_none().child(menu))
+            .child(self.render_panel_button(cx));
+        Some(self.top_bar_frame(crumbs.into_any_element(), Some(end.into_any_element()), cx))
     }
 }
 

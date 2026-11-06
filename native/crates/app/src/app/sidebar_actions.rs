@@ -75,22 +75,30 @@ pub(super) fn label_of(p: &Project) -> String {
 }
 
 /// glyph_button is a small square button drawn with a glyph and its tooltip.
-fn glyph_button(id: impl Into<ElementId>, glyph: &'static str, tip: String) -> Stateful<Div> {
+/// glyph_button is one of the sidebar's icon buttons, as Electron's: a
+/// Lucide icon of `icon` px in `pad` px of padding (p-1.5 and a size-4
+/// icon, or p-1 and size-3.5), rounded-md, text-subtle.
+fn glyph_button(
+    id: impl Into<ElementId>,
+    glyph: &'static str,
+    icon: f32,
+    pad: f32,
+    tip: String,
+) -> Stateful<Div> {
     let tip: SharedString = tip.into();
     div()
         .id(id)
         .flex_none()
-        .size_7()
         .flex()
         .items_center()
         .justify_center()
+        .p(px(pad))
         .rounded_md()
-        .text_sm()
-        .text_color(theme::muted())
+        .text_color(theme::subtle())
         .cursor_pointer()
         .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
         .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
-        .child(crate::icons::of(glyph))
+        .child(crate::icons::ic(glyph).size(px(icon)))
 }
 
 impl AppView {
@@ -101,8 +109,11 @@ impl AppView {
         let version = self.conn.version.clone().unwrap_or_default();
         let help = Button::new("help-menu")
             .ghost()
-            .small()
-            .label("?")
+            .compact()
+            .size(px(28.))
+            .rounded(gpui_component::button::ButtonRounded::Size(px(6.)))
+            .text_color(theme::subtle())
+            .icon(crate::icons::ic("circle-question-mark").size(px(16.)))
             .tooltip(t("tour.help.menu"))
             .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                 let (v1, v2, v3) = (view.clone(), view.clone(), view.clone());
@@ -150,11 +161,8 @@ impl AppView {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("AgentBox"),
             )
-            .child(div().ml_1().size_2().rounded_full().bg(if self.connected {
-                theme::running()
-            } else {
-                theme::error()
-            }))
+            // Electron says nothing while connected; native marks a lost daemon.
+            .when(!self.connected, |el| el.child(div().ml_1().size_2().rounded_full().bg(theme::error())))
             .child(div().flex_1())
             .child(
                 div()
@@ -163,7 +171,7 @@ impl AppView {
                     .child(crate::spot::spot("help")),
             )
             .child(
-                glyph_button("add-project", "⊕", t("shell.home.addProject")).on_click(cx.listener(
+                glyph_button("add-project", "folder-plus", 16., 6., t("shell.home.addProject")).on_click(cx.listener(
                     |this, _: &ClickEvent, window, cx| this.open_add_project(window, cx),
                 )),
             )
@@ -204,24 +212,28 @@ impl AppView {
             .rounded_lg()
             .border_1()
             .border_color(if on > 0 {
-                theme::muted()
+                theme::line_heavy()
             } else {
                 theme::line()
             })
-            .when(on > 0, |el| el.bg(theme::surface_strong()))
-            .text_color(if on > 0 {
-                theme::primary()
+            .bg(if on > 0 {
+                theme::surface_strong()
             } else {
-                theme::muted()
+                theme::surface_faint()
+            })
+            .text_color(if on > 0 {
+                theme::title()
+            } else {
+                theme::subtle()
             })
             .cursor_pointer()
-            .hover(|el| el.text_color(theme::primary()))
+            .hover(|el| el.text_color(theme::title()))
             .tooltip(|w, cx| Tooltip::new(t("v2.filters.button")).build(w, cx))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.side.filter_open = !this.side.filter_open;
                 cx.notify();
             }))
-            .child(crate::icons::of("☰"))
+            .child(crate::icons::ic("list-filter").size(px(16.)))
             .when(on > 0, |el| {
                 el.child(
                     div()
@@ -255,16 +267,45 @@ impl AppView {
                     )),
                 )
             });
+        // FilterBar: px-1 pb-0.5 pt-2; the box h-8 rounded-lg border-line
+        // bg-surface-faint px-2, a size-3.5 search icon, 12.5px text.
         v_flex()
-            .px_3()
-            .py_2()
-            .gap_1p5()
+            .px_1()
+            .pb_0p5()
+            .pt_2()
+            .gap(px(6.))
             .child(
                 h_flex()
-                    .gap_1p5()
-                    .child(div().flex_1().min_w_0().child(
-                        gpui_component::input::Input::new(&self.side.search).cleanable(true),
-                    ))
+                    .gap(px(6.))
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .h_8()
+                            .px_2()
+                            .gap(px(6.))
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(theme::line())
+                            .bg(theme::surface_faint())
+                            .text_size(px(12.5))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_color(theme::faint())
+                                    .child(crate::icons::ic("search").size(px(14.))),
+                            )
+                            .child(
+                                div().flex_1().min_w_0().child(
+                                    gpui_component::input::Input::new(&self.side.search)
+                                        .appearance(false)
+                                        // 12.5px text (the Size's 0.875), no padding of its own.
+                                        .with_size(gpui_component::Size::Size(px(12.5 / 0.875)))
+                                        .px_0()
+                                        .cleanable(true),
+                                ),
+                            ),
+                    )
                     .child(button),
             )
             .when(!chips.is_empty(), |el| {
@@ -438,19 +479,17 @@ impl AppView {
     ) -> AnyElement {
         h_flex()
             .id(id)
-            .px_4()
-            .pt_3()
-            .pb_1()
-            .gap_2()
+            .h_7()
+            .px(px(10.))
+            .pt_2()
             .text_size(theme::text::CAPTION)
-            .font_weight(FontWeight::MEDIUM)
             .text_color(theme::muted())
             .child(label)
-            .child(div().flex_1())
             .when(review, |el| el.children(self.review_all(cx)))
+            .child(div().flex_1())
             .when(new_section, |el| {
                 el.child(
-                    glyph_button("new-section", "⊞", t("shell.sidebar.newSection")).on_click(
+                    glyph_button("new-section", "folder-tree", 14., 4., t("shell.sidebar.newSection")).on_click(
                         cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.open_section_name(None, None, window, cx)
                         }),
@@ -632,10 +671,11 @@ impl AppView {
             Some(Shown::Emoji(e)) => base.text_size(px(size * 0.62)).child(e.clone()),
             Some(Shown::Image(i)) => base.child(img(i.clone()).size(px(size))),
             _ => base
-                .bg(theme::surface_raised())
+                .bg(theme::surface_strong())
                 .text_size(px(size * 0.5))
-                .text_color(theme::muted())
-                .child(label_of(p).chars().next().unwrap_or('?').to_string()),
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::secondary())
+                .child(label_of(p).chars().next().unwrap_or('?').to_uppercase().to_string()),
         }
         .into_any_element()
     }
@@ -1228,11 +1268,11 @@ impl AppView {
                 .justify_center()
                 .rounded_lg()
                 .cursor_pointer()
-                .text_color(if on { theme::accent() } else { theme::muted() })
-                .when(on, |el| el.bg(theme::surface_strong()))
-                .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                .text_color(if on { theme::brand(300) } else { theme::subtle() })
+                .when(on, |el| el.bg(theme::surface_raised()))
+                .hover(|el| el.bg(theme::surface()))
                 .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
-                .child(crate::icons::of(glyph))
+                .child(crate::icons::ic(crate::icons::lucide(glyph).unwrap_or(glyph)).size(px(16.)))
         };
         let settings = self.settings;
         let work = self.work.is_some() && !settings && page.is_none();
@@ -1286,7 +1326,8 @@ impl AppView {
         // Installed: the button restarts into the new version.
         if let Some(Phase::Ready { relaunch, .. }) = &self.side.app_update {
             let relaunch = relaunch.clone();
-            return glyph_button("update-restart", "⟳", t("native.update.restart"))
+            return glyph_button("update-restart", "circle-arrow-up", 16., 8., t("native.update.restart"))
+                .rounded_lg()
                 .text_color(theme::running())
                 .on_click(move |_, _, cx| {
                     restart_into(&relaunch, cx);
@@ -1312,7 +1353,8 @@ impl AppView {
                     update_hint(&self.side.app_support, &offer.version)
                 )
             };
-            return glyph_button("update-offer", if updating { "◌" } else { "⇪" }, tip)
+            return glyph_button("update-offer", if updating { "loader-circle" } else { "circle-arrow-up" }, 16., 8., tip)
+                .rounded_lg()
                 .text_color(theme::running())
                 .when(updating, |el| el.opacity(0.6).cursor_default())
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1325,7 +1367,10 @@ impl AppView {
         } else {
             t("v2.update.check")
         };
-        glyph_button("update-check", "↻", label)
+        glyph_button("update-check", "refresh-cw", 16., 8., label)
+            .rounded_lg()
+            .text_color(theme::muted())
+            .hover(|el| el.bg(theme::surface()).text_color(theme::primary()))
             .when(self.side.checking, |el| el.opacity(0.5))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.check_update(cx)))
             .into_any_element()

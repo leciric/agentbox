@@ -925,6 +925,13 @@ pub mod text {
 /// JetBrains Mono. Both are embedded (assets/fonts, Latin subsets, OFL) and
 /// registered by `init`, so every platform draws the same letters.
 pub const SANS: &str = "Inter";
+
+/// sans_features are the Inter alternates Electron's body turns on
+/// (styles.css: font-feature-settings "cv11", "ss01"): the single-storey a
+/// and the open digits.
+pub fn sans_features() -> gpui::FontFeatures {
+    gpui::FontFeatures(std::sync::Arc::new(vec![("cv11".into(), 1), ("ss01".into(), 1)]))
+}
 pub const MONO_FACE: &str = "JetBrains Mono";
 
 static FONTS: &[&[u8]] = &[

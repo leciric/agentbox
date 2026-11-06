@@ -29,7 +29,7 @@ sizes=${PARITY_SIZES:-"1440x900 1920x1080"}
 themes=${PARITY_THEMES:-"dark light"}
 scenarios=$here/parity-scenarios.json
 tmp=${TMPDIR:-/tmp}/parity.$$
-mkdir -p "$out" "$tmp"
+mkdir -p "$out/logs" "$tmp"
 export PATH=$HOME/.cargo/bin:$PATH
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 
@@ -38,10 +38,10 @@ for tool in Xvfb xdotool import python3 node; do
 done
 
 if [ -z "${PARITY_NO_BUILD:-}" ]; then
-  (cd "$native" && cargo build -q -p agentbox-native -p fake-daemon)
+  (cd "$native" && cargo build -q --profile parity -p agentbox-native -p fake-daemon)
   (cd "$root/desktop" && node scripts/build.mjs >/dev/null)
 fi
-bin=$native/target/debug
+bin=$native/target/parity
 
 pids=()
 cleanup() {
@@ -69,7 +69,7 @@ for s in json.load(open(sys.argv[1])):
         if "type" in a: acts.append(f"type {json.dumps(a['type'])}")
         acts.append(f"sleep {a.get('wait', 700) / 1000}")
     masks = " ".join("--mask " + ",".join(map(str, m)) for m in s.get("masks", []))
-    print("\t".join([s["id"], env, ";".join(acts), str(s.get("wait", 1500) / 1000 + 1.5), masks]))
+    print("\x1f".join([s["id"], env, ";".join(acts), str(s.get("wait", 1500) / 1000 + 1.5), masks]))
 EOF
 )
 
@@ -78,7 +78,7 @@ report=$out/scores.txt
 : >"$report"
 for theme in $themes; do
   sock=$tmp/fake-$theme.sock
-  FAKE_STILL=1 FAKE_APPEARANCE=$theme "$bin/fake-daemon" --listen "$sock" --history 12 >"$tmp/fake-$theme.log" 2>&1 &
+  FAKE_STILL=1 FAKE_APPEARANCE=$theme "$bin/fake-daemon" --listen "$sock" --history 12 >"$out/logs/fake-$theme.log" 2>&1 &
   pids+=($!)
   for _ in $(seq 50); do [ -S "$sock" ] && break; sleep 0.1; done
   for size in $sizes; do
@@ -90,14 +90,21 @@ for theme in $themes; do
     xvfb=$!
     sleep 0.5
     for row in "${rows[@]}"; do
-      IFS=$'\t' read -r id env acts wait masks <<<"$row"
+      IFS=$'\x1f' read -r id env acts wait masks <<<"$row"
       prefs=$tmp/prefs-$id.json
-      echo '{}' >"$prefs"
+      echo '{"tour":"dismissed"}' >"$prefs"
       # shellcheck disable=SC2086
       env DISPLAY=:92 WAYLAND_DISPLAY= AGENTBOX_NATIVE_SIZE="$size" AGENTBOX_REDUCE_MOTION=1 \
         AGENTBOX_NATIVE_PREFS="$prefs" VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
-        $env "$bin/agentbox-native" --socket "$sock" >"$tmp/native-$id.log" 2>&1 &
+        $env "$bin/agentbox-native" --socket "$sock" >"$out/logs/native-$id-$theme-$size.log" 2>&1 &
       app=$!
+      # Until the window has drawn something (the first launch on a fresh
+      # display compiles lavapipe's shaders), then the scenario's own wait.
+      for _ in $(seq 60); do
+        DISPLAY=:92 import -window root "$tmp/probe.png" 2>/dev/null &&
+          [ "$(convert "$tmp/probe.png" -format '%[fx:standard_deviation>0.01]' info: 2>/dev/null)" = 1 ] && break
+        sleep 0.5
+      done
       sleep "$wait"
       IFS=';' read -ra steps <<<"$acts"
       for step in "${steps[@]}"; do

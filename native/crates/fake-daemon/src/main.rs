@@ -1133,6 +1133,61 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         (&Method::GET, ["v1", "agents", p, _a, "browser", "view"]) if fake.is_fake(p) => {
             vnc_view(req)
         }
+        // On its own, each lead has one session, main, ready.
+        (&Method::GET, ["v1", "projects", p, "sessions"]) if fake.opts.upstream.is_none() => json(
+            StatusCode::OK,
+            &vec![LeadSession {
+                project: p.to_string(),
+                id: "main".into(),
+                r#ref: format!("{p}/lead"),
+                topic: "Main".into(),
+                chat: CHAT_READY.into(),
+                status: "idle".into(),
+                created_at: now(),
+                active_at: now(),
+                ..Default::default()
+            }],
+        ),
+        (&Method::GET, ["v1", "projects", p, "lead"] | ["v1", "projects", p, "sessions", _, "lead"])
+            if fake.opts.upstream.is_none() =>
+        {
+            json(
+                StatusCode::OK,
+                &ProjectChat {
+                    project: p.to_string(),
+                    session: "main".into(),
+                    r#ref: format!("{p}/lead"),
+                    started: true,
+                    chat: CHAT_READY.into(),
+                    ..Default::default()
+                },
+            )
+        }
+        // On its own, the leads' chats too: Home's empty, a project's a
+        // short conversation (the same in every client that asks).
+        (&Method::GET, ["v1", "projects", p, "chat"] | ["v1", "projects", p, "sessions", _, "chat"])
+            if fake.opts.upstream.is_none() =>
+        {
+            let items = if *p == HOME_PROJECT {
+                Vec::new()
+            } else {
+                (0..4).map(|i| history_item("lead", i)).collect()
+            };
+            json(
+                StatusCode::OK,
+                &ChatThread {
+                    agent: format!("{p}/lead"),
+                    session: ChatSession {
+                        state: CHAT_READY.into(),
+                        tool: "claude".into(),
+                        options: chat_options(),
+                        ..Default::default()
+                    },
+                    items,
+                    ..Default::default()
+                },
+            )
+        }
         (&Method::GET, ["v1", "agents", p, a, "chat"]) if fake.is_fake(p) => {
             // A page, as internal/daemon/chat.go reads one: limit= items
             // ending before= an item (the latest page without it).
