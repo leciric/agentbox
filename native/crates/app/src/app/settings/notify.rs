@@ -13,7 +13,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, Row, button, stepper, toggle};
+use super::super::controls::{Btn, Row, button, toggle};
 use super::kit::note;
 use super::{Entry, Group, entry, group};
 use crate::{prefs, theme};
@@ -227,15 +227,14 @@ impl AppView {
                 let any_sound = prefs::NOTIFY_KINDS
                     .iter()
                     .any(|k| prefs::notify_on(k, "sound"));
+                // ChimeVolume: under the words, a range w-40 and Test sound.
                 let mut row: Row = self.more_row(e, None, cx);
-                row.control = Some(
+                row.body.push(
                     h_flex()
-                        .gap_2()
-                        .child(stepper(
+                        .gap_3()
+                        .child(super::super::controls::range(
                             "notify-volume",
                             prefs::review_volume(),
-                            (0, 100, 10),
-                            "%",
                             !any_sound,
                             Rc::new(cx.listener(|_, v: &i64, _, cx| {
                                 prefs::set(prefs::REVIEW_VOLUME, (*v).into());

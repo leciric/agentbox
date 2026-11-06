@@ -601,6 +601,88 @@ fn select_menu(
     }
 }
 
+/// range is Chromium's `<input type=range>` in the brand's accent (the chime's
+/// volume, w-40): a pill track 8px high, filled to the thumb in brand-500 and
+/// light grey past it, and a 16px brand thumb; a click or a drag along it
+/// sets the value, 0 to 100.
+pub fn range(id: &str, value: i64, disabled: bool, on_change: Pick<i64>) -> AnyElement {
+    const W: f32 = 160.;
+    let at = value.clamp(0, 100) as f32 / 100.;
+    let center = 8. + at * (W - 16.);
+    let bounds: Rc<std::cell::Cell<Bounds<Pixels>>> = Rc::default();
+    let pick = {
+        let bounds = bounds.clone();
+        move |x: Pixels| {
+            let b = bounds.get();
+            let f = ((x - b.left() - px(8.)) / (b.size.width - px(16.))).clamp(0., 1.);
+            (f * 100.).round() as i64
+        }
+    };
+    let (down, drag) = (on_change.clone(), on_change);
+    let (pick_down, pick_drag) = (pick.clone(), pick);
+    let edge = |c: u32| gpui::rgb(c);
+    div()
+        .id(SharedString::from(format!("{id}-range")))
+        .relative()
+        .flex_none()
+        .w(px(W))
+        .h(px(16.))
+        .when(disabled, |el| el.opacity(0.5))
+        .child({
+            let bounds = bounds.clone();
+            canvas(move |b, _, _| bounds.set(b), |_, _, _, _| {})
+                .absolute()
+                .size_full()
+        })
+        // The track: filled to the thumb, the rest light.
+        .child(
+            div()
+                .absolute()
+                .top(px(4.))
+                .left_0()
+                .w(px(center))
+                .h(px(8.))
+                .rounded_l(px(4.))
+                .border_y_1()
+                .border_l_1()
+                .border_color(edge(0x7d65b3))
+                .bg(theme::brand(500)),
+        )
+        .child(
+            div()
+                .absolute()
+                .top(px(4.))
+                .left(px(center))
+                .right_0()
+                .h(px(8.))
+                .rounded_r(px(4.))
+                .border_y_1()
+                .border_r_1()
+                .border_color(edge(0xb2b2b2))
+                .bg(edge(0xefefef)),
+        )
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left(px(center - 8.))
+                .size_4()
+                .rounded_full()
+                .bg(theme::brand(500)),
+        )
+        .when(!disabled, |el| {
+            el.on_mouse_down(MouseButton::Left, move |e, window, cx| {
+                down(&pick_down(e.position.x), window, cx)
+            })
+            .on_mouse_move(move |e, window, cx| {
+                if e.pressed_button == Some(MouseButton::Left) {
+                    drag(&pick_drag(e.position.x), window, cx)
+                }
+            })
+        })
+        .into_any_element()
+}
+
 /// stepper is a number within bounds, moved by a step: − value +.
 pub fn stepper(
     id: &str,
