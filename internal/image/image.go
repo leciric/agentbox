@@ -631,14 +631,30 @@ func personaliseFor(ctx context.Context, inc incus.Client, next string, u User, 
 // remove deletes an instance left behind by an interrupted build, or what's
 // left of it: an Incus interrupted copying or deleting it can keep its storage
 // and forget the instance, and every build after then fails making it again.
+// Any of the base's copies lost with it is taken back too, for the next
+// remove to delete. Recovering asks Incus' admin API: when that fails, the
+// build goes on as it did before, and fails making the copy only if there
+// really is one left.
 func remove(ctx context.Context, inc incus.Client, name string) error {
 	if _, err := inc.Instance(ctx, name); err != nil {
 		if !errors.Is(err, incus.ErrNotFound) {
 			return err
 		}
-		recovered, err := inc.RecoverLeftovers(ctx, Base+"-next", Base+"-old")
-		if err != nil || !slices.Contains(recovered, name) {
-			return err
+		names := []string{name}
+		for _, n := range []string{Base + "-next", Base + "-old"} {
+			if n != name {
+				names = append(names, n)
+			}
+		}
+		recovered, err := inc.RecoverLeftovers(ctx, names...)
+		if err != nil {
+			if errors.Is(err, incus.ErrCantRecover) {
+				return err
+			}
+			return nil
+		}
+		if !slices.Contains(recovered, name) {
+			return nil
 		}
 	}
 	return inc.Delete(ctx, name)

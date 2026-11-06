@@ -523,3 +523,26 @@ func TestALostVolumeNotTheImagesIsLeftAlone(t *testing.T) {
 	inc.neverRan(t, "/internal/recover/import")
 	inc.neverRan(t, "copy|")
 }
+
+// Recovering asks Incus' admin API. When that isn't there (an older Incus, a
+// user who isn't its admin), an update goes on as it did before it asked.
+func TestAnUpdateGoesOnWhenIncusCantBeAskedWhatItLost(t *testing.T) {
+	inc := fakeIncus(t, baseThenNext+`  query) case "$*" in
+    *recover/validate*) echo "not authorized" >&2; exit 1 ;;
+    *storage-pools*) echo '[{"name":"default","driver":"btrfs","config":{}}]' ;;
+    *) echo '["/1.0/instances/agentbox-base/snapshots/generic","/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+  esac ;;`)
+	var log bytes.Buffer
+	_ = image.UpdateTools(t.Context(), inc.Client, host, updatePlan(t), &log)
+	inc.ran(t, "copy|agentbox-base/ready|agentbox-base-next|")
+	inc.neverRan(t, "/internal/recover/import")
+}
+
+// A lost volume of the same name in another Incus project isn't the image's.
+func TestALostCopyInAnotherProjectIsLeftAlone(t *testing.T) {
+	inc := fakeIncus(t, baseThenNext+recovering(`{"name":"agentbox-base-next","pool":"default","project":"elsewhere","snapshotCount":0,"type":"container"}`))
+	var log bytes.Buffer
+	_ = image.UpdateTools(t.Context(), inc.Client, host, updatePlan(t), &log)
+	inc.neverRan(t, "/internal/recover/import")
+	inc.ran(t, "copy|agentbox-base/ready|agentbox-base-next|")
+}

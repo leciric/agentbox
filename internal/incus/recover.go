@@ -3,6 +3,7 @@ package incus
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -34,6 +35,10 @@ type recoverResult struct {
 	DependencyErrors []string
 }
 
+// ErrCantRecover is why RecoverLeftovers didn't take back a lost instance it
+// found: one a person has to look at, unlike Incus not answering.
+var ErrCantRecover = errors.New("can't take it back")
+
 // RecoverLeftovers makes Incus take back the instances among names whose
 // storage it has lost track of, and returns which it took back. Incus takes
 // back every lost volume at once, so it is asked only when each one is among
@@ -48,9 +53,13 @@ func (c Client) RecoverLeftovers(ctx context.Context, names ...string) ([]string
 	if err := c.post(ctx, "/internal/recover/validate", req, &found); err != nil {
 		return nil, err
 	}
+	project, err := c.project(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var ours, others []string
 	for _, v := range found.UnknownVolumes {
-		if v.Type == "container" && slices.Contains(names, v.Name) {
+		if v.Type == "container" && v.Project == project && slices.Contains(names, v.Name) {
 			ours = append(ours, v.Name)
 		} else {
 			others = append(others, fmt.Sprintf("%s %s in pool %s", v.Type, v.Name, v.Pool))
@@ -60,15 +69,33 @@ func (c Client) RecoverLeftovers(ctx context.Context, names ...string) ([]string
 	case len(ours) == 0:
 		return nil, nil
 	case len(others) > 0:
-		return nil, fmt.Errorf("Incus has lost track of %s, and also of %s: recover them with `incus admin recover`, or delete them",
-			strings.Join(ours, ", "), strings.Join(others, ", "))
+		return nil, fmt.Errorf("Incus has lost track of %s, and also of %s: recover them with `incus admin recover`, or delete them: %w",
+			strings.Join(ours, ", "), strings.Join(others, ", "), ErrCantRecover)
 	case len(found.DependencyErrors) > 0:
-		return nil, fmt.Errorf("Incus can't take back %s: %s", strings.Join(ours, ", "), strings.Join(found.DependencyErrors, "; "))
+		return nil, fmt.Errorf("Incus can't take back %s: %s: %w", strings.Join(ours, ", "), strings.Join(found.DependencyErrors, "; "), ErrCantRecover)
 	}
 	if err := c.post(ctx, "/internal/recover/import", req, nil); err != nil {
 		return nil, err
 	}
 	return ours, nil
+}
+
+// project is the Incus project instances are made in: the connection's, or
+// the default one for the incus command, which AgentBox doesn't point at
+// another.
+func (c Client) project(ctx context.Context) (string, error) {
+	if c.cli() {
+		return "default", nil
+	}
+	project := ""
+	err := c.do(ctx, []string{"project", "get-current"}, func(s incusclient.InstanceServer) error {
+		info, err := s.GetConnectionInfo()
+		if err == nil {
+			project = info.Project
+		}
+		return err
+	})
+	return project, err
 }
 
 // storagePools is every storage pool, as recovering is asked for them.
