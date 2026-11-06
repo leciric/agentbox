@@ -685,7 +685,42 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             )
         }
         (&Method::GET, ["v1", "settings"]) if fake.opts.upstream.is_none() => {
-            json(StatusCode::OK, &serde_json::json!({}))
+            // A fresh installation's, as the real daemon answered it
+            // (settings.go's currentSettings), past its first run.
+            let v: serde_json::Value =
+                serde_json::from_str(include_str!("../fixtures/settings.json")).unwrap();
+            json(StatusCode::OK, &v)
+        }
+        // Set up, as setup.go says when everything required is there, so
+        // that Settings opens on its tabs rather than a loading error.
+        (&Method::GET, ["v1", "setup"]) if fake.opts.upstream.is_none() => {
+            let c = |id: &str, title: &str, status: &str, required: bool, detail: &str| SetupCheck {
+                id: id.into(),
+                title: title.into(),
+                status: status.into(),
+                required,
+                detail: detail.into(),
+                ..Default::default()
+            };
+            json(
+                StatusCode::OK,
+                &SetupStatus {
+                    ready: true,
+                    checks: vec![
+                        c("incus", "Incus", "ok", true, "Incus 6.0"),
+                        c("host", "User mapping", "ok", true, ""),
+                        c("image", "Base image", "ok", true, "base-v42"),
+                        c("storage", "Storage pool", "ok", false, "btrfs or zfs: agents are created with an instant snapshot"),
+                        c("claude", "Claude Code login", "ok", false, ""),
+                        c("codex", "Codex login", "optional", false, "optional: agents can't run Codex yet"),
+                        c("opencode", "OpenCode login", "optional", false, ""),
+                        c("cursor", "Cursor sign-in", "optional", false, ""),
+                        c("gemini", "Gemini CLI sign-in", "optional", false, ""),
+                        c("preview", "Preview URLs", "ok", false, ""),
+                    ],
+                    ..Default::default()
+                },
+            )
         }
         (&Method::GET, ["v1", "projects"]) if fake.opts.upstream.is_none() => {
             let p = Project {

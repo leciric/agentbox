@@ -853,6 +853,25 @@ pub fn kbd(keys: impl Into<SharedString>) -> gpui::Div {
         .child(keys.into())
 }
 
+/// key_cap is Electron's Kbd (ui/card.tsx): a key in mono caption, framed
+/// with a strong line on the raised surface.
+pub fn key_cap(keys: impl Into<SharedString>) -> gpui::Div {
+    use gpui::{ParentElement, Styled, div};
+    div()
+        .flex_none()
+        .px_1p5()
+        .py(px(1.))
+        .rounded(radius::MD)
+        .border_1()
+        .border_color(line_strong())
+        .bg(surface_raised())
+        .font_family(MONO_FACE)
+        .text_size(text::CAPTION)
+        .line_height(px(18.))
+        .text_color(tertiary())
+        .child(keys.into())
+}
+
 /// logo is AgentBox's mark, as Electron's Logo: a box on the brand's
 /// gradient, with a gloss across its top and a glow of the brand beneath.
 pub fn logo(size: Pixels) -> gpui::Div {

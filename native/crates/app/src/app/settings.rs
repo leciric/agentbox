@@ -34,10 +34,10 @@ use agentbox_i18n::{LANGUAGES, t, tv};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use super::AppView;
-use super::controls::{Btn, Row, button, segmented, toggle};
+use super::controls::{Btn, Row, button, choices, segmented, toggle};
 use crate::{prefs, theme};
 use kit::note;
 
@@ -962,6 +962,9 @@ impl AppView {
                     .h_full()
                     .overflow_y_scroll()
                     .track_scroll(&page.scroll)
+                    // Chromium's thin scrollbar takes 10px off the right of
+                    // Electron's main, so max-w-3xl centres in what's left.
+                    .pr(px(10.))
                     .child(
                         v_flex()
                             .w_full()
@@ -1207,7 +1210,7 @@ impl AppView {
                             .child(crate::icons::of("arrow-left")),
                     )
                     .child(t("common.back"))
-                    .child(theme::kbd("Esc")),
+                    .child(theme::key_cap("Esc")),
             )
             .child(
                 div()
@@ -1220,7 +1223,38 @@ impl AppView {
             .child(
                 v_flex()
                     .gap_1p5()
-                    .child(Input::new(&page.search).cleanable(true))
+                    // The search box: h-8 rounded-lg border-line-strong
+                    // bg-sunken pl-8 pr-8 text-ui, a size-4 search icon at
+                    // left-2.5 and the "/" key at right-2 while it's empty.
+                    .child({
+                        let empty = page.search.read(cx).value().is_empty();
+                        h_flex()
+                            .h_8()
+                            .pl(px(10.))
+                            .pr(px(8.))
+                            .gap(px(6.))
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(theme::line_strong())
+                            .bg(theme::sunken())
+                            .text_size(theme::text::UI)
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_color(theme::subtle())
+                                    .child(crate::icons::ic("search").size(px(16.))),
+                            )
+                            .child(
+                                div().flex_1().min_w_0().child(
+                                    Input::new(&page.search)
+                                        .appearance(false)
+                                        .with_size(gpui_component::Size::Size(px(13. / 0.875)))
+                                        .px_0()
+                                        .cleanable(true),
+                                ),
+                            )
+                            .when(empty, |el| el.child(theme::key_cap("/")))
+                    })
                     .when(changed > 0, |el| {
                         el.child(
                             h_flex()
@@ -1756,16 +1790,22 @@ impl AppView {
             "appearance" => {
                 let mut row = self.more_row(e, Some(t("settings.appearance.details")), cx);
                 let th = page.theme.as_ref();
-                let options = ["follow", "light", "dark", "dracula"]
-                    .into_iter()
-                    .map(|v| {
-                        (
-                            SharedString::from(v),
-                            t(&format!("settings.appearance.{v}")),
-                        )
-                    })
-                    .collect();
-                row.body.push(segmented(
+                let options = [
+                    ("follow", "monitor"),
+                    ("light", "sun"),
+                    ("dark", "moon"),
+                    ("dracula", "droplet"),
+                ]
+                .into_iter()
+                .map(|(v, icon)| {
+                    (
+                        SharedString::from(v),
+                        t(&format!("settings.appearance.{v}")),
+                        Some(icon),
+                    )
+                })
+                .collect();
+                row.body.push(choices(
                     "appearance",
                     options,
                     th.map(|t| t.appearance.as_str()),
@@ -1798,9 +1838,11 @@ impl AppView {
                 let mut row = self.more_row(e, None, cx);
                 let options = LANGUAGES
                     .iter()
-                    .map(|(tag, name)| (SharedString::from(*tag), name.to_string()))
+                    .map(|(tag, name)| {
+                        (SharedString::from(*tag), name.to_string(), Some("languages"))
+                    })
                     .collect();
-                row.body.push(segmented(
+                row.body.push(choices(
                     "lang",
                     options,
                     Some(agentbox_i18n::language()),
@@ -1881,9 +1923,12 @@ impl AppView {
                 let mut row = self.more_row(e, Some(t("settings.channel.details")), cx);
                 let options = ["stable", "nightly"]
                     .into_iter()
-                    .map(|v| (SharedString::from(v), t(&format!("settings.channel.{v}"))))
+                    .zip(["circle-check", "moon-star"])
+                    .map(|(v, icon)| {
+                        (SharedString::from(v), t(&format!("settings.channel.{v}")), Some(icon))
+                    })
                     .collect();
-                row.body.push(segmented(
+                row.body.push(choices(
                     "channel",
                     options,
                     update.map(|u| u.channel.as_str()),

@@ -126,6 +126,55 @@ fn segments(
         }))
 }
 
+/// choices is Settings' radiogroup (SettingsView.tsx's Appearance, Language,
+/// update channel and pages-stack pickers): rounded-xl border-line bg-rail
+/// p-0.5, each choice h-8 rounded-[10px] px-3 text-ui font-medium with a
+/// 15px icon, the picked one on surface-strong.
+pub fn choices(
+    id: &str,
+    options: Vec<(SharedString, String, Option<&'static str>)>,
+    current: Option<&str>,
+    disabled: bool,
+    on_pick: Pick<str>,
+) -> AnyElement {
+    h_flex()
+        .child(
+            h_flex()
+                .flex_wrap()
+                .w_auto()
+                .p(px(2.))
+                .rounded_xl()
+                .border_1()
+                .border_color(theme::line())
+                .bg(theme::rail())
+                .children(options.into_iter().map(|(value, label, icon)| {
+                    let on = current == Some(value.as_ref());
+                    let pick = on_pick.clone();
+                    h_flex()
+                        .id(SharedString::from(format!("{id}-{value}")))
+                        .h_8()
+                        .gap(px(6.))
+                        .px_3()
+                        .rounded(px(10.))
+                        .text_size(theme::text::UI)
+                        .font_weight(FontWeight::MEDIUM)
+                        .when(on, |el| {
+                            el.bg(theme::surface_strong()).text_color(theme::title())
+                        })
+                        .when(!on, |el| el.text_color(theme::muted()))
+                        .when(disabled, |el| el.opacity(0.5))
+                        .when(!disabled && !on, |el| {
+                            el.cursor_pointer()
+                                .hover(|s| s.text_color(theme::primary()))
+                                .on_click(move |_, window, cx| pick(&value, window, cx))
+                        })
+                        .when_some(icon, |el, i| el.child(crate::icons::ic(i).size(px(15.))))
+                        .child(label)
+                })),
+        )
+        .into_any_element()
+}
+
 /// Btn is how loud a button is: the one thing to do, one of several, or
 /// one that's barely there (Electron's primary, secondary and ghost).
 #[derive(Clone, Copy, PartialEq)]
@@ -450,10 +499,52 @@ impl Row {
 
     pub fn render(self) -> AnyElement {
         let more_id = SharedString::from(format!("{}-more", self.id));
+        // SettingRow: the label text-ui font-medium; the description mt-1
+        // text-caption leading-relaxed subtle, with "More" in the same line
+        // after a space (text-tertiary, underlined in line-strong); the
+        // details under it, mt-1.5 in the same type.
+        let more = self.details.clone().zip(self.on_more.clone());
+        let description = (!self.description.is_empty()).then(|| {
+            let words = div()
+                .mt_1()
+                .text_size(theme::text::CAPTION)
+                .line_height(relative(1.625))
+                .text_color(theme::subtle());
+            match &more {
+                Some((_, on_more)) => {
+                    let link = if self.more {
+                        t("settings.row.less")
+                    } else {
+                        t("settings.row.more")
+                    };
+                    let text = format!("{} {link}", self.description);
+                    let range = self.description.len() + 1..text.len();
+                    let style = HighlightStyle {
+                        color: Some(theme::tertiary()),
+                        underline: Some(UnderlineStyle {
+                            thickness: px(1.),
+                            color: Some(theme::line_strong()),
+                            wavy: false,
+                        }),
+                        ..Default::default()
+                    };
+                    let on_more = on_more.clone();
+                    words.child(
+                        InteractiveText::new(
+                            more_id.clone(),
+                            StyledText::new(text).with_highlights(vec![(range.clone(), style)]),
+                        )
+                        .on_click(vec![range], move |_, window, cx| {
+                            on_more(&ClickEvent::default(), window, cx)
+                        }),
+                    )
+                }
+                None => words.child(self.description.clone()),
+            }
+        });
         let words = v_flex()
             .flex_1()
             .min_w_0()
-            .gap_1()
             .child(
                 div()
                     .text_size(theme::text::UI)
@@ -461,45 +552,17 @@ impl Row {
                     .text_color(theme::primary())
                     .child(self.label),
             )
-            .when(!self.description.is_empty(), |el| {
+            .children(description)
+            .when_some(more.filter(|_| self.more), |el, (details, _)| {
                 el.child(
                     div()
-                        .text_xs()
-                        .line_height(rems(1.25))
+                        .mt_1p5()
+                        .text_size(theme::text::CAPTION)
+                        .line_height(relative(1.625))
                         .text_color(theme::subtle())
-                        .child(self.description),
+                        .child(details),
                 )
-            })
-            .when_some(
-                self.details.clone().zip(self.on_more.clone()),
-                |el, (details, on_more)| {
-                    el.when(self.more, |el| {
-                        el.child(
-                            div()
-                                .text_xs()
-                                .line_height(rems(1.25))
-                                .text_color(theme::muted())
-                                .child(details),
-                        )
-                    })
-                    .child(
-                        div()
-                            .id(more_id)
-                            .w_auto()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .underline()
-                            .cursor_pointer()
-                            .hover(|s| s.text_color(theme::primary()))
-                            .on_click(move |ev, window, cx| on_more(ev, window, cx))
-                            .child(if self.more {
-                                t("settings.row.less")
-                            } else {
-                                t("settings.row.more")
-                            }),
-                    )
-                },
-            );
+            });
         div()
             .id(self.id)
             .relative()
@@ -525,7 +588,16 @@ impl Row {
                             .items_start()
                             .gap_6()
                             .child(words)
-                            .children(self.control.map(|c| div().flex_none().child(c))),
+                            // The control's column: w-64, its control at
+                            // the right, so a group's controls line up.
+                            .children(self.control.map(|c| {
+                                h_flex()
+                                    .flex_none()
+                                    .w(px(256.))
+                                    .justify_end()
+                                    .items_center()
+                                    .child(c)
+                            })),
                     )
                     .children(self.body),
             )

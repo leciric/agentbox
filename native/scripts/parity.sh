@@ -138,6 +138,9 @@ print(" ".join(seen))' "$sizes")
           [ "$(convert "$tmp/probe.png" -format '%[fx:standard_deviation>0.01]' info: 2>/dev/null)" = 1 ] && break
         sleep 0.5
       done
+      # gpui maps the window at x=2 with no window manager to place it:
+      # put it where Electron's is, at the origin.
+      DISPLAY=:92 xdotool search --name '^AgentBox$' windowmove 0 0 2>/dev/null || true
       sleep 1.5
       # Now both: Electron opens the scenario as the native app plays it.
       echo "$id" >&"${ELECTRON[1]}"
