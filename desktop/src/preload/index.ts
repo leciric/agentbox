@@ -237,6 +237,10 @@ const bridge = {
   connection: (): Promise<ConnectionState> => ipcRenderer.invoke('daemon:connection'),
   onConnection: (fn: (state: ConnectionState) => void) => listen('daemon:connection', fn),
   onEvent: (fn: (event: unknown) => void) => listen('daemon:event', fn),
+  // The computer's power (main/hostpower.ts), for the presence lease
+  // (lib/presence.ts): on battery, and its thermal state on a Mac.
+  hostPower: (): Promise<T.HostPower> => ipcRenderer.invoke('power:get'),
+  onHostPower: (fn: (power: T.HostPower) => void) => listen('power:change', fn),
   // A daemon of another version than this app, still running after an update
   // (main/daemon.ts StaleDaemon); null when it's the app's.
   staleDaemon: (): Promise<StaleDaemon | null> => ipcRenderer.invoke('daemon:stale'),

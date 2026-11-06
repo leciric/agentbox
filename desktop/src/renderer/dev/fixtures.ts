@@ -2705,6 +2705,8 @@ export function installDevBridge(): void {
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
+    hostPower: async () => ({ onBattery: false }),
+    onHostPower: () => () => {},
     keepAwake: async () => {},
     tray: { settings: async () => ({ keepRunning: false }), set: async (next: { keepRunning?: boolean }) => ({ keepRunning: false, ...next }), reviewing: () => {}, onOpen: () => () => {} },
     onNotificationClick: () => () => {},
