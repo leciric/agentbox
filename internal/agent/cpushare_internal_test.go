@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-var workerVars = []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "VITEST_MAX_WORKERS", "TURBO_CONCURRENCY", "NX_PARALLEL", "npm_config_workspace_concurrency", "MAKEFLAGS", "GOFLAGS", "AGENTBOX_CPUS"}
+var workerVars = []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "VITEST_MAX_WORKERS", "TURBO_CONCURRENCY", "NX_PARALLEL", "npm_config_workspace_concurrency", "MAKEFLAGS", "GOFLAGS", "AGENTBOX_CPUS", "AGENTBOX_CARGO_JOBS"}
 
 // runWorkers runs workersScript in shell with nproc answering cpus and env set
 // on top of an environment without any of workerVars, and returns what each
@@ -36,6 +36,54 @@ func runWorkers(t *testing.T, shell, cpus string, env ...string) map[string]stri
 		got[name] = value
 	}
 	return got
+}
+
+// meminfo is a /proc/meminfo with availableKB free, for AGENTBOX_MEMINFO.
+func meminfo(t *testing.T, availableKB string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "meminfo")
+	text := "MemTotal:       16000000 kB\nMemFree:          100000 kB\nMemAvailable:   " + availableKB + " kB\nBuffers: 1 kB\n"
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return "AGENTBOX_MEMINFO=" + path
+}
+
+// Cargo's jobs are min(cores, max(1, MemAvailable / 1.5 GiB)); a value
+// somebody else set stays, one this script set follows memory.
+func TestWorkersScriptCapsCargoByMemory(t *testing.T) {
+	t.Parallel()
+	for _, shell := range []string{"sh", "bash"} {
+		if _, err := exec.LookPath(shell); err != nil {
+			continue
+		}
+		for _, c := range []struct{ cpus, avail, want string }{
+			{"8", "3145728", "2"},  // 3 GiB: two jobs
+			{"8", "1048576", "1"},  // 1 GiB: at least one
+			{"8", "0", "1"},        // none: still one
+			{"4", "64000000", "4"}, // plenty: every core
+			{"4", "6291456", "4"},  // 6 GiB: 4 jobs
+			{"8", "7340032", "4"},  // 7 GiB: 4 jobs (4.67 rounds down)
+		} {
+			if got := runWorkers(t, shell, c.cpus, meminfo(t, c.avail)); got["CARGO_BUILD_JOBS"] != c.want {
+				t.Errorf("%s: %s cpus, %s kB available: CARGO_BUILD_JOBS = %q, want %s", shell, c.cpus, c.avail, got["CARGO_BUILD_JOBS"], c.want)
+			}
+		}
+		// No readable meminfo: the cores alone.
+		if got := runWorkers(t, shell, "4", "AGENTBOX_MEMINFO=/nonexistent"); got["CARGO_BUILD_JOBS"] != "4" {
+			t.Errorf("%s: without meminfo CARGO_BUILD_JOBS = %q, want 4", shell, got["CARGO_BUILD_JOBS"])
+		}
+		// A later shell, with less memory, lowers what the script set.
+		got := runWorkers(t, shell, "8", meminfo(t, "3145728"), "AGENTBOX_CPUS=8", "AGENTBOX_CARGO_JOBS=6", "CARGO_BUILD_JOBS=6")
+		if got["CARGO_BUILD_JOBS"] != "2" {
+			t.Errorf("%s: set by the script earlier = %q, want 2", shell, got["CARGO_BUILD_JOBS"])
+		}
+		// The user's value stays, even above the cap.
+		got = runWorkers(t, shell, "8", meminfo(t, "3145728"), "AGENTBOX_CPUS=8", "AGENTBOX_CARGO_JOBS=6", "CARGO_BUILD_JOBS=12")
+		if got["CARGO_BUILD_JOBS"] != "12" {
+			t.Errorf("%s: user's CARGO_BUILD_JOBS = %q, want 12", shell, got["CARGO_BUILD_JOBS"])
+		}
+	}
 }
 
 func TestWorkersScript(t *testing.T) {
