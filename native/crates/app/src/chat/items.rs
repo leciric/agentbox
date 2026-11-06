@@ -251,6 +251,8 @@ impl ChatView {
                     .child(
                         h_flex()
                             .h_6()
+                            // items-baseline: the line sits at the box's top.
+                            .items_start()
                             .px_1()
                             .text_sm()
                             .line_height(px(20.))
@@ -516,9 +518,11 @@ impl ChatView {
     /// meta is a message's time and its copy button.
     fn meta(&self, it: &ChatItem, end: bool) -> AnyElement {
         let text = it.text.clone();
+        // Timeline's Meta: text-xs faint, its time and a size-6 Copy button.
         h_flex()
             .gap_1()
             .text_xs()
+            .line_height(px(16.))
             // Shown while the message is pointed at (Meta's opacity).
             .text_color(transparent_black())
             .group_hover("chat-msg", |s| s.text_color(theme::faint()))
@@ -531,11 +535,14 @@ impl ChatView {
             .child(
                 div()
                     .id(SharedString::from(format!("copy-{}", it.id)))
-                    .px_1()
-                    .rounded_sm()
+                    .size_6()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_md()
                     .cursor_pointer()
-                    .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
-                    .child(t("chat.message.copy"))
+                    .hover(|el| el.bg(theme::surface_raised()).text_color(theme::tertiary()))
+                    .child(crate::icons::ic("copy").size(px(14.)))
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new(t("chat.timeline.copyMessage"))
                             .build(window, cx)

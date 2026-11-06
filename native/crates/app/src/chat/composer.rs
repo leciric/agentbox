@@ -1065,6 +1065,8 @@ impl ChatView {
                     h_flex()
                         .min_w_0()
                         .gap_1()
+                        .text_size(px(12.))
+                        .line_height(px(18.))
                         .child(
                             div()
                                 .flex_none()
@@ -1295,8 +1297,11 @@ impl ChatView {
         };
         option_chip(Button::new(SharedString::from(format!("opt-{}", o.id))))
             .child(
+                // The Button's label sets its own size: text-ui here.
                 h_flex()
                     .gap(px(6.))
+                    .text_size(theme::text::UI)
+                    .line_height(px(19.5))
                     .children(icon.map(|i| crate::icons::ic(i).size(px(16.))))
                     .child(div().max_w(px(160.)).truncate().child(label))
                     .child(
@@ -1411,6 +1416,8 @@ impl ChatView {
         .collect();
         let chip_label = h_flex()
             .gap(px(6.))
+            .text_size(theme::text::UI)
+            .line_height(px(19.5))
             .child(crate::icons::tool_mark(&tool, px(16.), theme::muted()))
             .child(div().min_w_0().truncate().child(if shown_parts.is_empty() {
                 tool_name.clone()
