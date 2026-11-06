@@ -68,7 +68,7 @@ const (
 type runCgroups interface {
 	Place(instance, key string, pid int) error
 	Freeze(instance, key string, on bool) error
-	Reclaim(instance, key string) error
+	Reclaim(ctx context.Context, instance, key string) error
 	Populated(instance, key string) bool
 	Remove(instance, key string) error
 }
@@ -81,7 +81,9 @@ func (agentRunCgroups) Place(instance, key string, pid int) error {
 func (agentRunCgroups) Freeze(instance, key string, on bool) error {
 	return agent.FreezeRun(instance, key, on)
 }
-func (agentRunCgroups) Reclaim(instance, key string) error { return agent.ReclaimRun(instance, key) }
+func (agentRunCgroups) Reclaim(ctx context.Context, instance, key string) error {
+	return agent.ReclaimRun(ctx, instance, key)
+}
 func (agentRunCgroups) Populated(instance, key string) bool {
 	return agent.RunPopulated(instance, key)
 }
@@ -323,7 +325,10 @@ func (s *Server) stepPressure(ctx context.Context) {
 		// Out to swap, so the paused run doesn't hold the VM's memory. It
 		// takes a while for gigabytes; nothing waits for it.
 		go func(c change) {
-			if err := s.runCgroups.Reclaim(c.instance, c.run.Key); err != nil {
+			if !s.mayReclaimRun(context.WithoutCancel(ctx), c.instance, c.run.Key) {
+				return
+			}
+			if err := s.runCgroups.Reclaim(s.background(), c.instance, c.run.Key); err != nil {
 				s.logf("memory pressure: pushing %s's memory out: %v", c.run.ID(), err)
 			}
 		}(c)

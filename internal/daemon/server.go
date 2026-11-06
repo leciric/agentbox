@@ -667,6 +667,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 		s.mergeFrees.Wait()
 		s.vgpu.wg.Wait()
 	}()
+	s.killReclaimWriters()
 	s.firstSweeps.Add(4)
 	loops.Go(func() { s.watch(ctx) })
 	loops.Go(func() { s.sampleAgentResources(ctx) })

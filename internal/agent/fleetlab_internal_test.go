@@ -26,6 +26,7 @@ package agent
 // is killed by the kernel before any pressure shows, governor or not.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -212,7 +213,7 @@ func TestFleetLab(t *testing.T) {
 					t.Fatal(err)
 				}
 				a.frozenAt = now
-				go func() { _ = reclaimDir(agentCgroup(root, a.instance), writeCgroup) }()
+				go func() { _, _, _ = reclaimCgroup(context.Background(), agentCgroup(root, a.instance), writeReclaim) }()
 			}
 			for _, ref := range acts.Thaw {
 				a := byRef[ref]
