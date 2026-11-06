@@ -62,6 +62,13 @@ func TestPresenceLeasesLapse(t *testing.T) {
 		t.Fatalf("after a lapse, came into view = %v", came)
 	}
 
+	// On screen showing no project (Home): app-wide work isn't away, but no
+	// project is viewed.
+	p.renew(api.PresenceRequest{Client: "desktop-1", Visible: true})
+	if p.away() || !p.idle("hello") {
+		t.Fatal("a visible window on Home")
+	}
+
 	// Ended cleanly: gone at once.
 	p.end("desktop-1")
 	if !p.away() {

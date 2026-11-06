@@ -68,7 +68,7 @@ func (p *viewLeases) renew(req api.PresenceRequest) (cameIntoView []string) {
 	defer p.mu.Unlock()
 	before := viewedProjects(p.live())
 	p.leases[req.Client] = presenceLease{api.PresenceLease{
-		Client: req.Client, Kind: req.Kind, Views: slices.Clone(req.Views), Power: req.Power,
+		Client: req.Client, Kind: req.Kind, Visible: req.Visible || len(req.Views) > 0, Views: slices.Clone(req.Views), Power: req.Power,
 		Expires: p.now().Add(p.ttl),
 	}}
 	for project := range viewedProjects(p.leases) {
@@ -131,7 +131,7 @@ func (p *viewLeases) idle(project string) bool {
 	return p.powerLocked().Saving() || !viewedProjects(p.live())[project]
 }
 
-// away is whether everything backs off: no live lease shows anything, or the
+// away is whether everything backs off: no live lease is on screen, or the
 // computer is saving power.
 func (p *viewLeases) away() bool {
 	p.mu.Lock()
@@ -140,7 +140,15 @@ func (p *viewLeases) away() bool {
 }
 
 func (p *viewLeases) awayLocked() bool {
-	return p.powerLocked().Saving() || len(viewedProjects(p.live())) == 0
+	if p.powerLocked().Saving() {
+		return true
+	}
+	for _, l := range p.live() {
+		if l.Visible {
+			return false
+		}
+	}
+	return true
 }
 
 // sampling is the agents whose resources a live lease asks for, by ref.

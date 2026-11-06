@@ -26,8 +26,11 @@ type PresenceRequest struct {
 	// Kind is what the client is ("desktop", "phone", "native"), for the
 	// daemon's diagnostics.
 	Kind string `json:"kind,omitempty"`
-	// Views is what is on screen now, empty when the client is open but not
-	// seen (minimised, hidden, the screen locked).
+	// Visible is whether the client is on screen at all: false while it is
+	// minimised, hidden or the screen is locked. A visible client showing no
+	// project (Home, Settings) still keeps the app-wide meters live.
+	Visible bool `json:"visible"`
+	// Views is what is on screen now, empty when the client isn't visible.
 	Views []PresenceView `json:"views"`
 	// Power is the computer's power, when the client knows it: the desktop app
 	// reads it from the operating system.
@@ -63,8 +66,8 @@ func (p HostPower) Saving() bool {
 type PresenceResponse struct {
 	// TTLSeconds is how long the lease lasts unrenewed.
 	TTLSeconds int `json:"ttlSeconds"`
-	// Idle is whether the daemon's housekeeping is backed off now: nothing
-	// is viewed by any client, or the computer is saving power.
+	// Idle is whether the daemon's app-wide housekeeping is backed off now:
+	// no client is visible, or the computer is saving power.
 	Idle bool `json:"idle"`
 }
 
@@ -82,6 +85,7 @@ type PresenceState struct {
 type PresenceLease struct {
 	Client  string         `json:"client"`
 	Kind    string         `json:"kind,omitempty"`
+	Visible bool           `json:"visible"`
 	Views   []PresenceView `json:"views"`
 	Power   *HostPower     `json:"power,omitempty"`
 	Expires time.Time      `json:"expires"`

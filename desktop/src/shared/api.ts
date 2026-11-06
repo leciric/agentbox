@@ -3881,6 +3881,7 @@ export interface DiagnosticsResources {
 export interface PresenceRequest {
   client: string;
   kind?: string;
+  visible: boolean;
   views: PresenceView[];
   power?: HostPower;
 }
@@ -3911,6 +3912,7 @@ export interface PresenceState {
 export interface PresenceLease {
   client: string;
   kind?: string;
+  visible: boolean;
   views: PresenceView[];
   power?: HostPower;
   expires: string;

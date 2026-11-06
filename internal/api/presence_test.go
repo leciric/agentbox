@@ -10,7 +10,7 @@ func TestPresenceEndpoints(t *testing.T) {
 	runEndpointCases(t, []endpointCase{
 		{
 			name: "RenewPresence", method: "PUT", path: "/v1/presence",
-			body: `{"client":"w1","kind":"desktop","views":[{"project":"p","agent":"p/a","resources":true}],"power":{"onBattery":true}}`,
+			body: `{"client":"w1","kind":"desktop","visible":false,"views":[{"project":"p","agent":"p/a","resources":true}],"power":{"onBattery":true}}`,
 			resp: `{"ttlSeconds":45,"idle":true}`,
 			run: func(t *testing.T, c *Client) {
 				got, err := c.RenewPresence(ctx, PresenceRequest{Client: "w1", Kind: "desktop", Views: []PresenceView{{Project: "p", Agent: "p/a", Resources: true}}, Power: &HostPower{OnBattery: true}})
