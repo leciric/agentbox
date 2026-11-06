@@ -1789,6 +1789,12 @@ let defaultsSettings = {
   defaultClaudeCompactWindow: 500_000,
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,
+  agentMemoryShare: 50,
+  defaultAgentMemoryShare: 50,
+  minAgentMemoryShare: 10,
+  maxAgentMemoryShare: 90,
+  agentMemoryLimit: 12 * 1024 ** 3,
+  vmMemory: 24 * 1024 ** 3,
   autoStopIdle: false,
   removeStopped: false,
   removeStoppedDays: 7,
@@ -1856,6 +1862,10 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
   if (req.diskFloorMin !== undefined) next.diskFloorMin = req.diskFloorMin || 10 * 1024 ** 3;
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
+  if (req.agentMemoryShare !== undefined) {
+    next.agentMemoryShare = req.agentMemoryShare || 50;
+    next.agentMemoryLimit = Math.floor((next.vmMemory / 100) * next.agentMemoryShare);
+  }
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.removeStopped !== undefined) next.removeStopped = req.removeStopped;
   if (req.removeStoppedDays !== undefined) next.removeStoppedDays = req.removeStoppedDays;
@@ -2178,13 +2188,13 @@ export function seedMacVZ(queryClient: QueryClient, kind: string): void {
 // seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
 // Resources section, whose VM size card sizes the Cloud Hypervisor VM:
 // running with room to grow (live), started by an older AgentBox with none
-// (old), or off. A 32 GiB machine keeps 6.4 GiB for itself, so the cap goes to
-// 25 GiB, but the older AgentBox says neither.
+// (old), or off. A 32 GiB machine keeps 8 GiB for itself, so the cap goes to
+// 24 GiB, but the older AgentBox says neither.
 export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
   seedSettings(queryClient);
   const GiB = 1024 ** 3;
   const old = kind === 'old';
-  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: (old ? 32 : 25) * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
+  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: (old ? 32 : 24) * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
   const chv: T.VMStatus = {
     mode: 'vm',
     driver: 'cloud-hypervisor',
@@ -2196,7 +2206,8 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
       min: 4 * GiB,
       cap: 24 * GiB,
       granted: kind === 'off' ? 0 : 9 * GiB,
-      hostReserve: old ? undefined : 6.4 * GiB,
+      hostReserve: old ? undefined : 8 * GiB,
+      hostTotal: old ? undefined : 32 * GiB,
       used: 6.2 * GiB,
       resident: 0,
       hostCache: 0,
