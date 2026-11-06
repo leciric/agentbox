@@ -40,7 +40,9 @@ row() { printf '  %-44s %10s GiB  %s\n' "$1" "$(gib "$2")" "${3:-}"; }
 alloc() { [ -e "$1" ] && timeout 300 $SUDO du -sxB1 "$1" 2>/dev/null | awk '{print $1}'; }
 apparent() { [ -e "$1" ] && timeout 300 $SUDO du -sxB1 --apparent-size "$1" 2>/dev/null | awk '{print $1}'; }
 
-data="${AGENTBOX_DATA:-$HOME/.local/share/agentbox}"
+# Under sudo, HOME is root's: the data directory is the invoking user's.
+user_home=$(getent passwd "${SUDO_USER:-$(id -un)}" | cut -d: -f6)
+data="${AGENTBOX_DATA:-${user_home:-$HOME}/.local/share/agentbox}"
 in_vm=0
 [ -b /dev/disk/by-id/virtio-agentbox-pool ] && in_vm=1
 [ -z "$host_data" ] && [ "$in_vm" -eq 0 ] && host_data="$data"
@@ -116,6 +118,19 @@ if [ "$in_vm" -eq 1 ] || [ -d /var/lib/incus ]; then
 	for item in package-cache node-modules image-cache tools projects machines; do
 		row "agentbox $item" "$(alloc "/var/lib/agentbox/$item")"
 	done
+	# What each tool holds of the shared package caches, the largest first.
+	if [ -d /var/lib/agentbox/package-cache ]; then
+		for d in /var/lib/agentbox/package-cache/*/ /var/lib/agentbox/package-cache/*/*/; do
+			[ -d "$d" ] && echo "$(alloc "$d") ${d#/var/lib/agentbox/package-cache/}"
+		done | sort -nr | head -8 | while read -r b n; do row "  package-cache/$n" "$b"; done
+	fi
+	# Every agent's machine as Incus counts it (the pool's own accounting).
+	if [ "$detail" -eq 1 ] && command -v incus >/dev/null; then
+		$SUDO incus list --all-projects -c ne -f csv 2>/dev/null | while IFS=, read -r n p; do
+			u=$($SUDO incus query "/1.0/storage-pools/default/volumes/container/$n/state?project=${p:-default}" 2>/dev/null | awk -F: '/"used"/ {gsub(/[ ,]/, "", $2); print $2; exit}')
+			echo "${u:-0} $n"
+		done | sort -nr | head -20 | while read -r b n; do row "  machine $n" "$b"; done
+	fi
 	vdata=$(readlink -f "$data")
 	row "state.db" "$(alloc "$vdata/state.db")"
 	row "daemon.log and logs" "$(( $(alloc "$vdata/daemon.log" || echo 0) + $(alloc "$vdata/logs" || echo 0) ))"

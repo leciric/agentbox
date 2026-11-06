@@ -22,15 +22,15 @@ import (
 // turns discard=async on, rate-limited and skipping small extents; the VM's
 // ext4 system disk sends none. So space a destroyed agent, an evicted
 // cache or an old base image gave back inside the VM stayed taken on the
-// host's disk, and pool.raw kept the size of its fullest day.
+// host's disk until the next trim.
 //
 // The daemon trims the VM's file systems (fstrim) itself: a while after it
 // starts, every trimEvery after that, and trimSettle after an agent's machine
 // or a saved base is removed, at the lowest best-effort I/O priority (never
 // the idle class, which under BFQ starves a disk the agents keep busy) and
-// not while a heavy run is under way. Not the VM's fstrim.timer: Debian
-// doesn't enable it, and enabling it would mean rebuilding the VM's disk,
-// where the daemon reaches installs as they are.
+// not while a heavy run is under way. The VM's own fstrim.timer runs once a
+// week, which on one user's VM left 18 GiB of pool.raw that the pool no
+// longer used.
 
 const (
 	// trimDelay holds the first trim back after the daemon starts, past the
