@@ -414,7 +414,13 @@ impl ChatView {
                     }
                 };
                 this.update(cx, |this, cx| {
-                    if res.as_ref().is_err_and(agentbox_api::client::unreachable) {
+                    // Not reached, or the daemon couldn't answer (503): asked for
+                    // again later. One it doesn't have (404) stays a placeholder.
+                    if res.as_ref().is_err_and(|e| {
+                        agentbox_api::client::unreachable(e)
+                            || e.downcast_ref::<agentbox_api::client::DaemonError>()
+                                .is_some_and(|d| d.status == 503)
+                    }) {
                         this.images.remove(&id);
                     }
                     if let Ok(bytes) = res {

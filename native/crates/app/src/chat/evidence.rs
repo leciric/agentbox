@@ -85,7 +85,7 @@ impl ChatView {
                     .await;
                 // A list that couldn't be read is asked for again the next
                 // time the chat changes, rather than an empty card for good.
-                if list.as_ref().is_err_and(agentbox_api::client::unreachable) {
+                if list.as_ref().is_err_and(agentbox_api::client::not_ready) {
                     this.update(cx, |this, _| {
                         this.evidence.asked.remove(&r2);
                     })

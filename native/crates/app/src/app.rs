@@ -162,6 +162,7 @@ impl AppView {
             || self.schedules.dialog_open()
             || self.settings
             || self.work.is_some()
+            || self.media_open()
             || self.office_open
             || self.first_run_open()
             || self.onboarding_open()
@@ -545,6 +546,7 @@ impl AppView {
     }
 
     fn select_project(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_media(cx);
         self.settings = false;
         self.work = None;
         self.side.page = None;
@@ -605,8 +607,11 @@ impl AppView {
             )
         };
         self.keep_draft(cx);
-        // The media viewer is over the chat that was shown, not this one.
-        self.close_media(cx);
+        // The media viewer is over the chat that was shown, not another
+        // one; the lead's chat opened again (a session's state changed) keeps it.
+        if who != self.open {
+            self.close_media(cx);
+        }
         self.open = who;
         self.terminal = None;
         self.desktop = None;

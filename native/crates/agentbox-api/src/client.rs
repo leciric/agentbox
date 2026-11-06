@@ -46,9 +46,28 @@ pub fn not_ready(e: &anyhow::Error) -> bool {
 }
 
 /// unreachable says a request never got an answer from a daemon.
+/// That is a connection that failed or closed (an I/O or HTTP error), or the
+/// Windows relay finding no daemon; a request that couldn't be made at all
+/// (a malformed path) or an answer that couldn't be read is not.
 pub fn unreachable(e: &anyhow::Error) -> bool {
-    e.downcast_ref::<DaemonError>().is_none() && e.chain().all(|c| !c.is::<serde_json::Error>())
+    e.downcast_ref::<DaemonError>().is_none()
+        && e.chain()
+            .any(|c| c.is::<std::io::Error>() || c.is::<hyper::Error>() || c.is::<NoDaemon>())
+        && e.chain().all(|c| !c.is::<serde_json::Error>())
 }
+
+/// NoDaemon is a connection that reached no daemon, without an I/O error to
+/// say so: the relay's refusal, or a new connection closed before a request.
+#[derive(Debug)]
+struct NoDaemon(String);
+
+impl std::fmt::Display for NoDaemon {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NoDaemon {}
 
 /// code_of is the daemon's code for an error, empty for any other.
 pub fn code_of(e: &anyhow::Error) -> &str {
@@ -198,7 +217,7 @@ impl Client {
             let body = Bytes::from(body.unwrap_or_default());
             let (status, headers, bytes) = send(&socket, &pool, method, &path, true, body).await?;
             if let Some(why) = relay_refusal(status, &headers, &bytes) {
-                return Err(anyhow!("connecting to the daemon: {why}"));
+                return Err(NoDaemon(format!("connecting to the daemon: {why}")).into());
             }
             if !status.is_success() {
                 let (msg, code) = serde_json::from_slice::<ApiError>(&bytes)
@@ -268,7 +287,46 @@ pub(crate) async fn dial(socket: &Path) -> Result<Conn> {
         match dial_once(socket).await {
             Ok(c) => return Ok(c),
             Err(e) if redial(&e) => match waits.next() {
-                Some(ms) => tokio::time::sleep(Duration::from_millis(*ms)).await,
+                Some(ms) => tokio::time::sleep(pause(*ms)).await,
+                None => return Err(e),
+            },
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// pause is a wait from REDIAL, give or take a quarter, so requests that
+/// were refused together don't all try again at the same moment.
+fn pause(ms: u64) -> Duration {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos() as u64);
+    let spread = ms / 2 + 1;
+    Duration::from_millis(ms - ms / 4 + nanos % spread)
+}
+
+/// checkout is a connection to send on: an idle one from the pool, else a
+/// new one. Making one takes one of the pool's connecting slots for each try
+/// and none while it waits between tries, so a request behind a daemon that
+/// isn't there fails after its own few seconds, not after everyone's; and
+/// each try looks in the pool first, for a connection another request just
+/// gave back.
+async fn checkout(socket: &Path, pool: &Pool) -> Result<(Sender, bool)> {
+    let mut waits = REDIAL.iter();
+    loop {
+        if let Some(s) = pool.take() {
+            return Ok((s, true));
+        }
+        let slot = pool.connecting.acquire().await?;
+        if let Some(s) = pool.take() {
+            return Ok((s, true));
+        }
+        let res = dial_once(socket).await;
+        drop(slot);
+        match res {
+            Ok(stream) => return Ok((handshake(stream).await?, false)),
+            Err(e) if redial(&e) => match waits.next() {
+                Some(ms) => tokio::time::sleep(pause(*ms)).await,
                 None => return Err(e),
             },
             Err(e) => return Err(e),
@@ -283,9 +341,11 @@ pub(crate) type Conn = tokio::net::windows::named_pipe::NamedPipeClient;
 
 #[cfg(unix)]
 async fn dial_once(socket: &Path) -> Result<Conn> {
+    // The same kind of error, saying where it was connecting to (an error's
+    // text is what the app shows).
     tokio::net::UnixStream::connect(socket).await.map_err(|e| {
         let what = format!("connecting to {}: {e}", socket.display());
-        anyhow::Error::new(e).context(what)
+        anyhow::Error::new(std::io::Error::new(e.kind(), what))
     })
 }
 
@@ -319,7 +379,10 @@ fn redial(e: &anyhow::Error) -> bool {
 
 /// connect opens an HTTP/1 connection to the daemon.
 async fn connect(socket: &Path) -> Result<Sender> {
-    let stream = dial(socket).await?;
+    handshake(dial(socket).await?).await
+}
+
+async fn handshake(stream: Conn) -> Result<Sender> {
     let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
     tokio::spawn(conn);
     Ok(sender)
@@ -359,9 +422,9 @@ fn idempotent(m: &Method) -> bool {
 }
 
 /// send sends one request on a pooled connection, or a new one, and reads
-/// its whole answer. A request that fails before any answer is sent again on
-/// a new connection: always when it went out on a reused one, and a few
-/// times when it's idempotent.
+/// its whole answer. An idempotent request that fails before any answer is
+/// sent again on a new connection (once per stale pooled one, and a few
+/// times on new ones); any other only when it never left.
 async fn send(
     socket: &Path,
     pool: &Pool,
@@ -372,22 +435,17 @@ async fn send(
 ) -> Result<(hyper::StatusCode, hyper::HeaderMap, Bytes)> {
     let mut fresh_tries = 0;
     loop {
-        let (mut sender, reused) = match pool.take() {
-            Some(s) => (s, true),
-            None => {
-                let _slot = pool.connecting.acquire().await?;
-                (connect(socket).await?, false)
-            }
-        };
+        let (mut sender, reused) = checkout(socket, pool).await?;
         if sender.ready().await.is_err() {
             if reused {
                 pool.forget();
                 continue;
             }
-            return Err(anyhow!(
+            return Err(NoDaemon(format!(
                 "connecting to {}: the connection closed",
                 socket.display()
-            ));
+            ))
+            .into());
         }
         let mut req = Request::builder()
             .method(method.clone())
@@ -405,14 +463,23 @@ async fn send(
                 pool.put(sender);
                 return Ok((status, headers, bytes));
             }
-            Err(e) if unsent(&e) && reused => {
+            // On a reused connection a request the daemon may have read
+            // (hyper wrote it, then the connection ended) is sent again only
+            // if it's idempotent: a POST could be a message sent twice.
+            Err(e) if unsent(&e) && reused && (idempotent(&method) || e.is_canceled()) => {
                 pool.forget();
             }
             Err(e) if unsent(&e) && idempotent(&method) && fresh_tries < 3 => {
                 fresh_tries += 1;
                 tokio::time::sleep(Duration::from_millis(200 * fresh_tries)).await;
             }
-            Err(e) => return Err(anyhow!("{method} {path}: {e}")),
+            Err(e) => {
+                if reused {
+                    pool.forget();
+                }
+                let what = format!("{method} {path}: {e}");
+                return Err(anyhow::Error::new(e).context(what));
+            }
         }
     }
 }
@@ -528,12 +595,9 @@ mod tests {
         rt.block_on(async {
             tokio::time::sleep(Duration::from_millis(100)).await;
             // Each answer closes its connection: the next request, sent on
-            // the pooled one, goes again on a new one, POST included.
+            // the pooled one, goes again on a new one.
             for _ in 0..5 {
-                let body = client
-                    .raw(Method::POST, "/v1/x", Some(b"{}".to_vec()))
-                    .await
-                    .unwrap();
+                let body = client.raw(Method::GET, "/v1/x", None).await.unwrap();
                 assert_eq!(&body[..], b"ok");
             }
         });
@@ -582,6 +646,7 @@ mod tests {
         };
         assert!(not_ready(&gone(404)) && not_ready(&gone(503)));
         assert!(!not_ready(&gone(400)) && !unreachable(&gone(503)));
+        assert!(!unreachable(&anyhow!("invalid uri character")));
         let bad =
             anyhow::Error::new(serde_json::from_str::<u8>("x").unwrap_err()).context("GET /v1/x");
         assert!(!unreachable(&bad));

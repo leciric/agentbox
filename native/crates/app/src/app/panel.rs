@@ -669,6 +669,8 @@ impl AppView {
                     return;
                 }
                 this.panel.media = Some(res);
+                let list = this.panel.items();
+                this.sync_media_list(&whose, list);
                 this.fetch_media_files(cx);
                 cx.notify();
             })
@@ -2495,7 +2497,14 @@ impl AppView {
                                         .on_click(cx.listener(
                                             move |this, _: &ClickEvent, window, cx| {
                                                 let list = this.panel.items();
-                                                this.open_media(item.clone(), list, window, cx);
+                                                let source = this.panel.media_for.clone();
+                                                this.open_media(
+                                                    item.clone(),
+                                                    list,
+                                                    source,
+                                                    window,
+                                                    cx,
+                                                );
                                             },
                                         ))
                                         .child(

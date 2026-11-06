@@ -50,8 +50,10 @@ type ViewerClick = Box<dyn Fn(&mut AppView, &mut Window, &mut Context<AppView>)>
 struct Viewing {
     item: MediaItem,
     /// The list it was opened from, which the arrows step through: the
-    /// Media page's, or an agent's or project's (the panel's).
+    /// Media page's, or an agent's or project's (the panel's), and whose
+    /// that is: "" for the Media page, else the panel's (media_for).
     list: Vec<MediaItem>,
+    source: String,
     path: Option<PathBuf>,
     text: Option<String>,
     error: Option<String>,
@@ -122,6 +124,8 @@ impl AppView {
                         }
                         f.media.extend(p.items);
                         f.next = p.next;
+                        let list = f.media.clone();
+                        this.sync_media_list("", list);
                         this.fetch_thumbs(cx);
                     }
                     Err(e) => toasts::error(cx, e.to_string()),
@@ -169,6 +173,7 @@ impl AppView {
         &mut self,
         item: MediaItem,
         list: Vec<MediaItem>,
+        source: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -203,6 +208,7 @@ impl AppView {
         self.side.foot.viewing = Some(Viewing {
             item: item.clone(),
             list,
+            source,
             path: None,
             text,
             error: None,
@@ -241,16 +247,13 @@ impl AppView {
             // without its text are read as text (a folder report's page too,
             // for where no webview can frame it), as the Electron viewer
             // does; up to a megabyte of it.
+            let as_text = match media::look(&item) {
+                media::Look::Picture | media::Look::Video => false,
+                media::Look::Page(_) => !crate::webview::available(),
+                _ => true,
+            };
             let text = match &res {
-                Ok(p)
-                    if item.text.is_empty()
-                        && !matches!(
-                            media::look(&item),
-                            media::Look::Picture | media::Look::Video
-                        ) =>
-                {
-                    Some(read_text(p))
-                }
+                Ok(p) if item.text.is_empty() && as_text => Some(read_text(p)),
                 _ => None,
             };
             this.update(cx, |this, cx| {
@@ -271,8 +274,10 @@ impl AppView {
                             }));
                         }
                         v.path = Some(p);
-                        if text.is_some() {
-                            v.text = text;
+                        match text {
+                            Some(Ok(t)) => v.text = Some(t),
+                            Some(Err(e)) => v.error = Some(e.to_string()),
+                            None => {}
                         }
                     }
                     Err(e) => v.error = Some(e.to_string()),
@@ -289,7 +294,7 @@ impl AppView {
         let Some(v) = &self.side.foot.viewing else {
             return;
         };
-        let list = v.list.clone();
+        let (list, source) = (v.list.clone(), v.source.clone());
         let Some(i) = list.iter().position(|m| m.id == v.item.id) else {
             return;
         };
@@ -298,7 +303,7 @@ impl AppView {
             return;
         }
         let next = list[j as usize].clone();
-        self.open_media(next, list, window, cx);
+        self.open_media(next, list, source, window, cx);
     }
 
     /// seek_media goes to a chapter of the recording on view.
@@ -350,6 +355,22 @@ impl AppView {
                     .child(el),
             )
             .into_any_element()
+    }
+
+    /// sync_media_list gives the viewer the list it came from as it is now,
+    /// once that list (the Media page's, or the panel's for `source`) is read
+    /// again, so its arrows don't step to items gone or past new ones.
+    pub(super) fn sync_media_list(&mut self, source: &str, list: Vec<MediaItem>) {
+        if let Some(v) = self.side.foot.viewing.as_mut()
+            && v.source == source
+        {
+            v.list = list;
+        }
+    }
+
+    /// media_open says the media viewer is open, over what's shown.
+    pub(super) fn media_open(&self) -> bool {
+        self.side.foot.viewing.is_some()
     }
 
     pub(super) fn close_media(&mut self, cx: &mut Context<Self>) {
@@ -866,7 +887,7 @@ impl AppView {
                 .hover(|el| el.border_color(theme::muted()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     let list = this.side.foot.media.clone();
-                    this.open_media(item.clone(), list, window, cx)
+                    this.open_media(item.clone(), list, String::new(), window, cx)
                 }))
                 .child(
                     div()
@@ -1208,11 +1229,11 @@ fn duration(from: &str, to: Option<&str>) -> String {
 
 /// read_text is a file read as text for the viewer: up to a megabyte, as
 /// the Electron viewer reads (useMediaText), whatever its encoding.
-fn read_text(p: &std::path::Path) -> String {
+fn read_text(p: &std::path::Path) -> std::io::Result<String> {
     use std::io::Read as _;
     let mut bytes = Vec::new();
-    if let Ok(f) = std::fs::File::open(p) {
-        let _ = f.take(1 << 20).read_to_end(&mut bytes);
-    }
-    String::from_utf8_lossy(&bytes).into_owned()
+    std::fs::File::open(p)?
+        .take(1 << 20)
+        .read_to_end(&mut bytes)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
