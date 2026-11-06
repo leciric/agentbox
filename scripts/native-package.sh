@@ -4,9 +4,17 @@
 #
 #   scripts/native-package.sh linux <version> <out>     a .tar.gz and a .deb
 #   scripts/native-package.sh windows <version> <out>   a .zip of the .exe
+#   scripts/native-package.sh mac <version> <out>       a .app in a .dmg, arm64
 #
 # <version> is the nightly's (0.17.0-nightly.20261106.157). It expects
 # native/target/release/agentbox-native(.exe) to be built already.
+#
+# On a Mac, the .app is signed with scripts/mac-sign.sh: with
+# $MAC_SIGN_IDENTITY (a Developer ID Application identity in a keychain) the
+# way a release is, hardened runtime and timestamp, and the .dmg too;
+# without it ad hoc, which Gatekeeper refuses on a download until its
+# quarantine is removed (xattr -dr com.apple.quarantine). Notarizing the .dmg
+# is the workflow's (nightly.yml).
 #
 # Every asset is named AgentBox-Native-experimental-<version>-…, which nothing
 # that looks for the Electron app's files matches: the app's own update
@@ -21,9 +29,9 @@
 # Ubuntu it was built on (24.04) and Debian of the same age or newer.
 set -euo pipefail
 
-os=${1:?usage: $0 linux|windows <version> <out>}
-version=${2:?usage: $0 linux|windows <version> <out>}
-out=${3:?usage: $0 linux|windows <version> <out>}
+os=${1:?usage: $0 linux|windows|mac <version> <out>}
+version=${2:?usage: $0 linux|windows|mac <version> <out>}
+out=${3:?usage: $0 linux|windows|mac <version> <out>}
 root=$(cd "$(dirname "$0")/.." && pwd)
 name=AgentBox-Native-experimental-$version
 mkdir -p "$out"
@@ -47,7 +55,8 @@ It can't yet: show an agent's iOS simulator; do what only the Electron app's
 main process does (resize the VM, restart it, host setup with sudo, install
 the command-line tool), for which it shows the command to run instead; or
 hide to the tray (it minimises). On Wayland, HTML previews are a still
-picture. On Windows, agents' recordings don't play (no FFmpeg in this build).
+picture. On Windows and macOS, agents' recordings don't play (no FFmpeg in these
+builds).
 
 Without a GPU it draws with Mesa's software Vulkan (lavapipe), slowly:
   VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json agentbox-native
@@ -131,8 +140,53 @@ EOF
     # 7z is on GitHub's Windows runners; zip isn't.
     (cd "$tmp" && 7z a -tzip -bso0 "$out/$name-windows-x64.zip" "$(basename "$dir")")
     ;;
+  mac)
+    bin=$root/native/target/release/agentbox-native
+    [ -x "$bin" ] || { echo "no $bin: build it first" >&2; exit 1; }
+    arch=$(lipo -archs "$bin" | tr ' ' '-') # arm64
+    app="$tmp/dmg/AgentBox Native (experimental).app"
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+    install -m755 "$bin" "$app/Contents/MacOS/agentbox-native"
+    # The icon: Electron's, at every size an .icns holds.
+    set=$tmp/icon.iconset
+    mkdir -p "$set"
+    for px in 16 32 128 256 512; do
+      sips -z $px $px "$root/desktop/build/icon.png" --out "$set/icon_${px}x${px}.png" >/dev/null
+      sips -z $((px * 2)) $((px * 2)) "$root/desktop/build/icon.png" --out "$set/icon_${px}x${px}@2x.png" >/dev/null
+    done
+    iconutil -c icns "$set" -o "$app/Contents/Resources/agentbox-native.icns"
+    # CFBundleVersion takes numbers and dots only: the release, then the
+    # nightly's date and run (0.17.0.20261106.157).
+    cat >"$app/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>AgentBox Native</string>
+  <key>CFBundleDisplayName</key><string>AgentBox Native (experimental)</string>
+  <key>CFBundleIdentifier</key><string>dev.agentbox.native</string>
+  <key>CFBundleExecutable</key><string>agentbox-native</string>
+  <key>CFBundleIconFile</key><string>agentbox-native</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>${version%%-*}</string>
+  <key>CFBundleVersion</key><string>${version/-nightly/}</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+EOF
+    readme >"$tmp/dmg/README.txt"
+    ln -s /Applications "$tmp/dmg/Applications"
+    "$root/scripts/mac-sign.sh" ${MAC_SIGN_IDENTITY:+--identity "$MAC_SIGN_IDENTITY"} "$app"
+    dmg=$out/$name-mac-$arch.dmg
+    hdiutil create -quiet -volname "AgentBox Native" -srcfolder "$tmp/dmg" -fs HFS+ -format UDZO -ov "$dmg"
+    if [ -n "${MAC_SIGN_IDENTITY:-}" ]; then
+      codesign --force --sign "$MAC_SIGN_IDENTITY" --timestamp "$dmg"
+    fi
+    ;;
   *)
-    echo "usage: $0 linux|windows <version> <out>" >&2
+    echo "usage: $0 linux|windows|mac <version> <out>" >&2
     exit 1
     ;;
 esac

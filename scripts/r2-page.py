@@ -52,6 +52,7 @@ KINDS = [
     (r"^AgentBox-Native-experimental-.*\.tar\.gz$", "native", "Linux", ".tar.gz archive, x86_64", None),
     (r"^AgentBox-Native-experimental-.*\.deb$", "native", "Debian and Ubuntu", ".deb package (Ubuntu 24.04 or newer)", None),
     (r"^AgentBox-Native-experimental-.*\.zip$", "native", "Windows", ".zip of the .exe, x64", None),
+    (r"^AgentBox-Native-experimental-.*-mac-arm64\.dmg$", "native", "macOS", ".dmg disk image, Apple Silicon", None),
     (r"^AgentBox-Native-experimental-", None, None, None, None),
     (r"\.AppImage$", "linux", "AppImage", "Any distribution; updates itself", "linux"),
     (r"\.deb$", "linux", "Debian and Ubuntu", ".deb package", None),
