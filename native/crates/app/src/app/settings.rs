@@ -797,19 +797,6 @@ impl AppView {
                 ],
             ),
             group(
-                "experimental-agents",
-                "settings.group.experimental-agents.title",
-                vec![
-                    entry(
-                        "agent-goals",
-                        "settings.entry.agent-goals.label",
-                        "settings.agentGoals.description",
-                        "settings.entry.agent-goals.keywords",
-                    )
-                    .modified(changed(|s| s.agent_goals)),
-                ],
-            ),
-            group(
                 "experimental-memory",
                 "settings.group.experimental-memory.title",
                 vec![
@@ -1996,16 +1983,6 @@ impl AppView {
                 |s| s.block_full_suite,
                 |v| UpdateSettingsRequest {
                     block_full_suite: Some(v),
-                    ..Default::default()
-                },
-                cx,
-            ),
-            "agent-goals" => self.switch_row(
-                e,
-                "settings.agentGoals.details",
-                |s| s.agent_goals,
-                |v| UpdateSettingsRequest {
-                    agent_goals: Some(v),
                     ..Default::default()
                 },
                 cx,
