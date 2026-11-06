@@ -15,10 +15,19 @@ import (
 )
 
 // watch publishes agent state changes and resource samples, but only while
-// someone is subscribed to the event stream.
+// someone is subscribed to the event stream: the app always is.
+//
+// Each tick is one listing of Incus's instances, which the usage is measured
+// against the last tick's and the agents' states are read from. It used to be
+// four a tick: one for the states, two a second apart for the usage, and one
+// more for balanceCPU, kicked whether anything had changed or not. With the
+// app open that was two full listings a second, every instance's state
+// gathered by Incus and decoded here, for the daemon's whole life: most of
+// its CPU when nothing else happens.
 func (s *Server) watch(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	var last *agent.UsageSample
 	for {
 		select {
 		case <-ctx.Done():
@@ -26,13 +35,28 @@ func (s *Server) watch(ctx context.Context) {
 		case <-ticker.C:
 		}
 		if s.events.subscribers() == 0 {
+			last = nil // a rate over the time nobody watched isn't worth showing
 			continue
 		}
-		s.refreshAgents(ctx)
-		if host, usage, err := s.manager(nil).Usage(ctx, time.Second); err == nil {
-			s.events.publish(api.EventUsage, toAPIUsage(host, usage))
-		}
+		last = s.watchOnce(ctx, last)
 	}
+}
+
+// watchOnce is one of watch's ticks, measured from last (nil: over a second),
+// and returns what the next one measures from.
+func (s *Server) watchOnce(ctx context.Context, last *agent.UsageSample) *agent.UsageSample {
+	m := s.manager(nil)
+	host, usage, now, err := m.UsageSince(ctx, last)
+	if err != nil {
+		s.refreshAgents(ctx)
+		return nil
+	}
+	if statuses, err := m.ListFrom(ctx, now.Instances); err == nil && s.publishAgentChanges(statuses) {
+		// Whatever changed changes how many agents share the VM's cores.
+		s.kickCPU()
+	}
+	s.events.publish(api.EventUsage, toAPIUsage(host, usage))
+	return now
 }
 
 // refreshAgents publishes an event for every agent whose state changed.
@@ -75,13 +99,28 @@ func (s *Server) refreshAgentsBehind() {
 // agentRemoved tells the app an agent is gone from the live ones — it is a
 // past agent now — without waiting for the next look at every agent.
 func (s *Server) agentRemoved(ref string) {
+	s.forgetActivity(ref)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.lastStates, ref)
 	s.events.publish(api.EventAgent, api.AgentChange{Ref: ref, Removed: true})
 }
 
-func (s *Server) publishAgentChanges(statuses []agent.Status) {
+// forgetActivity drops what was kept of a removed agent's last activity,
+// which nothing reads once it's gone and nothing else ever let go of.
+func (s *Server) forgetActivity(ref string) {
+	s.terminalMu.Lock()
+	delete(s.terminalActivity, ref)
+	s.terminalMu.Unlock()
+	if s.idle != nil {
+		s.idle.mu.Lock()
+		delete(s.idle.touched, ref)
+		s.idle.mu.Unlock()
+	}
+}
+
+// publishAgentChanges reports whether any agent changed.
+func (s *Server) publishAgentChanges(statuses []agent.Status) (changed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	seen := map[string]bool{}
@@ -91,14 +130,17 @@ func (s *Server) publishAgentChanges(statuses []agent.Status) {
 		if !sameChange(s.lastStates[change.Ref], change) {
 			s.lastStates[change.Ref] = change
 			s.events.publish(api.EventAgent, change)
+			changed = true
 		}
 	}
 	for ref := range s.lastStates {
 		if !seen[ref] {
 			delete(s.lastStates, ref)
 			s.events.publish(api.EventAgent, api.AgentChange{Ref: ref, Removed: true})
+			changed = true
 		}
 	}
+	return changed
 }
 
 // agentStates returns the last known state of every agent, sorted by ref.

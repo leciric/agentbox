@@ -61,14 +61,14 @@ var tsTypes = []any{
 	SearchResults{}, SearchGroup{}, SearchHit{},
 	Artifact{}, Artifacts{}, ArtifactPreview{}, PublishRenderRequest{}, PublishRenderResult{},
 	FanOutRequest{}, FanOutVariant{}, FanOutResult{}, Group{}, GroupMember{}, KeepRequest{}, RecommendRequest{}, GroupChange{},
-	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, PackageCachePart{}, DiagnosticsPackageCache{}, ClientSpansRequest{},
+	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, PresenceRequest{}, PresenceView{}, HostPower{}, PresenceResponse{}, PresenceState{}, PresenceLease{}, AgentResourcePoint{}, AgentResourceHistory{}, AgentResourcesEvent{}, PackageCachePart{}, DiagnosticsPackageCache{}, ClientSpansRequest{},
 	ShareReport{}, FileCount{}, DiagnosticsFiles{},
 	DoctorCheck{}, DoctorReport{}, DoctorFixRequest{}, DoctorFix{}, DoctorFixResult{}, DoctorHomeRequest{}, DoctorHomeResult{},
 }
 
 var tsConstants = [][2]string{
 	{"JobRunning", JobRunning}, {"JobSucceeded", JobSucceeded}, {"JobFailed", JobFailed}, {"JobCancelled", JobCancelled},
-	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventNotification", EventNotification}, {"EventNotificationsSeen", EventNotificationsSeen}, {"NotifyQuestion", NotifyQuestion}, {"NotifyMedia", NotifyMedia}, {"EventPulls", EventPulls}, {"EventRemoteAgents", EventRemoteAgents}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap}, {"EventFiles", EventFiles},
+	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventAgentResources", EventAgentResources}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventNotification", EventNotification}, {"EventNotificationsSeen", EventNotificationsSeen}, {"NotifyQuestion", NotifyQuestion}, {"NotifyMedia", NotifyMedia}, {"EventPulls", EventPulls}, {"EventRemoteAgents", EventRemoteAgents}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap}, {"EventFiles", EventFiles},
 	{"PushFinished", PushFinished}, {"PushNeedsYou", PushNeedsYou}, {"PushPRReady", PushPRReady}, {"PushCIFailed", PushCIFailed},
 	{"FileModified", FileModified}, {"FileAdded", FileAdded}, {"FileDeleted", FileDeleted}, {"FileUntracked", FileUntracked},
 	{"DoctorOK", DoctorOK}, {"DoctorWarn", DoctorWarn}, {"DoctorFail", DoctorFail}, {"DoctorAILogin", DoctorAILogin},

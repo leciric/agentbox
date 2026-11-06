@@ -6,3 +6,9 @@ declare module '*?url' {
   const url: string;
   export default url;
 }
+
+// An asset imported with ?inline is its data: URL, in the chunk that imports it.
+declare module '*?inline' {
+  const url: string;
+  export default url;
+}
