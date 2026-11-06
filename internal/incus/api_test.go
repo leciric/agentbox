@@ -31,6 +31,7 @@ type fakeAPI struct {
 	etagFails int    // how many instance updates are refused with "ETag doesn't match"
 	lastOp    api.Operation
 	changes   []string
+	lost      []string // containers whose storage Incus has lost track of
 }
 
 func startFakeAPI(t *testing.T) *fakeAPI {
@@ -220,6 +221,20 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		var post api.ProfilesPost
 		_ = json.Unmarshal(body, &post)
 		f.profiles[post.Name] = &api.Profile{Name: post.Name}
+		reply(w, nil)
+	case path == "/storage-pools":
+		reply(w, []api.StoragePool{{Name: "default", Driver: "btrfs", StoragePoolPut: api.StoragePoolPut{Config: map[string]string{"source": "/pool"}}}})
+	case path == "/internal/recover/validate":
+		var vols []map[string]any
+		for _, name := range f.lost {
+			vols = append(vols, map[string]any{"name": name, "type": "container", "project": "default", "pool": "default"})
+		}
+		reply(w, map[string]any{"UnknownVolumes": vols, "DependencyErrors": nil})
+	case path == "/internal/recover/import":
+		for _, name := range f.lost {
+			f.instances[name] = &api.InstanceFull{Instance: api.Instance{Name: name, Status: "Stopped", StatusCode: api.Stopped}}
+		}
+		f.lost = nil
 		reply(w, nil)
 	case path == "/storage-pools/default":
 		reply(w, api.StoragePool{Name: "default", Driver: "btrfs"})
