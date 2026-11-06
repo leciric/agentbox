@@ -2,21 +2,26 @@
 # Pixel parity between the Electron app and the native one.
 #
 # Both apps run against the same fake-daemon (FAKE_STILL=1: fixtures that
-# don't change on their own), each scenario of parity-scenarios.json is opened
-# in both at 1440x900 and 1920x1080, dark and light, and the two screenshots
-# are compared by parity_compare.py: a per-pixel similarity with a 1px
+# don't change on their own, dated from one fixed instant), each scenario of
+# parity-scenarios.json is opened in both at 1440x900 and 1920x1080 (or the
+# scenario's own "sizes"), dark and light, and the two screenshots are
+# compared by parity_compare.py: a per-pixel similarity with a 1px
 # neighbourhood and a ±24/255 channel tolerance for antialiasing (not SSIM;
 # see that file). native/parity-out/ gets <scenario>-<theme>-<size>.png, the
-# Electron screenshot, the native one and their diff side by side.
+# Electron screenshot, the native one and their diff side by side, and
+# scores.txt.
 #
 #   native/scripts/parity.sh [id-filter]
 #
 # PARITY_NO_BUILD=1 skips building; PARITY_SIZES / PARITY_THEMES narrow the
 # matrix ("1440x900", "dark"). Exits 1 if any scenario scores under 0.99.
 #
-# Electron runs on its own Xvfb display, the native app on another whose
-# screen is exactly the window, with no window manager, so a root-window grab
-# is the window's contents. Both run with reduced motion and no caret.
+# Electron (the real app, desktop/out) stays open on its own Xvfb display and
+# plays each scenario when told to (parity-electron.mjs), in step with the
+# native app, which is launched per scenario on a display exactly its window
+# (no window manager: a root-window grab is the window), so both screenshots
+# are taken within a second or two: the apps' own clocks run. Both run with
+# reduced motion and no caret.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -33,7 +38,7 @@ mkdir -p "$out/logs" "$tmp"
 export PATH=$HOME/.cargo/bin:$PATH
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 
-for tool in Xvfb xdotool import python3 node; do
+for tool in Xvfb xdotool import convert python3 node; do
   command -v $tool >/dev/null || { echo "parity: needs $tool (apt-get install xvfb xdotool imagemagick python3-numpy python3-pil)" >&2; exit 2; }
 done
 
@@ -50,12 +55,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# One display for Electron, as big as the biggest size.
-Xvfb :91 -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
+# Leftovers of a run that was stopped: its displays and apps.
+pkill -f 'Xvfb :9[12] ' 2>/dev/null || true
+pkill -f 'target/parity/agentbox-native' 2>/dev/null || true
+rm -f /tmp/.X91-lock /tmp/.X92-lock
+sleep 0.3
+
+# Electron's display, as big as the biggest window.
+Xvfb :91 -screen 0 2560x1440x24 -nolisten tcp >/dev/null 2>&1 &
 pids+=($!)
 
-# The scenarios, flattened for the shell: id, the native app's env, actions.
-mapfile -t rows < <(python3 - "$scenarios" "$filter" <<'EOF'
+# The scenarios, flattened for the shell (\x1f between fields): id, its own
+# sizes, the native app's env, its actions for xdotool, its wait, its masks.
+rows() {
+  python3 - "$scenarios" "$filter" <<'EOF'
 import json, sys
 for s in json.load(open(sys.argv[1])):
     if sys.argv[2] and sys.argv[2] not in s["id"]:
@@ -65,13 +78,14 @@ for s in json.load(open(sys.argv[1])):
     for a in s.get("actions", []):
         if "hover" in a: acts.append(f"mousemove {a['hover'][0]} {a['hover'][1]}")
         if "click" in a: acts.append(f"mousemove {a['click'][0]} {a['click'][1]} click 1")
-        if "press" in a: acts.append("key " + a["press"].replace("Control", "ctrl").replace("Escape", "Escape").lower().replace("escape", "Escape"))
-        if "type" in a: acts.append(f"type {json.dumps(a['type'])}")
+        if "press" in a: acts.append("key " + a["press"].replace("Control", "ctrl").replace("Shift", "shift").replace("+/", "+slash"))
+        if "type" in a: acts.append("type " + json.dumps(a["type"]))
         acts.append(f"sleep {a.get('wait', 700) / 1000}")
     masks = " ".join("--mask " + ",".join(map(str, m)) for m in s.get("masks", []))
-    print("\x1f".join([s["id"], env, ";".join(acts), str(s.get("wait", 1500) / 1000 + 1.5), masks]))
+    print("\x1f".join([s["id"], " ".join(s.get("sizes", [])), env, ";".join(acts), str(s.get("wait", 1500) / 1000), masks]))
 EOF
-)
+}
+mapfile -t rows < <(rows)
 
 fails=0
 report=$out/scores.txt
@@ -81,30 +95,52 @@ for theme in $themes; do
   FAKE_STILL=1 FAKE_APPEARANCE=$theme "$bin/fake-daemon" --listen "$sock" --history 12 >"$out/logs/fake-$theme.log" 2>&1 &
   pids+=($!)
   for _ in $(seq 50); do [ -S "$sock" ] && break; sleep 0.1; done
-  for size in $sizes; do
+  # Every size some scenario is drawn at.
+  all_sizes=$(printf '%s\n' "${rows[@]}" | python3 -c '
+import sys
+default = sys.argv[1].split()
+seen = []
+for line in sys.stdin:
+    own = line.split("\x1f")[1].split()
+    for s in own or default:
+        if s not in seen: seen.append(s)
+print(" ".join(seen))' "$sizes")
+  for size in $all_sizes; do
     w=${size%x*} h=${size#*x}
     edir=$tmp/electron-$theme-$size
-    DISPLAY=:91 node "$here/parity-electron.mjs" "$sock" "$size" "$scenarios" "$edir" "$filter" >/dev/null
-    # The native app's own display, exactly the window.
+    mkdir -p "$edir"
+    coproc ELECTRON { DISPLAY=:91 exec node "$here/parity-electron.mjs" "$sock" "$size" "$scenarios" "$edir" "$filter" 2>"$out/logs/electron-$theme-$size.log"; }
+    epid=$ELECTRON_PID
+    pids+=($epid)
+    read -r line <&"${ELECTRON[0]}" # ready
     Xvfb :92 -screen 0 "${w}x${h}x24" -nolisten tcp >/dev/null 2>&1 &
     xvfb=$!
     sleep 0.5
     for row in "${rows[@]}"; do
-      IFS=$'\x1f' read -r id env acts wait masks <<<"$row"
+      IFS=$'\x1f' read -r id own env acts wait masks <<<"$row"
+      if [ -n "$own" ]; then
+        case " $own " in *" $size "*) ;; *) continue ;; esac
+      else
+        case " $sizes " in *" $size "*) ;; *) continue ;; esac
+      fi
+      name=$id-$theme-$size
       prefs=$tmp/prefs-$id.json
       echo '{"tour":"dismissed"}' >"$prefs"
       # shellcheck disable=SC2086
       env DISPLAY=:92 WAYLAND_DISPLAY= AGENTBOX_NATIVE_SIZE="$size" AGENTBOX_REDUCE_MOTION=1 \
         AGENTBOX_NATIVE_PREFS="$prefs" VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
-        $env "$bin/agentbox-native" --socket "$sock" >"$out/logs/native-$id-$theme-$size.log" 2>&1 &
+        $env "$bin/agentbox-native" --socket "$sock" >"$out/logs/native-$name.log" 2>&1 &
       app=$!
       # Until the window has drawn something (the first launch on a fresh
-      # display compiles lavapipe's shaders), then the scenario's own wait.
+      # display compiles lavapipe's shaders), and its data has come.
       for _ in $(seq 60); do
         DISPLAY=:92 import -window root "$tmp/probe.png" 2>/dev/null &&
           [ "$(convert "$tmp/probe.png" -format '%[fx:standard_deviation>0.01]' info: 2>/dev/null)" = 1 ] && break
         sleep 0.5
       done
+      sleep 1.5
+      # Now both: Electron opens the scenario as the native app plays it.
+      echo "$id" >&"${ELECTRON[1]}"
       sleep "$wait"
       IFS=';' read -ra steps <<<"$acts"
       for step in "${steps[@]}"; do
@@ -116,15 +152,20 @@ for theme in $themes; do
         esac
       done
       DISPLAY=:92 import -window root "$tmp/native-$id.png"
+      read -r line <&"${ELECTRON[0]}" # done <id>
       kill $app 2>/dev/null || true
       wait $app 2>/dev/null || true
-      name=$id-$theme-$size
       # shellcheck disable=SC2086
       score=$(python3 "$here/parity_compare.py" "$edir/$id.png" "$tmp/native-$id.png" "$out/$name" $masks)
       verdict=ok
-      if python3 -c "import sys; sys.exit(0 if float('$score') >= $threshold else 1)"; then :; else verdict=FAIL; fails=$((fails + 1)); fi
+      if ! python3 -c "import sys; sys.exit(0 if float('$score') >= $threshold else 1)"; then
+        verdict=FAIL
+        fails=$((fails + 1))
+      fi
       printf '%-48s %s %s\n' "$name" "$score" "$verdict" | tee -a "$report"
     done
+    exec {ELECTRON[1]}>&-
+    wait "$epid" 2>/dev/null || true
     kill $xvfb 2>/dev/null || true
     wait $xvfb 2>/dev/null || true
   done

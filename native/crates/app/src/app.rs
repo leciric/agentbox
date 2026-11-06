@@ -493,8 +493,18 @@ impl AppView {
                             // opens that page at start (native/scripts/parity.sh).
                             if let Ok(v) = std::env::var("AGENTBOX_NATIVE_VIEW") {
                                 match v.split_once(':') {
+                                    // project:<name>[:pulls]
                                     Some(("project", p)) => {
-                                        this.select_project(p.to_string(), window, cx)
+                                        let (p, place) = p.split_once(':').unwrap_or((p, ""));
+                                        this.select_project(p.to_string(), window, cx);
+                                        if place == "pulls" {
+                                            this.pulls.tab = pulls::RailTab::Pulls;
+                                            this.load_pulls(false, cx);
+                                        }
+                                    }
+                                    // home:status|memory, Home's tabs.
+                                    Some(("home", tab)) => {
+                                        this.sessions.home_tab = if tab == "status" { 1 } else { 2 };
                                     }
                                     _ if v == "media" => {
                                         this.open_foot_page(foot::FootPage::Media, window, cx)

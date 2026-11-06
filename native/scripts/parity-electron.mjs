@@ -51,10 +51,17 @@ await page.addStyleTag({ content: '*{caret-color:transparent!important}' });
 await page.waitForTimeout(2500);
 
 const sleep = (ms) => page.waitForTimeout(ms);
-for (const s of scenarios) {
+// Driven a scenario at a time by parity.sh, in step with the native app, so
+// both screenshots are taken within a second or two of each other (the apps'
+// own clocks run: "working for 2m" must read the same in both): a line
+// "<id>" on stdin plays that scenario and answers "done <id>" on stdout.
+const byId = new Map(scenarios.map((s) => [s.id, s]));
+async function play(s) {
   await page.keyboard.press('Escape');
   await page.mouse.move(width - 2, height - 2);
   await page.evaluate((view) => window.dispatchEvent(new CustomEvent('agentbox:select-view', { detail: view })), s.view);
+  // One of the app's own events after it (a Settings section: agentbox:open-settings).
+  if (s.event) await page.evaluate(([name, detail]) => window.dispatchEvent(new CustomEvent(name, { detail })), s.event);
   await sleep(s.wait ?? 1500);
   for (const a of s.actions ?? []) {
     if (a.hover) await page.mouse.move(a.hover[0], a.hover[1]);
@@ -64,6 +71,14 @@ for (const s of scenarios) {
     await sleep(a.wait ?? 700);
   }
   await page.screenshot({ path: join(out, `${s.id}.png`) });
-  console.log(`electron ${s.id}`);
+}
+console.log('ready');
+const { createInterface } = await import('node:readline');
+for await (const line of createInterface({ input: process.stdin })) {
+  const id = line.trim();
+  if (!id) continue;
+  const s = byId.get(id);
+  if (s) await play(s).catch((err) => console.error(`${id}: ${err.message}`));
+  console.log(`done ${id}`);
 }
 await app.close();
