@@ -154,4 +154,4 @@ if [[ -S /run/agentbox.sock ]] && command -v agentbox >/dev/null && [[ ${LAB_OUT
   run=(agentbox heavy -- "${run[@]}")
 fi
 "${run[@]}" 2>&1 | tee "${out}.log" | grep -E '^(=== RUN|--- |    loadlab_internal_test.go:[0-9]+: (made|prepared|making|stopping|target)|FAIL|ok )' || true
-[[ -f $out/report.md ]] && cat "$out/report.md"
+if [[ -f $out/report.md ]]; then cat "$out/report.md"; fi

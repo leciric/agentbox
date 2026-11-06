@@ -302,6 +302,41 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 		}
 	}
 	done := func() { room.Lock(); inflight--; room.Unlock() }
+	// A copy under way can't wait: while machines are made, Incus itself
+	// (its rsync) is frozen whenever the VM's IO pressure is over the limit.
+	if cfg.ioMax > 0 {
+		copying, stopGuard := context.WithCancel(ctx)
+		guarded := make(chan struct{})
+		defer func() { stopGuard(); <-guarded }()
+		go func() {
+			defer close(guarded)
+			incus := filepath.Join(cgroupRoot, "system.slice", "incus.service", "cgroup.freeze")
+			frozen := false
+			set := func(on bool) {
+				v := "0"
+				if on {
+					v = "1"
+				}
+				if os.WriteFile(incus, []byte(v), 0o644) == nil {
+					frozen = on
+				}
+			}
+			defer func() {
+				if frozen {
+					set(false)
+				}
+			}()
+			for copying.Err() == nil {
+				switch avg := ioAvg10(); {
+				case !frozen && avg > cfg.ioMax:
+					set(true)
+				case frozen && avg < cfg.ioMax/2:
+					set(false)
+				}
+				time.Sleep(2 * time.Second)
+			}
+		}()
+	}
 	sem := make(chan struct{}, max(cfg.parallel, 1))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -655,6 +690,10 @@ type latency struct {
 	P99ms  float64 `json:"p99_ms"`
 	MaxMs  float64 `json:"max_ms"`
 	Error  string  `json:"last_error,omitempty"`
+	// Slow are the calls over a second; SlowIO those of them that ended
+	// while the VM's IO PSI some avg10 was over 40%.
+	Slow   int `json:"slow,omitempty"`
+	SlowIO int `json:"slow_under_io,omitempty"`
 }
 
 type pressurePeak struct {
@@ -771,10 +810,11 @@ type target struct {
 // recorder is a list of durations and errors, safe to add to from many
 // goroutines.
 type recorder struct {
-	mu   sync.Mutex
-	ds   []time.Duration
-	errs int
-	last string
+	mu           sync.Mutex
+	ds           []time.Duration
+	errs         int
+	last         string
+	slow, slowIO int
 }
 
 func (r *recorder) add(d time.Duration, err error) {
@@ -786,12 +826,18 @@ func (r *recorder) add(d time.Duration, err error) {
 		return
 	}
 	r.ds = append(r.ds, d)
+	if d > time.Second {
+		r.slow++
+		if ioAvg10() > 40 {
+			r.slowIO++
+		}
+	}
 }
 
 func (r *recorder) latency() latency {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	l := latency{N: len(r.ds), Errors: r.errs, Error: r.last}
+	l := latency{N: len(r.ds), Errors: r.errs, Error: r.last, Slow: r.slow, SlowIO: r.slowIO}
 	if len(r.ds) == 0 {
 		return l
 	}
@@ -1242,10 +1288,10 @@ func (r *loadReport) markdown() string {
 		}
 		p("| %s | %s | %s | %s |\n", t.Name, t.Want, t.Got, ok)
 	}
-	p("\n**Daemon API**\n\n| | n | errors | p50 | p99 | max |\n|---|---|---|---|---|---|\n")
+	p("\n**Daemon API**\n\n| | n | errors | p50 | p99 | max | over 1 s (of them under IO PSI > 40%%) |\n|---|---|---|---|---|---|---|\n")
 	for _, k := range []string{"agents_list", "chat_send", "event_lag"} {
 		l := r.API[k]
-		p("| %s | %d | %d | %.0f ms | %.0f ms | %.0f ms |\n", k, l.N, l.Errors, l.P50ms, l.P99ms, l.MaxMs)
+		p("| %s | %d | %d | %.0f ms | %.0f ms | %.0f ms | %d (%d) |\n", k, l.N, l.Errors, l.P50ms, l.P99ms, l.MaxMs, l.Slow, l.SlowIO)
 	}
 	d := r.Desktop
 	p("\n**Desktop stand-in** (outside every agent)\n\n")
