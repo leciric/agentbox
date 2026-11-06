@@ -82,8 +82,17 @@ impl ChatView {
                 }
                 let list = client
                     .get::<Vec<MediaItem>>(&format!("/v1/agents/{project}/{name}/media"))
-                    .await
-                    .unwrap_or_default();
+                    .await;
+                // A list that couldn't be read is asked for again the next
+                // time the chat changes, rather than an empty card for good.
+                if list.as_ref().is_err_and(agentbox_api::client::unreachable) {
+                    this.update(cx, |this, _| {
+                        this.evidence.asked.remove(&r2);
+                    })
+                    .ok();
+                    return;
+                }
+                let list = list.unwrap_or_default();
                 let pages = client
                     .get::<Artifacts>(&format!("/v1/projects/{project}/artifacts"))
                     .await

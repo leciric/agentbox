@@ -74,6 +74,122 @@ pub async fn fetch(client: Client, item: MediaItem) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Look is how an item is shown, by its kind and file, as the Electron
+/// app's viewer does (MediaParts.tsx's ViewerBody and Thumbnail).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Look {
+    /// A picture: a screenshot, or a file that is an image.
+    Picture,
+    /// A recording, in the player.
+    Video,
+    /// A report that is a folder: its entry page (an HTML report), framed.
+    Page(String),
+    /// A note: its text, which the item carries.
+    Note,
+    /// Anything else, read as text: a log, a one-file report, a file.
+    Text,
+}
+
+/// The picture formats the app draws (GPUI's): what a file must be to be
+/// shown as a picture rather than read as text.
+const PICTURES: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
+
+/// is_picture says a file is an image the app can draw, by its MIME type or
+/// else its extension.
+pub fn is_picture(m: &MediaItem) -> bool {
+    let ext = m
+        .file
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    match m.mime.split(';').next().unwrap_or("").trim() {
+        "" => PICTURES.contains(&ext.as_str()),
+        mime => mime
+            .strip_prefix("image/")
+            .is_some_and(|t| PICTURES.contains(&t) || t == "svg+xml"),
+    }
+}
+
+/// look is how an item is shown.
+pub fn look(m: &MediaItem) -> Look {
+    match m.kind.as_str() {
+        "screenshot" => Look::Picture,
+        "recording" => Look::Video,
+        "note" => Look::Note,
+        "report" if !m.meta.entry.is_empty() => Look::Page(m.meta.entry.clone()),
+        _ if !m.file.is_empty() && is_picture(m) => Look::Picture,
+        _ => Look::Text,
+    }
+}
+
+/// page_path is where a folder report's page is read from by a webview:
+/// agentbox://localhost/media/<id>/<path>, which webview.rs serves from
+/// GET /v1/media/<id>/file?path=<path>, so the page's relative links (its
+/// stylesheets, scripts and pictures) are read from the same folder, as
+/// the Electron app's agentbox-media://media/<id>/<path> protocol does.
+pub fn page_path(m: &MediaItem, entry: &str) -> String {
+    let enc = |s: &str| -> String {
+        s.bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (b as char).to_string()
+                }
+                _ => format!("%{b:02X}"),
+            })
+            .collect()
+    };
+    let path: Vec<String> = entry.split('/').map(enc).collect();
+    format!("/media/{}/{}", enc(&m.id), path.join("/"))
+}
+
+/// media_route turns a page's /media/<id>/<path> into the daemon's path for
+/// that file of the item; any other path is the daemon's own.
+pub fn media_route(path: &str) -> String {
+    let Some(rest) = path.strip_prefix("/media/") else {
+        return path.to_string();
+    };
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    match rest.split_once('/') {
+        Some((id, sub)) if !sub.is_empty() => {
+            // The path is sent on as a query value: decoded, then encoded
+            // again as one.
+            let sub = percent_decode(sub);
+            let q: String = sub
+                .bytes()
+                .map(|b| match b {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                        (b as char).to_string()
+                    }
+                    _ => format!("%{b:02X}"),
+                })
+                .collect();
+            format!("/v1/media/{id}/file?path={q}")
+        }
+        _ => format!("/v1/media/{}/file", rest.trim_end_matches('/')),
+    }
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && b[i + 1].is_ascii_hexdigit()
+            && b[i + 2].is_ascii_hexdigit()
+            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(v);
+            i += 3;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// ms is an RFC 3339 time in milliseconds since the epoch.
 pub fn ms(time: &str) -> i64 {
     chrono::DateTime::parse_from_rfc3339(time).map_or(0, |t| t.timestamp_millis())
@@ -352,6 +468,51 @@ fn chapters(rec: &MediaItem, notes: &[&MediaItem], shots: &[&MediaItem]) -> Vec<
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn each_kind_is_shown_as_the_electron_viewer_shows_it() {
+        let mut m = item("m1", "log", "build", "2026-11-06T10:00:00Z");
+        m.file = "build.log".into();
+        assert_eq!(look(&m), Look::Text);
+        m.kind = "file".into();
+        m.file = "diagram.png".into();
+        m.mime = "image/png".into();
+        assert_eq!(look(&m), Look::Picture);
+        m.mime = String::new();
+        m.file = "photo.JPG".into();
+        assert_eq!(look(&m), Look::Picture);
+        m.file = "notes.txt".into();
+        m.mime = "text/plain".into();
+        assert_eq!(look(&m), Look::Text);
+        m.kind = "report".into();
+        m.file = "playwright-report".into();
+        m.meta.entry = "index.html".into();
+        assert_eq!(look(&m), Look::Page("index.html".into()));
+        m.kind = "note".into();
+        assert_eq!(look(&m), Look::Note);
+    }
+
+    #[test]
+    fn a_report_page_reads_its_folder_through_the_file_route() {
+        let m = item("m 1", "report", "r", "2026-11-06T10:00:00Z");
+        assert_eq!(
+            page_path(&m, "data/index.html"),
+            "/media/m%201/data/index.html"
+        );
+        assert_eq!(
+            media_route("/media/m%201/data/index.html"),
+            "/v1/media/m%201/file?path=data/index.html"
+        );
+        assert_eq!(
+            media_route("/media/abc/a%20b.css?v=1"),
+            "/v1/media/abc/file?path=a%20b.css"
+        );
+        assert_eq!(media_route("/media/abc"), "/v1/media/abc/file");
+        assert_eq!(
+            media_route("/v1/projects/p/artifacts/x/page"),
+            "/v1/projects/p/artifacts/x/page"
+        );
+    }
+
     use super::*;
     use agentbox_api::MediaMeta;
 

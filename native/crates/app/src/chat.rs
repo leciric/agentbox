@@ -32,6 +32,19 @@ fn session_line(s: &ChatSession) -> String {
     tv(&key, &[("tool", (&tool_label(&s.tool)).into())])
 }
 
+/// A chat that isn't ready is asked for again this many times before it
+/// says so (lib/chat.ts's readyAttempts), and keeps being asked for after.
+const READY_TRIES: u32 = 6;
+
+/// ready_delay is the wait before the next try: 0.5 s doubling to 4 s
+/// (retryLoadDelay), then every 5 s (chatReadyRetryEvery).
+fn ready_delay(failures: u32) -> Duration {
+    if failures > READY_TRIES {
+        return Duration::from_secs(5);
+    }
+    Duration::from_millis((500u64 << failures.saturating_sub(1).min(3)).min(4000))
+}
+
 pub fn tool_label(tool: &str) -> String {
     match tool {
         "claude" | "" => "Claude Code",
@@ -164,6 +177,9 @@ pub struct ChatView {
     seq: i64,
     loaded: bool,
     error: Option<SharedString>,
+    /// page_load counts the pages asked for, so a load still retrying stops
+    /// once another has been asked for.
+    page_load: u64,
     list: ListState,
     composer: Composer,
     /// When the last unpainted chunk arrived, for bench's arrival-to-paint.
@@ -265,6 +281,7 @@ impl ChatView {
             seq: 0,
             loaded: false,
             error: None,
+            page_load: 0,
             list,
             composer,
             arrived: None,
@@ -379,10 +396,27 @@ impl ChatView {
             let client = self.client.clone();
             let path = format!("{}/chat/images/{id}", self.prefix);
             cx.spawn(async move |this, cx| {
-                let res = client
-                    .raw(agentbox_api::client::Method::GET, &path, None)
-                    .await;
+                // A picture that couldn't be read for a moment is read again,
+                // and one the daemon still couldn't be reached for is
+                // forgotten, to be asked for the next time the chat changes,
+                // rather than left a blank placeholder for good.
+                let mut failures = 0;
+                let res = loop {
+                    let res = client
+                        .raw(agentbox_api::client::Method::GET, &path, None)
+                        .await;
+                    match &res {
+                        Err(e) if failures < 4 && agentbox_api::client::not_ready(e) => {
+                            failures += 1;
+                            cx.background_executor().timer(ready_delay(failures)).await;
+                        }
+                        _ => break res,
+                    }
+                };
                 this.update(cx, |this, cx| {
+                    if res.as_ref().is_err_and(agentbox_api::client::unreachable) {
+                        this.images.remove(&id);
+                    }
                     if let Ok(bytes) = res {
                         let format = ImageFormat::from_mime_type(&mime).unwrap_or(ImageFormat::Png);
                         this.images.insert(
@@ -548,9 +582,49 @@ impl ChatView {
     /// window around a found item (reveal), scrolled to it.
     fn read_page(&mut self, path: String, reveal: Option<String>, cx: &mut Context<Self>) {
         let client = self.client.clone();
+        self.page_load += 1;
+        let load = self.page_load;
         cx.spawn(async move |this, cx| {
-            let res = client.get::<ChatThread>(&path).await;
+            // A chat asked for before the daemon has it ready (a session just
+            // made, a lead still starting: 404), or while it can't be reached
+            // (a connection refused or dropped, 503) is asked for again, as
+            // the Electron app's chat does (lib/chat.ts's chatReadyRetry):
+            // a few times, slowing down, then every few seconds while it's
+            // shown. Only then does it say why it can't load.
+            let mut failures = 0u32;
+            let res = loop {
+                let res = client.get::<ChatThread>(&path).await;
+                let Err(e) = &res else { break res };
+                if !agentbox_api::client::not_ready(e) {
+                    break res;
+                }
+                failures += 1;
+                let lost = agentbox_api::client::unreachable(e);
+                let more = this
+                    .update(cx, |this, cx| {
+                        if this.page_load != load {
+                            return false;
+                        }
+                        if failures >= READY_TRIES {
+                            this.error = Some(if lost {
+                                t("chat.connectionLost").into()
+                            } else {
+                                e.to_string().into()
+                            });
+                            cx.notify();
+                        }
+                        true
+                    })
+                    .unwrap_or(false);
+                if !more {
+                    return;
+                }
+                cx.background_executor().timer(ready_delay(failures)).await;
+            };
             this.update(cx, |this, cx| {
+                if this.page_load != load {
+                    return;
+                }
                 match res {
                     Ok(t) => {
                         this.agent = t.agent;

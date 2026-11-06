@@ -605,6 +605,8 @@ impl AppView {
             )
         };
         self.keep_draft(cx);
+        // The media viewer is over the chat that was shown, not this one.
+        self.close_media(cx);
         self.open = who;
         self.terminal = None;
         self.desktop = None;
@@ -1085,40 +1087,48 @@ impl Render for AppView {
                         },
                     )
                     .child(
-                        div().flex_1().min_h_0().child(match &self.chat {
-                            _ if self.cut_off() => self.render_unreachable(cx),
-                            _ if self.first_run_open() => self.render_first_run(cx),
-                            _ if self.settings => self.render_settings(cx),
-                            _ if self.work.is_some() => self.render_work(cx),
-                            _ if self.side.page.is_some() => self.render_foot_page(cx),
-                            Some(_) if lead_view && self.sessions.history => {
-                                self.render_history(cx)
-                            }
-                            Some(_) if no_session => self.render_no_session(cx),
-                            Some(_)
-                                if self.open != "lead"
-                                    && self.agent.page == Some(agent::Page::Snapshots) =>
-                            {
-                                self.render_snapshots(cx)
-                            }
-                            Some(_)
-                                if self.open != "lead"
-                                    && self.agent.page == Some(agent::Page::Settings) =>
-                            {
-                                self.render_agent_settings(cx)
-                            }
-                            Some(chat) => chat.clone().into_any_element(),
-                            None => div()
-                                .size_full()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_color(theme::faint())
-                                .when(self.projects.is_empty(), |el| {
-                                    el.child(t("shell.sidebar.addFirst"))
-                                })
-                                .into_any_element(),
-                        }),
+                        // The media viewer goes over whatever is shown here:
+                        // it opens from the Media page, an agent's panel and
+                        // a chat's evidence alike.
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_h_0()
+                            .child(match &self.chat {
+                                _ if self.cut_off() => self.render_unreachable(cx),
+                                _ if self.first_run_open() => self.render_first_run(cx),
+                                _ if self.settings => self.render_settings(cx),
+                                _ if self.work.is_some() => self.render_work(cx),
+                                _ if self.side.page.is_some() => self.render_foot_page(cx),
+                                Some(_) if lead_view && self.sessions.history => {
+                                    self.render_history(cx)
+                                }
+                                Some(_) if no_session => self.render_no_session(cx),
+                                Some(_)
+                                    if self.open != "lead"
+                                        && self.agent.page == Some(agent::Page::Snapshots) =>
+                                {
+                                    self.render_snapshots(cx)
+                                }
+                                Some(_)
+                                    if self.open != "lead"
+                                        && self.agent.page == Some(agent::Page::Settings) =>
+                                {
+                                    self.render_agent_settings(cx)
+                                }
+                                Some(chat) => chat.clone().into_any_element(),
+                                None => div()
+                                    .size_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_color(theme::faint())
+                                    .when(self.projects.is_empty(), |el| {
+                                        el.child(t("shell.sidebar.addFirst"))
+                                    })
+                                    .into_any_element(),
+                            })
+                            .children(self.render_media_viewer(cx)),
                     ),
             )
             .when(!full_page, |el| {
