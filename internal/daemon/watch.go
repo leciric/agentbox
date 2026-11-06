@@ -14,11 +14,6 @@ import (
 	"agentbox/internal/api"
 )
 
-// usageAwayEvery is how often the usage event goes out while no client shows
-// anything, or the computer is on battery or hot (presence.go), rather than
-// every tick: each one samples every agent's CPU for a second.
-const usageAwayEvery = 30 * time.Second
-
 // watch publishes agent state changes and resource samples, but only while
 // someone is subscribed to the event stream: the app always is.
 //
@@ -32,7 +27,6 @@ const usageAwayEvery = 30 * time.Second
 func (s *Server) watch(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	var usageAt time.Time
 	var last *agent.UsageSample
 	for {
 		select {
@@ -44,14 +38,6 @@ func (s *Server) watch(ctx context.Context) {
 			last = nil // a rate over the time nobody watched isn't worth showing
 			continue
 		}
-		if s.presence.away() && time.Since(usageAt) < usageAwayEvery {
-			// Agent state still follows every tick; the usage sample (a second
-			// of CPU measuring) waits, and its rate restarts from nothing.
-			s.refreshAgents(ctx)
-			last = nil
-			continue
-		}
-		usageAt = time.Now()
 		last = s.watchOnce(ctx, last)
 	}
 }
