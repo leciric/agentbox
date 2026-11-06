@@ -786,7 +786,7 @@ impl AppView {
                 )),
         );
         match &s.list {
-            None => body = body.child(super::panel::note(t("common.loading"))),
+            None => body = body.child(super::panel::loading("schedules")),
             Some(Err(e)) => body = body.child(controls::note_in(e.clone(), theme::error())),
             Some(Ok(list)) if list.is_empty() => {
                 body = body.child(
@@ -1250,13 +1250,10 @@ impl AppView {
                                     .rounded_md()
                                     .text_xs()
                                     .border_1()
-                                    .border_color(if on {
-                                        theme::accent()
-                                    } else {
-                                        theme::line()
-                                    })
+                                    .border_color(if on { theme::accent() } else { theme::line() })
                                     .when(on, |el| {
-                                        el.bg(theme::accent().opacity(0.2)).text_color(theme::primary())
+                                        el.bg(theme::accent().opacity(0.2))
+                                            .text_color(theme::primary())
                                     })
                                     .when(!on, |el| el.text_color(theme::muted()))
                                     .cursor_pointer()
@@ -1445,7 +1442,9 @@ impl AppView {
                                 .text_xs()
                                 .text_color(theme::muted())
                                 .cursor_pointer()
-                                .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
+                                .hover(|s| {
+                                    s.bg(theme::surface_strong()).text_color(theme::primary())
+                                })
                                 .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                                     this.open_schedule_dialog(None, Some(i), w, cx)
                                 }))

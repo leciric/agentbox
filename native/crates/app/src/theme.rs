@@ -10,6 +10,10 @@
 //! (and a window colour), from which the brand's ramp is derived exactly as
 //! lib/theme.ts's `palette` derives it. Every role function reads the palette
 //! worn now, so a window refresh repaints in it.
+// The palette is styles.css's whole: a role nothing draws in yet stays, so
+// the next screen asks for it by name instead of writing a colour.
+#![allow(dead_code)]
+
 use std::sync::RwLock;
 
 use gpui::{App, BoxShadow, Hsla, Pixels, SharedString, Window, point, px, rgba};
@@ -164,7 +168,13 @@ pub const DARK: Palette = Palette {
     on_bright: op(0x09090b),
 
     emerald: [op(0xa7f3d0), op(0x6ee7b7), op(0x34d399)],
-    amber: [op(0xfffbeb), op(0xfef3c7), op(0xfde68a), op(0xfcd34d), op(0xfbbf24)],
+    amber: [
+        op(0xfffbeb),
+        op(0xfef3c7),
+        op(0xfde68a),
+        op(0xfcd34d),
+        op(0xfbbf24),
+    ],
     rose: [op(0xffe4e6), op(0xfecdd3), op(0xfda4af), op(0xfb7185)],
     sky: [op(0xf0f9ff), op(0xbae6fd), op(0x7dd3fc), op(0x38bdf8)],
     violet: [op(0xc4b5fd), op(0xa78bfa)],
@@ -233,7 +243,13 @@ pub const LIGHT: Palette = Palette {
     on_inverted: op(0xfafafa),
 
     emerald: [op(0x065f46), op(0x047857), op(0x047857)],
-    amber: [op(0x451a03), op(0x78350f), op(0x92400e), op(0xb45309), op(0xb45309)],
+    amber: [
+        op(0x451a03),
+        op(0x78350f),
+        op(0x92400e),
+        op(0xb45309),
+        op(0xb45309),
+    ],
     rose: [op(0x881337), op(0x9f1239), op(0xbe123c), op(0xbe123c)],
     sky: [op(0x082f49), op(0x075985), op(0x0369a1), op(0x0369a1)],
     violet: [op(0x6d28d9), op(0x7c3aed)],
@@ -264,7 +280,13 @@ pub const DRACULA: Palette = Palette {
     on_inverted: op(0x282a36),
 
     emerald: [op(0x8afba5), op(0x50fa7b), op(0x50fa7b)],
-    amber: [op(0xfffbeb), op(0xfef3c7), op(0xf1fa8c), op(0xf1fa8c), op(0xffb86c)],
+    amber: [
+        op(0xfffbeb),
+        op(0xfef3c7),
+        op(0xf1fa8c),
+        op(0xf1fa8c),
+        op(0xffb86c),
+    ],
     rose: [op(0xffe4e6), op(0xff9a9a), op(0xff6e6e), op(0xff5555)],
     sky: [op(0xf0f9ff), op(0xa4ffff), op(0x8be9fd), op(0x8be9fd)],
     violet: [op(0xd6acff), op(0xbd93f9)],
@@ -323,8 +345,13 @@ pub fn palette_of(theme: &agentbox_api::Theme) -> Palette {
     };
     let accent = Rgb::from(accent);
     let light = theme.mode == "light";
-    let ground = parse_hex(&theme.background).map(|b| Rgb::from(b).mix(if light { WHITE } else { BLACK }, 0.35));
-    let behind = ground.unwrap_or(if light { Rgb(0xf4, 0xf4, 0xf6) } else { Rgb(0x07, 0x07, 0x0b) });
+    let ground = parse_hex(&theme.background)
+        .map(|b| Rgb::from(b).mix(if light { WHITE } else { BLACK }, 0.35));
+    let behind = ground.unwrap_or(if light {
+        Rgb(0xf4, 0xf4, 0xf6)
+    } else {
+        Rgb(0x07, 0x07, 0x0b)
+    });
     let text = if light { BLACK } else { WHITE };
     let shade = |amount: f32| op(accent.mix(text, amount).readable(behind, text).hex());
     let on_white = WHITE.contrast(accent);
@@ -345,7 +372,10 @@ pub fn palette_of(theme: &agentbox_api::Theme) -> Palette {
         },
         ink: ground.map(|g| op(g.hex())).unwrap_or(base.ink),
         wash_near: a(accent.hex(), if light { 0.12 } else { 0.16 }),
-        wash_far: a(accent.mix(if light { BLACK } else { WHITE }, 0.3).hex(), if light { 0.08 } else { 0.07 }),
+        wash_far: a(
+            accent.mix(if light { BLACK } else { WHITE }, 0.3).hex(),
+            if light { 0.08 } else { 0.07 },
+        ),
         selection: a(accent.hex(), if light { 0.28 } else { 0.35 }),
         brand_mid: op(accent.mix(BLACK, 0.28).hex()),
         brand_deep: op(accent.mix(BLACK, 0.42).hex()),
@@ -386,13 +416,21 @@ impl Rgb {
         (self.0 as u32) << 16 | (self.1 as u32) << 8 | self.2 as u32
     }
     fn mix(self, to: Rgb, amount: f32) -> Rgb {
-        let m = |f: u8, t: u8| (f as f32 + (t as f32 - f as f32) * amount).round().clamp(0., 255.) as u8;
+        let m = |f: u8, t: u8| {
+            (f as f32 + (t as f32 - f as f32) * amount)
+                .round()
+                .clamp(0., 255.) as u8
+        };
         Rgb(m(self.0, to.0), m(self.1, to.1), m(self.2, to.2))
     }
     fn luminance(self) -> f32 {
         let l = |v: u8| {
             let s = v as f32 / 255.;
-            if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+            if s <= 0.03928 {
+                s / 12.92
+            } else {
+                ((s + 0.055) / 1.055).powf(2.4)
+            }
         };
         0.2126 * l(self.0) + 0.7152 * l(self.1) + 0.0722 * l(self.2)
     }
@@ -579,9 +617,15 @@ pub fn label_grey() -> Hsla {
 /// hashed is a hue picked from a name (a skill's tag): a tint and its text.
 pub fn hashed(hue: f32) -> (Hsla, Hsla) {
     if look() == Look::Light {
-        (gpui::hsla(hue, 0.7, 0.5, 0.14), gpui::hsla(hue, 0.75, 0.32, 1.))
+        (
+            gpui::hsla(hue, 0.7, 0.5, 0.14),
+            gpui::hsla(hue, 0.75, 0.32, 1.),
+        )
     } else {
-        (gpui::hsla(hue, 0.8, 0.6, 0.22), gpui::hsla(hue, 0.9, 0.78, 1.))
+        (
+            gpui::hsla(hue, 0.8, 0.6, 0.22),
+            gpui::hsla(hue, 0.9, 0.78, 1.),
+        )
     }
 }
 
@@ -659,7 +703,11 @@ pub fn sky(shade: u16) -> Hsla {
 }
 pub fn violet(shade: u16) -> Hsla {
     let p = worn();
-    c(if shade == 300 { p.violet[0] } else { p.violet[1] })
+    c(if shade == 300 {
+        p.violet[0]
+    } else {
+        p.violet[1]
+    })
 }
 /// running is a working agent's green.
 pub fn running() -> Hsla {
@@ -704,14 +752,14 @@ pub fn shadow_pop() -> Vec<BoxShadow> {
             offset: point(px(0.), px(8.)),
             blur_radius: px(24.),
             spread_radius: px(-4.),
-        inset: false,
+            inset: false,
         },
         BoxShadow {
             color: c(worn().shadow_soft).opacity(0.5),
             offset: point(px(0.), px(1.)),
             blur_radius: px(3.),
             spread_radius: px(0.),
-        inset: false,
+            inset: false,
         },
     ]
 }
@@ -878,7 +926,10 @@ pub fn mono() -> &'static str {
 /// init registers the fonts and dresses gpui-component's widgets (inputs,
 /// menus, tooltips, buttons, scrollbars) in the palette worn now.
 pub fn init(cx: &mut App) {
-    let fonts = FONTS.iter().map(|f| std::borrow::Cow::Borrowed(*f)).collect();
+    let fonts = FONTS
+        .iter()
+        .map(|f| std::borrow::Cow::Borrowed(*f))
+        .collect();
     if let Err(e) = cx.text_system().add_fonts(fonts) {
         eprintln!("agentbox-native: fonts: {e}");
     }
@@ -890,7 +941,11 @@ pub fn init(cx: &mut App) {
 /// `apply` reports a change.
 pub fn sync_widgets(cx: &mut App) {
     use gpui_component::{Theme, ThemeMode};
-    let mode = if look() == Look::Light { ThemeMode::Light } else { ThemeMode::Dark };
+    let mode = if look() == Look::Light {
+        ThemeMode::Light
+    } else {
+        ThemeMode::Dark
+    };
     Theme::change(mode, None, cx);
     let t = Theme::global_mut(cx);
     t.font_family = SharedString::from(SANS);
@@ -946,7 +1001,13 @@ fn solid(color: Hsla) -> Hsla {
     let base = ink().to_rgb();
     let top = color.to_rgb();
     let m = |b: f32, t: f32| b + (t - b) * top.a;
-    gpui::Rgba { r: m(base.r, top.r), g: m(base.g, top.g), b: m(base.b, top.b), a: 1. }.into()
+    gpui::Rgba {
+        r: m(base.r, top.r),
+        g: m(base.g, top.g),
+        b: m(base.b, top.b),
+        a: 1.,
+    }
+    .into()
 }
 
 /// window_washes is the window's ground: ink with Electron's two washes in its
@@ -955,20 +1016,32 @@ pub fn window_washes(window: &Window) -> impl gpui::IntoElement {
     use gpui::{ParentElement, Styled, div};
     let w = window.viewport_size().width;
     let glow = |color: Hsla, size: Pixels| {
-        div().absolute().size(size).rounded_full().shadow(vec![BoxShadow {
-            color,
-            offset: point(px(0.), px(0.)),
-            blur_radius: size * 0.6,
-            spread_radius: size * 0.1,
-            inset: false,
-        }])
+        div()
+            .absolute()
+            .size(size)
+            .rounded_full()
+            .shadow(vec![BoxShadow {
+                color,
+                offset: point(px(0.), px(0.)),
+                blur_radius: size * 0.6,
+                spread_radius: size * 0.1,
+                inset: false,
+            }])
     };
     div()
         .absolute()
         .inset_0()
         .overflow_hidden()
-        .child(glow(wash_near(), px(520.)).left(px(-260.) - w * 0.08).top(px(-380.)))
-        .child(glow(wash_far(), px(420.)).left(w * 1.08 - px(210.)).top(px(-320.)))
+        .child(
+            glow(wash_near(), px(520.))
+                .left(px(-260.) - w * 0.08)
+                .top(px(-380.)),
+        )
+        .child(
+            glow(wash_far(), px(420.))
+                .left(w * 1.08 - px(210.))
+                .top(px(-320.)),
+        )
 }
 
 #[cfg(test)]
@@ -1002,7 +1075,10 @@ mod tests {
         assert_eq!(LIGHT.primary, 0x18181bff);
         assert_eq!(LIGHT.chat, 0xfafafbff);
         assert_eq!(DRACULA.chat, 0x282a36ff);
-        assert_eq!(DRACULA.ink, DARK.ink, "Dracula's window comes from its theme");
+        assert_eq!(
+            DRACULA.ink, DARK.ink,
+            "Dracula's window comes from its theme"
+        );
     }
 
     /// A followed theme's ramp is lib/theme.ts's: its 500 is the accent, its
@@ -1025,7 +1101,11 @@ mod tests {
         for s in &p.brand[..4] {
             assert!(Rgb::from(s >> 8).contrast(ink) >= 4.5);
         }
-        assert_eq!(p.on_brand, op(NEAR_BLACK.hex()), "white doesn't read on a pale blue");
+        assert_eq!(
+            p.on_brand,
+            op(NEAR_BLACK.hex()),
+            "white doesn't read on a pale blue"
+        );
         assert_eq!(p.title, DARK.title, "the text ramp is the look's own");
     }
 }

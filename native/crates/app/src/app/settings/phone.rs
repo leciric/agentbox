@@ -883,7 +883,8 @@ impl AppView {
                                 theme::line()
                             })
                             .when(on, |el| {
-                                el.bg(theme::accent().opacity(0.15)).text_color(theme::primary())
+                                el.bg(theme::accent().opacity(0.15))
+                                    .text_color(theme::primary())
                             })
                             .when(!on, |el| el.text_color(theme::faint()).line_through())
                             .cursor_pointer()

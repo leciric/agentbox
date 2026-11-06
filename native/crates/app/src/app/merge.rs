@@ -204,71 +204,74 @@ pub fn confirm(
         .collect();
     let cancel = Rc::new(on_cancel);
     let backdrop = cancel.clone();
-    crate::motion::scrim_in(div()
-        .id("merge-confirm")
-        .absolute()
-        .inset_0()
-        .bg(theme::scrim())
-        .flex()
-        .items_center()
-        .justify_center()
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
-        .child(
-            v_flex()
-                .id("merge-confirm-card")
-                .w(px(460.))
-                .max_w(relative(0.92))
-                .gap_4()
-                .p_6()
-                .rounded_xl()
-                .bg(theme::card())
-                .border_1()
-                .border_color(theme::line())
-                .shadow_lg()
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::primary())
-                        .child(tv(
-                            "memory.pulls.confirm.title",
-                            &[("number", pr.number.into())],
-                        )),
-                )
-                .child(div().text_sm().text_color(theme::muted()).child(body))
-                .child(controls::labeled(
-                    t("memory.pulls.method"),
-                    controls::select_at(
-                        "merge-confirm-method",
-                        choices,
-                        &c.method,
-                        false,
-                        on_method,
-                        Anchor::TopLeft,
+    crate::motion::scrim_in(
+        div()
+            .id("merge-confirm")
+            .absolute()
+            .inset_0()
+            .bg(theme::scrim())
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
+            .child(
+                v_flex()
+                    .id("merge-confirm-card")
+                    .w(px(460.))
+                    .max_w(relative(0.92))
+                    .gap_4()
+                    .p_6()
+                    .rounded_xl()
+                    .bg(theme::card())
+                    .border_1()
+                    .border_color(theme::line())
+                    .shadow_lg()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::primary())
+                            .child(tv(
+                                "memory.pulls.confirm.title",
+                                &[("number", pr.number.into())],
+                            )),
+                    )
+                    .child(div().text_sm().text_color(theme::muted()).child(body))
+                    .child(controls::labeled(
+                        t("memory.pulls.method"),
+                        controls::select_at(
+                            "merge-confirm-method",
+                            choices,
+                            &c.method,
+                            false,
+                            on_method,
+                            Anchor::TopLeft,
+                        ),
+                    ))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .justify_end()
+                            .child(controls::button(
+                                "merge-confirm-cancel",
+                                t("common.cancel"),
+                                Btn::Ghost,
+                                false,
+                                move |_, w, cx| cancel(w, cx),
+                            ))
+                            .child(controls::button(
+                                "merge-confirm-go",
+                                t("memory.pulls.merge"),
+                                Btn::Primary,
+                                false,
+                                on_confirm,
+                            )),
                     ),
-                ))
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .justify_end()
-                        .child(controls::button(
-                            "merge-confirm-cancel",
-                            t("common.cancel"),
-                            Btn::Ghost,
-                            false,
-                            move |_, w, cx| cancel(w, cx),
-                        ))
-                        .child(controls::button(
-                            "merge-confirm-go",
-                            t("memory.pulls.merge"),
-                            Btn::Primary,
-                            false,
-                            on_confirm,
-                        )),
-                ),
-        ), "idmerge-confirm-in")
-        .into_any_element()
+            ),
+        "idmerge-confirm-in",
+    )
+    .into_any_element()
 }
 
 #[cfg(test)]

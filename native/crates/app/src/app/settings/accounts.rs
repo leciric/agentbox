@@ -1548,7 +1548,11 @@ impl AppView {
                             .gap_2()
                             .child(note_in(
                                 words,
-                                if running { theme::muted() } else { theme::primary() },
+                                if running {
+                                    theme::muted()
+                                } else {
+                                    theme::primary()
+                                },
                             ))
                             .when_some(url.clone().filter(|_| running), |el, url| {
                                 el.child(button(
@@ -1746,7 +1750,11 @@ impl AppView {
                             .gap_2()
                             .child(note_in(
                                 words,
-                                if running { theme::muted() } else { theme::primary() },
+                                if running {
+                                    theme::muted()
+                                } else {
+                                    theme::primary()
+                                },
                             ))
                             .when(!running && s.status != "succeeded", |el| {
                                 el.child(button(

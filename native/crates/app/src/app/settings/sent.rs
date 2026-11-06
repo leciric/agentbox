@@ -292,63 +292,66 @@ impl AppView {
             cx.notify();
         });
         Some(
-            crate::motion::scrim_in(div()
-                .id("usage-sent")
-                .absolute()
-                .inset_0()
-                .occlude()
-                .bg(theme::scrim())
-                .flex()
-                .items_center()
-                .justify_center()
-                .on_mouse_down(MouseButton::Left, close)
-                .child(
-                    v_flex()
-                        .id("usage-sent-card")
-                        .w(px(672.))
-                        .max_w(relative(0.92))
-                        .max_h(relative(0.85))
-                        .gap_3()
-                        .p_5()
-                        .rounded_xl()
-                        .bg(theme::card())
-                        .border_1()
-                        .border_color(theme::line())
-                        .shadow_lg()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(
-                            div()
-                                .text_lg()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(t("settings.usageStats.sentTitle")),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(theme::muted())
-                                .child(t("settings.usageStats.sentDescription")),
-                        )
-                        .child(
-                            v_flex()
-                                .id("usage-sent-body")
-                                .flex_1()
-                                .min_h_0()
-                                .overflow_y_scroll()
-                                .gap_3()
-                                .children(body),
-                        )
-                        .child(h_flex().justify_end().child(button(
-                            "usage-sent-close",
-                            t("common.close"),
-                            Btn::Ghost,
-                            false,
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.settings_page.sent.pending = None;
-                                cx.notify();
-                            }),
-                        ))),
-                ), "idusage-sent-in")
-                .into_any_element(),
+            crate::motion::scrim_in(
+                div()
+                    .id("usage-sent")
+                    .absolute()
+                    .inset_0()
+                    .occlude()
+                    .bg(theme::scrim())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .on_mouse_down(MouseButton::Left, close)
+                    .child(
+                        v_flex()
+                            .id("usage-sent-card")
+                            .w(px(672.))
+                            .max_w(relative(0.92))
+                            .max_h(relative(0.85))
+                            .gap_3()
+                            .p_5()
+                            .rounded_xl()
+                            .bg(theme::card())
+                            .border_1()
+                            .border_color(theme::line())
+                            .shadow_lg()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(t("settings.usageStats.sentTitle")),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme::muted())
+                                    .child(t("settings.usageStats.sentDescription")),
+                            )
+                            .child(
+                                v_flex()
+                                    .id("usage-sent-body")
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_y_scroll()
+                                    .gap_3()
+                                    .children(body),
+                            )
+                            .child(h_flex().justify_end().child(button(
+                                "usage-sent-close",
+                                t("common.close"),
+                                Btn::Ghost,
+                                false,
+                                cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.settings_page.sent.pending = None;
+                                    cx.notify();
+                                }),
+                            ))),
+                    ),
+                "idusage-sent-in",
+            )
+            .into_any_element(),
         )
     }
 }

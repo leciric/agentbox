@@ -1394,7 +1394,9 @@ impl ReviewView {
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme::faint())
                                 .cursor_pointer()
-                                .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
+                                .hover(|s| {
+                                    s.bg(theme::surface_strong()).text_color(theme::primary())
+                                })
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.report_open = !this.report_open;
                                     cx.notify();
@@ -1950,7 +1952,10 @@ impl ReviewView {
                             .text_xs()
                             .font_weight(FontWeight::MEDIUM)
                             .cursor_pointer()
-                            .when(on, |el| el.bg(theme::tint(theme::dracula_hue(theme::dracula::PINK), 0.2)).text_color(theme::primary()))
+                            .when(on, |el| {
+                                el.bg(theme::tint(theme::dracula_hue(theme::dracula::PINK), 0.2))
+                                    .text_color(theme::primary())
+                            })
                             .when(!on, |el| {
                                 el.text_color(theme::muted())
                                     .hover(|s| s.bg(theme::surface_strong()))
@@ -2269,7 +2274,11 @@ impl ReviewView {
             Some(Ok(_)) if self.gallery.is_empty() => v_flex()
                 .p_6()
                 .gap_1()
-                .child(div().text_color(theme::primary()).child(t("review.noProof")))
+                .child(
+                    div()
+                        .text_color(theme::primary())
+                        .child(t("review.noProof")),
+                )
                 .child(
                     div()
                         .text_sm()

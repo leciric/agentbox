@@ -102,7 +102,8 @@ pub fn grid(id: &str, header: &[String], rows: &[Vec<String>]) -> AnyElement {
             .border_color(theme::line())
             .when(num, |el| el.text_right().font_family(theme::mono()))
             .when(head, |el| {
-                el.font_weight(FontWeight::SEMIBOLD).text_color(theme::primary())
+                el.font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::primary())
             })
             .child(text)
     };

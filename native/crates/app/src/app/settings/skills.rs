@@ -1048,7 +1048,12 @@ impl AppView {
                                             .border_1()
                                             .border_color(theme::line())
                                             .child(mono(k))
-                                            .child(div().text_xs().text_color(theme::primary()).child(v))
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(theme::primary())
+                                                    .child(v),
+                                            )
                                     }),
                                 ))
                             }),
@@ -1180,7 +1185,8 @@ impl AppView {
                                         .font_family(crate::theme::mono())
                                         .cursor_pointer()
                                         .when(active, |el| {
-                                            el.bg(theme::surface_raised()).text_color(theme::primary())
+                                            el.bg(theme::surface_raised())
+                                                .text_color(theme::primary())
                                         })
                                         .when(!active, |el| {
                                             el.text_color(theme::muted())

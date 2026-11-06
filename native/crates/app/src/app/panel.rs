@@ -1137,7 +1137,11 @@ impl AppView {
             .rounded_md()
             .text_sm()
             .cursor_pointer()
-            .text_color(if open { theme::primary() } else { theme::muted() })
+            .text_color(if open {
+                theme::primary()
+            } else {
+                theme::muted()
+            })
             .when(open, |el| el.bg(theme::surface_raised()))
             .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
@@ -1180,7 +1184,9 @@ impl AppView {
                     .h(px(28.))
                     .gap_1p5()
                     .when(on, |el| {
-                        el.px_2p5().bg(theme::surface_raised()).text_color(theme::primary())
+                        el.px_2p5()
+                            .bg(theme::surface_raised())
+                            .text_color(theme::primary())
                     })
                     .when(!on, |el| {
                         el.w(px(28.))
@@ -1505,7 +1511,15 @@ impl AppView {
                         })
                         .build(w, cx)
                     })
-                    .child(monitor(&a.r#ref, &a.ai, r.st, a.state == "running", None, false, r.finished)),
+                    .child(monitor(
+                        &a.r#ref,
+                        &a.ai,
+                        r.st,
+                        a.state == "running",
+                        None,
+                        false,
+                        r.finished,
+                    )),
             )
             .child(
                 v_flex()
@@ -1703,13 +1717,13 @@ impl AppView {
     pub(super) fn render_files(&self) -> AnyElement {
         match &self.panel.files {
             Some(f) => f.clone().into_any_element(),
-            None => note(t("common.loading")),
+            None => loading("panel"),
         }
     }
 
     fn render_agent_view(&self, r: &str, cx: &mut Context<Self>) -> AnyElement {
         let Some(a) = self.agent_by_ref(r).cloned() else {
-            return note(t("common.loading"));
+            return loading("panel");
         };
         let view = self.panel.view_of(r);
         if view.machine() && st::asleep(&a.state) {
@@ -1719,7 +1733,7 @@ impl AppView {
             PView::Desktop => self.render_desktop(&a, cx),
             PView::Terminal => match &self.terminal {
                 Some(t) => div().size_full().child(t.clone()).into_any_element(),
-                None => note(t("common.loading")),
+                None => loading("panel"),
             },
             PView::Files => self.render_files(),
             PView::Evidence => self.render_evidence(Some(&a), cx),
@@ -2189,7 +2203,7 @@ impl AppView {
         let lead = agent.is_none();
         let name = agent.map(|a| a.name.clone()).unwrap_or_default();
         match &self.panel.media {
-            None => return note(t("common.loading")),
+            None => return loading("panel"),
             Some(Err(e)) => return note(e.clone()),
             _ => {}
         }
@@ -2277,7 +2291,7 @@ impl AppView {
                         .h(px(335.))
                         .object_fit(ObjectFit::Contain)
                         .into_any_element(),
-                    None => note(t("common.loading")),
+                    None => loading("panel"),
                 }
             };
             v_flex()
@@ -2497,7 +2511,7 @@ impl AppView {
                     .w_full()
                     .object_fit(ObjectFit::Contain)
                     .into_any_element(),
-                None => note(t("common.loading")),
+                None => loading("panel"),
             }
         } else {
             div()
@@ -2564,10 +2578,7 @@ impl AppView {
                 .h(px(335.))
                 .child(p.clone())
                 .into_any_element(),
-            _ => div()
-                .h(px(335.))
-                .child(note(t("common.loading")))
-                .into_any_element(),
+            _ => div().h(px(335.)).child(loading("panel")).into_any_element(),
         }
     }
 
@@ -2595,10 +2606,10 @@ impl AppView {
     /// render_timeline is what the agent did, step by step (TimelinePanel).
     pub(super) fn render_timeline(&self, r: &str) -> AnyElement {
         let Some((of, res)) = &self.panel.timeline else {
-            return note(t("common.loading"));
+            return loading("panel");
         };
         if of != r {
-            return note(t("common.loading"));
+            return loading("panel");
         }
         let tl = match res {
             Ok(tl) => tl,
@@ -2883,6 +2894,12 @@ fn count_pill(n: usize) -> AnyElement {
         .text_color(theme::muted())
         .child(n.to_string())
         .into_any_element()
+}
+
+/// loading is what stands where a list will be while it loads: rows of
+/// skeletons shimmering softly, rather than a word.
+pub(super) fn loading(id: &str) -> AnyElement {
+    crate::motion::skeleton_rows(id, 3).into_any_element()
 }
 
 pub(super) fn note(text: String) -> AnyElement {

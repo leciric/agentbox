@@ -772,7 +772,11 @@ impl ChatView {
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_color(if shine { theme::primary() } else { theme::faint() })
+                        .text_color(if shine {
+                            theme::primary()
+                        } else {
+                            theme::faint()
+                        })
                         .child(label),
                 )
                 .when_some(extra, |el, e| {
@@ -1272,17 +1276,13 @@ impl ChatView {
                         }),
                 )
                 .child(
-                    div()
-                        .pl_3()
-                        .border_l_2()
-                        .border_color(theme::line())
-                        .child(
-                            TextView::markdown(
-                                SharedString::from(format!("md-{}", it.id)),
-                                it.text.clone(),
-                            )
-                            .text_color(theme::muted()),
-                        ),
+                    div().pl_3().border_l_2().border_color(theme::line()).child(
+                        TextView::markdown(
+                            SharedString::from(format!("md-{}", it.id)),
+                            it.text.clone(),
+                        )
+                        .text_color(theme::muted()),
+                    ),
                 )
                 .into_any_element();
         }
@@ -1594,7 +1594,11 @@ impl ChatView {
                 )
                 .child(
                     div()
-                        .text_color(if waiting { theme::primary() } else { theme::muted() })
+                        .text_color(if waiting {
+                            theme::primary()
+                        } else {
+                            theme::muted()
+                        })
                         .child(p.title.clone()),
                 )
                 .when(!detail.is_empty() && !p.title.contains(&detail), |el| {
@@ -1662,7 +1666,11 @@ impl ChatView {
                     } else {
                         theme::surface_strong()
                     })
-                    .text_color(if primary { theme::on_brand() } else { theme::primary() })
+                    .text_color(if primary {
+                        theme::on_brand()
+                    } else {
+                        theme::primary()
+                    })
                     .when(sending, |el| el.opacity(0.5))
                     .when(!sending, |el| {
                         el.cursor_pointer().on_click(move |_, _, cx| {

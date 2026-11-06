@@ -36,7 +36,11 @@ pub fn toggle(
         .rounded_full()
         .flex()
         .when(on, |el| el.justify_end())
-        .bg(if on { theme::accent() } else { theme::surface_strong() })
+        .bg(if on {
+            theme::accent()
+        } else {
+            theme::surface_strong()
+        })
         .border_1()
         .border_color(if on { theme::accent() } else { theme::line() })
         .when(disabled, |el| el.opacity(0.5))
@@ -326,7 +330,11 @@ pub fn stepper(
             .items_center()
             .justify_center()
             .rounded_md()
-            .text_color(if usable { theme::primary() } else { theme::faint() })
+            .text_color(if usable {
+                theme::primary()
+            } else {
+                theme::faint()
+            })
             .when(usable, |el| {
                 el.cursor_pointer()
                     .hover(|s| s.bg(theme::surface_strong()))

@@ -145,21 +145,22 @@ impl Render for Toasts {
                     Kind::Error => ("✕", theme::error()),
                     Kind::Info => ("•", theme::muted()),
                 };
-                h_flex()
+                let burst = (toast.kind == Kind::Success).then(theme::running);
+                let el = h_flex()
                     .id(("toast", id))
                     .items_start()
                     .gap_2p5()
                     .px_4()
                     .py_3()
                     .rounded(px(14.))
-                    .bg(theme::surface_raised())
+                    .bg(theme::card())
                     .border_1()
                     .border_color(if toast.kind == Kind::Error {
                         theme::error().opacity(0.5)
                     } else {
                         theme::line()
                     })
-                    .shadow_lg()
+                    .shadow(theme::shadow_pop())
                     // A click on it stays on it, never reaching what's under.
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
@@ -222,7 +223,8 @@ impl Render for Toasts {
                                 }),
                             )
                             .child(crate::icons::of("✕")),
-                    )
+                    );
+                crate::motion::toast_in(el, ("toast-in", id), burst)
             }))
             .into_any_element()
     }

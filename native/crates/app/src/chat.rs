@@ -317,7 +317,8 @@ impl ChatView {
         // What's new past the old end, once there was something: arrivals.
         if !old.is_empty() && suf == 0 && new.len() > old.len().max(pre) {
             let now = std::time::Instant::now();
-            self.entering.retain(|_, t| now.duration_since(*t).as_secs() < 2);
+            self.entering
+                .retain(|_, t| now.duration_since(*t).as_secs() < 2);
             for r in &new[pre.max(old.len())..] {
                 self.entering.entry(r.key.clone()).or_insert(now);
             }
@@ -976,12 +977,8 @@ impl Render for ChatView {
                             div()
                                 .absolute()
                                 .inset_0()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_sm()
-                                .text_color(theme::faint())
-                                .child(t("chat.tab.loading")),
+                                .bg(theme::chat())
+                                .child(crate::motion::skeleton_chat("chat-loading")),
                         )
                     })
                     .children(self.render_jump(cx)),

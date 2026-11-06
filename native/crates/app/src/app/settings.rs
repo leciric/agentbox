@@ -1047,7 +1047,9 @@ impl AppView {
                 .rounded_lg()
                 .text_sm()
                 .cursor_pointer()
-                .when(active, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                .when(active, |el| {
+                    el.bg(theme::surface_raised()).text_color(theme::primary())
+                })
                 .when(!active, |el| {
                     el.text_color(theme::muted())
                         .hover(|st| st.bg(theme::card()).text_color(theme::primary()))

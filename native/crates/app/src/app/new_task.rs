@@ -110,106 +110,109 @@ impl AppView {
         let task = self.new_task.as_ref()?;
         let choices = self.new_task_choices(cx);
         Some(
-            crate::motion::scrim_in(div()
-                .id("new-task")
-                .absolute()
-                .inset_0()
-                .bg(theme::scrim())
-                .flex()
-                .justify_center()
-                .pt(px(120.))
-                .on_key_down(cx.listener(Self::on_new_task_key))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.new_task = None;
-                        cx.notify();
-                    }),
-                )
-                .child(
-                    v_flex()
-                        .id("new-task-card")
-                        .w(px(520.))
-                        .max_h(px(480.))
-                        .p_4()
-                        .gap_3()
-                        .rounded_xl()
-                        .bg(theme::card())
-                        .border_1()
-                        .border_color(theme::line())
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(
-                            div()
-                                .text_color(theme::primary())
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(t("v2.newTask.title")),
-                        )
-                        .child(Input::new(&task.search))
-                        .child(
-                            v_flex()
-                                .id("new-task-list")
-                                .overflow_y_scroll()
-                                .when(choices.is_empty(), |el| {
-                                    el.child(
-                                        div()
-                                            .p_2()
-                                            .text_sm()
-                                            .text_color(theme::faint())
-                                            .child(t("v2.newTask.none")),
-                                    )
-                                })
-                                .children(choices.into_iter().enumerate().map(
-                                    |(i, (name, label))| {
-                                        let on = i == task.selected;
-                                        h_flex()
-                                            .id(SharedString::from(format!("nt-{name}")))
-                                            .px_2()
-                                            .py_1p5()
-                                            .gap_3()
-                                            .rounded_md()
-                                            .cursor_pointer()
-                                            .when(on, |el| el.bg(theme::surface_strong()))
-                                            .hover(|el| el.bg(theme::surface_raised()))
-                                            .on_click(cx.listener(
-                                                move |this, _: &ClickEvent, window, cx| {
-                                                    this.pick_new_task(Some(i), window, cx)
-                                                },
-                                            ))
-                                            .child(
-                                                div()
-                                                    .w_4()
-                                                    .text_xs()
-                                                    .text_color(theme::faint())
-                                                    .child(if i < 9 {
-                                                        (i + 1).to_string()
-                                                    } else {
-                                                        String::new()
-                                                    }),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_sm()
-                                                    .text_color(if on {
-                                                        theme::primary()
-                                                    } else {
-                                                        theme::muted()
-                                                    })
-                                                    .child(label),
-                                            )
-                                    },
-                                )),
-                        )
-                        .child(
-                            h_flex()
-                                .gap_4()
-                                .text_xs()
-                                .text_color(theme::faint())
-                                .child(t("v2.newTask.hintMove"))
-                                .child(t("v2.newTask.hintOpen"))
-                                .child(t("v2.newTask.hintDigit")),
-                        ),
-                ), "idnew-task-in")
-                .into_any_element(),
+            crate::motion::scrim_in(
+                div()
+                    .id("new-task")
+                    .absolute()
+                    .inset_0()
+                    .bg(theme::scrim())
+                    .flex()
+                    .justify_center()
+                    .pt(px(120.))
+                    .on_key_down(cx.listener(Self::on_new_task_key))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.new_task = None;
+                            cx.notify();
+                        }),
+                    )
+                    .child(
+                        v_flex()
+                            .id("new-task-card")
+                            .w(px(520.))
+                            .max_h(px(480.))
+                            .p_4()
+                            .gap_3()
+                            .rounded_xl()
+                            .bg(theme::card())
+                            .border_1()
+                            .border_color(theme::line())
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(
+                                div()
+                                    .text_color(theme::primary())
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(t("v2.newTask.title")),
+                            )
+                            .child(Input::new(&task.search))
+                            .child(
+                                v_flex()
+                                    .id("new-task-list")
+                                    .overflow_y_scroll()
+                                    .when(choices.is_empty(), |el| {
+                                        el.child(
+                                            div()
+                                                .p_2()
+                                                .text_sm()
+                                                .text_color(theme::faint())
+                                                .child(t("v2.newTask.none")),
+                                        )
+                                    })
+                                    .children(choices.into_iter().enumerate().map(
+                                        |(i, (name, label))| {
+                                            let on = i == task.selected;
+                                            h_flex()
+                                                .id(SharedString::from(format!("nt-{name}")))
+                                                .px_2()
+                                                .py_1p5()
+                                                .gap_3()
+                                                .rounded_md()
+                                                .cursor_pointer()
+                                                .when(on, |el| el.bg(theme::surface_strong()))
+                                                .hover(|el| el.bg(theme::surface_raised()))
+                                                .on_click(cx.listener(
+                                                    move |this, _: &ClickEvent, window, cx| {
+                                                        this.pick_new_task(Some(i), window, cx)
+                                                    },
+                                                ))
+                                                .child(
+                                                    div()
+                                                        .w_4()
+                                                        .text_xs()
+                                                        .text_color(theme::faint())
+                                                        .child(if i < 9 {
+                                                            (i + 1).to_string()
+                                                        } else {
+                                                            String::new()
+                                                        }),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .text_color(if on {
+                                                            theme::primary()
+                                                        } else {
+                                                            theme::muted()
+                                                        })
+                                                        .child(label),
+                                                )
+                                        },
+                                    )),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_4()
+                                    .text_xs()
+                                    .text_color(theme::faint())
+                                    .child(t("v2.newTask.hintMove"))
+                                    .child(t("v2.newTask.hintOpen"))
+                                    .child(t("v2.newTask.hintDigit")),
+                            ),
+                    ),
+                "idnew-task-in",
+            )
+            .into_any_element(),
         )
     }
 }

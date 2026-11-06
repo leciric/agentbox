@@ -213,7 +213,9 @@ impl AppView {
         self.widths.closing = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(std::time::Duration::from_millis(360)).await;
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(360))
+                .await;
             this.update(cx, |this, cx| {
                 if !this.widths.drawer {
                     this.widths.closing = false;
@@ -283,7 +285,9 @@ impl AppView {
                 ))
                 .with_spring(
                     "panel-drawer-scrim-fade",
-                    SpringAnimation::new(crate::motion::GENTLE).to(open).from(false),
+                    SpringAnimation::new(crate::motion::GENTLE)
+                        .to(open)
+                        .from(false),
                     |el, phase| el.opacity(phase.0.clamp(0., 1.)),
                 )
                 .into_any_element(),

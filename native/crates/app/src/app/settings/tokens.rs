@@ -214,12 +214,7 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
         .border_1()
         .border_color(theme::line())
         .bg(theme::ink())
-        .child(
-            div()
-                .text_xs()
-                .text_color(theme::faint())
-                .child(label),
-        )
+        .child(div().text_xs().text_color(theme::faint()).child(label))
         .child(
             div()
                 .mt_1()
@@ -638,7 +633,11 @@ impl AppView {
                     .w(px(w))
                     .flex_none()
                     .when(right, |el| el.text_right())
-                    .text_color(if strong { theme::primary() } else { theme::muted() })
+                    .text_color(if strong {
+                        theme::primary()
+                    } else {
+                        theme::muted()
+                    })
                     .child(text)
             };
             let header = h_flex()
@@ -649,19 +648,9 @@ impl AppView {
                 .text_color(theme::faint())
                 .border_b_1()
                 .border_color(theme::line())
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(t("vm.tokens.when")),
-                )
+                .child(div().flex_1().min_w_0().child(t("vm.tokens.when")))
                 .child(cell(t("vm.tokens.tokens"), 80., true, false))
-                .child(cell(
-                    t("vm.tokens.cacheRead"),
-                    90.,
-                    true,
-                    false,
-                ))
+                .child(cell(t("vm.tokens.cacheRead"), 90., true, false))
                 .child(cell(t("vm.tokens.output"), 80., true, false))
                 .child(cell(t("vm.tokens.avgTPS"), 80., true, false))
                 .child(cell(t("vm.tokens.cost"), 70., true, false));
@@ -828,25 +817,14 @@ impl AppView {
     fn agents_table(&self, r: &TokenReport, cx: &mut Context<Self>) -> AnyElement {
         let tk = &self.settings_page.tokens;
         let top = r.agents.iter().map(|a| a.total).max().unwrap_or(1).max(1);
-        let head = |label: String, w: f32| {
-            div()
-                .w(px(w))
-                .flex_none()
-                .text_right()
-                .child(label)
-        };
+        let head = |label: String, w: f32| div().w(px(w)).flex_none().text_right().child(label);
         let header = h_flex()
             .px_3()
             .py_1p5()
             .gap_2()
             .text_xs()
             .text_color(theme::faint())
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(t("vm.tokens.agent")),
-            )
+            .child(div().flex_1().min_w_0().child(t("vm.tokens.agent")))
             .child(head(t("vm.tokens.tokens"), 140.))
             .child(head(t("vm.tokens.cacheRead"), 56.))
             .child(head(t("vm.tokens.avgTPS"), 72.))

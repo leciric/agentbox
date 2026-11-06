@@ -1374,7 +1374,10 @@ impl AppView {
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(if on { theme::primary() } else { theme::muted() })
                         .cursor_pointer()
-                        .hover(|el| el.text_color(theme::primary()).border_color(theme::accent()))
+                        .hover(|el| {
+                            el.text_color(theme::primary())
+                                .border_color(theme::accent())
+                        })
                         .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                             this.show_panel_view(&r, v, w, cx)
                         }))
@@ -1824,62 +1827,66 @@ pub fn modal(
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let backdrop = on_cancel.clone();
-    crate::motion::scrim_in(div()
-        .id(SharedString::from(format!("{id}-backdrop")))
-        .absolute()
-        .inset_0()
-        .bg(theme::scrim())
-        .flex()
-        .items_center()
-        .justify_center()
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
-        .child(crate::motion::pop_in(
-            v_flex()
-                .id(SharedString::from(format!("{id}-card")))
-                .w(px(480.))
-                .max_w(relative(0.92))
-                .gap_4()
-                .p_6()
-                .rounded(theme::radius::XXL)
-                .bg(theme::card())
-                .border_1()
-                .border_color(theme::line_strong())
-                .shadow(theme::shadow_modal())
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(
-                    div()
-                        .text_size(theme::text::HEADING)
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::primary())
-                        .child(title),
-                )
-                .when_some(description, |el, d| {
-                    el.child(div().text_sm().text_color(theme::muted()).child(d))
-                })
-                .children(body)
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .justify_end()
-                        .child(controls::button(
-                            SharedString::from(format!("{id}-cancel")),
-                            t("common.cancel"),
-                            Btn::Ghost,
-                            false,
-                            move |_, w, cx| on_cancel(w, cx),
-                        ))
-                        .child(controls::button(
-                            SharedString::from(format!("{id}-confirm")),
-                            confirm,
-                            if destructive {
-                                Btn::Danger
-                            } else {
-                                Btn::Primary
-                            },
-                            disabled,
-                            on_confirm,
-                        )),
-                ), "dialog-card-in"),
-        ), "dialog-backdrop-in")
-        .into_any_element()
+    crate::motion::scrim_in(
+        div()
+            .id(SharedString::from(format!("{id}-backdrop")))
+            .absolute()
+            .inset_0()
+            .bg(theme::scrim())
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
+            .child(crate::motion::pop_in(
+                v_flex()
+                    .id(SharedString::from(format!("{id}-card")))
+                    .w(px(480.))
+                    .max_w(relative(0.92))
+                    .gap_4()
+                    .p_6()
+                    .rounded(theme::radius::XXL)
+                    .bg(theme::card())
+                    .border_1()
+                    .border_color(theme::line_strong())
+                    .shadow(theme::shadow_modal())
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(
+                        div()
+                            .text_size(theme::text::HEADING)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::primary())
+                            .child(title),
+                    )
+                    .when_some(description, |el, d| {
+                        el.child(div().text_sm().text_color(theme::muted()).child(d))
+                    })
+                    .children(body)
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .justify_end()
+                            .child(controls::button(
+                                SharedString::from(format!("{id}-cancel")),
+                                t("common.cancel"),
+                                Btn::Ghost,
+                                false,
+                                move |_, w, cx| on_cancel(w, cx),
+                            ))
+                            .child(controls::button(
+                                SharedString::from(format!("{id}-confirm")),
+                                confirm,
+                                if destructive {
+                                    Btn::Danger
+                                } else {
+                                    Btn::Primary
+                                },
+                                disabled,
+                                on_confirm,
+                            )),
+                    ),
+                "dialog-card-in",
+            )),
+        "dialog-backdrop-in",
+    )
+    .into_any_element()
 }

@@ -473,7 +473,9 @@ impl AppView {
                             .text_xs()
                             .font_weight(FontWeight::MEDIUM)
                             .when(on, |el| {
-                                el.px_2p5().bg(theme::surface_raised()).text_color(theme::primary())
+                                el.px_2p5()
+                                    .bg(theme::surface_raised())
+                                    .text_color(theme::primary())
                             })
                             .when(!on, |el| {
                                 el.w(px(28.))
@@ -499,7 +501,7 @@ impl AppView {
     /// render_past_view is the past agent's view in the panel.
     pub(super) fn render_past_view(&self, r: &str, cx: &mut Context<Self>) -> AnyElement {
         let Some(a) = self.past.agent.as_ref().filter(|a| a.r#ref == r) else {
-            return super::panel::note(t("common.loading"));
+            return super::panel::loading("past");
         };
         let fleet = as_fleet(a);
         match self.past.view {

@@ -491,11 +491,13 @@ impl AppView {
                         .py(px(2.))
                         .rounded_md()
                         .text_xs()
-                        .when(on, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                        .when(on, |el| {
+                            el.bg(theme::surface_raised()).text_color(theme::primary())
+                        })
                         .when(!on, |el| {
-                            el.text_color(theme::muted())
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
+                            el.text_color(theme::muted()).cursor_pointer().hover(|s| {
+                                s.bg(theme::surface_strong()).text_color(theme::primary())
+                            })
                         })
                         .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -906,7 +908,11 @@ impl AppView {
                     .border_color(theme::line())
                     .bg(theme::ink())
                     .text_xs()
-                    .text_color(if booted { theme::primary() } else { theme::muted() })
+                    .text_color(if booted {
+                        theme::primary()
+                    } else {
+                        theme::muted()
+                    })
                     .child(div().size(px(6.)).rounded_full().bg(dot))
                     .child(crate::icons::of("▯"))
                     .child(div().truncate().child(device_name)),

@@ -17,13 +17,13 @@ mod highlight;
 mod icons;
 mod media;
 mod mermaid;
+mod motion;
 mod notices;
 mod prefs;
 #[cfg(target_os = "linux")]
 mod snapshot;
 mod spot;
 mod terminal;
-mod motion;
 mod theme;
 mod toasts;
 mod tray;

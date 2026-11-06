@@ -986,7 +986,9 @@ impl Render for DiffView {
                 .rounded_md()
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
-                .when(on, |el| el.bg(theme::surface_strong()).text_color(theme::primary()))
+                .when(on, |el| {
+                    el.bg(theme::surface_strong()).text_color(theme::primary())
+                })
                 .when(!on, |el| {
                     el.text_color(theme::muted())
                         .cursor_pointer()

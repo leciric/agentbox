@@ -209,7 +209,11 @@ impl AppView {
                 theme::line()
             })
             .when(on > 0, |el| el.bg(theme::surface_strong()))
-            .text_color(if on > 0 { theme::primary() } else { theme::muted() })
+            .text_color(if on > 0 {
+                theme::primary()
+            } else {
+                theme::muted()
+            })
             .cursor_pointer()
             .hover(|el| el.text_color(theme::primary()))
             .tooltip(|w, cx| Tooltip::new(t("v2.filters.button")).build(w, cx))
@@ -631,14 +635,7 @@ impl AppView {
                 .bg(theme::surface_raised())
                 .text_size(px(size * 0.5))
                 .text_color(theme::muted())
-                .child(
-                    label_of(p)
-                        .chars()
-                        .next()
-                        .unwrap_or('?')
-                        
-                        .to_string(),
-                ),
+                .child(label_of(p).chars().next().unwrap_or('?').to_string()),
         }
         .into_any_element()
     }

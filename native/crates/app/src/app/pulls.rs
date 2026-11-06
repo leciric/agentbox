@@ -1123,9 +1123,17 @@ impl AppView {
                             .rounded_full()
                             .border_1()
                             .border_dashed()
-                            .border_color(if open { theme::primary() } else { theme::line() })
+                            .border_color(if open {
+                                theme::primary()
+                            } else {
+                                theme::line()
+                            })
                             .text_xs()
-                            .text_color(if open { theme::primary() } else { theme::muted() })
+                            .text_color(if open {
+                                theme::primary()
+                            } else {
+                                theme::muted()
+                            })
                             .cursor_pointer()
                             .hover(|s| s.text_color(theme::primary()))
                             .tooltip({
@@ -1534,7 +1542,10 @@ impl AppView {
                                 .when(refreshing, |el| el.opacity(0.4))
                                 .when(!refreshing, |el| {
                                     el.cursor_pointer()
-                                        .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
+                                        .hover(|s| {
+                                            s.bg(theme::surface_strong())
+                                                .text_color(theme::primary())
+                                        })
                                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                             this.load_pulls(true, cx);
                                             cx.notify();
@@ -2283,7 +2294,9 @@ impl AppView {
                 .rounded_md()
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
-                .when(on, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                .when(on, |el| {
+                    el.bg(theme::surface_raised()).text_color(theme::primary())
+                })
                 .when(!on, |el| {
                     el.text_color(theme::muted())
                         .cursor_pointer()
@@ -2644,7 +2657,11 @@ impl AppView {
                         .truncate()
                         .text_base()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if lead { theme::muted() } else { theme::primary() })
+                        .text_color(if lead {
+                            theme::muted()
+                        } else {
+                            theme::primary()
+                        })
                         .child(then),
                 )
                 .when(!status.is_empty(), |el| {

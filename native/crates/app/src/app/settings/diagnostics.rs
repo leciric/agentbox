@@ -249,11 +249,14 @@ fn table(
                 ),
         )
         .children(rows.into_iter().map(|r| {
-            h_flex().gap_2().px_3().py_1().items_start().children(
-                r.into_iter().enumerate().map(|(i, (text, color))| {
+            h_flex()
+                .gap_2()
+                .px_3()
+                .py_1()
+                .items_start()
+                .children(r.into_iter().enumerate().map(|(i, (text, color))| {
                     cell(i, text, color.unwrap_or_else(theme::primary), i == 0)
-                }),
-            )
+                }))
         }))
         .into_any_element()
 }

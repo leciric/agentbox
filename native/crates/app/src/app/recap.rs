@@ -858,7 +858,8 @@ impl Render for RecapView {
                         el.child(self.render_share(cx))
                     }),
             )
-    , "idrecap-in")}
+    , "idrecap-in")
+    }
 }
 
 #[cfg(test)]

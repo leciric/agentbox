@@ -2125,14 +2125,11 @@ impl AppView {
                                 .text_xs()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(theme::faint())
-                                .child(
-                                    t(if g == 1 {
-                                        "palette.group.settings"
-                                    } else {
-                                        "palette.group.actions"
-                                    })
-                                    ,
-                                )
+                                .child(t(if g == 1 {
+                                    "palette.group.settings"
+                                } else {
+                                    "palette.group.actions"
+                                }))
                                 .into_any_element(),
                         );
                     }
@@ -2211,77 +2208,82 @@ impl AppView {
             keys.push(format!("> {}", t("palette.keys.commandsOnly")));
         }
         Some(
-            crate::motion::scrim_in(div()
-                .id("search-palette")
-                .absolute()
-                .inset_0()
-                .bg(theme::scrim())
-                .flex()
-                .justify_center()
-                .pt(relative(0.08))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                        this.close_search(window, cx)
-                    }),
-                )
-                .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                    this.on_search_key(ev, window, cx)
-                }))
-                .child(
-                    v_flex()
-                        .id("search-card")
-                        .w(px(1152.))
-                        .max_w(relative(0.95))
-                        .h(relative(0.8))
-                        .rounded_2xl()
-                        .overflow_hidden()
-                        .bg(theme::card())
-                        .border_1()
-                        .border_color(theme::line())
-                        .shadow_lg()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .p_3()
-                                .border_b_1()
-                                .border_color(theme::line())
-                                .children(picking_chip)
-                                .child(div().flex_1().child(Input::new(&p.input).cleanable(true))),
-                        )
-                        .when(picking.is_none(), |el| el.child(self.filters_bar(cx)))
-                        .child(
-                            h_flex()
-                                .flex_1()
-                                .min_h_0()
-                                .items_start()
-                                .child(
-                                    div()
-                                        .id("search-results")
-                                        .flex_1()
-                                        .min_w_0()
-                                        .h_full()
-                                        .overflow_y_scroll()
-                                        .py_2()
-                                        .children(list),
-                                )
-                                .when_some(side, |el, s| el.child(s)),
-                        )
-                        .child(
-                            h_flex()
-                                .flex_wrap()
-                                .px_4()
-                                .py_2()
-                                .gap_4()
-                                .border_t_1()
-                                .border_color(theme::line())
-                                .text_xs()
-                                .text_color(theme::faint())
-                                .children(keys),
-                        ),
-                ), "idsearch-palette-in")
-                .into_any_element(),
+            crate::motion::scrim_in(
+                div()
+                    .id("search-palette")
+                    .absolute()
+                    .inset_0()
+                    .bg(theme::scrim())
+                    .flex()
+                    .justify_center()
+                    .pt(relative(0.08))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                            this.close_search(window, cx)
+                        }),
+                    )
+                    .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                        this.on_search_key(ev, window, cx)
+                    }))
+                    .child(
+                        v_flex()
+                            .id("search-card")
+                            .w(px(1152.))
+                            .max_w(relative(0.95))
+                            .h(relative(0.8))
+                            .rounded_2xl()
+                            .overflow_hidden()
+                            .bg(theme::card())
+                            .border_1()
+                            .border_color(theme::line())
+                            .shadow_lg()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .p_3()
+                                    .border_b_1()
+                                    .border_color(theme::line())
+                                    .children(picking_chip)
+                                    .child(
+                                        div().flex_1().child(Input::new(&p.input).cleanable(true)),
+                                    ),
+                            )
+                            .when(picking.is_none(), |el| el.child(self.filters_bar(cx)))
+                            .child(
+                                h_flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .items_start()
+                                    .child(
+                                        div()
+                                            .id("search-results")
+                                            .flex_1()
+                                            .min_w_0()
+                                            .h_full()
+                                            .overflow_y_scroll()
+                                            .py_2()
+                                            .children(list),
+                                    )
+                                    .when_some(side, |el, s| el.child(s)),
+                            )
+                            .child(
+                                h_flex()
+                                    .flex_wrap()
+                                    .px_4()
+                                    .py_2()
+                                    .gap_4()
+                                    .border_t_1()
+                                    .border_color(theme::line())
+                                    .text_xs()
+                                    .text_color(theme::faint())
+                                    .children(keys),
+                            ),
+                    ),
+                "idsearch-palette-in",
+            )
+            .into_any_element(),
         )
     }
 }

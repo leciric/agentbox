@@ -2225,7 +2225,12 @@ impl ChatView {
             });
         let menu_len = menu.len();
         let menu_for_enter = menu.clone();
-        let focused = self.composer.input.read(cx).focus_handle(cx).contains_focused(window, cx);
+        let focused = self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .contains_focused(window, cx);
         v_flex()
             .flex_none()
             .px_4()
@@ -2239,7 +2244,11 @@ impl ChatView {
                     .id("composer")
                     .rounded(px(22.))
                     .border_1()
-                    .border_color(if focused { theme::line_vivid() } else { theme::line_strong() })
+                    .border_color(if focused {
+                        theme::line_vivid()
+                    } else {
+                        theme::line_strong()
+                    })
                     .bg(theme::composer())
                     .shadow(theme::shadow_composer(focused))
                     .px_3p5()
@@ -2306,7 +2315,9 @@ impl ChatView {
                                     .rounded_md()
                                     .cursor_pointer()
                                     .text_color(theme::muted())
-                                    .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
+                                    .hover(|el| {
+                                        el.bg(theme::surface_strong()).text_color(theme::primary())
+                                    })
                                     .child("+")
                                     .tooltip(|w, cx| {
                                         gpui_component::tooltip::Tooltip::new(t(
@@ -2350,15 +2361,26 @@ impl ChatView {
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .bg(if can_send { theme::brand(500) } else { theme::surface_strong() })
-                                    .text_color(if can_send { theme::on_brand() } else { theme::faint() })
+                                    .bg(if can_send {
+                                        theme::brand(500)
+                                    } else {
+                                        theme::surface_strong()
+                                    })
+                                    .text_color(if can_send {
+                                        theme::on_brand()
+                                    } else {
+                                        theme::faint()
+                                    })
                                     .when(can_send, |el| {
                                         el.cursor_pointer()
                                             .shadow(theme::glow(theme::brand(500), 0.6))
                                             .hover(|el| el.bg(theme::brand(600)))
                                             .active(|el| el.bg(theme::brand(700)))
                                     })
-                                    .tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(label.clone()).build(w, cx))
+                                    .tooltip(move |w, cx| {
+                                        gpui_component::tooltip::Tooltip::new(label.clone())
+                                            .build(w, cx)
+                                    })
                                     .child(crate::icons::ic("arrow-up").size(px(16.)))
                                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                         this.submit(window, cx)

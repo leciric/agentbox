@@ -990,7 +990,12 @@ impl AppView {
                             })
                             .when(working, |el| {
                                 el.child(crate::motion::pulse(
-                                    div().flex_none().mt(px(5.)).size(px(6.)).rounded_full().bg(theme::sky(400)),
+                                    div()
+                                        .flex_none()
+                                        .mt(px(5.))
+                                        .size(px(6.))
+                                        .rounded_full()
+                                        .bg(theme::sky(400)),
                                     SharedString::from(format!("working-dot-{}", p.name)),
                                 ))
                             })
@@ -1029,7 +1034,8 @@ impl AppView {
                                             .border_color(theme::line())
                                             .text_color(theme::muted())
                                             .hover(|el| {
-                                                el.bg(theme::surface_strong()).text_color(theme::primary())
+                                                el.bg(theme::surface_strong())
+                                                    .text_color(theme::primary())
                                             })
                                             .child(tv(
                                                 "v2.review.toReview",

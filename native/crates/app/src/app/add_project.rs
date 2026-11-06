@@ -985,74 +985,77 @@ pub(super) fn form_modal(
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let backdrop = on_cancel.clone();
-    crate::motion::scrim_in(div()
-        .id(SharedString::from(format!("{id}-backdrop")))
-        .absolute()
-        .inset_0()
-        .bg(theme::scrim())
-        .flex()
-        .items_center()
-        .justify_center()
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
-        .child(
-            v_flex()
-                .id(SharedString::from(format!("{id}-card")))
-                .w(px(580.))
-                .max_w(relative(0.94))
-                .max_h(relative(0.9))
-                .rounded_xl()
-                .bg(theme::card())
-                .border_1()
-                .border_color(theme::line())
-                .shadow_lg()
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(
-                    div()
-                        .px_6()
-                        .pt_6()
-                        .pb_3()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::primary())
-                        .child(title),
-                )
-                .child(
-                    v_flex()
-                        .id(SharedString::from(format!("{id}-body")))
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .px_6()
-                        .pb_4()
-                        .gap_4()
-                        .children(body),
-                )
-                .child(
-                    h_flex()
-                        .px_6()
-                        .py_4()
-                        .gap_2()
-                        .border_t_1()
-                        .border_color(theme::line())
-                        .children(left)
-                        .child(div().flex_1())
-                        .child(controls::button(
-                            SharedString::from(format!("{id}-cancel")),
-                            t("common.cancel"),
-                            Btn::Ghost,
-                            false,
-                            move |_, w, cx| on_cancel(w, cx),
-                        ))
-                        .child(controls::button(
-                            SharedString::from(format!("{id}-confirm")),
-                            confirm,
-                            Btn::Primary,
-                            disabled,
-                            on_confirm,
-                        )),
-                ),
-        ), "idsharedstringfromformatid-backdrop-in")
-        .into_any_element()
+    crate::motion::scrim_in(
+        div()
+            .id(SharedString::from(format!("{id}-backdrop")))
+            .absolute()
+            .inset_0()
+            .bg(theme::scrim())
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
+            .child(
+                v_flex()
+                    .id(SharedString::from(format!("{id}-card")))
+                    .w(px(580.))
+                    .max_w(relative(0.94))
+                    .max_h(relative(0.9))
+                    .rounded_xl()
+                    .bg(theme::card())
+                    .border_1()
+                    .border_color(theme::line())
+                    .shadow_lg()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(
+                        div()
+                            .px_6()
+                            .pt_6()
+                            .pb_3()
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::primary())
+                            .child(title),
+                    )
+                    .child(
+                        v_flex()
+                            .id(SharedString::from(format!("{id}-body")))
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .px_6()
+                            .pb_4()
+                            .gap_4()
+                            .children(body),
+                    )
+                    .child(
+                        h_flex()
+                            .px_6()
+                            .py_4()
+                            .gap_2()
+                            .border_t_1()
+                            .border_color(theme::line())
+                            .children(left)
+                            .child(div().flex_1())
+                            .child(controls::button(
+                                SharedString::from(format!("{id}-cancel")),
+                                t("common.cancel"),
+                                Btn::Ghost,
+                                false,
+                                move |_, w, cx| on_cancel(w, cx),
+                            ))
+                            .child(controls::button(
+                                SharedString::from(format!("{id}-confirm")),
+                                confirm,
+                                Btn::Primary,
+                                disabled,
+                                on_confirm,
+                            )),
+                    ),
+            ),
+        "idsharedstringfromformatid-backdrop-in",
+    )
+    .into_any_element()
 }
 
 #[cfg(test)]

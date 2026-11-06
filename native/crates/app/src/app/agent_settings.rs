@@ -226,7 +226,9 @@ impl AppView {
                     .py_1p5()
                     .rounded_md()
                     .text_sm()
-                    .when(on, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                    .when(on, |el| {
+                        el.bg(theme::surface_raised()).text_color(theme::primary())
+                    })
                     .when(!on, |el| {
                         el.text_color(theme::muted())
                             .cursor_pointer()
@@ -651,7 +653,7 @@ impl AppView {
         }
         let mut own: Vec<AnyElement> = Vec::new();
         match &s.secrets {
-            None => own.push(super::panel::note(t("common.loading"))),
+            None => own.push(super::panel::loading("agent_settings")),
             Some(Err(e)) => own.push(controls::note_in(e.clone(), theme::error())),
             Some(Ok(_)) if mine.is_empty() => own.push(
                 div()
@@ -673,7 +675,7 @@ impl AppView {
 
     fn settings_connectors(&self, cx: &mut Context<Self>) -> AnyElement {
         let list = match &self.agent_settings.connectors {
-            None => return super::panel::note(t("common.loading")),
+            None => return super::panel::loading("agent_settings"),
             Some(Err(e)) => return controls::note_in(e.clone(), theme::error()),
             Some(Ok(l)) => l.clone(),
         };

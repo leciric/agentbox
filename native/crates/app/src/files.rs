@@ -689,7 +689,9 @@ impl FileBrowser {
                             .rounded_sm()
                             .cursor_pointer()
                             .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
-                            .when(self.pdf_zoom.is_none(), |el| el.text_color(theme::primary()))
+                            .when(self.pdf_zoom.is_none(), |el| {
+                                el.text_color(theme::primary())
+                            })
                             .tooltip(|w, cx| {
                                 gpui_component::tooltip::Tooltip::new(t("files.pdf.fit"))
                                     .build(w, cx)

@@ -362,7 +362,9 @@ impl AppView {
                         .py_1p5()
                         .rounded_lg()
                         .text_sm()
-                        .when(active, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                        .when(active, |el| {
+                            el.bg(theme::surface_raised()).text_color(theme::primary())
+                        })
                         .when(!active, |el| el.text_color(theme::muted()))
                         .when(!done && !active, |el| el.opacity(0.6))
                         .when(reachable, |el| {

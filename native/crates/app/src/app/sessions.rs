@@ -1005,7 +1005,9 @@ impl AppView {
                 .cursor_pointer()
                 .text_sm()
                 .when(on, |el| {
-                    el.border_b_0().bg(theme::ink()).text_color(theme::primary())
+                    el.border_b_0()
+                        .bg(theme::ink())
+                        .text_color(theme::primary())
                 })
                 .when(!on, |el| {
                     el.border_color(theme::line().opacity(0.5))
@@ -1350,7 +1352,10 @@ impl AppView {
                                 })
                                 .when(!a.archived, |el| {
                                     el.cursor_pointer()
-                                        .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                                        .hover(|el| {
+                                            el.bg(theme::surface_raised())
+                                                .text_color(theme::primary())
+                                        })
                                         .on_click(cx.listener(
                                             move |this, _: &ClickEvent, window, cx| {
                                                 this.open_agent_ref(r.clone(), window, cx)
@@ -1551,147 +1556,154 @@ impl AppView {
             cx.notify();
         });
         Some(
-            crate::motion::scrim_in(div()
-                .id("session-changes")
-                .absolute()
-                .inset_0()
-                .bg(theme::scrim())
-                .flex()
-                .items_center()
-                .justify_center()
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.sessions.changes = None;
-                        cx.notify();
-                    }),
-                )
-                .child(
-                    v_flex()
-                        .w(px(1024.))
-                        .max_w(relative(0.94))
-                        .h(relative(0.88))
-                        .rounded_xl()
-                        .bg(theme::card())
-                        .border_1()
-                        .border_color(theme::line())
-                        .overflow_hidden()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(
-                            h_flex()
-                                .flex_none()
-                                .px_6()
-                                .py_4()
-                                .gap_3()
-                                .border_b_1()
-                                .border_color(theme::line())
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .child(
-                                            div()
-                                                .text_lg()
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(theme::primary())
-                                                .child(tv(
-                                                    "sessions.header.changesTitle",
-                                                    &[("topic", topic.into())],
-                                                )),
-                                        )
-                                        .child(div().text_sm().text_color(theme::muted()).child(
-                                            tv(
-                                                "sessions.header.changesDescription",
-                                                &[("count", list.len().into())],
+            crate::motion::scrim_in(
+                div()
+                    .id("session-changes")
+                    .absolute()
+                    .inset_0()
+                    .bg(theme::scrim())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.sessions.changes = None;
+                            cx.notify();
+                        }),
+                    )
+                    .child(
+                        v_flex()
+                            .w(px(1024.))
+                            .max_w(relative(0.94))
+                            .h(relative(0.88))
+                            .rounded_xl()
+                            .bg(theme::card())
+                            .border_1()
+                            .border_color(theme::line())
+                            .overflow_hidden()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(
+                                h_flex()
+                                    .flex_none()
+                                    .px_6()
+                                    .py_4()
+                                    .gap_3()
+                                    .border_b_1()
+                                    .border_color(theme::line())
+                                    .child(
+                                        v_flex()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .child(
+                                                div()
+                                                    .text_lg()
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(theme::primary())
+                                                    .child(tv(
+                                                        "sessions.header.changesTitle",
+                                                        &[("topic", topic.into())],
+                                                    )),
+                                            )
+                                            .child(
+                                                div().text_sm().text_color(theme::muted()).child(
+                                                    tv(
+                                                        "sessions.header.changesDescription",
+                                                        &[("count", list.len().into())],
+                                                    ),
+                                                ),
                                             ),
-                                        )),
-                                )
-                                .child(controls::button(
-                                    "session-changes-close",
-                                    "✕",
-                                    Btn::Ghost,
-                                    false,
-                                    close,
-                                )),
-                        )
-                        .child(
-                            v_flex()
-                                .id("session-changes-list")
-                                .flex_1()
-                                .min_h_0()
-                                .overflow_y_scroll()
-                                .children(list.iter().map(|(a, view)| {
-                                    v_flex()
-                                        .border_b_1()
-                                        .border_color(theme::line())
-                                        .child(
-                                            h_flex()
-                                                .px_5()
-                                                .py_2p5()
-                                                .gap_2()
-                                                .border_b_1()
-                                                .border_color(theme::line().opacity(0.5))
-                                                .child(
-                                                    div()
-                                                        .min_w_0()
-                                                        .truncate()
-                                                        .text_sm()
-                                                        .font_weight(FontWeight::MEDIUM)
-                                                        .text_color(theme::primary())
-                                                        .child(if a.title.is_empty() {
-                                                            a.name.clone()
-                                                        } else {
-                                                            a.title.clone()
-                                                        }),
-                                                )
-                                                .when(!a.branch.is_empty(), |el| {
-                                                    el.child(
+                                    )
+                                    .child(controls::button(
+                                        "session-changes-close",
+                                        "✕",
+                                        Btn::Ghost,
+                                        false,
+                                        close,
+                                    )),
+                            )
+                            .child(
+                                v_flex()
+                                    .id("session-changes-list")
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_y_scroll()
+                                    .children(list.iter().map(|(a, view)| {
+                                        v_flex()
+                                            .border_b_1()
+                                            .border_color(theme::line())
+                                            .child(
+                                                h_flex()
+                                                    .px_5()
+                                                    .py_2p5()
+                                                    .gap_2()
+                                                    .border_b_1()
+                                                    .border_color(theme::line().opacity(0.5))
+                                                    .child(
                                                         div()
                                                             .min_w_0()
                                                             .truncate()
-                                                            .font_family(crate::theme::mono())
-                                                            .text_xs()
-                                                            .text_color(theme::faint())
-                                                            .child(crate::icons::lead(
-                                                                "git-branch",
-                                                                a.branch.clone(),
-                                                            )),
+                                                            .text_sm()
+                                                            .font_weight(FontWeight::MEDIUM)
+                                                            .text_color(theme::primary())
+                                                            .child(if a.title.is_empty() {
+                                                                a.name.clone()
+                                                            } else {
+                                                                a.title.clone()
+                                                            }),
                                                     )
-                                                })
-                                                .when_some(a.pr.as_ref(), |el, pr| {
-                                                    el.child(super::work::pr_chip(pr))
-                                                })
-                                                .when(a.archived, |el| {
-                                                    el.child(
-                                                        div()
-                                                            .text_xs()
-                                                            .text_color(theme::faint())
-                                                            .child(t("sessions.header.retired")),
-                                                    )
-                                                }),
-                                        )
-                                        .child(match view {
-                                            None => div()
-                                                .p_4()
-                                                .text_sm()
-                                                .text_color(theme::faint())
-                                                .child(t("common.loading"))
-                                                .into_any_element(),
-                                            Some(Err(e)) => div()
-                                                .p_4()
-                                                .text_sm()
-                                                .text_color(theme::error())
-                                                .child(e.clone())
-                                                .into_any_element(),
-                                            Some(Ok(d)) => div()
-                                                .h(px(520.))
-                                                .child(d.clone())
-                                                .into_any_element(),
-                                        })
-                                })),
-                        ),
-                ), "idsession-changes-in")
-                .into_any_element(),
+                                                    .when(!a.branch.is_empty(), |el| {
+                                                        el.child(
+                                                            div()
+                                                                .min_w_0()
+                                                                .truncate()
+                                                                .font_family(crate::theme::mono())
+                                                                .text_xs()
+                                                                .text_color(theme::faint())
+                                                                .child(crate::icons::lead(
+                                                                    "git-branch",
+                                                                    a.branch.clone(),
+                                                                )),
+                                                        )
+                                                    })
+                                                    .when_some(a.pr.as_ref(), |el, pr| {
+                                                        el.child(super::work::pr_chip(pr))
+                                                    })
+                                                    .when(a.archived, |el| {
+                                                        el.child(
+                                                            div()
+                                                                .text_xs()
+                                                                .text_color(theme::faint())
+                                                                .child(t(
+                                                                    "sessions.header.retired",
+                                                                )),
+                                                        )
+                                                    }),
+                                            )
+                                            .child(match view {
+                                                None => div()
+                                                    .p_4()
+                                                    .text_sm()
+                                                    .text_color(theme::faint())
+                                                    .child(t("common.loading"))
+                                                    .into_any_element(),
+                                                Some(Err(e)) => div()
+                                                    .p_4()
+                                                    .text_sm()
+                                                    .text_color(theme::error())
+                                                    .child(e.clone())
+                                                    .into_any_element(),
+                                                Some(Ok(d)) => div()
+                                                    .h(px(520.))
+                                                    .child(d.clone())
+                                                    .into_any_element(),
+                                            })
+                                    })),
+                            ),
+                    ),
+                "idsession-changes-in",
+            )
+            .into_any_element(),
         )
     }
 
