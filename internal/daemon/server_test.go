@@ -198,6 +198,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	srv.readCPUPressure = func() (pressure.PSI, error) { return pressure.PSI{}, nil }
 	srv.runCgroups = &fakeRunCgroups{}
 	srv.setMemoryLimit = func(string, int64) error { return nil }
+	srv.setIOWeight = func(string, int) error { return nil }
 	srv.memoryEvents = func(string) (agent.MemoryCounts, bool) { return agent.MemoryCounts{}, false }
 	srv.oomVictim = func(string) (agent.OOMVictim, bool) { return agent.OOMVictim{}, false }
 	if tc.setup != nil {
@@ -590,7 +591,7 @@ func TestFailedCreateJobRollsBack(t *testing.T) {
 	if j.Status != api.JobFailed || !strings.Contains(j.Error, "simulated copy failure") {
 		t.Errorf("job after following it = %+v", j)
 	}
-	if !strings.Contains(log.String(), "instance failed; rolling back") {
+	if !strings.Contains(log.String(), "copying the base failed; rolling back") {
 		t.Errorf("job log:\n%s", log.String())
 	}
 	if agents, err := d.client.Agents(ctx, ""); err != nil || len(agents) != 0 {

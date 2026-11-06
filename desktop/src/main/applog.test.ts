@@ -12,6 +12,7 @@ test('the log rotates at its cap, and a report reads its end from both files', (
   const log = new AppLog(mkdtempSync(join(tmpdir(), 'applog-')));
   const line = 'x'.repeat(1000);
   for (let i = 0; i < (maxBytes / 1000) * 1.5; i++) log.write('LOG', `${i} ${line}`);
+  log.flushSync();
   assert.ok(existsSync(`${log.file}.1`), 'rotated to main.log.1');
   assert.ok(readFileSync(log.file, 'utf8').length < maxBytes);
   const tail = log.tail(4 * maxBytes);
@@ -52,7 +53,18 @@ test('console goes to the log as well as where it went', () => {
   fake.error('phones:', new Error('boom'));
   fake.log('count %d', 3);
   assert.equal(out.length, 2);
+  log.flushSync();
   const text = readFileSync(log.file, 'utf8');
   assert.match(text, /ERROR phones: Error: boom\n +at /);
   assert.match(text, /LOG count 3\n/);
+});
+
+test('writing never waits on the disk: lines go out aside, in order', async () => {
+  const log = new AppLog(mkdtempSync(join(tmpdir(), 'applog-')));
+  log.write('LOG', 'one');
+  log.write('LOG', 'two');
+  assert.equal(existsSync(log.file), false, 'written before the call returned');
+  await new Promise((r) => setImmediate(r));
+  await log.flush();
+  assert.match(readFileSync(log.file, 'utf8'), /LOG one\n.*LOG two\n$/);
 });

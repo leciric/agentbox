@@ -33,12 +33,21 @@ import (
 //   - An interval that adapts: prWatchFast while checks are running, GitHub
 //     is still working out whether it merges, or the head just moved; doubling
 //     from prWatchCalm up to prWatchIdle while nothing changes.
+//   - Back off while nobody looks: for a project no client views, or while
+//     the computer is on battery or hot (presence.go), the next look is at
+//     least prWatchIdle away, or prWatchCalm while a pull request waits to be
+//     merged when green or an event trigger waits. Nothing is dropped: a
+//     conflict, failed checks or a requested change is still told, only
+//     later, and a project that comes into view is looked at soon (wake).
 //   - A pause until GitHub's reset when the budget runs low or GitHub says to
 //     slow down, and a doubling back-off on any other failure.
 //
 // It speaks only on a transition, never twice for the same state, and what it
 // last saw is kept in the database (state.PRWatch) so a restart doesn't
 // announce every broken pull request again.
+//
+// The same look serves the project's event triggers (eventtriggers.go), which
+// run whether or not the watch itself is on.
 
 const (
 	// prWatchTick is how often the loop looks for a repository that is due.
@@ -58,6 +67,17 @@ const (
 	prWatchLowBudget = 250
 )
 
+// prWatchAwayFloor is the least time between two looks at a project nobody
+// views, or while the computer saves power: prWatchIdle, or prWatchCalm while
+// something the user asked for waits on GitHub (a merge when green, an event
+// trigger), which backs off less.
+func prWatchAwayFloor(merging, triggers bool) time.Duration {
+	if merging || triggers {
+		return prWatchCalm
+	}
+	return prWatchIdle
+}
+
 // prWatcher is the watch's schedule and what it last read, per project.
 type prWatcher struct {
 	// every is how often the loop runs; zero turns the loop off, which is
@@ -73,6 +93,7 @@ type prWatcher struct {
 
 type prRepo struct {
 	next     time.Time
+	last     time.Time // when it was last looked at
 	interval time.Duration
 	failures int
 	// live is each followed pull request as last read, by number: what the
@@ -105,6 +126,20 @@ func (w *prWatcher) poke(project string) {
 	if r, ok := w.repos[project]; ok {
 		r.next = time.Time{}
 		r.interval = 0
+	}
+}
+
+// wake brings a project's next look forward to prWatchFast after its last,
+// if it was further off: the project came into view, and what the app shows
+// of it should be fresh, but switching back and forth between projects
+// shouldn't cost a look each time.
+func (w *prWatcher) wake(project string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if r, ok := w.repos[project]; ok {
+		if soon := r.last.Add(prWatchFast); r.next.After(soon) {
+			r.next = soon
+		}
 	}
 }
 
@@ -207,33 +242,41 @@ func (s *Server) pollPRWatch(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if !s.prWatchOn(ctx, p) {
+		on := s.prWatchOn(ctx, p)
+		triggers, opts := s.eventTriggers(ctx, p.Name)
+		// A pull request waiting to be merged when green is looked at
+		// whether or not the watch is on (mergewhengreen.go).
+		marks := s.pendingMerges(ctx, p.Name)
+		if !on {
 			// Turned off: what it saw is forgotten with it, so turning it on
 			// again starts from what is true then.
-			s.prWatch.forget(p.Name)
 			if err := s.store.ForgetPRWatches(ctx, p.Name); err != nil {
 				s.logf("pull request watch in %s: %v", p.Name, err)
 			}
-			continue
+			if len(triggers) == 0 && len(marks) == 0 {
+				s.prWatch.forget(p.Name)
+				continue
+			}
 		}
 		r := s.prWatch.repo(p.Name)
 		s.prWatch.mu.Lock()
 		due := !s.prWatch.now().Before(r.next)
 		s.prWatch.mu.Unlock()
 		if due {
-			s.watchProject(ctx, p, r)
+			s.watchProject(ctx, p, r, on, triggers, opts, marks)
 		}
 	}
 }
 
 // watchProject is one look at a project's repository, and what follows from
-// it.
-func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
+// it: for its agents' pull requests when watchPRs, and for its event
+// triggers, and for the pull requests marked to merge when green (marks).
+func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, watchPRs bool, triggers []state.Schedule, opts github.WatchOptions, marks []state.MergeWhenGreen) {
 	now := s.prWatch.now()
 	schedule := func(next time.Time, interval time.Duration, live map[int]github.WatchedPR) {
 		s.prWatch.mu.Lock()
 		defer s.prWatch.mu.Unlock()
-		r.next, r.interval = next, interval
+		r.next, r.interval, r.last = next, interval, now
 		if live != nil {
 			r.live = live
 		}
@@ -243,11 +286,13 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		schedule(now.Add(prWatchIdle), 0, map[int]github.WatchedPR{})
 		return
 	}
-	rows, err := s.store.PRWatches(ctx, p.Name)
-	if err != nil {
-		s.logf("pull request watch in %s: %v", p.Name, err)
-		schedule(now.Add(prWatchIdle), 0, nil)
-		return
+	var rows []state.PRWatch
+	if watchPRs {
+		if rows, err = s.store.PRWatches(ctx, p.Name); err != nil {
+			s.logf("pull request watch in %s: %v", p.Name, err)
+			schedule(now.Add(prWatchIdle), 0, nil)
+			return
+		}
 	}
 	agents, err := s.store.Agents(ctx, p.Name)
 	if err != nil {
@@ -256,18 +301,23 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		return
 	}
 	heads := agentHeads(p.Root, agents)
-	if len(rows) == 0 && !slices.ContainsFunc(heads, func(h agentHead) bool { return h.tip != "" }) {
-		// No agent has anything of its own that could be in a pull request:
-		// nothing to ask GitHub.
+	if len(triggers) == 0 && len(rows) == 0 && len(marks) == 0 && !slices.ContainsFunc(heads, func(h agentHead) bool { return h.tip != "" }) {
+		// No agent has anything of its own that could be in a pull request,
+		// and no trigger waits for anything: nothing to ask GitHub.
 		schedule(now.Add(prWatchIdle), 0, map[int]github.WatchedPR{})
 		return
 	}
 
-	numbers := make([]int, len(rows))
-	for i, row := range rows {
-		numbers[i] = row.Number
+	numbers := make([]int, 0, len(rows)+len(marks))
+	for _, row := range rows {
+		numbers = append(numbers, row.Number)
 	}
-	watch, err := client.WatchPullRequests(ctx, repo, numbers)
+	for _, m := range marks {
+		if !slices.Contains(numbers, m.Number) {
+			numbers = append(numbers, m.Number)
+		}
+	}
+	watch, err := client.WatchRepository(github.InBackground(ctx, "watch"), repo, numbers, opts)
 	if err != nil {
 		var limited *github.RateLimitError
 		if errors.As(err, &limited) {
@@ -312,11 +362,11 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		ids[a.Name] = a.ID
 	}
 	for _, pr := range watch.Open {
-		if _, ok := followed[pr.Number]; ok {
+		if _, ok := followed[pr.Number]; ok || !watchPRs {
 			continue
 		}
 		for _, h := range heads {
-			if h.owns(pr.HeadSHA) || (h.tip != "" && pr.HeadSHA == h.tip) {
+			if h.claimsHead(pr.HeadBranch, pr.HeadSHA) {
 				followed[pr.Number] = state.PRWatch{Project: p.Name, Number: pr.Number, Agent: h.agent, AgentID: ids[h.agent]}
 				break
 			}
@@ -364,7 +414,10 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		changed = changed || next.Conflict != prev.Conflict || next.Checks != prev.Checks || next.Review != prev.Review || next.HeadSHA != prev.HeadSHA
 	}
 
+	waiting := s.mergeGreen(ctx, p, client, repo, marks, read)
 	switch {
+	case waiting:
+		interval = prWatchFast
 	case len(live) == 0:
 		interval = prWatchIdle
 	case fast:
@@ -374,13 +427,22 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 	default:
 		interval = min(prWatchIdle, interval*2)
 	}
-	next := now.Add(interval)
+	if len(triggers) > 0 {
+		interval = min(interval, eventTriggerEvery)
+	}
+	// Under a fifth of the account's budget left, the looks spread out, up
+	// to eight times as far apart near the floor.
+	next := now.Add(time.Duration(float64(interval) * client.Slowdown()))
+	if s.presence.idle(p.Name) {
+		next = later(next, now.Add(prWatchAwayFloor(waiting, len(triggers) > 0)))
+	}
 	if watch.Remaining >= 0 && watch.Remaining < prWatchLowBudget && watch.Reset.After(next) {
 		// Little left of the account's budget: leave it to the user and their
 		// agents until it fills up again.
 		next = watch.Reset
 	}
 	schedule(next, interval, live)
+	s.fireEventTriggers(ctx, p, repo, triggers, watch, heads)
 	if ended {
 		// What the project remembers as waiting on it may be over too.
 		s.closeAnchoredSoon(p.Name)
@@ -392,6 +454,9 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		open[followed[n].Agent] = true
 	}
 	for _, g := range gone {
+		s.restack(ctx, p, client, repo, stackBase{
+			Number: g.pr.Number, URL: g.pr.URL, State: g.pr.State, Head: g.pr.HeadBranch, HeadSHA: g.pr.HeadSHA, Base: g.pr.BaseBranch, Fork: g.pr.Fork,
+		})
 		if open[g.row.Agent] {
 			s.logf("%s/%s: its pull request #%d was %s; kept, with another still open", p.Name, g.row.Agent, g.pr.Number, g.pr.State)
 			continue
@@ -475,8 +540,12 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 		"number": pr.Number, "url": pr.URL, "problems": problems, "head": pr.HeadSHA,
 	}, "")
 	a, err := s.store.Agent(ctx, p.Name, row.Agent)
-	if err != nil || (row.AgentID != "" && a.ID != "" && a.ID != row.AgentID) {
-		s.prLead(ctx, p.Name, fmt.Sprintf(
+	gone := err != nil || (row.AgentID != "" && a.ID != "" && a.ID != row.AgentID)
+	if slices.Contains(problems, prChecks) {
+		s.pushChecksFailed(p.Name, row.Agent, a.Title, !gone, pr.Number, failingNames(pr))
+	}
+	if gone {
+		s.prLead(ctx, p.Name, "", fmt.Sprintf(
 			"AgentBox's pull request watch: PR #%d (%s) %s. The agent that opened it, %s, is gone: decide who fixes it — an agent of its own, or the user — and say so in a line.",
 			pr.Number, pr.URL, what, row.Agent), true)
 		return
@@ -488,7 +557,7 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 	t, err := s.prTell(ctx, a, prFixMessage(pr, problems))
 	if err != nil {
 		s.logf("pull request watch: telling %s: %v", a.Ref(), err)
-		s.prLead(ctx, p.Name, fmt.Sprintf(
+		s.prLead(ctx, p.Name, a.Session(), fmt.Sprintf(
 			"AgentBox's pull request watch: %s's PR #%d (%s) %s, and %s couldn't be told (%v). Get it fixed: tell_agent once it can be reached, or another agent.",
 			a.Name, pr.Number, pr.URL, what, a.Name, err), true)
 		return
@@ -500,7 +569,7 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 	case "resumed":
 		started = ", resuming its machine, which was paused"
 	}
-	s.prLead(ctx, p.Name, fmt.Sprintf(
+	s.prLead(ctx, p.Name, a.Session(), fmt.Sprintf(
 		"AgentBox's pull request watch: %s's PR #%d (%s) %s. AgentBox told %s to fix it%s. Nothing to do unless it can't.",
 		a.Name, pr.Number, pr.URL, what, a.Name, started), false)
 }

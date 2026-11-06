@@ -96,15 +96,20 @@ func TestOnceAndEvery(t *testing.T) {
 
 func TestCheck(t *testing.T) {
 	now := time.Now()
-	for _, s := range []Spec{{Kind: Once}, {Kind: Every, At: now, Every: time.Minute}, {Kind: Cron, Cron: "x"}, {Kind: "weekly"}} {
+	for _, s := range []Spec{{Kind: Once}, {Kind: Every, At: now, Every: time.Minute}, {Kind: Cron, Cron: "x"}, {Kind: "weekly"},
+		{Kind: OnEvent}, {Kind: OnEvent, Event: "deploy"}, {Kind: OnEvent, Event: EventIssueLabeled, Label: " "}} {
 		if s.Check() == nil {
 			t.Errorf("%+v passed", s)
 		}
 	}
-	for _, s := range []Spec{{Kind: Once, At: now}, {Kind: Every, At: now, Every: time.Hour}, {Kind: Cron, Cron: "@daily"}} {
+	for _, s := range []Spec{{Kind: Once, At: now}, {Kind: Every, At: now, Every: time.Hour}, {Kind: Cron, Cron: "@daily"},
+		{Kind: OnEvent, Event: EventCIFailed}, {Kind: OnEvent, Event: EventIssueLabeled, Label: "bug"}} {
 		if err := s.Check(); err != nil {
 			t.Errorf("%+v: %v", s, err)
 		}
+	}
+	if _, ok := (Spec{Kind: OnEvent, Event: EventCIFailed}).Next(now); ok {
+		t.Error("an event trigger has a next time")
 	}
 }
 

@@ -152,6 +152,17 @@ func (o *overlay) place(origin image.Point, scale float64) {
 	o.mu.Unlock()
 }
 
+// inFrame is where display point x,y is in the frame.
+func (o *overlay) inFrame(x, y int) (int, int) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	scale := o.scale
+	if scale <= 0 {
+		scale = 1
+	}
+	return int(math.Round(float64(x-o.origin.X) * scale)), int(math.Round(float64(y-o.origin.Y) * scale))
+}
+
 // draw draws the overlay at time now (InputEvent.T's clock) onto dst, and
 // returns the rectangles it drew on, for the caller to clear before the next
 // frame.

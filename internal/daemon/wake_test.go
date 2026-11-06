@@ -14,6 +14,7 @@ import (
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
+	"agentbox/internal/github"
 	"agentbox/internal/state"
 )
 
@@ -90,6 +91,12 @@ type wakeTest struct {
 
 func newWakeTest(t *testing.T) *wakeTest {
 	t.Helper()
+	return newWakeTestWith(t, wakeIncus)
+}
+
+// newWakeTestWith is newWakeTest with another fake Incus.
+func newWakeTestWith(t *testing.T, incus string) *wakeTest {
+	t.Helper()
 	w := &wakeTest{tool: &promptTool{}}
 	instance := func(name, status string) string {
 		// The address is there whatever the status, which is all WaitReady
@@ -98,7 +105,7 @@ func newWakeTest(t *testing.T) *wakeTest {
 			`"state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.8.8.2"}]}}}}`, name, status)
 	}
 	instances := "[" + instance("ab-hello-stack-agent-01", "Stopped") + "," + instance("ab-hello-stack-agent-02", "Running") + "]"
-	w.testDaemon = startTestDaemon(t, t.TempDir(), wakeIncus, testConfig{instances: instances})
+	w.testDaemon = startTestDaemon(t, t.TempDir(), incus, testConfig{instances: instances})
 	w.log = w.root + "/incus.log"
 	ctx := context.Background()
 	repo := w.fixtureRepo(t, "hello-stack")
@@ -261,5 +268,79 @@ func TestAnAnswerDoesNotRestartARetiredAgent(t *testing.T) {
 	}
 	if w.srv.retired[w.agent.Ref()] {
 		t.Error("starting the machine left it marked as retired")
+	}
+}
+
+// slowStopIncus is wakeIncus whose `incus stop` takes until the test creates
+// the instances file's .release beside it: a machine that is stopping, still
+// Running to anyone who looks.
+const slowStopIncus = "echo \"incus $*\" >> \"$INCUS_LOG\"\n" +
+	"if [ \"$1\" = stop ]; then while [ ! -e \"$INCUS_INSTANCES_FILE.release\" ]; do sleep 0.02; done; fi\n" +
+	"exec 9>\"$INCUS_INSTANCES_FILE.lock\"; flock 9\n" + statefulIncus
+
+// The race the pull request watch lost: an agent finishes and its machine
+// starts stopping; the watch sees its pull request conflict in that window
+// and tells it. The machine still said Running, so the message went to the
+// chat the stop then killed, with no error, and the watch, which speaks only
+// when something turns bad, saved the conflict as told and never said it
+// again. The tell now waits for the stop and starts the machine, as for one
+// that was stopped already.
+func TestAPRWatchTellWhileTheMachineStopsWaitsAndStartsIt(t *testing.T) {
+	t.Parallel()
+	w := newWakeTestWith(t, slowStopIncus)
+	ctx := context.Background()
+	a, err := w.srv.store.Agent(ctx, "hello-stack", "agent-02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.srv.tellAgent(ctx, a, "Open the pull request."); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "agent-02's chat to run", func() bool { return w.tool.got("Open the pull request.") })
+
+	// It finished: its machine stops, and takes a while.
+	stopped := make(chan error, 1)
+	go func() { stopped <- w.srv.stopAgent(ctx, w.srv.manager(w.srv.cfg.Log), a, "the agent was retired") }()
+	waitFor(t, "the stop to begin", func() bool { return w.order(t, "incus stop ab-hello-stack-agent-02")[0] >= 0 })
+
+	// The watch sees the conflict now.
+	var leads []string
+	var mu sync.Mutex
+	w.srv.prLead = func(_ context.Context, _ string, _ string, notice string, _ bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		leads = append(leads, notice)
+	}
+	p, err := w.srv.store.Project(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := github.WatchedPR{Number: 7, URL: "https://github.com/o/r/pull/7", State: "open", Mergeable: "conflicting", HeadSHA: "abc1234"}
+	broke := make(chan struct{})
+	go func() {
+		defer close(broke)
+		w.srv.prBroken(ctx, p, github.Repo{Owner: "o", Name: "r"}, state.PRWatch{Project: p.Name, Number: 7, Agent: a.Name, AgentID: a.ID}, pr, []prProblem{prConflict})
+	}()
+	time.Sleep(200 * time.Millisecond)
+	if w.tool.got("conflict") {
+		t.Fatal("the fix message went to the chat of a machine that is stopping")
+	}
+
+	if err := os.WriteFile(w.root+"/instances.json.release", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-stopped; err != nil {
+		t.Fatal(err)
+	}
+	<-broke
+	waitFor(t, "the fix message to reach the AI tool", func() bool { return w.tool.got("conflict") })
+	at := w.order(t, "incus stop ab-hello-stack-agent-02", "incus start ab-hello-stack-agent-02")
+	if at[1] < 0 || at[1] < at[0] {
+		t.Errorf("stop at line %d, start at %d: the machine has to start again after its stop", at[0], at[1])
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(leads) != 1 || !strings.Contains(leads[0], "starting its machine, which was stopped") {
+		t.Errorf("the project's chat heard %q; want agent-02 told, its machine started", leads)
 	}
 }

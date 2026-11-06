@@ -30,14 +30,14 @@ export function GlobalMemoryPanel() {
   return (
     <div className="grid gap-2" data-global-memories>
       {memories.error && <Notice>{errorMessage(memories.error)}</Notice>}
-      {memories.isPending && <p className="px-1 text-[13px] text-subtle">{t('common.loading')}</p>}
+      {memories.isPending && <p className="px-1 text-ui text-subtle">{t('common.loading')}</p>}
       {all.length > 0 && (
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
           <Input aria-label={t('memory.search.label')} className="pl-9" placeholder={t('memory.search.placeholder')} value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
       )}
-      {all.length > 0 && items.length === 0 && <p className="px-1 text-[13px] text-subtle">{t('memory.global.noMatch')}</p>}
+      {all.length > 0 && items.length === 0 && <p className="px-1 text-ui text-subtle">{t('memory.global.noMatch')}</p>}
       {!memories.isPending && !memories.error && all.length === 0 && (
         <Panel className="rounded-2xl">
           <EmptyState icon={Globe} title={t('memory.global.empty.title')}>

@@ -52,7 +52,7 @@ var browserPorts = map[string]struct {
 
 // copiedDevices point at one agent's host paths and sockets, so a copy of an
 // agent (a fork or a project base) must not keep them.
-var copiedDevices = []string{"worktree", "gitdir", agentAPIDevice, vncDevice, devtoolsDevice, androidViewDevice, recordingDevice}
+var copiedDevices = []string{"worktree", "gitdir", agentAPIDevice, vncDevice, devtoolsDevice, androidStreamDevice, legacyAndroidViewDevice, recordingDevice}
 
 type BrowserStatus struct {
 	// Display is the agent's desktop: the display and its VNC server. It runs
@@ -95,6 +95,23 @@ func (m *Manager) EnsureBrowser(ctx context.Context, a state.Agent) {
 	m.logf("Starting the browser")
 	if _, err := m.StartBrowser(ctx, a); err != nil {
 		m.logf("The browser didn't start: %v (retry with agentbox browser start %s)", err, a.Ref())
+	}
+}
+
+// RefreshBrowser brings the current browser.sh into an agent whose desktop
+// was up before the daemon started, and has it start what that browser.sh
+// runs beside the display (its idle watcher), without opening the browser.
+// Best-effort, like EnsureBrowser.
+func (m *Manager) RefreshBrowser(ctx context.Context, a state.Agent) {
+	if m.BrowserSocket == nil || !m.displayUp(ctx, a) {
+		return
+	}
+	err := m.prepareBrowser(ctx, a)
+	if err == nil {
+		err = m.runBrowserScript(ctx, a, "refresh")
+	}
+	if err != nil {
+		m.logf("%s's browser stays open when idle: %v", a.Ref(), err)
 	}
 }
 

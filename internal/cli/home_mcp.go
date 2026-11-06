@@ -93,7 +93,8 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "create_agent",
 			Description: "Create an agent in a project and give it a task. It gets its own machine and its own " +
-				"branch, and starts on the model new agents start on there. Write the " +
+				"branch, and runs the AI tool that project's own chat runs (Claude Code when its agents can't), on the model new agents " +
+				"start on there. Write the " +
 				"task directly: what to do, what done looks like, what to leave alone. When the work needs the " +
 				"project's judgement — splitting it up, following it through — use tell_lead instead.",
 			Schema: object([]string{"project", "title", "task"}, map[string]any{
@@ -101,11 +102,10 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"title":   str("a short name the user will recognise in the sidebar, like \"Reminders page\""),
 				"task":    str("what to do, directly: usually a few lines"),
 				"branch":  str("its branch, after the project's prefix: short lowercase kebab-case naming the work, like \"fix-login-redirect\""),
-				"size":    sizeParam,
 			}),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
-					Project, Title, Task, Branch, Size string
+					Project, Title, Task, Branch string
 				}
 				if err := decode(args, &in); err != nil {
 					return "", err
@@ -119,12 +119,13 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				autonomous := true
 				job, err := c.CreateAgent(ctx, api.CreateAgentRequest{
 					Project: in.Project, Title: in.Title, Task: in.Task, Branch: in.Branch,
-					AI: "claude", Autonomous: &autonomous, Size: in.Size,
+					Autonomous: &autonomous,
 				})
 				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Creating %q in %s; it starts on the task by itself. Job %s.", in.Title, in.Project, job.ID), nil
+				return fmt.Sprintf("Creating %q in %s%s; it starts on the task by itself. Job %s.%s",
+					in.Title, in.Project, describeChoices(job.AI, nil, nil, true, "", ""), job.ID, toolNotice(job.Notice)), nil
 			},
 		},
 		{
@@ -142,7 +143,7 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"variants": map[string]any{"type": "array", "minItems": 2, "maxItems": 6,
 					"description": "one entry per agent, in order (A, B, C…)",
 					"items": object([]string{"ai"}, map[string]any{
-						"ai":    choiceOf("the AI tool: claude (Claude Code), codex, opencode or cursor", "claude", "codex", "opencode", "cursor"),
+						"ai":    choiceOf("the AI tool: claude (Claude Code), codex, opencode, cursor or gemini (Gemini CLI)", "claude", "codex", "opencode", "cursor", "gemini"),
 						"model": str("its model, like \"opus\" or \"sonnet\" for Claude Code; leave it out for the default, and always for Codex"),
 					})},
 			}),
@@ -176,20 +177,23 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Name: "tell_lead",
 			Description: "Pass something to a project's own chat, its lead, which wakes and acts on it: the usual way " +
 				"to get work done in a project, since its lead knows it, briefs its agents and follows them. The " +
-				"user sees the message in that project's chat too.",
+				"user sees the message in that project's chat too. Its lead answers once, when it has the answer " +
+				"or the work is done, and the answer comes into this chat by itself and wakes it.",
 			Schema: object([]string{"project", "message"}, map[string]any{
 				"project": project,
-				"message": str("what the user wants done or known, in their terms"),
+				"message": str("what the user wants done or known, in their terms; up to 4000 characters"),
 			}),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct{ Project, Message string }
 				if err := decode(args, &in); err != nil {
 					return "", err
 				}
-				if err := c.HomeTellLead(ctx, in.Project, in.Message); err != nil {
+				t, err := c.HomeTellLead(ctx, in.Project, in.Message)
+				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Told %s's chat; it is working on it.", in.Project), nil
+				return fmt.Sprintf("Asked %s's lead (thread %s). Its answer will arrive in this chat by itself: "+
+					"carry on meanwhile, and don't check for it.", in.Project, t.ID), nil
 			},
 		},
 		{

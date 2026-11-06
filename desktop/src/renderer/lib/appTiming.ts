@@ -89,6 +89,18 @@ export function recordLongTask(startTime: number, duration: number): void {
   });
 }
 
+// recordMainLag keeps a stall of the main process's event loop, which the
+// main process watches (main/looplag.ts): the window's requests and IPC all
+// wait on it.
+export function recordMainLag(lag: { at: string; maxMs: number; p99Ms: number; windowMs: number }): void {
+  push({
+    name: 'app main-process stall',
+    start: new Date(Date.parse(lag.at) - lag.windowMs).toISOString(),
+    durationMs: lag.maxMs,
+    attrs: { p99Ms: lag.p99Ms, windowMs: lag.windowMs },
+  });
+}
+
 // flush sends what's buffered. A daemon that doesn't know the endpoint (404,
 // 405) or won't take it (any other 4xx) stops the timing for good; anything
 // else loses just this batch.

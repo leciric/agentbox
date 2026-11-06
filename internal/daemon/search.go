@@ -35,7 +35,7 @@ const (
 
 // searchKinds are the groups a search can ask for, in the order it answers.
 var searchKinds = []string{
-	api.SearchProjects, api.SearchAgents, api.SearchChats, api.SearchMemories, api.SearchEvents, api.SearchReports,
+	api.SearchProjects, api.SearchSessions, api.SearchAgents, api.SearchChats, api.SearchMemories, api.SearchEvents, api.SearchReports,
 	api.SearchMedia, api.SearchSkills, api.SearchConnectors, api.SearchNotes, api.SearchPulls,
 }
 
@@ -172,6 +172,9 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	}
 	// In the order the app shows them.
 	if err := add(api.SearchProjects, func() ([]searchFound, error) { return searchProjects(projects, words), nil }); err != nil {
+		return err
+	}
+	if err := add(api.SearchSessions, func() ([]searchFound, error) { return s.searchSessions(ctx, known, agents, filter, q, words) }); err != nil {
 		return err
 	}
 	if err := add(api.SearchAgents, func() ([]searchFound, error) { return s.searchAgents(ctx, agents, filter, words) }); err != nil {
@@ -460,15 +463,18 @@ func (s *Server) searchChats(ctx context.Context, known map[string]state.Project
 		if _, ok := known[h.Project]; !ok && h.Project != state.HomeProject {
 			continue
 		}
-		agent := h.Agent
-		if leads[h.Project+"/"+h.Agent] || h.Project == state.HomeProject {
+		// A lead's message is its project's chat's, in the session it runs.
+		agent, session := h.Agent, ""
+		if id, ok := state.SessionOfLead(h.Agent); ok && (leads[h.Project+"/"+h.Agent] || h.Project == state.HomeProject) {
+			agent, session = "", id
+		} else if h.Project == state.HomeProject {
 			agent = ""
 		}
 		var text strings.Builder
 		for _, part := range h.Snippet {
 			text.WriteString(part.Text)
 		}
-		g.Hits = append(g.Hits, api.SearchHit{ID: h.ID, Title: text.String(), Tag: h.Kind, Project: h.Project, Agent: agent, At: timePtr(h.At), Archived: past[h.Project+"/"+h.Agent]})
+		g.Hits = append(g.Hits, api.SearchHit{ID: h.ID, Title: text.String(), Tag: h.Kind, Project: h.Project, Agent: agent, Session: session, At: timePtr(h.At), Archived: past[h.Project+"/"+h.Agent]})
 	}
 	// The count includes chats of projects that are gone, which the hits
 	// leave out; they are rare enough not to be worth a second filter.

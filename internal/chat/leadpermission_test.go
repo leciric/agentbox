@@ -85,6 +85,14 @@ func TestAnAgentsPermissionRequestShowsInItsLeadAndStaysInStep(t *testing.T) {
 	if lead.Session.State == api.ChatWaiting {
 		t.Error("the lead waits on its agent's request as if it were its own")
 	}
+	// Each chat says what it waits on the user for: the agent its own
+	// request, the lead the card it shows (daemon/sessionstatus.go).
+	if att := m.Attention(testAgent.Ref()); att.Permissions != 1 || att.AgentPermissions != 0 || att.State != api.ChatWaiting {
+		t.Errorf("the agent's Attention() = %+v, want its one request", att)
+	}
+	if att := m.Attention(testLead.Ref()); att.Permissions != 0 || att.AgentPermissions != 1 {
+		t.Errorf("the lead's Attention() = %+v, want the one card", att)
+	}
 
 	// Answered from the lead: the agent's request and the card both say so.
 	if _, err := m.Answer(testAgent, p.Item, "allow-once"); err != nil {
@@ -96,6 +104,12 @@ func TestAnAgentsPermissionRequestShowsInItsLeadAndStaysInStep(t *testing.T) {
 	})
 	if n := len(cards(lead)); n != 1 {
 		t.Errorf("%d cards, want the one, answered", n)
+	}
+	if att := m.Attention(testLead.Ref()); att.AgentPermissions != 0 {
+		t.Errorf("the lead's Attention() = %+v once answered, want nothing waiting", att)
+	}
+	if att := m.Attention(testAgent.Ref()); att.Permissions != 0 {
+		t.Errorf("the agent's Attention() = %+v once answered, want nothing waiting", att)
 	}
 	if th, _ := m.Thread(testAgent); find(th, "permission", 0).Permission.Outcome != "allow-once" {
 		t.Errorf("the agent's request is %+v", find(th, "permission", 0).Permission)
