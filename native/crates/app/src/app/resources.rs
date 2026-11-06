@@ -23,14 +23,17 @@ pub(super) struct Resources {
     history: Option<Result<AgentResourceHistory, String>>,
 }
 
+/// A stretch of samples taken without a break, each as (ms, value).
+type Run = Vec<(i64, f64)>;
+
 /// Two samples further apart than this weren't watched in between.
 const GAP_MS: i64 = 6_000;
 
 /// runs splits a series into the stretches sampled without a break, each
 /// point as (ms, value), keeping only what falls in the window from start
 /// (resourceLine.ts runs).
-pub(super) fn runs(values: &[(i64, f64)], start: i64, window_ms: i64) -> Vec<Vec<(i64, f64)>> {
-    let mut out: Vec<Vec<(i64, f64)>> = Vec::new();
+pub(super) fn runs(values: &[(i64, f64)], start: i64, window_ms: i64) -> Vec<Run> {
+    let mut out: Vec<Run> = Vec::new();
     let mut prev = i64::MIN;
     for &(ms, v) in values {
         if ms < start || ms > start + window_ms {
@@ -303,7 +306,7 @@ fn trend_line(series: Vec<Series>, floor: f64, end: i64, window_ms: i64) -> impl
         .fold(floor, f64::max);
     let baseline = theme::line();
     let shade = series.len() == 1;
-    let runs: Vec<(Vec<Vec<(i64, f64)>>, Hsla)> = series
+    let runs: Vec<(Vec<Run>, Hsla)> = series
         .iter()
         .map(|s| (runs(&s.values, start, window_ms), s.color))
         .collect();
