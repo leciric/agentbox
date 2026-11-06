@@ -307,6 +307,10 @@ export const api = {
   closeGroup: (id: string) => call<T.Group>('POST', `/v1/groups/${encodeURIComponent(id)}/close`),
   judgeGroup: (id: string) => call<T.Group>('POST', `/v1/groups/${encodeURIComponent(id)}/judge`),
   updateAgent: (ref: string, req: T.UpdateAgentRequest) => call<T.Agent>('PATCH', agent(ref), req),
+  // An existing agent's goal set or changed, which sends it to work towards
+  // it, or cleared (internal/daemon/goals.go).
+  setGoal: (ref: string, spec: T.GoalSpec) => call<T.GoalResult>('PUT', `${agent(ref)}/goal`, spec),
+  clearGoal: (ref: string) => call<T.GoalResult>('DELETE', `${agent(ref)}/goal`),
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
   agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),

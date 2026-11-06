@@ -1215,7 +1215,7 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 			return fail(err)
 		}
 	}
-	if req.Goal, err = s.checkGoal(req.Goal); err != nil {
+	if req.Goal, err = checkGoal(req.Goal); err != nil {
 		return fail(err)
 	}
 	if req.Goal != nil && strings.TrimSpace(req.Task) == "" && req.Issue == 0 {

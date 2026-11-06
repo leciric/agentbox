@@ -11,6 +11,7 @@ import { projectAgentDefaults, startingPick } from '../lib/agentPick';
 import { choiceName } from '../lib/modelChoices';
 import { useT, type MessageKey } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
+import { budgetOK, emptyGoal, GoalFields, specOf, type GoalDraft } from './GoalEditor';
 import { JobProgress } from './JobProgress';
 import { AIIcon, aiLabel } from './state';
 import { Button } from './ui/button';
@@ -98,6 +99,9 @@ export function NewAgentDialog({
   const queryClient = useQueryClient();
   const [form, setForm] = useState<Form>(emptyForm);
   const [advanced, setAdvanced] = useState(false);
+  // Its goal (GoalEditor.tsx): optional, and folded until opened.
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [goal, setGoal] = useState<GoalDraft>(emptyGoal);
   const [job, setJob] = useState<T.Job | null>(null);
   const [finished, setFinished] = useState<T.Job | null>(null);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: open });
@@ -171,6 +175,7 @@ export function NewAgentDialog({
         claudeAccount: form.ai === 'claude' ? form.claudeAccount || undefined : undefined,
         githubAccount: form.githubAccount || undefined,
         finishNotice: form.notify || undefined,
+        goal: form.ai !== 'none' && goalOpen ? specOf(goal) : undefined,
       }),
     onSuccess: (started) => {
       setJob(started);
@@ -189,6 +194,8 @@ export function NewAgentDialog({
     startedFor.current = '';
     setForm({ ...emptyForm, project: project ?? '' });
     setAdvanced(false);
+    setGoalOpen(false);
+    setGoal(emptyGoal);
     setJob(null);
     setFinished(null);
     create.reset();
@@ -376,6 +383,27 @@ export function NewAgentDialog({
                   ))}
                 </div>
               </div>
+            )}
+
+            {form.ai !== 'none' && (
+              <>
+                <button
+                  type="button"
+                  className="-mt-1 flex items-center gap-1.5 justify-self-start text-ui text-muted hover:text-primary"
+                  aria-expanded={goalOpen}
+                  onClick={() => setGoalOpen((v) => !v)}
+                  data-new-agent-goal
+                >
+                  <ChevronRight className={cn('size-3.5 transition-transform', goalOpen && 'rotate-90')} />
+                  {t('goal.edit.newAgent')}
+                  <span className="text-caption text-faint">{t('goal.edit.newAgentHint')}</span>
+                </button>
+                {goalOpen && (
+                  <div className="-mt-2 animate-slide-up rounded-xl border border-line bg-surface-faint p-4">
+                    <GoalFields value={goal} onChange={setGoal} />
+                  </div>
+                )}
+              </>
             )}
 
             <button
@@ -608,7 +636,7 @@ export function NewAgentDialog({
               <Button variant="ghost" onClick={onClose}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" variant="primary" disabled={!form.project || create.isPending}>
+              <Button type="submit" variant="primary" disabled={!form.project || create.isPending || (goalOpen && !budgetOK(goal))}>
                 {create.isPending && <LoaderCircle className="animate-spin" />}
                 {t('project.newAgent.create')}
               </Button>

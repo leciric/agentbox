@@ -1782,7 +1782,6 @@ let defaultsSettings = {
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
   agentFreeze: false,
-  agentGoals: true,
   prWatch: true,
   // &green=off starts with "Resolved — merge when CI is green" off, as it ships.
   mergeWhenGreen: typeof location === 'undefined' || new URLSearchParams(location.search).get('green') !== 'off',
@@ -2608,6 +2607,21 @@ export function installDevBridge(): void {
         const ref = `${decodeURIComponent(started[1])}/${decodeURIComponent(started[2])}`;
         devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, state: 'running', chat: 'ready' } : a));
         return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
+      }
+      // An agent's goal set or cleared (internal/daemon/goals.go): kept on
+      // the agent, as the daemon's next agents list would have it.
+      const goalOf = method === 'PUT' || method === 'DELETE' ? /^\/v1\/agents\/([^/]+)\/([^/]+)\/goal$/.exec(path) : null;
+      if (goalOf && devState.agents) {
+        const ref = `${decodeURIComponent(goalOf[1])}/${decodeURIComponent(goalOf[2])}`;
+        const had = devState.agents.find((a) => a.ref === ref)?.goal;
+        const spec = (typeof body === 'string' ? JSON.parse(body) : body) as T.GoalSpec | undefined;
+        const goal: T.AgentGoal =
+          method === 'PUT' && spec
+            ? { objective: spec.objective.trim(), source: 'agentbox', status: 'active', checks: spec.checks, checked: 0, budget: spec.budget ?? 10, continuations: 0, updatedAt: new Date().toISOString() }
+            : { ...had!, status: 'cleared', updatedAt: new Date().toISOString() };
+        devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, goal } : a));
+        const res: T.GoalResult = { goal, told: method === 'PUT' ? 'turn' : undefined };
+        return { status: 200, body: JSON.stringify(res), contentType: 'application/json' };
       }
       // No checkpoints: Timeline filters what it gets, and {} isn't a list.
       if (method === 'GET' && path.endsWith('/checkpoints')) return { status: 200, body: '[]', contentType: 'application/json' };

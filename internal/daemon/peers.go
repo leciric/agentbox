@@ -409,6 +409,8 @@ var peerLeadRoutes = func() *http.ServeMux {
 		"GET /v1/project/archived-agents",
 		"GET /v1/project/agents/{agent}/chat",
 		"POST /v1/project/agents/{agent}/chat/messages",
+		"PUT /v1/project/agents/{agent}/goal",
+		"DELETE /v1/project/agents/{agent}/goal",
 		"GET /v1/project/agents/{agent}/diff",
 		"POST /v1/project/agents/{agent}/run",
 		"POST /v1/project/retire",

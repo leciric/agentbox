@@ -279,9 +279,6 @@ type Server struct {
 	// refreshing and refreshAgain are refreshAgentsBehind's: one listing
 	// runs at a time, and another follows when one was asked for meanwhile.
 	refreshing, refreshAgain atomic.Bool
-	// goalsOn is Settings → Experimental's agent goals switch, in memory
-	// (goals.go): package chat asks it under a conversation's lock.
-	goalsOn atomic.Bool
 	// scheduleKick wakes the scheduled tasks' runner (schedules.go).
 	scheduleKick chan struct{}
 	// archivedPRChecked is when each past agent's open pull request was last
@@ -559,13 +556,11 @@ func New(cfg Config) (*Server, error) {
 		LeadWaiting:       s.leadWaiting,
 		IdleStop:          s.leadSleepAfter,
 		StayUp:            s.leadDueSoon,
-		GoalsOn:           s.goalsEnabled,
 		GoalOf:            s.chatGoalOf,
 		GoalChanged:       s.goalFromTool,
 		Version:           Version,
 		ImageDir:          cfg.Paths.ChatImages,
 	}
-	s.loadGoalsFlag(context.Background())
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
 	s.disk = s.newDiskWatch()
@@ -1154,6 +1149,8 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/agents/{project}/{agent}/chat", s.clearChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/start", s.startChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))
+	h("PUT /v1/agents/{project}/{agent}/goal", s.putGoal(s.agentFromPath, false))
+	h("DELETE /v1/agents/{project}/{agent}/goal", s.deleteGoal(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/images/{image}", s.chatImage(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/files/{file}", s.chatFile(s.agentOrArchivedFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/cancel", s.cancelChat(s.agentFromPath))
