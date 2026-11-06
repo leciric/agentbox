@@ -200,7 +200,7 @@ func TestFleetLab(t *testing.T) {
 					ms = append(ms, pressure.Machine{Agent: a.ref, Since: a.made, Working: true, Frozen: f.Frozen(a.ref)})
 				}
 			}
-			f.Sync(ms)
+			f.Sync(now, ms)
 			acts = f.Step(now, sample)
 			for _, ref := range acts.Start {
 				boot(byRef[ref])
