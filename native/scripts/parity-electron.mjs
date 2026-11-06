@@ -68,6 +68,12 @@ async function play(s) {
     if (a.click) await page.mouse.click(a.click[0], a.click[1]);
     if (a.press) await page.keyboard.press(a.press);
     if (a.type) await page.keyboard.type(a.type);
+    // wheel: [x, y, notches], scrolled at that point (100px a notch here;
+    // the native app's own step there): far enough, both at the end.
+    if (a.wheel) {
+      await page.mouse.move(a.wheel[0], a.wheel[1]);
+      await page.mouse.wheel(0, a.wheel[2] * 100);
+    }
     await sleep(a.wait ?? 700);
   }
   await page.screenshot({ path: join(out, `${s.id}.png`) });

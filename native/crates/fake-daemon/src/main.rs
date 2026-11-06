@@ -808,6 +808,21 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         (&Method::GET, ["v1", "tokens", "turns"]) if fake.opts.upstream.is_none() => {
             json(StatusCode::OK, &Vec::<TokenTurn>::new())
         }
+        // Signed in to Claude Code with one account, as the limits say; no
+        // other tool yet (auth.go's AuthStatus).
+        (&Method::GET, ["v1", "auth"]) if fake.opts.upstream.is_none() => json(
+            StatusCode::OK,
+            &AuthStatus {
+                claude: true,
+                claude_accounts: vec![ClaudeAccount {
+                    name: "default".into(),
+                    default: true,
+                    saved_at: now(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ),
         (&Method::GET, ["v1", "projects"]) if fake.opts.upstream.is_none() => {
             let p = Project {
                 name: fake.opts.project.clone(),

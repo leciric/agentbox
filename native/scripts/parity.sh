@@ -80,6 +80,7 @@ for s in json.load(open(sys.argv[1])):
         if "click" in a: acts.append(f"mousemove {a['click'][0]} {a['click'][1]} click 1")
         if "press" in a: acts.append("key " + a["press"].replace("Control", "ctrl").replace("Shift", "shift").replace("+/", "+slash"))
         if "type" in a: acts.append("type " + json.dumps(a["type"]))
+        if "wheel" in a: acts.append(f"mousemove {a['wheel'][0]} {a['wheel'][1]} click --repeat {a['wheel'][2]} --delay 10 5")
         acts.append(f"sleep {a.get('wait', 700) / 1000}")
     masks = " ".join("--mask " + ",".join(map(str, m)) for m in s.get("masks", []))
     print("\x1f".join([s["id"], " ".join(s.get("sizes", [])), env, ";".join(acts), str(s.get("wait", 1500) / 1000), masks]))
