@@ -1406,6 +1406,9 @@ func (m *Manager) State(ref string) string {
 	if c == nil {
 		return ""
 	}
+	if l, ok := c.listingNow(); ok {
+		return l.state
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.session.State
@@ -1455,6 +1458,10 @@ func (m *Manager) Wait() { m.background.Wait() }
 
 // conversation is one agent's chat. Everything in it is guarded by mu.
 type conversation struct {
+	// listing is what an agent listing reads of it while mu is held
+	// (listing.go), kept at every flush.
+	listing atomic.Pointer[listing]
+
 	m     *Manager
 	agent state.Agent
 
@@ -3266,6 +3273,7 @@ func (c *conversation) flush(save bool) {
 		c.timer.Stop()
 		c.timer = nil
 	}
+	c.keepListing()
 	if c.pageCallDone() {
 		// The app reads the project's pages again from the store the moment
 		// it hears a publish_page or update_page finished (lib/pages.ts
