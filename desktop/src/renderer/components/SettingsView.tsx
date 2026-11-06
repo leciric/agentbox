@@ -107,6 +107,7 @@ import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs
 import { setGroupIdle, useGroupIdle } from "../lib/groupIdle";
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
+import { setUiOffice, useUiOffice } from "../lib/uiOffice";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
 import { VMMigrate } from "./VMMigrate";
@@ -874,6 +875,7 @@ function InstalledSettings({
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const topBarDetailed = useTopBarDetailed();
+  const uiOffice = useUiOffice();
   const reviewing = useReviewing();
   const groupIdle = useGroupIdle();
   const pageStack = usePageStackMode();
@@ -994,6 +996,13 @@ function InstalledSettings({
               keywords: t("settings.entry.group-idle.keywords"),
               modified: groupIdle,
               render: () => <GroupIdleSetting />,
+            },
+            {
+              id: "office",
+              label: t("settings.entry.office.label"),
+              keywords: t("settings.entry.office.keywords"),
+              modified: uiOffice,
+              render: () => <OfficeSetting />,
             },
             // The sidebar keeps only Settings and Past agents at its foot, so
             // which AgentBox this window drives is chosen here.
@@ -2459,6 +2468,20 @@ function TopBarDetailedSetting() {
           onCheckedChange={setTopBarDetailed}
         />
       }
+    />
+  );
+}
+
+// OfficeSetting turns on the Office, a 3D room with a desk for every agent
+// (lib/uiOffice.ts).
+function OfficeSetting() {
+  const t = useT();
+  const on = useUiOffice();
+  return (
+    <SettingRow
+      label={t("settings.entry.office.label")}
+      description={t("settings.office.description")}
+      control={<Switch data-office-setting aria-label={t("settings.entry.office.label")} checked={on} onCheckedChange={setUiOffice} />}
     />
   );
 }
