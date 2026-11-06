@@ -260,8 +260,9 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 	if err := c.do(ctx, http.MethodGet, "/v1/agents?project="+url.QueryEscape(cfg.project), nil, &have); err != nil {
 		t.Fatal(err)
 	}
-	// An agent is found by its title, "Load lab load-NN": a destroyed agent's
-	// name stays taken, so a slot made again gets a name of its own.
+	// An agent is found by its title, "Load lab load-NN", and named for the
+	// run that made it (load-NN-<run>): a destroyed agent's name stays taken.
+	run := strconv.FormatInt(time.Now().Unix()%46656, 36)
 	bySlot := map[string]api.Agent{}
 	for _, a := range have {
 		if slot, ok := strings.CutPrefix(a.Title, "Load lab "); ok {
@@ -355,7 +356,7 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			name := slot
+			name := slot + "-" + run
 			waitIO(t, cfg.ioMax, "making "+name)
 			if err := waitRoom(name); err != nil {
 				t.Error(err)
@@ -371,10 +372,6 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 				}, &job)
 			}
 			err := create()
-			if err != nil && strings.Contains(err.Error(), "already exists") {
-				name = fmt.Sprintf("%s-%s", slot, strconv.FormatInt(time.Now().UnixNano()%46656, 36))
-				err = create()
-			}
 			for err == nil && !job.Done() {
 				time.Sleep(2 * time.Second)
 				err = c.do(ctx, http.MethodGet, "/v1/jobs/"+job.ID, nil, &job)
