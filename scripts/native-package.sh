@@ -23,12 +23,26 @@
 # lists these under "Native app (experimental)" and never offers them on its
 # download button.
 #
+# Beside them, three more files with the exact names the app's own update asks
+# for (native/crates/app/src/update.rs, asset_name; <arch> is Node's, x64 or
+# arm64): agentbox-native-<version>-linux-x64 (the bare binary) and .AppImage
+# (x86_64, when $APPIMAGETOOL is set: the Linux install that updates itself),
+# -windows-x64.exe
+# and -mac-arm64.app.tar.gz (the signed .app). nightly.yml's SHA256SUMS lists
+# them (its agentbox-* glob). A copy installed from the .deb is under /usr and
+# is never overwritten: its update opens the release page instead. They are
+# lowercase agentbox-native-*, so the Electron app's update, install.sh and
+# r2-page.py (which hides them) don't see them. A test pins the names:
+# update.rs, release_files_match_the_packaging.
+#
+# The .pacman (AgentBox-Native-experimental-<version>-x64.pacman) is the same
+# package for Arch, installed with `sudo pacman -U`.
+#
 # The .deb is the package agentbox-native, beside (not instead of) the
 # Electron app's agentbox, with /usr/bin/agentbox-native and a menu entry.
 # Its Depends come from dpkg-shlibdeps on the binary, so it installs where
-# FFmpeg 6.1's libraries are (libavcodec60): Ubuntu 24.04, which it is built
-# on, and what is built on it (Mint 22, Pop!_OS 24.04), not Debian 13 or
-# Ubuntu 24.10, whose FFmpeg is 7. The tarball's binary needs them as well.
+# WebKitGTK 4.1 is, on glibc 2.39 or newer (the Ubuntu 24.04 it is built on).
+# FFmpeg is linked statically (nightly.yml), so Arch and Debian 13 run it too.
 set -euo pipefail
 
 os=${1:?usage: $0 linux|windows|mac <version> <out>}
@@ -48,7 +62,7 @@ AgentBox native app $version (experimental)
 A preview of AgentBox's desktop app rewritten in Rust with GPUI, the toolkit
 Zed is drawn with. It is a client of the same AgentBox daemon the Electron app
 uses: install AgentBox as usual, then start this instead of the AgentBox app.
-It may break, and it doesn't update itself.
+It may break.
 
   agentbox-native                   against this computer's AgentBox
   agentbox-native --socket PATH     against another daemon's socket
@@ -83,12 +97,16 @@ case $os in
     readme >"$dir/README.txt"
     cat >>"$dir/README.txt" <<'EOF'
 
-It needs WebKitGTK 4.1, FFmpeg's libraries (6.1, as Ubuntu 24.04 has them),
-ALSA and the Vulkan loader: on Debian and Ubuntu the .deb beside this pulls
+It needs WebKitGTK 4.1, GTK 3, ALSA and the Vulkan loader, and glibc 2.39 or
+newer; FFmpeg is built in. On Debian and Ubuntu the .deb beside this pulls
 them in.
 EOF
     cp "$root/LICENSE" "$dir/LICENSE"
     tar -C "$tmp" -czf "$out/$name-linux-$uname.tar.gz" "$(basename "$dir")"
+    # What the app's own update downloads: the bare binary.
+    case $arch in amd64) node=x64 ;; *) node=$arch ;; esac
+    install -m755 "$bin" "$out/agentbox-native-$version-linux-$node"
+
 
     # The .deb. Debian orders ~ before anything, so 0.17.0~nightly.… comes
     # before 0.17.0, as the semver prerelease does.
@@ -127,9 +145,69 @@ Recommends: mesa-vulkan-drivers, libayatana-appindicator3-1
 Installed-Size: $(du -sk "$pkg/usr" | cut -f1)
 Description: AgentBox's native desktop app (experimental)
  A preview of the AgentBox desktop app in Rust and GPUI, a client of the same
- AgentBox daemon. It may break and doesn't update itself.
+ AgentBox daemon. It may break.
 EOF
     dpkg-deb --root-owner-group -Zxz --build "$pkg" "$out/$name-$arch.deb" >/dev/null
+
+    # The .pacman, for `sudo pacman -U` on Arch: the package agentbox-native,
+    # as the .deb is, with the same files. pkgver can't hold a hyphen, so the
+    # nightly's is 0.17.0_nightly.20261106.157. No .MTREE: pacman -U needs none.
+    if [ "$arch" = amd64 ]; then
+      pm=$tmp/pacman
+      mkdir -p "$pm"
+      cp -a "$pkg/usr" "$pm/usr"
+      rm -rf "$pm/usr/share/doc"
+      mkdir -p "$pm/usr/share/licenses/agentbox-native"
+      cp "$root/LICENSE" "$pm/usr/share/licenses/agentbox-native/LICENSE"
+      cat >"$pm/.PKGINFO" <<EOF
+pkgname = agentbox-native
+pkgbase = agentbox-native
+pkgver = ${version/-/_}-1
+pkgdesc = AgentBox's native desktop app (experimental), a client of the same AgentBox daemon
+url = https://downloads.agentbox.linting.dev
+builddate = $(date +%s)
+packager = AgentBox <https://github.com/leciric/agentbox>
+size = $(du -sb "$pm/usr" | cut -f1)
+arch = x86_64
+license = MIT
+depend = gtk3
+depend = webkit2gtk-4.1
+depend = alsa-lib
+depend = vulkan-icd-loader
+optdepend = vulkan-swrast: draws without a GPU
+optdepend = libayatana-appindicator: the tray icon
+EOF
+      (cd "$pm" && tar --owner=0 --group=0 --numeric-owner -I 'zstd -19' -cf "$out/$name-x64.pacman" .PKGINFO usr)
+    fi
+
+    # The AppImage, the Linux install that updates itself: the same binary,
+    # which links FFmpeg statically (nightly.yml builds it with
+    # ffmpeg-next/build), so it needs only GTK and WebKitGTK 4.1 from the
+    # system (webkit2gtk-4.1 on Arch, libwebkit2gtk-4.1-0 on Debian), not
+    # Ubuntu's libavcodec. WebKitGTK's helper processes can't be bundled.
+    # $APPIMAGETOOL is appimagetool (nightly.yml downloads and checks 1.9.1);
+    # unset, none is made. --appimage-extract-and-run: no FUSE needed to build.
+    if [ "$arch" = amd64 ] && [ -n "${APPIMAGETOOL:-}" ]; then
+      app=$tmp/AppDir
+      mkdir -p "$app/usr/bin"
+      install -m755 "$bin" "$app/usr/bin/agentbox-native"
+      install -m644 "$root/desktop/build/icon.png" "$app/agentbox-native.png"
+      cp "$app/agentbox-native.png" "$app/.DirIcon"
+      cat >"$app/agentbox-native.desktop" <<'DESK'
+[Desktop Entry]
+Type=Application
+Name=AgentBox Native (experimental)
+Comment=AgentBox's native desktop app, a preview
+Exec=agentbox-native
+Icon=agentbox-native
+Categories=Development;
+StartupWMClass=agentbox-native
+DESK
+      printf '#!/bin/sh\nexec "$(dirname "$(readlink -f "$0")")/usr/bin/agentbox-native" "$@"\n' >"$app/AppRun"
+      chmod 755 "$app/AppRun"
+      ARCH=x86_64 "$APPIMAGETOOL" --appimage-extract-and-run --no-appstream "$app" \
+        "$out/agentbox-native-$version-linux-$node.AppImage"
+    fi
     ;;
   windows)
     bin=$root/native/target/release/agentbox-native.exe
@@ -137,6 +215,8 @@ EOF
     dir=$tmp/$name-windows-x64
     mkdir -p "$dir"
     cp "$bin" "$dir/agentbox-native.exe"
+    # What the app's own update downloads: the .exe itself.
+    cp "$bin" "$out/agentbox-native-$version-windows-x64.exe"
     readme | sed 's/$/\r/' >"$dir/README.txt"
     sed 's/$/\r/' "$root/LICENSE" >"$dir/LICENSE.txt"
     # 7z is on GitHub's Windows runners; zip isn't.
@@ -181,6 +261,8 @@ EOF
     readme >"$tmp/dmg/README.txt"
     ln -s /Applications "$tmp/dmg/Applications"
     "$root/scripts/mac-sign.sh" ${MAC_SIGN_IDENTITY:+--identity "$MAC_SIGN_IDENTITY"} "$app"
+    # What the app's own update downloads: the signed .app, alone at the top.
+    tar -C "$tmp/dmg" -czf "$out/agentbox-native-$version-mac-$arch.app.tar.gz" "$(basename "$app")"
     dmg=$out/$name-mac-$arch.dmg
     hdiutil create -quiet -volname "AgentBox Native" -srcfolder "$tmp/dmg" -fs HFS+ -format UDZO -ov "$dmg"
     if [ -n "${MAC_SIGN_IDENTITY:-}" ]; then
