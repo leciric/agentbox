@@ -2723,6 +2723,7 @@ func (c *conversation) lastTurn() string {
 	if c.turn != nil {
 		return c.turn.id
 	}
+	c.ensureLoaded()
 	for i := len(c.items) - 1; i >= 0; i-- {
 		if c.items[i].Kind == "user" {
 			return c.items[i].ID
@@ -2752,6 +2753,7 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	if c.adapter != h.ad {
 		return
 	}
+	c.ensureLoaded() // Unload may have let it go between turns
 	// Whatever it is, and whichever session it's for — a subagent's own
 	// updates are the turn's too — the adapter is alive and getting on.
 	c.progressed()
@@ -2970,6 +2972,7 @@ func (h handler) Request(method string, params json.RawMessage, reply func(any, 
 		reply(cancelled, nil)
 		return
 	}
+	c.ensureLoaded()
 	c.progressed()
 	if req.SessionID == h.ad.sessionID || h.ad.subagents[req.SessionID] == nil {
 		// The main loop's model is done with the call it asks about: what it
@@ -3172,6 +3175,7 @@ func (c *conversation) updatePlan(entries []acp.PlanEntry) {
 
 // add appends a new item to the conversation.
 func (c *conversation) add(kind, turn string) *api.ChatItem {
+	c.ensureLoaded()
 	now := time.Now()
 	it := &api.ChatItem{ID: newID(), Turn: turn, Kind: kind, CreatedAt: now, UpdatedAt: now}
 	c.items = append(c.items, it)
