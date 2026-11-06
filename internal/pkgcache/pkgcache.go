@@ -25,7 +25,15 @@
 //   - Playwright locks its browsers' directory while it installs, and
 //     Corepack downloads into a temporary directory it renames;
 //   - Electron's downloader (@electron/get) writes a zip to a temporary
-//     directory and renames it into the cache.
+//     directory and renames it into the cache;
+//   - Cargo serializes its downloads and unpacking with lock files in
+//     CARGO_HOME (.package-cache, .package-cache-mutate). Its registry and
+//     git directories are shared without the rest of CARGO_HOME (installed
+//     binaries, credentials, config), so each agent's lock files are links
+//     to the same ones here, and every agent's Cargo takes the one lock, as
+//     several Cargos sharing a CARGO_HOME do. Its automatic clean-up is off
+//     (CARGO_CACHE_AUTO_CLEAN_FREQUENCY): it goes by what one agent used, and
+//     would delete what others use; the eviction here does that job.
 //
 // Two caches are left out on purpose. Yarn 1's cache unpacks a package straight
 // into its final directory and deletes one it finds incomplete, so two agents
@@ -65,6 +73,14 @@ const (
 	Playwright = "ms-playwright"
 	Corepack   = "corepack"
 	Electron   = "electron"
+	// Cargo's registry and git sources, which each agent's ~/.cargo links to
+	// (agent/pkgcache.go), and the lock files Cargo serializes them with.
+	Cargo         = "cargo"
+	CargoIndex    = "cargo/registry/index"
+	CargoCrates   = "cargo/registry/cache"
+	CargoSources  = "cargo/registry/src"
+	CargoGitDB    = "cargo/git/db"
+	CargoCheckout = "cargo/git/checkouts"
 )
 
 // unit says how much of a subdirectory goes at once when it's evicted.
@@ -114,6 +130,17 @@ var parts = []part{
 	// Electron's binaries, one directory a download's URL: Electron 44 and
 	// later fetch theirs when first run, ~120 MB an agent otherwise.
 	{Electron, 1},
+	// Cargo: registry/index/<registry> is a sparse index's cache, or a git
+	// repository for a git index, whole either way; registry/cache holds
+	// one .crate a file, fetched again when missing; registry/src unpacks
+	// each crate into <registry>/<crate>-<version>, re-unpacked when its
+	// .cargo-ok is gone; git/db is one bare repository a source, and
+	// git/checkouts one directory a revision of it.
+	{CargoIndex, 1},
+	{CargoCrates, eachFile},
+	{CargoSources, 2},
+	{CargoGitDB, 1},
+	{CargoCheckout, 2},
 }
 
 // Dirs are the subdirectories the tools are pointed at, which Prepare makes.
