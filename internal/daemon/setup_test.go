@@ -206,6 +206,8 @@ case "$1" in
     case "$2" in
       */agentbox-base/snapshots) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
       */snapshots) echo '[]' ;;
+      /1.0/storage-pools*) echo '[]' ;;
+      -X) echo '{"UnknownVolumes":null,"DependencyErrors":null}' ;;
       *) if [ -f "$INCUS_LOG.updated" ]; then echo '` + updated + `'; else echo '` + config + `'; fi ;;
     esac ;;
 esac

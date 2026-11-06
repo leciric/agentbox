@@ -462,7 +462,10 @@ func swapIn(ctx context.Context, inc incus.Client, next string, log io.Writer) e
 	baseLock.Lock()
 	defer baseLock.Unlock()
 	old := Base + "-old"
-	_ = inc.Delete(ctx, old)
+	if err := remove(ctx, inc, old); err != nil {
+		_ = inc.Delete(context.WithoutCancel(ctx), next)
+		return err
+	}
 	// A new machine has no previous image, so there's nothing to delete after the swap.
 	replaced := false
 	if _, err := inc.Instance(ctx, Base); err == nil {
@@ -625,13 +628,34 @@ func personaliseFor(ctx context.Context, inc incus.Client, next string, u User, 
 	)
 }
 
-// remove deletes an instance left behind by an interrupted build.
+// remove deletes an instance left behind by an interrupted build, or what's
+// left of it: an Incus interrupted copying or deleting it can keep its storage
+// and forget the instance, and every build after then fails making it again.
+// Any of the base's copies lost with it is taken back too, for the next
+// remove to delete. Recovering asks Incus' admin API: when that fails, the
+// build goes on as it did before, and fails making the copy only if there
+// really is one left.
 func remove(ctx context.Context, inc incus.Client, name string) error {
 	if _, err := inc.Instance(ctx, name); err != nil {
-		if errors.Is(err, incus.ErrNotFound) {
+		if !errors.Is(err, incus.ErrNotFound) {
+			return err
+		}
+		names := []string{name}
+		for _, n := range []string{Base + "-next", Base + "-old"} {
+			if n != name {
+				names = append(names, n)
+			}
+		}
+		recovered, err := inc.RecoverLeftovers(ctx, names...)
+		if err != nil {
+			if errors.Is(err, incus.ErrCantRecover) {
+				return err
+			}
 			return nil
 		}
-		return err
+		if !slices.Contains(recovered, name) {
+			return nil
+		}
 	}
 	return inc.Delete(ctx, name)
 }
