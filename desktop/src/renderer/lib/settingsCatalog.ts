@@ -94,6 +94,7 @@ export const catalog: CatalogSetting[] = [
   { section: 'connectors', group: 'settings.group.connectors.title', id: 'connectors', label: 'settings.section.connectors.title', keywords: 'settings.entry.connectors.keywords' },
   { section: 'memory', group: 'settings.group.memory.title', id: 'global-memory', label: 'settings.section.memory.title', keywords: 'settings.entry.memory.keywords' },
   { section: 'resources', group: 'settings.group.agent-limits.title', id: 'agent-memory', label: 'settings.entry.agent-memory.label', keywords: 'settings.entry.agent-memory.keywords' },
+  { section: 'resources', group: 'settings.group.disk.title', id: 'disk-usage', label: 'settings.entry.disk-usage.label', keywords: 'settings.entry.disk-usage.keywords' },
   { section: 'resources', group: 'settings.group.disk.title', id: 'disk-floor', label: 'settings.entry.disk-floor.label', keywords: 'settings.entry.disk-floor.keywords' },
   { section: 'resources', group: 'settings.group.disk.title', id: 'media-retention', label: 'settings.entry.media-retention.label', keywords: 'settings.entry.media-retention.keywords' },
   { section: 'resources', group: 'settings.group.disk.title', id: 'docker-prune', label: 'settings.entry.docker-prune.label', keywords: 'settings.entry.docker-prune.keywords' },

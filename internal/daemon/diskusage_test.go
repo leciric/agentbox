@@ -23,7 +23,7 @@ func TestDiskUsageAPI(t *testing.T) {
 	}
 	wantLabels := map[string]bool{
 		"Agent machines": false, "Base images and saved bases": false,
-		"Worktrees": false, "Media": false, "state.db and logs": false,
+		"Worktrees": false, "Media": false, "state.db and logs": false, "Shared caches": false,
 	}
 	for _, c := range usage.Categories {
 		if _, ok := wantLabels[c.Label]; !ok {

@@ -1594,12 +1594,17 @@ type Usage struct {
 type DiskUsageItem struct {
 	Label string `json:"label"`
 	Bytes int64  `json:"bytes"`
+	// Kind is what the item is, for an app that names it in its own
+	// language (DiskItemBaseImage and so on); "" for an agent or a project,
+	// whose Label is its name. Name is the project or tool it belongs to.
+	Kind string `json:"kind,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // DiskUsageCategory groups items of one kind, largest first, with its own
 // total.
 type DiskUsageCategory struct {
-	Kind  string          `json:"kind"` // DiskMachines, DiskBases, DiskWorktrees, DiskMedia or DiskState
+	Kind  string          `json:"kind"` // DiskMachines, DiskBases, DiskWorktrees, DiskMedia, DiskCaches or DiskState
 	Label string          `json:"label"`
 	Bytes int64           `json:"bytes"`
 	Items []DiskUsageItem `json:"items,omitempty"`
@@ -1614,7 +1619,30 @@ const (
 	DiskWorktrees = "worktrees"
 	DiskMedia     = "media"
 	DiskState     = "state"
+	// DiskCaches is what agents share to save downloading and writing again:
+	// the package managers' caches and the Docker image cache.
+	DiskCaches = "caches"
 )
+
+// Kinds of DiskUsageItem.
+const (
+	DiskItemBaseImage    = "base-image"
+	DiskItemProjectBase  = "project-base"  // Name is the project
+	DiskItemPreviousBase = "previous-base" // Name is the project
+	DiskItemPackageCache = "package-cache" // Name is the tool's directory, "other" for the rest
+	DiskItemDockerImages = "docker-images"
+	DiskItemStateDB      = "state-db"
+	DiskItemDaemonLog    = "daemon-log"
+)
+
+// DiskTrim is the VM's last trim, which gives the host's disk back the space
+// the VM freed: when, how many bytes the VM's file systems reported trimmed,
+// and what failed. POST /v1/usage/disk/trim trims now and answers with it.
+type DiskTrim struct {
+	At    time.Time `json:"at"`
+	Bytes int64     `json:"bytes"`
+	Error string    `json:"error,omitempty"`
+}
 
 // DiskUsage is what AgentBox uses on disk, broken down by kind, largest
 // first, with a total. The "Storage pool" indicator in the top bar opens it,
@@ -1624,6 +1652,8 @@ const (
 type DiskUsage struct {
 	Total      int64               `json:"total"`
 	Categories []DiskUsageCategory `json:"categories"`
+	// Trim is the VM's last trim; nil outside a VM, and before the first.
+	Trim *DiskTrim `json:"trim,omitempty"`
 }
 
 // AgentDisk is what one agent takes up on disk, for its info card: its

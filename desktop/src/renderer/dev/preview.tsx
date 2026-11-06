@@ -947,6 +947,8 @@ if (meters) {
 if (settingsPage || appView) settingsBridge();
 if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
 if (power) seedMeterUsage(queryClient);
+// Settings → Storage and machine shows what AgentBox takes on disk.
+if (params.get('settings') === 'resources' && !power && !meters) seedMeterUsage(queryClient);
 // The top bar's inbox, empty: the ?notify= scenarios show it full.
 if (power || meters) setNotifications([], []);
 localStorage.setItem('agentbox.topbar.detailed', topbar === 'detailed' ? '1' : '0');

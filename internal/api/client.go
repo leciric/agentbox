@@ -1303,6 +1303,13 @@ func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)
 }
 
+// TrimDisk trims AgentBox's VM's disks now, giving the host's disk back the
+// space the VM freed, and says how much.
+func (c *Client) TrimDisk(ctx context.Context) (DiskTrim, error) {
+	var out DiskTrim
+	return out, c.do(ctx, http.MethodPost, "/v1/usage/disk/trim", nil, &out)
+}
+
 // AgentDisk is one agent's machine and worktree sizes, as its info card shows them.
 func (c *Client) AgentDisk(ctx context.Context, project, name string) (AgentDisk, error) {
 	var out AgentDisk

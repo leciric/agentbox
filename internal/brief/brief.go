@@ -43,6 +43,9 @@ type Data struct {
 	// NodeModules are the directories of the worktree whose node_modules are
 	// on the machine's own disk (agent/nodemodules.go), "." for its top.
 	NodeModules []string
+	// CargoTargets are the directories of the worktree whose Cargo target/
+	// is on the machine's own disk (agent/buildoutputs.go), "." for its top.
+	CargoTargets []string
 	// Secrets are the names of the secrets this agent has as environment
 	// variables (agentbox secrets). Values never come near the brief.
 	Secrets []string

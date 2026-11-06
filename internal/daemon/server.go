@@ -195,6 +195,8 @@ type Server struct {
 	// (pkgcache.go), and packageCacheKick asks for a trim now.
 	packageCache     *pkgcache.Cache
 	packageCacheKick chan struct{}
+	// trim gives the host back the VM's freed disk space (fstrim.go).
+	trim *trimmer
 	// worktreeTrash says a destroyed agent's worktree is in the trash
 	// (emptyWorktreeTrash).
 	worktreeTrash chan struct{}
@@ -573,6 +575,7 @@ func New(cfg Config) (*Server, error) {
 	s.packageCache = s.newPackageCache()
 	s.nodeModules = s.newNodeModules()
 	s.packageCacheKick = make(chan struct{}, 1)
+	s.trim = s.newTrimmer()
 	s.worktreeTrash = make(chan struct{}, 1)
 	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
@@ -675,6 +678,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.sweepSessions(ctx) })
 	loops.Go(func() { s.runIdleReclaim(ctx) })
 	loops.Go(func() { s.runUsage(ctx) })
+	loops.Go(func() { s.runTrim(ctx) })
 	loops.Go(func() {
 		s.giveZram()
 		s.runPressure(ctx)
@@ -1198,6 +1202,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/usage", s.usage)
 	h("GET /v1/usage/disk", s.diskUsage)
+	h("POST /v1/usage/disk/trim", s.trimDisk)
 	h("GET /v1/disk", s.getDiskGuard)
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
