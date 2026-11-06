@@ -708,7 +708,14 @@ func (s *Server) watchMemory(ctx context.Context) {
 	s.countRunning(agents)
 	limit := agent.MemoryLimit(s.vmMemory(), s.agentMemoryShare(ctx))
 	for _, a := range agents {
-		if a.IsLead() || a.Status != state.AgentReady || a.Instance == "" {
+		if a.IsLead() || a.Instance == "" {
+			continue
+		}
+		// One being made runs its machine too — the old home pushed in,
+		// caches filled, Docker set up — and several made at once, with no
+		// limit, could take the whole VM: limited as soon as its cgroup is
+		// there (it isn't before its machine starts, and nothing is written).
+		if a.Status != state.AgentReady && a.Status != state.AgentCreating {
 			continue
 		}
 		if err := s.setMemoryLimit(a.Instance, limit); err != nil {
@@ -716,6 +723,9 @@ func (s *Server) watchMemory(ctx context.Context) {
 		}
 		if err := s.setIOWeight(a.Instance, agent.AgentIOWeight); err != nil {
 			s.logOnce("io.weight "+a.Instance, fmt.Sprintf("io.weight: %s: %v", a.Ref(), err))
+		}
+		if a.Status != state.AgentReady {
+			continue
 		}
 		now, ok := s.memoryEvents(a.Instance)
 		if !ok {

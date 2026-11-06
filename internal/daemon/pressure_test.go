@@ -16,6 +16,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
 	"agentbox/internal/pressure"
+	"agentbox/internal/state"
 )
 
 // fakeRunCgroups is the runs' cgroups, as a test sees them: what was placed,
@@ -485,5 +486,35 @@ func TestHostLoadHoldsHeavyCommands(t *testing.T) {
 	p.srv.hostLoad.mu.Unlock()
 	if !p.start(t, "second", time.Second) {
 		t.Fatal("a stale busy report still held the command")
+	}
+}
+
+// An agent being made already runs its machine, and gets its memory.max then,
+// not only once it is ready: several made at once had none.
+func TestAgentBeingMadeGetsItsMemoryLimit(t *testing.T) {
+	t.Parallel()
+	p := newPressureTest(t)
+	ctx := context.Background()
+	making := state.Agent{
+		Project: "hello-stack", Name: "agent-05", Instance: "ab-hello-stack-agent-05", AI: "none",
+		Branch: "agentbox/agent-05", Worktree: "/worktrees/agent-05", Status: state.AgentCreating, CreatedAt: time.Now(),
+	}
+	if err := p.srv.store.AddAgent(ctx, making); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	limits := map[string]int64{}
+	p.srv.vmMemory = func() int64 { return 16 << 30 }
+	p.srv.setMemoryLimit = func(instance string, limit int64) error {
+		mu.Lock()
+		defer mu.Unlock()
+		limits[instance] = limit
+		return nil
+	}
+	p.srv.watchMemory(ctx)
+	mu.Lock()
+	defer mu.Unlock()
+	if got, want := limits[making.Instance], agent.MemoryLimit(16<<30, 0); got != want {
+		t.Errorf("memory.max of the agent being made = %d, want %d (all: %v)", got, want, limits)
 	}
 }
