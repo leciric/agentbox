@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Cpu, HardDrive, LoaderCircle, MemoryStick, RotateCcw } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { VMStatus } from '../../preload';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { formatNumber, useT } from '../lib/i18n';
-import { errorMessage } from '../lib/utils';
+import { cn, errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { appendOutput, CommandBox, SetupLog } from './SettingsView';
 import { Badge } from './ui/badge';
@@ -60,6 +60,8 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
   });
 
   const limits = vm.limits;
+  // What the Mac keeps for itself: the larger of 4 GiB and a quarter, as on Linux.
+  const macReserve = limits?.hostMemory ? Math.max(limits.hostMemory - limits.maxMemory, 0) : 0;
   const cpus = Number(form.cpus);
   const memory = Number(form.memory);
   const cpusOk = Number.isInteger(cpus) && limits !== undefined && cpus >= limits.minCpus && cpus <= limits.maxCpus;
@@ -127,36 +129,25 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
                 />
               </div>
             </Field>
-            <Field
+            <MemoryField
               label={t('vm.size.memoryLabel')}
-              htmlFor="vm-memory"
-              hint={
-                memoryOk || form.memory === '' ? (
-                  t('vm.size.memoryHintMac', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })
-                ) : (
-                  <Bad>{t('vm.size.memoryHintMac', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })}</Bad>
-                )
-              }
-            >
-              <div className="relative">
-                <MemoryStick className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-faint" />
-                <Input
-                  id="vm-memory"
-                  type="number"
-                  inputMode="decimal"
-                  min={gib(limits.minMemory)}
-                  max={gib(limits.maxMemory)}
-                  step={0.5}
-                  className="h-8 pl-8 font-mono text-ui"
-                  disabled={busy}
-                  value={form.memory}
-                  onChange={(e) => {
-                    setEdited(true);
-                    setForm({ ...form, memory: e.target.value });
-                  }}
-                />
-              </div>
-            </Field>
+              percentLabel="vm.size.memoryLabelPercent"
+              host={limits.hostMemory}
+              hint={(() => {
+                const words = { min: gibText(limits.minMemory), max: gibText(limits.maxMemory), reserve: gibText(macReserve) };
+                const text = macReserve > 0 ? t('vm.size.memoryHintMacReserve', words) : t('vm.size.memoryHintMac', words);
+                return memoryOk || form.memory === '' ? text : <Bad>{text}</Bad>;
+              })()}
+              min={limits.minMemory}
+              max={limits.maxMemory}
+              step={0.5}
+              disabled={busy}
+              value={form.memory}
+              onChange={(memory) => {
+                setEdited(true);
+                setForm({ ...form, memory });
+              }}
+            />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" variant="primary" size="sm" disabled={busy || !changed || !cpusOk || !memoryOk} data-vm-resize>
@@ -208,6 +199,103 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
         onConfirm={async () => resize.mutate({ cpus, memory })}
       />
     </Panel>
+  );
+}
+
+// MemoryField is the VM's memory box, in GiB or, where this computer's memory
+// is known (host), as a share of it: "75%" is turned into the whole GiB it
+// comes to, which is what's sent, and said under the box. Either way it's
+// held to min and max, which keep the computer its reserve.
+function MemoryField({
+  label,
+  percentLabel,
+  host,
+  hint,
+  min,
+  max,
+  step,
+  disabled,
+  value,
+  onChange,
+}: {
+  label: string;
+  percentLabel: 'vm.size.memoryCapLabelPercent' | 'vm.size.memoryLabelPercent';
+  host?: number;
+  hint: ReactNode;
+  min: number;
+  max: number;
+  step: number;
+  disabled: boolean;
+  value: string;
+  onChange: (gib: string) => void;
+}) {
+  const t = useT();
+  const [unit, setUnit] = useState<'gib' | 'percent'>('gib');
+  const [percent, setPercent] = useState('');
+  const inPercent = unit === 'percent' && !!host;
+  const percentOf = (gibs: string) => (host && gibs.trim() !== '' ? String(Math.round(((Number(gibs) * GiB) / host) * 100)) : '');
+  const unitButton = (which: 'gib' | 'percent', text: string) => (
+    <button
+      type="button"
+      aria-pressed={unit === which}
+      disabled={disabled}
+      className={cn(
+        'h-full px-2.5 text-caption font-medium',
+        unit === which ? 'bg-surface-strong text-primary' : 'text-subtle hover:text-primary',
+      )}
+      onClick={() => {
+        if (which === 'percent') setPercent(percentOf(value));
+        setUnit(which);
+      }}
+      data-vm-memory-unit={which}
+    >
+      {text}
+    </button>
+  );
+  return (
+    <Field
+      label={inPercent ? t(percentLabel, { total: gibText(host) }) : label}
+      htmlFor="vm-memory"
+      hint={
+        <>
+          {inPercent && value !== '' && Number.isFinite(Number(value)) && (
+            <span className="text-secondary" data-vm-memory-gib>
+              {t('vm.size.percentIs', { percent, gib: gibText(Number(value) * GiB) })}{' '}
+            </span>
+          )}
+          {hint}
+        </>
+      }
+    >
+      <div className="flex items-stretch gap-2">
+        <div className="relative min-w-0 flex-1">
+          <MemoryStick className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-faint" />
+          <Input
+            id="vm-memory"
+            type="number"
+            inputMode="decimal"
+            min={inPercent ? Math.ceil((min / host) * 100) : gib(min)}
+            max={inPercent ? Math.floor((max / host) * 100) : gib(max)}
+            step={inPercent ? 1 : step}
+            className="h-8 pl-8 font-mono text-ui"
+            disabled={disabled}
+            value={inPercent ? percent : value}
+            onChange={(e) => {
+              if (!inPercent) return onChange(e.target.value);
+              setPercent(e.target.value);
+              const p = Number(e.target.value);
+              onChange(e.target.value.trim() === '' || !Number.isFinite(p) ? '' : String(Math.floor(((p / 100) * host) / GiB)));
+            }}
+          />
+        </div>
+        {host ? (
+          <div role="group" aria-label={t('vm.size.unitLabel')} className="inline-flex h-8 shrink-0 overflow-hidden rounded-md border border-border">
+            {unitButton('gib', t('vm.size.unitGiB'))}
+            {unitButton('percent', t('vm.size.unitPercent'))}
+          </div>
+        ) : null}
+      </div>
+    </Field>
   );
 }
 
@@ -353,9 +441,19 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
                 />
               </div>
             </Field>
-            <Field
+            <MemoryField
               label={t('vm.size.memoryCapLabel')}
-              htmlFor="vm-memory"
+              percentLabel="vm.size.memoryCapLabelPercent"
+              host={vm.memory.hostTotal}
+              min={limits.minMemory}
+              max={limits.maxMemory}
+              step={1}
+              disabled={busy}
+              value={form.memory}
+              onChange={(memory) => {
+                setEdited(true);
+                setForm({ ...form, memory });
+              }}
               hint={
                 reserve ? (
                   memoryOk || form.memory === '' ? (
@@ -369,26 +467,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
                   <Bad>{t('vm.size.memoryHintCHVBad', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })}</Bad>
                 )
               }
-            >
-              <div className="relative">
-                <MemoryStick className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-faint" />
-                <Input
-                  id="vm-memory"
-                  type="number"
-                  inputMode="decimal"
-                  min={gib(limits.minMemory)}
-                  max={gib(limits.maxMemory)}
-                  step={1}
-                  className="h-8 pl-8 font-mono text-ui"
-                  disabled={busy}
-                  value={form.memory}
-                  onChange={(e) => {
-                    setEdited(true);
-                    setForm({ ...form, memory: e.target.value });
-                  }}
-                />
-              </div>
-            </Field>
+            />
             {minDisk > 0 && (
               <Field
                 label={t('vm.size.diskLabel')}

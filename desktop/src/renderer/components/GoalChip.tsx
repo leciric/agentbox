@@ -5,7 +5,7 @@ import { cn } from '../lib/utils';
 import { aiLabel } from './state';
 import { Tip } from './ui/tooltip';
 
-// Agent goals (Settings → Experimental; internal/api/goal.go). An agent's goal
+// Agent goals (internal/api/goal.go). An agent's goal
 // is either its AI tool's own /goal, which AgentBox only shows, or the one the
 // project's chat gave it, whose checks the daemon runs after each turn. The
 // chip sits on the agent's row and header; GoalRow is the goal in its chat.
@@ -17,7 +17,7 @@ const statusStyle: Record<string, { icon: typeof Target; className: string; labe
   cleared: { icon: CircleSlash, className: 'border-line bg-surface-faint text-subtle', label: 'goal.status.cleared' },
 };
 
-const styleOf = (status: string) => statusStyle[status] ?? statusStyle.active;
+export const styleOf = (status: string) => statusStyle[status] ?? statusStyle.active;
 
 // GoalChip is the goal on an agent's row (compact: an icon and the count) or
 // header (with the objective), its details in a tooltip.

@@ -18,6 +18,9 @@ You are running inside an AgentBox agent: an isolated Linux machine that belongs
 {{- if .NodeModules}}
 - `node_modules` in {{range $i, $d := .NodeModules}}{{if $i}}, {{end}}`{{$d}}`{{end}} is on this machine's own disk, and the host sees it empty. If it's already filled, an earlier agent installed this same lockfile: `npm install` or `pnpm install` finishes in seconds, and `npm ci` would start over. It's a mount: `rm -rf node_modules` empties it and then fails with "Device or resource busy".
 {{- end}}
+{{- if .CargoTargets}}
+- Cargo's `target/` in {{range $i, $d := .CargoTargets}}{{if $i}}, {{end}}`{{$d}}`{{end}} is on this machine's own disk too, and the host sees it empty. Use `cargo clean`, not `rm -rf target`.
+{{- end}}
 
 {{- if .Notes}}
 

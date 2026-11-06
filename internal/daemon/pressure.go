@@ -17,8 +17,9 @@ import (
 	"agentbox/internal/state"
 )
 
-// Memory goes by what the VM measures, not by guesses. Every agent starts at
-// once. Each has a hard memory.max (agent.MemoryLimit), so a process that
+// Memory goes by what the VM measures, not by guesses. An agent's machine
+// boots once the VM has the memory for it (admission.go), the agent On hold
+// until then. Each has a hard memory.max (agent.MemoryLimit), so a process that
 // outgrows what one agent can have alone is killed at once, and the agent is
 // told what was killed and at what size (watchMemory). What memory pressure
 // holds back is heavy commands (test runs, builds): they ask the daemon
@@ -26,9 +27,13 @@ import (
 // newest of those already going is paused when it stays short, then resumed
 // in order (package pressure decides; this applies it).
 //
-// Inside an agent a heavy command asks through the in-agent API: Claude
-// Code's hook around its Bash tool (cli/heavy.go, agent.withHeavyHooks), or
-// `agentbox heavy -- <cmd>` around anything else. As it starts, its shell
+// Inside an agent a heavy command asks through the in-agent API: the shims
+// for go, cargo, npm, make… first in every agent's PATH, whatever its AI
+// tool (agent/heavyshims.go, cli.heavyShim), or `agentbox heavy -- <cmd>`
+// around anything else. A run waits while the VM's memory is under
+// pressure, and also while one more doesn't fit on top of those that just
+// started (pressure.Governor.BuildCost); the agent the app shows goes first,
+// and idle agents' memory is pushed out before any run waits. As it starts, its shell
 // joins a cgroup of its own under the agent's machine's (agent.PlaceRun), so
 // pausing it freezes that command and what it started, not the agent, and
 // its memory is pushed out to swap while it is paused.
@@ -140,6 +145,13 @@ func (s *Server) giveZram() {
 	if !hostos.InVM() {
 		return
 	}
+	// The disks' scheduler first: it decides whether the agents' io.weight
+	// (watchMemory) counts for anything.
+	if did, err := agent.UseBFQ(); err != nil {
+		s.logf("disk scheduler: %v; agents' disk use doesn't yield to the daemon's and Incus's", err)
+	} else if did != "" {
+		s.logf("disk scheduler: %s", did)
+	}
 	did, err := agent.EnsureZram(s.vmMemory() / agent.ZramShare)
 	if err != nil {
 		s.logf("zram swap: %v; memory pressure shows only once the VM has swap (agentbox vm swap on)", err)
@@ -153,6 +165,7 @@ func (s *Server) giveZram() {
 // their memory limits and kills.
 func (s *Server) runPressure(ctx context.Context) {
 	s.loadFleet(ctx)
+	go s.resumeHeld(ctx)
 	go func() {
 		for {
 			select {
@@ -243,6 +256,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		sample = pressure.Sample{}
 	}
 	now := time.Now()
+	sample.HostBusy = s.hostLoad.busy(now)
 	s.watchPSI(now, sample.PSI)
 	gone := h.g.Expire(now, func(r *pressure.Run) bool {
 		if r.Placed {
@@ -322,6 +336,8 @@ func (s *Server) stepPressure(ctx context.Context) {
 	if fleetOn {
 		s.stepFleet(ctx, now, sample)
 		why = s.fleetWhyNow()
+	} else {
+		s.stepAdmission(now, sample.Mem, s.buildsHeld())
 	}
 	s.notePressure(now, sample, err == nil, why)
 	s.memoryShort.note(now, why)
@@ -414,6 +430,9 @@ func (s *Server) askHeavy(ctx context.Context, ref, instance, key, command strin
 	run, started := h.g.Ask(ref, key, command, ttl, time.Now())
 	id := run.ID()
 	h.instance[id] = instance
+	if !started && ref == s.viewed() {
+		h.g.Prefer(ref)
+	}
 	if !started && s.fleetOn() {
 		// Its machine is what pauses, not the run: it starts now.
 		h.g.StartAll(time.Now())
@@ -433,6 +452,8 @@ func (s *Server) askHeavy(ctx context.Context, ref, instance, key, command strin
 	// Calm and nothing ahead of it: this step starts it now.
 	s.stepPressure(ctx)
 	if asked {
+		// Before it waits, what idle agents hold goes out to swap.
+		s.reclaimIdleSoon(ctx)
 		// Still waiting, it shows on the agent ("Waiting for memory").
 		select {
 		case <-ch:
@@ -511,6 +532,10 @@ func reasonWords(why pressure.Reason, s pressure.Sample, tr pressure.Trend) stri
 		return fmt.Sprintf("the VM is nearly out of memory (%s, swap full)", avail)
 	case pressure.Easing:
 		return "the VM's memory has eased, and commands paused for it resume first, one at a time"
+	case pressure.HostBusy:
+		return "the user's computer is busy, and their own programs come first"
+	case pressure.Full:
+		return fmt.Sprintf("the VM hasn't the memory for another build on top of those running (%s)", avail)
 	}
 	return ""
 }
@@ -654,6 +679,9 @@ func (s *Server) getPressure(w http.ResponseWriter, r *http.Request) error {
 	h.mu.Lock()
 	psi := h.g.Last()
 	out := api.PressureStatus{Some: psi.Some.Avg10, Full: psi.Full.Avg10, Why: string(h.g.Why()), Runs: []api.HeavyRun{}}
+	if load, ok := s.hostLoad.current(time.Now()); ok {
+		out.Host = &load
+	}
 	for _, run := range h.g.Running() {
 		st, since := "running", run.Started
 		if run.Paused {
@@ -677,13 +705,17 @@ func (s *Server) watchMemory(ctx context.Context) {
 		return
 	}
 	s.syncFleet(ctx, agents)
-	limit := agent.MemoryLimit(s.vmMemory())
+	s.countRunning(agents)
+	limit := agent.MemoryLimit(s.vmMemory(), s.agentMemoryShare(ctx))
 	for _, a := range agents {
 		if a.IsLead() || a.Status != state.AgentReady || a.Instance == "" {
 			continue
 		}
 		if err := s.setMemoryLimit(a.Instance, limit); err != nil {
 			s.logOnce("memory.max "+a.Instance, fmt.Sprintf("memory.max: %s: %v", a.Ref(), err))
+		}
+		if err := s.setIOWeight(a.Instance, agent.AgentIOWeight); err != nil {
+			s.logOnce("io.weight "+a.Instance, fmt.Sprintf("io.weight: %s: %v", a.Ref(), err))
 		}
 		now, ok := s.memoryEvents(a.Instance)
 		if !ok {
@@ -705,6 +737,38 @@ func (s *Server) watchMemory(ctx context.Context) {
 			go s.tellKilled(context.WithoutCancel(ctx), a, now.Kills-seen.Kills, now.Limit, own)
 		}
 	}
+}
+
+// agentMemoryShare is the share of the VM, in percent, one agent may have
+// (agent.MemoryLimit): what the settings chose, or agent.DefaultAgentMemoryShare.
+func (s *Server) agentMemoryShare(ctx context.Context) int {
+	if v, err := s.store.Setting(ctx, state.SettingAgentMemoryShare); err == nil && v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return min(max(n, agent.MinAgentMemoryShare), agent.MaxAgentMemoryShare)
+		}
+	}
+	return agent.DefaultAgentMemoryShare
+}
+
+// setAgentMemoryShare stores the share a settings request chooses, 0 going
+// back to the default, and has running agents' memory.max follow at once:
+// lowering it is how a runaway agent is stopped from taking the VM.
+func (s *Server) setAgentMemoryShare(ctx context.Context, share int) error {
+	value := ""
+	if share != 0 {
+		if share < agent.MinAgentMemoryShare || share > agent.MaxAgentMemoryShare {
+			return fmt.Errorf("an agent's share of the VM's memory is from %d%% to %d%%; %d%% isn't",
+				agent.MinAgentMemoryShare, agent.MaxAgentMemoryShare, share)
+		}
+		value = strconv.Itoa(share)
+	}
+	if err := s.store.SetSetting(ctx, state.SettingAgentMemoryShare, value); err != nil {
+		return err
+	}
+	if s.pressureEvery > 0 {
+		go s.watchMemory(s.background())
+	}
+	return nil
 }
 
 // logOnce logs msg under key, unless it was the last thing logged under it.

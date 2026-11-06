@@ -641,6 +641,21 @@ type plan struct {
 	awaitImage    func(context.Context, state.Agent) error // see CreateOptions.AwaitImage; nil when the image is ready
 }
 
+// LeftBehindError is a create that failed and couldn't take back the agent it
+// had already stored: the agent is still listed, and creating it again would
+// make a second one. Every other error from Create means nothing was created.
+type LeftBehindError struct {
+	Agent string
+	Err   error // why the create failed
+	Undo  error // why removing the agent failed
+}
+
+func (e *LeftBehindError) Error() string {
+	return fmt.Sprintf("%v; %s was left behind (removing it failed: %v)", e.Err, e.Agent, e.Undo)
+}
+
+func (e *LeftBehindError) Unwrap() error { return e.Err }
+
 // build creates an agent step by step. If a step fails, or ctx is cancelled,
 // the finished steps are undone.
 func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
@@ -692,12 +707,19 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	// Undo steps run even when ctx was cancelled (Ctrl-C).
 	cleanup := context.WithoutCancel(ctx)
 	var undo []func()
+	// leftBehind is why the agent's own row couldn't be taken back out: the
+	// one leftover that makes trying again create a second agent.
+	var leftBehind error
 	fail := func(step string, err error) (state.Agent, error) {
 		m.logf("%s failed; rolling back", step)
 		for i := len(undo) - 1; i >= 0; i-- {
 			undo[i]()
 		}
-		return state.Agent{}, &CreateError{Ref: a.Ref(), Step: step, Err: err}
+		err = &CreateError{Ref: a.Ref(), Step: step, Err: err}
+		if leftBehind != nil {
+			return state.Agent{}, &LeftBehindError{Agent: a.Ref(), Err: err, Undo: leftBehind}
+		}
+		return state.Agent{}, err
 	}
 
 	if pl.queued != nil {
@@ -710,7 +732,11 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	} else if err := m.Store.AddAgent(ctx, a); err != nil {
 		return state.Agent{}, err
 	}
-	undo = append(undo, func() { _ = m.Store.RemoveAgent(cleanup, a.Project, a.Name) })
+	undo = append(undo, func() {
+		if err := m.Store.RemoveAgent(cleanup, a.Project, a.Name); err != nil && !errors.Is(err, state.ErrNotFound) {
+			leftBehind = err
+		}
+	})
 
 	if a.AI == "claude" {
 		options, err := m.claudeChatDefaults(ctx, pl.project, pl.model, pl.effort, pl.contextWindow)
@@ -945,6 +971,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// Before the brief, which names them, and the session, so the AI tool
 	// finds node_modules already there when its lockfile was installed before.
 	m.ensureNodeModules(ctx, a)
+	m.ensureBuildOutputs(ctx, a)
 	m.logf("Configuring git, AI tool logins and the agent brief")
 	if err := m.configure(ctx, a, inst.IPv4(), envFiles, task); err != nil {
 		return "configure", err
@@ -1669,6 +1696,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		IP:             ip,
 		EnvFiles:       envFiles,
 		NodeModules:    m.nodeModulesDirs(a),
+		CargoTargets:   m.buildOutputDirs(a),
 		Secrets:        secretNames,
 		Android:        android.IsProject(a.Worktree),
 		IOS:            hostos.OS() == "darwin" && iossim.IsProject(a.Worktree),
@@ -1733,6 +1761,7 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	env := "# Written by AgentBox.\nexport COMPOSE_PROJECT_NAME=" + shellQuote(a.Project) + "\n"
 	env += m.packageCacheEnv()
 	env += workersScript
+	env += shimPathLine
 	// The GitHub token, when the agent has an account, so gh and the API work in it.
 	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
 	if err != nil {
@@ -2056,6 +2085,9 @@ func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, hasSession, nil, io.Discard, io.Discard) != nil {
 		m.prepareToolWindow(ctx, a)
 	}
+	if err := m.writeHeavyShims(ctx, a); err != nil {
+		m.logf("%s: %v; its builds and tests won't wait for memory", a.Ref(), err)
+	}
 	window, err := m.toolWindowScript(ctx, a)
 	if err != nil {
 		return err
@@ -2151,6 +2183,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		}
 		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
+		m.buildOutputSources(ctx, a)
 		err := m.Incus.Start(ctx, a.Instance)
 		release()
 		if err != nil {

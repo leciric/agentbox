@@ -58,6 +58,7 @@ import { offersRemake } from "../lib/krunkit";
 import type { SettingSection } from "../lib/settingsSearch";
 import { appendOutput, cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
+import { StorageUsage } from "./StorageUsage";
 import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
 import { UsageSentDialog } from "./UsageSentDialog";
@@ -75,6 +76,7 @@ import {
   DefaultTool,
   LeadRecheck,
   MediaRetention,
+  AgentMemoryShare,
   DiskFloor,
   DockerImageCache,
   SharedPackageCaches,
@@ -1221,20 +1223,6 @@ function InstalledSettings({
           ],
         },
         {
-          id: "experimental-agents",
-          title: t("settings.group.experimental-agents.title"),
-          entries: [
-            {
-              id: "agent-goals",
-              description: t("settings.agentGoals.description"),
-              label: t("settings.entry.agent-goals.label"),
-              keywords: t("settings.entry.agent-goals.keywords"),
-              modified: changed((s) => s.agentGoals),
-              render: () => <AgentGoalsSetting />,
-            },
-          ],
-        },
-        {
           id: "experimental-memory",
           title: t("settings.group.experimental-memory.title"),
           entries: [
@@ -1243,7 +1231,7 @@ function InstalledSettings({
               description: t("settings.idleReclaim.description"),
               label: t("settings.idleReclaim.label"),
               keywords: t("settings.entry.idle-reclaim.keywords"),
-              modified: changed((s) => s.idleReclaim),
+              modified: changed((s) => !s.idleReclaim), // on by default
               render: () => <IdleReclaim />,
             },
             {
@@ -1631,9 +1619,30 @@ function InstalledSettings({
       nav: t("settings.nav.machine"),
       groups: [
         {
+          id: "agent-limits",
+          title: t("settings.group.agent-limits.title"),
+          entries: [
+            {
+              id: "agent-memory",
+              description: t("defaults.newAgent.agentMemoryDescription"),
+              label: t("settings.entry.agent-memory.label"),
+              keywords: t("settings.entry.agent-memory.keywords"),
+              modified: changed((s) => s.agentMemoryShare !== s.defaultAgentMemoryShare),
+              render: () => <AgentMemoryShare />,
+            },
+          ],
+        },
+        {
           id: "disk",
           title: t("settings.group.disk.title"),
           entries: [
+            {
+              id: "disk-usage",
+              description: t("storage.description"),
+              label: t("settings.entry.disk-usage.label"),
+              keywords: t("settings.entry.disk-usage.keywords"),
+              render: () => <StorageUsage inVM={!!(vm?.exists || chv)} />,
+            },
             {
               id: "disk-floor",
               description: t("defaults.newAgent.diskDescription"),
@@ -2597,39 +2606,6 @@ function AgentFreezeSetting() {
           aria-label={t("settings.entry.agent-freeze.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.agentFreeze ?? false}
-          onCheckedChange={(next) => save.mutate(next)}
-        />
-      }
-    />
-  );
-}
-
-// AgentGoalsSetting is the experimental agent goals (internal/daemon/goals.go,
-// internal/chat/goal.go): agents' goals shown, and create_agent's driven by
-// the daemon's own checks. Off until turned on; nothing changes while off.
-function AgentGoalsSetting() {
-  const t = useT();
-  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (agentGoals: boolean) => api.updateSettings({ agentGoals }),
-    onSuccess: (next) => {
-      queryClient.setQueryData(["settings"], next);
-      void queryClient.invalidateQueries({ queryKey: ["agents"] });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  return (
-    <SettingRow
-      label={t("settings.entry.agent-goals.label")}
-      description={t("settings.agentGoals.description")}
-      details={t("settings.agentGoals.details")}
-      control={
-        <Switch
-          data-agent-goals
-          aria-label={t("settings.entry.agent-goals.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.agentGoals ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

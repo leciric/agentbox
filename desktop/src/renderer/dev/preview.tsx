@@ -36,6 +36,8 @@
 //                           needing you, working, finishing and failing every
 //                           few seconds, as the daemon's status events say
 //                           (dev/fixtures.ts' liveSessionSteps); use ?app=project
+//   ?busy=host|daemon       the top bar's busy marks: this computer busy, or
+//                           the daemon not answering (both: host,daemon)
 //   ?homeAsk=1              the Home chat asked the project's lead something
 //                           and got its answer: cards in both chats (with
 //                           &home=1 for the Home chat's side)
@@ -945,6 +947,8 @@ if (meters) {
 if (settingsPage || appView) settingsBridge();
 if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
 if (power) seedMeterUsage(queryClient);
+// Settings → Storage and machine shows what AgentBox takes on disk.
+if (params.get('settings') === 'resources' && !power && !meters) seedMeterUsage(queryClient);
 // The top bar's inbox, empty: the ?notify= scenarios show it full.
 if (power || meters) setNotifications([], []);
 localStorage.setItem('agentbox.topbar.detailed', topbar === 'detailed' ? '1' : '0');

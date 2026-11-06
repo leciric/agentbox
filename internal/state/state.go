@@ -11,10 +11,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/text/unicode/norm"
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/memory"
@@ -1598,6 +1599,27 @@ var migrations = []string{
 	// was asked, which answers. Threads between two leads leave both empty.
 	`ALTER TABLE project_threads ADD COLUMN project_session TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE project_threads ADD COLUMN peer_session TEXT NOT NULL DEFAULT ''`,
+
+	// A chat item is rewritten as it changes — an answer while it streams, a
+	// tool call as it runs — and the trigger above took every rewrite's text
+	// out of chat_items_fts and put it back, trigram by trigram, even when it
+	// was the same text, all inside the writer's hold on the lock. Only a
+	// change to what is searched touches the index now.
+	`DROP TRIGGER chat_items_fts_update`,
+	`CREATE TRIGGER chat_items_fts_update AFTER UPDATE ON chat_items
+		WHEN old.search_text IS NOT new.search_text OR old.rowid != new.rowid BEGIN
+		INSERT INTO chat_items_fts (chat_items_fts, rowid, search_text)
+			SELECT 'delete', old.rowid, old.search_text WHERE old.search_text IS NOT NULL;
+		INSERT INTO chat_items_fts (rowid, search_text)
+			SELECT new.rowid, new.search_text WHERE new.search_text IS NOT NULL;
+	END`,
+
+	// An agent On hold (daemon/admission.go): its machine stopped, or not
+	// yet booted, until the VM has the memory for it (HoldMemory), or until
+	// something touches it after it sat idle (HoldIdle); hold_at is since
+	// when. '' is not on hold.
+	`ALTER TABLE agents ADD COLUMN hold TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN hold_at INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1606,7 +1628,11 @@ var migrations = []string{
 const DefaultMediaRetentionDays = 30
 
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	gate      *writeGate
+	stop      chan struct{}
+	stopped   chan struct{}
+	closeOnce sync.Once
 }
 
 func Open(path string) (*Store, error) {
@@ -1621,20 +1647,79 @@ func Open(path string) (*Store, error) {
 	// handler doesn't apply to that one case, so busy_timeout below wouldn't
 	// save it. Taking the lock up front turns two writers racing into one
 	// waiting for the other.
-	dsn := "file:" + path + "?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
-	db, err := sql.Open("sqlite", dsn)
+	//
+	// synchronous(NORMAL) is WAL's usual setting: a commit is written to the
+	// WAL without an fsync, and the WAL is synced when it is checkpointed. A
+	// power cut can lose the last commits, never the database; a daemon that
+	// crashes loses nothing. FULL, the default, fsynced every commit while it
+	// held the write lock, and on a VM whose disk four or five agents are
+	// building on, one fsync could take seconds.
+	//
+	// wal_autocheckpoint(0) takes checkpoints off the commit, where the writer
+	// that happened to cross 1000 pages copied them into the database, fsync
+	// included, before its write returned: the checkpointer below does it in
+	// the background instead. journal_size_limit keeps the WAL from staying
+	// at its largest after a burst.
+	dsn := "file:" + path + "?_txlock=immediate&_pragma=foreign_keys(1)" +
+		fmt.Sprintf("&_pragma=busy_timeout(%d)", busyTimeout.Milliseconds()) +
+		"&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=wal_autocheckpoint(0)&_pragma=journal_size_limit(67108864)"
+	registered, err := sql.Open("sqlite", "")
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db}
+	drv := registered.Driver().(*sqlite.Driver)
+	_ = registered.Close()
+	gate := newWriteGate()
+	db := sql.OpenDB(&gatedConnector{dsn: dsn, drv: drv, gate: gate})
+	s := &Store{db: db, gate: gate, stop: make(chan struct{}), stopped: make(chan struct{})}
 	if err := s.migrate(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
+	go s.checkpoints()
 	return s, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+// SetLog sends the store's own log lines — a write that held the lock past
+// SlowWrite, a writer that gave up waiting for it — to logf.
+func (s *Store) SetLog(logf func(format string, args ...any)) { s.gate.logf.Store(&logf) }
+
+// checkpointEvery is how often the WAL is checkpointed.
+var checkpointEvery = 10 * time.Second
+
+// checkpoints copies the WAL into the database every checkpointEvery, in the
+// background, PASSIVE: it never takes the write lock or waits for anybody,
+// and it does what it can of a WAL that readers still need, the rest the next
+// time. On close, a TRUNCATE leaves no WAL behind.
+func (s *Store) checkpoints() {
+	defer close(s.stopped)
+	t := time.NewTicker(checkpointEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-t.C:
+			start := time.Now()
+			var busy, logPages, done int
+			if err := s.db.QueryRow(`PRAGMA wal_checkpoint(PASSIVE)`).Scan(&busy, &logPages, &done); err != nil {
+				s.gate.log("sqlite: checkpointing the WAL: %v", err)
+			} else if took := time.Since(start); took > 5*time.Second {
+				s.gate.log("sqlite: checkpointing %d pages of the WAL took %s", done, took.Round(time.Millisecond))
+			}
+		}
+	}
+}
+
+func (s *Store) Close() error {
+	s.closeOnce.Do(func() {
+		close(s.stop)
+		<-s.stopped
+		var a, b, c int
+		_ = s.db.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&a, &b, &c)
+	})
+	return s.db.Close()
+}
 
 // DB is the open database, for the packages that keep their own tables in it
 // rather than their own file: package memory, whose schema is migrated here
@@ -2920,6 +3005,11 @@ type Agent struct {
 	// It isn't cleared on start: a start after it (the machine's last use)
 	// makes it stale, which the reader checks. Zero when never recorded.
 	StoppedAt time.Time
+	// Hold is why this agent is On hold, HoldMemory or HoldIdle, since
+	// HoldAt; "" when it isn't. It is a mark beside the machine's state, never
+	// a reason to remove the agent.
+	Hold   string
+	HoldAt time.Time
 	// ID is an identity distinct from Name, set once at AddAgent and never
 	// reused: what tells this agent apart from a different one that later
 	// gets its name, for a row that outlives it on purpose (token_usage).
@@ -3248,7 +3338,7 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 }
 
 func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at FROM agents `+clause, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at, hold, hold_at FROM agents `+clause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -3256,12 +3346,12 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created, pausedAt, stoppedAt int64
+		var created, pausedAt, stoppedAt, holdAt int64
 		var connectors sql.NullString
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &a.GeminiAccount, &pausedAt, &stoppedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &a.GeminiAccount, &pausedAt, &stoppedAt, &a.Hold, &holdAt); err != nil {
 			return nil, err
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)
@@ -3278,9 +3368,34 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		if stoppedAt != 0 {
 			a.StoppedAt = time.Unix(stoppedAt, 0)
 		}
+		if holdAt != 0 {
+			a.HoldAt = time.Unix(holdAt, 0)
+		}
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()
+}
+
+// Why an agent is On hold (Agent.Hold).
+const (
+	// HoldMemory: it waits, machine stopped, for the VM to have the memory
+	// to boot it, and boots by itself in turn.
+	HoldMemory = "memory"
+	// HoldIdle: its machine was stopped after it sat idle; whatever touches
+	// it (a message, opening it, its lead) starts it again.
+	HoldIdle = "idle"
+)
+
+// SetHold puts an agent On hold for why, or takes it off (""). Putting it
+// on hold again for the same reason keeps when it first was.
+func (s *Store) SetHold(ctx context.Context, project, name, why string) error {
+	if why == "" {
+		_, err := s.db.ExecContext(ctx, `UPDATE agents SET hold = '', hold_at = 0 WHERE project = ? AND name = ?`, project, name)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET hold = ?, hold_at = CASE WHEN hold = ? AND hold_at != 0 THEN hold_at ELSE ? END WHERE project = ? AND name = ?`,
+		why, why, time.Now().Unix(), project, name)
+	return err
 }
 
 // SetStoppedAt records when an agent's machine was stopped.

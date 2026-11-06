@@ -1206,6 +1206,19 @@ func (c *Client) Agent(ctx context.Context, ref string) (Agent, error) {
 	return out, c.agentDo(ctx, http.MethodGet, ref, "", nil, &out)
 }
 
+// SetGoal sets or changes an existing agent's goal, from its
+// "<project>/<agent>" ref, and sends it to work towards it.
+func (c *Client) SetGoal(ctx context.Context, ref string, spec GoalSpec) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodPut, ref, "/goal", spec, &out)
+}
+
+// ClearGoal clears an agent's goal: AgentBox stops checking it.
+func (c *Client) ClearGoal(ctx context.Context, ref string) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodDelete, ref, "/goal", nil, &out)
+}
+
 func (c *Client) CreateAgent(ctx context.Context, req CreateAgentRequest) (Job, error) {
 	var out Job
 	return out, c.do(ctx, http.MethodPost, "/v1/agents", req, &out)
@@ -1301,6 +1314,13 @@ func (c *Client) DiskGuard(ctx context.Context) (DiskGuard, error) {
 func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	var out DiskUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)
+}
+
+// TrimDisk trims AgentBox's VM's disks now, giving the host's disk back the
+// space the VM freed, and says how much.
+func (c *Client) TrimDisk(ctx context.Context) (DiskTrim, error) {
+	var out DiskTrim
+	return out, c.do(ctx, http.MethodPost, "/v1/usage/disk/trim", nil, &out)
 }
 
 // AgentDisk is one agent's machine and worktree sizes, as its info card shows them.
@@ -1523,4 +1543,9 @@ func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) e
 	defer func() { _ = resp.Body.Close() }()
 	_, err = io.Copy(w, resp.Body)
 	return err
+}
+
+// PutHostLoad reports the user's computer's load (internal/hostload).
+func (c *Client) PutHostLoad(ctx context.Context, load HostLoad) error {
+	return c.do(ctx, http.MethodPut, "/v1/host/load", load, nil)
 }

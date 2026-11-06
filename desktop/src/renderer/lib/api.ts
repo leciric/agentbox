@@ -7,6 +7,7 @@ import type * as D from './diagnostics.ts';
 import { errorMessage } from './utils.ts';
 import { t } from '../../shared/i18n/index.ts';
 import { ensureVMRunning } from './vm.ts';
+import { begin as beginRequest } from './daemonBusy.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -23,12 +24,17 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   let res: ApiResponse;
   // Each round trip is a span of the app's own (appTiming.ts).
   const started = performance.now();
+  // And counts toward the top bar's busy mark (daemonBusy.ts), but for the
+  // timing's own posts.
+  const done = path.startsWith(clientSpansPath) ? () => {} : beginRequest();
   try {
     res = await window.agentbox.request(method, path, body);
   } catch (err) {
+    done();
     recordRequest(method, path, started, 0, errorMessage(err));
     throw new ApiError(errorMessage(err), 0);
   }
+  done(res.status === 504 && res.body.includes('"daemon_timeout"'));
   recordRequest(method, path, started, res.status);
   if (res.status >= 400) {
     let message = res.body.trim();
@@ -301,6 +307,10 @@ export const api = {
   closeGroup: (id: string) => call<T.Group>('POST', `/v1/groups/${encodeURIComponent(id)}/close`),
   judgeGroup: (id: string) => call<T.Group>('POST', `/v1/groups/${encodeURIComponent(id)}/judge`),
   updateAgent: (ref: string, req: T.UpdateAgentRequest) => call<T.Agent>('PATCH', agent(ref), req),
+  // An existing agent's goal set or changed, which sends it to work towards
+  // it, or cleared (internal/daemon/goals.go).
+  setGoal: (ref: string, spec: T.GoalSpec) => call<T.GoalResult>('PUT', `${agent(ref)}/goal`, spec),
+  clearGoal: (ref: string) => call<T.GoalResult>('DELETE', `${agent(ref)}/goal`),
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
   agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
@@ -354,6 +364,9 @@ export const api = {
   searchChat: (ref: string, query: string, kinds: string[] = []) =>
     call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query, ...(kinds.length ? { kinds: kinds.join(',') } : {}) })}`),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
+  // viewAgent says the app shows an agent: its builds go first while memory is
+  // short, and one On hold after sitting idle starts again (daemon/viewing.go).
+  viewAgent: (ref: string) => call<void>('PUT', `${agent(ref)}/viewing`),
   // to sends a message written in a project's chat to one of its agents
   // instead (shared/messageTarget.ts).
   sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[], to?: { to: string }) =>
@@ -722,6 +735,7 @@ export const api = {
   renewPresence: (req: T.PresenceRequest) => call<T.PresenceResponse>('PUT', '/v1/presence', req),
   endPresence: (client: string) => call<void>('DELETE', `/v1/presence/${encodeURIComponent(client)}`),
   agentResources: (ref: string) => call<T.AgentResourceHistory>('GET', `${agent(ref)}/resources`),
+  pressure: () => call<T.PressureStatus>('GET', '/v1/pressure'),
   // Settings → Diagnostics: spans and stalls since a stretch back from now
   // ("30m"), resource samples over a window ("1h"), and the app's own spans.
   diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),
@@ -731,6 +745,7 @@ export const api = {
   diagnosticPackageCache: () => call<T.DiagnosticsPackageCache>('GET', '/v1/diagnostics/package-cache'),
   sendClientSpans: (spans: T.TraceSpan[]) => call<void>('POST', clientSpansPath, { spans } satisfies T.ClientSpansRequest),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
+  trimDisk: () => call<T.DiskTrim>('POST', '/v1/usage/disk/trim'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),
   cpuUsage: () => call<T.CPUUsage>('GET', '/v1/usage/cpu?interval=500ms'),

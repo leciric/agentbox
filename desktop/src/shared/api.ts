@@ -212,7 +212,6 @@ export interface Settings {
   errorReports: boolean;
   prWatch: boolean;
   mergeWhenGreen: boolean;
-  agentGoals: boolean;
   agentFreeze: boolean;
   mediaRetention: string;
   language: string;
@@ -220,6 +219,12 @@ export interface Settings {
   defaultClaudeCompactWindow: number;
   diskFloorMin: number;
   diskFloorPercent: number;
+  agentMemoryShare: number;
+  defaultAgentMemoryShare: number;
+  minAgentMemoryShare: number;
+  maxAgentMemoryShare: number;
+  agentMemoryLimit: number;
+  vmMemory: number;
   autoStopIdle: boolean;
   removeStopped: boolean;
   removeStoppedDays: number;
@@ -292,7 +297,6 @@ export interface UpdateSettingsRequest {
   errorReports?: boolean;
   prWatch?: boolean;
   mergeWhenGreen?: boolean;
-  agentGoals?: boolean;
   agentFreeze?: boolean;
   mediaRetention?: string;
   language?: string;
@@ -311,6 +315,7 @@ export interface UpdateSettingsRequest {
   leadSleepMinutes?: number;
   diskFloorMin?: number;
   diskFloorPercent?: number;
+  agentMemoryShare?: number;
   imageCache?: boolean;
   imageCacheMaxBytes?: number;
   clearImageCache?: boolean;
@@ -354,6 +359,7 @@ export interface Agent {
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
+  hold?: string;
   goal?: AgentGoal;
   ip: string;
   createdAt: string;
@@ -614,6 +620,7 @@ export interface PressureStatus {
   full: number;
   why?: string;
   runs: HeavyRun[];
+  host?: HostLoad;
 }
 
 export interface HeavyRun {
@@ -623,6 +630,21 @@ export interface HeavyRun {
   state: string;
   since: string;
   placed?: boolean;
+}
+
+export interface HostLoad {
+  os: string;
+  memory: number;
+  cpu: number;
+  io: number;
+  cpuShare: number;
+  level?: string;
+  memoryTotal?: number;
+  available?: number;
+  busy: boolean;
+  why?: string;
+  reclaim?: boolean;
+  at: string;
 }
 
 export interface Job {
@@ -676,6 +698,8 @@ export interface Usage {
 export interface DiskUsageItem {
   label: string;
   bytes: number;
+  kind?: string;
+  name?: string;
 }
 
 export interface DiskUsageCategory {
@@ -685,9 +709,16 @@ export interface DiskUsageCategory {
   items?: DiskUsageItem[];
 }
 
+export interface DiskTrim {
+  at: string;
+  bytes: number;
+  error?: string;
+}
+
 export interface DiskUsage {
   total: number;
   categories: DiskUsageCategory[];
+  trim?: DiskTrim;
 }
 
 export interface AgentDisk {
@@ -864,6 +895,7 @@ export interface AgentChange {
   memory?: MemoryHold;
   waitingForImage?: boolean;
   reclaimed?: string;
+  hold?: string;
 }
 
 export interface Theme {
@@ -2102,6 +2134,7 @@ export interface FleetAgent {
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
+  hold?: string;
   goal?: AgentGoal;
   ip: string;
   createdAt: string;
@@ -2817,6 +2850,12 @@ export interface GoalCheck {
   command?: string;
   met?: boolean;
   detail?: string;
+}
+
+export interface GoalResult {
+  goal: AgentGoal;
+  told?: string;
+  woke?: string;
 }
 
 export interface ChatProjectMessage {
@@ -3580,6 +3619,7 @@ export interface VMMemory {
   cap: number;
   granted: number;
   hostReserve?: number;
+  hostTotal?: number;
   used: number;
   resident: number;
   hostCache: number;

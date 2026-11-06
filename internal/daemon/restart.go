@@ -142,12 +142,45 @@ func (s *Server) continueAgent(ctx context.Context, rt state.RunningTurn) {
 			s.notResumed(ctx, rt, err.Error())
 			return
 		}
+		if s.bootWaits() {
+			// Its boot waits its turn for memory, On hold (admission.go): the
+			// turn carries on once it boots, and the other agents' turns, and
+			// every message meanwhile, don't wait behind it.
+			go s.continueOnHold(context.WithoutCancel(ctx), a, rt)
+			return
+		}
 		if err := s.startMachine(ctx, s.manager(s.cfg.Log), a, "a turn to carry on after a restart"); err != nil {
 			s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be started (%v)", err))
 			return
 		}
 		s.refreshAgents(ctx)
 	}
+	s.resumeChat(a, rt)
+}
+
+// continueOnHold starts an agent's machine once admission lets it boot,
+// then carries on its turn.
+func (s *Server) continueOnHold(ctx context.Context, a state.Agent, rt state.RunningTurn) {
+	s.mu.Lock()
+	if s.waking == nil {
+		s.waking = map[string]bool{}
+	}
+	already := s.waking[a.Ref()]
+	s.waking[a.Ref()] = true
+	s.mu.Unlock()
+	if already {
+		return
+	}
+	defer func() {
+		s.mu.Lock()
+		delete(s.waking, a.Ref())
+		s.mu.Unlock()
+	}()
+	if err := s.startMachine(ctx, s.manager(s.cfg.Log), a, "a turn to carry on after a restart, its turn for memory come"); err != nil {
+		s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be started (%v)", err))
+		return
+	}
+	s.refreshAgents(ctx)
 	s.resumeChat(a, rt)
 }
 

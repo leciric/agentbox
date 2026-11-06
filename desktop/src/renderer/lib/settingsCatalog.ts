@@ -60,7 +60,6 @@ export const catalog: CatalogSetting[] = [
   { section: 'experimental', group: 'settings.group.experimental-tests.title', id: 'block-full-suite', label: 'settings.entry.block-full-suite.label', keywords: 'settings.entry.block-full-suite.keywords' },
   { section: 'experimental', group: 'settings.group.experimental-memory.title', id: 'idle-reclaim', label: 'settings.idleReclaim.label', keywords: 'settings.entry.idle-reclaim.keywords' },
   { section: 'experimental', group: 'settings.group.experimental-memory.title', id: 'agent-freeze', label: 'settings.entry.agent-freeze.label', keywords: 'settings.entry.agent-freeze.keywords' },
-  { section: 'experimental', group: 'settings.group.experimental-agents.title', id: 'agent-goals', label: 'settings.entry.agent-goals.label', keywords: 'settings.entry.agent-goals.keywords' },
   // Accounts' rows are Setup's checks, one per AI tool and GitHub.
   { section: 'accounts', group: 'settings.group.ai.title', id: 'claude', label: 'settings.setup.title.claude', keywords: 'settings.setup.desc.claude' },
   { section: 'accounts', group: 'settings.group.ai.title', id: 'codex', label: 'settings.setup.title.codex', keywords: 'settings.setup.desc.codex' },
@@ -93,6 +92,8 @@ export const catalog: CatalogSetting[] = [
   { section: 'skills', group: 'settings.group.skills.title', id: 'skills', label: 'settings.section.skills.title', keywords: 'settings.entry.skills.keywords' },
   { section: 'connectors', group: 'settings.group.connectors.title', id: 'connectors', label: 'settings.section.connectors.title', keywords: 'settings.entry.connectors.keywords' },
   { section: 'memory', group: 'settings.group.memory.title', id: 'global-memory', label: 'settings.section.memory.title', keywords: 'settings.entry.memory.keywords' },
+  { section: 'resources', group: 'settings.group.agent-limits.title', id: 'agent-memory', label: 'settings.entry.agent-memory.label', keywords: 'settings.entry.agent-memory.keywords' },
+  { section: 'resources', group: 'settings.group.disk.title', id: 'disk-usage', label: 'settings.entry.disk-usage.label', keywords: 'settings.entry.disk-usage.keywords' },
   { section: 'resources', group: 'settings.group.disk.title', id: 'disk-floor', label: 'settings.entry.disk-floor.label', keywords: 'settings.entry.disk-floor.keywords' },
   { section: 'resources', group: 'settings.group.disk.title', id: 'media-retention', label: 'settings.entry.media-retention.label', keywords: 'settings.entry.media-retention.keywords' },
   { section: 'resources', group: 'settings.group.disk.title', id: 'docker-prune', label: 'settings.entry.docker-prune.label', keywords: 'settings.entry.docker-prune.keywords' },

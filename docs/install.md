@@ -90,19 +90,23 @@ package in the disk, with where its sources are.
 
 The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
 of your memory by default), and gives it back as they stop. Your computer always keeps the larger
-of 4 GiB and a fifth of its memory for itself: the cap can't go past the rest (a cap set higher by
+of 4 GiB and a quarter of its memory for itself: the cap can't go past the rest (a cap set higher by
 an earlier version is lowered to it), the VM stops growing while your computer has less than that
 free, and gives back what it can spare within seconds. The top bar's **Free resources** stops
-every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap, as does
-`agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
+every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap (in GiB,
+or as a share of your computer's memory), as does `agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
 shared with the VM at the same path, so projects and agents' worktrees stay where they are.
 `agentbox vm delete --yes` removes it, and every agent's machine in it. Android emulators run in
 the VM's agents when your CPU's KVM module has nested virtualization on (`nested=1`), and boot in
 30–50 seconds rather than 20–25; GPUs aren't available in the VM.
 
-Agents share the VM's memory, and every agent starts at once. Each agent's machine may use all of
-the VM's memory cap but an eighth (at least 1 GiB): a process that outgrows that is stopped at
-once, and its agent is told what was stopped and to run fewer test workers at once. When memory
+Agents share the VM's memory, and every agent starts at once. Each agent's machine may use half of
+the VM's memory cap (Settings → Storage and machine → **Memory for one agent**, 10% to 90%): a
+process that outgrows that is stopped at once inside that machine, and its agent is told what was
+stopped and to run fewer test workers at once, while the daemon, Incus and the other agents keep
+the rest. Agents' disk use also gives way to the daemon's and Incus's: the VM's disks use the BFQ
+scheduler, and each agent's machine gets a quarter of their weight, so a build writing as fast as it
+can doesn't keep Incus from answering. When memory
 runs short, it's the agents' tests and builds that give way: new ones wait to start (in the order
 they asked), and if pressure stays high the newest one already running is paused, its memory moved
 to swap, and resumed once it eases. For that the VM gets compressed swap in memory (zram, a quarter
@@ -194,6 +198,14 @@ right-click AgentBox in Applications and choose **Open** the first time; on Wind
 and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg` or
 `-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
 same [downloads](https://downloads.agentbox.linting.dev/index.html) page.
+
+The same memory rule holds there: AgentBox's VM never takes more than your computer's memory less
+the larger of 4 GiB and a quarter. On a Mac it's the most Settings and `agentbox vm resize` let you
+give the Lima VM. On Windows, WSL gives its distros half of your memory unless `memory=` under
+`[wsl2]` in `%UserProfile%\.wslconfig` says otherwise. Setup lowers a `memory=` set above the
+limit to it, and leaves one under it alone. WSL reads that file when it starts, so the new limit
+counts after `wsl --shutdown` or a restart. Setup doesn't run that for you, because it would also
+stop your other distros.
 
 On Windows, Android emulators run in agents when WSL has `/dev/kvm`: set
 `nestedVirtualization=true` under `[wsl2]` in `%UserProfile%\.wslconfig`, then `wsl --shutdown`.

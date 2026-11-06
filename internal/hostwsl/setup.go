@@ -41,6 +41,9 @@ func (d *Distro) Init(ctx context.Context) error {
 		return err
 	}
 	_, _ = fmt.Fprintf(d.Log, "==> WSL %s\n", v)
+	if err := d.fitMemory(); err != nil {
+		_, _ = fmt.Fprintf(d.Log, "note: %v\n", err)
+	}
 	st, err := d.State(ctx)
 	if err != nil {
 		return err

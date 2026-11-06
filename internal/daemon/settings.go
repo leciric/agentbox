@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/opencode"
 	"agentbox/internal/schedule"
@@ -269,6 +270,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.AgentMemoryShare != nil {
+		if err := s.setAgentMemoryShare(r.Context(), *req.AgentMemoryShare); err != nil {
+			return err
+		}
+	}
 	if req.DiskFloorMin != nil || req.DiskFloorPercent != nil {
 		if err := s.setDiskFloor(r.Context(), req.DiskFloorMin, req.DiskFloorPercent); err != nil {
 			return err
@@ -447,11 +453,6 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.MergeWhenGreen != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingMergeWhenGreen, *req.MergeWhenGreen); err != nil {
-			return err
-		}
-	}
-	if req.AgentGoals != nil {
-		if err := s.setGoalsFlag(r.Context(), *req.AgentGoals); err != nil {
 			return err
 		}
 	}
@@ -697,10 +698,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	agentGoals, err := s.store.Flag(r.Context(), state.SettingAgentGoals)
-	if err != nil {
-		return api.Settings{}, err
-	}
 	compactWindow, err := s.store.ClaudeCompactWindow(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -732,6 +729,8 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	diskFloor := s.diskFloor(r.Context())
+	memoryShare := s.agentMemoryShare(r.Context())
+	vmMemory := s.vmMemory()
 	idleReclaim, idleFreeze, idleStop, err := s.store.IdleReclaim(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -823,7 +822,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		PRWatch:              prWatch,
 		MergeWhenGreen:       mergeWhenGreen,
 		AgentFreeze:          agentFreeze,
-		AgentGoals:           agentGoals,
 		MediaRetention:       mediaRetention,
 		Language:             language,
 		Timezone:             timezone,
@@ -833,6 +831,13 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		DiskFloorMin:     diskFloor.Min,
 		DiskFloorPercent: diskFloor.Percent,
+
+		AgentMemoryShare:        memoryShare,
+		DefaultAgentMemoryShare: agent.DefaultAgentMemoryShare,
+		MinAgentMemoryShare:     agent.MinAgentMemoryShare,
+		MaxAgentMemoryShare:     agent.MaxAgentMemoryShare,
+		AgentMemoryLimit:        agent.MemoryLimit(vmMemory, memoryShare),
+		VMMemory:                vmMemory,
 
 		AutoStopIdle:      autoStopIdle,
 		RemoveStopped:     removeStopped,

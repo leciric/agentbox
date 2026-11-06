@@ -947,6 +947,7 @@ func (s *Server) removeBase(w http.ResponseWriter, r *http.Request) error {
 		}
 		return err
 	}
+	s.trim.Kick()
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -996,6 +997,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		GeminiAccount:    a.GeminiAccount,
 		GitHubAccount:    a.GitHubAccount,
 		Interface:        a.Interface,
+		Hold:             a.Hold,
 
 		State:     st.State,
 		IP:        st.IP,
@@ -1215,7 +1217,7 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 			return fail(err)
 		}
 	}
-	if req.Goal, err = s.checkGoal(req.Goal); err != nil {
+	if req.Goal, err = checkGoal(req.Goal); err != nil {
 		return fail(err)
 	}
 	if req.Goal != nil && strings.TrimSpace(req.Task) == "" && req.Issue == 0 {
@@ -1229,6 +1231,17 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		return fail(err)
 	}
 	return req, nil
+}
+
+// createFailedNote is what a project's chat is told of a create_agent that
+// failed: whether anything was made, since a chat that tries again after a
+// create that did leave an agent behind makes a second one.
+func createFailedNote(err error) string {
+	var left *agent.LeftBehindError
+	if errors.As(err, &left) {
+		return fmt.Sprintf("create_agent failed: %v. %s still exists: retire it rather than create the agent again.", err, left.Agent)
+	}
+	return fmt.Sprintf("create_agent failed: %v. Nothing was created, so trying again is safe.", err)
 }
 
 // defaultTool fills in the AI tool of a request that names none: the one the
@@ -1333,7 +1346,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// failure that only Create itself could find — the machine
 				// couldn't be copied, the name collided — is news the chat
 				// is still waiting on, the same as a finish it asked for.
-				failed := fmt.Sprintf("create_agent failed: %v", err)
+				failed := createFailedNote(err)
 				if req.OriginID != "" {
 					s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
 						Project: req.OriginProject, Agent: cmp.Or(req.Name, req.Title, "(new agent)"), Title: req.Title,
@@ -1648,7 +1661,7 @@ func toAPIDiskUsage(u agent.DiskUsage) api.DiskUsage {
 	for _, c := range u.Categories {
 		cat := api.DiskUsageCategory{Kind: c.Kind, Label: c.Label, Bytes: c.Bytes, Items: make([]api.DiskUsageItem, 0, len(c.Items))}
 		for _, it := range c.Items {
-			cat.Items = append(cat.Items, api.DiskUsageItem{Label: it.Label, Bytes: it.Bytes})
+			cat.Items = append(cat.Items, api.DiskUsageItem{Label: it.Label, Bytes: it.Bytes, Kind: it.Kind, Name: it.Name})
 		}
 		out.Categories = append(out.Categories, cat)
 	}
@@ -1656,11 +1669,49 @@ func toAPIDiskUsage(u agent.DiskUsage) api.DiskUsage {
 }
 
 func (s *Server) diskUsage(w http.ResponseWriter, r *http.Request) error {
-	usage, err := s.manager(nil).DiskUsage(r.Context())
+	usage, err := s.manager(nil).DiskUsage(r.Context(), s.cachesDiskUsage())
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, toAPIDiskUsage(usage))
+	out := toAPIDiskUsage(usage)
+	if t := s.trim.Last(); !t.At.IsZero() && hostos.InVM() {
+		out.Trim = &api.DiskTrim{At: t.At, Bytes: t.Bytes, Error: t.Err}
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// cachesDiskUsage is what the caches agents share hold, from the sizes their
+// own trims keep: the package managers' by tool, and the Docker image cache.
+func (s *Server) cachesDiskUsage() agent.DiskUsageCategory {
+	caches := agent.DiskUsageCategory{Kind: api.DiskCaches, Label: "Shared caches"}
+	if s.packageCache != nil {
+		for _, p := range s.packageCache.Breakdown() {
+			name := p.Dir
+			if name == "" {
+				name = "other"
+			}
+			if p.Bytes > 0 {
+				caches.Items = append(caches.Items, agent.DiskUsageItem{Label: "Package cache: " + name, Bytes: p.Bytes, Kind: api.DiskItemPackageCache, Name: name})
+			}
+		}
+	}
+	if s.imageCache != nil {
+		if n := s.imageCache.Size(); n > 0 {
+			caches.Items = append(caches.Items, agent.DiskUsageItem{Label: "Docker images", Bytes: n, Kind: api.DiskItemDockerImages})
+		}
+	}
+	return caches
+}
+
+// trimDisk is POST /v1/usage/disk/trim: trims the VM's file systems now, and
+// has the package caches trimmed to their cap, for "Give space back now".
+func (s *Server) trimDisk(w http.ResponseWriter, r *http.Request) error {
+	if !hostos.InVM() {
+		return errors.New("only AgentBox's VM trims its disks: a host install's are its owner's")
+	}
+	s.kickPackageCache()
+	t := s.trim.trimOnce(context.WithoutCancel(r.Context()))
+	return writeJSON(w, http.StatusOK, api.DiskTrim{At: t.At, Bytes: t.Bytes, Error: t.Err})
 }
 
 func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {

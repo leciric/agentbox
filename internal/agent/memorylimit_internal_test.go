@@ -6,16 +6,22 @@ import (
 	"testing"
 )
 
-func TestMemoryLimitLeavesTheVMItsShare(t *testing.T) {
+func TestMemoryLimitIsTheAgentsShareOfTheVM(t *testing.T) {
 	t.Parallel()
-	for total, want := range map[int64]int64{
-		16 * gib: 14 * gib, // an eighth
-		4 * gib:  3 * gib,  // at least 1 GiB
-		2 * gib:  1 * gib,  // never below half
-		0:        0,        // unknown: none
+	for _, c := range []struct {
+		total int64
+		share int
+		want  int64
+	}{
+		{18 * gib, 0, 18 * gib / 100 * 50}, // half by default: 9 GiB, not 16
+		{16 * gib, 50, 16 * gib / 100 * 50},
+		{16 * gib, 75, 16 * gib / 100 * 75},
+		{16 * gib, 99, 16 * gib / 100 * 90}, // never more than 90%
+		{16 * gib, 1, 16 * gib / 100 * 10},  // nor less than 10%
+		{0, 50, 0},                          // unknown: none
 	} {
-		if got := MemoryLimit(total); got != want {
-			t.Errorf("MemoryLimit(%d GiB) = %d MiB, want %d MiB", total/gib, got>>20, want>>20)
+		if got := MemoryLimit(c.total, c.share); got != c.want {
+			t.Errorf("MemoryLimit(%d GiB, %d%%) = %d MiB, want %d MiB", c.total/gib, c.share, got>>20, c.want>>20)
 		}
 	}
 }

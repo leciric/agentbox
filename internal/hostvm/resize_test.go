@@ -31,9 +31,9 @@ func TestParseMemory(t *testing.T) {
 
 func TestCHVLimits(t *testing.T) {
 	// A Linux VM takes 1 CPU to every core, and a cap from what it boots
-	// with to all of the host's memory but its reserve: 6.4 of 32 GiB.
+	// with to all of the host's memory but its reserve: a quarter, 8 of 32 GiB.
 	l := chvLimits(chv.Config{MemoryMin: 4 << 30}, 16, 32<<30)
-	for _, ok := range [][2]int64{{1, 4 << 30}, {16, 25 << 30}} {
+	for _, ok := range [][2]int64{{1, 4 << 30}, {16, 24 << 30}} {
 		if err := l.Check(int(ok[0]), ok[1]); err != nil {
 			t.Errorf("%d CPUs, %d bytes: %v", ok[0], ok[1], err)
 		}
@@ -41,32 +41,32 @@ func TestCHVLimits(t *testing.T) {
 	if err := l.Check(17, 0); err == nil {
 		t.Error("17 CPUs on 16 cores: no error")
 	}
-	if err := l.Check(0, 26<<30); err == nil || !strings.Contains(err.Error(), "4GiB to 25GiB") || !strings.Contains(err.Error(), "for itself") {
+	if err := l.Check(0, 25<<30); err == nil || !strings.Contains(err.Error(), "4GiB to 24GiB") || !strings.Contains(err.Error(), "for itself") {
 		t.Errorf("a cap into the host's reserve: %v", err)
 	}
-	// A Mac's may take all of it.
-	if err := chvLimits(chv.Config{MemoryMin: 4 << 30, Driver: chv.DriverVZ}, 16, 32<<30).Check(0, 32<<30); err != nil {
-		t.Errorf("vz: %v", err)
+	// A Mac's keeps the same.
+	if err := chvLimits(chv.Config{MemoryMin: 4 << 30, Driver: chv.DriverVZ}, 16, 32<<30).Check(0, 25<<30); err == nil {
+		t.Error("vz: 25 GiB of 32 taken")
 	}
 }
 
 func TestLimits(t *testing.T) {
-	// A 16 GiB Mac with 10 cores keeps 2 GiB for itself.
+	// A 16 GiB Mac with 10 cores keeps 4 GiB for itself, as Linux does.
 	l := limitsFor(10, 16<<30)
-	if l != (Limits{MinCPUs: 2, MaxCPUs: 10, MinMemory: 4 << 30, MaxMemory: 14 << 30, reserve: 2 << 30}) {
+	if l != (Limits{MinCPUs: 2, MaxCPUs: 10, MinMemory: 4 << 30, MaxMemory: 12 << 30, HostMemory: 16 << 30, reserve: 4 << 30}) {
 		t.Fatalf("got %+v", l)
 	}
-	for _, ok := range [][2]int64{{2, 4 << 30}, {10, 14 << 30}, {6, 0}, {0, 8 << 30}} {
+	for _, ok := range [][2]int64{{2, 4 << 30}, {10, 12 << 30}, {6, 0}, {0, 8 << 30}} {
 		if err := l.Check(int(ok[0]), ok[1]); err != nil {
 			t.Errorf("%d CPUs, %d bytes: %v", ok[0], ok[1], err)
 		}
 	}
-	for _, bad := range [][2]int64{{1, 0}, {11, 0}, {0, 3 << 30}, {0, 15 << 30}} {
+	for _, bad := range [][2]int64{{1, 0}, {11, 0}, {0, 3 << 30}, {0, 13 << 30}} {
 		if err := l.Check(int(bad[0]), bad[1]); err == nil {
 			t.Errorf("%d CPUs, %d bytes: no error", bad[0], bad[1])
 		}
 	}
-	if err := l.Check(0, 15<<30); err == nil || !strings.Contains(err.Error(), "4GiB to 14GiB") {
+	if err := l.Check(0, 13<<30); err == nil || !strings.Contains(err.Error(), "4GiB to 12GiB") {
 		t.Errorf("the error doesn't say what's allowed: %v", err)
 	}
 	// A machine smaller than the minimum, or one that won't say, still
@@ -206,5 +206,20 @@ func TestUpWaitsForResize(t *testing.T) {
 		t.Errorf("two shared locks: %v", err)
 	} else {
 		u2()
+	}
+}
+
+// A Lima VM is made with 8 GiB, or what a small Mac's reserve leaves it.
+func TestDefaultMemory(t *testing.T) {
+	for total, want := range map[int64]string{
+		32 << 30: "8GiB",
+		10 << 30: "6GiB", // keeps 4
+		8 << 30:  "4GiB",
+		6 << 30:  "4GiB", // never under the minimum
+		0:        "8GiB", // unknown
+	} {
+		if got := defaultMemory(total); got != want {
+			t.Errorf("defaultMemory(%d GiB) = %s, want %s", total>>30, got, want)
+		}
 	}
 }

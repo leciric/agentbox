@@ -100,6 +100,7 @@ func (f *fleetTest) step(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.srv.syncFleet(ctx, agents)
+	f.srv.countRunning(agents)
 	f.srv.stepPressure(ctx)
 }
 
@@ -128,10 +129,12 @@ func TestFleetOffFreezesNothing(t *testing.T) {
 	if f.mc.isFrozen(f.newer.Instance) || f.mc.isFrozen(f.instance) {
 		t.Fatal("a machine was frozen with the setting off")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// A boot still waits for the memory, On hold: admission is everybody's
+	// (admission.go, TestBootWaitsOnHoldForMemory).
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	if err := f.srv.admitMachine(ctx, f.newer); err != nil {
-		t.Fatalf("a boot waited with the setting off: %v", err)
+	if err := f.srv.admitMachine(ctx, f.newer); err == nil {
+		t.Fatal("a machine booted with 0.5 GiB available")
 	}
 }
 

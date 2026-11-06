@@ -640,12 +640,6 @@ type Settings struct {
 	// review: the daemon merges a pull request the user resolved once its
 	// checks pass. Off unless turned on.
 	MergeWhenGreen bool `json:"mergeWhenGreen"`
-	// AgentGoals is the experimental agent goals (AgentGoal): the AI tool's
-	// own /goal shown as the agent's goal, and create_agent's goal, whose
-	// checks the daemon verifies after each turn, sending the agent back
-	// until they pass or its budget runs out. Off unless turned on; while off
-	// nothing about agents or their chats changes.
-	AgentGoals bool `json:"agentGoals"`
 	// AgentFreeze is the experimental memory governor: under memory
 	// pressure whole agents' machines are frozen, newest first, never the
 	// oldest working one, and thaw oldest first; a new machine starts once
@@ -673,6 +667,21 @@ type Settings struct {
 	// and DiskFloorPercent of the disk (DiskGuard).
 	DiskFloorMin     int64   `json:"diskFloorMin"`
 	DiskFloorPercent float64 `json:"diskFloorPercent"`
+	// AgentMemoryShare is the share of the VM's memory, in percent, one
+	// agent's machine may have: a process that takes it past that is killed
+	// inside its machine, and the agent told, so one runaway build can't take
+	// the VM's daemon, Incus and other agents down with it. It follows the
+	// VM's memory cap. DefaultAgentMemoryShare (50) until the user chose,
+	// from MinAgentMemoryShare to MaxAgentMemoryShare.
+	AgentMemoryShare        int `json:"agentMemoryShare"`
+	DefaultAgentMemoryShare int `json:"defaultAgentMemoryShare"`
+	MinAgentMemoryShare     int `json:"minAgentMemoryShare"`
+	MaxAgentMemoryShare     int `json:"maxAgentMemoryShare"`
+	// AgentMemoryLimit is what AgentMemoryShare comes to now, in bytes, and
+	// VMMemory what it is a share of: the most the VM may grow to. 0 when
+	// the VM's size isn't known.
+	AgentMemoryLimit int64 `json:"agentMemoryLimit"`
+	VMMemory         int64 `json:"vmMemory"`
 	// AutoStopIdle and IdleTimeSeconds are "auto-stop idle agents": while on,
 	// the daemon stops a running or paused agent once it has gone
 	// IdleTimeSeconds with no chat turn in progress, no running job, no
@@ -854,8 +863,6 @@ type UpdateSettingsRequest struct {
 	PRWatch *bool `json:"prWatch,omitempty"`
 	// MergeWhenGreen turns "Resolved — merge when CI is green" on or off.
 	MergeWhenGreen *bool `json:"mergeWhenGreen,omitempty"`
-	// AgentGoals turns the experimental agent goals on or off.
-	AgentGoals *bool `json:"agentGoals,omitempty"`
 	// AgentFreeze turns the experimental memory governor on or off.
 	AgentFreeze *bool `json:"agentFreeze,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
@@ -897,6 +904,9 @@ type UpdateSettingsRequest struct {
 	// one going back to the default.
 	DiskFloorMin     *int64   `json:"diskFloorMin,omitempty"`
 	DiskFloorPercent *float64 `json:"diskFloorPercent,omitempty"`
+	// AgentMemoryShare sets Settings.AgentMemoryShare, in percent, 0 going
+	// back to the default. Running agents take it at once.
+	AgentMemoryShare *int `json:"agentMemoryShare,omitempty"`
 	// ImageCache turns the shared image cache on or off, for running agents
 	// at once and for the others as they start.
 	ImageCache *bool `json:"imageCache,omitempty"`
@@ -1011,9 +1021,14 @@ type Agent struct {
 	// "stopped" when its machine was stopped after it finished. Absent
 	// otherwise.
 	Reclaimed string `json:"reclaimed,omitempty"`
-	// Goal is what it works towards, while agent goals are on
-	// (Settings.AgentGoals): absent for an agent with none, and whenever
-	// they are off.
+	// Hold says the agent is On hold, its machine stopped or not yet booted:
+	// HoldMemory while it waits its turn for the VM's memory (Memory says
+	// its place in line and why), and boots by itself; HoldIdle after it sat
+	// idle, until a message, opening it or its lead starts it again. Absent
+	// otherwise. Being on hold never removes an agent.
+	Hold string `json:"hold,omitempty"`
+	// Goal is what it works towards (AgentGoal): absent for an agent with
+	// none.
 	Goal      *AgentGoal `json:"goal,omitempty"`
 	IP        string     `json:"ip"`
 	CreatedAt time.Time  `json:"createdAt"`
@@ -1153,8 +1168,7 @@ type CreateAgentRequest struct {
 	// "lead" means the same as "chat".
 	FinishNotice string `json:"finishNotice,omitempty"`
 	// Goal is what the agent works towards, with checks the daemon verifies
-	// after each of its turns (AgentGoal). Refused while agent goals are off
-	// (Settings.AgentGoals).
+	// after each of its turns (AgentGoal).
 	Goal *GoalSpec `json:"goal,omitempty"`
 	// Queue and Size are accepted for the callers that still send them,
 	// and do nothing: every agent starts at once, and the VM's memory
@@ -1227,6 +1241,44 @@ type PressureStatus struct {
 	// Runs are the heavy commands running, oldest first, then those
 	// waiting, in the order they start.
 	Runs []HeavyRun `json:"runs"`
+	// Host is the last report of the user's computer's own load
+	// (internal/hostload), when one came within HostLoadTTL.
+	Host *HostLoad `json:"host,omitempty"`
+}
+
+// HostLoadTTL is how long the daemon goes by a HostLoad: a front end reports
+// every couple of seconds, and one that stops (the app closed, on a Mac or
+// Windows) holds nothing back.
+const HostLoadTTL = 15 * time.Second
+
+// HostLoad is how loaded the computer AgentBox's VM runs on is, as its front
+// end reads it, PUT /v1/host/load. While Busy, heavy commands wait to start
+// and paused ones stay paused (Why "host"), so the user's own programs come
+// first.
+type HostLoad struct {
+	OS string `json:"os"` // "linux", "darwin" or "windows"
+	// Memory, CPU and IO are the host's PSI some avg10, in percent (Linux);
+	// -1 where there's none.
+	Memory float64 `json:"memory"`
+	CPU    float64 `json:"cpu"`
+	IO     float64 `json:"io"`
+	// CPUShare is the share of all cores busy, in percent (Windows); -1
+	// elsewhere.
+	CPUShare float64 `json:"cpuShare"`
+	// Level is a Mac's memory pressure level: normal, warn or critical.
+	Level       string `json:"level,omitempty"`
+	MemoryTotal int64  `json:"memoryTotal,omitempty"`
+	Available   int64  `json:"available,omitempty"`
+	// Busy says the host is loaded enough that the VM should hold back.
+	Busy bool `json:"busy"`
+	// Why is what is over its threshold now: "memory", "cpu" or "io"; ""
+	// while a busy host is calming down.
+	Why string `json:"why,omitempty"`
+	// Reclaim asks the daemon to drop the VM's caches so their memory goes
+	// back to the host: set by front ends that don't size the VM's memory
+	// themselves (Lima, WSL), while the host is short of memory.
+	Reclaim bool      `json:"reclaim,omitempty"`
+	At      time.Time `json:"at"`
 }
 
 // HeavyRun is one heavy command of an agent's.
@@ -1538,12 +1590,17 @@ type Usage struct {
 type DiskUsageItem struct {
 	Label string `json:"label"`
 	Bytes int64  `json:"bytes"`
+	// Kind is what the item is, for an app that names it in its own
+	// language (DiskItemBaseImage and so on); "" for an agent or a project,
+	// whose Label is its name. Name is the project or tool it belongs to.
+	Kind string `json:"kind,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // DiskUsageCategory groups items of one kind, largest first, with its own
 // total.
 type DiskUsageCategory struct {
-	Kind  string          `json:"kind"` // DiskMachines, DiskBases, DiskWorktrees, DiskMedia or DiskState
+	Kind  string          `json:"kind"` // DiskMachines, DiskBases, DiskWorktrees, DiskMedia, DiskCaches or DiskState
 	Label string          `json:"label"`
 	Bytes int64           `json:"bytes"`
 	Items []DiskUsageItem `json:"items,omitempty"`
@@ -1558,7 +1615,30 @@ const (
 	DiskWorktrees = "worktrees"
 	DiskMedia     = "media"
 	DiskState     = "state"
+	// DiskCaches is what agents share to save downloading and writing again:
+	// the package managers' caches and the Docker image cache.
+	DiskCaches = "caches"
 )
+
+// Kinds of DiskUsageItem.
+const (
+	DiskItemBaseImage    = "base-image"
+	DiskItemProjectBase  = "project-base"  // Name is the project
+	DiskItemPreviousBase = "previous-base" // Name is the project
+	DiskItemPackageCache = "package-cache" // Name is the tool's directory, "other" for the rest
+	DiskItemDockerImages = "docker-images"
+	DiskItemStateDB      = "state-db"
+	DiskItemDaemonLog    = "daemon-log"
+)
+
+// DiskTrim is the VM's last trim, which gives the host's disk back the space
+// the VM freed: when, how many bytes the VM's file systems reported trimmed,
+// and what failed. POST /v1/usage/disk/trim trims now and answers with it.
+type DiskTrim struct {
+	At    time.Time `json:"at"`
+	Bytes int64     `json:"bytes"`
+	Error string    `json:"error,omitempty"`
+}
 
 // DiskUsage is what AgentBox uses on disk, broken down by kind, largest
 // first, with a total. The "Storage pool" indicator in the top bar opens it,
@@ -1568,6 +1648,8 @@ const (
 type DiskUsage struct {
 	Total      int64               `json:"total"`
 	Categories []DiskUsageCategory `json:"categories"`
+	// Trim is the VM's last trim; nil outside a VM, and before the first.
+	Trim *DiskTrim `json:"trim,omitempty"`
 }
 
 // AgentDisk is what one agent takes up on disk, for its info card: its
@@ -2938,7 +3020,24 @@ type AgentChange struct {
 	WaitingForImage bool `json:"waitingForImage,omitempty"`
 	// Reclaimed is Agent.Reclaimed.
 	Reclaimed string `json:"reclaimed,omitempty"`
+	// Hold is Agent.Hold.
+	Hold string `json:"hold,omitempty"`
 }
+
+// Why an agent is On hold (Agent.Hold).
+const (
+	HoldMemory = "memory"
+	HoldIdle   = "idle"
+)
+
+// Why machines waiting to boot wait (MemoryHold.Why, with Machine
+// "waiting" and pausing whole agents off): the VM hasn't the memory for
+// another boot, or agents' builds wait or are paused for it, which come
+// first.
+const (
+	HoldWhyMemory = "memory"
+	HoldWhyBuilds = "builds"
+)
 
 // The ways idle reclaim holds an agent's memory (Agent.Reclaimed).
 const (

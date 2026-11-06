@@ -151,10 +151,6 @@ type Manager struct {
 	// (idle.go). applies is false for a chat that never sleeps; after 0 is
 	// sleeping turned off for now. Off the conversation's lock.
 	IdleStop func(a state.Agent) (after time.Duration, applies bool)
-	// GoalsOn, when set, says whether agent goals are on (Settings →
-	// Experimental, goal.go). Called under the conversation's lock: it must
-	// answer from memory.
-	GoalsOn func() bool
 	// GoalOf is an agent's goal as the daemon keeps it, read once when its
 	// chat first needs it. Called under the conversation's lock.
 	GoalOf func(a state.Agent) (api.AgentGoal, bool)
@@ -195,6 +191,8 @@ type Manager struct {
 	// as it starts and ends (prompt, drainOutbox, and the hooks a finished or
 	// idle turn calls). Wait joins all of them, not only the adapter's own.
 	background sync.WaitGroup
+	// compactStuck is compactStuckAfter for a test, 0 for the real one.
+	compactStuck time.Duration
 }
 
 // Timer is a wake-up that can be called off before it fires: what
@@ -1005,10 +1003,17 @@ func (m *Manager) Cancel(a state.Agent) (api.ChatSession, error) {
 	// and the chat still can't do anything until it resets.
 	c.cancelResume()
 	c.resumeTry = 0
+	c.cancelTurn()
+	return c.view(), nil
+}
+
+// cancelTurn stops the running turn, if there is one. The conversation is
+// locked.
+func (c *conversation) cancelTurn() {
 	t := c.turn
 	if t == nil || t.cancelled {
 		c.flush(true)
-		return c.view(), nil
+		return
 	}
 	t.cancelled = true
 	c.cancelPending()
@@ -1029,8 +1034,10 @@ func (m *Manager) Cancel(a state.Agent) (api.ChatSession, error) {
 				c.mu.Lock()
 				defer c.mu.Unlock()
 				if c.turn == t && c.adapter == ad {
-					c.finishTurn(t, nil, fmt.Errorf("%s didn't stop within %s, so its session was stopped", ToolNames[c.agent.AI], cancelTimeout))
+					// The adapter goes first, so that a turn carrying this one
+					// on (compact.go) starts on a new one, not on this.
 					c.stopAdapter()
+					c.finishTurn(t, nil, fmt.Errorf("%s didn't stop within %s, so its session was stopped", ToolNames[c.agent.AI], cancelTimeout))
 					c.flush(true)
 				}
 			})
@@ -1041,7 +1048,6 @@ func (m *Manager) Cancel(a state.Agent) (api.ChatSession, error) {
 	c.session.State = c.stateNow()
 	c.markSession()
 	c.flush(true)
-	return c.view(), nil
 }
 
 // Answer answers a permission request with one of its options; an empty option
@@ -1475,6 +1481,11 @@ type conversation struct {
 	goal     *api.AgentGoal
 	goalRead bool
 	echoID   string
+	// goalOut are goal changes not yet told to the daemon (GoalChanged), in
+	// the order they happened; goalSending is whether a sender is telling
+	// them, one at a time, so a quick set then met can't arrive met first.
+	goalOut     []api.AgentGoal
+	goalSending bool
 	// queued holds notices that arrived mid-turn, or during a rollover;
 	// finishTurn and rollover deliver them.
 	queued []queuedNotice
@@ -1618,6 +1629,12 @@ type turn struct {
 	woken bool
 	// subagents is whether the turn started any subagent (subagents.go).
 	subagents bool
+	// compactedAt is when a compaction in this turn ended with nothing from
+	// the model since, zero otherwise; carryOn is a turn AgentBox stopped
+	// for going silent from there, to be told to carry on (compact.go).
+	compactedAt time.Time
+	carryOn     bool
+	carries     int // how many stuck turns before it this one carries on
 }
 
 // streamed adds the stretch the model has been generating until now, when it
@@ -1718,7 +1735,10 @@ type adapter struct {
 	// tasks are its background commands and monitors, by async task id, and
 	// woke what of them ended since the last turn began (background.go).
 	tasks map[string]*bgTask
-	woke  []string
+	// compactions is the adapter's own compactions, by call ID: the cards of
+	// the ones it started with no turn running, which head none (compact.go).
+	compactions map[string]*api.ChatItem
+	woke        []string
 }
 
 // sessionAgent is the agent as its running session knows it: with the Claude
@@ -2644,6 +2664,10 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	c.markSession()
 	c.flush(true)
 
+	// A turn stopped for going silent after a compaction goes on in another.
+	if t.carryOn {
+		c.carryOnCompacted(t)
+	}
 	// Anything that arrived while the turn ran. Several become one notice, so
 	// three agents finishing at once wake the chat once, not three times.
 	c.deliverQueued()
@@ -2775,6 +2799,9 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		// running: one started in the background goes on after its turn.
 		if sa := h.ad.subagents[n.SessionID]; sa != nil && !h.ad.replaying {
 			c.subagentUpdate(h.ad, sa, u)
+			if c.turn != nil {
+				c.turn.compactedAt = time.Time{} // a subagent getting on is the turn's
+			}
 		}
 		return
 	}
@@ -2866,8 +2893,11 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		c.capture.WriteString(u.Text())
 		return
 	}
-	if snap, ok := u.Goal(); ok && !h.ad.replaying && !c.agent.IsLead() && c.m.goalsOn() {
+	if snap, ok := u.Goal(); ok && !h.ad.replaying && !c.agent.IsLead() {
 		c.toolGoal(snap)
+	}
+	if c.ownCompaction(h.ad, u) {
+		return
 	}
 	if c.wakes(h.ad, u) {
 		c.wake(h.ad)
@@ -2875,6 +2905,7 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	if h.ad.replaying || c.turn == nil {
 		return
 	}
+	c.turn.afterCompaction(c, h.ad, u)
 	switch u.SessionUpdate {
 	case "agent_message_chunk":
 		if c.agent.AI == "gemini" && geminiModeNotice(u.Text()) {
@@ -2974,6 +3005,8 @@ func (h handler) Request(method string, params json.RawMessage, reply func(any, 
 	}
 	c.ensureLoaded()
 	c.progressed()
+	// Asking is getting on: the turn isn't silent after a compaction.
+	c.turn.compactedAt = time.Time{}
 	if req.SessionID == h.ad.sessionID || h.ad.subagents[req.SessionID] == nil {
 		// The main loop's model is done with the call it asks about: what it
 		// waits for now, the answer and then the tool, isn't generating.

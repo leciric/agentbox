@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ApiError, api } from './api.ts';
-import { clientSpansPath, flush, pending, recordLongTask, recordRequest, routeName, startAppTiming, stopAppTiming } from './appTiming.ts';
+import { clientSpansPath, flush, pending, recordLongTask, recordMainLag, recordRequest, routeName, startAppTiming, stopAppTiming } from './appTiming.ts';
 import type * as T from '../../shared/api.ts';
 
 test('routeName keeps the route and drops the names and ids in it', () => {
@@ -91,5 +91,16 @@ test('api calls are timed, but not the posts of the spans themselves', async () 
     pending().map((s) => [s.name, s.attrs?.status]),
     [['app GET /v1/agents', 200]],
   );
+  stopAppTiming();
+});
+
+test("the main process's stalls are kept as spans of their own", () => {
+  startAppTiming(async () => {});
+  recordMainLag({ at: '2026-11-06T12:00:05.000Z', maxMs: 900, p99Ms: 300, windowMs: 5000 });
+  const span = pending().at(-1)!;
+  assert.equal(span.name, 'app main-process stall');
+  assert.equal(span.start, '2026-11-06T12:00:00.000Z');
+  assert.equal(span.durationMs, 900);
+  assert.deepEqual(span.attrs, { p99Ms: 300, windowMs: 5000 });
   stopAppTiming();
 });

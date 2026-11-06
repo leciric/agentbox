@@ -7,3 +7,5 @@ package chv
 func supervisorArgv(self, _ string) []string { return []string{self, "vm", "run"} }
 
 func lowerPriority() []string { return nil }
+
+func priorityGaps(string) []string { return nil }
