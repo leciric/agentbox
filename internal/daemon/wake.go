@@ -139,7 +139,7 @@ func (s *Server) wakeAside(ctx context.Context, m *agent.Manager, a state.Agent,
 			s.mu.Unlock()
 		}()
 		if err := s.startMachine(ctx, m, a, why); err != nil {
-			s.logf("%s: starting its machine for a message: %v", ref, err)
+			s.logf("%s: starting its machine for %s: %v", ref, why, err)
 			return
 		}
 		s.refreshAgents(ctx)

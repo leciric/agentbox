@@ -81,6 +81,10 @@ func (s *Server) admitBoot(ctx context.Context, a state.Agent) error {
 				delete(ad.started, ref)
 			}
 			ad.mu.Unlock()
+			// It no longer waits: On hold, it would show as waiting with
+			// nothing to boot it (resumeHeld runs only as the daemon starts).
+			s.unhold(context.WithoutCancel(ctx), a, state.HoldMemory)
+			s.refreshAgents(context.WithoutCancel(ctx))
 			return ctx.Err()
 		}
 	}
