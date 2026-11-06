@@ -36,7 +36,7 @@
   },
   {
     "id": "goal-agent-dark",
-    "description": "agent-99 open in the whole app, with a goal AgentBox drives: its chip on the row and header, and its goal rows in the chat (set, then not met yet after two continuations) — dark",
+    "description": "agent-99 open in the whole app, with a goal AgentBox drives: its chip on the row, the goal bar under the header (checks passed, tries left, Edit and Clear), and its goal rows in the chat (set, then not met yet after two continuations) — dark",
     "query": "app=agent-99&theme=dark",
     "width": 1440,
     "height": 900

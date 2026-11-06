@@ -2608,6 +2608,22 @@ export function installDevBridge(): void {
         devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, state: 'running', chat: 'ready' } : a));
         return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
       }
+      // Setting, changing or clearing an agent's goal, as the daemon's
+      // setGoal would (internal/daemon/goals.go): a set goal starts again,
+      // active, and an idle agent goes back to work.
+      const goalOf = method === 'PUT' || method === 'DELETE' ? /^\/v1\/agents\/([^/]+)\/([^/]+)\/goal$/.exec(path) : null;
+      if (goalOf && devState.agents) {
+        const ref = `${decodeURIComponent(goalOf[1])}/${decodeURIComponent(goalOf[2])}`;
+        const cur = devState.agents.find((a) => a.ref === ref);
+        const spec = body as T.GoalSpec | undefined;
+        const goal: T.AgentGoal | undefined =
+          method === 'PUT' && spec
+            ? { objective: spec.objective.trim(), source: 'agentbox', status: 'active', checks: spec.checks, checked: 0, budget: spec.budget || 10, continuations: 0, updatedAt: new Date().toISOString() }
+            : cur?.goal && { ...cur.goal, status: 'cleared', updatedAt: new Date().toISOString() };
+        const working = cur?.chat === 'working';
+        devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, goal, ...(method === 'PUT' ? { chat: 'working', outcome: undefined } : {}) } : a));
+        return { status: 200, body: JSON.stringify({ goal, working: method === 'PUT' && working } satisfies T.GoalResult), contentType: 'application/json' };
+      }
       // No checkpoints: Timeline filters what it gets, and {} isn't a list.
       if (method === 'GET' && path.endsWith('/checkpoints')) return { status: 200, body: '[]', contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/agents' && devState.agents) return { status: 200, body: JSON.stringify(devState.agents), contentType: 'application/json' };

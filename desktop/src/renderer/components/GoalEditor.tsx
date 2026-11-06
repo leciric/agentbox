@@ -158,30 +158,29 @@ export function GoalBar({ agent, onEdit }: { agent: T.Agent; onEdit: () => void 
   ].filter(Boolean);
   return (
     <div className="shrink-0 px-4 pb-2.5 md:px-6" data-goal-bar={goal.status}>
-      <div className={cn('flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border px-3 py-2', s.className)}>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className={cn('min-w-0 rounded-xl border px-3 py-2', s.className)}>
+        <div className="flex min-w-0 items-center gap-2">
           <Icon className="size-4 shrink-0" />
           <span className="shrink-0 text-ui font-medium">{t(s.label)}</span>
-          <span className="min-w-0 truncate text-ui text-primary" title={goal.objective} data-goal-objective>
+          <span className="min-w-0 flex-1 truncate text-ui text-primary" title={goal.objective} data-goal-objective>
             {goal.objective}
           </span>
         </div>
-        {facts.length > 0 && (
-          <span className="shrink-0 text-caption tabular-nums opacity-80" data-goal-facts>
-            {facts.join(' · ')}
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 pl-6">
+          <span className="min-w-0 flex-1 break-words text-caption tabular-nums opacity-80" data-goal-facts>
+            {goal.status === 'blocked' && goal.lastUnmet ? t('goal.lastUnmet', { why: goal.lastUnmet }) : facts.join(' · ')}
           </span>
-        )}
-        <div className="flex shrink-0 items-center gap-1">
-          <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onEdit} data-goal-edit>
-            <Pencil />
-            {t('goal.bar.edit')}
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 px-2" disabled={clear.isPending} onClick={() => clear.mutate()} data-goal-clear>
-            <X />
-            {t('goal.bar.clear')}
-          </Button>
+          <div className="-my-1 flex shrink-0 items-center gap-1">
+            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onEdit} data-goal-edit>
+              <Pencil />
+              {t('goal.bar.edit')}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 px-2" disabled={clear.isPending} onClick={() => clear.mutate()} data-goal-clear>
+              <X />
+              {t('goal.bar.clear')}
+            </Button>
+          </div>
         </div>
-        {goal.status === 'blocked' && goal.lastUnmet && <p className="w-full break-words pl-6 text-caption opacity-80">{t('goal.lastUnmet', { why: goal.lastUnmet })}</p>}
       </div>
     </div>
   );
