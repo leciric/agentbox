@@ -179,9 +179,11 @@ type Cache struct {
 	// now is time.Now, which tests replace.
 	now func() time.Time
 
-	mu    sync.Mutex // held through a walk
-	size  atomic.Int64
-	sized atomic.Bool
+	mu sync.Mutex // held through a walk
+	// walked is when Trim last measured the caches, by clock.
+	walked time.Time
+	size   atomic.Int64
+	sized  atomic.Bool
 	// parts is what each tool's directory held when last measured.
 	partsMu sync.Mutex
 	held    []PartSize
@@ -196,6 +198,10 @@ type PartSize struct {
 // BusyCeiling is how far over Max the caches may grow while Busy says an
 // agent is at work, before Trim evicts anyway.
 const BusyCeiling = 1.5
+
+// BusyRemeasure is how long Trim goes on trusting the caches' last measured
+// size while agents are at work, rather than walking them again.
+const BusyRemeasure = time.Hour
 
 // SupersededAfter is how long a browser version that a newer one of the same
 // browser replaced is left unused before Trim drops it, whatever the caches
@@ -296,7 +302,20 @@ func (c *Cache) measuredParts(all []piece) {
 func (c *Cache) Trim() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// A heavy run under way, and the caches not far over their cap when last
+	// measured: not even measured again. A walk of the caches reads every
+	// file's metadata (160,000 files, half a minute to two, on one user's
+	// VM), disk work of its own while agents are at theirs, only to skip.
+	// Measured again at least every BusyRemeasure, so caches that grow
+	// while agents are always at work are still trimmed past BusyCeiling.
+	if c.Busy != nil && c.sized.Load() && c.Max != nil && c.clock().Sub(c.walked) < BusyRemeasure {
+		if limit := c.Max(); limit > 0 && float64(c.size.Load()) <= float64(limit)*BusyCeiling && c.Busy() {
+			c.logf("package cache: skipped, an agent has a heavy run going; held %s of %s when last measured", bytesWords(c.size.Load()), bytesWords(limit))
+			return 0
+		}
+	}
 	start := time.Now()
+	c.walked = c.clock()
 	all := c.pieces()
 	walked := fmt.Sprintf("walked %d pieces in %s, %d unreadable", len(all), time.Since(start).Round(time.Millisecond), walkErrors.Load())
 	size := sum(all)
@@ -382,6 +401,20 @@ func (c *Cache) Trim() int64 {
 	}
 	c.logf("%s", line)
 	return freed
+}
+
+// Wait is how long until the caches are next measured, every being the
+// usual wait: six times as long while they held under four fifths of their cap
+// when last measured, since a walk is disk work of its own. A disk nearing
+// its floor asks for a trim sooner anyway.
+func (c *Cache) Wait(every time.Duration) time.Duration {
+	if !c.sized.Load() || c.Max == nil {
+		return every
+	}
+	if limit := c.Max(); limit > 0 && c.size.Load() < limit/5*4 {
+		return 6 * every
+	}
+	return every
 }
 
 // bytesWords is a size for the log.
