@@ -2993,5 +2993,22 @@
       "[data-work-row$='agent-41'] button",
       "[data-review-media=\"2\"]"
     ]
+  },
+  {
+    "id": "topbar-busy-dark",
+    "description": "The top bar while this computer is busy (its disk) and the daemon hasn't answered for a few seconds: two marks beside the machine's status, the views keeping what they had — dark",
+    "query": "app=project&busy=host,daemon&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "wait": 4500
+  },
+  {
+    "id": "topbar-busy-host-tip-dark",
+    "description": "The 'Computer busy' mark's tip: why, and that agents' builds and tests wait for it — dark",
+    "query": "app=project&busy=host&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "wait": 1500,
+    "hover": "[data-busy=\"host\"]"
   }
 ]

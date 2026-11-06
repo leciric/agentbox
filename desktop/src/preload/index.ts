@@ -367,6 +367,9 @@ const bridge = {
     sections: (): Promise<T.ReportSection[]> => ipcRenderer.invoke('report:sections'),
     windowError: (err: { name: string; message: string; stack?: string }) => ipcRenderer.send('report:windowError', err),
     onAppError: (fn: (err: { at: string; where: 'main' | 'window'; name: string; message: string; stack?: string }) => void) => listen('app:error', fn),
+    // onMainLag is told each time the main process's event loop stalled
+    // (main/looplag.ts).
+    onMainLag: (fn: (lag: { at: string; maxMs: number; p99Ms: number; windowMs: number }) => void) => listen('app:mainLag', fn),
     openLogs: (): Promise<string> => ipcRenderer.invoke('report:openLogs'),
     // send sends an automatic error report through the main process, which
     // keeps it for later when the daemon can't be reached (main/reportqueue.ts).

@@ -2,8 +2,10 @@ package chv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -117,4 +119,96 @@ func lowerPriority() []string {
 	// Absent without CONFIG_SCHED_AUTOGROUP; ignored while in a cpu cgroup.
 	_ = os.WriteFile("/proc/self/autogroup", []byte(strconv.Itoa(vmNice)), 0)
 	return failed
+}
+
+// cgroupRoot is where cgroup v2 is mounted, and sysRoot /sys; tests point
+// them at fixtures.
+var (
+	cgroupRoot = "/sys/fs/cgroup"
+	sysRoot    = "/sys"
+)
+
+// priorityGaps says which of the ways the VM yields to the desktop don't
+// hold here, for the VM's log, so a desktop that still stalls under a build
+// can be explained from it: the scope's CPU weight not applied, its I/O
+// weight without the io controller (systemd delegates cpu, memory and pids
+// to a user's manager by default), and a disk scheduler that ignores both
+// I/O weights and priorities ("none", NVMe's default), under which the VM's
+// disk reads and writes compete with the desktop's evenly. disk is a file on
+// the disk the VM's images are on. Empty when every one holds.
+func priorityGaps(disk string) []string {
+	var gaps []string
+	dir := ownCgroup()
+	if dir == "" {
+		gaps = append(gaps, "not in a cgroup of its own: CPU and I/O weights don't apply")
+	} else {
+		if w := readTrim(filepath.Join(cgroupRoot, dir, "cpu.weight")); w != "" && w != strconv.Itoa(vmCPUWeight) {
+			gaps = append(gaps, "CPU weight "+w+", not "+strconv.Itoa(vmCPUWeight))
+		} else if w == "" {
+			gaps = append(gaps, "no cpu controller: only nice lowers the VM's CPU")
+		}
+		if _, err := os.Stat(filepath.Join(cgroupRoot, dir, "io.weight")); err != nil {
+			gaps = append(gaps, "no io controller (not delegated to systemd's user manager): the VM's I/O weight does nothing")
+		}
+	}
+	if s := diskScheduler(disk); s == "none" {
+		gaps = append(gaps, "the disk's I/O scheduler is none: I/O weights and priorities do nothing, and the VM's disk competes with the desktop's evenly")
+	}
+	return gaps
+}
+
+// ownCgroup is this process's cgroup v2 path, "" when it's the root or
+// unknown.
+func ownCgroup() string {
+	b, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return ""
+	}
+	for line := range strings.Lines(string(b)) {
+		if p, ok := strings.CutPrefix(strings.TrimSpace(line), "0::"); ok && p != "/" {
+			return p
+		}
+	}
+	return ""
+}
+
+// diskScheduler is the active I/O scheduler of the disk path is on, "" when
+// it can't be read (a network or virtual filesystem).
+func diskScheduler(path string) string {
+	var st unix.Stat_t
+	if unix.Stat(path, &st) != nil {
+		return ""
+	}
+	link := filepath.Join(sysRoot, "dev", "block", fmt.Sprintf("%d:%d", unix.Major(st.Dev), unix.Minor(st.Dev)))
+	// A link into /sys/devices; a partition's queue is its disk's, one
+	// directory up, which filepath.Join's cleaning can't find from the link.
+	dev, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		return ""
+	}
+	for _, q := range []string{filepath.Join(dev, "queue", "scheduler"), filepath.Join(dev, "..", "queue", "scheduler")} {
+		if s := readTrim(q); s != "" {
+			return activeScheduler(s)
+		}
+	}
+	return ""
+}
+
+// activeScheduler is the bracketed one of a queue/scheduler file's
+// "mq-deadline kyber [bfq] none".
+func activeScheduler(s string) string {
+	if i := strings.IndexByte(s, '['); i >= 0 {
+		if j := strings.IndexByte(s[i:], ']'); j > 0 {
+			return s[i+1 : i+j]
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+func readTrim(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }

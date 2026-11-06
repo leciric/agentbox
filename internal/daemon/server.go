@@ -399,6 +399,8 @@ type Server struct {
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
 	heavy *heavyRuns
+	// hostLoad is the user's computer's last load report (hostload.go).
+	hostLoad hostLoad
 	// memoryShort (memoryjobs.go) is whether the machines are told memory
 	// is short, so their builds and tests run fewer jobs.
 	memoryShort *memoryShort
@@ -1081,6 +1083,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
 
 	h("GET /v1/pressure", s.getPressure)
+	h("PUT /v1/host/load", s.putHostLoad)
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
 	h("GET /v1/diagnostics/resources", s.diagnosticsResources)

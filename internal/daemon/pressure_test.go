@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -437,5 +438,52 @@ func TestAgentMemoryShare(t *testing.T) {
 	zero := 0
 	if settings, err := p.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentMemoryShare: &zero}); err != nil || settings.AgentMemoryShare != agent.DefaultAgentMemoryShare {
 		t.Errorf("back to the default: %d, %v", settings.AgentMemoryShare, err)
+	}
+}
+
+// A busy host holds a heavy command back, says so, and drops the VM's
+// caches when asked, at most once a while; a report that goes stale holds
+// nothing.
+func TestHostLoadHoldsHeavyCommands(t *testing.T) {
+	t.Parallel()
+	var drops atomic.Int32
+	p := newPressureTest(t, func(s *Server) {
+		old := dropVMCaches
+		dropVMCaches = func() error { drops.Add(1); return nil }
+		t.Cleanup(func() { dropVMCaches = old })
+	})
+	ctx := context.Background()
+	if !p.start(t, "first", time.Second) {
+		t.Fatal("a command didn't start in a calm VM")
+	}
+	busy := api.HostLoad{OS: "linux", Memory: 30, Busy: true, Why: "memory", Reclaim: true, At: time.Now()}
+	for range 2 {
+		if err := p.client.PutHostLoad(ctx, busy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := p.srv.askHeavy(ctx, p.ref, p.instance, "second", "go test ./...", time.Hour, 100*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Started || !strings.Contains(out.Why, "computer is busy") {
+		t.Fatalf("host busy: %+v", out)
+	}
+	if ps, err := p.client.Pressure(ctx); err != nil || ps.Host == nil || !ps.Host.Busy || ps.Why != string(pressure.HostBusy) {
+		t.Fatalf("GET /v1/pressure = %+v, %v", ps, err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for drops.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := drops.Load(); n != 1 {
+		t.Fatalf("caches dropped %d times for two reports, want once", n)
+	}
+	// Stale: as good as calm.
+	p.srv.hostLoad.mu.Lock()
+	p.srv.hostLoad.got = time.Now().Add(-api.HostLoadTTL - time.Second)
+	p.srv.hostLoad.mu.Unlock()
+	if !p.start(t, "second", time.Second) {
+		t.Fatal("a stale busy report still held the command")
 	}
 }
