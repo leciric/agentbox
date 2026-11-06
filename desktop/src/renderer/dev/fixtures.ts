@@ -2269,7 +2269,8 @@ export function seedMeterUsage(queryClient: QueryClient): void {
   // The pool's machines and bases add up to the 15.5 GiB in use inside the
   // user's VM, measured on 2026-10-01.
   const diskUsage: T.DiskUsage = {
-    total: 21.2 * GiB,
+    total: 25.4 * GiB,
+    trim: { at: new Date(Date.now() - 2 * 3600_000).toISOString(), bytes: 6.3 * GiB },
     categories: [
       {
         kind: 'machines',
@@ -2281,10 +2282,20 @@ export function seedMeterUsage(queryClient: QueryClient): void {
           { label: `${PROJECT}/agent-90`, bytes: 1.3 * GiB },
         ],
       },
-      { kind: 'bases', label: 'Base images and saved bases', bytes: 5.7 * GiB, items: [{ label: 'Base image', bytes: 3.9 * GiB }, { label: `${PROJECT} base`, bytes: 1.8 * GiB }] },
+      { kind: 'bases', label: 'Base images and saved bases', bytes: 5.7 * GiB, items: [{ label: 'Base image', bytes: 3.9 * GiB, kind: 'base-image' }, { label: `${PROJECT} base`, bytes: 1.8 * GiB, kind: 'project-base', name: PROJECT }] },
       { kind: 'worktrees', label: 'Worktrees', bytes: 5.1 * GiB, items: [{ label: `${PROJECT}/agent-99`, bytes: 2.6 * GiB }, { label: `${PROJECT}/agent-12`, bytes: 2.5 * GiB }] },
+      {
+        kind: 'caches',
+        label: 'Shared caches',
+        bytes: 4.2 * GiB,
+        items: [
+          { label: 'Package cache: pnpm', bytes: 1.9 * GiB, kind: 'package-cache', name: 'pnpm' },
+          { label: 'Package cache: go', bytes: 1.1 * GiB, kind: 'package-cache', name: 'go' },
+          { label: 'Docker images', bytes: 1.2 * GiB, kind: 'docker-images' },
+        ],
+      },
       { kind: 'media', label: 'Media', bytes: 0.5 * GiB, items: [{ label: PROJECT, bytes: 0.5 * GiB }] },
-      { kind: 'state', label: 'state.db and logs', bytes: 0.1 * GiB, items: [{ label: 'state.db', bytes: 0.1 * GiB }] },
+      { kind: 'state', label: 'state.db and logs', bytes: 0.1 * GiB, items: [{ label: 'state.db', bytes: 0.1 * GiB, kind: 'state-db' }] },
     ],
   };
   devState.memoryUsage = memoryUsage;
@@ -2568,6 +2579,11 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(results), contentType: 'application/json' };
       }
       if (method === 'GET' && path === '/v1/disk') return { status: 200, body: JSON.stringify({ level: 'ok', disks: [], paused: [], since: '', message: '' }), contentType: 'application/json' };
+      if (method === 'POST' && path === '/v1/usage/disk/trim') {
+        const trim = { at: new Date().toISOString(), bytes: 2.4 * 1024 ** 3 };
+        if (devState.diskUsage) devState.diskUsage = { ...devState.diskUsage, trim };
+        return { status: 200, body: JSON.stringify(trim), contentType: 'application/json' };
+      }
       if (method === 'GET' && devState.diskUsage && path === '/v1/usage/disk') return { status: 200, body: JSON.stringify(devState.diskUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.job && path === `/v1/jobs/${devState.job.id}`) return { status: 200, body: JSON.stringify(devState.job), contentType: 'application/json' };

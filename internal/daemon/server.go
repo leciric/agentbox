@@ -1190,6 +1190,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/usage", s.usage)
 	h("GET /v1/usage/disk", s.diskUsage)
+	h("POST /v1/usage/disk/trim", s.trimDisk)
 	h("GET /v1/disk", s.getDiskGuard)
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)

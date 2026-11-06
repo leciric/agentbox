@@ -58,6 +58,7 @@ import { offersRemake } from "../lib/krunkit";
 import type { SettingSection } from "../lib/settingsSearch";
 import { appendOutput, cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
+import { StorageUsage } from "./StorageUsage";
 import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
 import { UsageSentDialog } from "./UsageSentDialog";
@@ -1649,6 +1650,13 @@ function InstalledSettings({
           id: "disk",
           title: t("settings.group.disk.title"),
           entries: [
+            {
+              id: "disk-usage",
+              description: t("storage.description"),
+              label: t("settings.entry.disk-usage.label"),
+              keywords: t("settings.entry.disk-usage.keywords"),
+              render: () => <StorageUsage inVM={!!(vm?.exists || chv)} />,
+            },
             {
               id: "disk-floor",
               description: t("defaults.newAgent.diskDescription"),
