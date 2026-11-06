@@ -184,9 +184,9 @@ func TestATurnThatGetsOnAfterCompactingIsLeftAlone(t *testing.T) {
 	if _, err := m.Send(testAgent, "go"); err != nil {
 		t.Fatal(err)
 	}
-	th := waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))
+	waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))
 	time.Sleep(400 * time.Millisecond)
-	th, _ = m.Thread(testAgent)
+	th, _ := m.Thread(testAgent)
 	if u := find(th, "user", 0); u.Result == nil || u.Result.State != "completed" {
 		t.Fatalf("the turn ended %+v, want completed", u.Result)
 	}
