@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/api"
 	"agentbox/internal/memory"
 	"agentbox/internal/pressure"
 )
@@ -347,8 +348,8 @@ func TestOOMKillTold(t *testing.T) {
 	if len(oomEvents()) != 0 {
 		t.Fatal("kills from before the daemon looked were reported")
 	}
-	if len(limits) != 1 || limits[0] != agent.MemoryLimit(16<<30) {
-		t.Fatalf("memory.max set to %v, want %d", limits, agent.MemoryLimit(16<<30))
+	if len(limits) != 1 || limits[0] != agent.MemoryLimit(16<<30, 0) {
+		t.Fatalf("memory.max set to %v, want %d", limits, agent.MemoryLimit(16<<30, 0))
 	}
 	// Its own limit: it reached it since.
 	mu.Lock()
@@ -375,5 +376,66 @@ func TestOOMKillTold(t *testing.T) {
 	waitFor(t, "the second kill to be told", func() bool { return len(oomEvents()) > 1 })
 	if events := oomEvents(); !strings.Contains(string(events[0].Payload), `"own_limit":false`) {
 		t.Errorf("the VM's kill reads %s", events[0].Payload)
+	}
+}
+
+// An agent's memory.max is its share of the VM's cap, half unless the user
+// chose, and a new share reaches running agents; each also gets the io.weight
+// that has its disk use yield to the daemon's and Incus's.
+func TestAgentMemoryShare(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	limits := map[string]int64{}
+	weights := map[string]int{}
+	p := newPressureTest(t, func(s *Server) {
+		s.vmMemory = func() int64 { return 18 << 30 }
+		s.setMemoryLimit = func(instance string, limit int64) error {
+			mu.Lock()
+			defer mu.Unlock()
+			limits[instance] = limit
+			return nil
+		}
+		s.setIOWeight = func(instance string, weight int) error {
+			mu.Lock()
+			defer mu.Unlock()
+			weights[instance] = weight
+			return nil
+		}
+	})
+	ctx := context.Background()
+	limit := func() int64 {
+		mu.Lock()
+		defer mu.Unlock()
+		return limits[p.instance]
+	}
+
+	p.srv.watchMemory(ctx)
+	if got := limit(); got != 18<<30/100*50 {
+		t.Errorf("memory.max = %d MiB, want half of 18 GiB", got>>20)
+	}
+	if weights[p.instance] != agent.AgentIOWeight {
+		t.Errorf("io.weight = %d, want %d", weights[p.instance], agent.AgentIOWeight)
+	}
+	settings, err := p.client.Settings(ctx)
+	if err != nil || settings.AgentMemoryShare != 50 || settings.AgentMemoryLimit != 18<<30/100*50 || settings.VMMemory != 18<<30 {
+		t.Fatalf("Settings = share %d limit %d vm %d, %v", settings.AgentMemoryShare, settings.AgentMemoryLimit, settings.VMMemory, err)
+	}
+
+	for _, bad := range []int{5, 95, -1} {
+		if _, err := p.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentMemoryShare: &bad}); err == nil {
+			t.Errorf("a share of %d%% was taken", bad)
+		}
+	}
+	share := 30
+	if settings, err := p.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentMemoryShare: &share}); err != nil || settings.AgentMemoryShare != 30 {
+		t.Fatalf("UpdateSettings(30%%) = %d, %v", settings.AgentMemoryShare, err)
+	}
+	p.srv.watchMemory(ctx)
+	if got := limit(); got != 18<<30/100*30 {
+		t.Errorf("after 30%%: memory.max = %d MiB", got>>20)
+	}
+	zero := 0
+	if settings, err := p.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentMemoryShare: &zero}); err != nil || settings.AgentMemoryShare != agent.DefaultAgentMemoryShare {
+		t.Errorf("back to the default: %d, %v", settings.AgentMemoryShare, err)
 	}
 }

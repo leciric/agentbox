@@ -22,8 +22,11 @@ import (
 // An agent's memory fails fast: its machine's cgroup gets a hard memory.max,
 // so a process that outgrows it is killed at once (and the agent told,
 // internal/daemon/pressure.go) rather than the agent crawling under a throttle
-// while the VM swaps. The limit is what one agent may have alone: the VM's
-// memory less what the VM keeps for itself and the other agents idling. How
+// while the VM swaps. The limit is a share of the VM (AgentMemoryShare, half
+// unless the user chose): one runaway build is killed inside its own machine
+// while the daemon, Incus and the other agents keep the rest. It was the VM
+// less an eighth, which let one agent building Rust take 16 of an 18 GiB VM:
+// the VM swapped to its disk, Incus stopped answering and the host froze. How
 // many agents' heavy commands run at once is the daemon's, from the VM's
 // measured pressure (package pressure), not this.
 //
@@ -33,14 +36,31 @@ import (
 // set memory.max too, but DropOldLimits takes that key off every machine,
 // and it doesn't follow the VM as it grows; this is written live.
 
-// MemoryLimit is memory.max for an agent in a VM of total bytes: total less
-// an eighth of it, and at least 1 GiB, which the VM keeps. 0 (none) when total
-// isn't known.
-func MemoryLimit(total int64) int64 {
+// The share of the VM one agent may have, in percent: DefaultAgentMemoryShare
+// unless the user chose (Settings.AgentMemoryShare), from MinAgentMemoryShare
+// to MaxAgentMemoryShare. Above 90% one agent can again starve the daemon and
+// Incus; under 10% a 4 GiB VM's agent couldn't run a compiler.
+const (
+	DefaultAgentMemoryShare = 50
+	MinAgentMemoryShare     = 10
+	MaxAgentMemoryShare     = 90
+)
+
+// MemoryLimit is memory.max for an agent in a VM of total bytes: share percent
+// of it (DefaultAgentMemoryShare for 0, and kept from MinAgentMemoryShare to
+// MaxAgentMemoryShare). total is the most the VM may grow to, not what it
+// was granted so far (HostMemory), so the limit follows the VM as its cap
+// changes without killing a build the VM is still growing for. 0 (none) when
+// total isn't known.
+func MemoryLimit(total int64, share int) int64 {
 	if total <= 0 {
 		return 0
 	}
-	return max(total-max(total/8, int64(1)<<30), total/2)
+	if share == 0 {
+		share = DefaultAgentMemoryShare
+	}
+	share = min(max(share, MinAgentMemoryShare), MaxAgentMemoryShare)
+	return total / 100 * int64(share)
 }
 
 // SetMemoryLimit sets an agent's machine's memory.max to limit (0 for none,

@@ -259,8 +259,8 @@ func offStatus(c Config, l Layout) api.VMStatus {
 		Memory: api.VMMemory{Min: c.MemoryMin, Cap: c.MemoryMin + hotplugSize(c)},
 		Limits: &api.VMLimits{MinCPUs: 1, MaxCPUs: max(hostCPUs(), c.CPUs), MinMemory: c.MemoryMin, MaxMemory: max(hostMemory(), c.MemoryCap)},
 	}
-	if host := hostTotal(); !c.VZ() && host > 0 {
-		st.Memory.HostReserve = HostReserve(host)
+	if host := hostTotal(); host > 0 {
+		st.Memory.HostReserve, st.Memory.HostTotal = HostReserve(host), host
 		st.Limits.MaxMemory = max(MaxCap(host), c.MemoryMin)
 	}
 	st.Disk = diskStatus(l)

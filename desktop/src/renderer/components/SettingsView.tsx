@@ -75,6 +75,7 @@ import {
   DefaultTool,
   LeadRecheck,
   MediaRetention,
+  AgentMemoryShare,
   DiskFloor,
   DockerImageCache,
   SharedPackageCaches,
@@ -1630,6 +1631,20 @@ function InstalledSettings({
       scope: "installation",
       nav: t("settings.nav.machine"),
       groups: [
+        {
+          id: "agent-limits",
+          title: t("settings.group.agent-limits.title"),
+          entries: [
+            {
+              id: "agent-memory",
+              description: t("defaults.newAgent.agentMemoryDescription"),
+              label: t("settings.entry.agent-memory.label"),
+              keywords: t("settings.entry.agent-memory.keywords"),
+              modified: changed((s) => s.agentMemoryShare !== s.defaultAgentMemoryShare),
+              render: () => <AgentMemoryShare />,
+            },
+          ],
+        },
         {
           id: "disk",
           title: t("settings.group.disk.title"),

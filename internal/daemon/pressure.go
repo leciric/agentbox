@@ -140,6 +140,13 @@ func (s *Server) giveZram() {
 	if !hostos.InVM() {
 		return
 	}
+	// The disks' scheduler first: it decides whether the agents' io.weight
+	// (watchMemory) counts for anything.
+	if did, err := agent.UseBFQ(); err != nil {
+		s.logf("disk scheduler: %v; agents' disk use doesn't yield to the daemon's and Incus's", err)
+	} else if did != "" {
+		s.logf("disk scheduler: %s", did)
+	}
 	did, err := agent.EnsureZram(s.vmMemory() / agent.ZramShare)
 	if err != nil {
 		s.logf("zram swap: %v; memory pressure shows only once the VM has swap (agentbox vm swap on)", err)
@@ -677,13 +684,16 @@ func (s *Server) watchMemory(ctx context.Context) {
 		return
 	}
 	s.syncFleet(ctx, agents)
-	limit := agent.MemoryLimit(s.vmMemory())
+	limit := agent.MemoryLimit(s.vmMemory(), s.agentMemoryShare(ctx))
 	for _, a := range agents {
 		if a.IsLead() || a.Status != state.AgentReady || a.Instance == "" {
 			continue
 		}
 		if err := s.setMemoryLimit(a.Instance, limit); err != nil {
 			s.logOnce("memory.max "+a.Instance, fmt.Sprintf("memory.max: %s: %v", a.Ref(), err))
+		}
+		if err := s.setIOWeight(a.Instance, agent.AgentIOWeight); err != nil {
+			s.logOnce("io.weight "+a.Instance, fmt.Sprintf("io.weight: %s: %v", a.Ref(), err))
 		}
 		now, ok := s.memoryEvents(a.Instance)
 		if !ok {
@@ -705,6 +715,38 @@ func (s *Server) watchMemory(ctx context.Context) {
 			go s.tellKilled(context.WithoutCancel(ctx), a, now.Kills-seen.Kills, now.Limit, own)
 		}
 	}
+}
+
+// agentMemoryShare is the share of the VM, in percent, one agent may have
+// (agent.MemoryLimit): what the settings chose, or agent.DefaultAgentMemoryShare.
+func (s *Server) agentMemoryShare(ctx context.Context) int {
+	if v, err := s.store.Setting(ctx, state.SettingAgentMemoryShare); err == nil && v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return min(max(n, agent.MinAgentMemoryShare), agent.MaxAgentMemoryShare)
+		}
+	}
+	return agent.DefaultAgentMemoryShare
+}
+
+// setAgentMemoryShare stores the share a settings request chooses, 0 going
+// back to the default, and has running agents' memory.max follow at once:
+// lowering it is how a runaway agent is stopped from taking the VM.
+func (s *Server) setAgentMemoryShare(ctx context.Context, share int) error {
+	value := ""
+	if share != 0 {
+		if share < agent.MinAgentMemoryShare || share > agent.MaxAgentMemoryShare {
+			return fmt.Errorf("an agent's share of the VM's memory is from %d%% to %d%%; %d%% isn't",
+				agent.MinAgentMemoryShare, agent.MaxAgentMemoryShare, share)
+		}
+		value = strconv.Itoa(share)
+	}
+	if err := s.store.SetSetting(ctx, state.SettingAgentMemoryShare, value); err != nil {
+		return err
+	}
+	if s.pressureEvery > 0 {
+		go s.watchMemory(s.background())
+	}
+	return nil
 }
 
 // logOnce logs msg under key, unless it was the last thing logged under it.

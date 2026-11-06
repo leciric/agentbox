@@ -274,6 +274,10 @@ const (
 	// agent.DefaultDiskFloor's.
 	SettingDiskFloorMin     = "disk_floor_min"
 	SettingDiskFloorPercent = "disk_floor_percent"
+	// SettingAgentMemoryShare is the share of the VM's memory, in percent, one
+	// agent's machine may have before its processes are killed
+	// (agent.MemoryLimit). Empty means agent.DefaultAgentMemoryShare.
+	SettingAgentMemoryShare = "agent_memory_share"
 	// SettingDiskGuardPaused are the agents the disk guard paused and hasn't
 	// resumed yet, as a JSON list of refs, so a daemon restarted while a disk
 	// was at its floor still resumes them when there's room again.

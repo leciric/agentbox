@@ -140,10 +140,29 @@ func (c *conversation) goalTurnEnded(t *turn, completed bool) {
 func (c *conversation) setToolGoal(g api.AgentGoal, event string) {
 	c.goal, c.goalRead = &g, true
 	c.showGoal(g, event)
-	if c.m.GoalChanged != nil {
-		agent := c.agent
-		c.m.background.Go(func() { c.m.GoalChanged(agent, g) })
+	if c.m.GoalChanged == nil {
+		return
 	}
+	c.goalOut = append(c.goalOut, g)
+	if c.goalSending {
+		return
+	}
+	c.goalSending = true
+	agent := c.agent
+	c.m.background.Go(func() {
+		for {
+			c.mu.Lock()
+			if len(c.goalOut) == 0 {
+				c.goalSending = false
+				c.mu.Unlock()
+				return
+			}
+			next := c.goalOut[0]
+			c.goalOut = c.goalOut[1:]
+			c.mu.Unlock()
+			c.m.GoalChanged(agent, next)
+		}
+	})
 }
 
 // showGoal adds the goal row for event. A goal AgentBox drives gets a row at
