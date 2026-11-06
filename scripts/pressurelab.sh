@@ -135,10 +135,19 @@ if ! as_lab "agentbox-lab auth claude list 2>/dev/null | grep -q default"; then
   as_lab "echo sk-ant-oat01-loadlab-placeholder-not-a-token | agentbox-lab auth claude --token-stdin" >/dev/null
 fi
 
-if ! sudo incus info agentbox-base >/dev/null 2>&1; then
+# A daemon that has none starts building it by itself as it starts: the lab
+# waits for that build rather than failing on a second one.
+image_job() { as_lab "agentbox-lab jobs 2>/dev/null" | awk '$2 == "image-build" && $4 == "running" { print $1; exit }'; }
+for _ in $(seq 3); do
+  sudo incus info agentbox-base >/dev/null 2>&1 && break
   step "Building the base image (minutes)"
-  as_lab "agentbox-lab image build" | tail -3
-fi
+  if job=$(image_job) && [[ -n $job ]]; then
+    as_lab "agentbox-lab jobs $job" | tail -3 || true
+  else
+    as_lab "agentbox-lab image build" | tail -3 || true
+  fi
+done
+sudo incus info agentbox-base >/dev/null 2>&1 || { echo "no base image" >&2; exit 1; }
 
 repo=$labhome/loadlab-repo
 if ! sudo test -d "$repo/.git"; then
