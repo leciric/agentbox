@@ -125,8 +125,7 @@ func (s *Server) continueAgent(ctx context.Context, rt state.RunningTurn) {
 		s.notResumed(ctx, rt, tooManyResumes(rt))
 		return
 	}
-	s.wakeMu.Lock()
-	defer s.wakeMu.Unlock()
+	defer s.wakes.lock(a.Ref())()
 	inst, err := s.cfg.Incus.Instance(ctx, a.Instance)
 	if err != nil {
 		s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be found (%v)", err))
