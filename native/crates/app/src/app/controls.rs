@@ -202,7 +202,11 @@ pub fn scrollbar(handle: &ScrollHandle, gutter: bool) -> AnyElement {
             let color = theme::line_vivid();
             let hovered = vp.contains(&window.mouse_position());
             // Chromium brightens the arrows of the scroller the pointer is in.
-            let arrow = if hovered { gpui::white().opacity(0.75) } else { color };
+            let arrow = if hovered {
+                gpui::white().opacity(0.75)
+            } else {
+                color
+            };
             let x = vp.right() - SCROLLBAR;
             let top = vp.top();
             let bottom = vp.bottom();
@@ -214,7 +218,11 @@ pub fn scrollbar(handle: &ScrollHandle, gutter: bool) -> AnyElement {
             };
             let scrolled = -handle.offset().y;
             let up = if scrolled > px(0.5) { arrow } else { color };
-            let down = if scrolled < max - px(0.5) { arrow } else { color };
+            let down = if scrolled < max - px(0.5) {
+                arrow
+            } else {
+                color
+            };
             // Each arrow is three rows, 2, 4 and 6 wide, its point outward.
             for i in 0..3 {
                 let i = i as f32;
@@ -482,7 +490,8 @@ pub fn field_select(
         .text_color(theme::primary())
         .when(disabled, |el| el.opacity(0.5))
         .when(!disabled, |el| {
-            el.cursor_pointer().hover(|s| s.border_color(theme::line_vivid()))
+            el.cursor_pointer()
+                .hover(|s| s.border_color(theme::line_vivid()))
         })
         .when_some(icon, |el, (name, color)| {
             el.child(
@@ -517,7 +526,15 @@ pub fn settings_select(
     disabled: bool,
     on_pick: Pick<str>,
 ) -> AnyElement {
-    field_select(id, choices, current, disabled, on_pick, Anchor::TopRight, None)
+    field_select(
+        id,
+        choices,
+        current,
+        disabled,
+        on_pick,
+        Anchor::TopRight,
+        None,
+    )
 }
 
 /// settings_select_at is field_select hung from another corner.
@@ -547,57 +564,56 @@ fn select_menu(
     let current = SharedString::from(current.to_string());
     let choices = Rc::new(choices);
     move |menu, _, _| {
-            let mut menu = menu
-                .min_w(px(240.))
-                .max_w(px(380.))
-                .max_h(px(420.))
-                .scrollable(true);
-            let mut group = String::new();
-            for c in choices.iter() {
-                if c.group != group {
-                    group = c.group.clone();
-                    menu = menu.separator();
-                    if !group.is_empty() {
-                        menu = menu.label(group.clone());
-                    }
+        let mut menu = menu
+            .min_w(px(240.))
+            .max_w(px(380.))
+            .max_h(px(420.))
+            .scrollable(true);
+        let mut group = String::new();
+        for c in choices.iter() {
+            if c.group != group {
+                group = c.group.clone();
+                menu = menu.separator();
+                if !group.is_empty() {
+                    menu = menu.label(group.clone());
                 }
-                // gpui-component's check is an icon, and this app ships no
-                // icon assets: the mark is text, in a column of its own.
-                let (name, about, on) =
-                    (c.label.clone(), c.description.clone(), c.value == current);
-                let item = PopupMenuItem::element(move |_, _| {
-                    h_flex()
-                        .items_start()
-                        .gap_2()
-                        .child(
-                            div()
-                                .w(px(12.))
-                                .flex_none()
-                                .text_sm()
-                                .text_color(theme::accent())
-                                .child(crate::icons::of(if on { "✓" } else { "" })),
-                        )
-                        .child(
-                            v_flex()
-                                .py_0p5()
-                                .child(div().text_sm().child(name.clone()))
-                                .when(!about.is_empty(), |el| {
-                                    el.child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme::muted())
-                                            .child(about.clone()),
-                                    )
-                                }),
-                        )
-                });
-                let (pick, value) = (on_pick.clone(), c.value.clone());
-                menu = menu.item(
-                    item.disabled(c.disabled)
-                        .on_click(move |_, window, cx| pick(&value, window, cx)),
-                );
             }
-            menu
+            // gpui-component's check is an icon, and this app ships no
+            // icon assets: the mark is text, in a column of its own.
+            let (name, about, on) = (c.label.clone(), c.description.clone(), c.value == current);
+            let item = PopupMenuItem::element(move |_, _| {
+                h_flex()
+                    .items_start()
+                    .gap_2()
+                    .child(
+                        div()
+                            .w(px(12.))
+                            .flex_none()
+                            .text_sm()
+                            .text_color(theme::accent())
+                            .child(crate::icons::of(if on { "✓" } else { "" })),
+                    )
+                    .child(
+                        v_flex()
+                            .py_0p5()
+                            .child(div().text_sm().child(name.clone()))
+                            .when(!about.is_empty(), |el| {
+                                el.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(theme::muted())
+                                        .child(about.clone()),
+                                )
+                            }),
+                    )
+            });
+            let (pick, value) = (on_pick.clone(), c.value.clone());
+            menu = menu.item(
+                item.disabled(c.disabled)
+                    .on_click(move |_, window, cx| pick(&value, window, cx)),
+            );
+        }
+        menu
     }
 }
 
@@ -794,20 +810,21 @@ impl Row {
                                     ..gpui::font(theme::SANS)
                                 }
                             },
-                            color: if mono { theme::tertiary() } else { theme::subtle() },
+                            color: if mono {
+                                theme::tertiary()
+                            } else {
+                                theme::subtle()
+                            },
                             background_color: None,
                             underline: None,
                             strikethrough: None,
                         };
                         let total = self.description.len();
-                        let runs = vec![
-                            run(at, false),
-                            run(len, true),
-                            run(total - at - len, false),
-                        ]
-                        .into_iter()
-                        .filter(|r| r.len > 0)
-                        .collect();
+                        let runs =
+                            vec![run(at, false), run(len, true), run(total - at - len, false)]
+                                .into_iter()
+                                .filter(|r| r.len > 0)
+                                .collect();
                         words.child(StyledText::new(self.description.clone()).with_runs(runs))
                     }
                     None => words.child(self.description.clone()),

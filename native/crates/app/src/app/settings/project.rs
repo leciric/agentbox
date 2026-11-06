@@ -22,8 +22,9 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, Choice, Row, button, labeled, note_in, settings_select as select,
-    toggle};
+use super::super::controls::{
+    Btn, Choice, Row, button, labeled, note_in, settings_select as select, toggle,
+};
 use super::defaults::{ai_label, format_tokens, time_ago};
 use super::kit::{ask, card, enc, link, mono, plain, title};
 use super::kit::{badge, note};
@@ -1116,27 +1117,33 @@ impl AppView {
                                     .max_w(px(384.))
                                     .child(self.input_field("project-name")),
                             )
-                            .when(changed, |el| el.child(button(
-                                "project-name-save",
-                                t("common.save"),
-                                Btn::Primary,
-                                busy || draft.trim().is_empty(),
-                                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.save_project_name(a.clone(), cx)
-                                }),
-                            )))
-                            .when(changed, |el| el.child(link(
-                                "project-name-cancel",
-                                t("common.cancel"),
-                                cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                    if let Some(p) = this.project(&b).cloned()
-                                        && let Some(i) =
-                                            this.settings_page.fields.get("project-name")
-                                    {
-                                        i.update(cx, |i, cx| i.set_value(label_of(&p), window, cx));
-                                    }
-                                }),
-                            )))
+                            .when(changed, |el| {
+                                el.child(button(
+                                    "project-name-save",
+                                    t("common.save"),
+                                    Btn::Primary,
+                                    busy || draft.trim().is_empty(),
+                                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.save_project_name(a.clone(), cx)
+                                    }),
+                                ))
+                            })
+                            .when(changed, |el| {
+                                el.child(link(
+                                    "project-name-cancel",
+                                    t("common.cancel"),
+                                    cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                        if let Some(p) = this.project(&b).cloned()
+                                            && let Some(i) =
+                                                this.settings_page.fields.get("project-name")
+                                        {
+                                            i.update(cx, |i, cx| {
+                                                i.set_value(label_of(&p), window, cx)
+                                            });
+                                        }
+                                    }),
+                                ))
+                            })
                             .into_any_element(),
                     );
                 } else {

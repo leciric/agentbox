@@ -1112,9 +1112,13 @@ impl AppView {
         self.header_row()
             .child(self.render_rail_switch(self.fleet.len(), cx))
             .child(div().flex_1())
-            .when(self.pulls.tab == RailTab::Agents, |el| el.child(self.new_agent_button(cx)))
+            .when(self.pulls.tab == RailTab::Agents, |el| {
+                el.child(self.new_agent_button(cx))
+            })
             .child(self.project_buttons(cx))
-            .when(self.pulls.tab == RailTab::Agents, |el| el.child(self.fold_button(cx)))
+            .when(self.pulls.tab == RailTab::Agents, |el| {
+                el.child(self.fold_button(cx))
+            })
             .into_any_element()
     }
 

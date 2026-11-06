@@ -295,7 +295,11 @@ fn bar(fraction: f64, color: Hsla, h: f32) -> Div {
             div()
                 .h_full()
                 // Below zero: nothing to show at all.
-                .w(relative(if fraction < 0. { 0. } else { fraction.clamp(0.02, 1.) } as f32))
+                .w(relative(if fraction < 0. {
+                    0.
+                } else {
+                    fraction.clamp(0.02, 1.)
+                } as f32))
                 .rounded_full()
                 .bg(color),
         )
@@ -440,7 +444,9 @@ impl AppView {
                         .rounded_lg()
                         .text_size(theme::text::UI)
                         .font_weight(FontWeight::MEDIUM)
-                        .when(on, |el| el.bg(theme::surface_strong()).text_color(theme::title()))
+                        .when(on, |el| {
+                            el.bg(theme::surface_strong()).text_color(theme::title())
+                        })
                         .when(!on, |el| {
                             el.text_color(theme::muted())
                                 .cursor_pointer()
@@ -1042,17 +1048,21 @@ impl AppView {
                 )
                 .when(open, |el| el.child(self.agent_detail(a)))
         });
-        card_box("users", t("vm.tokens.byAgent"), t("vm.tokens.byAgentDescription"))
-            .child(
-                v_flex()
-                    .rounded_xl()
-                    .border_1()
-                    .border_color(theme::line_faint())
-                    .overflow_hidden()
-                    .child(header)
-                    .children(rows),
-            )
-            .into_any_element()
+        card_box(
+            "users",
+            t("vm.tokens.byAgent"),
+            t("vm.tokens.byAgentDescription"),
+        )
+        .child(
+            v_flex()
+                .rounded_xl()
+                .border_1()
+                .border_color(theme::line_faint())
+                .overflow_hidden()
+                .child(header)
+                .children(rows),
+        )
+        .into_any_element()
     }
 
     /// agent_detail is AgentDetail: the turns line, the models, the last

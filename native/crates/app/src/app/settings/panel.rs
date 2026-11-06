@@ -21,8 +21,16 @@ use crate::theme;
 /// The sections, in ProjectView.tsx's projectSettingsSections order: id, its
 /// title's key, its icon.
 pub(in crate::app) const SECTIONS: [(&str, &str, &str); 8] = [
-    ("repository", "project.view.section.repository", "folder-git-2"),
-    ("general", "project.view.section.general", "sliders-horizontal"),
+    (
+        "repository",
+        "project.view.section.repository",
+        "folder-git-2",
+    ),
+    (
+        "general",
+        "project.view.section.general",
+        "sliders-horizontal",
+    ),
     ("brief", "project.view.section.brief", "file-text"),
     ("memory", "project.view.section.memory", "brain"),
     ("tokens", "project.view.section.tokens", "coins"),
@@ -54,7 +62,9 @@ fn ghost_icon(id: &'static str, icon: &'static str, tip: String, pressed: bool) 
         .justify_center()
         .rounded_lg()
         .cursor_pointer()
-        .when(pressed, |el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+        .when(pressed, |el| {
+            el.bg(theme::surface_raised()).text_color(theme::primary())
+        })
         .when(!pressed, |el| el.text_color(theme::muted()))
         .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
@@ -217,7 +227,9 @@ impl AppView {
                     .text_size(theme::text::UI)
                     .line_height(px(19.))
                     .cursor_pointer()
-                    .when(on, |el| el.bg(theme::surface_raised()).text_color(theme::title()))
+                    .when(on, |el| {
+                        el.bg(theme::surface_raised()).text_color(theme::title())
+                    })
                     .when(!on, |el| {
                         el.text_color(theme::muted())
                             .hover(|s| s.bg(theme::surface()).text_color(theme::primary()))
@@ -431,7 +443,11 @@ impl AppView {
                                     &p.display_name
                                 };
                                 el.child(
-                                    name.chars().next().unwrap_or('?').to_uppercase().to_string(),
+                                    name.chars()
+                                        .next()
+                                        .unwrap_or('?')
+                                        .to_uppercase()
+                                        .to_string(),
                                 )
                             }
                         }),
@@ -469,13 +485,19 @@ impl AppView {
                     ),
             )
             .child(
-                h_flex().flex_wrap().gap_2().px_5().pt_3().pb_5().child(button(
-                    "panel-open-folder",
-                    t("project.view.openFolder"),
-                    Btn::Secondary,
-                    false,
-                    move |_, _, cx| cx.open_with_system(std::path::Path::new(&root)),
-                )),
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .px_5()
+                    .pt_3()
+                    .pb_5()
+                    .child(button(
+                        "panel-open-folder",
+                        t("project.view.openFolder"),
+                        Btn::Secondary,
+                        false,
+                        move |_, _, cx| cx.open_with_system(std::path::Path::new(&root)),
+                    )),
             );
         v_flex()
             .child(icon_card)

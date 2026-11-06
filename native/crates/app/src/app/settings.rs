@@ -982,47 +982,47 @@ impl AppView {
                     .min_w_0()
                     .h_full()
                     .child(
-                div()
-                    .id("settings-main")
-                    .size_full()
-                    .overflow_y_scroll()
-                    .track_scroll(&page.scroll)
-                    .when(gutter, |el| el.pr(super::controls::SCROLLBAR))
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .max_w(px(768.))
-                            .mx_auto()
-                            .px_8()
-                            .py_8()
-                            .gap_4()
-                            .when_some(self.error.clone(), |el, e| {
-                                el.child(
-                                    h_flex()
-                                        .mb_1()
-                                        .items_start()
-                                        .gap_2p5()
-                                        .px(px(14.))
-                                        .py_2p5()
-                                        .rounded_xl()
-                                        .border_1()
-                                        .border_color(theme::rose(400).opacity(0.25))
-                                        .bg(theme::rose(400).opacity(0.08))
-                                        .text_size(theme::text::UI)
-                                        .text_color(theme::rose(100))
-                                        .child(
-                                            div()
-                                                .flex_none()
-                                                .mt(px(1.))
-                                                .text_size(px(16.))
-                                                .text_color(theme::rose(300))
-                                                .child(crate::icons::of("circle-alert")),
+                        div()
+                            .id("settings-main")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&page.scroll)
+                            .when(gutter, |el| el.pr(super::controls::SCROLLBAR))
+                            .child(
+                                v_flex()
+                                    .w_full()
+                                    .max_w(px(768.))
+                                    .mx_auto()
+                                    .px_8()
+                                    .py_8()
+                                    .gap_4()
+                                    .when_some(self.error.clone(), |el, e| {
+                                        el.child(
+                                            h_flex()
+                                                .mb_1()
+                                                .items_start()
+                                                .gap_2p5()
+                                                .px(px(14.))
+                                                .py_2p5()
+                                                .rounded_xl()
+                                                .border_1()
+                                                .border_color(theme::rose(400).opacity(0.25))
+                                                .bg(theme::rose(400).opacity(0.08))
+                                                .text_size(theme::text::UI)
+                                                .text_color(theme::rose(100))
+                                                .child(
+                                                    div()
+                                                        .flex_none()
+                                                        .mt(px(1.))
+                                                        .text_size(px(16.))
+                                                        .text_color(theme::rose(300))
+                                                        .child(crate::icons::of("circle-alert")),
+                                                )
+                                                .child(div().min_w_0().flex_1().child(e)),
                                         )
-                                        .child(div().min_w_0().flex_1().child(e)),
-                                )
-                            })
-                            .child(main),
-                    ),
+                                    })
+                                    .child(main),
+                            ),
                     )
                     .child(super::controls::scrollbar(&page.scroll, gutter))
             })
@@ -1221,7 +1221,11 @@ impl AppView {
             .overflow_y_scroll()
             .track_scroll(&page.nav_scroll)
             .pl_3()
-            .pr(if gutter { px(12.) + super::controls::SCROLLBAR } else { px(12.) })
+            .pr(if gutter {
+                px(12.) + super::controls::SCROLLBAR
+            } else {
+                px(12.)
+            })
             .pt(px(28.))
             .pb_6()
             .gap_3()
@@ -1887,7 +1891,11 @@ impl AppView {
                 let options = LANGUAGES
                     .iter()
                     .map(|(tag, name)| {
-                        (SharedString::from(*tag), name.to_string(), Some("languages"))
+                        (
+                            SharedString::from(*tag),
+                            name.to_string(),
+                            Some("languages"),
+                        )
                     })
                     .collect();
                 row.body.push(choices(
@@ -2033,7 +2041,11 @@ impl AppView {
                     .into_iter()
                     .zip(["circle-check", "moon-star"])
                     .map(|(v, icon)| {
-                        (SharedString::from(v), t(&format!("settings.channel.{v}")), Some(icon))
+                        (
+                            SharedString::from(v),
+                            t(&format!("settings.channel.{v}")),
+                            Some(icon),
+                        )
                     })
                     .collect();
                 row.body.push(choices(

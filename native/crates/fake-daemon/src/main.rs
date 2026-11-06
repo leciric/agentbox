@@ -580,44 +580,57 @@ fn fake_tokens(project: &str) -> TokenReport {
         humantime::format_rfc3339_seconds(crate::clock() - Duration::from_secs(ago)).to_string()
     };
     let chats = [
-        ("lead", "claude", "", 412_000, 18_500, 3_100_000, 240_000, 4.12),
-        ("agent-01", "claude", TITLES[0], 286_000, 41_200, 2_400_000, 310_000, 3.38),
-        ("agent-02", "codex", TITLES[1], 158_000, 22_900, 940_000, 0, 1.06),
+        (
+            "lead", "claude", "", 412_000, 18_500, 3_100_000, 240_000, 4.12,
+        ),
+        (
+            "agent-01", "claude", TITLES[0], 286_000, 41_200, 2_400_000, 310_000, 3.38,
+        ),
+        (
+            "agent-02", "codex", TITLES[1], 158_000, 22_900, 940_000, 0, 1.06,
+        ),
     ];
     let agents: Vec<AgentTokens> = chats
         .iter()
         .enumerate()
-        .map(|(i, (agent, ai, title, input, output, read, write, cost))| {
-            let total = input + output + read + write;
-            AgentTokens {
-                project: project.to_string(),
-                agent: agent.to_string(),
-                r#ref: format!("{project}/{agent}"),
-                ai: ai.to_string(),
-                title: title.to_string(),
-                exists: true,
-                turns: 40 - 12 * i as i64,
-                max_context: 182_000 - 40_000 * i as i64,
-                last_at: at(600 + 900 * i as u64),
-                input: *input,
-                output: *output,
-                cache_read: *read,
-                cache_write: *write,
-                total,
-                cost_usd: *cost,
-                models: vec![ModelTokens {
-                    model: if *ai == "codex" { "gpt-5.1-codex" } else { "claude-opus-4-1" }.into(),
+        .map(
+            |(i, (agent, ai, title, input, output, read, write, cost))| {
+                let total = input + output + read + write;
+                AgentTokens {
+                    project: project.to_string(),
+                    agent: agent.to_string(),
+                    r#ref: format!("{project}/{agent}"),
+                    ai: ai.to_string(),
+                    title: title.to_string(),
+                    exists: true,
+                    turns: 40 - 12 * i as i64,
+                    max_context: 182_000 - 40_000 * i as i64,
+                    last_at: at(600 + 900 * i as u64),
                     input: *input,
                     output: *output,
                     cache_read: *read,
                     cache_write: *write,
                     total,
                     cost_usd: *cost,
+                    models: vec![ModelTokens {
+                        model: if *ai == "codex" {
+                            "gpt-5.1-codex"
+                        } else {
+                            "claude-opus-4-1"
+                        }
+                        .into(),
+                        input: *input,
+                        output: *output,
+                        cache_read: *read,
+                        cache_write: *write,
+                        total,
+                        cost_usd: *cost,
+                        ..Default::default()
+                    }],
                     ..Default::default()
-                }],
-                ..Default::default()
-            }
-        })
+                }
+            },
+        )
         .collect();
     let sum = |f: fn(&AgentTokens) -> i64| agents.iter().map(f).sum::<i64>();
     let buckets = (0..10u64)
