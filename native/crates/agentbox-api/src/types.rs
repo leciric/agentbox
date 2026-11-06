@@ -396,8 +396,6 @@ pub struct Settings {
     pub pr_watch: bool,
     #[serde(rename = "mergeWhenGreen")]
     pub merge_when_green: bool,
-    #[serde(rename = "agentGoals")]
-    pub agent_goals: bool,
     #[serde(rename = "agentFreeze")]
     pub agent_freeze: bool,
     #[serde(rename = "mediaRetention")]
@@ -410,6 +408,18 @@ pub struct Settings {
     pub disk_floor_min: i64,
     #[serde(rename = "diskFloorPercent")]
     pub disk_floor_percent: f64,
+    #[serde(rename = "agentMemoryShare")]
+    pub agent_memory_share: i64,
+    #[serde(rename = "defaultAgentMemoryShare")]
+    pub default_agent_memory_share: i64,
+    #[serde(rename = "minAgentMemoryShare")]
+    pub min_agent_memory_share: i64,
+    #[serde(rename = "maxAgentMemoryShare")]
+    pub max_agent_memory_share: i64,
+    #[serde(rename = "agentMemoryLimit")]
+    pub agent_memory_limit: i64,
+    #[serde(rename = "vmMemory")]
+    pub vm_memory: i64,
     #[serde(rename = "autoStopIdle")]
     pub auto_stop_idle: bool,
     #[serde(rename = "removeStopped")]
@@ -567,8 +577,6 @@ pub struct UpdateSettingsRequest {
     pub pr_watch: Option<bool>,
     #[serde(rename = "mergeWhenGreen", skip_serializing_if = "Option::is_none")]
     pub merge_when_green: Option<bool>,
-    #[serde(rename = "agentGoals", skip_serializing_if = "Option::is_none")]
-    pub agent_goals: Option<bool>,
     #[serde(rename = "agentFreeze", skip_serializing_if = "Option::is_none")]
     pub agent_freeze: Option<bool>,
     #[serde(rename = "mediaRetention", skip_serializing_if = "Option::is_none")]
@@ -605,6 +613,8 @@ pub struct UpdateSettingsRequest {
     pub disk_floor_min: Option<i64>,
     #[serde(rename = "diskFloorPercent", skip_serializing_if = "Option::is_none")]
     pub disk_floor_percent: Option<f64>,
+    #[serde(rename = "agentMemoryShare", skip_serializing_if = "Option::is_none")]
+    pub agent_memory_share: Option<i64>,
     #[serde(rename = "imageCache", skip_serializing_if = "Option::is_none")]
     pub image_cache: Option<bool>,
     #[serde(rename = "imageCacheMaxBytes", skip_serializing_if = "Option::is_none")]
@@ -688,6 +698,8 @@ pub struct Agent {
     pub memory: Option<MemoryHold>,
     #[serde(skip_serializing_if = "is_empty")]
     pub reclaimed: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub hold: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal: Option<AgentGoal>,
     pub ip: String,
@@ -1128,6 +1140,8 @@ pub struct PressureStatus {
     pub why: String,
     #[serde(deserialize_with = "nullable")]
     pub runs: Vec<HeavyRun>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<HostLoad>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1141,6 +1155,29 @@ pub struct HeavyRun {
     pub since: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub placed: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HostLoad {
+    pub os: String,
+    pub memory: f64,
+    pub cpu: f64,
+    pub io: f64,
+    #[serde(rename = "cpuShare")]
+    pub cpu_share: f64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub level: String,
+    #[serde(rename = "memoryTotal", skip_serializing_if = "is_empty")]
+    pub memory_total: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub available: i64,
+    pub busy: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub why: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub reclaim: bool,
+    pub at: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1226,6 +1263,10 @@ pub struct Usage {
 pub struct DiskUsageItem {
     pub label: String,
     pub bytes: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1240,10 +1281,21 @@ pub struct DiskUsageCategory {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct DiskTrim {
+    pub at: String,
+    pub bytes: i64,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DiskUsage {
     pub total: i64,
     #[serde(deserialize_with = "nullable")]
     pub categories: Vec<DiskUsageCategory>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trim: Option<DiskTrim>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1523,6 +1575,8 @@ pub struct AgentChange {
     pub waiting_for_image: bool,
     #[serde(skip_serializing_if = "is_empty")]
     pub reclaimed: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub hold: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -3518,6 +3572,8 @@ pub struct FleetAgent {
     pub memory: Option<MemoryHold>,
     #[serde(skip_serializing_if = "is_empty")]
     pub reclaimed: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub hold: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal: Option<AgentGoal>,
     pub ip: String,
@@ -4687,6 +4743,16 @@ pub struct GoalCheck {
     pub met: Option<bool>,
     #[serde(skip_serializing_if = "is_empty")]
     pub detail: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GoalResult {
+    pub goal: AgentGoal,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub told: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub woke: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -5937,6 +6003,8 @@ pub struct VMMemory {
     pub granted: i64,
     #[serde(rename = "hostReserve", skip_serializing_if = "is_empty")]
     pub host_reserve: i64,
+    #[serde(rename = "hostTotal", skip_serializing_if = "is_empty")]
+    pub host_total: i64,
     pub used: i64,
     pub resident: i64,
     #[serde(rename = "hostCache")]
