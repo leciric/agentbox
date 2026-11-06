@@ -94,6 +94,9 @@ func TestLoadLab(t *testing.T) {
 		p99:      time.Duration(labInt("LAB_P99_MS", 200)) * time.Millisecond,
 		out:      labString("LAB_OUT", "loadlab-"+time.Now().Format("20060102-150405")),
 		minFree:  int64(labInt("LAB_MIN_FREE_GB", 40)) << 30,
+		ioMax:    float64(labInt("LAB_IO_MAX", 40)),
+		jobs:     labInt("LAB_JOBS", 0),
+		parallel: labInt("LAB_CREATE_PARALLEL", 1),
 	}
 	cfg.mix = loadMix(labString("LAB_MIX", "go=30,cargo=20,npm=30,idle=20"), cfg.agents)
 	if cfg.gate != "hook" && cfg.gate != "none" {
@@ -138,7 +141,14 @@ type loadConfig struct {
 	probeDir, log, out            string
 	duration, chat, p99           time.Duration
 	minFree                       int64
-	mix                           []string // each agent's kind, by index
+	// ioMax is the VM's IO PSI some avg10, in percent, the lab holds back
+	// over: no machine is made or prepared, and its agents are frozen while
+	// they work, until it falls to half that. 0 is never.
+	ioMax float64
+	// jobs is how many jobs each build or test runs at once (go test -p,
+	// cargo -j, vitest --maxWorkers); 0 leaves each tool's default.
+	jobs, parallel int
+	mix            []string // each agent's kind, by index
 }
 
 // loadMix spreads n agents over the kinds by their shares, in a fixed order
@@ -262,10 +272,12 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 	// gigabytes each, on a disk other agents share. Where that disk is btrfs
 	// and duperemove is installed, each new machine is deduplicated against
 	// the base as it is made, which leaves it costing about what a btrfs
-	// pool's snapshot does on a real install (LAB_DEDUPE=0 skips it). Either
+	// pool's snapshot does on a real install, when LAB_DEDUPE=1: it reads
+	// every copy back, which on 2026-11-06 helped take a shared VM's disk to
+	// 80-90% IO pressure, so it is off by default. Either
 	// way, a machine is only started while LAB_AGENT_GB more leaves
 	// LAB_MIN_FREE_GB free.
-	dedupe := os.Getenv("LAB_DEDUPE") != "0" && canDedupe(cfg.pool)
+	dedupe := os.Getenv("LAB_DEDUPE") == "1" && canDedupe(cfg.pool)
 	per := int64(labInt("LAB_AGENT_GB", 6)) << 30
 	var room sync.Mutex // held while waiting for room and starting a copy
 	inflight := 0
@@ -290,7 +302,7 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 		}
 	}
 	done := func() { room.Lock(); inflight--; room.Unlock() }
-	sem := make(chan struct{}, labInt("LAB_CREATE_PARALLEL", 4))
+	sem := make(chan struct{}, max(cfg.parallel, 1))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var took []time.Duration
@@ -304,6 +316,7 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			waitIO(t, cfg.ioMax, "making "+name)
 			if err := waitRoom(name); err != nil {
 				t.Error(err)
 				return
@@ -369,9 +382,48 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 		if i < 0 {
 			t.Fatalf("%s isn't there after making it", name)
 		}
+		if have[i].State != "running" {
+			waitIO(t, cfg.ioMax, "starting "+name)
+			if err := c.do(ctx, http.MethodPost, "/v1/agents/"+have[i].Project+"/"+name+"/start", nil, &have[i]); err != nil {
+				t.Fatalf("starting %s: %v", name, err)
+			}
+		}
 		out = append(out, &loadAgent{Agent: have[i], Kind: cfg.mix[len(out)]})
 	}
 	return out
+}
+
+// waitIO waits while the VM's IO pressure is over max (some avg10), so what
+// the lab sets up doesn't add to a disk that is already saturated: on a VM
+// shared with other agents, that stalls their Incus too.
+func waitIO(t *testing.T, limit float64, what string) {
+	if limit <= 0 {
+		return
+	}
+	logged := false
+	for {
+		avg := ioAvg10()
+		if avg < limit {
+			return
+		}
+		if !logged {
+			t.Logf("%s: waiting for IO pressure (some avg10 %.0f%%) to fall under %.0f%%", what, avg, limit)
+			logged = true
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+// ioAvg10 is /proc/pressure/io's some avg10: the VM's, in a container too.
+func ioAvg10() float64 {
+	b, _ := os.ReadFile("/proc/pressure/io")
+	for _, f := range strings.Fields(string(b)) {
+		if v, ok := strings.CutPrefix(f, "avg10="); ok {
+			n, _ := strconv.ParseFloat(v, 64)
+			return n
+		}
+	}
+	return 0
 }
 
 // inAgent runs script in a's machine as its user, in dir, with a login
@@ -478,7 +530,7 @@ func prepareLoadAgents(t *testing.T, ctx context.Context, agents []*loadAgent, c
 		var script string
 		switch a.Kind {
 		case "go":
-			script = `cd "$WT" && go mod download && go test -count=1 -run XXX_none ./... >/dev/null`
+			script = `cd "$WT" && go mod download && go test -count=1 ${J:+-p $J} -run XXX_none ./... >/dev/null`
 		case "cargo":
 			script = `set -e
 command -v cargo >/dev/null || [ -x ~/.cargo/bin/cargo ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal >/dev/null
@@ -504,7 +556,11 @@ cat > vitest.config.js <<'EOF'
 			return nil
 		}
 		cmd := inAgent(ctx, a, "", script)
-		cmd.Args = slices.Insert(cmd.Args, 3, "--env", "WT="+a.Worktree)
+		j := ""
+		if cfg.jobs > 0 {
+			j = strconv.Itoa(cfg.jobs)
+		}
+		cmd.Args = slices.Insert(cmd.Args, 3, "--env", "WT="+a.Worktree, "--env", "J="+j)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("%s (%s): %v: %s", a.Name, a.Kind, err, lastLines(string(out), 5))
 		}
@@ -514,6 +570,7 @@ cat > vitest.config.js <<'EOF'
 	for _, a := range agents {
 		if !firsts[a.Kind] {
 			firsts[a.Kind] = true
+			waitIO(t, cfg.ioMax, "preparing "+a.Name)
 			start := time.Now()
 			if err := prep(a); err != nil {
 				t.Fatalf("preparing: %v", err)
@@ -521,7 +578,7 @@ cat > vitest.config.js <<'EOF'
 			t.Logf("prepared %s (%s) in %s", a.Name, a.Kind, time.Since(start).Round(time.Second))
 		}
 	}
-	sem := make(chan struct{}, 4)
+	sem := make(chan struct{}, max(cfg.parallel, 1))
 	var wg sync.WaitGroup
 	for _, a := range agents {
 		wg.Add(1)
@@ -529,6 +586,7 @@ cat > vitest.config.js <<'EOF'
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			waitIO(t, cfg.ioMax, "preparing "+a.Name)
 			if err := prep(a); err != nil {
 				t.Errorf("preparing: %v", err)
 			}
@@ -544,16 +602,16 @@ cat > vitest.config.js <<'EOF'
 func loadSteps(kind string) [][3]string {
 	switch kind {
 	case "go":
-		return [][3]string{{"go test", `cd "$WT" && $H go test -count=1 ./...`, "1"}}
+		return [][3]string{{"go test", `cd "$WT" && $H go test -count=1 ${J:+-p $J -parallel $J} ./...`, "1"}}
 	case "cargo":
 		return [][3]string{
 			{"cargo clean", `cd ~/loadlab/rs && PATH=~/.cargo/bin:$PATH cargo clean -q`, ""},
-			{"cargo build", `cd ~/loadlab/rs && PATH=~/.cargo/bin:$PATH $H cargo build -q`, "1"},
+			{"cargo build", `cd ~/loadlab/rs && PATH=~/.cargo/bin:$PATH $H cargo build -q ${J:+-j $J}`, "1"},
 		}
 	case "npm":
 		return [][3]string{
 			{"npm install", `cd ~/loadlab/js && rm -rf node_modules && npm install --no-audit --no-fund --loglevel=error`, ""},
-			{"vitest", `cd ~/loadlab/js && $H npx vitest run --reporter=dot`, "1"},
+			{"vitest", `cd ~/loadlab/js && $H npx vitest run --reporter=dot ${J:+--maxWorkers=$J --minWorkers=1}`, "1"},
 		}
 	}
 	return nil
@@ -578,6 +636,14 @@ type loadReport struct {
 	Disk    diskStats          `json:"disk"`
 	Work    map[string]*work   `json:"work"`
 	Targets []target           `json:"targets"`
+	// IO is the IO guard's doing (LAB_IO_MAX).
+	IO struct {
+		Max       float64 `json:"max_avg10"`
+		PeakAvg10 float64 `json:"peak_avg10"`
+		Backoffs  int     `json:"backoffs"`
+		FrozenS   float64 `json:"frozen_s"`
+	} `json:"io_guard"`
+	Jobs int `json:"jobs,omitempty"`
 	// StoppedEarly says why the run ended before its time, "" when it didn't.
 	StoppedEarly string `json:"stopped_early,omitempty"`
 }
@@ -754,6 +820,7 @@ func runLoad(t *testing.T, ctx context.Context, c labAPI, agents []*loadAgent, c
 	}
 	_ = c.do(ctx, http.MethodGet, "/v1/settings", nil, &settings)
 	r.Heavy.FleetOn = settings.AgentFreeze
+	r.IO.Max, r.Jobs = cfg.ioMax, cfg.jobs
 
 	startEvents := map[string]MemoryCounts{}
 	startIO := map[string][2]int64{}
@@ -782,6 +849,53 @@ func runLoad(t *testing.T, ctx context.Context, c labAPI, agents []*loadAgent, c
 			time.Sleep(5 * time.Second)
 		}
 	}()
+	// The IO guard: the lab's agents frozen while the VM's disk is
+	// saturated, thawed at half the limit; the run ends if it stays
+	// saturated two minutes with them frozen (the load is someone else's).
+	freeze := func(on bool) {
+		v := "0"
+		if on {
+			v = "1"
+		}
+		for _, a := range agents {
+			_ = os.WriteFile(filepath.Join(agentCgroup(cgroupRoot, a.Instance), "cgroup.freeze"), []byte(v), 0o644)
+		}
+	}
+	defer freeze(false)
+	guardDone := make(chan struct{})
+	if cfg.ioMax <= 0 {
+		close(guardDone)
+	} else {
+		go func() {
+			defer close(guardDone)
+			var since time.Time
+			for runCtx.Err() == nil {
+				avg := ioAvg10()
+				switch {
+				case since.IsZero() && avg > cfg.ioMax:
+					since = time.Now()
+					freeze(true)
+					r.IO.Backoffs++
+					t.Logf("IO pressure %.0f%% over %.0f%%: the lab's agents frozen", avg, cfg.ioMax)
+				case !since.IsZero() && avg < cfg.ioMax/2:
+					r.IO.FrozenS += time.Since(since).Seconds()
+					since = time.Time{}
+					freeze(false)
+				case !since.IsZero() && time.Since(since) > 2*time.Minute:
+					r.IO.FrozenS += time.Since(since).Seconds()
+					r.StoppedEarly = fmt.Sprintf("after %s: IO pressure stayed over %.0f%% for 2 minutes with the lab's agents frozen", time.Since(r.Started).Round(time.Second), cfg.ioMax)
+					t.Errorf("stopping the run early, %s", r.StoppedEarly)
+					stop()
+					return
+				}
+				r.IO.PeakAvg10 = max(r.IO.PeakAvg10, avg)
+				time.Sleep(2 * time.Second)
+			}
+			if !since.IsZero() {
+				r.IO.FrozenS += time.Since(since).Seconds()
+			}
+		}()
+	}
 	var wg sync.WaitGroup
 	every := func(d time.Duration, fn func()) {
 		wg.Add(1)
@@ -966,7 +1080,11 @@ func runLoad(t *testing.T, ctx context.Context, c labAPI, agents []*loadAgent, c
 					if st[2] == "1" && cfg.gate == "hook" {
 						h = "agentbox heavy --"
 					}
-					script := fmt.Sprintf("export WT=%q H=%q; timeout -k 10 %d bash -c %s", a.Worktree, h, secs, shellQuote(st[1]))
+					j := ""
+					if cfg.jobs > 0 {
+						j = strconv.Itoa(cfg.jobs)
+					}
+					script := fmt.Sprintf("export WT=%q H=%q J=%q; timeout -k 10 %d bash -c %s", a.Worktree, h, j, secs, shellQuote(st[1]))
 					start := time.Now()
 					out, err := inAgent(context.WithoutCancel(runCtx), a, "", script).CombinedOutput()
 					d := time.Since(start)
@@ -1008,6 +1126,7 @@ func runLoad(t *testing.T, ctx context.Context, c labAPI, agents []*loadAgent, c
 	}
 	<-runCtx.Done()
 	wg.Wait()
+	<-guardDone
 
 	// What it left.
 	r.API = map[string]latency{"agents_list": list.latency(), "chat_send": chat.latency(), "event_lag": lag.latency()}
@@ -1104,7 +1223,14 @@ func (r *loadReport) markdown() string {
 		}
 	}
 	p("## Load lab: %d agents, %s, gate %s\n\n", r.Agents, r.Duration, r.Gate)
-	p("%s · commit %s · %d CPUs · %s memory · mix %s\n\n", r.Started.Format("2006-01-02 15:04"), r.Commit, r.CPUs, HumanBytes(r.Memory.Total), strings.Join(mix, ", "))
+	jobs := "each tool's default jobs"
+	if r.Jobs > 0 {
+		jobs = fmt.Sprintf("%d job(s) per build or test", r.Jobs)
+	}
+	p("%s · commit %s · %d CPUs · %s memory · mix %s · %s\n\n", r.Started.Format("2006-01-02 15:04"), r.Commit, r.CPUs, HumanBytes(r.Memory.Total), strings.Join(mix, ", "), jobs)
+	if r.IO.Max > 0 {
+		p("IO guard: VM IO PSI some avg10 peaked at %.0f%%; the lab froze its agents %d time(s) over %.0f%%, %.0f s in all.\n\n", r.IO.PeakAvg10, r.IO.Backoffs, r.IO.Max, r.IO.FrozenS)
+	}
 	if r.StoppedEarly != "" {
 		p("**Stopped early**, %s.\n\n", r.StoppedEarly)
 	}

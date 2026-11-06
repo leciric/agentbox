@@ -8,6 +8,7 @@
 #   scripts/pressurelab.sh                       # 30 agents, 10 minutes
 #   LAB_AGENTS=12 LAB_DURATION=5m scripts/pressurelab.sh
 #   LAB_GATE=none scripts/pressurelab.sh         # as non-Claude agents run
+#   LAB_JOBS=1 LAB_IO_MAX=40                     # one job per build; hold back over 40% IO PSI
 #   scripts/pressurelab.sh --restart             # restart the lab's daemon first
 #   scripts/pressurelab.sh --down                # stop the lab's daemon
 #
@@ -70,6 +71,24 @@ if [[ $(findmnt -no FSTYPE -T /var/lib) == btrfs ]] && ! command -v duperemove >
 fi
 sudo systemctl enable --now incus.socket incus >/dev/null 2>&1 || true
 trim_subids
+
+# Incus's copies of the base (rsync on a dir pool, ~5 GiB an agent) alone
+# take a shared VM's disk to 80% IO pressure: capped, LAB_INCUS_IO_MB a
+# second each way (0 for none). On 2026-11-06 an uncapped 30-agent setup
+# stalled the real Incus for 11 minutes, and an agent of another project with it.
+cap_incus_io() {
+  local mb=${LAB_INCUS_IO_MB:-40} src dev
+  src=$(findmnt -no SOURCE -T /var/lib/incus | sed 's/\[.*//')
+  dev=$(cat "/sys/class/block/$(basename "$src")/dev" 2>/dev/null) || return 0
+  local cg=/sys/fs/cgroup/system.slice/incus.service/io.max
+  [[ -e $cg ]] || return 0
+  if [[ $mb == 0 ]]; then
+    echo "$dev rbps=max wbps=max" | sudo tee "$cg" >/dev/null
+  else
+    echo "$dev rbps=$((mb << 20)) wbps=$((mb << 20))" | sudo tee "$cg" >/dev/null
+  fi
+}
+cap_incus_io
 
 if ! id "$LAB_USER" >/dev/null 2>&1; then
   step "Making the lab's user, $LAB_USER"
