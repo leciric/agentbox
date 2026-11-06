@@ -150,7 +150,8 @@ func (s *Store) SaveChatItems(ctx context.Context, project, agent string, items 
 	}
 	defer func() { _ = tx.Rollback() }()
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO chat_items (project, agent, id, position, data) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (project, agent, id) DO UPDATE SET position = excluded.position, data = excluded.data`)
+		ON CONFLICT (project, agent, id) DO UPDATE SET position = excluded.position, data = excluded.data
+		WHERE chat_items.position IS NOT excluded.position OR chat_items.data IS NOT excluded.data`)
 	if err != nil {
 		return err
 	}

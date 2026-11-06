@@ -1232,6 +1232,17 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 	return req, nil
 }
 
+// createFailedNote is what a project's chat is told of a create_agent that
+// failed: whether anything was made, since a chat that tries again after a
+// create that did leave an agent behind makes a second one.
+func createFailedNote(err error) string {
+	var left *agent.LeftBehindError
+	if errors.As(err, &left) {
+		return fmt.Sprintf("create_agent failed: %v. %s still exists: retire it rather than create the agent again.", err, left.Agent)
+	}
+	return fmt.Sprintf("create_agent failed: %v. Nothing was created, so trying again is safe.", err)
+}
+
 // defaultTool fills in the AI tool of a request that names none: the one the
 // account it names belongs to, else Claude Code for a model only Claude Code
 // calls by that name, else the tool the project names for its agents
@@ -1334,7 +1345,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// failure that only Create itself could find — the machine
 				// couldn't be copied, the name collided — is news the chat
 				// is still waiting on, the same as a finish it asked for.
-				failed := fmt.Sprintf("create_agent failed: %v", err)
+				failed := createFailedNote(err)
 				if req.OriginID != "" {
 					s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
 						Project: req.OriginProject, Agent: cmp.Or(req.Name, req.Title, "(new agent)"), Title: req.Title,
