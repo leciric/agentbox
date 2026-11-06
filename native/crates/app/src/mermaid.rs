@@ -77,7 +77,7 @@ pub fn with_mermaid(view: TextView) -> TextView {
             .my_2()
             .p_3()
             .rounded_lg()
-            .bg(theme::surface_raised())
+            .bg(theme::card())
             .border_1()
             .border_color(theme::line());
         match rendered(&src) {
@@ -99,7 +99,7 @@ pub fn with_mermaid(view: TextView) -> TextView {
             .overflow_hidden()
             .border_1()
             .border_color(theme::line())
-            .bg(theme::surface_raised());
+            .bg(theme::card());
         let mut h = std::collections::hash_map::DefaultHasher::new();
         src.hash(&mut h);
         let id = format!("html-{:x}", h.finish());
