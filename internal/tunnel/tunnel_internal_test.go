@@ -359,3 +359,50 @@ func TestAReconnectedQuickTunnelWaitsForItsName(t *testing.T) {
 	inDNS.Store(true)
 	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
 }
+
+func TestAReconnectedQuickTunnelIsShownAnywayWhenDNSIsBlocked(t *testing.T) {
+	defer func(a time.Duration) { resolveFor = a }(resolveFor)
+	ready := readyServer(t)
+	lostAfter, resolveFor = 300*time.Millisecond, 600*time.Millisecond
+	var blocked atomic.Bool
+	bin, dir := fake(t, 0)
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: func(context.Context, string) error {
+		if blocked.Load() {
+			return errors.New("i/o timeout")
+		}
+		return nil
+	}}, nil, t.Logf)
+	defer tun.Stop()
+	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	blocked.Store(true)
+	ready.Store(false)
+	waitFor(t, tun, func(s Status) bool { return s.State == StateStarting })
+	ready.Store(true)
+	// Connected again: the loss timer doesn't run on while DNS can't answer.
+	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.TrimSpace(string(runs)) != "1" {
+		t.Fatalf("runs %q: a connected cloudflared was stopped", runs)
+	}
+}
+
+func TestACloudflaredThatNeverServesReadyNorConnectsIsStartedAgain(t *testing.T) {
+	defer func(a, b, c time.Duration, f func() (string, error)) {
+		minBackoff, healthEvery, lostAfter, metricsAddr = a, b, c, f
+	}(minBackoff, healthEvery, lostAfter, metricsAddr)
+	minBackoff, healthEvery, lostAfter = 10*time.Millisecond, 10*time.Millisecond, 300*time.Millisecond
+	metricsAddr = func() (string, error) { return "127.0.0.1:1", nil } // nothing answers
+	bin, dir := fake(t, 0)
+	// Its name never resolves, so it never gets to running.
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: func(context.Context, string) error {
+		return errors.New("no such host")
+	}}, nil, t.Logf)
+	defer tun.Stop()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.TrimSpace(string(runs)) == "2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cloudflared was never started again: %+v", tun.Status())
+		}
+	}
+}

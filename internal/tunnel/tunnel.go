@@ -301,10 +301,12 @@ func (t *Tunnel) watch(ctx context.Context, r io.Reader, named bool) string {
 
 // watchHealth hides the address while cloudflared's /ready at addr says it
 // has no connection, or stops answering after it has, shows it again once it
-// has one and a quick tunnel's name resolves, and stops cloudflared with
-// errLost once it has gone lostAfter without, starting up included.
+// has one and a quick tunnel's name resolves (or after resolveFor, as when it
+// started), and stops cloudflared with errLost once it has gone lostAfter
+// without, starting up included.
 func (t *Tunnel) watchHealth(ctx context.Context, addr string, named bool, stop context.CancelCauseFunc) {
-	var lostSince time.Time
+	started := time.Now()
+	var lostSince, dnsSince time.Time
 	var hidden string // the address, while it's hidden
 	answeredOnce := false
 	for {
@@ -316,25 +318,30 @@ func (t *Tunnel) watchHealth(ctx context.Context, addr string, named bool, stop 
 		ready, answered := askReady(ctx, addr)
 		answeredOnce = answeredOnce || answered
 		if !answeredOnce {
-			continue // not serving yet, or a cloudflared that doesn't
-		}
-		if ready && hidden != "" && !named && t.resolve(ctx, hostOf(hidden)) != nil {
-			ready = false // reconnected, but its name isn't back in DNS
-		}
-		if ready {
-			lostSince = time.Time{}
-			if hidden != "" {
-				url := hidden
-				hidden = ""
-				t.logf("phones: the tunnel is connected to Cloudflare again")
-				t.set(func(s *Status) {
-					if ctx.Err() == nil {
-						*s = Status{State: StateRunning, URL: url}
-					}
-				})
+			// A cloudflared that doesn't serve /ready is left alone once
+			// it's running, but not if it never gets that far.
+			if time.Since(started) >= lostAfter && t.Status().State != StateRunning {
+				stop(errLost)
+				return
 			}
 			continue
 		}
+		if ready {
+			lostSince = time.Time{}
+			if hidden == "" || !t.resolvedAfterReconnect(ctx, hidden, named, &dnsSince) {
+				continue
+			}
+			url := hidden
+			hidden = ""
+			t.logf("phones: the tunnel is connected to Cloudflare again")
+			t.set(func(s *Status) {
+				if ctx.Err() == nil {
+					*s = Status{State: StateRunning, URL: url}
+				}
+			})
+			continue
+		}
+		dnsSince = time.Time{}
 		if lostSince.IsZero() {
 			lostSince = time.Now()
 		}
@@ -350,6 +357,30 @@ func (t *Tunnel) watchHealth(ctx context.Context, addr string, named bool, stop 
 			return
 		}
 	}
+}
+
+// resolvedAfterReconnect says whether a reconnected tunnel's url can be shown
+// again: a named tunnel's at once, a quick tunnel's once its name resolves or
+// resolveFor after it was first asked (*since), for a network that blocks
+// outside DNS.
+func (t *Tunnel) resolvedAfterReconnect(ctx context.Context, url string, named bool, since *time.Time) bool {
+	if named {
+		return true
+	}
+	err := t.resolve(ctx, hostOf(url))
+	if err == nil {
+		*since = time.Time{}
+		return true
+	}
+	if since.IsZero() {
+		*since = time.Now()
+	}
+	if time.Since(*since) < resolveFor {
+		return false
+	}
+	t.logf("phones: %s isn't in DNS after %s (%v); showing it anyway", hostOf(url), resolveFor, err)
+	*since = time.Time{}
+	return true
 }
 
 // askReady asks cloudflared's /ready whether it has a connection to
