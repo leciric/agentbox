@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -69,6 +70,30 @@ var (
 	resolveEvery = time.Second
 	resolveFor   = time.Minute
 )
+
+// cloudflared that loses its connection to Cloudflare's edge keeps trying
+// again without exiting, and a quick tunnel it can't register again is gone,
+// its name out of DNS. Its /ready, asked every healthEvery, says so: the
+// address is hidden meanwhile, and cloudflared started again after lostAfter.
+// Variables for tests, like metricsAddr, where cloudflared serves /ready.
+var (
+	healthEvery = 5 * time.Second
+	lostAfter   = time.Minute
+	metricsAddr = freeLocalAddr
+)
+
+// errLost is why cloudflared was stopped for lacking a connection.
+var errLost = errors.New("cloudflared lost its connection to Cloudflare")
+
+// freeLocalAddr is a loopback address with a port free right now.
+func freeLocalAddr() (string, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	defer l.Close()
+	return l.Addr().String(), nil
+}
 
 // authoritativeResolve asks the nameservers of host's zone, which have a new
 // quick tunnel's name first: a caching resolver, 1.1.1.1 included, keeps
@@ -182,14 +207,20 @@ func (t *Tunnel) run(ctx context.Context) error {
 	}
 	t.set(func(s *Status) { *s = Status{State: StateStarting} })
 
-	args := []string{"tunnel", "--no-autoupdate"}
+	metrics, err := metricsAddr()
+	if err != nil {
+		return err
+	}
+	args := []string{"tunnel", "--no-autoupdate", "--metrics", metrics}
 	named := t.cfg.Token != ""
 	if named {
 		args = append(args, "run")
 	} else {
 		args = append(args, "--url", t.cfg.Origin)
 	}
-	cmd := exec.CommandContext(ctx, bin, args...)
+	runCtx, stopRun := context.WithCancelCause(ctx)
+	defer stopRun(nil)
+	cmd := exec.CommandContext(runCtx, bin, args...)
 	cmd.Env = t.env()
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = 5 * time.Second
@@ -204,14 +235,19 @@ func (t *Tunnel) run(ctx context.Context) error {
 	go func() {
 		lastErr <- t.watch(watchCtx, pr, named)
 	}()
+	var health sync.WaitGroup
+	health.Go(func() { t.watchHealth(watchCtx, metrics, named, stopRun) })
 	werr := cmd.Wait()
 	stopWatch()
+	health.Wait()
 	_ = pw.Close()
 	last := <-lastErr
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	switch {
+	case errors.Is(context.Cause(runCtx), errLost):
+		return errLost
 	case last != "":
 		return errors.New(last)
 	case werr != nil:
@@ -225,7 +261,7 @@ func (t *Tunnel) run(ctx context.Context) error {
 func (t *Tunnel) watch(ctx context.Context, r io.Reader, named bool) string {
 	var url, last string
 	var resolving sync.WaitGroup
-	resolveStarted := false
+	shown := false
 	defer resolving.Wait()
 	if named {
 		url = "https://" + t.cfg.Hostname + "/"
@@ -240,11 +276,14 @@ func (t *Tunnel) watch(ctx context.Context, r io.Reader, named bool) string {
 			}
 		}
 		if strings.Contains(line, "Registered tunnel connection") && url != "" {
+			// Once: after that, watchHealth says whether it's connected.
 			switch {
+			case shown:
 			case named:
+				shown = true
 				t.set(func(s *Status) { *s = Status{State: StateRunning, URL: url} })
-			case !resolveStarted:
-				resolveStarted = true
+			default:
+				shown = true
 				resolving.Go(func() { t.runningOnceResolved(ctx, url) })
 			}
 		}
@@ -256,20 +295,84 @@ func (t *Tunnel) watch(ctx context.Context, r io.Reader, named bool) string {
 	return last
 }
 
+// watchHealth hides the address while cloudflared's /ready at addr says it
+// has no connection, or stops answering after it has, shows it again once it
+// has one and a quick tunnel's name resolves, and stops cloudflared with
+// errLost once it has gone lostAfter without, starting up included.
+func (t *Tunnel) watchHealth(ctx context.Context, addr string, named bool, stop context.CancelCauseFunc) {
+	var lostSince time.Time
+	var hidden string // the address, while it's hidden
+	answeredOnce := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(healthEvery):
+		}
+		ready, answered := askReady(ctx, addr)
+		answeredOnce = answeredOnce || answered
+		if !answeredOnce {
+			continue // not serving yet, or a cloudflared that doesn't
+		}
+		if ready && hidden != "" && !named && t.resolve(ctx, hostOf(hidden)) != nil {
+			ready = false // reconnected, but its name isn't back in DNS
+		}
+		if ready {
+			lostSince = time.Time{}
+			if hidden != "" {
+				url := hidden
+				hidden = ""
+				t.logf("phones: the tunnel is connected to Cloudflare again")
+				t.set(func(s *Status) {
+					if ctx.Err() == nil {
+						*s = Status{State: StateRunning, URL: url}
+					}
+				})
+			}
+			continue
+		}
+		if lostSince.IsZero() {
+			lostSince = time.Now()
+		}
+		if st := t.Status(); st.State == StateRunning {
+			hidden = st.URL
+			t.logf("phones: the tunnel lost its connection to Cloudflare; %s is hidden until it's back", st.URL)
+			t.set(func(s *Status) {
+				*s = Status{State: StateStarting, Error: "lost its connection to Cloudflare: reconnecting"}
+			})
+		}
+		if time.Since(lostSince) >= lostAfter {
+			stop(errLost)
+			return
+		}
+	}
+}
+
+// askReady asks cloudflared's /ready whether it has a connection to
+// Cloudflare's edge; answered is false when nothing answered.
+func askReady(ctx context.Context, addr string) (ready, answered bool) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/ready", nil)
+	if err != nil {
+		return false, false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, false
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusOK, true
+}
+
 // runningOnceResolved says the quick tunnel at url is running once its name
 // is in DNS, unless ctx, this run of cloudflared, ends first.
 func (t *Tunnel) runningOnceResolved(ctx context.Context, url string) {
-	resolve := t.cfg.Resolve
-	if resolve == nil {
-		resolve = authoritativeResolve
-	}
-	host := strings.TrimSuffix(strings.TrimPrefix(url, "https://"), "/")
+	host := hostOf(url)
 	giveUp := time.After(resolveFor)
 wait:
 	for {
-		ask, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := resolve(ask, host)
-		cancel()
+		err := t.resolve(ctx, host)
 		if err == nil {
 			break
 		}
@@ -287,6 +390,22 @@ wait:
 			*s = Status{State: StateRunning, URL: url}
 		}
 	})
+}
+
+// resolve looks host up with the tunnel's Resolve, for at most 5 seconds.
+func (t *Tunnel) resolve(ctx context.Context, host string) error {
+	resolve := t.cfg.Resolve
+	if resolve == nil {
+		resolve = authoritativeResolve
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return resolve(ctx, host)
+}
+
+// hostOf is the host of a tunnel's https://host/ address.
+func hostOf(url string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(url, "https://"), "/")
 }
 
 // logError picks out an error line of cloudflared's log, like
