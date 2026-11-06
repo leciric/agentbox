@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { avatarMood, awaiting, chatLabel, isAsking, frozenTip, memoryHold, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
+import { avatarMood, awaiting, chatLabel, isAsking, frozenTip, memoryHold, onHold, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
 
 const agent = (state: string, chat?: string): T.Agent => ({ state, chat }) as T.Agent;
 
@@ -79,8 +79,22 @@ test('a whole machine paused or waiting for memory says its place in line, in it
   assert.deepEqual(memoryHold(frozen), { text: 'Paused: waiting for memory, 3rd in line', tip: statusTip(frozen) });
   // Waiting to boot, while it is being made.
   const booting = { ...agent('initializing'), memory: { machine: 'waiting', since, why: 'low', available: gib, total: 16 * gib } } as T.Agent;
-  assert.deepEqual(chatLabel(booting), { text: 'Waiting for memory, 1st in line', tone: 'warning' });
+  assert.deepEqual(chatLabel(booting), { text: 'On hold: waiting for memory, 1st in line', tone: 'warning' });
   assert.match(statusTip(booting) ?? '', /memory to boot it/);
+});
+
+test('an agent On hold says why and its place in line, and stops saying it once it runs', () => {
+  const gib = 1024 ** 3;
+  const waiting = { ...agent('stopped'), hold: 'memory', memory: { machine: 'waiting', ahead: 3, since: '2026-11-06T10:00:00Z', why: 'builds', available: gib, total: 16 * gib } } as T.Agent;
+  assert.deepEqual(chatLabel(waiting), { text: 'On hold: waiting for memory, 4th in line', tone: 'warning' });
+  assert.match(statusTip(waiting) ?? '', /oldest agent first.*builds are waiting for memory/);
+  // Back from a restart, before the daemon has it in line again.
+  const noPlace = { ...agent('stopped'), hold: 'memory' } as T.Agent;
+  assert.deepEqual(chatLabel(noPlace), { text: 'On hold: waiting for memory', tone: 'warning' });
+  const idle = { ...agent('stopped'), hold: 'idle' } as T.Agent;
+  assert.deepEqual(chatLabel(idle), { text: 'On hold: idle', tone: 'muted' });
+  assert.match(statusTip(idle) ?? '', /opening it, a message or its lead starts it again/);
+  assert.equal(onHold({ ...agent('running'), hold: 'idle' } as T.Agent), undefined);
 });
 
 test('a machine or a command paused with swap full says pausing it frees nothing', () => {

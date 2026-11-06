@@ -1761,6 +1761,7 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	env := "# Written by AgentBox.\nexport COMPOSE_PROJECT_NAME=" + shellQuote(a.Project) + "\n"
 	env += m.packageCacheEnv()
 	env += workersScript
+	env += shimPathLine
 	// The GitHub token, when the agent has an account, so gh and the API work in it.
 	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
 	if err != nil {
@@ -2083,6 +2084,9 @@ func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	hasSession := fmt.Sprintf("tmux has-session -t %s 2>/dev/null", session)
 	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, hasSession, nil, io.Discard, io.Discard) != nil {
 		m.prepareToolWindow(ctx, a)
+	}
+	if err := m.writeHeavyShims(ctx, a); err != nil {
+		m.logf("%s: %v; its builds and tests won't wait for memory", a.Ref(), err)
 	}
 	window, err := m.toolWindowScript(ctx, a)
 	if err != nil {

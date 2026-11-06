@@ -336,8 +336,9 @@ const (
 	// memory (daemon/idlereclaim.go): an agent idle SettingIdleFreezeAfter has
 	// what it left running frozen and pushed out to swap, woken when touched,
 	// and one that finished and stayed idle SettingIdleStopAfter has its
-	// machine stopped, started again by the next message. Experimental, off
-	// until somebody turns it on.
+	// machine stopped, On hold (Agent.Hold), started again by the next
+	// message or by opening it. On until somebody turns it off (FlagOn): it
+	// replaced SettingAutoStopIdle as what frees idle agents' memory.
 	SettingIdleReclaim = "idle_reclaim"
 	// SettingIdleFreezeAfter and SettingIdleStopAfter are SettingIdleReclaim's
 	// waits, as counts of seconds. Empty means DefaultIdleFreezeAfter and
@@ -399,15 +400,20 @@ func (s *Store) SeenFeatures(ctx context.Context) ([]string, error) {
 // server nobody looks at gives its memory back within minutes.
 const DefaultIdleFreezeAfter = 5 * time.Minute
 
+// DefaultIdleReclaimAfter is how long an agent's chat is idle before idle
+// reclaim pushes its machine's memory out to swap, the first tier: nothing
+// is stopped or frozen, and what it touches again pages back in.
+const DefaultIdleReclaimAfter = 2 * time.Minute
+
 // DefaultIdleStopAfter is how long a finished agent stays idle before idle
 // reclaim stops its machine, when nobody chose: time to read what it did and
 // ask for a change without waiting on its machine to start.
 const DefaultIdleStopAfter = 10 * time.Minute
 
-// IdleReclaim reads "reclaim idle agents' memory": off until somebody turns
-// it on, and its two waits, the defaults when nobody chose.
+// IdleReclaim reads "reclaim idle agents' memory": on until somebody turns
+// it off, and its two waits, the defaults when nobody chose.
 func (s *Store) IdleReclaim(ctx context.Context) (on bool, freezeAfter, stopAfter time.Duration, err error) {
-	if on, err = s.Flag(ctx, SettingIdleReclaim); err != nil {
+	if on, err = s.FlagOn(ctx, SettingIdleReclaim); err != nil {
 		return false, 0, 0, err
 	}
 	freezeAfter, stopAfter = DefaultIdleFreezeAfter, DefaultIdleStopAfter

@@ -79,6 +79,11 @@ type idleState struct {
 	// recovered is whether what a daemon before this one froze was woken,
 	// on its first step.
 	recovered bool
+	// reclaimed is when each agent's memory was last pushed out while it
+	// sat idle, the first tier, by ref; reclaimedSoon when reclaimIdleSoon
+	// last did it for every idle agent at once.
+	reclaimed     map[string]time.Time
+	reclaimedSoon time.Time
 }
 
 type idleFrozen struct {
@@ -93,6 +98,8 @@ func newIdleState() *idleState {
 		stopped: map[string]time.Time{},
 		touched: map[string]time.Time{},
 		open:    map[string]int{},
+
+		reclaimed: map[string]time.Time{},
 	}
 }
 
@@ -117,6 +124,7 @@ func (s *Server) stepIdleReclaim(ctx context.Context, now time.Time) {
 	s.idle.step.Lock()
 	defer s.idle.step.Unlock()
 	on, freezeAfter, stopAfter, err := s.store.IdleReclaim(ctx)
+	reclaimAfter := min(state.DefaultIdleReclaimAfter, freezeAfter)
 	if err != nil {
 		s.logf("idle reclaim: %v", err)
 		return
@@ -172,7 +180,7 @@ func (s *Server) stepIdleReclaim(ctx context.Context, now time.Time) {
 			if !on {
 				continue
 			}
-			if s.stepIdleAgent(ctx, m, st, waiting[st.Name], freezeAfter, stopAfter, now) {
+			if s.stepIdleAgent(ctx, m, st, waiting[st.Name], idleTiers{reclaimAfter, freezeAfter, stopAfter}, now) {
 				changed = true
 			}
 		}
@@ -184,13 +192,15 @@ func (s *Server) stepIdleReclaim(ctx context.Context, now time.Time) {
 
 // stepIdleAgent is stepIdleReclaim for one running agent; it says whether
 // anything changed.
-func (s *Server) stepIdleAgent(ctx context.Context, m *agent.Manager, st agent.Status, question bool, freezeAfter, stopAfter time.Duration, now time.Time) bool {
+func (s *Server) stepIdleAgent(ctx context.Context, m *agent.Manager, st agent.Status, question bool, tiers idleTiers, now time.Time) bool {
 	ref := st.Ref()
+	freezeAfter, stopAfter := tiers.freeze, tiers.stop
 	idle := s.idle
 	idle.mu.Lock()
 	touched := idle.touched[ref]
-	viewed := idle.open[ref] > 0
+	viewed := idle.open[ref] > 0 || s.viewed() == ref
 	_, frozen := idle.frozen[ref]
+	reclaimedAt := idle.reclaimed[ref]
 	idle.mu.Unlock()
 	if viewed || question || s.chatBusy(ref) || s.heavyHeld(ref) {
 		return frozen && s.wakeIdle(ref) // a turn the hook missed, say
@@ -210,14 +220,43 @@ func (s *Server) stepIdleAgent(ctx context.Context, m *agent.Manager, st agent.S
 		return frozen && s.wakeIdle(ref)
 	}
 	idleFor := now.Sub(since)
-	if finished && idleFor >= stopAfter {
+	// The third tier: its machine stopped, the agent On hold until something
+	// touches it. Sooner once it finished; an agent that ended its turn
+	// without finishing gets longer, for whoever reads it to answer.
+	if idleFor >= stopAfter && (finished || idleFor >= max(idleUnfinishedStop, stopAfter)) {
 		return s.stopFinishedIdle(ctx, m, st.Agent, idleFor)
 	}
-	if frozen || idleFor < freezeAfter {
+	if !frozen && idleFor >= freezeAfter {
+		return s.freezeIdle(ctx, st.Agent, idleFor)
+	}
+	// The first tier: what it holds pushed out to swap, nothing stopped or
+	// frozen, so it carries on as before, paging back what it touches.
+	if !frozen && idleFor >= tiers.reclaim && reclaimedAt.Before(since) {
+		s.idle.mu.Lock()
+		s.idle.reclaimed[ref] = now
+		s.idle.mu.Unlock()
+		go func() {
+			before, after, err := s.idleCgroups.Reclaim(st.Instance)
+			if err != nil {
+				s.logf("idle reclaim: pushing %s's memory out: %v", ref, err)
+				return
+			}
+			s.logf("idle reclaim: %s idle %s: its machine down from %s to %s", ref, idleFor.Round(time.Minute), agent.HumanBytes(before), agent.HumanBytes(after))
+		}()
 		return false
 	}
-	return s.freezeIdle(ctx, st.Agent, idleFor)
+	return false
 }
+
+// idleTiers are how long an agent sits idle before its memory is pushed
+// out, before what it left running is frozen, and before its machine stops.
+type idleTiers struct{ reclaim, freeze, stop time.Duration }
+
+// idleUnfinishedStop is how long an agent that hasn't finished sits idle
+// before its machine stops: what it left running is frozen and out in swap
+// long before, so this is about the swap it holds, and someone may still
+// come back to answer it.
+const idleUnfinishedStop = 3 * time.Hour
 
 // freezeIdle freezes what an idle agent left running and pushes its memory
 // out, aside: gigabytes take a while.
@@ -273,6 +312,9 @@ func (s *Server) stopFinishedIdle(ctx context.Context, m *agent.Manager, a state
 	s.idle.mu.Lock()
 	s.idle.stopped[a.Ref()] = time.Now()
 	s.idle.mu.Unlock()
+	if err := s.store.SetHold(ctx, a.Project, a.Name, state.HoldIdle); err != nil {
+		s.logf("idle reclaim: putting %s on hold: %v", a.Ref(), err)
+	}
 	s.countIdleStop()
 	s.logf("idle reclaim: stopped %s's machine, %s after it finished", a.Ref(), idleFor.Round(time.Minute))
 	s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": "idle_reclaim", "branch": a.Branch}, "")

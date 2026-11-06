@@ -1021,6 +1021,12 @@ type Agent struct {
 	// "stopped" when its machine was stopped after it finished. Absent
 	// otherwise.
 	Reclaimed string `json:"reclaimed,omitempty"`
+	// Hold says the agent is On hold, its machine stopped or not yet booted:
+	// HoldMemory while it waits its turn for the VM's memory (Memory says
+	// its place in line and why), and boots by itself; HoldIdle after it sat
+	// idle, until a message, opening it or its lead starts it again. Absent
+	// otherwise. Being on hold never removes an agent.
+	Hold string `json:"hold,omitempty"`
 	// Goal is what it works towards (AgentGoal): absent for an agent with
 	// none.
 	Goal      *AgentGoal `json:"goal,omitempty"`
@@ -3014,7 +3020,24 @@ type AgentChange struct {
 	WaitingForImage bool `json:"waitingForImage,omitempty"`
 	// Reclaimed is Agent.Reclaimed.
 	Reclaimed string `json:"reclaimed,omitempty"`
+	// Hold is Agent.Hold.
+	Hold string `json:"hold,omitempty"`
 }
+
+// Why an agent is On hold (Agent.Hold).
+const (
+	HoldMemory = "memory"
+	HoldIdle   = "idle"
+)
+
+// Why machines waiting to boot wait (MemoryHold.Why, with Machine
+// "waiting" and pausing whole agents off): the VM hasn't the memory for
+// another boot, or agents' builds wait or are paused for it, which come
+// first.
+const (
+	HoldWhyMemory = "memory"
+	HoldWhyBuilds = "builds"
+)
 
 // The ways idle reclaim holds an agent's memory (Agent.Reclaimed).
 const (

@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -96,12 +97,74 @@ func runHeavy(ctx context.Context, c heavyClient, args []string, stderr io.Write
 	if len(args) == 0 {
 		return 0, errors.New("say which command to run")
 	}
+	return runHeavyCommand(ctx, c, heavyCommandRun{path: args[0], argv: args, command: strings.Join(args, " ")}, stderr)
+}
+
+// heavyCommandRun is one heavy command to run: the executable, its argv
+// (argv[0] the name it is run by), and how it is shown.
+type heavyCommandRun struct {
+	path    string
+	argv    []string
+	command string
+}
+
+// workersFor is the worker counts a heavy command starts with: the
+// machine's cores, halved when the VM's memory is short or the command had
+// to wait for it. A variable for tests.
+var workersFor = func(env []string, waited bool) []string {
+	short := waited
+	if b, err := os.ReadFile(agent.MemoryShortFile); err == nil && len(strings.TrimSpace(string(b))) > 0 {
+		short = true
+	}
+	return agent.WorkerEnv(env, machineCPUs("/sys/fs/cgroup/cpu.max"), memAvailable(), short)
+}
+
+// machineCPUs is the cores this machine may use, as nproc counts them: the
+// CPUs it may run on, capped by its cgroup's cpu.max quota, which is how
+// AgentBox gives each agent its share of the VM's cores.
+func machineCPUs(cpuMax string) int {
+	n := runtime.NumCPU()
+	b, err := os.ReadFile(cpuMax)
+	if err != nil {
+		return n
+	}
+	quota, period, ok := strings.Cut(strings.TrimSpace(string(b)), " ")
+	q, err1 := strconv.ParseInt(quota, 10, 64)
+	p, err2 := strconv.ParseInt(period, 10, 64)
+	if !ok || err1 != nil || err2 != nil || q <= 0 || p <= 0 {
+		return n // "max": no quota
+	}
+	return max(1, min(n, int((q+p-1)/p)))
+}
+
+// memAvailable is MemAvailable from /proc/meminfo, in bytes; 0 unread.
+func memAvailable() int64 {
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if rest, ok := strings.CutPrefix(line, "MemAvailable:"); ok {
+			kb, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimSpace(rest), " kB"), 10, 64)
+			return kb << 10
+		}
+	}
+	return 0
+}
+
+// runHeavyCommand asks the daemon before run starts, waiting its turn,
+// starts it in a cgroup of its own with the worker counts the VM's memory
+// allows, and says it ended once it does.
+func runHeavyCommand(ctx context.Context, c heavyClient, run heavyCommandRun, stderr io.Writer) (int, error) {
+	env := os.Environ()
+	waited := false
+	key := "heavy-" + randomKey()
 	if c != nil {
-		key := "heavy-" + randomKey()
-		req := api.HeavyRequest{Key: key, Command: strings.Join(args, " "), TTLSeconds: int(heavyTTL.Seconds())}
+		req := api.HeavyRequest{Key: key, Command: run.command, TTLSeconds: int(heavyTTL.Seconds())}
 		start, err := c.StartHeavy(ctx, withWait(req, 2))
 		if err == nil && !start.Started {
-			_, _ = fmt.Fprintf(stderr, "agentbox heavy: waiting for memory: %s\n", start.Why)
+			waited = true
+			_, _ = fmt.Fprintf(stderr, "agentbox: %s waits for memory: %s. It starts by itself in turn.\n", headWordsCLI(run.command, 60), start.Why)
 			// Each ask waits up to 10 minutes; asking again keeps its place.
 			for err == nil && !start.Started {
 				start, err = c.StartHeavy(ctx, req)
@@ -136,8 +199,12 @@ func runHeavy(ctx context.Context, c heavyClient, args []string, stderr io.Write
 				}
 			}()
 		}
+		env = workersFor(env, waited)
 	}
-	child := exec.Command(args[0], args[1:]...)
+	env = append(env, agent.HeavyEnv+"="+key)
+	child := exec.Command(run.path)
+	child.Args = run.argv
+	child.Env = env
 	child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := child.Start(); err != nil {
 		return 0, err
@@ -160,6 +227,86 @@ func runHeavy(ctx context.Context, c heavyClient, args []string, stderr io.Write
 	return 0, err
 }
 
+// headWordsCLI is s cut to n characters on a word, with an ellipsis.
+func headWordsCLI(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= n {
+		return s
+	}
+	if i := strings.LastIndexByte(s[:n], ' '); i > n/2 {
+		return s[:i] + "…"
+	}
+	return s[:n] + "…"
+}
+
+// The shims (agent/heavyshims.go): go, cargo, npm, make… are first in an
+// agent's PATH, and run `agentbox heavy-shim <name> <shim dir> args…`, which
+// runs the real command at once unless it is heavy, and otherwise as
+// `agentbox heavy` would.
+
+func newHeavyShimCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    "heavy-shim <name> <shim dir> [args...]",
+		Short:  "Run a shimmed command, waiting for memory when it is heavy (internal)",
+		Hidden: true,
+		Args:   cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			code := heavyShim(cmd.Context(), args[0], args[1], args[2:], cmd.ErrOrStderr())
+			if code != 0 {
+				return exitCodeError(code)
+			}
+			return nil
+		},
+		SilenceErrors:      true,
+		SilenceUsage:       true,
+		DisableFlagParsing: true,
+	}
+	return cmd
+}
+
+// execReal replaces this process with the real command: a variable for
+// tests.
+var execReal = func(path string, argv, env []string) error { return syscall.Exec(path, argv, env) }
+
+// heavyShim runs name, the real one past dir in PATH, with args.
+func heavyShim(ctx context.Context, name, dir string, args []string, stderr io.Writer) int {
+	real, ok := agent.FindReal(name, dir, os.Getenv("PATH"))
+	if !ok {
+		_, _ = fmt.Fprintf(stderr, "%s: command not found\n", name)
+		return 127
+	}
+	argv := append([]string{name}, args...)
+	command := shellJoin(argv)
+	socket := inAgentSocket()
+	if os.Getenv(agent.HeavyEnv) != "" || !isHeavy(command) || !fileExists(socket) {
+		if err := execReal(real, argv, os.Environ()); err != nil {
+			_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
+			return 126
+		}
+		return 0
+	}
+	code, err := runHeavyCommand(ctx, api.NewClient(socket), heavyCommandRun{path: real, argv: argv, command: command}, stderr)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return max(code, 1)
+	}
+	return code
+}
+
+// shellJoin is argv as a command line isHeavy reads: words with spaces
+// quoted.
+func shellJoin(argv []string) string {
+	out := make([]string, len(argv))
+	for i, a := range argv {
+		if a == "" || strings.ContainsAny(a, " \t\n'\"\\$`;&|<>()") {
+			out[i] = shellQuote(a)
+		} else {
+			out[i] = a
+		}
+	}
+	return strings.Join(out, " ")
+}
+
 func withWait(req api.HeavyRequest, seconds int) api.HeavyRequest {
 	req.WaitSeconds = seconds
 	return req
@@ -174,10 +321,10 @@ func randomKey() string {
 // The hook. Claude Code runs it before and after Bash tool calls
 // (agent.withHeavyHooks), with the call as JSON on stdin. It must cost the
 // conversation nothing: it prints nothing and exits 0 whenever the command
-// may start, isn't heavy, or the daemon can't be reached. Only when the wait
-// to start runs out, or the command is a whole test suite the agent may not
-// run (fullsuite.go), does it print, and exit 2, which keeps the tool from
-// running and tells the model why.
+// may start, isn't heavy, or the daemon can't be reached. Only when the
+// command is a whole test suite the agent may not run (fullsuite.go) does it
+// print, and exit 2, which keeps the tool from running and tells the model
+// why. Waiting for memory is the shims' (heavyShim), for every tool alike.
 
 // heavyCommand matches a Bash command that runs tests, builds or the app:
 // the commands an agent's memory spikes in. Only a command's own words count,
@@ -249,23 +396,6 @@ type hookCall struct {
 	} `json:"tool_input"`
 }
 
-// heavyKey is the key a call's command runs under, "" for a call that isn't
-// a heavy command.
-func heavyKey(call hookCall) string {
-	if call.Tool != "Bash" || !isHeavy(call.Input.Command) {
-		return ""
-	}
-	id := call.ToolUseID
-	if id == "" {
-		id = randomKey()
-	}
-	return "bash-" + id
-}
-
-// bashTTL is how long a Bash command that couldn't join a cgroup of its own
-// counts as running, unless it ends first.
-const bashTTL = 15 * time.Minute
-
 func newHeavyHookCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "heavy-hook",
@@ -304,24 +434,11 @@ func heavyHook(ctx context.Context, in io.Reader, stderr io.Writer, c heavyClien
 			}
 		}
 	}
-	key := heavyKey(call)
-	if key == "" {
-		return 0
-	}
-	switch call.Event {
-	case "PreToolUse":
-		start, err := c.StartHeavy(ctx, api.HeavyRequest{Key: key, Command: call.Input.Command, TTLSeconds: int(bashTTL.Seconds())})
-		if err != nil {
-			return 0
-		}
-		if !start.Started {
-			_, _ = fmt.Fprintf(stderr, "Not run: it waited 10 minutes to start, as %s. Try it again later, or with fewer packages or workers at once.\n", start.Why)
-			return 2
-		}
-		writeJoin(envFile, key)
-	case "PostToolUse", "PostToolUseFailure":
-		clearJoin(envFile, key)
-		_ = c.EndHeavy(ctx, key)
+	// A heavy command waits its turn in its shim (agent/heavyshims.go),
+	// whichever tool runs it: the hook no longer asks for it as well. An
+	// earlier hook's join line, if one is left, goes.
+	if b, err := os.ReadFile(envFile); err == nil && len(b) > 0 {
+		writeEnvFile(envFile, "")
 	}
 	return 0
 }

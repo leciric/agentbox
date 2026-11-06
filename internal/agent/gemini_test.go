@@ -63,7 +63,7 @@ exit 0`))
 		t.Fatal(err)
 	}
 	script := cmd.Args[len(cmd.Args)-1]
-	for _, want := range []string{"exec env -u GEMINI_API_KEY", "mise exec 'npm:@google/gemini-cli@", "-- 'gemini' '--acp'"} {
+	for _, want := range []string{"exec env -u GEMINI_API_KEY", "mise exec 'npm:@google/gemini-cli@", "agentbox-shims 'gemini' '--acp'"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("the chat's command %q doesn't have %q", script, want)
 		}

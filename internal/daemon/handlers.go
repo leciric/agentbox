@@ -997,6 +997,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		GeminiAccount:    a.GeminiAccount,
 		GitHubAccount:    a.GitHubAccount,
 		Interface:        a.Interface,
+		Hold:             a.Hold,
 
 		State:     st.State,
 		IP:        st.IP,

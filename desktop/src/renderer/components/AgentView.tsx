@@ -29,7 +29,7 @@ import { LeadName } from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
-import { api, type AgentAction } from '../lib/api';
+import { api, isLeadName, type AgentAction } from '../lib/api';
 import { composeIn } from '../lib/drafts';
 import { useChatOpenAt } from '../lib/reveal';
 import { useAgentPr, useAgentReview, type Wake } from './v2/ReviewV2';
@@ -116,6 +116,19 @@ export function AgentView({
   // A tab opened on purpose, by its tab, a link or the agent's menu; the one
   // an agent opens on by itself isn't counted.
   useEffect(() => countFeature(tab && agentTabFeatures[tab]), [tab, agentRef]);
+  // The daemon is told this agent is the one shown, now and while it stays
+  // open (its word lasts 90 seconds): its builds go first while memory is
+  // short, and one On hold after sitting idle starts again.
+  const isLead = isLeadName(refName);
+  useEffect(() => {
+    if (!agentRef || isLead) return;
+    const say = () => void api.viewAgent(agentRef).catch(() => {});
+    say();
+    const every = window.setInterval(() => {
+      if (document.visibilityState === 'visible') say();
+    }, 45_000);
+    return () => window.clearInterval(every);
+  }, [agentRef, isLead]);
 
   const replace = (updated: T.Agent) =>
     queryClient.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === updated.ref ? updated : a)));

@@ -406,7 +406,11 @@ type Server struct {
 	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
 	// with Settings → Experimental's switch, and machineCgroups what
 	// freezes them.
-	frozen         *fleetState
+	frozen *fleetState
+	// admit (admission.go) is when agents' machines boot, and those On hold.
+	admit *admitState
+	// view (viewing.go) is the agent the app shows.
+	view           viewingState
 	machineCgroups machineCgroups
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
@@ -497,6 +501,7 @@ func New(cfg Config) (*Server, error) {
 		heavy:            newHeavyRuns(),
 		memoryShort:      newMemoryShort(),
 		frozen:           newFleetState(),
+		admit:            newAdmitState(),
 		machineCgroups:   agentMachineCgroups{},
 		pressureEvery:    pressureInterval,
 		readPressure:     readSample(),
@@ -1153,6 +1158,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/agents/{project}/{agent}/share", s.agentShare)
 	h("DELETE /v1/agents/{project}/{agent}/chat", s.clearChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/start", s.startChat(s.agentFromPath))
+	h("PUT /v1/agents/{project}/{agent}/viewing", s.viewAgent)
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))
 	h("PUT /v1/agents/{project}/{agent}/goal", s.putGoal(s.agentFromPath, false))
 	h("DELETE /v1/agents/{project}/{agent}/goal", s.deleteGoal(s.agentFromPath))

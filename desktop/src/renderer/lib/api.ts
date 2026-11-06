@@ -364,6 +364,9 @@ export const api = {
   searchChat: (ref: string, query: string, kinds: string[] = []) =>
     call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query, ...(kinds.length ? { kinds: kinds.join(',') } : {}) })}`),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
+  // viewAgent says the app shows an agent: its builds go first while memory is
+  // short, and one On hold after sitting idle starts again (daemon/viewing.go).
+  viewAgent: (ref: string) => call<void>('PUT', `${agent(ref)}/viewing`),
   // to sends a message written in a project's chat to one of its agents
   // instead (shared/messageTarget.ts).
   sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[], to?: { to: string }) =>

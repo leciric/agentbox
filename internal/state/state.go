@@ -1613,6 +1613,13 @@ var migrations = []string{
 		INSERT INTO chat_items_fts (rowid, search_text)
 			SELECT new.rowid, new.search_text WHERE new.search_text IS NOT NULL;
 	END`,
+
+	// An agent On hold (daemon/admission.go): its machine stopped, or not
+	// yet booted, until the VM has the memory for it (HoldMemory), or until
+	// something touches it after it sat idle (HoldIdle); hold_at is since
+	// when. '' is not on hold.
+	`ALTER TABLE agents ADD COLUMN hold TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN hold_at INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2998,6 +3005,11 @@ type Agent struct {
 	// It isn't cleared on start: a start after it (the machine's last use)
 	// makes it stale, which the reader checks. Zero when never recorded.
 	StoppedAt time.Time
+	// Hold is why this agent is On hold, HoldMemory or HoldIdle, since
+	// HoldAt; "" when it isn't. It is a mark beside the machine's state, never
+	// a reason to remove the agent.
+	Hold   string
+	HoldAt time.Time
 	// ID is an identity distinct from Name, set once at AddAgent and never
 	// reused: what tells this agent apart from a different one that later
 	// gets its name, for a row that outlives it on purpose (token_usage).
@@ -3326,7 +3338,7 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 }
 
 func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at FROM agents `+clause, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at, hold, hold_at FROM agents `+clause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -3334,12 +3346,12 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created, pausedAt, stoppedAt int64
+		var created, pausedAt, stoppedAt, holdAt int64
 		var connectors sql.NullString
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &a.GeminiAccount, &pausedAt, &stoppedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &a.GeminiAccount, &pausedAt, &stoppedAt, &a.Hold, &holdAt); err != nil {
 			return nil, err
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)
@@ -3356,9 +3368,34 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		if stoppedAt != 0 {
 			a.StoppedAt = time.Unix(stoppedAt, 0)
 		}
+		if holdAt != 0 {
+			a.HoldAt = time.Unix(holdAt, 0)
+		}
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()
+}
+
+// Why an agent is On hold (Agent.Hold).
+const (
+	// HoldMemory: it waits, machine stopped, for the VM to have the memory
+	// to boot it, and boots by itself in turn.
+	HoldMemory = "memory"
+	// HoldIdle: its machine was stopped after it sat idle; whatever touches
+	// it (a message, opening it, its lead) starts it again.
+	HoldIdle = "idle"
+)
+
+// SetHold puts an agent On hold for why, or takes it off (""). Putting it
+// on hold again for the same reason keeps when it first was.
+func (s *Store) SetHold(ctx context.Context, project, name, why string) error {
+	if why == "" {
+		_, err := s.db.ExecContext(ctx, `UPDATE agents SET hold = '', hold_at = 0 WHERE project = ? AND name = ?`, project, name)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET hold = ?, hold_at = CASE WHEN hold = ? AND hold_at != 0 THEN hold_at ELSE ? END WHERE project = ? AND name = ?`,
+		why, why, time.Now().Unix(), project, name)
+	return err
 }
 
 // SetStoppedAt records when an agent's machine was stopped.
