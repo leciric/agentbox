@@ -88,15 +88,15 @@ impl AppView {
                 .gap_2()
                 .rounded_md()
                 .cursor_pointer()
-                .when(self.office_open, |el| el.bg(theme::hover()))
-                .hover(|el| el.bg(theme::raised()))
+                .when(self.office_open, |el| el.bg(theme::surface_strong()))
+                .hover(|el| el.bg(theme::surface_raised()))
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_office(window, cx)))
-                .child(div().flex_none().size_6().flex().items_center().justify_center().rounded_md().bg(theme::raised()).text_color(theme::muted()).child(crate::icons::of("🪑")))
+                .child(div().flex_none().size_6().flex().items_center().justify_center().rounded_md().bg(theme::surface_raised()).text_color(theme::muted()).child(crate::icons::of("🪑")))
                 .child(
                     v_flex()
                         .min_w_0()
                         .flex_1()
-                        .child(div().text_sm().text_color(theme::fg()).child(t("native.office.title")))
+                        .child(div().text_sm().text_color(theme::primary()).child(t("native.office.title")))
                         .child(div().text_xs().text_color(theme::faint()).truncate().child(t("native.office.hint.nav"))),
                 )
                 .when(needs > 0, |el| {

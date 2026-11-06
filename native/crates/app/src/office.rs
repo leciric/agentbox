@@ -604,11 +604,11 @@ fn software_fix() -> String {
 
 /// A card's look over the room: the app's panel colour, raised.
 fn card() -> Div {
-    div().bg(theme::panel()).border_1().border_color(theme::border()).rounded_lg().shadow_lg().text_color(theme::fg())
+    div().bg(theme::overlay()).border_1().border_color(theme::line()).rounded_lg().shadow_lg().text_color(theme::primary())
 }
 
 fn button(id: impl Into<ElementId>, label: impl IntoElement) -> Stateful<Div> {
-    h_flex().id(id).gap_1().px_2().h_7().items_center().rounded_md().text_sm().cursor_pointer().hover(|el| el.bg(theme::hover())).child(label)
+    h_flex().id(id).gap_1().px_2().h_7().items_center().rounded_md().text_sm().cursor_pointer().hover(|el| el.bg(theme::surface_strong())).child(label)
 }
 
 fn tip(el: Stateful<Div>, s: String) -> Stateful<Div> {
@@ -739,7 +739,7 @@ impl Render for OfficeView {
             })
             .when_some(self.failed.clone(), |el, e| {
                 el.child(
-                    div().absolute().inset_0().flex().items_center().justify_center().bg(theme::bg()).child(
+                    div().absolute().inset_0().flex().items_center().justify_center().bg(theme::ink()).child(
                         card()
                             .p_5()
                             .max_w(px(480.))
@@ -756,9 +756,9 @@ impl Render for OfficeView {
                         .right_0()
                         .bottom_0()
                         .w(px(chat_width(w)))
-                        .bg(theme::bg())
+                        .bg(theme::ink())
                         .border_l_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .shadow_lg()
                         // The chat's own keys and clicks stay its own.
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -770,7 +770,7 @@ impl Render for OfficeView {
                                 .px_2()
                                 .justify_end()
                                 .border_b_1()
-                                .border_color(theme::border())
+                                .border_color(theme::line())
                                 .child(tip(button("office-chat-close", crate::icons::of("✕")), t("native.office.chat.close")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.set_chat(None, cx)))),
                         )
                         .child(div().flex_1().min_h_0().child(chat)),
@@ -833,7 +833,7 @@ impl OfficeView {
                     .gap_0p5()
                     .items_center()
                     .child(tip(button("office-back", h_flex().gap_1().child(crate::icons::of("←")).child(t("native.office.leave"))), t("native.office.leaveHint")).on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(OfficeEvent::Leave))))
-                    .child(div().mx_0p5().h_5().w(px(1.)).bg(theme::border()))
+                    .child(div().mx_0p5().h_5().w(px(1.)).bg(theme::line()))
                     .child(match &at.project {
                         Some(_) => button("office-campus", div().font_weight(FontWeight::SEMIBOLD).child(t("native.office.title"))).on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(In::Campus))).into_any_element(),
                         None => div().px_2().text_sm().font_weight(FontWeight::SEMIBOLD).child(t("native.office.title")).into_any_element(),
@@ -843,7 +843,7 @@ impl OfficeView {
                         el.child(div().text_color(theme::faint()).child(crate::icons::of("›"))).child(div().px_1().text_sm().max_w(px(260.)).truncate().child(label))
                     })
                     .when(at.project.is_some() && at.floors > 1, |el| {
-                        el.child(h_flex().ml_1().gap_0p5().p_0p5().rounded_md().bg(theme::raised()).children((1..=at.floors as i64).map(|f| {
+                        el.child(h_flex().ml_1().gap_0p5().p_0p5().rounded_md().bg(theme::surface_raised()).children((1..=at.floors as i64).map(|f| {
                             div()
                                 .id(("office-floor", f as usize))
                                 .h_6()
@@ -856,7 +856,7 @@ impl OfficeView {
                                 .text_xs()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .cursor_pointer()
-                                .when(f == at.floor, |el| el.bg(theme::hover()))
+                                .when(f == at.floor, |el| el.bg(theme::surface_strong()))
                                 .when(f != at.floor, |el| el.text_color(theme::muted()))
                                 .child(f.to_string())
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, _| this.send(In::Floor(f))))
@@ -923,7 +923,7 @@ impl OfficeView {
                                 .py_1()
                                 .rounded_md()
                                 .cursor_pointer()
-                                .hover(|el| el.bg(theme::hover()))
+                                .hover(|el| el.bg(theme::surface_strong()))
                                 .child(div().size_2().rounded_full().bg(tone_color(item.tone)))
                                 .child(div().flex_1().min_w_0().text_sm().truncate().child(item.title.clone()))
                                 .child(div().text_xs().text_color(theme::muted()).child(item.project.clone()))
@@ -1020,7 +1020,7 @@ impl OfficeView {
                     .child(button("office-open-chat", t("native.office.openChat")).bg(theme::accent()).text_color(gpui::white()).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OfficeEvent::Open { project: project.clone(), who: who.clone() }))))
                     .when_some(pr, |el, pr| {
                         let url = pr.url.clone();
-                        el.child(button("office-open-pr", tv("native.office.openPr", &[("number", pr.number.into())])).border_1().border_color(theme::border()).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OfficeEvent::OpenUrl(url.clone())))))
+                        el.child(button("office-open-pr", tv("native.office.openPr", &[("number", pr.number.into())])).border_1().border_color(theme::line()).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OfficeEvent::OpenUrl(url.clone())))))
                     }),
             )
     }
@@ -1042,7 +1042,7 @@ impl OfficeView {
                     .child(key("N".into(), "native.office.keys.next"))
                     .child(key("Esc".into(), "native.office.keys.back")),
             )
-            .child(div().mt_3().pt_3().border_t_1().border_color(theme::border()).child(h_flex().flex_wrap().gap_x_3().gap_y_1p5().children(legend.into_iter().map(|(g, c, k)| {
+            .child(div().mt_3().pt_3().border_t_1().border_color(theme::line()).child(h_flex().flex_wrap().gap_x_3().gap_y_1p5().children(legend.into_iter().map(|(g, c, k)| {
                 h_flex()
                     .gap_1p5()
                     .w(px(140.))
