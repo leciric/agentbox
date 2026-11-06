@@ -765,10 +765,30 @@ mod tests {
         let v = "0.18.0-nightly.1";
         // The script builds each from $version, with Node's arch.
         for (kind, os, arch, line) in [
-            (Kind::Binary, "linux", "x64", "\"$out/agentbox-native-$version-linux-$node\""),
-            (Kind::AppImage, "linux", "x64", "\"$out/agentbox-native-$version-linux-$node.AppImage\""),
-            (Kind::Binary, "windows", "x64", "\"$out/agentbox-native-$version-windows-x64.exe\""),
-            (Kind::MacApp, "macos", "arm64", "\"$out/agentbox-native-$version-mac-$arch.app.tar.gz\""),
+            (
+                Kind::Binary,
+                "linux",
+                "x64",
+                "\"$out/agentbox-native-$version-linux-$node\"",
+            ),
+            (
+                Kind::AppImage,
+                "linux",
+                "x64",
+                "\"$out/agentbox-native-$version-linux-$node.AppImage\"",
+            ),
+            (
+                Kind::Binary,
+                "windows",
+                "x64",
+                "\"$out/agentbox-native-$version-windows-x64.exe\"",
+            ),
+            (
+                Kind::MacApp,
+                "macos",
+                "arm64",
+                "\"$out/agentbox-native-$version-mac-$arch.app.tar.gz\"",
+            ),
         ] {
             assert!(script.contains(line), "native-package.sh lacks {line}");
             let want = asset_name(kind, v, os, arch);
