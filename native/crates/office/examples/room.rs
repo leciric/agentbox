@@ -16,14 +16,23 @@ fn main() -> anyhow::Result<()> {
     let desks: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(4);
     let (w, h) = (1440u32, 900u32);
 
-    let l = room_layout(&[AreaIn { project: "agentbox".into(), desks: (0..desks).map(|i| format!("d{i}")).collect(), no_lead: false, floor: None }]);
+    let l = room_layout(&[AreaIn {
+        project: "agentbox".into(),
+        desks: (0..desks).map(|i| format!("d{i}")).collect(),
+        no_lead: false,
+        floor: None,
+    }]);
     let mut kit = Kit::new();
     let dio = diorama(&l, "agentbox", Some(260.), &mut kit);
 
     let mut gpu = Gpu::new()?;
     eprintln!("adapter: {}", gpu.adapter_name);
     // Textures in kit order; a mesh's `texture` is a kit key, mapped to the gpu's.
-    let tex: Vec<usize> = kit.textures.iter().map(|i| gpu.add_texture(i.width, i.height, &i.rgba)).collect();
+    let tex: Vec<usize> = kit
+        .textures
+        .iter()
+        .map(|i| gpu.add_texture(i.width, i.height, &i.rgba))
+        .collect();
     let meshes: Vec<MeshId> = dio
         .solid
         .finish()
@@ -33,15 +42,30 @@ fn main() -> anyhow::Result<()> {
             gpu.add_mesh(&m)
         })
         .collect();
-    let draws: Vec<(MeshId, Vec<Instance>)> = meshes.iter().map(|m| (*m, vec![Instance::new(Mat4::IDENTITY, [1.; 4])])).collect();
+    let draws: Vec<(MeshId, Vec<Instance>)> = meshes
+        .iter()
+        .map(|m| (*m, vec![Instance::new(Mat4::IDENTITY, [1.; 4])]))
+        .collect();
 
     // The overview's camera: yaw 0.4, pitch 0.62, 24 degrees.
     let (rw, rd) = (l.room.x1 as f32, l.room.z1 as f32);
     let target = Vec3::new(rw / 2., 0.8, rd / 2.);
-    let dist: f32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(rw.max(rd) * 1.7);
+    let dist: f32 = args
+        .get(3)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(rw.max(rd) * 1.7);
     let (yaw, pitch) = (0.4f32, 0.62f32);
-    let eye = target + Vec3::new(yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()) * dist;
-    let cam = Camera { view_proj: Mat4::perspective_rh(24f32.to_radians(), w as f32 / h as f32, 0.5, 200.) * Mat4::look_at_rh(eye, target, Vec3::Y), eye };
+    let eye = target
+        + Vec3::new(
+            yaw.sin() * pitch.cos(),
+            pitch.sin(),
+            yaw.cos() * pitch.cos(),
+        ) * dist;
+    let cam = Camera {
+        view_proj: Mat4::perspective_rh(24f32.to_radians(), w as f32 / h as f32, 0.5, 200.)
+            * Mat4::look_at_rh(eye, target, Vec3::Y),
+        eye,
+    };
     let frame = gpu.render(w, h, &cam, [0.84, 0.90, 0.95], &draws)?;
 
     let mut rgba = frame.bgra.clone();

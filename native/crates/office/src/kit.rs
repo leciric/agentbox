@@ -130,7 +130,8 @@ impl Kit {
         for p in Piece::ALL {
             if let Ok(m) = glb::load_with(p.bytes(), &crate::assets::external, &recolour) {
                 let c = (m.min + m.max) / 2.;
-                let fit = Mat4::from_scale(Vec3::splat(SCALE)) * Mat4::from_translation(Vec3::new(-c.x, -m.min.y, -c.z));
+                let fit = Mat4::from_scale(Vec3::splat(SCALE))
+                    * Mat4::from_translation(Vec3::new(-c.x, -m.min.y, -c.z));
                 let mut model = m;
                 for mesh in &mut model.meshes {
                     for v in &mut mesh.vertices {
@@ -138,7 +139,15 @@ impl Kit {
                     }
                 }
                 let size = (model.max - model.min) * SCALE;
-                k.pieces.insert(p, Loaded { model, w: size.x, h: size.y, d: size.z });
+                k.pieces.insert(
+                    p,
+                    Loaded {
+                        model,
+                        w: size.x,
+                        h: size.y,
+                        d: size.z,
+                    },
+                );
             }
         }
         k

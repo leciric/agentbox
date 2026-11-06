@@ -31,12 +31,22 @@ pub fn decode_png(bytes: &[u8]) -> Result<Image> {
     buf.truncate(info.buffer_size());
     let rgba = match info.color_type {
         png::ColorType::Rgba => buf,
-        png::ColorType::Rgb => buf.chunks(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
-        png::ColorType::GrayscaleAlpha => buf.chunks(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::Rgb => buf
+            .chunks(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
+        png::ColorType::GrayscaleAlpha => buf
+            .chunks(2)
+            .flat_map(|p| [p[0], p[0], p[0], p[1]])
+            .collect(),
         png::ColorType::Grayscale => buf.iter().flat_map(|&v| [v, v, v, 255]).collect(),
         png::ColorType::Indexed => anyhow::bail!("indexed PNG left unexpanded"),
     };
-    Ok(Image { width: info.width, height: info.height, rgba })
+    Ok(Image {
+        width: info.width,
+        height: info.height,
+        rgba,
+    })
 }
 
 /// load reads a .glb; `external` resolves an image it names by URI (Kenney's
@@ -47,7 +57,11 @@ pub fn load(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>) -> R
 
 /// load_with also recolours its materials by name (linear RGB), as #668
 /// recolours Kenney's furniture to the room's palette.
-pub fn load_with(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>, recolour: &dyn Fn(&str) -> Option<[f32; 3]>) -> Result<Model> {
+pub fn load_with(
+    bytes: &[u8],
+    external: &dyn Fn(&str) -> Option<&'static [u8]>,
+    recolour: &dyn Fn(&str) -> Option<[f32; 3]>,
+) -> Result<Model> {
     let gltf = gltf::Gltf::from_slice(bytes).context("read the .glb")?;
     let blob = gltf.blob.as_deref();
     let buffers: Vec<&[u8]> = gltf
@@ -64,14 +78,19 @@ pub fn load_with(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>,
                 let b = buffers[view.buffer().index()];
                 &b[view.offset()..view.offset() + view.length()]
             }
-            gltf::image::Source::Uri { uri, .. } => external(uri).with_context(|| format!("image {uri}"))?,
+            gltf::image::Source::Uri { uri, .. } => {
+                external(uri).with_context(|| format!("image {uri}"))?
+            }
         };
         images.push(decode_png(png)?);
     }
     let mut by_tex: Vec<(Option<usize>, MeshData)> = Vec::new();
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
-    let scene = gltf.default_scene().or_else(|| gltf.scenes().next()).context("no scene")?;
+    let scene = gltf
+        .default_scene()
+        .or_else(|| gltf.scenes().next())
+        .context("no scene")?;
     let mut stack: Vec<(gltf::Node, Mat4)> = scene.nodes().map(|n| (n, Mat4::IDENTITY)).collect();
     while let Some((node, parent)) = stack.pop() {
         let local = Mat4::from_cols_array_2d(&node.transform().matrix());
@@ -83,22 +102,39 @@ pub fn load_with(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>,
         let normal_m = Mat3::from_mat4(world).inverse().transpose();
         for prim in mesh.primitives() {
             let r = prim.reader(|b| Some(buffers[b.index()]));
-            let Some(pos) = r.read_positions() else { continue };
+            let Some(pos) = r.read_positions() else {
+                continue;
+            };
             let pos: Vec<[f32; 3]> = pos.collect();
-            let normals: Vec<[f32; 3]> = r.read_normals().map(|n| n.collect()).unwrap_or_else(|| vec![[0., 1., 0.]; pos.len()]);
-            let uvs: Vec<[f32; 2]> = r.read_tex_coords(0).map(|t| t.into_f32().collect()).unwrap_or_else(|| vec![[0., 0.]; pos.len()]);
-            let colors: Option<Vec<[f32; 4]>> = r.read_colors(0).map(|c| c.into_rgba_f32().collect());
+            let normals: Vec<[f32; 3]> = r
+                .read_normals()
+                .map(|n| n.collect())
+                .unwrap_or_else(|| vec![[0., 1., 0.]; pos.len()]);
+            let uvs: Vec<[f32; 2]> = r
+                .read_tex_coords(0)
+                .map(|t| t.into_f32().collect())
+                .unwrap_or_else(|| vec![[0., 0.]; pos.len()]);
+            let colors: Option<Vec<[f32; 4]>> =
+                r.read_colors(0).map(|c| c.into_rgba_f32().collect());
             let mat = prim.material();
             let pbr = mat.pbr_metallic_roughness();
             let mut factor = pbr.base_color_factor();
             if let Some(c) = mat.name().and_then(recolour) {
                 factor = [c[0], c[1], c[2], factor[3]];
             }
-            let tex = pbr.base_color_texture().map(|t| t.texture().source().index());
+            let tex = pbr
+                .base_color_texture()
+                .map(|t| t.texture().source().index());
             let at = match by_tex.iter().position(|(t, _)| *t == tex) {
                 Some(i) => i,
                 None => {
-                    by_tex.push((tex, MeshData { texture: tex, ..Default::default() }));
+                    by_tex.push((
+                        tex,
+                        MeshData {
+                            texture: tex,
+                            ..Default::default()
+                        },
+                    ));
                     by_tex.len() - 1
                 }
             };
@@ -114,7 +150,12 @@ pub fn load_with(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>,
                     pos: wp.into(),
                     normal: n.into(),
                     uv: uvs[i],
-                    color: [c[0] * factor[0], c[1] * factor[1], c[2] * factor[2], c[3] * factor[3]],
+                    color: [
+                        c[0] * factor[0],
+                        c[1] * factor[1],
+                        c[2] * factor[2],
+                        c[3] * factor[3],
+                    ],
                 });
             }
             match r.read_indices() {
@@ -123,7 +164,12 @@ pub fn load_with(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>,
             }
         }
     }
-    Ok(Model { meshes: by_tex.into_iter().map(|(_, m)| m).collect(), images, min, max })
+    Ok(Model {
+        meshes: by_tex.into_iter().map(|(_, m)| m).collect(),
+        images,
+        min,
+        max,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -257,7 +303,11 @@ impl Skinned {
                     None => (v, w),
                     Some((cur, cw)) => {
                         let k = w / (cw + w);
-                        let mixed = if ch.path == Path::Rotation { Vec4::from(Quat::from_vec4(cur).slerp(Quat::from_vec4(v), k)) } else { vec4_lerp(cur, v, k) };
+                        let mixed = if ch.path == Path::Rotation {
+                            Vec4::from(Quat::from_vec4(cur).slerp(Quat::from_vec4(v), k))
+                        } else {
+                            vec4_lerp(cur, v, k)
+                        };
                         (mixed, cw + w)
                     }
                 });
@@ -292,7 +342,17 @@ impl Skinned {
     /// skin_into poses the parts' vertices for nodes' global transforms
     /// into `out` (one MeshData per part, made by `rest_meshes`).
     pub fn skin_into(&self, globals: &[Mat4], out: &mut [MeshData]) {
-        let palettes: Vec<Vec<Mat4>> = self.skins.iter().map(|s| s.joints.iter().zip(&s.ibm).map(|(&j, ibm)| globals[j] * *ibm).collect()).collect();
+        let palettes: Vec<Vec<Mat4>> = self
+            .skins
+            .iter()
+            .map(|s| {
+                s.joints
+                    .iter()
+                    .zip(&s.ibm)
+                    .map(|(&j, ibm)| globals[j] * *ibm)
+                    .collect()
+            })
+            .collect();
         for (part, out) in self.parts.iter().zip(out.iter_mut()) {
             let pal = &palettes[part.skin];
             for (i, v) in out.vertices.iter_mut().enumerate() {
@@ -324,7 +384,13 @@ impl Skinned {
     /// rest_meshes is the parts as uploaded, in the bind pose; `textures`
     /// maps the model's images to the scene's keys.
     pub fn rest_meshes(&self, textures: &[usize]) -> Vec<MeshData> {
-        self.parts.iter().map(|p| MeshData { texture: p.rest.texture.map(|i| textures[i]), ..p.rest.clone() }).collect()
+        self.parts
+            .iter()
+            .map(|p| MeshData {
+                texture: p.rest.texture.map(|i| textures[i]),
+                ..p.rest.clone()
+            })
+            .collect()
     }
 
     /// pose poses `out` (from `rest_meshes`) for a blend of clips.
@@ -336,7 +402,10 @@ impl Skinned {
 
 /// load_skinned reads a .glb with skins and animations. Its meshes are kept
 /// in the bind pose, each vertex with the joints it follows.
-pub fn load_skinned(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8]>) -> Result<Skinned> {
+pub fn load_skinned(
+    bytes: &[u8],
+    external: &dyn Fn(&str) -> Option<&'static [u8]>,
+) -> Result<Skinned> {
     let gltf = gltf::Gltf::from_slice(bytes).context("read the .glb")?;
     let blob = gltf.blob.as_deref();
     let buffers: Vec<&[u8]> = gltf
@@ -349,8 +418,12 @@ pub fn load_skinned(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8
     let mut images = Vec::new();
     for img in gltf.images() {
         let png: &[u8] = match img.source() {
-            gltf::image::Source::View { view, .. } => &buffers[view.buffer().index()][view.offset()..view.offset() + view.length()],
-            gltf::image::Source::Uri { uri, .. } => external(uri).with_context(|| format!("image {uri}"))?,
+            gltf::image::Source::View { view, .. } => {
+                &buffers[view.buffer().index()][view.offset()..view.offset() + view.length()]
+            }
+            gltf::image::Source::Uri { uri, .. } => {
+                external(uri).with_context(|| format!("image {uri}"))?
+            }
         };
         images.push(decode_png(png)?);
     }
@@ -358,7 +431,13 @@ pub fn load_skinned(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8
         .nodes()
         .map(|n| {
             let (t, r, s) = n.transform().decomposed();
-            SkinNode { name: n.name().unwrap_or("").to_string(), parent: None, t: Vec3::from(t), r: Quat::from_array(r), s: Vec3::from(s) }
+            SkinNode {
+                name: n.name().unwrap_or("").to_string(),
+                parent: None,
+                t: Vec3::from(t),
+                r: Quat::from_array(r),
+                s: Vec3::from(s),
+            }
         })
         .collect();
     for n in gltf.nodes() {
@@ -393,19 +472,46 @@ pub fn load_skinned(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
     for node in gltf.nodes() {
-        let (Some(mesh), Some(skin)) = (node.mesh(), node.skin()) else { continue };
+        let (Some(mesh), Some(skin)) = (node.mesh(), node.skin()) else {
+            continue;
+        };
         for prim in mesh.primitives() {
             let r = prim.reader(|b| Some(buffers[b.index()]));
-            let Some(pos) = r.read_positions() else { continue };
+            let Some(pos) = r.read_positions() else {
+                continue;
+            };
             let pos: Vec<[f32; 3]> = pos.collect();
-            let normals: Vec<[f32; 3]> = r.read_normals().map(|n| n.collect()).unwrap_or_else(|| vec![[0., 1., 0.]; pos.len()]);
-            let uvs: Vec<[f32; 2]> = r.read_tex_coords(0).map(|t| t.into_f32().collect()).unwrap_or_else(|| vec![[0., 0.]; pos.len()]);
-            let joints: Vec<[u16; 4]> = r.read_joints(0).map(|j| j.into_u16().collect()).unwrap_or_else(|| vec![[0; 4]; pos.len()]);
-            let weights: Vec<[f32; 4]> = r.read_weights(0).map(|w| w.into_f32().collect()).unwrap_or_else(|| vec![[1., 0., 0., 0.]; pos.len()]);
+            let normals: Vec<[f32; 3]> = r
+                .read_normals()
+                .map(|n| n.collect())
+                .unwrap_or_else(|| vec![[0., 1., 0.]; pos.len()]);
+            let uvs: Vec<[f32; 2]> = r
+                .read_tex_coords(0)
+                .map(|t| t.into_f32().collect())
+                .unwrap_or_else(|| vec![[0., 0.]; pos.len()]);
+            let joints: Vec<[u16; 4]> = r
+                .read_joints(0)
+                .map(|j| j.into_u16().collect())
+                .unwrap_or_else(|| vec![[0; 4]; pos.len()]);
+            let weights: Vec<[f32; 4]> = r
+                .read_weights(0)
+                .map(|w| w.into_f32().collect())
+                .unwrap_or_else(|| vec![[1., 0., 0., 0.]; pos.len()]);
             let pbr = prim.material().pbr_metallic_roughness();
             let factor = pbr.base_color_factor();
-            let tex = pbr.base_color_texture().map(|t| t.texture().source().index());
-            let vertices: Vec<Vertex> = pos.iter().enumerate().map(|(i, p)| Vertex { pos: *p, normal: normals[i], uv: uvs[i], color: factor }).collect();
+            let tex = pbr
+                .base_color_texture()
+                .map(|t| t.texture().source().index());
+            let vertices: Vec<Vertex> = pos
+                .iter()
+                .enumerate()
+                .map(|(i, p)| Vertex {
+                    pos: *p,
+                    normal: normals[i],
+                    uv: uvs[i],
+                    color: factor,
+                })
+                .collect();
             for p in &pos {
                 min = min.min(Vec3::from(*p));
                 max = max.max(Vec3::from(*p));
@@ -414,7 +520,17 @@ pub fn load_skinned(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8
                 Some(ix) => ix.into_u32().collect(),
                 None => (0..pos.len() as u32).collect(),
             };
-            parts.push(SkinnedPart { rest: MeshData { vertices, indices, texture: tex, transparent: false }, joints, weights, skin: skin.index() });
+            parts.push(SkinnedPart {
+                rest: MeshData {
+                    vertices,
+                    indices,
+                    texture: tex,
+                    transparent: false,
+                },
+                joints,
+                weights,
+                skin: skin.index(),
+            });
         }
     }
     let mut clips = Vec::new();
@@ -431,18 +547,47 @@ pub fn load_skinned(bytes: &[u8], external: &dyn Fn(&str) -> Option<&'static [u8
                 gltf::animation::Property::MorphTargetWeights => continue,
             };
             let values: Vec<Vec4> = match r.read_outputs() {
-                Some(gltf::animation::util::ReadOutputs::Translations(v)) => v.map(|v| Vec3::from(v).extend(0.)).collect(),
-                Some(gltf::animation::util::ReadOutputs::Scales(v)) => v.map(|v| Vec3::from(v).extend(0.)).collect(),
-                Some(gltf::animation::util::ReadOutputs::Rotations(v)) => v.into_f32().map(Vec4::from).collect(),
+                Some(gltf::animation::util::ReadOutputs::Translations(v)) => {
+                    v.map(|v| Vec3::from(v).extend(0.)).collect()
+                }
+                Some(gltf::animation::util::ReadOutputs::Scales(v)) => {
+                    v.map(|v| Vec3::from(v).extend(0.)).collect()
+                }
+                Some(gltf::animation::util::ReadOutputs::Rotations(v)) => {
+                    v.into_f32().map(Vec4::from).collect()
+                }
                 _ => continue,
             };
             let interp = ch.sampler().interpolation();
             // (A cubic spline's keys are triplets; its values are the middle ones.)
-            let values = if interp == gltf::animation::Interpolation::CubicSpline { values.chunks(3).map(|c| c[1]).collect() } else { values };
+            let values = if interp == gltf::animation::Interpolation::CubicSpline {
+                values.chunks(3).map(|c| c[1]).collect()
+            } else {
+                values
+            };
             duration = duration.max(times.last().copied().unwrap_or(0.));
-            channels.push(Channel { node: ch.target().node().index(), path, times, values, step: interp == gltf::animation::Interpolation::Step });
+            channels.push(Channel {
+                node: ch.target().node().index(),
+                path,
+                times,
+                values,
+                step: interp == gltf::animation::Interpolation::Step,
+            });
         }
-        clips.push(Clip { name: a.name().unwrap_or("").to_string(), duration, channels });
+        clips.push(Clip {
+            name: a.name().unwrap_or("").to_string(),
+            duration,
+            channels,
+        });
     }
-    Ok(Skinned { parts, skins, nodes, clips, images, min, max, order })
+    Ok(Skinned {
+        parts,
+        skins,
+        nodes,
+        clips,
+        images,
+        min,
+        max,
+        order,
+    })
 }

@@ -20,15 +20,37 @@ use std::time::{Duration, Instant};
 #[derive(Debug)]
 pub enum In {
     /// The view's size in logical pixels and its scale (pixels per point).
-    Size { w: f32, h: f32, scale: f32 },
+    Size {
+        w: f32,
+        h: f32,
+        scale: f32,
+    },
     /// The data, as the view read it (a new model, screens, the board).
     Apply(Box<SceneInput>),
-    Key { key: String, down: bool, repeat: bool },
-    PointerDown { x: f64, y: f64 },
-    PointerMove { x: f64, y: f64, dx: f64 },
-    PointerUp { x: f64, y: f64 },
+    Key {
+        key: String,
+        down: bool,
+        repeat: bool,
+    },
+    PointerDown {
+        x: f64,
+        y: f64,
+    },
+    PointerMove {
+        x: f64,
+        y: f64,
+        dx: f64,
+    },
+    PointerUp {
+        x: f64,
+        y: f64,
+    },
     PointerLeave,
-    Wheel { x: f64, y: f64, delta: f64 },
+    Wheel {
+        x: f64,
+        y: f64,
+        delta: f64,
+    },
     WalkTo(String),
     Overview,
     Campus,
@@ -67,10 +89,17 @@ pub enum LabelKind {
 /// What the Office tells the view.
 pub enum Out {
     /// Which adapter draws, and whether it's the CPU (lavapipe, WARP).
-    Adapter { name: String, software: bool },
+    Adapter {
+        name: String,
+        software: bool,
+    },
     /// No adapter at all: the Office can't be drawn here.
     Failed(String),
-    Frame { frame: gpu::Frame, labels: Vec<Label>, render_ms: f32 },
+    Frame {
+        frame: gpu::Frame,
+        labels: Vec<Label>,
+        render_ms: f32,
+    },
     Notes(Vec<Note>),
 }
 
@@ -81,11 +110,17 @@ pub struct Engine {
 impl Engine {
     /// start runs the Office's thread; `out` is called on it with each thing
     /// to tell the view (send it on to the view's own executor).
-    pub fn start(visit: Option<Visit>, out: impl FnMut(Out) + Send + 'static) -> (Engine, std::sync::Arc<std::sync::Mutex<Option<Visit>>>) {
+    pub fn start(
+        visit: Option<Visit>,
+        out: impl FnMut(Out) + Send + 'static,
+    ) -> (Engine, std::sync::Arc<std::sync::Mutex<Option<Visit>>>) {
         let (tx, rx) = channel();
         let kept = std::sync::Arc::new(std::sync::Mutex::new(visit));
         let k2 = kept.clone();
-        std::thread::Builder::new().name("office".into()).spawn(move || run(rx, out, k2)).expect("start the Office's thread");
+        std::thread::Builder::new()
+            .name("office".into())
+            .spawn(move || run(rx, out, k2))
+            .expect("start the Office's thread");
         (Engine { tx }, kept)
     }
 
@@ -124,7 +159,8 @@ impl Stage {
         for k in std::mem::take(&mut self.kit.changed) {
             if k < self.tex.len() {
                 let i = &self.kit.textures[k];
-                self.gpu.replace_texture(self.tex[k], i.width, i.height, &i.rgba);
+                self.gpu
+                    .replace_texture(self.tex[k], i.width, i.height, &i.rgba);
             }
         }
         while self.meshes.len() < self.kit.meshes.len() {
@@ -136,11 +172,33 @@ impl Stage {
     }
 
     fn apply(&mut self, input: SceneInput) {
-        let key = input.model.areas.iter().map(|a| format!("{}:{}:{}:{}", a.project, a.label, a.hue, a.desks.iter().map(|d| d.id.as_str()).collect::<Vec<_>>().join(","))).collect::<Vec<_>>().join("|");
+        let key = input
+            .model
+            .areas
+            .iter()
+            .map(|a| {
+                format!(
+                    "{}:{}:{}:{}",
+                    a.project,
+                    a.label,
+                    a.hue,
+                    a.desks
+                        .iter()
+                        .map(|d| d.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("|");
         if key != self.layout_key || self.built.is_none() {
             self.layout_key = key;
             let lay = layout::layout(&input.model.areas);
-            let walls = lay.rooms.iter().map(|r| crate::decor::wall_height(&r.local) as f64).collect();
+            let walls = lay
+                .rooms
+                .iter()
+                .map(|r| crate::decor::wall_height(&r.local) as f64)
+                .collect();
             // A new campus: the meshes start again (the textures stay, a
             // few hundred kB of signs and screens, until the Office closes).
             self.kit.meshes.clear();
@@ -188,8 +246,14 @@ impl Stage {
                 }
             }
             if p.visible() {
-                let at = Mat4::from_translation(self.sim.you()) * Mat4::from_rotation_y(self.sim.facing as f32) * p.matrix();
-                self.extra = self.player_mesh.iter().map(|id| (*id, Instance::new(at, [1., 1., 1., p.opacity()]))).collect();
+                let at = Mat4::from_translation(self.sim.you())
+                    * Mat4::from_rotation_y(self.sim.facing as f32)
+                    * p.matrix();
+                self.extra = self
+                    .player_mesh
+                    .iter()
+                    .map(|id| (*id, Instance::new(at, [1., 1., 1., p.opacity()])))
+                    .collect();
             }
         }
         // Group by mesh: one instanced draw each.
@@ -202,11 +266,17 @@ impl Stage {
             });
             e.push(Instance::new(d.at, d.tint));
         }
-        let mut list: Vec<(MeshId, Vec<Instance>)> = order.into_iter().filter_map(|k| Some((*self.meshes.get(k)?, by.remove(&k)?))).collect();
+        let mut list: Vec<(MeshId, Vec<Instance>)> = order
+            .into_iter()
+            .filter_map(|k| Some((*self.meshes.get(k)?, by.remove(&k)?)))
+            .collect();
         for (id, i) in self.extra.drain(..) {
             list.push((id, vec![i]));
         }
-        let cam = gpu::Camera { view_proj: self.sim.camera.view_proj(), eye: self.sim.camera.eye };
+        let cam = gpu::Camera {
+            view_proj: self.sim.camera.view_proj(),
+            eye: self.sim.camera.eye,
+        };
         let frame = self.gpu.render(w, h, &cam, SKY, &list)?;
         let labels = self.labels();
         Ok((frame, labels))
@@ -217,7 +287,8 @@ impl Stage {
         let size = self.sim.size;
         let to_px = |p: Vec3| {
             let (n, front) = self.sim.camera.project(p);
-            (front && n.x.abs() <= 1.1 && n.y.abs() <= 1.1).then(|| Vec2::new((n.x + 1.) / 2. * size.x, (1. - n.y) / 2. * size.y))
+            (front && n.x.abs() <= 1.1 && n.y.abs() <= 1.1)
+                .then(|| Vec2::new((n.x + 1.) / 2. * size.x, (1. - n.y) / 2. * size.y))
         };
         if let Some(b) = &self.built {
             for l in b.labels(&self.sim) {
@@ -225,7 +296,14 @@ impl Stage {
                     continue;
                 }
                 if let Some(p) = to_px(l.world) {
-                    out.push(Label { r#ref: l.r#ref, kind: l.kind, text: l.text, color: l.color, x: p.x, y: p.y });
+                    out.push(Label {
+                        r#ref: l.r#ref,
+                        kind: l.kind,
+                        text: l.text,
+                        color: l.color,
+                        x: p.x,
+                        y: p.y,
+                    });
                 }
             }
         }
@@ -233,7 +311,14 @@ impl Stage {
             && let Some(p) = to_px(self.sim.you() + Vec3::new(0., 2.25, 0.))
             && self.sim.scope.is_some()
         {
-            out.push(Label { r#ref: "you".into(), kind: LabelKind::You, text: input.you.clone(), color: "#a78bfa".into(), x: p.x, y: p.y });
+            out.push(Label {
+                r#ref: "you".into(),
+                kind: LabelKind::You,
+                text: input.you.clone(),
+                color: "#a78bfa".into(),
+                x: p.x,
+                y: p.y,
+            });
         }
         out
     }
@@ -242,7 +327,11 @@ impl Stage {
 // The sky behind the campus, #668's pale blue (linear).
 const SKY: [f64; 3] = [0.73, 0.82, 0.88];
 
-fn run(rx: Receiver<In>, mut out: impl FnMut(Out), kept: std::sync::Arc<std::sync::Mutex<Option<Visit>>>) {
+fn run(
+    rx: Receiver<In>,
+    mut out: impl FnMut(Out),
+    kept: std::sync::Arc<std::sync::Mutex<Option<Visit>>>,
+) {
     let gpu = match Gpu::new() {
         Ok(g) => g,
         Err(e) => {
@@ -250,7 +339,10 @@ fn run(rx: Receiver<In>, mut out: impl FnMut(Out), kept: std::sync::Arc<std::syn
             return;
         }
     };
-    out(Out::Adapter { name: gpu.adapter_name.clone(), software: gpu.software });
+    out(Out::Adapter {
+        name: gpu.adapter_name.clone(),
+        software: gpu.software,
+    });
     let mut kit = Kit::new();
     let player = Player::new(&mut kit).ok();
     let mut st = Stage {
@@ -277,7 +369,11 @@ fn run(rx: Receiver<In>, mut out: impl FnMut(Out), kept: std::sync::Arc<std::syn
     let mut busy = true;
     loop {
         // Wait for something to do: while busy, only until the next frame's due.
-        let wait = if busy && shown && !in_flight { Some(Duration::from_millis(0)) } else { None };
+        let wait = if busy && shown && !in_flight {
+            Some(Duration::from_millis(0))
+        } else {
+            None
+        };
         let first = match wait {
             Some(d) => match rx.recv_timeout(d) {
                 Ok(m) => Some(m),
@@ -296,10 +392,16 @@ fn run(rx: Receiver<In>, mut out: impl FnMut(Out), kept: std::sync::Arc<std::syn
             match m {
                 In::Size { w, h, scale } => size = Some((w, h, scale)),
                 In::Apply(i) => st.apply(*i),
-                In::Key { key, down: true, repeat } => {
+                In::Key {
+                    key,
+                    down: true,
+                    repeat,
+                } => {
                     st.sim.key_down(&key, repeat);
                 }
-                In::Key { key, down: false, .. } => st.sim.key_up(&key),
+                In::Key {
+                    key, down: false, ..
+                } => st.sim.key_up(&key),
                 In::PointerDown { x, y } => st.sim.pointer_down(x, y),
                 In::PointerMove { x, y, dx } => {
                     st.sim.pointer_move(x, y, dx);
@@ -362,7 +464,11 @@ fn run(rx: Receiver<In>, mut out: impl FnMut(Out), kept: std::sync::Arc<std::syn
         match st.frame(w, h) {
             Ok((frame, labels)) => {
                 in_flight = true;
-                out(Out::Frame { frame, labels, render_ms: t0.elapsed().as_secs_f32() * 1000. });
+                out(Out::Frame {
+                    frame,
+                    labels,
+                    render_ms: t0.elapsed().as_secs_f32() * 1000.,
+                });
             }
             Err(e) => {
                 out(Out::Failed(format!("{e:#}")));

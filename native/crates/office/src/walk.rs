@@ -19,7 +19,11 @@ fn inside(b: &Rect, p: P) -> bool {
 
 /// blocked: outside the room, or inside anything in it.
 pub fn blocked(boxes: &[Rect], room: &Rect, p: P) -> bool {
-    p.x < room.x0 || p.x > room.x1 || p.z < room.z0 || p.z > room.z1 || boxes.iter().any(|b| inside(b, p))
+    p.x < room.x0
+        || p.x > room.x1
+        || p.z < room.z0
+        || p.z > room.z1
+        || boxes.iter().any(|b| inside(b, p))
 }
 
 /// slide moves p by d, each axis on its own, so you slide along a wall
@@ -46,7 +50,14 @@ pub fn clear_step(boxes: &[Rect], room: &Rect, a: P, b: P, step: f64) -> bool {
     let n = ((len / step).ceil() as usize).max(1);
     (1..=n).all(|i| {
         let t = i as f64 / n as f64;
-        !blocked(boxes, room, P { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t })
+        !blocked(
+            boxes,
+            room,
+            P {
+                x: a.x + (b.x - a.x) * t,
+                z: a.z + (b.z - a.z) * t,
+            },
+        )
     })
 }
 
@@ -62,14 +73,19 @@ pub fn path(boxes: &[Rect], room: &Rect, a: P, b: P) -> Vec<P> {
     }
     let cols = (((room.x1 - room.x0) / CELL).ceil() as i64).max(1);
     let rows = (((room.z1 - room.z0) / CELL).ceil() as i64).max(1);
-    let centre = |i: i64| P { x: room.x0 + ((i % cols) as f64 + 0.5) * CELL, z: room.z0 + ((i / cols) as f64 + 0.5) * CELL };
+    let centre = |i: i64| P {
+        x: room.x0 + ((i % cols) as f64 + 0.5) * CELL,
+        z: room.z0 + ((i / cols) as f64 + 0.5) * CELL,
+    };
     let cell_of = |p: P| {
         let cx = (((p.x - room.x0) / CELL).floor() as i64).clamp(0, cols - 1);
         let cz = (((p.z - room.z0) / CELL).floor() as i64).clamp(0, rows - 1);
         cz * cols + cx
     };
     let n = (cols * rows) as usize;
-    let free: Vec<bool> = (0..n as i64).map(|i| !blocked(boxes, room, centre(i))).collect();
+    let free: Vec<bool> = (0..n as i64)
+        .map(|i| !blocked(boxes, room, centre(i)))
+        .collect();
     let nearest_free = |from: i64| -> i64 {
         if free[from as usize] {
             return from;
@@ -107,7 +123,11 @@ pub fn path(boxes: &[Rect], room: &Rect, a: P, b: P) -> Vec<P> {
     if start < 0 || goal_cell < 0 {
         return Vec::new();
     }
-    let goal = if !blocked(boxes, room, b) { b } else { centre(goal_cell) };
+    let goal = if !blocked(boxes, room, b) {
+        b
+    } else {
+        centre(goal_cell)
+    };
 
     let mut g = vec![f64::INFINITY; n];
     let mut from = vec![-1i64; n];
@@ -188,10 +208,18 @@ pub fn path(boxes: &[Rect], room: &Rect, a: P, b: P) -> Vec<P> {
                     continue;
                 }
                 // No cutting a corner between two blocked cells.
-                if dx != 0 && dz != 0 && (!free[(z * cols + nx) as usize] || !free[(nz * cols + x) as usize]) {
+                if dx != 0
+                    && dz != 0
+                    && (!free[(z * cols + nx) as usize] || !free[(nz * cols + x) as usize])
+                {
                     continue;
                 }
-                let cost = g[i as usize] + if dx != 0 && dz != 0 { std::f64::consts::SQRT_2 } else { 1. };
+                let cost = g[i as usize]
+                    + if dx != 0 && dz != 0 {
+                        std::f64::consts::SQRT_2
+                    } else {
+                        1.
+                    };
                 if cost < g[nn] {
                     g[nn] = cost;
                     from[nn] = i;
@@ -261,8 +289,18 @@ pub fn turn(from: f64, to: f64, max: f64) -> f64 {
 mod tests {
     use super::*;
 
-    const ROOM: Rect = Rect { x0: 0., z0: 0., x1: 10., z1: 10. };
-    const WALL: Rect = Rect { x0: 4., z0: 0., x1: 6., z1: 8. };
+    const ROOM: Rect = Rect {
+        x0: 0.,
+        z0: 0.,
+        x1: 10.,
+        z1: 10.,
+    };
+    const WALL: Rect = Rect {
+        x0: 4.,
+        z0: 0.,
+        x1: 6.,
+        z1: 8.,
+    };
 
     #[test]
     fn a_move_into_a_box_slides_along_its_side() {
@@ -283,7 +321,11 @@ mod tests {
         let a = p(1., 1.);
         let b = p(9., 1.);
         let route = path(&[WALL], &ROOM, a, b);
-        assert!(route.len() >= 2 && route.len() <= 4, "legs: {}", route.len());
+        assert!(
+            route.len() >= 2 && route.len() <= 4,
+            "legs: {}",
+            route.len()
+        );
         assert_eq!(*route.last().unwrap(), b);
         let mut at = a;
         for &q in &route {
@@ -299,12 +341,28 @@ mod tests {
         let route = path(&[WALL], &ROOM, p(1., 1.), p(4.2, 3.));
         let end = *route.last().unwrap();
         assert!(!blocked(&[WALL], &ROOM, end));
-        assert!((end.x - 4.).abs() < 0.5 && (end.z - 3.).abs() < 0.5, "{end:?}");
+        assert!(
+            (end.x - 4.).abs() < 0.5 && (end.z - 3.).abs() < 0.5,
+            "{end:?}"
+        );
     }
 
     #[test]
     fn a_goal_nothing_reaches_is_no_walk() {
-        let boxed = [Rect { x0: 7., z0: 7., x1: 10., z1: 7.5 }, Rect { x0: 7., z0: 7., x1: 7.5, z1: 10. }];
+        let boxed = [
+            Rect {
+                x0: 7.,
+                z0: 7.,
+                x1: 10.,
+                z1: 7.5,
+            },
+            Rect {
+                x0: 7.,
+                z0: 7.,
+                x1: 7.5,
+                z1: 10.,
+            },
+        ];
         assert_eq!(path(&boxed, &ROOM, p(1., 1.), p(9., 9.)), Vec::<P>::new());
     }
 

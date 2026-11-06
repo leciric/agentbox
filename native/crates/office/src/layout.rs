@@ -32,7 +32,10 @@ pub struct Spot {
 impl Spot {
     /// The spot as a point, for walking.
     pub fn at(&self) -> P {
-        P { x: self.x, z: self.z }
+        P {
+            x: self.x,
+            z: self.z,
+        }
     }
 }
 
@@ -140,7 +143,11 @@ pub struct DeskSize {
     pub d: f64,
     pub h: f64,
 }
-pub const DESK: DeskSize = DeskSize { w: 1.5, d: 0.75, h: 0.74 };
+pub const DESK: DeskSize = DeskSize {
+    w: 1.5,
+    d: 0.75,
+    h: 0.74,
+};
 /// The chair's distance behind the desk's centre.
 pub const SEAT: f64 = 0.72;
 pub struct CounterSize {
@@ -203,7 +210,12 @@ pub struct AreaIn {
 
 impl From<&AreaModel> for AreaIn {
     fn from(a: &AreaModel) -> Self {
-        AreaIn { project: a.project.clone(), desks: a.desks.iter().map(|d| d.id.clone()).collect(), no_lead: false, floor: None }
+        AreaIn {
+            project: a.project.clone(),
+            desks: a.desks.iter().map(|d| d.id.clone()).collect(),
+            no_lead: false,
+            floor: None,
+        }
     }
 }
 
@@ -222,14 +234,25 @@ type Cell = (usize, usize);
 type Kinds = Vec<Vec<Option<CellKind>>>;
 
 fn open(kinds: &Kinds, cells: &[Cell], r: Option<usize>) -> Vec<Cell> {
-    cells.iter().copied().filter(|&(c, rr)| kinds[c][rr].is_none() && (r.is_none() || Some(rr) == r)).collect()
+    cells
+        .iter()
+        .copied()
+        .filter(|&(c, rr)| kinds[c][rr].is_none() && (r.is_none() || Some(rr) == r))
+        .collect()
 }
 
 fn fmax(it: impl Iterator<Item = f64>) -> f64 {
     it.fold(f64::NEG_INFINITY, f64::max)
 }
 
-fn add_prop(props: &mut Vec<Prop>, obstacles: &mut Vec<Rect>, kind: PropKind, x: f64, z: f64, rot: f64) {
+fn add_prop(
+    props: &mut Vec<Prop>,
+    obstacles: &mut Vec<Rect>,
+    kind: PropKind,
+    x: f64,
+    z: f64,
+    rot: f64,
+) {
     props.push(Prop { kind, x, z, rot });
     // A mat is floor: walked over.
     if kind == PropKind::Mat {
@@ -237,11 +260,18 @@ fn add_prop(props: &mut Vec<Prop>, obstacles: &mut Vec<Rect>, kind: PropKind, x:
     }
     let (w, d) = foot_of(kind);
     let turned = rot.sin().abs() > 0.5;
-    obstacles.push(boxc(x, z, if turned { d } else { w }, if turned { w } else { d }));
+    obstacles.push(boxc(
+        x,
+        z,
+        if turned { d } else { w },
+        if turned { w } else { d },
+    ));
 }
 
 fn clear_at(obstacles: &[Rect], x: f64, z: f64, r: f64) -> bool {
-    !obstacles.iter().any(|b| x + r > b.x0 && x - r < b.x1 && z + r > b.z0 && z - r < b.z1)
+    !obstacles
+        .iter()
+        .any(|b| x + r > b.x0 && x - r < b.x1 && z + r > b.z0 && z - r < b.z1)
 }
 
 /// room_layout lays out one room: its project's first area (a room holds one).
@@ -266,13 +296,22 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     // The glass meeting room at the front left, as the target's, or the back
     // left: floor to floor in turn.
     let meet_front = meet_in && ((hs >> 1) + floor) % 2 == 0;
-    let cn = 2.max(((pn + i64::from(has_lead) + i64::from(meet_in) + 2) as f64 / ROWS as f64).ceil() as usize);
+    let cn = 2.max(
+        ((pn + i64::from(has_lead) + i64::from(meet_in) + 2) as f64 / ROWS as f64).ceil() as usize,
+    );
     let cw = if compact { SMALL_W } else { CELL_W };
     let cd = if compact { SMALL_D } else { CELL_D };
     let bk = if compact { SMALL_BACK } else { BACK };
     let room_w = PAD_L + cn as f64 * cw + PAD_R;
     let room_d = bk + ROWS as f64 * cd + FRONT;
-    let cell_box = |c: usize, r: usize| rect(PAD_L + c as f64 * cw, bk + r as f64 * cd, PAD_L + (c + 1) as f64 * cw, bk + (r + 1) as f64 * cd);
+    let cell_box = |c: usize, r: usize| {
+        rect(
+            PAD_L + c as f64 * cw,
+            bk + r as f64 * cd,
+            PAD_L + (c + 1) as f64 * cw,
+            bk + (r + 1) as f64 * cd,
+        )
+    };
     let mut kinds: Kinds = vec![vec![None; ROWS]; cn];
     let mut cells: Vec<Cell> = Vec::new();
     for c in 0..cn {
@@ -285,7 +324,9 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
         let centre = (cn as f64 - 1.) / 2.;
         v.sort_by(|p, q| {
             let d = (p.0 as f64 - centre).abs() - (q.0 as f64 - centre).abs();
-            d.partial_cmp(&0.).unwrap_or(Ordering::Equal).then(p.0.cmp(&q.0))
+            d.partial_cmp(&0.)
+                .unwrap_or(Ordering::Equal)
+                .then(p.0.cmp(&q.0))
         });
         v.first().copied()
     };
@@ -298,11 +339,19 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     let p0 = if meet_in && !meet_front { 1 } else { 0 };
     // Fewer pods than the checkerboard has room for: spread evenly along it,
     // not bunched at one end.
-    let checker: Vec<Cell> = cells.iter().copied().filter(|&(c, r)| (c + r) % 2 == p0 && kinds[c][r].is_none()).collect();
+    let checker: Vec<Cell> = cells
+        .iter()
+        .copied()
+        .filter(|&(c, r)| (c + r) % 2 == p0 && kinds[c][r].is_none())
+        .collect();
     let mut pod_cells: Vec<Cell> = Vec::new();
     if pn > 0 && (pn as usize) < checker.len() {
         for i in 0..pn {
-            let at = if pn == 1 { 0 } else { js_round((i * (checker.len() as i64 - 1)) as f64 / (pn - 1) as f64) as usize };
+            let at = if pn == 1 {
+                0
+            } else {
+                js_round((i * (checker.len() as i64 - 1)) as f64 / (pn - 1) as f64) as usize
+            };
             pod_cells.push(checker[at]);
         }
     } else {
@@ -320,43 +369,66 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     // The lead's counter in the front row, nearest its middle: who you see first.
     let mut lead_cell: Option<Cell> = None;
     if has_lead {
-        lead_cell = mid(&open(&kinds, &cells, Some(1))).or_else(|| mid(&open(&kinds, &cells, None)));
+        lead_cell =
+            mid(&open(&kinds, &cells, Some(1))).or_else(|| mid(&open(&kinds, &cells, None)));
         if let Some((c, r)) = lead_cell {
             kinds[c][r] = Some(CellKind::Lead);
         }
     }
     // The board on the back wall over a back cell near the middle that leaves
     // the wall free: a pod's, or an open one's.
-    let board_col = mid(&cells.iter().copied().filter(|&(c, r)| r == 0 && (kinds[c][r] == Some(CellKind::Pod) || kinds[c][r].is_none())).collect::<Vec<_>>()).unwrap_or((1.min(cn - 1), 0)).0;
+    let board_col = mid(&cells
+        .iter()
+        .copied()
+        .filter(|&(c, r)| r == 0 && (kinds[c][r] == Some(CellKind::Pod) || kinds[c][r].is_none()))
+        .collect::<Vec<_>>())
+    .unwrap_or((1.min(cn - 1), 0))
+    .0;
     // The kitchen against the back wall at one end, its counters on it; the
     // lounge on the back wall too where there's room, its sofa by the brick.
     // (Over four floors, with the meeting room's turn, no two alike.)
     let swap = ((hs >> 2) + (floor >> 1)) % 2 == 0;
     let back_open = |kinds: &Kinds| -> Vec<Cell> {
-        let mut v: Vec<Cell> = open(kinds, &cells, Some(0)).into_iter().filter(|&(c, _)| c != board_col).collect();
+        let mut v: Vec<Cell> = open(kinds, &cells, Some(0))
+            .into_iter()
+            .filter(|&(c, _)| c != board_col)
+            .collect();
         v.sort_by(|p, q| if swap { p.0.cmp(&q.0) } else { q.0.cmp(&p.0) });
         v
     };
     // (Neither ever the board's: its counters or sofa would stand before it.)
-    let not_board = |kinds: &Kinds| -> Vec<Cell> { open(kinds, &cells, None).into_iter().filter(|&(c, r)| !(r == 0 && c == board_col)).collect() };
+    let not_board = |kinds: &Kinds| -> Vec<Cell> {
+        open(kinds, &cells, None)
+            .into_iter()
+            .filter(|&(c, r)| !(r == 0 && c == board_col))
+            .collect()
+    };
     // Floor to floor, the kitchen or the lounge has the back wall first.
     let mut kitchen_cell: Option<Cell> = None;
     let mut lounge_cell: Option<Cell> = None;
     // (Every room has its kitchen: with no other cell, an island in the
     // board's, at its front, low under the board's view.)
     let mut kitchen_island = false;
-    let take_kitchen = |kinds: &mut Kinds, kitchen_cell: &mut Option<Cell>, kitchen_island: &mut bool| {
-        *kitchen_cell = back_open(kinds).first().copied().or_else(|| not_board(kinds).first().copied());
-        if kitchen_cell.is_none() && kinds[board_col][0].is_none() {
-            *kitchen_cell = Some((board_col, 0));
-            *kitchen_island = true;
-        }
-        if let Some((c, r)) = *kitchen_cell {
-            kinds[c][r] = Some(CellKind::Kitchen);
-        }
-    };
+    let take_kitchen =
+        |kinds: &mut Kinds, kitchen_cell: &mut Option<Cell>, kitchen_island: &mut bool| {
+            *kitchen_cell = back_open(kinds)
+                .first()
+                .copied()
+                .or_else(|| not_board(kinds).first().copied());
+            if kitchen_cell.is_none() && kinds[board_col][0].is_none() {
+                *kitchen_cell = Some((board_col, 0));
+                *kitchen_island = true;
+            }
+            if let Some((c, r)) = *kitchen_cell {
+                kinds[c][r] = Some(CellKind::Kitchen);
+            }
+        };
     let take_lounge = |kinds: &mut Kinds, lounge_cell: &mut Option<Cell>| {
-        *lounge_cell = back_open(kinds).first().copied().or_else(|| open(kinds, &cells, Some(1)).first().copied()).or_else(|| not_board(kinds).first().copied());
+        *lounge_cell = back_open(kinds)
+            .first()
+            .copied()
+            .or_else(|| open(kinds, &cells, Some(1)).first().copied())
+            .or_else(|| not_board(kinds).first().copied());
         if let Some((c, r)) = *lounge_cell {
             kinds[c][r] = Some(CellKind::Lounge);
         }
@@ -371,7 +443,11 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     // The rest: a games corner, then corners of things.
     let mut games = false;
     for (c, r) in open(&kinds, &cells, None) {
-        let k = if !games && !compact && c != board_col { CellKind::Games } else { CellKind::Corner };
+        let k = if !games && !compact && c != board_col {
+            CellKind::Games
+        } else {
+            CellKind::Corner
+        };
         kinds[c][r] = Some(k);
         if k == CellKind::Games {
             games = true;
@@ -402,7 +478,12 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
         let px = (cb.x0 + cb.x1) / 2.;
         let dz = cb.z0 + DESK_IN;
         let k = POD.min(n - p as i64 * POD);
-        pods.push(rect(px - 1.95, dz - 1.35, if k > 1 { px + 1.95 } else { px + 0.45 }, dz + 0.75));
+        pods.push(rect(
+            px - 1.95,
+            dz - 1.35,
+            if k > 1 { px + 1.95 } else { px + 0.45 },
+            dz + 0.75,
+        ));
         for j in 0..k {
             let id = &a.expect("pods mean an area").desks[(p as i64 * POD + j) as usize];
             let side: i32 = if j != 0 { 1 } else { -1 };
@@ -413,7 +494,17 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
             obstacles.push(boxc(dx + sd * 0.48, dz - SEAT, 1.45, 1.3));
             // You stand beside the agent, level with it, facing it, a good step
             // out: seen from the front, clear of it either side, never over it.
-            desks.push(DeskPlace { id: id.clone(), x: dx, z: dz, side, spot: Spot { x: (room_w - PAD_R - 0.1).min(1.6f64.max(dx + sd * 2.3)), z: dz - SEAT + 0.05, face: -sd * (PI / 2.) } });
+            desks.push(DeskPlace {
+                id: id.clone(),
+                x: dx,
+                z: dz,
+                side,
+                spot: Spot {
+                    x: (room_w - PAD_R - 0.1).min(1.6f64.max(dx + sd * 2.3)),
+                    z: dz - SEAT + 0.05,
+                    face: -sd * (PI / 2.),
+                },
+            });
         }
     }
     // A front row's pod has a low planter along its front: green that a close-up
@@ -421,7 +512,11 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     for (p, &(c, r)) in pod_cells.iter().enumerate() {
         let cb = cell_box(c, r);
         if r == ROWS - 1 {
-            prop!(PropKind::Plants, (cb.x0 + cb.x1) / 2. + if p % 2 == 1 { -0.8 } else { 0.8 }, cb.z1 - 0.35);
+            prop!(
+                PropKind::Plants,
+                (cb.x0 + cb.x1) / 2. + if p % 2 == 1 { -0.8 } else { 0.8 },
+                cb.z1 - 0.35
+            );
         }
     }
     // The lead's counter, its lead behind it facing the room, on a mat.
@@ -433,8 +528,21 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
         let cz = cb.z0 + 2.9;
         obstacles.push(boxc(cx, cz, COUNTER.w, COUNTER.d));
         obstacles.push(boxc(cx, cz - 0.75, 0.7, 0.6));
-        props.push(Prop { kind: PropKind::Mat, x: cx, z: cz + 0.25, rot: 0. });
-        lead = Some(LeadPlace { x: cx, z: cz, spot: Spot { x: cx - 1.95, z: cz + 0.55, face: PI / 2. } });
+        props.push(Prop {
+            kind: PropKind::Mat,
+            x: cx,
+            z: cz + 0.25,
+            rot: 0.,
+        });
+        lead = Some(LeadPlace {
+            x: cx,
+            z: cz,
+            spot: Spot {
+                x: cx - 1.95,
+                z: cz + 0.55,
+                face: PI / 2.,
+            },
+        });
     }
 
     // The meeting room, behind glass, at the left wall.
@@ -447,7 +555,12 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
         rect(0., 0., m0.x1 - 0.8, m0.z0 + 2.8)
     };
     if meet_in {
-        obstacles.push(rect(meeting.x0, meeting.z0 - 0.05, meeting.x1 + 0.05, meeting.z1 + 0.05));
+        obstacles.push(rect(
+            meeting.x0,
+            meeting.z0 - 0.05,
+            meeting.x1 + 0.05,
+            meeting.z1 + 0.05,
+        ));
     }
 
     // The kitchen: counters and a fridge against the back wall, an island before
@@ -464,15 +577,37 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
             let kx = cx - if fridge { (fw + 0.1) / 2. } else { 0. };
             prop!(PropKind::Kitchen, kx, kd / 2. + 0.02);
             if fridge {
-                prop!(PropKind::Fridge, kx + kw / 2. + 0.1 + fw / 2., fd / 2. + 0.02);
+                prop!(
+                    PropKind::Fridge,
+                    kx + kw / 2. + 0.1 + fw / 2.,
+                    fd / 2. + 0.02
+                );
             }
             prop!(PropKind::Island, cx, cb.z0 + 0.3 + id / 2.);
-            kitchen_box = Some(rect(kx - kw / 2., 0., if fridge { kx + kw / 2. + 0.1 + fw } else { kx + kw / 2. }, 1.));
+            kitchen_box = Some(rect(
+                kx - kw / 2.,
+                0.,
+                if fridge {
+                    kx + kw / 2. + 0.1 + fw
+                } else {
+                    kx + kw / 2.
+                },
+                1.,
+            ));
         } else {
             // An island alone, with its stools, at the cell's front.
             prop!(PropKind::Island, cx, cb.z1 - 0.6 - id / 2.);
         }
-        woods.push(rect(cb.x0 + 0.15, if r == 0 && !kitchen_island { 0. } else { cb.z0 + 0.15 }, cb.x1 - 0.15, if r == 1 { room_d } else { cb.z1 - 0.15 }));
+        woods.push(rect(
+            cb.x0 + 0.15,
+            if r == 0 && !kitchen_island {
+                0.
+            } else {
+                cb.z0 + 0.15
+            },
+            cb.x1 - 0.15,
+            if r == 1 { room_d } else { cb.z1 - 0.15 },
+        ));
     }
 
     // The lounge: a sectional sofa facing the room, a low table before it, a
@@ -485,11 +620,26 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
         let back = r == 0;
         let lw = 3.4f64.min(cb.x1 - cb.x0 - 2.6);
         let lx0 = cb.x0 + 1.6;
-        lounge = rect(lx0, if back { 0.5 } else { cb.z0 + 0.4 }, lx0 + lw, if back { cb.z0 + 1.6 } else { cb.z0 + 4.4 });
-        sofa = rect(lounge.x0 + 0.3, lounge.z0 + 0.1, lounge.x1 - 0.3, lounge.z0 + 1.05);
+        lounge = rect(
+            lx0,
+            if back { 0.5 } else { cb.z0 + 0.4 },
+            lx0 + lw,
+            if back { cb.z0 + 1.6 } else { cb.z0 + 4.4 },
+        );
+        sofa = rect(
+            lounge.x0 + 0.3,
+            lounge.z0 + 0.1,
+            lounge.x1 - 0.3,
+            lounge.z0 + 1.05,
+        );
         obstacles.push(sofa);
         obstacles.push(rect(sofa.x0, sofa.z1, sofa.x0 + 0.95, sofa.z1 + 1.2));
-        obstacles.push(boxc((sofa.x0 + sofa.x1) / 2. + 0.4, lounge.z0 + 2.65, 1.5, 0.75));
+        obstacles.push(boxc(
+            (sofa.x0 + sofa.x1) / 2. + 0.4,
+            lounge.z0 + 2.65,
+            1.5,
+            0.75,
+        ));
         // The lamp, at the sofa's right end.
         obstacles.push(boxc(sofa.x1 + 0.3, sofa.z1 + 0.9, 0.45, 0.45));
         // (Clear of the spot at the pod next door.)
@@ -497,7 +647,12 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
         let pz = if back { cb.z0 + 1.6 } else { cb.z0 + 2.4 };
         planter = rect(cb.x0 + 0.75, pz - 1.3, cb.x0 + 1.25, pz + 1.3);
         obstacles.push(planter);
-        woods.push(rect(cb.x0 + 0.15, if back { 0. } else { cb.z0 + 0.15 }, cb.x1 - 0.15, if back { cb.z1 - 0.15 } else { room_d }));
+        woods.push(rect(
+            cb.x0 + 0.15,
+            if back { 0. } else { cb.z0 + 0.15 },
+            cb.x1 - 0.15,
+            if back { cb.z1 - 0.15 } else { room_d },
+        ));
     }
 
     // Games: a ping-pong table and arcade cabinets; corners: a few things on a mat.
@@ -510,31 +665,68 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
             prop!(PropKind::Pingpong, cx - 0.5, cz);
             prop!(PropKind::Arcade, cb.x1 - 1.1, cz - 0.5, -PI / 2.);
             prop!(PropKind::Arcade, cb.x1 - 1.1, cz + 0.45, -PI / 2.);
-            woods.push(rect(cb.x0 + 0.15, cb.z0 + 0.15, cb.x1 - 0.15, if r == 1 { room_d } else { cb.z1 - 0.15 }));
+            woods.push(rect(
+                cb.x0 + 0.15,
+                cb.z0 + 0.15,
+                cb.x1 - 0.15,
+                if r == 1 { room_d } else { cb.z1 - 0.15 },
+            ));
         } else if kind == Some(CellKind::Corner) {
             // Clear of the spots at the next cells' pods, either side.
-            free.push((rect(cb.x0 + 1.0, cb.z0 + 0.5, cb.x1 - 1.0, cb.z1 - 0.5), c == board_col && r == 0));
-            woods.push(rect(cb.x0 + 0.15, cb.z0 + 0.15, cb.x1 - 0.15, if r == 1 { room_d } else { cb.z1 - 0.15 }));
+            free.push((
+                rect(cb.x0 + 1.0, cb.z0 + 0.5, cb.x1 - 1.0, cb.z1 - 0.5),
+                c == board_col && r == 0,
+            ));
+            woods.push(rect(
+                cb.x0 + 0.15,
+                cb.z0 + 0.15,
+                cb.x1 - 0.15,
+                if r == 1 { room_d } else { cb.z1 - 0.15 },
+            ));
         }
     }
 
     // The left wall: the window (past a meeting room at the back), the moss wall
     // after it, lockers, and the bookshelf and racks at its far end (or before a
     // meeting room at the front).
-    let wall_from = if meet_in && !meet_front { meeting.z1 + 0.4 } else { 0.5 };
-    let wall_to = if meet_front { meeting.z0 - 0.3 } else { room_d - 1.0 };
+    let wall_from = if meet_in && !meet_front {
+        meeting.z1 + 0.4
+    } else {
+        0.5
+    };
+    let wall_to = if meet_front {
+        meeting.z0 - 0.3
+    } else {
+        room_d - 1.0
+    };
     let shelf = rect(0., wall_to - 1.6, 0.4, wall_to);
     obstacles.push(shelf);
     let rack = pt(0.36, shelf.z0 - 0.5);
     obstacles.push(boxc(rack.x, rack.z, 0.65, 0.65));
-    prop!(PropKind::Rack, foot_of(PropKind::Rack).1 / 2. + 0.03, shelf.z0 - 1.3, PI / 2.);
+    prop!(
+        PropKind::Rack,
+        foot_of(PropKind::Rack).1 / 2. + 0.03,
+        shelf.z0 - 1.3,
+        PI / 2.
+    );
     let win_w = 4.6f64.min(2.2f64.max((shelf.z0 - 1.8 - wall_from) * 0.45));
-    let window = Span { at: wall_from + win_w / 2., w: win_w };
+    let window = Span {
+        at: wall_from + win_w / 2.,
+        w: win_w,
+    };
     let moss_w = 3.6f64.min(1.4f64.max(shelf.z0 - 1.9 - (window.at + win_w / 2.) - 0.4));
-    let moss = Span { at: window.at + win_w / 2. + 0.4 + moss_w / 2., w: moss_w };
+    let moss = Span {
+        at: window.at + win_w / 2. + 0.4 + moss_w / 2.,
+        w: moss_w,
+    };
     let mut lz = moss.at + moss_w / 2. + 1.4;
     while lz + 1.25 < shelf.z0 - 1.8 {
-        prop!(PropKind::Lockers, foot_of(PropKind::Lockers).1 / 2. + 0.02, lz, PI / 2.);
+        prop!(
+            PropKind::Lockers,
+            foot_of(PropKind::Lockers).1 / 2. + 0.02,
+            lz,
+            PI / 2.
+        );
         lz += 3.2;
     }
 
@@ -553,15 +745,34 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     if let Some(kb) = kitchen_box {
         wall_used.push((kb.x0 - 0.2, kb.x1 + 0.2));
     }
-    let mut brick = Span { at: (lounge.x0 + lounge.x1) / 2., w: 3.6f64.min(lounge.x1 - lounge.x0) };
+    let mut brick = Span {
+        at: (lounge.x0 + lounge.x1) / 2.,
+        w: 3.6f64.min(lounge.x1 - lounge.x0),
+    };
     if !lounge_cell.is_some_and(|(_, r)| r == 0) {
         // A back cell not the board's nor the kitchen's.
-        let mut cands: Vec<Rect> = cells.iter().copied().filter(|&(c, r)| r == 0 && c != board_col && kinds[c][r] != Some(CellKind::Kitchen) && kinds[c][r] != Some(CellKind::Meeting)).map(|(c, _)| cell_box(c, 0)).collect();
+        let mut cands: Vec<Rect> = cells
+            .iter()
+            .copied()
+            .filter(|&(c, r)| {
+                r == 0
+                    && c != board_col
+                    && kinds[c][r] != Some(CellKind::Kitchen)
+                    && kinds[c][r] != Some(CellKind::Meeting)
+            })
+            .map(|(c, _)| cell_box(c, 0))
+            .collect();
         let far = |b: &Rect| ((b.x0 + b.x1) / 2. - board_x).abs();
         cands.sort_by(|p, q| far(q).partial_cmp(&far(p)).unwrap_or(Ordering::Equal));
         brick = match cands.first() {
-            Some(at) => Span { at: (at.x0 + at.x1) / 2., w: 3.2 },
-            None => Span { at: room_w - 2.2, w: 2.4 },
+            Some(at) => Span {
+                at: (at.x0 + at.x1) / 2.,
+                w: 3.2,
+            },
+            None => Span {
+                at: room_w - 2.2,
+                w: 2.4,
+            },
         };
     }
     wall_used.push((brick.at - brick.w / 2., brick.at + brick.w / 2.));
@@ -624,7 +835,9 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
                 dx.abs() + tw / 2. <= w / 2. - 0.1 && dz.abs() + td / 2. <= d / 2. - 0.1
             })
         };
-        let theme = (0..themes.len()).map(|i| themes[(themed + h as usize + i) % themes.len()]).find(|th| fits(th));
+        let theme = (0..themes.len())
+            .map(|i| themes[(themed + h as usize + i) % themes.len()])
+            .find(|th| fits(th));
         if let Some(theme) = theme {
             let cx = (f.x0 + f.x1) / 2.;
             let cz = (f.z0 + f.z1) / 2.;
@@ -650,14 +863,33 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
 
     // You read the board from beside its end, in the picture with it: its left
     // end, or its right where the left is taken; else before its left part.
-    let board_spot = [Spot { x: board_x - board_w / 2. - 0.75, z: 1.1, face: PI / 2. }, Spot { x: board_x + board_w / 2. + 0.75, z: 1.1, face: -PI / 2. }]
-        .into_iter()
-        .find(|p| clear_at(&obstacles, p.x, p.z, 0.6))
-        .unwrap_or(Spot { x: board_x - board_w / 2. + 0.8, z: 1.3, face: PI / 2. });
+    let board_spot = [
+        Spot {
+            x: board_x - board_w / 2. - 0.75,
+            z: 1.1,
+            face: PI / 2.,
+        },
+        Spot {
+            x: board_x + board_w / 2. + 0.75,
+            z: 1.1,
+            face: -PI / 2.,
+        },
+    ]
+    .into_iter()
+    .find(|p| clear_at(&obstacles, p.x, p.z, 0.6))
+    .unwrap_or(Spot {
+        x: board_x - board_w / 2. + 0.8,
+        z: 1.3,
+        face: PI / 2.,
+    });
     // You come in at the front, by the middle, in full view: the nearest spot
     // clear of everything, never inside a piece of furniture.
     let want = pt(room_w * 0.55, room_d - 1.3);
-    let mut spawn = Spot { x: want.x, z: want.z, face: -0.5 };
+    let mut spawn = Spot {
+        x: want.x,
+        z: want.z,
+        face: -0.5,
+    };
     let mut around: Vec<(f64, f64, f64)> = Vec::new();
     for ix in -32..=32 {
         let dx = ix as f64 * 0.25;
@@ -674,13 +906,24 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
         spots.push(l.spot);
     }
     spots.push(board_spot);
-    let off_pods = |x: f64, z: f64| pods.iter().all(|q| x < q.x0 - 1.2 || x > q.x1 + 1.2 || z < q.z0 - 1.2 || z > q.z1 + 1.6);
+    let off_pods = |x: f64, z: f64| {
+        pods.iter()
+            .all(|q| x < q.x0 - 1.2 || x > q.x1 + 1.2 || z < q.z0 - 1.2 || z > q.z1 + 1.6)
+    };
     // (Along the front first, before you're anywhere else.)
     let lead_off = |x: f64, z: f64| lead.as_ref().is_none_or(|l| (x - l.x).hypot(z - l.z) > 3.2);
     for (r, front) in [(0.9, true), (1.3, false), (0.75, false)] {
         if spawn.x == want.x && spawn.z == want.z {
             let at = around.iter().find(|&&(x, z, _)| {
-                (!front || z >= room_d - 2.3) && x > 0.8 && x < room_w - 0.8 && z > 0.8 && z < room_d - 0.7 && clear_at(&obstacles, x, z, r) && off_pods(x, z) && lead_off(x, z) && spots.iter().all(|q| (q.x - x).hypot(q.z - z) > 2.6)
+                (!front || z >= room_d - 2.3)
+                    && x > 0.8
+                    && x < room_w - 0.8
+                    && z > 0.8
+                    && z < room_d - 0.7
+                    && clear_at(&obstacles, x, z, r)
+                    && off_pods(x, z)
+                    && lead_off(x, z)
+                    && spots.iter().all(|q| (q.x - x).hypot(q.z - z) > 2.6)
             });
             if let Some(&(x, z, _)) = at {
                 spawn = Spot { x, z, face: -0.5 };
@@ -689,15 +932,29 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     }
 
     let areas: Vec<AreaPlace> = match a {
-        Some(a) => vec![AreaPlace { project: a.project.clone(), rug: rect(PAD_L - 0.5, bk - 0.5, room_w - PAD_R + 0.5, room_d), pods, lead, desks, sign: pt(board_x, bk) }],
+        Some(a) => vec![AreaPlace {
+            project: a.project.clone(),
+            rug: rect(PAD_L - 0.5, bk - 0.5, room_w - PAD_R + 0.5, room_d),
+            pods,
+            lead,
+            desks,
+            sign: pt(board_x, bk),
+        }],
         None => Vec::new(),
     };
-    let wood = woods.first().copied().unwrap_or(rect(room_w, 0., room_w, 0.));
+    let wood = woods
+        .first()
+        .copied()
+        .unwrap_or(rect(room_w, 0., room_w, 0.));
     let has_games = kinds.iter().flatten().any(|k| *k == Some(CellKind::Games));
     Layout {
         room: rect(0., 0., room_w, room_d),
         areas,
-        board: BoardPlace { x: board_x, w: board_w, spot: board_spot },
+        board: BoardPlace {
+            x: board_x,
+            w: board_w,
+            spot: board_spot,
+        },
         lobby: wood,
         wood,
         woods,
@@ -715,7 +972,11 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
         planter,
         rack,
         lounge,
-        variant: if has_games { h as i64 % 3 } else { 3 + (h as i64 % 3) },
+        variant: if has_games {
+            h as i64 % 3
+        } else {
+            3 + (h as i64 % 3)
+        },
         finish: (h as i64 + floor - 1) % 3,
     }
 }
@@ -793,7 +1054,9 @@ pub fn foot_of(k: PropKind) -> (f64, f64) {
 }
 use PropKind::*;
 // (No standing tables: from above they read as empty desks.)
-const ISLANDS: &[PropKind] = &[Tree, Aquarium, Booth, Plants, Beanbags, Vending, Logo, Printer, Shelf, Tree, Whiteboard];
+const ISLANDS: &[PropKind] = &[
+    Tree, Aquarium, Booth, Plants, Beanbags, Vending, Logo, Printer, Shelf, Tree, Whiteboard,
+];
 // What may stand before an area: nothing taller than a desk's monitor, nor
 // leafy, so a close-up looks over it.
 const LOW: &[PropKind] = &[Beanbags, Shelf, Printer, Plants];
@@ -802,11 +1065,23 @@ const LOW: &[PropKind] = &[Beanbags, Shelf, Printer, Plants];
 type Theme = &'static [(PropKind, f64, f64)];
 const NOOK: Theme = &[(Beanbags, -0.95, 0.), (Plants, 1.65, -0.55)];
 const GARDEN: Theme = &[(Plants, -1.6, -0.45), (Logo, 0.3, 0.1), (Plants, 2.1, 0.5)];
-const READING: Theme = &[(Aquarium, -1.25, -0.75), (Logo, 1.3, 0.3), (Plants, -1.2, 0.6)];
-const COFFEE: Theme = &[(Vending, -1.95, -0.45), (Plants, 0., 0.3), (Tree, 1.95, -0.3)];
+const READING: Theme = &[
+    (Aquarium, -1.25, -0.75),
+    (Logo, 1.3, 0.3),
+    (Plants, -1.2, 0.6),
+];
+const COFFEE: Theme = &[
+    (Vending, -1.95, -0.45),
+    (Plants, 0., 0.3),
+    (Tree, 1.95, -0.3),
+];
 const FOCUS: Theme = &[(Booth, -1.15, 0.), (Booth, 0.65, 0.), (Tree, 2.25, 0.2)];
 const LOUNGE: Theme = &[(Beanbags, -1.05, 0.), (Shelf, 1.75, -0.8)];
-const STUDY: Theme = &[(Shelf, -1.5, -0.85), (Plants, -1.2, 0.6), (Printer, 1.6, -0.6)];
+const STUDY: Theme = &[
+    (Shelf, -1.5, -0.85),
+    (Plants, -1.2, 0.6),
+    (Printer, 1.6, -0.6),
+];
 const THEMES: &[Theme] = &[COFFEE, NOOK, FOCUS, GARDEN, READING];
 const LOW_THEMES: &[Theme] = &[LOUNGE, STUDY];
 
@@ -889,7 +1164,11 @@ fn move_box(b: &Rect, ox: f64, oz: f64) -> Rect {
     rect(b.x0 + ox, b.z0 + oz, b.x1 + ox, b.z1 + oz)
 }
 fn move_spot(s: &Spot, ox: f64, oz: f64) -> Spot {
-    Spot { x: s.x + ox, z: s.z + oz, face: s.face }
+    Spot {
+        x: s.x + ox,
+        z: s.z + oz,
+        face: s.face,
+    }
 }
 
 /// floors_of splits a project's desks across the floors it needs, as evenly as
@@ -897,7 +1176,9 @@ fn move_spot(s: &Spot, ox: f64, oz: f64) -> Spot {
 pub fn floors_of(n: usize) -> Vec<usize> {
     let floors = 1.max(n.div_ceil(ROOM_DESKS));
     let base = n / floors;
-    (0..floors).map(|f| base + usize::from(f < n % floors)).collect()
+    (0..floors)
+        .map(|f| base + usize::from(f < n % floors))
+        .collect()
 }
 
 struct Part {
@@ -916,22 +1197,52 @@ pub fn layout(areas_in: &[AreaModel]) -> Campus {
         let mut at = 0;
         for (f, &n) in sizes.iter().enumerate() {
             let desks = a.desks[at..at + n].iter().map(|d| d.id.clone()).collect();
-            parts.push(Part { area: AreaIn { project: a.project.clone(), desks, no_lead: f > 0, floor: Some(f as i64 + 1) }, floor: f as i64 + 1, floors: sizes.len() });
+            parts.push(Part {
+                area: AreaIn {
+                    project: a.project.clone(),
+                    desks,
+                    no_lead: f > 0,
+                    floor: Some(f as i64 + 1),
+                },
+                floor: f as i64 + 1,
+                floors: sizes.len(),
+            });
             at += n;
         }
     }
-    let locals: Vec<Layout> = if parts.is_empty() { vec![room_layout(&[])] } else { parts.iter().map(|p| room_layout(std::slice::from_ref(&p.area))).collect() };
+    let locals: Vec<Layout> = if parts.is_empty() {
+        vec![room_layout(&[])]
+    } else {
+        parts
+            .iter()
+            .map(|p| room_layout(std::slice::from_ref(&p.area)))
+            .collect()
+    };
     // Each building's footprint: its floors' widest and deepest, the steps back
     // included.
     let mut buildings: Vec<Vec<usize>> = Vec::new();
     for i in 0..locals.len() {
         match buildings.last_mut() {
-            Some(last) if parts.get(i).is_some_and(|p| parts.get(last[0]).is_some_and(|q| q.area.project == p.area.project)) => last.push(i),
+            Some(last)
+                if parts.get(i).is_some_and(|p| {
+                    parts
+                        .get(last[0])
+                        .is_some_and(|q| q.area.project == p.area.project)
+                }) =>
+            {
+                last.push(i)
+            }
             _ => buildings.push(vec![i]),
         }
     }
     let foot_w = |b: &[usize]| fmax(b.iter().map(|&i| locals[i].room.x1));
-    let foot_d = |b: &[usize]| fmax(b.iter().enumerate().map(|(k, &i)| locals[i].room.z1 + k as f64 * FLOOR_STEP));
+    let foot_d = |b: &[usize]| {
+        fmax(
+            b.iter()
+                .enumerate()
+                .map(|(k, &i)| locals[i].room.z1 + k as f64 * FLOOR_STEP),
+        )
+    };
     // Rows of buildings: as many to a row as shows them biggest in a window
     // of about the app's shape, seen as the campus's view sees them (a little
     // from the right, from above), their height counted; a wider one when it's
@@ -961,8 +1272,18 @@ pub fn layout(areas_in: &[AreaModel]) -> Campus {
             }
             z += fmax(row.iter().map(|&b| foot_d(&buildings[b]))) + CAMPUS_GAP_Z;
         }
-        let w = fmax(buildings.iter().enumerate().map(|(b, bl)| at[b].0 + foot_w(bl)));
-        let d = fmax(buildings.iter().enumerate().map(|(b, bl)| at[b].1 + foot_d(bl)));
+        let w = fmax(
+            buildings
+                .iter()
+                .enumerate()
+                .map(|(b, bl)| at[b].0 + foot_w(bl)),
+        );
+        let d = fmax(
+            buildings
+                .iter()
+                .enumerate()
+                .map(|(b, bl)| at[b].1 + foot_d(bl)),
+        );
         // A row narrower than the widest is centred under it: no hole in a corner.
         for row in &rows {
             let end = fmax(row.iter().map(|&b| at[b].0 + foot_w(&buildings[b])));
@@ -1000,7 +1321,11 @@ pub fn layout(areas_in: &[AreaModel]) -> Campus {
             let sz = base.1 + k as f64 * FLOOR_STEP;
             // Walked in: the first floor where it's shown, the rest far behind.
             let ox = sx;
-            let oz = if k == 0 { sz } else { sz + FLOOR_AWAY * k as f64 };
+            let oz = if k == 0 {
+                sz
+            } else {
+                sz + FLOOR_AWAY * k as f64
+            };
             shown_boxes.push(move_box(&l.room, sx, sz));
             for a in &l.areas {
                 areas.push(CampusArea {
@@ -1008,8 +1333,21 @@ pub fn layout(areas_in: &[AreaModel]) -> Campus {
                         project: a.project.clone(),
                         rug: move_box(&a.rug, ox, oz),
                         pods: a.pods.iter().map(|q| move_box(q, ox, oz)).collect(),
-                        lead: a.lead.map(|l| LeadPlace { x: l.x + ox, z: l.z + oz, spot: move_spot(&l.spot, ox, oz) }),
-                        desks: a.desks.iter().map(|d| DeskPlace { x: d.x + ox, z: d.z + oz, spot: move_spot(&d.spot, ox, oz), ..d.clone() }).collect(),
+                        lead: a.lead.map(|l| LeadPlace {
+                            x: l.x + ox,
+                            z: l.z + oz,
+                            spot: move_spot(&l.spot, ox, oz),
+                        }),
+                        desks: a
+                            .desks
+                            .iter()
+                            .map(|d| DeskPlace {
+                                x: d.x + ox,
+                                z: d.z + oz,
+                                spot: move_spot(&d.spot, ox, oz),
+                                ..d.clone()
+                            })
+                            .collect(),
                         sign: pt(a.sign.x + ox, a.sign.z + oz),
                     },
                     room: i,
@@ -1032,19 +1370,46 @@ pub fn layout(areas_in: &[AreaModel]) -> Campus {
                 ox,
                 oz,
                 r#box: move_box(&l.room, ox, oz),
-                shown: Shown { dx: sx - ox, dy: k as f64 * FLOOR_LIFT, dz: sz - oz },
+                shown: Shown {
+                    dx: sx - ox,
+                    dy: k as f64 * FLOOR_LIFT,
+                    dz: sz - oz,
+                },
                 local: l.clone(),
-                board: BoardPlace { x: l.board.x + ox, w: l.board.w, spot: move_spot(&l.board.spot, ox, oz) },
+                board: BoardPlace {
+                    x: l.board.x + ox,
+                    w: l.board.w,
+                    spot: move_spot(&l.board.spot, ox, oz),
+                },
                 spawn: move_spot(&l.spawn, ox, oz),
-                desks: l.areas.iter().flat_map(|a| a.desks.iter().map(|d| d.id.clone())).collect(),
+                desks: l
+                    .areas
+                    .iter()
+                    .flat_map(|a| a.desks.iter().map(|d| d.id.clone()))
+                    .collect(),
                 lead: p.is_some_and(|p| !p.area.no_lead),
             });
         }
     }
-    let rooms: Vec<RoomPlace> = rooms.into_iter().map(|r| r.expect("every room is in a building")).collect();
-    let room = rect(0., 0., fmax(shown_boxes.iter().map(|q| q.x1)), fmax(shown_boxes.iter().map(|q| q.z1)));
+    let rooms: Vec<RoomPlace> = rooms
+        .into_iter()
+        .map(|r| r.expect("every room is in a building"))
+        .collect();
+    let room = rect(
+        0.,
+        0.,
+        fmax(shown_boxes.iter().map(|q| q.x1)),
+        fmax(shown_boxes.iter().map(|q| q.z1)),
+    );
     let spawn = rooms[0].spawn;
-    Campus { room, rooms, areas, obstacles, plants, spawn }
+    Campus {
+        room,
+        rooms,
+        areas,
+        obstacles,
+        plants,
+        spawn,
+    }
 }
 
 /// board_ref is a room's board, as a ref.
@@ -1058,9 +1423,14 @@ pub fn room_of(c: &Campus, r#ref: &str) -> Option<usize> {
         return c.rooms.iter().position(|r| board_ref(r) == r#ref);
     }
     if r#ref.ends_with("/lead") {
-        return c.rooms.iter().position(|r| r.lead && format!("{}/lead", r.project) == r#ref);
+        return c
+            .rooms
+            .iter()
+            .position(|r| r.lead && format!("{}/lead", r.project) == r#ref);
     }
-    c.rooms.iter().position(|r| r.desks.iter().any(|d| d == r#ref))
+    c.rooms
+        .iter()
+        .position(|r| r.desks.iter().any(|d| d == r#ref))
 }
 
 /// room_at is the room whose floor p is on.
@@ -1069,13 +1439,22 @@ pub fn room_at(c: &Campus, p: P) -> Option<usize> {
 }
 
 pub fn room_at_margin(c: &Campus, p: P, margin: f64) -> Option<usize> {
-    c.rooms.iter().position(|r| p.x >= r.r#box.x0 - margin && p.x <= r.r#box.x1 + margin && p.z >= r.r#box.z0 - margin && p.z <= r.r#box.z1 + margin)
+    c.rooms.iter().position(|r| {
+        p.x >= r.r#box.x0 - margin
+            && p.x <= r.r#box.x1 + margin
+            && p.z >= r.r#box.z0 - margin
+            && p.z <= r.r#box.z1 + margin
+    })
 }
 
 /// spot_of is where you stand to look at a desk, a lead's counter or a board.
 pub fn spot_of(c: &Campus, r#ref: &str) -> Option<Spot> {
     if r#ref.starts_with("board:") {
-        return c.rooms.iter().find(|r| board_ref(r) == r#ref).map(|r| r.board.spot);
+        return c
+            .rooms
+            .iter()
+            .find(|r| board_ref(r) == r#ref)
+            .map(|r| r.board.spot);
     }
     for a in &c.areas {
         if let Some(l) = &a.lead
@@ -1142,7 +1521,10 @@ mod tests {
             project: project.into(),
             label: project.into(),
             hue: 200.,
-            lead: LeadModel { tone: LeadTone::Idle, line: None },
+            lead: LeadModel {
+                tone: LeadTone::Idle,
+                line: None,
+            },
             desks: (0..n)
                 .map(|i| DeskModel {
                     id: format!("{project}/agent-{}", i + 1),
@@ -1165,47 +1547,104 @@ mod tests {
         a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1
     }
     fn within(outer: &Rect, inner: &Rect) -> bool {
-        inner.x0 >= outer.x0 - 1e-9 && inner.x1 <= outer.x1 + 1e-9 && inner.z0 >= outer.z0 - 1e-9 && inner.z1 <= outer.z1 + 1e-9
+        inner.x0 >= outer.x0 - 1e-9
+            && inner.x1 <= outer.x1 + 1e-9
+            && inner.z0 >= outer.z0 - 1e-9
+            && inner.z1 <= outer.z1 + 1e-9
     }
 
     #[test]
     fn pods_go_a_little_wider_than_deep() {
-        assert_eq!([0, 1, 2, 3, 4, 6, 8, 12, 18].map(columns), [1, 1, 2, 2, 2, 3, 3, 4, 5]);
+        assert_eq!(
+            [0, 1, 2, 3, 4, 6, 8, 12, 18].map(columns),
+            [1, 1, 2, 2, 2, 3, 3, 4, 5]
+        );
     }
 
     #[test]
     fn a_project_of_more_desks_than_a_room_holds_gets_floors_evenly() {
-        let got: Vec<Vec<usize>> = [0, 1, 8, 9, 12, 25, 40].iter().map(|&n| floors_of(n)).collect();
-        assert_eq!(got, vec![vec![0], vec![1], vec![8], vec![5, 4], vec![6, 6], vec![7, 6, 6, 6], vec![8, 8, 8, 8, 8]]);
+        let got: Vec<Vec<usize>> = [0, 1, 8, 9, 12, 25, 40]
+            .iter()
+            .map(|&n| floors_of(n))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                vec![0],
+                vec![1],
+                vec![8],
+                vec![5, 4],
+                vec![6, 6],
+                vec![7, 6, 6, 6],
+                vec![8, 8, 8, 8, 8]
+            ]
+        );
         let c = layout(&[area("big", 25), area("small", 3)]);
-        let got: Vec<(&str, i64, usize, usize, bool)> = c.rooms.iter().map(|r| (r.project.as_str(), r.floor, r.floors, r.desks.len(), r.lead)).collect();
-        assert_eq!(got, [("big", 1, 4, 7, true), ("big", 2, 4, 6, false), ("big", 3, 4, 6, false), ("big", 4, 4, 6, false), ("small", 1, 1, 3, true)]);
+        let got: Vec<(&str, i64, usize, usize, bool)> = c
+            .rooms
+            .iter()
+            .map(|r| (r.project.as_str(), r.floor, r.floors, r.desks.len(), r.lead))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("big", 1, 4, 7, true),
+                ("big", 2, 4, 6, false),
+                ("big", 3, 4, 6, false),
+                ("big", 4, 4, 6, false),
+                ("small", 1, 1, 3, true)
+            ]
+        );
         for r in &c.rooms {
             assert!(r.desks.len() <= ROOM_DESKS);
         }
     }
 
     fn shown(r: &RoomPlace) -> Rect {
-        rect(r.r#box.x0 + r.shown.dx, r.r#box.z0 + r.shown.dz, r.r#box.x1 + r.shown.dx, r.r#box.z1 + r.shown.dz)
+        rect(
+            r.r#box.x0 + r.shown.dx,
+            r.r#box.z0 + r.shown.dz,
+            r.r#box.x1 + r.shown.dx,
+            r.r#box.z1 + r.shown.dz,
+        )
     }
 
     #[test]
-    fn each_room_is_a_diorama_of_its_own_the_campus_about_as_wide_as_deep_or_wider_none_overlapping() {
+    fn each_room_is_a_diorama_of_its_own_the_campus_about_as_wide_as_deep_or_wider_none_overlapping()
+     {
         for n in [vec![1], vec![3, 2], vec![30, 4, 2], vec![3, 7, 1, 12, 2]] {
-            let areas: Vec<AreaModel> = n.iter().enumerate().map(|(i, &k)| area(&format!("p{i}"), k)).collect();
+            let areas: Vec<AreaModel> = n
+                .iter()
+                .enumerate()
+                .map(|(i, &k)| area(&format!("p{i}"), k))
+                .collect();
             let c = layout(&areas);
             let r = c.room.x1 / c.room.z1;
             assert!(r > 0.6 && r < 4.5, "{n:?}: {r:.2}");
             // Shown on the campus, each building's floors on each other; walked in, no
             // two rooms anywhere near.
             for room in &c.rooms {
-                assert!(within(&c.room, &shown(room)), "{} is in the campus", room.key);
+                assert!(
+                    within(&c.room, &shown(room)),
+                    "{} is in the campus",
+                    room.key
+                );
             }
             for i in 0..c.rooms.len() {
                 for j in i + 1..c.rooms.len() {
-                    assert!(!overlaps(&c.rooms[i].r#box, &c.rooms[j].r#box), "{} and {}", c.rooms[i].key, c.rooms[j].key);
+                    assert!(
+                        !overlaps(&c.rooms[i].r#box, &c.rooms[j].r#box),
+                        "{} and {}",
+                        c.rooms[i].key,
+                        c.rooms[j].key
+                    );
                     if c.rooms[i].project != c.rooms[j].project {
-                        assert!(!overlaps(&shown(&c.rooms[i]), &shown(&c.rooms[j])), "{} and {} shown", c.rooms[i].key, c.rooms[j].key);
+                        assert!(
+                            !overlaps(&shown(&c.rooms[i]), &shown(&c.rooms[j])),
+                            "{} and {} shown",
+                            c.rooms[i].key,
+                            c.rooms[j].key
+                        );
                     }
                 }
             }
@@ -1215,7 +1654,11 @@ mod tests {
             }
             // A room is small: about the target's, never the size of a whole office.
             for room in &c.rooms {
-                assert!(room.r#box.x1 - room.r#box.x0 < 32. && room.r#box.z1 - room.r#box.z0 < 18., "{} is small", room.key);
+                assert!(
+                    room.r#box.x1 - room.r#box.x0 < 32. && room.r#box.z1 - room.r#box.z0 < 18.,
+                    "{} is small",
+                    room.key
+                );
             }
         }
     }
@@ -1234,14 +1677,21 @@ mod tests {
         let c = layout(&[area("a", 3), area("b", 14), area("c", 1)]);
         for a in &c.areas {
             let room = &c.rooms[a.room];
-            assert!(within(&room.r#box, &a.rug), "{}'s zone is in its room", a.project);
+            assert!(
+                within(&room.r#box, &a.rug),
+                "{}'s zone is in its room",
+                a.project
+            );
             for d in &a.desks {
                 assert!(d.x > a.rug.x0 && d.x < a.rug.x1 && d.z > a.rug.z0 && d.z < a.rug.z1);
                 assert_eq!(room_of(&c, &d.id), Some(a.room));
                 assert_eq!(room_at(&c, d.spot.at()), Some(a.room));
             }
         }
-        assert_eq!(room_of(&c, "b/lead"), c.rooms.iter().position(|r| r.key == "b#1"));
+        assert_eq!(
+            room_of(&c, "b/lead"),
+            c.rooms.iter().position(|r| r.key == "b#1")
+        );
         assert_eq!(room_of(&c, &board_ref(&c.rooms[2])), Some(2));
     }
 
@@ -1271,33 +1721,80 @@ mod tests {
         for name in ["p", "storefront", "quill", "agentbox", "x", "yy"] {
             for n in [12usize, 9, 8, 4, 2, 1, 0] {
                 for floor in [1, 2, 3, 4] {
-                    let areas = if n > 0 { vec![AreaIn { floor: Some(floor), no_lead: floor > 1, ..(&area(name, n)).into() }] } else { vec![] };
+                    let areas = if n > 0 {
+                        vec![AreaIn {
+                            floor: Some(floor),
+                            no_lead: floor > 1,
+                            ..(&area(name, n)).into()
+                        }]
+                    } else {
+                        vec![]
+                    };
                     let l = room_layout(&areas);
                     // Every cell holds something; these are the things besides the pods, the
                     // counter, the meeting room and the lounge.
-                    assert!(l.props.len() >= if n > 0 { 4 } else { 3 }, "{name} {n}: {} things", l.props.len());
+                    assert!(
+                        l.props.len() >= if n > 0 { 4 } else { 3 },
+                        "{name} {n}: {} things",
+                        l.props.len()
+                    );
                     // Every room has its kitchen, its island at least.
-                    assert!(l.props.iter().any(|p| p.kind == PropKind::Island), "{name} {n} {floor}: a kitchen");
+                    assert!(
+                        l.props.iter().any(|p| p.kind == PropKind::Island),
+                        "{name} {n} {floor}: a kitchen"
+                    );
                     // Mats are floor, walked over: what's on them mustn't overlap but may sit on one.
-                    let solid: Vec<&Prop> = l.props.iter().filter(|p| p.kind != PropKind::Mat).collect();
+                    let solid: Vec<&Prop> =
+                        l.props.iter().filter(|p| p.kind != PropKind::Mat).collect();
                     let feet: Vec<Rect> = solid.iter().map(|p| footprint(p)).collect();
                     for (i, f) in feet.iter().enumerate() {
                         let kind = solid[i].kind;
                         assert!(within(&l.room, f), "{n}: {kind:?} is in the room");
                         assert!(!overlaps(f, &l.sofa), "{n}: {kind:?} is clear of the sofa");
-                        assert!(!overlaps(f, &l.meeting), "{name} {n}: {kind:?} is out of the meeting room");
+                        assert!(
+                            !overlaps(f, &l.meeting),
+                            "{name} {n}: {kind:?} is out of the meeting room"
+                        );
                         // Nothing stands before the board.
-                        assert!(!overlaps(f, &rect(l.board.x - l.board.w / 2., 0., l.board.x + l.board.w / 2., 1.4)), "{name} {n}: {kind:?} is clear of the board");
+                        assert!(
+                            !overlaps(
+                                f,
+                                &rect(
+                                    l.board.x - l.board.w / 2.,
+                                    0.,
+                                    l.board.x + l.board.w / 2.,
+                                    1.4
+                                )
+                            ),
+                            "{name} {n}: {kind:?} is clear of the board"
+                        );
                         for a in &l.areas {
                             for pod in &a.pods {
-                                assert!(!overlaps(f, pod), "{n}: {kind:?} is off {}'s pods", a.project);
+                                assert!(
+                                    !overlaps(f, pod),
+                                    "{n}: {kind:?} is off {}'s pods",
+                                    a.project
+                                );
                             }
                             let Some(lead) = &a.lead else { continue };
-                            let counter = rect(lead.x - COUNTER.w / 2., lead.z - 1.2, lead.x + COUNTER.w / 2., lead.z + COUNTER.d / 2.);
-                            assert!(!overlaps(f, &counter), "{n}: {kind:?} is clear of {}'s counter", a.project);
+                            let counter = rect(
+                                lead.x - COUNTER.w / 2.,
+                                lead.z - 1.2,
+                                lead.x + COUNTER.w / 2.,
+                                lead.z + COUNTER.d / 2.,
+                            );
+                            assert!(
+                                !overlaps(f, &counter),
+                                "{n}: {kind:?} is clear of {}'s counter",
+                                a.project
+                            );
                         }
                         for j in i + 1..feet.len() {
-                            assert!(!overlaps(f, &feet[j]), "{name} {n} {floor}: {kind:?} and {:?}", solid[j].kind);
+                            assert!(
+                                !overlaps(f, &feet[j]),
+                                "{name} {n} {floor}: {kind:?} and {:?}",
+                                solid[j].kind
+                            );
                         }
                     }
                 }
@@ -1306,7 +1803,11 @@ mod tests {
     }
 
     fn every_spot_is_free_floor(sizes: &[usize]) {
-        let areas: Vec<AreaModel> = sizes.iter().enumerate().map(|(i, &k)| area(&format!("p{i}"), k)).collect();
+        let areas: Vec<AreaModel> = sizes
+            .iter()
+            .enumerate()
+            .map(|(i, &k)| area(&format!("p{i}"), k))
+            .collect();
         let c = layout(&areas);
         // As the scene walks you (scene.ts's RADIUS).
         let r = 0.45;
@@ -1321,17 +1822,40 @@ mod tests {
         for r#ref in spots {
             let s = spot_of(&c, &r#ref).unwrap_or_else(|| panic!("{}", r#ref));
             let room = &c.rooms[room_of(&c, &r#ref).unwrap()];
-            let bounds = rect(room.r#box.x0 + r, room.r#box.z0 + r, room.r#box.x1 - r, room.r#box.z1 - r);
-            assert!(!blocked(&boxes, &bounds, s.at()), "{}'s spot is free", r#ref);
+            let bounds = rect(
+                room.r#box.x0 + r,
+                room.r#box.z0 + r,
+                room.r#box.x1 - r,
+                room.r#box.z1 - r,
+            );
+            assert!(
+                !blocked(&boxes, &bounds, s.at()),
+                "{}'s spot is free",
+                r#ref
+            );
             let route = path(&boxes, &bounds, room.spawn.at(), s.at());
             assert!(!route.is_empty(), "{} can be walked to", r#ref);
             assert_eq!(*route.last().unwrap(), s.at());
-            assert_eq!(nearest(&c, s.at()).as_deref(), Some(r#ref.as_str()), "standing at {} is at it", r#ref);
+            assert_eq!(
+                nearest(&c, s.at()).as_deref(),
+                Some(r#ref.as_str()),
+                "standing at {} is at it",
+                r#ref
+            );
         }
         for room in &c.rooms {
             assert_eq!(nearest(&c, room.spawn.at()), None);
-            let bounds = rect(room.r#box.x0 + r, room.r#box.z0 + r, room.r#box.x1 - r, room.r#box.z1 - r);
-            assert!(!blocked(&boxes, &bounds, room.spawn.at()), "{}'s door is free floor", room.key);
+            let bounds = rect(
+                room.r#box.x0 + r,
+                room.r#box.z0 + r,
+                room.r#box.x1 - r,
+                room.r#box.z1 - r,
+            );
+            assert!(
+                !blocked(&boxes, &bounds, room.spawn.at()),
+                "{}'s door is free floor",
+                room.key
+            );
         }
     }
 

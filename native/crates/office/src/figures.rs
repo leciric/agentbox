@@ -49,7 +49,13 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 5] = [Tool::Claude, Tool::Codex, Tool::OpenCode, Tool::Cursor, Tool::Gemini];
+    pub const ALL: [Tool; 5] = [
+        Tool::Claude,
+        Tool::Codex,
+        Tool::OpenCode,
+        Tool::Cursor,
+        Tool::Gemini,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             Tool::Claude => "claude",
@@ -78,7 +84,11 @@ pub fn hash(s: &str) -> u32 {
     let mut h: u32 = 2166136261;
     for ch in s.chars() {
         let c = ch as u32;
-        let unit = if c > 0xFFFF { 0xD800 + ((c - 0x10000) >> 10) } else { c };
+        let unit = if c > 0xFFFF {
+            0xD800 + ((c - 0x10000) >> 10)
+        } else {
+            c
+        };
         h = (h ^ unit).wrapping_mul(16777619);
     }
     h
@@ -106,7 +116,9 @@ impl Rng {
 /// The accents, bright against every mascot's own colours.
 /// Soft, toy-like, and apart from each other at a glance: each one a Boxie's
 /// head and body, so they read apart from across the room.
-pub const ACCENTS: [&str; 8] = ["#ff7aa2", "#45cbb8", "#ffc94d", "#8b7cf6", "#5aaef0", "#ff9150", "#86c95e", "#e077c6"];
+pub const ACCENTS: [&str; 8] = [
+    "#ff7aa2", "#45cbb8", "#ffc94d", "#8b7cf6", "#5aaef0", "#ff9150", "#86c95e", "#e077c6",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Accessory {
@@ -123,7 +135,16 @@ pub enum Accessory {
 
 impl Accessory {
     /// The ones an agent can draw from its hash, in figures.ts's order.
-    pub const ALL: [Accessory; 8] = [Accessory::Beanie, Accessory::Headphones, Accessory::Bow, Accessory::Cap, Accessory::Scarf, Accessory::Crown, Accessory::Sprout, Accessory::None];
+    pub const ALL: [Accessory; 8] = [
+        Accessory::Beanie,
+        Accessory::Headphones,
+        Accessory::Bow,
+        Accessory::Cap,
+        Accessory::Scarf,
+        Accessory::Crown,
+        Accessory::Sprout,
+        Accessory::None,
+    ];
 }
 
 /// The logo's gradient, its hue turned by these many degrees, for an agent's
@@ -182,7 +203,11 @@ fn to_hsl(c: [f32; 3]) -> (f32, f32, f32) {
         return (0., 0., l);
     }
     let d = max - min;
-    let s = if l <= 0.5 { d / (max + min) } else { d / (2. - max - min) };
+    let s = if l <= 0.5 {
+        d / (max + min)
+    } else {
+        d / (2. - max - min)
+    };
     let h = if max == r {
         (g - b) / d + if g < b { 6. } else { 0. }
     } else if max == g {
@@ -199,7 +224,11 @@ fn from_hsl(h: f32, s: f32, l: f32) -> [f32; 3] {
     if s == 0. {
         return [l, l, l];
     }
-    let p = if l <= 0.5 { l * (1. + s) } else { l + s - l * s };
+    let p = if l <= 0.5 {
+        l * (1. + s)
+    } else {
+        l + s - l * s
+    };
     let q = 2. * l - p;
     let f = |t: f32| {
         let t = t.rem_euclid(1.);
@@ -217,7 +246,11 @@ fn from_hsl(h: f32, s: f32, l: f32) -> [f32; 3] {
 }
 
 fn lerp3(a: [f32; 3], b: [f32; 3], k: f32) -> [f32; 3] {
-    [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]
+    [
+        a[0] + (b[0] - a[0]) * k,
+        a[1] + (b[1] - a[1]) * k,
+        a[2] + (b[2] - a[2]) * k,
+    ]
 }
 
 /// Three colours (linear), light to dark.
@@ -230,7 +263,11 @@ pub struct Ramp {
 
 /// The logo's colours: violet to indigo, white lines. The leads wear them.
 pub fn logo() -> Ramp {
-    Ramp { light: mesh::hex("#a78bfa"), mid: mesh::hex("#7c3aed"), dark: mesh::hex("#4f46e5") }
+    Ramp {
+        light: mesh::hex("#a78bfa"),
+        mid: mesh::hex("#7c3aed"),
+        dark: mesh::hex("#4f46e5"),
+    }
 }
 
 /// ramp_of is the logo's gradient in an agent's accent: lighter at the top
@@ -251,7 +288,11 @@ pub fn turned(r: &Ramp, deg: f32) -> Ramp {
     let t = |c: [f32; 3]| {
         let (h, s, l) = to_hsl(c);
         // A little softer than the logo's own, so a room of them stays calm.
-        from_hsl((h + deg / 360. + 1.) % 1., s * if deg != 0. { 0.9 } else { 1. }, l)
+        from_hsl(
+            (h + deg / 360. + 1.) % 1.,
+            s * if deg != 0. { 0.9 } else { 1. },
+            l,
+        )
     };
     // The gradient a little stronger than the logo's own: it shows across a room.
     let lighten = |c: [f32; 3], dl: f32| {
@@ -259,7 +300,11 @@ pub fn turned(r: &Ramp, deg: f32) -> Ramp {
         from_hsl(h, s, (l + dl).clamp(0.2, 0.88))
     };
     let on = deg != 0.;
-    Ramp { light: lighten(t(r.light), if on { 0.08 } else { 0. }), mid: t(r.mid), dark: lighten(t(r.dark), if on { -0.1 } else { 0. }) }
+    Ramp {
+        light: lighten(t(r.light), if on { 0.08 } else { 0. }),
+        mid: t(r.mid),
+        dark: lighten(t(r.dark), if on { -0.1 } else { 0. }),
+    }
 }
 
 /// gradient is a geometry's vertex colours: the ramp's light at its top
@@ -269,7 +314,11 @@ fn gradient(g: &Geo, size: f32, ramp: &Ramp) -> Vec<[f32; 3]> {
         .iter()
         .map(|p| {
             let u = (0.5 + (p.x - p.y + p.z * 0.3) / (2.4 * size)).clamp(0., 1.);
-            if u < 0.55 { lerp3(ramp.light, ramp.mid, u / 0.55) } else { lerp3(ramp.mid, ramp.dark, (u - 0.55) / 0.45) }
+            if u < 0.55 {
+                lerp3(ramp.light, ramp.mid, u / 0.55)
+            } else {
+                lerp3(ramp.mid, ramp.dark, (u - 0.55) / 0.45)
+            }
         })
         .collect()
 }
@@ -278,10 +327,22 @@ fn gradient(g: &Geo, size: f32, ramp: &Ramp) -> Vec<[f32; 3]> {
 /// material's), as three's vertexColors.
 pub fn put_colored(b: &mut Baker, g: &Geo, colors: &[[f32; 3]], m: &Mat, t: Mat4) {
     let clear = m.opacity < 0.999;
-    let i = match b.batches.iter().position(|(tx, c, _)| *tx == m.texture && *c == clear) {
+    let i = match b
+        .batches
+        .iter()
+        .position(|(tx, c, _)| *tx == m.texture && *c == clear)
+    {
         Some(i) => i,
         None => {
-            b.batches.push((m.texture, clear, MeshData { texture: m.texture, transparent: clear, ..Default::default() }));
+            b.batches.push((
+                m.texture,
+                clear,
+                MeshData {
+                    texture: m.texture,
+                    transparent: clear,
+                    ..Default::default()
+                },
+            ));
             b.batches.len() - 1
         }
     };
@@ -289,12 +350,18 @@ pub fn put_colored(b: &mut Baker, g: &Geo, colors: &[[f32; 3]], m: &Mat, t: Mat4
     let base = out.vertices.len() as u32;
     let nm = glam::Mat3::from_mat4(t).inverse().transpose();
     let rgba = m.rgba();
+    #[allow(clippy::needless_range_loop)] // positions, normals, UVs and colours, side by side
     for k in 0..g.pos.len() {
         out.vertices.push(crate::gpu::Vertex {
             pos: t.transform_point3(g.pos[k]).into(),
             normal: (nm * g.normal[k]).normalize_or_zero().into(),
             uv: [g.uv[k].x * m.repeat[0], g.uv[k].y * m.repeat[1]],
-            color: [colors[k][0] * rgba[0], colors[k][1] * rgba[1], colors[k][2] * rgba[2], rgba[3]],
+            color: [
+                colors[k][0] * rgba[0],
+                colors[k][1] * rgba[1],
+                colors[k][2] * rgba[2],
+                rgba[3],
+            ],
         });
     }
     out.indices.extend(g.indices.iter().map(|i| i + base));
@@ -312,7 +379,14 @@ fn push(g: &mut Geo, p: Vec3, n: Vec3, uv: Vec2) -> u32 {
 
 /// lathe turns a profile — (radius, y, normal's radial part, normal's y) from
 /// the top down — about y, as three's SphereGeometry does (and its capsule).
-fn lathe(profile: &[(f32, f32, f32, f32)], seg: usize, phi_start: f32, phi_len: f32, skip_first: bool, skip_last: bool) -> Geo {
+fn lathe(
+    profile: &[(f32, f32, f32, f32)],
+    seg: usize,
+    phi_start: f32,
+    phi_len: f32,
+    skip_first: bool,
+    skip_last: bool,
+) -> Geo {
     let mut g = Geo::default();
     let hs = profile.len() - 1;
     for (j, &(rad, y, nr, ny)) in profile.iter().enumerate() {
@@ -320,7 +394,12 @@ fn lathe(profile: &[(f32, f32, f32, f32)], seg: usize, phi_start: f32, phi_len: 
             let u = i as f32 / seg as f32;
             let ph = phi_start + u * phi_len;
             let d = Vec3::new(-ph.cos(), 0., ph.sin());
-            push(&mut g, Vec3::new(d.x * rad, y, d.z * rad), Vec3::new(d.x * nr, ny, d.z * nr), Vec2::new(u, 1. - j as f32 / hs as f32));
+            push(
+                &mut g,
+                Vec3::new(d.x * rad, y, d.z * rad),
+                Vec3::new(d.x * nr, ny, d.z * nr),
+                Vec2::new(u, 1. - j as f32 / hs as f32),
+            );
         }
     }
     let row = seg as u32 + 1;
@@ -360,7 +439,12 @@ fn capsule(r: f32, length: f32, cap_seg: usize, radial: usize) -> Geo {
     }
     for j in 0..=cap_seg {
         let th = FRAC_PI_2 + j as f32 / cap_seg as f32 * FRAC_PI_2;
-        profile.push((r * th.sin(), -length / 2. + r * th.cos(), th.sin(), th.cos()));
+        profile.push((
+            r * th.sin(),
+            -length / 2. + r * th.cos(),
+            th.sin(),
+            th.cos(),
+        ));
     }
     lathe(&profile, radial, 0., TAU, true, true)
 }
@@ -383,7 +467,12 @@ fn circle(r: f32, seg: usize) -> Geo {
     for i in 0..=seg {
         let a = i as f32 / seg as f32 * TAU;
         let (s, c) = a.sin_cos();
-        push(&mut g, Vec3::new(r * c, r * s, 0.), Vec3::Z, Vec2::new((c + 1.) / 2., 1. - (s + 1.) / 2.));
+        push(
+            &mut g,
+            Vec3::new(r * c, r * s, 0.),
+            Vec3::Z,
+            Vec2::new((c + 1.) / 2., 1. - (s + 1.) / 2.),
+        );
     }
     for i in 0..seg as u32 {
         g.indices.extend([0, i + 1, i + 2]);
@@ -397,8 +486,18 @@ fn ring(inner: f32, outer: f32, seg: usize) -> Geo {
     for i in 0..=seg {
         let a = i as f32 / seg as f32 * TAU;
         let (s, c) = a.sin_cos();
-        push(&mut g, Vec3::new(inner * c, inner * s, 0.), Vec3::Z, Vec2::ZERO);
-        push(&mut g, Vec3::new(outer * c, outer * s, 0.), Vec3::Z, Vec2::ONE);
+        push(
+            &mut g,
+            Vec3::new(inner * c, inner * s, 0.),
+            Vec3::Z,
+            Vec2::ZERO,
+        );
+        push(
+            &mut g,
+            Vec3::new(outer * c, outer * s, 0.),
+            Vec3::Z,
+            Vec2::ONE,
+        );
     }
     for i in 0..seg as u32 {
         let (a, b, c, d) = (i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 3);
@@ -421,7 +520,12 @@ fn tube_arc(c: Vec3, r: f32, e: Vec3, d: Vec3, t: f32) -> Geo {
         for k in 0..=R {
             let a = k as f32 / R as f32 * TAU;
             let n = dir * a.cos() + plane_n * a.sin();
-            push(&mut g, p + n * t, n, Vec2::new(i as f32 / N as f32, k as f32 / R as f32));
+            push(
+                &mut g,
+                p + n * t,
+                n,
+                Vec2::new(i as f32 / N as f32, k as f32 / R as f32),
+            );
         }
     }
     // Wind outwards: whichever way the frame turns.
@@ -483,10 +587,17 @@ fn piping(w: f32, h: f32, d: f32, r: f32, t: f32) -> Geo {
             for sz in [-1., 1.] {
                 let c = Vec3::new(sx * cx, sy * cy, sz * cz);
                 let diag = Vec3::new(sx, sy, sz).normalize();
-                for e in [Vec3::new(0., sy, sz), Vec3::new(sx, 0., sz), Vec3::new(sx, sy, 0.)] {
+                for e in [
+                    Vec3::new(0., sy, sz),
+                    Vec3::new(sx, 0., sz),
+                    Vec3::new(sx, sy, 0.),
+                ] {
                     out.merge(&tube_arc(c, r, e.normalize(), diag, t), Mat4::IDENTITY);
                 }
-                out.merge(&mesh::sphere(t, 8, 6), at(c.x + diag.x * r, c.y + diag.y * r, c.z + diag.z * r));
+                out.merge(
+                    &mesh::sphere(t, 8, 6),
+                    at(c.x + diag.x * r, c.y + diag.y * r, c.z + diag.z * r),
+                );
             }
         }
     }
@@ -555,7 +666,11 @@ pub fn ease(v: f32, target: f32, rate: f32, dt: f32) -> f32 {
 }
 /// bump rises and falls once, smoothly, over [0, 1].
 pub fn bump(u: f32) -> f32 {
-    if u <= 0. || u >= 1. { 0. } else { (PI * u).sin().powi(2) }
+    if u <= 0. || u >= 1. {
+        0.
+    } else {
+        (PI * u).sin().powi(2)
+    }
 }
 
 /// A mesh's parts into a node, with Baker.
@@ -587,7 +702,14 @@ fn tone_color(t: DeskTone) -> &'static str {
         DeskTone::Stopped => "#4b5563",
     }
 }
-const TONES: [DeskTone; 6] = [DeskTone::Needs, DeskTone::Error, DeskTone::Finished, DeskTone::Working, DeskTone::Idle, DeskTone::Stopped];
+const TONES: [DeskTone; 6] = [
+    DeskTone::Needs,
+    DeskTone::Error,
+    DeskTone::Finished,
+    DeskTone::Working,
+    DeskTone::Idle,
+    DeskTone::Stopped,
+];
 fn tone_index(t: DeskTone) -> usize {
     TONES.iter().position(|&x| x == t).unwrap_or(0)
 }
@@ -610,10 +732,36 @@ struct Pose {
 
 impl Pose {
     fn rest() -> Self {
-        Self { lean: 0., yaw: 0., roll: 0., squash: 1., lift: 0., lax: 0., laz: -0.25, rax: 0., raz: 0.25, eye_open: 1., look_x: 0., look_y: 0. }
+        Self {
+            lean: 0.,
+            yaw: 0.,
+            roll: 0.,
+            squash: 1.,
+            lift: 0.,
+            lax: 0.,
+            laz: -0.25,
+            rax: 0.,
+            raz: 0.25,
+            eye_open: 1.,
+            look_x: 0.,
+            look_y: 0.,
+        }
     }
     fn fields(&mut self) -> [&mut f32; 12] {
-        [&mut self.lean, &mut self.yaw, &mut self.roll, &mut self.squash, &mut self.lift, &mut self.lax, &mut self.laz, &mut self.rax, &mut self.raz, &mut self.eye_open, &mut self.look_x, &mut self.look_y]
+        [
+            &mut self.lean,
+            &mut self.yaw,
+            &mut self.roll,
+            &mut self.squash,
+            &mut self.lift,
+            &mut self.lax,
+            &mut self.laz,
+            &mut self.rax,
+            &mut self.raz,
+            &mut self.eye_open,
+            &mut self.look_x,
+            &mut self.look_y,
+        ]
     }
 }
 
@@ -666,7 +814,13 @@ const HEAD: f32 = 0.46;
 /// mascot builds an agent's figure from its ref (a stable hash gives it its
 /// colour and what it wears), its AI tool, whether it's the lead, and its
 /// place in the room (variant).
-pub fn mascot(r#ref: &str, ai: Option<&str>, lead: bool, variant: Option<u32>, kit: &mut Kit) -> Mascot {
+pub fn mascot(
+    r#ref: &str,
+    ai: Option<&str>,
+    lead: bool,
+    variant: Option<u32>,
+    kit: &mut Kit,
+) -> Mascot {
     let tool = tool_of(ai);
     let acc = accent_of(r#ref, variant);
     let mut life = Rng::new(hash(&format!("{}:life", r#ref)));
@@ -682,26 +836,50 @@ pub fn mascot(r#ref: &str, ai: Option<&str>, lead: bool, variant: Option<u32>, k
     let eye_size = 0.062;
 
     // The body a shade under the head, all one colour, as a toy is.
-    let ramp = if lead { logo() } else { turned(&logo(), acc.shift) };
+    let ramp = if lead {
+        logo()
+    } else {
+        turned(&logo(), acc.shift)
+    };
     let coat = Mat::new(lerp3(ramp.mid, ramp.light, 0.15));
     let shoe = toon("#ffffff");
     let badge_tex = badge_texture(kit, tool);
     bake(&mut rig, body, |b| {
         // The body: a soft little bean, legs sticking forward off the seat.
-        b.put(&capsule(0.17, 0.12, 8, 18), &coat, trs(0., 0.22, 0., 0., 0., 0., Vec3::new(1.05, 1., 0.9)));
+        b.put(
+            &capsule(0.17, 0.12, 8, 18),
+            &coat,
+            trs(0., 0.22, 0., 0., 0., 0., Vec3::new(1.05, 1., 0.9)),
+        );
         for sx in [-1., 1.] {
-            b.put(&capsule(0.055, 0.1, 6, 12), &coat, trs(sx * 0.07, 0.07, 0.11, FRAC_PI_2, 0., 0., Vec3::ONE));
-            b.put(&mesh::sphere(0.065, 14, 10), &shoe, at(sx * 0.07, 0.06, 0.2));
+            b.put(
+                &capsule(0.055, 0.1, 6, 12),
+                &coat,
+                trs(sx * 0.07, 0.07, 0.11, FRAC_PI_2, 0., 0., Vec3::ONE),
+            );
+            b.put(
+                &mesh::sphere(0.065, 14, 10),
+                &shoe,
+                at(sx * 0.07, 0.06, 0.2),
+            );
         }
         // Its AI tool's badge, on its chest: what tells a Claude Code agent
         // from a Codex one.
-        b.put(&circle(0.045, 24), &Mat::new([1., 1., 1.]).tex(badge_tex, [1., 1.]), trs(0.06, 0.24, 0.14, -0.15, 0., 0., Vec3::ONE));
+        b.put(
+            &circle(0.045, 24),
+            &Mat::new([1., 1., 1.]).tex(badge_tex, [1., 1.]),
+            trs(0.06, 0.24, 0.14, -0.15, 0., 0., Vec3::ONE),
+        );
     });
     // Stubby arms with round hands (pivots, raised by rotation.z, reaching
     // forward by rotation.x).
     let mut arms = [0; 2];
     for (i, sx) in [-1f32, 1.].into_iter().enumerate() {
-        let p = rig.add(if i == 0 { "arm-l" } else { "arm-r" }, Some(body), Vec3::new(sx * 0.16, 0.27, 0.01));
+        let p = rig.add(
+            if i == 0 { "arm-l" } else { "arm-r" },
+            Some(body),
+            Vec3::new(sx * 0.16, 0.27, 0.01),
+        );
         bake(&mut rig, p, |b| {
             b.put(&capsule(0.045, 0.07, 6, 12), &coat, at(0., -0.06, 0.));
             b.put(&mesh::sphere(0.052, 14, 10), &shoe, at(0., -0.13, 0.));
@@ -719,13 +897,25 @@ pub fn mascot(r#ref: &str, ai: Option<&str>, lead: bool, variant: Option<u32>, k
         let g = mesh::rbox_seg(s, s * 0.92, s * 0.9, 8, 0.16);
         let colors = gradient(&g, s, &ramp);
         put_colored(b, &g, &colors, &toon("#ffffff"), Mat4::IDENTITY);
-        b.put(&piping(s, s * 0.92, s * 0.9, 0.16, 0.032), &toon("#ffffff"), Mat4::IDENTITY);
+        b.put(
+            &piping(s, s * 0.92, s * 0.9, 0.16, 0.032),
+            &toon("#ffffff"),
+            Mat4::IDENTITY,
+        );
         let mut mark = mesh::plane(s * 0.5, s * 0.5);
         for uv in &mut mark.uv {
             uv.y = 1. - uv.y;
         }
-        b.put(&mark, &basic("#ffffff").tex(mark_tex, [1., 1.]), trs(0., s * 0.92 / 2. + 0.003, 0., -FRAC_PI_2, 0., 0., Vec3::ONE));
-        b.put(&mesh::rbox_seg(s * 0.82, s * 0.64, 0.03, 4, 0.07), &Mat::hex("#1a1530"), at(0., -0.01, s * 0.45));
+        b.put(
+            &mark,
+            &basic("#ffffff").tex(mark_tex, [1., 1.]),
+            trs(0., s * 0.92 / 2. + 0.003, 0., -FRAC_PI_2, 0., 0., Vec3::ONE),
+        );
+        b.put(
+            &mesh::rbox_seg(s * 0.82, s * 0.64, 0.03, 4, 0.07),
+            &Mat::hex("#1a1530"),
+            at(0., -0.01, s * 0.45),
+        );
     });
     let face = rig.add("face", Some(head), Vec3::new(0., -0.005, s * 0.45 + 0.017));
 
@@ -742,43 +932,94 @@ pub fn mascot(r#ref: &str, ai: Option<&str>, lead: bool, variant: Option<u32>, k
         bake(&mut rig, open, |b| {
             let sy = Vec3::new(1., 1.25, 1.);
             b.put(&circle(e, 24), &white, trs(0., 0., 0., 0., 0., 0., sy));
-            b.put(&ring(e, e * 1.18, 24), &ink, trs(0., 0., 0., 0., 0., 0., sy));
+            b.put(
+                &ring(e, e * 1.18, 24),
+                &ink,
+                trs(0., 0., 0., 0., 0., 0., sy),
+            );
         });
         let pupil = rig.add("pupil", Some(open), Vec3::new(0., 0., 0.002));
         bake(&mut rig, pupil, |b| {
-            b.put(&circle(e * 0.58, 20), &ink, trs(0., 0., 0., 0., 0., 0., Vec3::new(1., 1.2, 1.)));
+            b.put(
+                &circle(e * 0.58, 20),
+                &ink,
+                trs(0., 0., 0., 0., 0., 0., Vec3::new(1., 1.2, 1.)),
+            );
             b.put(&circle(e * 0.2, 12), &white, at(e * 0.2, e * 0.28, 0.002));
         });
         let happy = rig.add("eye-happy", Some(pivot), Vec3::ZERO);
-        bake(&mut rig, happy, |b| b.put(&mesh::torus(e * 0.75, e * 0.22, 6, 16, PI), &white, Mat4::IDENTITY));
+        bake(&mut rig, happy, |b| {
+            b.put(
+                &mesh::torus(e * 0.75, e * 0.22, 6, 16, PI),
+                &white,
+                Mat4::IDENTITY,
+            )
+        });
         let cross = rig.add("eye-cross", Some(pivot), Vec3::ZERO);
         bake(&mut rig, cross, |b| {
             for a in [0.78, -0.78] {
-                b.put(&mesh::cuboid(e * 1.6, e * 0.35, 0.01), &white, trs(0., 0., 0., 0., 0., a, Vec3::ONE));
+                b.put(
+                    &mesh::cuboid(e * 1.6, e * 0.35, 0.01),
+                    &white,
+                    trs(0., 0., 0., 0., 0., a, Vec3::ONE),
+                );
             }
         });
         let sleep = rig.add("eye-sleep", Some(pivot), Vec3::ZERO);
-        bake(&mut rig, sleep, |b| b.put(&mesh::torus(e * 0.7, e * 0.18, 6, 16, PI), &white, trs(0., 0., 0., 0., 0., PI, Vec3::ONE)));
-        eyes.push(Eye { open, pupil, happy, cross, sleep });
+        bake(&mut rig, sleep, |b| {
+            b.put(
+                &mesh::torus(e * 0.7, e * 0.18, 6, 16, PI),
+                &white,
+                trs(0., 0., 0., 0., 0., PI, Vec3::ONE),
+            )
+        });
+        eyes.push(Eye {
+            open,
+            pupil,
+            happy,
+            cross,
+            sleep,
+        });
     }
     // A blush, for when it's pleased or waving.
     let blush = basic("#ff7fa8").opacity(0.6);
     let mut cheeks = [0; 2];
     for (i, sx) in [-1f32, 1.].into_iter().enumerate() {
-        let c = rig.add("cheek", Some(face), Vec3::new(sx * (eye_gap + e * 1.1), -e * 1.5, 0.001));
-        bake(&mut rig, c, |b| b.put(&circle(e * 0.55, 14), &blush, Mat4::IDENTITY));
+        let c = rig.add(
+            "cheek",
+            Some(face),
+            Vec3::new(sx * (eye_gap + e * 1.1), -e * 1.5, 0.001),
+        );
+        bake(&mut rig, c, |b| {
+            b.put(&circle(e * 0.55, 14), &blush, Mat4::IDENTITY)
+        });
         cheeks[i] = c;
     }
     // Its mouth: open when it calls you, a grin when pleased.
     let mouth = rig.add("mouth", Some(face), Vec3::new(0., -e * 1.55, 0.));
     rig.nodes[mouth].rot.z = PI;
-    bake(&mut rig, mouth, |b| b.put(&mesh::torus(e * 0.45, e * 0.13, 6, 16, PI), &white, Mat4::IDENTITY));
+    bake(&mut rig, mouth, |b| {
+        b.put(
+            &mesh::torus(e * 0.45, e * 0.13, 6, 16, PI),
+            &white,
+            Mat4::IDENTITY,
+        )
+    });
 
     // What it wears stands out against it: another of the accents.
-    let accessory = if lead { Accessory::Headset } else { acc.accessory };
+    let accessory = if lead {
+        Accessory::Headset
+    } else {
+        acc.accessory
+    };
     let at_i = ACCENTS.iter().position(|&c| c == acc.color).unwrap_or(0);
     let top = rig.add("top", Some(body), Vec3::new(0., height, 0.));
-    wear(&mut rig, top, accessory, ACCENTS[(at_i + 3) % ACCENTS.len()]);
+    wear(
+        &mut rig,
+        top,
+        accessory,
+        ACCENTS[(at_i + 3) % ACCENTS.len()],
+    );
 
     // The status light: a little glowing pip over its head (one per state,
     // the current one shown).
@@ -786,7 +1027,13 @@ pub fn mascot(r#ref: &str, ai: Option<&str>, lead: bool, variant: Option<u32>, k
     let mut pips = [0; 6];
     for (i, &t) in TONES.iter().enumerate() {
         let n = rig.add("pip-light", Some(pip), Vec3::ZERO);
-        bake(&mut rig, n, |b| b.put(&mesh::sphere(0.035, 14, 10), &basic(tone_color(t)), Mat4::IDENTITY));
+        bake(&mut rig, n, |b| {
+            b.put(
+                &mesh::sphere(0.035, 14, 10),
+                &basic(tone_color(t)),
+                Mat4::IDENTITY,
+            )
+        });
         rig.nodes[n].visible = false;
         pips[i] = n;
     }
@@ -824,25 +1071,57 @@ fn wear(rig: &mut Rig, top: NodeId, accessory: Accessory, color: &str) {
     let mut parts: Vec<(Geo, Mat, Mat4)> = Vec::new();
     match accessory {
         Accessory::Beanie => {
-            parts.push((sphere_cap(0.15, 20, 10, FRAC_PI_2), fabric, trs(0., 0., 0., 0., 0., 0., Vec3::new(1.2, 0.8, 1.1))));
-            parts.push((mesh::sphere(0.045, 12, 10), toon("#ffffff"), at(0., 0.13, 0.)));
+            parts.push((
+                sphere_cap(0.15, 20, 10, FRAC_PI_2),
+                fabric,
+                trs(0., 0., 0., 0., 0., 0., Vec3::new(1.2, 0.8, 1.1)),
+            ));
+            parts.push((
+                mesh::sphere(0.045, 12, 10),
+                toon("#ffffff"),
+                at(0., 0.13, 0.),
+            ));
         }
         Accessory::Cap => {
-            parts.push((sphere_cap(0.15, 20, 10, FRAC_PI_2), fabric, trs(0., 0., 0., 0., 0., 0., Vec3::new(1.15, 0.6, 1.1))));
-            parts.push((mesh::rbox_seg(0.22, 0.02, 0.13, 2, 0.008), fabric, at(0., 0.01, 0.17)));
+            parts.push((
+                sphere_cap(0.15, 20, 10, FRAC_PI_2),
+                fabric,
+                trs(0., 0., 0., 0., 0., 0., Vec3::new(1.15, 0.6, 1.1)),
+            ));
+            parts.push((
+                mesh::rbox_seg(0.22, 0.02, 0.13, 2, 0.008),
+                fabric,
+                at(0., 0.01, 0.17),
+            ));
         }
         Accessory::Headphones | Accessory::Headset => {
-            parts.push((mesh::torus(0.22, 0.02, 8, 28, PI), fabric, at(0., -0.12, 0.)));
+            parts.push((
+                mesh::torus(0.22, 0.02, 8, 28, PI),
+                fabric,
+                at(0., -0.12, 0.),
+            ));
             for sx in [-1., 1.] {
-                parts.push((mesh::rbox_seg(0.07, 0.13, 0.12, 2, 0.03), fabric, at(sx * 0.23, -0.14, 0.)));
+                parts.push((
+                    mesh::rbox_seg(0.07, 0.13, 0.12, 2, 0.03),
+                    fabric,
+                    at(sx * 0.23, -0.14, 0.),
+                ));
             }
             if accessory == Accessory::Headset {
-                parts.push((mesh::cyl(0.008, 0.008, 0.2, 6), toon("#333333"), trs(0.2, -0.22, 0.1, FRAC_PI_2, 0., -0.6, Vec3::ONE)));
+                parts.push((
+                    mesh::cyl(0.008, 0.008, 0.2, 6),
+                    toon("#333333"),
+                    trs(0.2, -0.22, 0.1, FRAC_PI_2, 0., -0.6, Vec3::ONE),
+                ));
             }
         }
         Accessory::Bow => {
             for s in [-1f32, 1.] {
-                parts.push((mesh::cyl(0., 0.06, 0.1, 12), fabric, trs(s * 0.06, 0.03, 0., 0., 0., s * FRAC_PI_2, Vec3::ONE)));
+                parts.push((
+                    mesh::cyl(0., 0.06, 0.1, 12),
+                    fabric,
+                    trs(s * 0.06, 0.03, 0., 0., 0., s * FRAC_PI_2, Vec3::ONE),
+                ));
             }
             parts.push((mesh::sphere(0.03, 10, 8), fabric, at(0., 0.03, 0.)));
             rig.nodes[top].pos.x = 0.1;
@@ -852,7 +1131,11 @@ fn wear(rig: &mut Rig, top: NodeId, accessory: Accessory, color: &str) {
             parts.push((cyl_open(0.1, 0.11, 0.06, 12), gold, Mat4::IDENTITY));
             for i in 0..5 {
                 let a = i as f32 / 5. * TAU;
-                parts.push((mesh::cyl(0., 0.025, 0.06, 6), gold, at(a.sin() * 0.1, 0.05, a.cos() * 0.1)));
+                parts.push((
+                    mesh::cyl(0., 0.025, 0.06, 6),
+                    gold,
+                    at(a.sin() * 0.1, 0.05, a.cos() * 0.1),
+                ));
             }
             parts.push((mesh::sphere(0.02, 8, 6), fabric, at(0., 0.02, 0.105)));
         }
@@ -860,13 +1143,25 @@ fn wear(rig: &mut Rig, top: NodeId, accessory: Accessory, color: &str) {
             let leaf = toon("#5cc46b");
             parts.push((mesh::cyl(0.008, 0.01, 0.1, 6), leaf, at(0., 0.05, 0.)));
             for s in [-1f32, 1.] {
-                parts.push((mesh::sphere(0.045, 12, 8), leaf, trs(s * 0.045, 0.1, 0., 0., 0., s * 0.5, Vec3::new(1., 0.4, 0.6))));
+                parts.push((
+                    mesh::sphere(0.045, 12, 8),
+                    leaf,
+                    trs(s * 0.045, 0.1, 0., 0., 0., s * 0.5, Vec3::new(1., 0.4, 0.6)),
+                ));
             }
         }
         Accessory::Scarf => {
             rig.nodes[top].pos.y = 0.16;
-            parts.push((mesh::torus(0.19, 0.035, 10, 28, TAU), fabric, trs(0., 0., 0., FRAC_PI_2, 0., 0., Vec3::new(1.15, 0.85, 1.))));
-            parts.push((mesh::rbox_seg(0.06, 0.14, 0.03, 2, 0.01), fabric, trs(0.1, -0.08, 0.2, 0., 0., 0.2, Vec3::ONE)));
+            parts.push((
+                mesh::torus(0.19, 0.035, 10, 28, TAU),
+                fabric,
+                trs(0., 0., 0., FRAC_PI_2, 0., 0., Vec3::new(1.15, 0.85, 1.)),
+            ));
+            parts.push((
+                mesh::rbox_seg(0.06, 0.14, 0.03, 2, 0.01),
+                fabric,
+                trs(0.1, -0.08, 0.2, 0., 0., 0.2, Vec3::ONE),
+            ));
         }
         Accessory::None => {}
     }
@@ -886,7 +1181,10 @@ impl Mascot {
         let t = if motion { t0 + self.phase } else { self.phase };
         let mut tg = Pose::rest();
         let mut mood = Mood::Open;
-        let looking = look.is_some_and(|(x, z)| matches!(tone, DeskTone::Needs | DeskTone::Idle | DeskTone::Finished) && x.hypot(z) < 4.5);
+        let looking = look.is_some_and(|(x, z)| {
+            matches!(tone, DeskTone::Needs | DeskTone::Idle | DeskTone::Finished)
+                && x.hypot(z) < 4.5
+        });
         match tone {
             DeskTone::Working => {
                 // Typing: arms forward, tapping in turn, a little squash with
@@ -919,7 +1217,11 @@ impl Mascot {
                 tg.laz = -0.5 - up * 2.1;
                 tg.raz = 0.5 + up * 2.1;
                 tg.lift = up * 0.12;
-                tg.squash = if j > 0. && j < 1. { 1. + up * 0.15 - if j > 0.85 { 0.12 } else { 0. } } else { 1. + (t * 2.).sin() * 0.01 };
+                tg.squash = if j > 0. && j < 1. {
+                    1. + up * 0.15 - if j > 0.85 { 0.12 } else { 0. }
+                } else {
+                    1. + (t * 2.).sin() * 0.01
+                };
                 tg.lean = -0.06;
                 mood = Mood::Happy;
             }
@@ -937,7 +1239,11 @@ impl Mascot {
             }
             DeskTone::Idle => {
                 // At rest: breathing, looking about now and then.
-                let mut rr = Rng::new(hash(&format!("{}:{}", self.r#ref, (t / 3.2).floor() as i64)));
+                let mut rr = Rng::new(hash(&format!(
+                    "{}:{}",
+                    self.r#ref,
+                    (t / 3.2).floor() as i64
+                )));
                 tg.yaw = (rr.next() as f32 - 0.5) * 0.9;
                 tg.squash = 1. + (t * 1.8).sin() * 0.015;
             }
@@ -962,7 +1268,8 @@ impl Mascot {
         if motion && t0 > self.blink_at {
             self.blink_at = t0 + 2.2 + self.life.next() as f32 * 3.5;
         }
-        let blinking = motion && mood == Mood::Open && self.blink_at - t0 > 0. && self.blink_at - t0 < 0.13;
+        let blinking =
+            motion && mood == Mood::Open && self.blink_at - t0 > 0. && self.blink_at - t0 < 0.13;
         if motion && t0 > self.glance.0 {
             let until = t0 + 0.8 + self.life.next() as f32 * 2.5;
             let x = (self.life.next() as f32 - 0.5) * 1.4;
@@ -976,7 +1283,11 @@ impl Mascot {
         let rates = [10., 10., 10., 16., 16., 10., 10., 10., 10., 10., 10., 10.];
         let targets = tg.fields().map(|f| *f);
         for ((cur, target), rate) in self.cur.fields().into_iter().zip(targets).zip(rates) {
-            *cur = if motion { ease(*cur, target, rate, dt) } else { target };
+            *cur = if motion {
+                ease(*cur, target, rate, dt)
+            } else {
+                target
+            };
         }
         let cur = self.cur;
 
@@ -985,9 +1296,16 @@ impl Mascot {
         let wide = 1. / sq.sqrt();
         let body = &mut self.rig.nodes[self.body];
         body.scale = Vec3::new(wide, sq, wide);
-        body.pos.y = self.hover + cur.lift + if motion && self.hover != 0. { (t * 2.2).sin() * 0.015 } else { 0. };
+        body.pos.y = self.hover
+            + cur.lift
+            + if motion && self.hover != 0. {
+                (t * 2.2).sin() * 0.015
+            } else {
+                0.
+            };
         // (three's Euler order YXZ, as the XYZ the rig keeps.)
-        let (x, y, z) = Quat::from_euler(EulerRot::YXZ, cur.yaw, cur.lean, cur.roll).to_euler(EulerRot::XYZ);
+        let (x, y, z) =
+            Quat::from_euler(EulerRot::YXZ, cur.yaw, cur.lean, cur.roll).to_euler(EulerRot::XYZ);
         body.rot = Vec3::new(x, y, z);
         self.rig.nodes[self.arms[0]].rot = Vec3::new(cur.lax, 0., cur.laz);
         self.rig.nodes[self.arms[1]].rot = Vec3::new(cur.rax, 0., cur.raz);
@@ -1000,7 +1318,8 @@ impl Mascot {
             self.rig.nodes[e.cross].visible = mood == Mood::Cross;
             self.rig.nodes[e.sleep].visible = mood == Mood::Sleep;
             self.rig.nodes[e.open].scale = Vec3::new(1., open.max(0.1), 1.);
-            self.rig.nodes[e.pupil].pos = Vec3::new(cur.look_x * es * 0.35, cur.look_y * es * 0.3, 0.002);
+            self.rig.nodes[e.pupil].pos =
+                Vec3::new(cur.look_x * es * 0.35, cur.look_y * es * 0.3, 0.002);
         }
         let pleased = mood == Mood::Happy || tone == DeskTone::Needs;
         for c in self.cheeks {
@@ -1008,13 +1327,21 @@ impl Mascot {
         }
         let m = &mut self.rig.nodes[self.mouth];
         m.visible = pleased;
-        m.scale = Vec3::new(if tone == DeskTone::Needs { 0.7 } else { 1.4 }, if tone == DeskTone::Needs { 1.8 } else { 1. }, 1.);
+        m.scale = Vec3::new(
+            if tone == DeskTone::Needs { 0.7 } else { 1.4 },
+            if tone == DeskTone::Needs { 1.8 } else { 1. },
+            1.,
+        );
         for (i, p) in self.pips.into_iter().enumerate() {
             self.rig.nodes[p].visible = i == tone_index(tone) && tone != DeskTone::Stopped;
         }
         let pip = &mut self.rig.nodes[self.pip];
         pip.pos.y = self.height + 0.22 + if motion { (t * 2.4).sin() * 0.025 } else { 0. };
-        pip.scale = Vec3::splat(if tone == DeskTone::Needs && motion { 1. + (t0 * 6.).sin().abs() * 0.5 } else { 1. });
+        pip.scale = Vec3::splat(if tone == DeskTone::Needs && motion {
+            1. + (t0 * 6.).sin().abs() * 0.5
+        } else {
+            1.
+        });
     }
 }
 
@@ -1067,7 +1394,11 @@ pub fn walker(_kit: &mut Kit) -> Walker {
             p,
             &[
                 (capsule(0.075, 0.12, 6, 12), pants, at(0., -0.13, 0.)),
-                (mesh::rbox_seg(0.15, 0.1, 0.22, 3, 0.045), shoe, at(0., -0.25, 0.03)),
+                (
+                    mesh::rbox_seg(0.15, 0.1, 0.22, 3, 0.045),
+                    shoe,
+                    at(0., -0.25, 0.03),
+                ),
             ],
         );
         legs[i] = p;
@@ -1077,24 +1408,64 @@ pub fn walker(_kit: &mut Kit) -> Walker {
     rig.bake(
         torso,
         &[
-            (capsule(0.19, 0.14, 8, 16), hoodie, trs(0., 0.17, 0., 0., 0., 0., Vec3::new(1.08, 1., 0.92))),
-            (mesh::sphere(0.15, 16, 12), hood, trs(0., 0.3, -0.12, 0., 0., 0., Vec3::new(1.1, 0.7, 0.6))),
-            (mesh::rbox_seg(0.18, 0.08, 0.04, 2, 0.02), hood, at(0., 0.1, 0.17)),
+            (
+                capsule(0.19, 0.14, 8, 16),
+                hoodie,
+                trs(0., 0.17, 0., 0., 0., 0., Vec3::new(1.08, 1., 0.92)),
+            ),
+            (
+                mesh::sphere(0.15, 16, 12),
+                hood,
+                trs(0., 0.3, -0.12, 0., 0., 0., Vec3::new(1.1, 0.7, 0.6)),
+            ),
+            (
+                mesh::rbox_seg(0.18, 0.08, 0.04, 2, 0.02),
+                hood,
+                at(0., 0.1, 0.17),
+            ),
         ],
     );
     // The big head, with a hair cap and tuft, big eyes, brows, a smile.
     let head = rig.add("head", Some(torso), Vec3::new(0., 0.62, 0.));
     let mut parts = vec![
-        (mesh::sphere(0.27, 32, 24), skin, trs(0., 0., 0., 0., 0., 0., Vec3::new(1.06, 0.98, 1.))),
-        (sphere_cap(0.285, 32, 16, PI * 0.52), hair, trs(0., 0.02, -0.02, -0.4, 0., 0., Vec3::ONE)),
-        (mesh::cyl(0., 0.07, 0.16, 10), hair, trs(0.04, 0.28, 0.02, 0., 0., -0.5, Vec3::ONE)),
-        (mesh::sphere(0.12, 16, 10), hair, trs(0.08, 0.15, 0.18, 0., 0., -0.3, Vec3::new(1.5, 0.5, 0.6))),
+        (
+            mesh::sphere(0.27, 32, 24),
+            skin,
+            trs(0., 0., 0., 0., 0., 0., Vec3::new(1.06, 0.98, 1.)),
+        ),
+        (
+            sphere_cap(0.285, 32, 16, PI * 0.52),
+            hair,
+            trs(0., 0.02, -0.02, -0.4, 0., 0., Vec3::ONE),
+        ),
+        (
+            mesh::cyl(0., 0.07, 0.16, 10),
+            hair,
+            trs(0.04, 0.28, 0.02, 0., 0., -0.5, Vec3::ONE),
+        ),
+        (
+            mesh::sphere(0.12, 16, 10),
+            hair,
+            trs(0.08, 0.15, 0.18, 0., 0., -0.3, Vec3::new(1.5, 0.5, 0.6)),
+        ),
     ];
     for sx in [-1f32, 1.] {
-        parts.push((mesh::sphere(0.06, 12, 10), skin, trs(sx * 0.285, -0.02, 0., 0., 0., 0., Vec3::new(0.5, 1., 0.8))));
-        parts.push((circle(0.035, 16), blush, trs(sx * 0.17, -0.09, 0.225, 0., sx * 0.5, 0., Vec3::ONE)));
+        parts.push((
+            mesh::sphere(0.06, 12, 10),
+            skin,
+            trs(sx * 0.285, -0.02, 0., 0., 0., 0., Vec3::new(0.5, 1., 0.8)),
+        ));
+        parts.push((
+            circle(0.035, 16),
+            blush,
+            trs(sx * 0.17, -0.09, 0.225, 0., sx * 0.5, 0., Vec3::ONE),
+        ));
     }
-    parts.push((mesh::torus(0.035, 0.009, 6, 16, PI), ink, trs(0., -0.1, 0.262, 0., 0., PI, Vec3::ONE)));
+    parts.push((
+        mesh::torus(0.035, 0.009, 6, 16, PI),
+        ink,
+        trs(0., -0.1, 0.262, 0., 0., PI, Vec3::ONE),
+    ));
     rig.bake(head, &parts);
     let mut eyes = [(0, 0); 2];
     for (i, sx) in [-1f32, 1.].into_iter().enumerate() {
@@ -1105,8 +1476,21 @@ pub fn walker(_kit: &mut Kit) -> Walker {
         rig.nodes[sclera].scale.y = 1.35;
         rig.bake(sclera, &[(circle(0.05, 24), ink, Mat4::IDENTITY)]);
         let pupil = rig.add("pupil", Some(e), Vec3::new(0., 0., 0.002));
-        rig.bake(pupil, &[(circle(0.017, 12), white, at(0.016, 0.026, 0.001)), (circle(0.008, 8), white, at(-0.014, -0.02, 0.001))]);
-        rig.bake(e, &[(mesh::rbox_seg(0.075, 0.016, 0.01, 2, 0.006), hair, trs(0., 0.1, 0., 0., 0., sx * -0.15, Vec3::ONE))]);
+        rig.bake(
+            pupil,
+            &[
+                (circle(0.017, 12), white, at(0.016, 0.026, 0.001)),
+                (circle(0.008, 8), white, at(-0.014, -0.02, 0.001)),
+            ],
+        );
+        rig.bake(
+            e,
+            &[(
+                mesh::rbox_seg(0.075, 0.016, 0.01, 2, 0.006),
+                hair,
+                trs(0., 0.1, 0., 0., 0., sx * -0.15, Vec3::ONE),
+            )],
+        );
         eyes[i] = (sclera, pupil);
     }
     // Short arms with round hands.
@@ -1114,10 +1498,29 @@ pub fn walker(_kit: &mut Kit) -> Walker {
     for (i, sx) in [-1f32, 1.].into_iter().enumerate() {
         let sh = rig.add("arm", Some(torso), Vec3::new(sx * 0.2, 0.26, 0.));
         rig.nodes[sh].rot.z = sx * 0.35;
-        rig.bake(sh, &[(capsule(0.06, 0.12, 6, 12), hoodie, at(0., -0.1, 0.)), (mesh::sphere(0.06, 14, 10), skin, at(0., -0.2, 0.))]);
+        rig.bake(
+            sh,
+            &[
+                (capsule(0.06, 0.12, 6, 12), hoodie, at(0., -0.1, 0.)),
+                (mesh::sphere(0.06, 14, 10), skin, at(0., -0.2, 0.)),
+            ],
+        );
         arms[i] = (sh, sx);
     }
-    Walker { rig, squash, legs, torso, head, arms, eyes, gait: 0., last_t: None, k: 0., head_lag: 0., blink_at: 2. }
+    Walker {
+        rig,
+        squash,
+        legs,
+        torso,
+        head,
+        arms,
+        eyes,
+        gait: 0.,
+        last_t: None,
+        k: 0.,
+        head_lag: 0.,
+        blink_at: 2.,
+    }
 }
 
 impl Walker {
@@ -1128,7 +1531,11 @@ impl Walker {
             Some(l) => (t - l).clamp(0., 0.1),
         };
         self.last_t = Some(t);
-        self.k = if motion { ease(self.k, (speed / 2.6).min(1.), 8., dt) } else { 0. };
+        self.k = if motion {
+            ease(self.k, (speed / 2.6).min(1.), 8., dt)
+        } else {
+            0.
+        };
         let k = self.k;
         self.gait += dt * (5. + speed * 2.6);
         let gait = self.gait;
@@ -1136,10 +1543,18 @@ impl Walker {
         self.rig.nodes[self.legs[0]].rot.x = s * 0.7 * k;
         self.rig.nodes[self.legs[1]].rot.x = -s * 0.7 * k;
         for (n, sx) in self.arms {
-            self.rig.nodes[n].rot = Vec3::new(if sx == -1. { s * 0.9 * k } else { -s * 0.9 * k }, 0., sx * (0.35 + 0.15 * k));
+            self.rig.nodes[n].rot = Vec3::new(
+                if sx == -1. { s * 0.9 * k } else { -s * 0.9 * k },
+                0.,
+                sx * (0.35 + 0.15 * k),
+            );
         }
         // Squash on each footfall, stretch between: volume kept.
-        let st = if motion { 1. + (gait * 2.).cos() * 0.07 * k + (t * 2.4).sin() * 0.015 * (1. - k) } else { 1. };
+        let st = if motion {
+            1. + (gait * 2.).cos() * 0.07 * k + (t * 2.4).sin() * 0.015 * (1. - k)
+        } else {
+            1.
+        };
         let wide = 1. / st.sqrt();
         self.rig.nodes[self.squash].scale = Vec3::new(wide, st, wide);
         self.rig.nodes[self.squash].pos.y = (gait * 2.).cos().max(0.) * 0.05 * k;
@@ -1148,8 +1563,16 @@ impl Walker {
         self.head_lag = ease(self.head_lag, -s * 0.12 * k, 10., dt);
         let lag = self.head_lag;
         self.rig.nodes[self.head].rot = Vec3::new(
-            if motion { (t * 0.7).sin() * 0.04 * (1. - k) } else { 0. },
-            (if motion { (t * 0.33).sin() * 0.35 * (1. - k) } else { 0. }) + lag,
+            if motion {
+                (t * 0.7).sin() * 0.04 * (1. - k)
+            } else {
+                0.
+            },
+            (if motion {
+                (t * 0.33).sin() * 0.35 * (1. - k)
+            } else {
+                0.
+            }) + lag,
             lag * 0.5,
         );
         if motion && t > self.blink_at {
@@ -1189,7 +1612,14 @@ mod tests {
                 assert!(!m.indices.is_empty());
                 assert!(m.indices.iter().all(|&i| (i as usize) < m.vertices.len()));
                 for v in &m.vertices {
-                    assert!(v.pos.iter().chain(&v.normal).chain(&v.uv).chain(&v.color).all(|x| x.is_finite()));
+                    assert!(
+                        v.pos
+                            .iter()
+                            .chain(&v.normal)
+                            .chain(&v.uv)
+                            .chain(&v.color)
+                            .all(|x| x.is_finite())
+                    );
                 }
                 n += 1;
             }
@@ -1198,13 +1628,16 @@ mod tests {
     }
 
     fn transforms(rig: &Rig) -> Vec<[f32; 16]> {
-        rig.world(Mat4::IDENTITY).iter().map(|(m, v)| {
-            let mut a = m.to_cols_array();
-            if !v {
-                a[0] = f32::NAN;
-            }
-            a
-        }).collect()
+        rig.world(Mat4::IDENTITY)
+            .iter()
+            .map(|(m, v)| {
+                let mut a = m.to_cols_array();
+                if !v {
+                    a[0] = f32::NAN;
+                }
+                a
+            })
+            .collect()
     }
 
     #[test]
@@ -1220,22 +1653,43 @@ mod tests {
     #[test]
     fn accents_are_javascripts() {
         let a = accent_of("a", None);
-        assert_eq!((a.color, a.accessory, a.shift), ("#8b7cf6", Accessory::None, 64.));
+        assert_eq!(
+            (a.color, a.accessory, a.shift),
+            ("#8b7cf6", Accessory::None, 64.)
+        );
         assert!((a.tint - 0.06485999999999992).abs() < 1e-12);
         let a = accent_of("demo/agent-02", None);
-        assert_eq!((a.color, a.accessory, a.shift), ("#5aaef0", Accessory::Headphones, 84.));
+        assert_eq!(
+            (a.color, a.accessory, a.shift),
+            ("#5aaef0", Accessory::Headphones, 84.)
+        );
         assert!((a.tint + 0.98542).abs() < 1e-12);
         let a = accent_of("agent-740", None);
-        assert_eq!((a.color, a.accessory, a.shift), ("#ff9150", Accessory::Beanie, -40.));
+        assert_eq!(
+            (a.color, a.accessory, a.shift),
+            ("#ff9150", Accessory::Beanie, -40.)
+        );
         let a = accent_of("héllo🙂", None);
-        assert_eq!((a.color, a.accessory, a.shift), ("#e077c6", Accessory::Headphones, -60.));
+        assert_eq!(
+            (a.color, a.accessory, a.shift),
+            ("#e077c6", Accessory::Headphones, -60.)
+        );
         let a = accent_of(&"x".repeat(40), None);
-        assert_eq!((a.color, a.accessory, a.shift), ("#8b7cf6", Accessory::None, -20.));
+        assert_eq!(
+            (a.color, a.accessory, a.shift),
+            ("#8b7cf6", Accessory::None, -20.)
+        );
         // By place in the room.
         let a = accent_of("a", Some(5));
-        assert_eq!((a.color, a.accessory, a.shift), ("#e077c6", Accessory::Crown, -60.));
+        assert_eq!(
+            (a.color, a.accessory, a.shift),
+            ("#e077c6", Accessory::Crown, -60.)
+        );
         let a = accent_of("a", Some(13));
-        assert_eq!((a.color, a.accessory, a.shift), ("#ff7aa2", Accessory::Crown, -60.));
+        assert_eq!(
+            (a.color, a.accessory, a.shift),
+            ("#ff7aa2", Accessory::Crown, -60.)
+        );
     }
 
     fn close(a: [f32; 3], b: [f32; 3]) {
@@ -1287,17 +1741,37 @@ mod tests {
     #[test]
     fn every_tone_poses_it_differently() {
         let mut kit = Kit::default();
-        let tones = [DeskTone::Needs, DeskTone::Error, DeskTone::Finished, DeskTone::Working, DeskTone::Idle, DeskTone::Stopped];
+        let tones = [
+            DeskTone::Needs,
+            DeskTone::Error,
+            DeskTone::Finished,
+            DeskTone::Working,
+            DeskTone::Idle,
+            DeskTone::Stopped,
+        ];
         let mut seen = Vec::new();
         for tone in tones {
             let mut m = mascot("agent-3", None, false, Some(2), &mut kit);
             let rest = transforms(&m.rig);
             m.pose(tone, 1.3, false, None);
             let posed = transforms(&m.rig);
-            assert!(posed.iter().flatten().filter(|x| x.is_finite()).all(|x| x.abs() < 100.));
-            let moved = rest.iter().zip(&posed).any(|(a, b)| a.iter().zip(b).any(|(x, y)| (x.is_nan() != y.is_nan()) || (x - y).abs() > 1e-4));
+            assert!(
+                posed
+                    .iter()
+                    .flatten()
+                    .filter(|x| x.is_finite())
+                    .all(|x| x.abs() < 100.)
+            );
+            let moved = rest.iter().zip(&posed).any(|(a, b)| {
+                a.iter()
+                    .zip(b)
+                    .any(|(x, y)| (x.is_nan() != y.is_nan()) || (x - y).abs() > 1e-4)
+            });
             assert!(moved, "{tone:?} left it as it was");
-            assert!(!seen.contains(&format!("{posed:?}")), "{tone:?} posed like another");
+            assert!(
+                !seen.contains(&format!("{posed:?}")),
+                "{tone:?} posed like another"
+            );
             seen.push(format!("{posed:?}"));
         }
     }
@@ -1313,7 +1787,12 @@ mod tests {
         }
         let b = transforms(&m.rig);
         assert_ne!(format!("{a:?}"), format!("{b:?}"));
-        assert!(b.iter().flatten().filter(|x| x.is_finite()).all(|x| x.is_finite()));
+        assert!(
+            b.iter()
+                .flatten()
+                .filter(|x| x.is_finite())
+                .all(|x| x.is_finite())
+        );
     }
 
     #[test]
@@ -1345,7 +1824,8 @@ mod tests {
             if n.length() < 1e-9 {
                 continue;
             }
-            let avg = (g.normal[t[0] as usize] + g.normal[t[1] as usize] + g.normal[t[2] as usize]).normalize_or_zero();
+            let avg = (g.normal[t[0] as usize] + g.normal[t[1] as usize] + g.normal[t[2] as usize])
+                .normalize_or_zero();
             total += 1;
             if n.normalize().dot(avg) <= 0. {
                 bad += 1;

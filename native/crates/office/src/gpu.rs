@@ -40,7 +40,10 @@ pub struct Instance {
 
 impl Instance {
     pub fn new(model: Mat4, tint: [f32; 4]) -> Self {
-        Self { model: model.to_cols_array_2d(), tint }
+        Self {
+            model: model.to_cols_array_2d(),
+            tint,
+        }
     }
 }
 
@@ -133,7 +136,8 @@ impl Gpu {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("office"),
-                required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+                required_limits: wgpu::Limits::downlevel_defaults()
+                    .using_resolution(adapter.limits()),
                 ..Default::default()
             })
             .await
@@ -184,51 +188,53 @@ impl Gpu {
         });
         let attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4];
         let inst_attrs = wgpu::vertex_attr_array![4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
-        let make = |glass: bool| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("office"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[
-                    Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Vertex>() as u64,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &attrs,
-                    }),
-                    Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Instance>() as u64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &inst_attrs,
-                    }),
-                ],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: COLOR,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: Some(!glass),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let make = |glass: bool| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("office"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[
+                        Some(wgpu::VertexBufferLayout {
+                            array_stride: std::mem::size_of::<Vertex>() as u64,
+                            step_mode: wgpu::VertexStepMode::Vertex,
+                            attributes: &attrs,
+                        }),
+                        Some(wgpu::VertexBufferLayout {
+                            array_stride: std::mem::size_of::<Instance>() as u64,
+                            step_mode: wgpu::VertexStepMode::Instance,
+                            attributes: &inst_attrs,
+                        }),
+                    ],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: COLOR,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH,
+                    depth_write_enabled: Some(!glass),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
         let pipeline = make(false);
         let glass = make(true);
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
@@ -240,7 +246,10 @@ impl Gpu {
         let globals_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("globals"),
             layout: &globals_layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: globals.as_entire_binding(),
+            }],
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Nearest,
@@ -280,7 +289,11 @@ impl Gpu {
 
     /// add_texture uploads an RGBA8 (sRGB) image and returns its index.
     pub fn add_texture(&mut self, w: u32, h: u32, rgba: &[u8]) -> usize {
-        let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+        let size = wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        };
         let tex = self.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size,
@@ -294,7 +307,11 @@ impl Gpu {
         self.queue.write_texture(
             tex.as_image_copy(),
             rgba,
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * w), rows_per_image: None },
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * w),
+                rows_per_image: None,
+            },
             size,
         );
         let view = tex.create_view(&Default::default());
@@ -302,8 +319,14 @@ impl Gpu {
             label: None,
             layout: &self.texture_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
             ],
         });
         self.textures.push(bind);
@@ -325,28 +348,46 @@ impl Gpu {
 
     pub fn add_mesh(&mut self, m: &MeshData) -> MeshId {
         use wgpu::util::DeviceExt as _;
-        let vertices = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&m.vertices),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        let vertices = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(&m.vertices),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+        let indices = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(&m.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        self.meshes.push(GpuMesh {
+            vertices,
+            indices,
+            count: m.indices.len() as u32,
+            texture: m.texture.unwrap_or(0),
+            transparent: m.transparent,
         });
-        let indices = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&m.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        self.meshes.push(GpuMesh { vertices, indices, count: m.indices.len() as u32, texture: m.texture.unwrap_or(0), transparent: m.transparent });
         MeshId(self.meshes.len() - 1)
     }
 
     /// Replaces a mesh's triangles in place (a skinned figure, posed on the CPU).
     pub fn update_mesh(&mut self, id: MeshId, vertices: &[Vertex]) {
-        self.queue.write_buffer(&self.meshes[id.0].vertices, 0, bytemuck::cast_slice(vertices));
+        self.queue.write_buffer(
+            &self.meshes[id.0].vertices,
+            0,
+            bytemuck::cast_slice(vertices),
+        );
     }
 
     fn target(&mut self, w: u32, h: u32) -> &Target {
         if self.target.as_ref().is_none_or(|t| t.w != w || t.h != h) {
-            let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+            let size = wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            };
             let color = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("office color"),
                 size,
@@ -370,21 +411,36 @@ impl Gpu {
                     view_formats: &[],
                 })
                 .create_view(&Default::default());
-            let row = (w * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+            let row = (w * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+                * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
             let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("office readback"),
                 size: (row * h) as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             });
-            self.target = Some(Target { w, h, color, depth, readback, row });
+            self.target = Some(Target {
+                w,
+                h,
+                color,
+                depth,
+                readback,
+                row,
+            });
         }
         self.target.as_ref().unwrap()
     }
 
     /// render draws `draws` (each mesh with its copies) from `camera` at
     /// w×h and reads the picture back.
-    pub fn render(&mut self, w: u32, h: u32, camera: &Camera, clear: [f64; 3], draws: &[(MeshId, Vec<Instance>)]) -> Result<Frame> {
+    pub fn render(
+        &mut self,
+        w: u32,
+        h: u32,
+        camera: &Camera,
+        clear: [f64; 3],
+        draws: &[(MeshId, Vec<Instance>)],
+    ) -> Result<Frame> {
         let w = w.max(1);
         let h = h.max(1);
         let total: u64 = draws.iter().map(|(_, i)| i.len() as u64).sum();
@@ -402,7 +458,8 @@ impl Gpu {
             flat.extend_from_slice(i);
         }
         if !flat.is_empty() {
-            self.queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&flat));
+            self.queue
+                .write_buffer(&self.instances, 0, bytemuck::cast_slice(&flat));
         }
         let sun = Vec3::new(-0.45, 1.0, 0.6).normalize();
         let globals = Globals {
@@ -414,7 +471,8 @@ impl Gpu {
             eye: [camera.eye.x, camera.eye.y, camera.eye.z, 1.],
             fog: [clear[0] as f32, clear[1] as f32, clear[2] as f32, 0.],
         };
-        self.queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
+        self.queue
+            .write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         self.target(w, h);
         let t = self.target.as_ref().unwrap();
         let view = t.color.create_view(&Default::default());
@@ -427,13 +485,21 @@ impl Gpu {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: clear[0], g: clear[1], b: clear[2], a: 1. }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: clear[0],
+                            g: clear[1],
+                            b: clear[2],
+                            a: 1.,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &t.depth,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.), store: wgpu::StoreOp::Discard }),
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.),
+                        store: wgpu::StoreOp::Discard,
+                    }),
                     stencil_ops: None,
                 }),
                 ..Default::default()
@@ -461,9 +527,17 @@ impl Gpu {
             t.color.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
                 buffer: &t.readback,
-                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(t.row), rows_per_image: None },
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(t.row),
+                    rows_per_image: None,
+                },
             },
-            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
         );
         self.queue.submit([enc.finish()]);
         let slice = t.readback.slice(..);
@@ -471,7 +545,9 @@ impl Gpu {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| anyhow!("{e}"))?;
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| anyhow!("{e}"))?;
         rx.recv()?.map_err(|e| anyhow!("{e}"))?;
         let mut bgra = Vec::with_capacity((w * h * 4) as usize);
         {
@@ -482,6 +558,10 @@ impl Gpu {
             }
         }
         t.readback.unmap();
-        Ok(Frame { width: w, height: h, bgra })
+        Ok(Frame {
+            width: w,
+            height: h,
+            bgra,
+        })
     }
 }

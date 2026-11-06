@@ -12,6 +12,7 @@ socket and shows what comes back, with no AgentBox logic of its own.
 | `crates/agentbox-api` | the API's types (generated from Go), a client for the socket, an SSE parser |
 | `crates/app`          | the app, `agentbox-native`                                                   |
 | `crates/fake-daemon`  | a stand-in daemon with fixture agents, for where agents can't run            |
+| `crates/office`       | the Office (#668): its layout, walking, camera and a wgpu renderer, no GPUI  |
 
 ## Build and run
 
@@ -48,6 +49,28 @@ upstream daemon too.
 
 `--project` (demo), `--agents` (6), `--history` (400 messages per agent) and `--rate` (60 chunks a
 second) shape the fixtures. Without `--upstream` it serves one project on its own.
+
+`--neighbours storefront:4,quill:3` adds more projects with a few agents each (no chats), for the
+Office's campus.
+
+## The Office
+
+Settings → General → Office (off by default) adds the Office to the sidebar: #668's campus of
+projects' rooms, where you walk to an agent and open its chat at its desk.
+`AGENTBOX_NATIVE_OFFICE=1` opens it at start.
+
+- `crates/office` has no GPUI: the layout, the model, walking and the camera ported from #668's
+  TypeScript (with its tests), the rooms, props and robots built in code as #668 builds them, and
+  Kenney's models (`assets/kenney`, CC0). It draws with wgpu (the version GPUI uses) offscreen, on a
+  thread of its own, and reads each frame back as BGRA. The app (`src/office.rs`) paints the frame
+  as an image and puts the name tags, cards and chat over it in GPUI.
+- It draws only while something moves or changes: still, it costs no frames and no CPU.
+- On a software adapter (lavapipe, llvmpipe, WARP) it draws anyway and says so, with how to fix it.
+
+Measured on lavapipe (no GPU, 3 cores), 1440×813, `AGENTBOX_NATIVE_BENCH=1`: walking about 28
+fps (render and readback p50 29 ms), standing still 0 frames and about 1% CPU (the app's own idle).
+`cargo run --release -p agentbox-office --example spike` (`OFFICE_SPIKE_BENCH=5`) is the first
+spike: one Kenney model, 59 fps painted by GPUI on lavapipe.
 
 ## The API's types
 

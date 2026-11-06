@@ -9,10 +9,14 @@
 use agentbox_api::{Agent, Client, Fleet, Project, ProjectChat, Question, ReviewItem, ReviewPage};
 use agentbox_i18n::{t, tv};
 use agentbox_office::desks::{AreaLabel, SceneInput};
-use agentbox_office::textures::{BoardColumn, BoardEntry, BoardScreen, LineTone, Screen, ScreenLine};
 use agentbox_office::engine::{Engine, In, Label, LabelKind, Out};
-use agentbox_office::model::{self, AgentSt, DeskTone, LeadTone, OfficeInputs, OfficeModel, PrLook, Row};
+use agentbox_office::model::{
+    self, AgentSt, DeskTone, LeadTone, OfficeInputs, OfficeModel, PrLook, Row,
+};
 use agentbox_office::sim::Note;
+use agentbox_office::textures::{
+    BoardColumn, BoardEntry, BoardScreen, LineTone, Screen, ScreenLine,
+};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
@@ -140,7 +144,12 @@ impl OfficeView {
             reload: None,
             near: None,
             hover: None,
-            at: ViewAt { floor: 1, floors: 1, overview: true, ..Default::default() },
+            at: ViewAt {
+                floor: 1,
+                floors: 1,
+                overview: true,
+                ..Default::default()
+            },
             hint: !crate::prefs::get_bool(HINT_SEEN, false),
             help: false,
             tray: false,
@@ -212,7 +221,9 @@ impl OfficeView {
             return;
         }
         self.reload = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(400)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(400))
+                .await;
             this.update(cx, |this, cx| {
                 this.reload = None;
                 this.load(cx);
@@ -225,21 +236,39 @@ impl OfficeView {
     fn load(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
-            let projects = client.get::<Vec<Project>>("/v1/projects").await.unwrap_or_default();
-            let agents = client.get::<Vec<Agent>>("/v1/agents").await.unwrap_or_default();
-            let review = client.get::<ReviewPage>("/v1/review?limit=200").await.map(|p| p.items).unwrap_or_default();
+            let projects = client
+                .get::<Vec<Project>>("/v1/projects")
+                .await
+                .unwrap_or_default();
+            let agents = client
+                .get::<Vec<Agent>>("/v1/agents")
+                .await
+                .unwrap_or_default();
+            let review = client
+                .get::<ReviewPage>("/v1/review?limit=200")
+                .await
+                .map(|p| p.items)
+                .unwrap_or_default();
             let mut questions = Vec::new();
             let mut leads = HashMap::new();
             let mut fleets = HashMap::new();
             for p in &projects {
-                if let Ok(q) = client.get::<Vec<Question>>(&format!("/v1/projects/{}/questions", p.name)).await {
+                if let Ok(q) = client
+                    .get::<Vec<Question>>(&format!("/v1/projects/{}/questions", p.name))
+                    .await
+                {
                     questions.push((p.name.clone(), q));
                 }
-                if let Ok(l) = client.get::<ProjectChat>(&format!("/v1/projects/{}/lead", p.name)).await {
+                if let Ok(l) = client
+                    .get::<ProjectChat>(&format!("/v1/projects/{}/lead", p.name))
+                    .await
+                {
                     leads.insert(p.name.clone(), l);
                 }
                 if agents.iter().any(|a| a.project == p.name)
-                    && let Ok(f) = client.get::<Fleet>(&format!("/v1/projects/{}/fleet", p.name)).await
+                    && let Ok(f) = client
+                        .get::<Fleet>(&format!("/v1/projects/{}/fleet", p.name))
+                        .await
                 {
                     fleets.insert(p.name.clone(), f);
                 }
@@ -262,31 +291,58 @@ impl OfficeView {
 
     /// rebuild works the model out again and hands it to the Office.
     fn rebuild(&mut self) {
-        let asking: HashSet<&str> = self.questions.iter().flat_map(|(_, q)| q.iter().map(|q| q.r#ref.as_str())).collect();
+        let asking: HashSet<&str> = self
+            .questions
+            .iter()
+            .flat_map(|(_, q)| q.iter().map(|q| q.r#ref.as_str()))
+            .collect();
         let review: HashSet<&str> = self.review.iter().map(|r| r.r#ref.as_str()).collect();
         let rows: Vec<Row> = self
             .agents
             .iter()
             .filter(|a| a.project != agentbox_api::HOME_PROJECT)
             .map(|a| {
-                let st = match agent_st(a, asking.contains(a.r#ref.as_str()), review.contains(a.r#ref.as_str())) {
+                let st = match agent_st(
+                    a,
+                    asking.contains(a.r#ref.as_str()),
+                    review.contains(a.r#ref.as_str()),
+                ) {
                     St::Needs => AgentSt::Needs,
                     St::Error => AgentSt::Error,
                     St::Review => AgentSt::Review,
                     St::Working => AgentSt::Working,
                     St::Done => AgentSt::Done,
                 };
-                Row { agent: a.clone(), st }
+                Row {
+                    agent: a.clone(),
+                    st,
+                }
             })
             .collect();
         let projects: Vec<model::ProjectRef> = self
             .projects
             .iter()
             .filter(|p| p.name != agentbox_api::HOME_PROJECT)
-            .map(|p| model::ProjectRef { name: p.name.clone(), display_name: p.display_name.clone() })
+            .map(|p| model::ProjectRef {
+                name: p.name.clone(),
+                display_name: p.display_name.clone(),
+            })
             .collect();
-        self.model = model::office_model(&OfficeInputs { projects: &projects, rows: &rows, fleets: &self.fleets, questions: &self.questions, leads: &self.leads, review: &self.review });
-        let input = SceneInput { model: self.model.clone(), screens: self.screens(), board: self.board(), you: t("native.office.you"), area_labels: self.area_labels() };
+        self.model = model::office_model(&OfficeInputs {
+            projects: &projects,
+            rows: &rows,
+            fleets: &self.fleets,
+            questions: &self.questions,
+            leads: &self.leads,
+            review: &self.review,
+        });
+        let input = SceneInput {
+            model: self.model.clone(),
+            screens: self.screens(),
+            board: self.board(),
+            you: t("native.office.you"),
+            area_labels: self.area_labels(),
+        };
         self.send(In::Apply(Box::new(input)));
     }
 
@@ -303,26 +359,56 @@ impl OfficeView {
                 Screen {
                     tone: lead_tone,
                     head: t(&format!("native.office.lead.{}", lead_word(area.lead.tone))),
-                    title: tv("native.office.lead.title", &[("project", area.label.as_str().into())]),
+                    title: tv(
+                        "native.office.lead.title",
+                        &[("project", area.label.as_str().into())],
+                    ),
                     lines: match &area.lead.line {
-                        Some(l) => vec![ScreenLine { text: l.clone(), tone: LineTone::Plain }],
-                        None => vec![ScreenLine { text: t("native.office.lead.quiet"), tone: LineTone::Muted }],
+                        Some(l) => vec![ScreenLine {
+                            text: l.clone(),
+                            tone: LineTone::Plain,
+                        }],
+                        None => vec![ScreenLine {
+                            text: t("native.office.lead.quiet"),
+                            tone: LineTone::Muted,
+                        }],
                     },
                 },
             );
             for d in &area.desks {
                 let mut lines = Vec::new();
                 if let Some(q) = &d.question {
-                    lines.push(ScreenLine { text: q.clone(), tone: if d.tone == DeskTone::Error { LineTone::Bad } else { LineTone::Warn } });
+                    lines.push(ScreenLine {
+                        text: q.clone(),
+                        tone: if d.tone == DeskTone::Error {
+                            LineTone::Bad
+                        } else {
+                            LineTone::Warn
+                        },
+                    });
                 }
                 if let Some(pr) = &d.pr {
                     lines.push(pr_line(pr));
                 }
                 if let Some(c) = &d.changes {
-                    lines.push(ScreenLine { text: changes_text(c.files, c.insertions, c.deletions), tone: LineTone::Muted });
+                    lines.push(ScreenLine {
+                        text: changes_text(c.files, c.insertions, c.deletions),
+                        tone: LineTone::Muted,
+                    });
                 }
-                lines.push(ScreenLine { text: d.branch.clone(), tone: LineTone::Code });
-                out.insert(d.id.clone(), Screen { tone: d.tone, head: tone_label(d.tone), title: d.title.clone(), lines });
+                lines.push(ScreenLine {
+                    text: d.branch.clone(),
+                    tone: LineTone::Code,
+                });
+                out.insert(
+                    d.id.clone(),
+                    Screen {
+                        tone: d.tone,
+                        head: tone_label(d.tone),
+                        title: d.title.clone(),
+                        lines,
+                    },
+                );
             }
         }
         out
@@ -330,18 +416,28 @@ impl OfficeView {
 
     fn board(&self) -> BoardScreen {
         let label = |project: &str, r: &str| -> String {
-            let Some(a) = self.model.areas.iter().find(|a| a.project == project) else { return project.to_string() };
+            let Some(a) = self.model.areas.iter().find(|a| a.project == project) else {
+                return project.to_string();
+            };
             let sizes = agentbox_office::layout::floors_of(a.desks.len());
             if r.ends_with("/lead") || sizes.len() < 2 {
                 return a.label.clone();
             }
-            let Some(mut at) = a.desks.iter().position(|d| d.id == r) else { return a.label.clone() };
+            let Some(mut at) = a.desks.iter().position(|d| d.id == r) else {
+                return a.label.clone();
+            };
             let mut floor = 0;
             while floor < sizes.len() - 1 && at >= sizes[floor] {
                 at -= sizes[floor];
                 floor += 1;
             }
-            tv("native.office.floor", &[("name", a.label.as_str().into()), ("floor", ((floor + 1) as i64).into())])
+            tv(
+                "native.office.floor",
+                &[
+                    ("name", a.label.as_str().into()),
+                    ("floor", ((floor + 1) as i64).into()),
+                ],
+            )
         };
         let sub = |i: &model::BoardItem| -> String {
             if i.r#ref.ends_with("/lead") {
@@ -349,8 +445,17 @@ impl OfficeView {
             } else if let Some(text) = &i.text {
                 format!("{} · {text}", label(&i.project, &i.r#ref))
             } else if let Some(pr) = &i.pr {
-                let failing = if pr.checks == model::PrChecks::Failing { format!(" · {}", t("native.office.checks.failing")) } else { String::new() };
-                format!("{} · #{} {}{failing}", label(&i.project, &i.r#ref), pr.number, t(&format!("native.office.pr.{}", pr_state(pr))))
+                let failing = if pr.checks == model::PrChecks::Failing {
+                    format!(" · {}", t("native.office.checks.failing"))
+                } else {
+                    String::new()
+                };
+                format!(
+                    "{} · #{} {}{failing}",
+                    label(&i.project, &i.r#ref),
+                    pr.number,
+                    t(&format!("native.office.pr.{}", pr_state(pr)))
+                )
             } else {
                 label(&i.project, &i.r#ref)
             }
@@ -358,12 +463,32 @@ impl OfficeView {
         let col = |items: &[model::BoardItem], head: &str, empty: &str| BoardColumn {
             head: t(head),
             empty: t(empty),
-            items: items.iter().map(|i| BoardEntry { r#ref: i.r#ref.clone(), title: i.title.clone(), sub: sub(i), tone: i.tone, failing: i.pr.as_ref().is_some_and(|p| p.checks == model::PrChecks::Failing) }).collect(),
+            items: items
+                .iter()
+                .map(|i| BoardEntry {
+                    r#ref: i.r#ref.clone(),
+                    title: i.title.clone(),
+                    sub: sub(i),
+                    tone: i.tone,
+                    failing: i
+                        .pr
+                        .as_ref()
+                        .is_some_and(|p| p.checks == model::PrChecks::Failing),
+                })
+                .collect(),
         };
         BoardScreen {
             title: t("native.office.board.title"),
-            needs: col(&self.model.board.needs, "native.office.board.needs", "native.office.board.needsEmpty"),
-            review: col(&self.model.board.review, "native.office.board.review", "native.office.board.reviewEmpty"),
+            needs: col(
+                &self.model.board.needs,
+                "native.office.board.needs",
+                "native.office.board.needsEmpty",
+            ),
+            review: col(
+                &self.model.board.review,
+                "native.office.board.review",
+                "native.office.board.reviewEmpty",
+            ),
         }
     }
 
@@ -371,17 +496,42 @@ impl OfficeView {
         let mut out = HashMap::new();
         for a in &self.model.areas {
             let n = |tone: DeskTone| a.desks.iter().filter(|d| d.tone == tone).count() as i64;
-            let needs = n(DeskTone::Needs) + n(DeskTone::Error) + i64::from(a.lead.tone == LeadTone::Needs);
+            let needs =
+                n(DeskTone::Needs) + n(DeskTone::Error) + i64::from(a.lead.tone == LeadTone::Needs);
             let parts: Vec<String> = [
                 (needs > 0).then(|| tv("native.office.count.needs", &[("count", needs.into())])),
-                (n(DeskTone::Working) > 0).then(|| tv("native.office.count.working", &[("count", n(DeskTone::Working).into())])),
-                (n(DeskTone::Finished) > 0).then(|| tv("native.office.count.review", &[("count", n(DeskTone::Finished).into())])),
+                (n(DeskTone::Working) > 0).then(|| {
+                    tv(
+                        "native.office.count.working",
+                        &[("count", n(DeskTone::Working).into())],
+                    )
+                }),
+                (n(DeskTone::Finished) > 0).then(|| {
+                    tv(
+                        "native.office.count.review",
+                        &[("count", n(DeskTone::Finished).into())],
+                    )
+                }),
             ]
             .into_iter()
             .flatten()
             .collect();
-            let sub = if parts.is_empty() { tv("native.office.lead.agents", &[("count", (a.desks.len() as i64).into())]) } else { parts.join(" · ") };
-            out.insert(a.project.clone(), AreaLabel { name: a.label.clone(), sub, count: needs });
+            let sub = if parts.is_empty() {
+                tv(
+                    "native.office.lead.agents",
+                    &[("count", (a.desks.len() as i64).into())],
+                )
+            } else {
+                parts.join(" · ")
+            };
+            out.insert(
+                a.project.clone(),
+                AreaLabel {
+                    name: a.label.clone(),
+                    sub,
+                    count: needs,
+                },
+            );
         }
         out
     }
@@ -391,11 +541,17 @@ impl OfficeView {
         match out {
             Out::Adapter { name, software } => self.adapter = Some((name, software)),
             Out::Failed(e) => self.failed = Some(e),
-            Out::Frame { frame, labels, render_ms } => {
+            Out::Frame {
+                frame,
+                labels,
+                render_ms,
+            } => {
                 if let Some((_, r)) = &mut self.bench {
                     r.push(render_ms);
                 }
-                if let Some(rgba) = image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra) {
+                if let Some(rgba) =
+                    image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra)
+                {
                     let img = Arc::new(RenderImage::new(vec![image::Frame::new(rgba)]));
                     if let Some(old) = self.frame.replace(img) {
                         self.stale.push(old);
@@ -420,7 +576,19 @@ impl OfficeView {
                 // what it looks at clear of it.
                 self.cover();
             }
-            Note::View { project, floor, floors, overview } => self.at = ViewAt { project, floor, floors, overview },
+            Note::View {
+                project,
+                floor,
+                floors,
+                overview,
+            } => {
+                self.at = ViewAt {
+                    project,
+                    floor,
+                    floors,
+                    overview,
+                }
+            }
             Note::Hover(r) => self.hover = r,
             Note::Activate(r) => self.activate(&r, cx),
             Note::Moved => {
@@ -442,7 +610,11 @@ impl OfficeView {
     }
 
     fn cover(&self) {
-        let w = self.bounds.get().map(|b| f32::from(b.size.width)).unwrap_or(1440.);
+        let w = self
+            .bounds
+            .get()
+            .map(|b| f32::from(b.size.width))
+            .unwrap_or(1440.);
         let c = if self.chat.is_some() {
             chat_width(w)
         } else if self.near.is_some() {
@@ -461,8 +633,13 @@ impl OfficeView {
     }
 
     fn activate(&mut self, r: &str, cx: &mut Context<Self>) {
-        let Some((project, who)) = r.split_once('/') else { return };
-        cx.emit(OfficeEvent::Open { project: project.to_string(), who: who.to_string() });
+        let Some((project, who)) = r.split_once('/') else {
+            return;
+        };
+        cx.emit(OfficeEvent::Open {
+            project: project.to_string(),
+            who: who.to_string(),
+        });
     }
 
     /// next walks to the next desk that needs you (N), in the board's order.
@@ -471,14 +648,20 @@ impl OfficeView {
         if needs.is_empty() {
             return;
         }
-        let at = self.near.as_ref().and_then(|n| needs.iter().position(|i| &i.r#ref == n));
+        let at = self
+            .near
+            .as_ref()
+            .and_then(|n| needs.iter().position(|i| &i.r#ref == n));
         let i = at.map_or(0, |i| (i + 1) % needs.len());
         self.send(In::WalkTo(needs[i].r#ref.clone()));
     }
 
     fn local(&self, p: Point<Pixels>) -> (f64, f64) {
         let o = self.bounds.get().map(|b| b.origin).unwrap_or_default();
-        (f64::from(f32::from(p.x - o.x)), f64::from(f32::from(p.y - o.y)))
+        (
+            f64::from(f32::from(p.x - o.x)),
+            f64::from(f32::from(p.y - o.y)),
+        )
     }
 
     fn key_name(k: &Keystroke) -> Option<&'static str> {
@@ -506,7 +689,12 @@ impl OfficeView {
 /// cpu_secs is the CPU this process has used (Linux; 0 elsewhere).
 fn cpu_secs() -> f32 {
     let s = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
-    let f: Vec<&str> = s.rsplit(')').next().unwrap_or("").split_whitespace().collect();
+    let f: Vec<&str> = s
+        .rsplit(')')
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .collect();
     let t = |i: usize| f.get(i).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.);
     (t(11) + t(12)) / 100.
 }
@@ -551,7 +739,17 @@ fn pr_line(pr: &PrLook) -> ScreenLine {
         model::PrChecks::Pending => format!(" · {}", t("native.office.checks.pending")),
     };
     ScreenLine {
-        text: tv("native.office.pr.line", &[("number", pr.number.into()), ("state", t(&format!("native.office.pr.{}", pr_state(pr))).into()), ("checks", checks.into())]),
+        text: tv(
+            "native.office.pr.line",
+            &[
+                ("number", pr.number.into()),
+                (
+                    "state",
+                    t(&format!("native.office.pr.{}", pr_state(pr))).into(),
+                ),
+                ("checks", checks.into()),
+            ],
+        ),
         tone: if pr.checks == model::PrChecks::Failing {
             LineTone::Bad
         } else if pr.state == model::PrState::Merged {
@@ -565,7 +763,14 @@ fn pr_line(pr: &PrLook) -> ScreenLine {
 }
 
 fn changes_text(files: i64, insertions: i64, deletions: i64) -> String {
-    tv("native.office.changes", &[("files", files.into()), ("insertions", insertions.into()), ("deletions", deletions.into())])
+    tv(
+        "native.office.changes",
+        &[
+            ("files", files.into()),
+            ("insertions", insertions.into()),
+            ("deletions", deletions.into()),
+        ],
+    )
 }
 
 /// tone_color is a tone's colour (textures.ts toneColor).
@@ -604,11 +809,27 @@ fn software_fix() -> String {
 
 /// A card's look over the room: the app's panel colour, raised.
 fn card() -> Div {
-    div().bg(theme::overlay()).border_1().border_color(theme::line()).rounded_lg().shadow_lg().text_color(theme::primary())
+    div()
+        .bg(theme::overlay())
+        .border_1()
+        .border_color(theme::line())
+        .rounded_lg()
+        .shadow_lg()
+        .text_color(theme::primary())
 }
 
 fn button(id: impl Into<ElementId>, label: impl IntoElement) -> Stateful<Div> {
-    h_flex().id(id).gap_1().px_2().h_7().items_center().rounded_md().text_sm().cursor_pointer().hover(|el| el.bg(theme::surface_strong())).child(label)
+    h_flex()
+        .id(id)
+        .gap_1()
+        .px_2()
+        .h_7()
+        .items_center()
+        .rounded_md()
+        .text_sm()
+        .cursor_pointer()
+        .hover(|el| el.bg(theme::surface_strong()))
+        .child(label)
 }
 
 fn tip(el: Stateful<Div>, s: String) -> Stateful<Div> {
@@ -637,18 +858,56 @@ impl Render for OfficeView {
             let size = (f32::from(b.size.width), f32::from(b.size.height), scale);
             if self.sent != Some(size) {
                 self.sent = Some(size);
-                self.send(In::Size { w: size.0, h: size.1, scale });
+                self.send(In::Size {
+                    w: size.0,
+                    h: size.1,
+                    scale,
+                });
                 self.cover();
             }
         }
-        let w = bounds.get().map(|b| f32::from(b.size.width)).unwrap_or(1440.);
-        let near_desk = self.near.as_ref().and_then(|n| self.model.areas.iter().flat_map(|a| a.desks.iter()).find(|d| &d.id == n)).cloned();
-        let near_lead = self.near.as_ref().filter(|n| n.ends_with("/lead")).and_then(|n| self.model.areas.iter().find(|a| model::lead_ref(&a.project) == *n)).cloned();
+        let w = bounds
+            .get()
+            .map(|b| f32::from(b.size.width))
+            .unwrap_or(1440.);
+        let near_desk = self
+            .near
+            .as_ref()
+            .and_then(|n| {
+                self.model
+                    .areas
+                    .iter()
+                    .flat_map(|a| a.desks.iter())
+                    .find(|d| &d.id == n)
+            })
+            .cloned();
+        let near_lead = self
+            .near
+            .as_ref()
+            .filter(|n| n.ends_with("/lead"))
+            .and_then(|n| {
+                self.model
+                    .areas
+                    .iter()
+                    .find(|a| model::lead_ref(&a.project) == *n)
+            })
+            .cloned();
         let needs = self.model.board.needs.len();
-        let working = self.model.areas.iter().flat_map(|a| a.desks.iter()).filter(|d| d.tone == DeskTone::Working).count();
+        let working = self
+            .model
+            .areas
+            .iter()
+            .flat_map(|a| a.desks.iter())
+            .filter(|d| d.tone == DeskTone::Working)
+            .count();
         let to_review = self.model.board.review.len();
         let empty = self.loaded && self.model.areas.is_empty();
-        let room_name = self.at.project.as_ref().and_then(|p| self.model.areas.iter().find(|a| &a.project == p)).map(|a| a.label.clone());
+        let room_name = self
+            .at
+            .project
+            .as_ref()
+            .and_then(|p| self.model.areas.iter().find(|a| &a.project == p))
+            .map(|a| a.label.clone());
 
         div()
             .id("office")
@@ -660,13 +919,21 @@ impl Render for OfficeView {
             .bg(rgb(0xdbe7ef))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                 if let Some(k) = Self::key_name(&ev.keystroke) {
-                    this.send(In::Key { key: k.into(), down: true, repeat: ev.is_held });
+                    this.send(In::Key {
+                        key: k.into(),
+                        down: true,
+                        repeat: ev.is_held,
+                    });
                     cx.stop_propagation();
                 }
             }))
             .on_key_up(cx.listener(|this, ev: &KeyUpEvent, _, _| {
                 if let Some(k) = Self::key_name(&ev.keystroke) {
-                    this.send(In::Key { key: k.into(), down: false, repeat: false });
+                    this.send(In::Key {
+                        key: k.into(),
+                        down: false,
+                        repeat: false,
+                    });
                 }
             }))
             .on_mouse_down(
@@ -679,7 +946,10 @@ impl Render for OfficeView {
                 }),
             )
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, _| {
-                let dx = this.last_mouse.map(|p| f64::from(f32::from(ev.position.x - p.x))).unwrap_or(0.);
+                let dx = this
+                    .last_mouse
+                    .map(|p| f64::from(f32::from(ev.position.x - p.x)))
+                    .unwrap_or(0.);
                 this.last_mouse = Some(ev.position);
                 let (x, y) = this.local(ev.position);
                 this.send(In::PointerMove { x, y, dx });
@@ -700,10 +970,18 @@ impl Render for OfficeView {
                 let d = ev.delta.pixel_delta(px(33.));
                 let (x, y) = this.local(ev.position);
                 // As a browser's deltaY: positive is outwards.
-                this.send(In::Wheel { x, y, delta: -f64::from(f32::from(d.y)) });
+                this.send(In::Wheel {
+                    x,
+                    y,
+                    delta: -f64::from(f32::from(d.y)),
+                });
             }))
             .when(self.hover.is_some(), |el| el.cursor_pointer())
-            .children(self.frame.clone().map(|f| img(f).absolute().inset_0().size_full()))
+            .children(
+                self.frame
+                    .clone()
+                    .map(|f| img(f).absolute().inset_0().size_full()),
+            )
             .child(
                 canvas(
                     move |b, window, _| {
@@ -720,7 +998,11 @@ impl Render for OfficeView {
             .children(self.labels.iter().map(label_el))
             .child(self.top_bar(room_name, cx))
             .when(self.at.project.is_some() || !self.at.overview, |el| {
-                el.child(div().absolute().top_3().right_3().child(card().child(button("office-overview", t("native.office.overview")).on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(In::Overview))))))
+                el.child(div().absolute().top_3().right_3().child(card().child(
+                    button("office-overview", t("native.office.overview")).on_click(
+                        cx.listener(|this, _: &ClickEvent, _, _| this.send(In::Overview)),
+                    ),
+                )))
             })
             .children(self.notice(cx))
             .child(self.tray_el(needs, working, to_review, cx))
@@ -728,24 +1010,54 @@ impl Render for OfficeView {
             .child(self.corner(near_desk, near_lead, w, cx))
             .when(empty, |el| {
                 el.child(
-                    div().absolute().inset_0().flex().items_center().justify_center().child(
-                        card()
-                            .p_5()
-                            .max_w(px(420.))
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(t("native.office.empty.title")))
-                            .child(div().mt_1().text_sm().text_color(theme::muted()).child(t("native.office.empty.body"))),
-                    ),
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            card()
+                                .p_5()
+                                .max_w(px(420.))
+                                .child(
+                                    div()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(t("native.office.empty.title")),
+                                )
+                                .child(
+                                    div()
+                                        .mt_1()
+                                        .text_sm()
+                                        .text_color(theme::muted())
+                                        .child(t("native.office.empty.body")),
+                                ),
+                        ),
                 )
             })
             .when_some(self.failed.clone(), |el, e| {
                 el.child(
-                    div().absolute().inset_0().flex().items_center().justify_center().bg(theme::ink()).child(
-                        card()
-                            .p_5()
-                            .max_w(px(480.))
-                            .child(div().child(t("native.office.unsupported")))
-                            .child(div().mt_2().text_xs().text_color(theme::muted()).font_family(theme::mono()).child(e)),
-                    ),
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(theme::ink())
+                        .child(
+                            card()
+                                .p_5()
+                                .max_w(px(480.))
+                                .child(div().child(t("native.office.unsupported")))
+                                .child(
+                                    div()
+                                        .mt_2()
+                                        .text_xs()
+                                        .text_color(theme::muted())
+                                        .font_family(theme::mono())
+                                        .child(e),
+                                ),
+                        ),
                 )
             })
             .when_some(self.chat.clone(), |el, chat| {
@@ -771,7 +1083,15 @@ impl Render for OfficeView {
                                 .justify_end()
                                 .border_b_1()
                                 .border_color(theme::line())
-                                .child(tip(button("office-chat-close", crate::icons::of("✕")), t("native.office.chat.close")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.set_chat(None, cx)))),
+                                .child(
+                                    tip(
+                                        button("office-chat-close", crate::icons::of("✕")),
+                                        t("native.office.chat.close"),
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _: &ClickEvent, _, cx| this.set_chat(None, cx),
+                                    )),
+                                ),
                         )
                         .child(div().flex_1().min_h_0().child(chat)),
                 )
@@ -781,7 +1101,12 @@ impl Render for OfficeView {
 
 /// label_el is a name tag, a bubble or an area's pill, over the room.
 fn label_el(l: &Label) -> AnyElement {
-    let at = |w: f32, h: f32| div().absolute().left(px(l.x - w / 2.)).top(px(l.y - h / 2.));
+    let at = |w: f32, h: f32| {
+        div()
+            .absolute()
+            .left(px(l.x - w / 2.))
+            .top(px(l.y - h / 2.))
+    };
     match l.kind {
         LabelKind::Bubble => at(26., 26.)
             .size(px(26.))
@@ -802,7 +1127,19 @@ fn label_el(l: &Label) -> AnyElement {
             .w(px(200.))
             .flex()
             .justify_center()
-            .child(h_flex().gap_1p5().px_2p5().py_0p5().rounded_full().bg(rgba(0xffffffe6)).shadow_md().text_xs().text_color(rgb(0x334155)).child(div().size_2().rounded_full().bg(hex(&l.color))).child(l.text.clone()))
+            .child(
+                h_flex()
+                    .gap_1p5()
+                    .px_2p5()
+                    .py_0p5()
+                    .rounded_full()
+                    .bg(rgba(0xffffffe6))
+                    .shadow_md()
+                    .text_xs()
+                    .text_color(rgb(0x334155))
+                    .child(div().size_2().rounded_full().bg(hex(&l.color)))
+                    .child(l.text.clone()),
+            )
             .into_any_element(),
         LabelKind::Tag | LabelKind::You => at(160., 18.)
             .w(px(160.))
@@ -813,10 +1150,16 @@ fn label_el(l: &Label) -> AnyElement {
                     .gap_1()
                     .px_2()
                     .rounded_full()
-                    .bg(if l.kind == LabelKind::You { rgba(0x7c3aedee) } else { rgba(0x0f172acc) })
+                    .bg(if l.kind == LabelKind::You {
+                        rgba(0x7c3aedee)
+                    } else {
+                        rgba(0x0f172acc)
+                    })
                     .text_xs()
                     .text_color(gpui::white())
-                    .when(l.kind == LabelKind::Tag, |el| el.child(div().size_1p5().rounded_full().bg(hex(&l.color))))
+                    .when(l.kind == LabelKind::Tag, |el| {
+                        el.child(div().size_1p5().rounded_full().bg(hex(&l.color)))
+                    })
                     .child(div().max_w(px(140.)).truncate().child(l.text.clone())),
             )
             .into_any_element(),
@@ -832,35 +1175,90 @@ impl OfficeView {
                     .p_1()
                     .gap_0p5()
                     .items_center()
-                    .child(tip(button("office-back", h_flex().gap_1().child(crate::icons::of("←")).child(t("native.office.leave"))), t("native.office.leaveHint")).on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(OfficeEvent::Leave))))
+                    .child(
+                        tip(
+                            button(
+                                "office-back",
+                                h_flex()
+                                    .gap_1()
+                                    .child(crate::icons::of("←"))
+                                    .child(t("native.office.leave")),
+                            ),
+                            t("native.office.leaveHint"),
+                        )
+                        .on_click(
+                            cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(OfficeEvent::Leave)),
+                        ),
+                    )
                     .child(div().mx_0p5().h_5().w(px(1.)).bg(theme::line()))
                     .child(match &at.project {
-                        Some(_) => button("office-campus", div().font_weight(FontWeight::SEMIBOLD).child(t("native.office.title"))).on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(In::Campus))).into_any_element(),
-                        None => div().px_2().text_sm().font_weight(FontWeight::SEMIBOLD).child(t("native.office.title")).into_any_element(),
+                        Some(_) => button(
+                            "office-campus",
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(t("native.office.title")),
+                        )
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, _| this.send(In::Campus)))
+                        .into_any_element(),
+                        None => div()
+                            .px_2()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(t("native.office.title"))
+                            .into_any_element(),
                     })
                     .when_some(room, |el, name| {
-                        let label = if at.floors > 1 { tv("native.office.floor", &[("name", name.as_str().into()), ("floor", at.floor.into())]) } else { name };
-                        el.child(div().text_color(theme::faint()).child(crate::icons::of("›"))).child(div().px_1().text_sm().max_w(px(260.)).truncate().child(label))
+                        let label = if at.floors > 1 {
+                            tv(
+                                "native.office.floor",
+                                &[("name", name.as_str().into()), ("floor", at.floor.into())],
+                            )
+                        } else {
+                            name
+                        };
+                        el.child(
+                            div()
+                                .text_color(theme::faint())
+                                .child(crate::icons::of("›")),
+                        )
+                        .child(
+                            div()
+                                .px_1()
+                                .text_sm()
+                                .max_w(px(260.))
+                                .truncate()
+                                .child(label),
+                        )
                     })
                     .when(at.project.is_some() && at.floors > 1, |el| {
-                        el.child(h_flex().ml_1().gap_0p5().p_0p5().rounded_md().bg(theme::surface_raised()).children((1..=at.floors as i64).map(|f| {
-                            div()
-                                .id(("office-floor", f as usize))
-                                .h_6()
-                                .min_w_6()
-                                .px_1p5()
+                        el.child(
+                            h_flex()
+                                .ml_1()
+                                .gap_0p5()
+                                .p_0p5()
                                 .rounded_md()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .cursor_pointer()
-                                .when(f == at.floor, |el| el.bg(theme::surface_strong()))
-                                .when(f != at.floor, |el| el.text_color(theme::muted()))
-                                .child(f.to_string())
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, _| this.send(In::Floor(f))))
-                        })))
+                                .bg(theme::surface_raised())
+                                .children((1..=at.floors as i64).map(|f| {
+                                    div()
+                                        .id(("office-floor", f as usize))
+                                        .h_6()
+                                        .min_w_6()
+                                        .px_1p5()
+                                        .rounded_md()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_xs()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .cursor_pointer()
+                                        .when(f == at.floor, |el| el.bg(theme::surface_strong()))
+                                        .when(f != at.floor, |el| el.text_color(theme::muted()))
+                                        .child(f.to_string())
+                                        .on_click(cx.listener(move |this, _: &ClickEvent, _, _| {
+                                            this.send(In::Floor(f))
+                                        }))
+                                })),
+                        )
                     }),
             ),
         )
@@ -885,20 +1283,40 @@ impl OfficeView {
                         h_flex()
                             .gap_2()
                             .items_start()
-                            .child(div().text_color(theme::starting()).child(crate::icons::of("⚠")))
+                            .child(
+                                div()
+                                    .text_color(theme::starting())
+                                    .child(crate::icons::of("⚠")),
+                            )
                             .child(
                                 v_flex()
                                     .flex_1()
                                     .min_w_0()
                                     .gap_1()
-                                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(t("native.office.software.title")))
-                                    .child(div().text_sm().text_color(theme::muted()).child(tv("native.office.software.body", &[("adapter", name.as_str().into())])))
-                                    .child(div().text_sm().text_color(theme::muted()).child(software_fix())),
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(t("native.office.software.title")),
+                                    )
+                                    .child(div().text_sm().text_color(theme::muted()).child(tv(
+                                        "native.office.software.body",
+                                        &[("adapter", name.as_str().into())],
+                                    )))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(theme::muted())
+                                            .child(software_fix()),
+                                    ),
                             )
-                            .child(button("office-notice-close", t("native.office.software.dismiss")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.notice_closed = true;
-                                cx.notify();
-                            }))),
+                            .child(
+                                button("office-notice-close", t("native.office.software.dismiss"))
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.notice_closed = true;
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
                 )
                 .into_any_element(),
@@ -906,29 +1324,61 @@ impl OfficeView {
     }
 
     /// tray_el is the counts at the bottom left, and who needs you when it's open.
-    fn tray_el(&self, needs: usize, working: usize, review: usize, cx: &mut Context<Self>) -> impl IntoElement {
+    fn tray_el(
+        &self,
+        needs: usize,
+        working: usize,
+        review: usize,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let dot = |c: u32| div().size_2().rounded_full().bg(rgb(c));
         let open = self.tray;
-        let rows: Vec<model::BoardItem> = if open { self.model.board.needs.iter().chain(self.model.board.review.iter()).cloned().collect() } else { Vec::new() };
+        let rows: Vec<model::BoardItem> = if open {
+            self.model
+                .board
+                .needs
+                .iter()
+                .chain(self.model.board.review.iter())
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         div().absolute().bottom_3().left_3().child(
             card().max_w(px(380.)).child(
                 v_flex()
                     .when(open, |el| {
-                        el.child(v_flex().p_1().children(rows.into_iter().take(12).enumerate().map(|(i, item)| {
-                            let r = item.r#ref.clone();
-                            h_flex()
-                                .id(("office-tray-row", i))
-                                .gap_2()
-                                .px_2()
-                                .py_1()
-                                .rounded_md()
-                                .cursor_pointer()
-                                .hover(|el| el.bg(theme::surface_strong()))
-                                .child(div().size_2().rounded_full().bg(tone_color(item.tone)))
-                                .child(div().flex_1().min_w_0().text_sm().truncate().child(item.title.clone()))
-                                .child(div().text_xs().text_color(theme::muted()).child(item.project.clone()))
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, _| this.send(In::WalkTo(r.clone()))))
-                        })))
+                        el.child(v_flex().p_1().children(
+                            rows.into_iter().take(12).enumerate().map(|(i, item)| {
+                                let r = item.r#ref.clone();
+                                h_flex()
+                                    .id(("office-tray-row", i))
+                                    .gap_2()
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .hover(|el| el.bg(theme::surface_strong()))
+                                    .child(div().size_2().rounded_full().bg(tone_color(item.tone)))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .text_sm()
+                                            .truncate()
+                                            .child(item.title.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme::muted())
+                                            .child(item.project.clone()),
+                                    )
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, _| {
+                                        this.send(In::WalkTo(r.clone()))
+                                    }))
+                            }),
+                        ))
                     })
                     .child(
                         h_flex()
@@ -939,10 +1389,47 @@ impl OfficeView {
                             .items_center()
                             .text_xs()
                             .cursor_pointer()
-                            .child(h_flex().gap_1p5().items_center().child(dot(0xf59e0b)).child(div().font_weight(FontWeight::SEMIBOLD).child(needs.to_string())).child(t("native.office.legend.needs")))
-                            .child(h_flex().gap_1p5().items_center().child(dot(0x60a5fa)).child(div().font_weight(FontWeight::SEMIBOLD).child(working.to_string())).child(t("native.office.legend.working")))
-                            .child(h_flex().gap_1p5().items_center().child(dot(0x10b981)).child(div().font_weight(FontWeight::SEMIBOLD).child(review.to_string())).child(t("native.office.tray.review")))
-                            .child(div().text_color(theme::faint()).child(crate::icons::of(if open { "▾" } else { "▸" })))
+                            .child(
+                                h_flex()
+                                    .gap_1p5()
+                                    .items_center()
+                                    .child(dot(0xf59e0b))
+                                    .child(
+                                        div()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(needs.to_string()),
+                                    )
+                                    .child(t("native.office.legend.needs")),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_1p5()
+                                    .items_center()
+                                    .child(dot(0x60a5fa))
+                                    .child(
+                                        div()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(working.to_string()),
+                                    )
+                                    .child(t("native.office.legend.working")),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_1p5()
+                                    .items_center()
+                                    .child(dot(0x10b981))
+                                    .child(
+                                        div()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(review.to_string()),
+                                    )
+                                    .child(t("native.office.tray.review")),
+                            )
+                            .child(
+                                div()
+                                    .text_color(theme::faint())
+                                    .child(crate::icons::of(if open { "▾" } else { "▸" })),
+                            )
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.tray = !this.tray;
                                 cx.notify();
@@ -953,19 +1440,62 @@ impl OfficeView {
     }
 
     fn hint_el(&self) -> Option<AnyElement> {
-        let title = |r: &str| self.model.areas.iter().flat_map(|a| a.desks.iter()).find(|d| d.id == r).map(|d| d.title.clone());
-        let text = match &self.hover {
-            Some(h) if Some(h) == self.near.as_ref() => title(h).map(|t| tv("native.office.clickToOpen", &[("title", t.as_str().into())])),
-            Some(h) => title(h).map(|t| tv("native.office.clickToWalk", &[("title", t.as_str().into())])),
-            None if self.hint => Some(if self.at.project.is_none() { t("native.office.hint.campus") } else { t("native.office.hint.short") }),
-            None => None,
-        }?;
-        Some(div().absolute().bottom_3().left_0().right_0().flex().justify_center().child(div().px_3().py_1().rounded_full().bg(rgba(0x0f172acc)).text_xs().text_color(gpui::white()).child(text)).into_any_element())
+        let title = |r: &str| {
+            self.model
+                .areas
+                .iter()
+                .flat_map(|a| a.desks.iter())
+                .find(|d| d.id == r)
+                .map(|d| d.title.clone())
+        };
+        let text =
+            match &self.hover {
+                Some(h) if Some(h) == self.near.as_ref() => title(h)
+                    .map(|t| tv("native.office.clickToOpen", &[("title", t.as_str().into())])),
+                Some(h) => title(h)
+                    .map(|t| tv("native.office.clickToWalk", &[("title", t.as_str().into())])),
+                None if self.hint => Some(if self.at.project.is_none() {
+                    t("native.office.hint.campus")
+                } else {
+                    t("native.office.hint.short")
+                }),
+                None => None,
+            }?;
+        Some(
+            div()
+                .absolute()
+                .bottom_3()
+                .left_0()
+                .right_0()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .rounded_full()
+                        .bg(rgba(0x0f172acc))
+                        .text_xs()
+                        .text_color(gpui::white())
+                        .child(text),
+                )
+                .into_any_element(),
+        )
     }
 
     /// corner is the bottom right: the desk's card when you're at one, and the help.
-    fn corner(&self, desk: Option<model::DeskModel>, lead: Option<model::AreaModel>, w: f32, cx: &mut Context<Self>) -> impl IntoElement {
-        let right = if self.chat.is_some() { chat_width(w) + 12. } else { 12. };
+    fn corner(
+        &self,
+        desk: Option<model::DeskModel>,
+        lead: Option<model::AreaModel>,
+        w: f32,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let right = if self.chat.is_some() {
+            chat_width(w) + 12.
+        } else {
+            12.
+        };
         let no_chat = self.chat.is_none();
         v_flex()
             .absolute()
@@ -974,23 +1504,65 @@ impl OfficeView {
             .items_end()
             .gap_2()
             .when(self.help, |el| el.child(self.help_card()))
-            .when_some(desk.filter(|_| no_chat), |el, d| el.child(self.desk_card(d, cx)))
+            .when_some(desk.filter(|_| no_chat), |el, d| {
+                el.child(self.desk_card(d, cx))
+            })
             .when_some(lead.filter(|_| no_chat), |el, a| {
                 let p = a.project.clone();
                 el.child(
                     card()
                         .w(px(336.))
                         .p_3()
-                        .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(theme::muted()).child(t(&format!("native.office.lead.{}", lead_word(a.lead.tone))).to_uppercase()))
-                        .child(div().mt_1().font_weight(FontWeight::SEMIBOLD).child(tv("native.office.lead.title", &[("project", a.label.as_str().into())])))
-                        .child(div().mt_1().text_sm().text_color(theme::muted()).line_clamp(3).child(a.lead.line.clone().unwrap_or_else(|| t("native.office.lead.quiet"))))
-                        .child(h_flex().mt_3().child(button("office-open-lead", t("native.office.openProjectChat")).bg(theme::accent()).text_color(gpui::white()).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OfficeEvent::Open { project: p.clone(), who: "lead".into() }))))),
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::muted())
+                                .child(
+                                    t(&format!("native.office.lead.{}", lead_word(a.lead.tone)))
+                                        .to_uppercase(),
+                                ),
+                        )
+                        .child(div().mt_1().font_weight(FontWeight::SEMIBOLD).child(tv(
+                            "native.office.lead.title",
+                            &[("project", a.label.as_str().into())],
+                        )))
+                        .child(
+                            div()
+                                .mt_1()
+                                .text_sm()
+                                .text_color(theme::muted())
+                                .line_clamp(3)
+                                .child(
+                                    a.lead
+                                        .line
+                                        .clone()
+                                        .unwrap_or_else(|| t("native.office.lead.quiet")),
+                                ),
+                        )
+                        .child(
+                            h_flex().mt_3().child(
+                                button("office-open-lead", t("native.office.openProjectChat"))
+                                    .bg(theme::accent())
+                                    .text_color(gpui::white())
+                                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                        cx.emit(OfficeEvent::Open {
+                                            project: p.clone(),
+                                            who: "lead".into(),
+                                        })
+                                    })),
+                            ),
+                        ),
                 )
             })
-            .child(card().child(tip(button("office-help", "?"), t("native.office.help")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.help = !this.help;
-                cx.notify();
-            }))))
+            .child(card().child(
+                tip(button("office-help", "?"), t("native.office.help")).on_click(cx.listener(
+                    |this, _: &ClickEvent, _, cx| {
+                        this.help = !this.help;
+                        cx.notify();
+                    },
+                )),
+            ))
     }
 
     fn desk_card(&self, d: model::DeskModel, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1005,49 +1577,169 @@ impl OfficeView {
                     .text_xs()
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(div().size_2().rounded_full().bg(tone_color(d.tone)))
-                    .child(div().text_color(theme::muted()).child(tone_label(d.tone).to_uppercase()))
-                    .child(div().ml_auto().truncate().text_color(theme::faint()).child(d.name.clone())),
+                    .child(
+                        div()
+                            .text_color(theme::muted())
+                            .child(tone_label(d.tone).to_uppercase()),
+                    )
+                    .child(
+                        div()
+                            .ml_auto()
+                            .truncate()
+                            .text_color(theme::faint())
+                            .child(d.name.clone()),
+                    ),
             )
-            .child(div().mt_1p5().font_weight(FontWeight::SEMIBOLD).line_clamp(2).child(d.title.clone()))
-            .child(div().mt_1().text_xs().text_color(theme::muted()).font_family(theme::mono()).truncate().child(d.branch.clone()))
-            .when_some(d.question.clone(), |el, q| el.child(div().mt_2().px_2p5().py_2().rounded_lg().bg(rgba(0xfbbf2422)).text_sm().line_clamp(4).child(q)))
-            .when_some(d.pr.clone(), |el, pr| el.child(div().mt_1p5().text_sm().text_color(theme::muted()).child(pr_line(&pr).text)))
-            .when_some(d.changes.clone(), |el, c| el.child(div().mt_1().text_xs().text_color(theme::muted()).child(changes_text(c.files, c.insertions, c.deletions))))
+            .child(
+                div()
+                    .mt_1p5()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .line_clamp(2)
+                    .child(d.title.clone()),
+            )
+            .child(
+                div()
+                    .mt_1()
+                    .text_xs()
+                    .text_color(theme::muted())
+                    .font_family(theme::mono())
+                    .truncate()
+                    .child(d.branch.clone()),
+            )
+            .when_some(d.question.clone(), |el, q| {
+                el.child(
+                    div()
+                        .mt_2()
+                        .px_2p5()
+                        .py_2()
+                        .rounded_lg()
+                        .bg(rgba(0xfbbf2422))
+                        .text_sm()
+                        .line_clamp(4)
+                        .child(q),
+                )
+            })
+            .when_some(d.pr.clone(), |el, pr| {
+                el.child(
+                    div()
+                        .mt_1p5()
+                        .text_sm()
+                        .text_color(theme::muted())
+                        .child(pr_line(&pr).text),
+                )
+            })
+            .when_some(d.changes, |el, c| {
+                el.child(
+                    div()
+                        .mt_1()
+                        .text_xs()
+                        .text_color(theme::muted())
+                        .child(changes_text(c.files, c.insertions, c.deletions)),
+                )
+            })
             .child(
                 h_flex()
                     .mt_3()
                     .gap_2()
-                    .child(button("office-open-chat", t("native.office.openChat")).bg(theme::accent()).text_color(gpui::white()).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OfficeEvent::Open { project: project.clone(), who: who.clone() }))))
+                    .child(
+                        button("office-open-chat", t("native.office.openChat"))
+                            .bg(theme::accent())
+                            .text_color(gpui::white())
+                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                cx.emit(OfficeEvent::Open {
+                                    project: project.clone(),
+                                    who: who.clone(),
+                                })
+                            })),
+                    )
                     .when_some(pr, |el, pr| {
                         let url = pr.url.clone();
-                        el.child(button("office-open-pr", tv("native.office.openPr", &[("number", pr.number.into())])).border_1().border_color(theme::line()).on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OfficeEvent::OpenUrl(url.clone())))))
+                        el.child(
+                            button(
+                                "office-open-pr",
+                                tv("native.office.openPr", &[("number", pr.number.into())]),
+                            )
+                            .border_1()
+                            .border_color(theme::line())
+                            .on_click(cx.listener(
+                                move |_, _: &ClickEvent, _, cx| {
+                                    cx.emit(OfficeEvent::OpenUrl(url.clone()))
+                                },
+                            )),
+                        )
                     }),
             )
     }
 
     fn help_card(&self) -> impl IntoElement {
-        let key = |k: String, what: &str| h_flex().gap_3().child(div().w(px(84.)).text_xs().font_weight(FontWeight::SEMIBOLD).text_color(theme::muted()).child(k)).child(div().text_sm().child(t(what)));
-        let legend = [("!", 0xf59e0b, "native.office.legend.needs"), ("⋯", 0x60a5fa, "native.office.legend.working"), ("✓", 0x10b981, "native.office.legend.finished"), ("×", 0xef4444, "native.office.legend.error"), ("z", 0x94a3b8, "native.office.legend.stopped"), ("○", 0xcbd5e1, "native.office.legend.idle")];
+        let key = |k: String, what: &str| {
+            h_flex()
+                .gap_3()
+                .child(
+                    div()
+                        .w(px(84.))
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::muted())
+                        .child(k),
+                )
+                .child(div().text_sm().child(t(what)))
+        };
+        let legend = [
+            ("!", 0xf59e0b, "native.office.legend.needs"),
+            ("⋯", 0x60a5fa, "native.office.legend.working"),
+            ("✓", 0x10b981, "native.office.legend.finished"),
+            ("×", 0xef4444, "native.office.legend.error"),
+            ("z", 0x94a3b8, "native.office.legend.stopped"),
+            ("○", 0xcbd5e1, "native.office.legend.idle"),
+        ];
         card()
             .w(px(336.))
             .p_3()
             .child(
                 v_flex()
                     .gap_1p5()
-                    .child(key(t("native.office.keys.click"), "native.office.keys.walk"))
+                    .child(key(
+                        t("native.office.keys.click"),
+                        "native.office.keys.walk",
+                    ))
                     .child(key("W A S D".into(), "native.office.keys.walkKeys"))
                     .child(key(t("native.office.keys.drag"), "native.office.keys.turn"))
-                    .child(key(t("native.office.keys.scroll"), "native.office.keys.zoom"))
+                    .child(key(
+                        t("native.office.keys.scroll"),
+                        "native.office.keys.zoom",
+                    ))
                     .child(key("E".into(), "native.office.keys.open"))
                     .child(key("N".into(), "native.office.keys.next"))
                     .child(key("Esc".into(), "native.office.keys.back")),
             )
-            .child(div().mt_3().pt_3().border_t_1().border_color(theme::line()).child(h_flex().flex_wrap().gap_x_3().gap_y_1p5().children(legend.into_iter().map(|(g, c, k)| {
-                h_flex()
-                    .gap_1p5()
-                    .w(px(140.))
-                    .child(div().size_4().rounded_full().bg(rgb(c)).flex().items_center().justify_center().text_size(px(10.)).font_weight(FontWeight::BOLD).text_color(gpui::black()).child(g))
-                    .child(div().text_xs().child(t(k)))
-            }))))
+            .child(
+                div()
+                    .mt_3()
+                    .pt_3()
+                    .border_t_1()
+                    .border_color(theme::line())
+                    .child(h_flex().flex_wrap().gap_x_3().gap_y_1p5().children(
+                        legend.into_iter().map(|(g, c, k)| {
+                            h_flex()
+                                .gap_1p5()
+                                .w(px(140.))
+                                .child(
+                                    div()
+                                        .size_4()
+                                        .rounded_full()
+                                        .bg(rgb(c))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_size(px(10.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(gpui::black())
+                                        .child(g),
+                                )
+                                .child(div().text_xs().child(t(k)))
+                        }),
+                    )),
+            )
     }
 }

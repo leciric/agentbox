@@ -25,7 +25,14 @@ pub enum DeskTone {
 }
 
 /// The order a list of desks reads in: what needs you first.
-pub const TONE_ORDER: [DeskTone; 6] = [DeskTone::Needs, DeskTone::Error, DeskTone::Finished, DeskTone::Working, DeskTone::Idle, DeskTone::Stopped];
+pub const TONE_ORDER: [DeskTone; 6] = [
+    DeskTone::Needs,
+    DeskTone::Error,
+    DeskTone::Finished,
+    DeskTone::Working,
+    DeskTone::Idle,
+    DeskTone::Stopped,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrState {
@@ -223,7 +230,13 @@ pub fn pr_look(pr: Option<&t::PullRequest>) -> Option<PrLook> {
         "pending" => PrChecks::Pending,
         _ => PrChecks::None,
     };
-    Some(PrLook { number: pr.number, state, checks, url: pr.url.clone(), title: pr.title.clone() })
+    Some(PrLook {
+        number: pr.number,
+        state,
+        checks,
+        url: pr.url.clone(),
+        title: pr.title.clone(),
+    })
 }
 
 /// leadTone is a lead's chat state as its front desk shows it: waiting on a
@@ -263,7 +276,9 @@ pub fn office_model(inp: &OfficeInputs) -> OfficeModel {
         // The ones waiting on you, as the sidebar counts them (agentStatus.ts's
         // isAsking): a credential, or a question the lead passed on.
         for q in list {
-            if (q.status == "escalated" || (q.status == "pending" && !q.kind.is_empty())) && !asks.contains_key(q.r#ref.as_str()) {
+            if (q.status == "escalated" || (q.status == "pending" && !q.kind.is_empty()))
+                && !asks.contains_key(q.r#ref.as_str())
+            {
                 asks.insert(&q.r#ref, &q.question);
             }
         }
@@ -286,11 +301,18 @@ pub fn office_model(inp: &OfficeInputs) -> OfficeModel {
     let mut projects: Vec<ProjectRef> = inp.projects.to_vec();
     for n in row_keys {
         if !inp.projects.iter().any(|p| p.name == n) {
-            projects.push(ProjectRef { name: n.to_string(), display_name: String::new() });
+            projects.push(ProjectRef {
+                name: n.to_string(),
+                display_name: String::new(),
+            });
         }
     }
     for p in &projects {
-        let label = if p.display_name.is_empty() { p.name.clone() } else { p.display_name.clone() };
+        let label = if p.display_name.is_empty() {
+            p.name.clone()
+        } else {
+            p.display_name.clone()
+        };
         let fleet = inp.fleets.get(&p.name);
         let mut fleet_by: HashMap<&str, &t::FleetAgent> = HashMap::new();
         for a in fleet.map(|f| f.agents.as_slice()).unwrap_or_default() {
@@ -307,7 +329,10 @@ pub fn office_model(inp: &OfficeInputs) -> OfficeModel {
                 // (The API leaves an empty note out, as TS has it undefined.)
                 let note = (!a.outcome_note.is_empty()).then(|| a.outcome_note.clone());
                 let question = match tone {
-                    DeskTone::Needs => asks.get(a.r#ref.as_str()).map(|s| s.to_string()).or_else(|| if a.outcome == "asking" { note } else { None }),
+                    DeskTone::Needs => asks
+                        .get(a.r#ref.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| if a.outcome == "asking" { note } else { None }),
                     DeskTone::Error => note,
                     _ => None,
                 };
@@ -315,39 +340,94 @@ pub fn office_model(inp: &OfficeInputs) -> OfficeModel {
                     id: a.r#ref.clone(),
                     project: p.name.clone(),
                     name: a.name.clone(),
-                    title: if a.title.is_empty() { a.name.clone() } else { a.title.clone() },
+                    title: if a.title.is_empty() {
+                        a.name.clone()
+                    } else {
+                        a.title.clone()
+                    },
                     branch: a.branch.clone(),
                     ai: a.ai.clone(),
                     tone,
                     // The review queue's pull request first: it's the one a click on the
                     // board opens.
-                    pr: pr_look(review_by_ref.get(a.r#ref.as_str()).and_then(|r| r.pr.as_ref()).or_else(|| f.and_then(|f| f.pr.as_ref()))),
-                    changes: f.and_then(|f| (f.changes.files > 0 || f.changes.insertions > 0).then_some(Changes { files: f.changes.files, insertions: f.changes.insertions, deletions: f.changes.deletions })),
+                    pr: pr_look(
+                        review_by_ref
+                            .get(a.r#ref.as_str())
+                            .and_then(|r| r.pr.as_ref())
+                            .or_else(|| f.and_then(|f| f.pr.as_ref())),
+                    ),
+                    changes: f.and_then(|f| {
+                        (f.changes.files > 0 || f.changes.insertions > 0).then_some(Changes {
+                            files: f.changes.files,
+                            insertions: f.changes.insertions,
+                            deletions: f.changes.deletions,
+                        })
+                    }),
                     question,
                     last_active: f.and_then(|f| f.last_active.clone()),
                 }
             })
             .collect();
         let lead_chat = inp.leads.get(&p.name);
-        let lead = LeadModel { tone: lead_tone(lead_chat.map(|c| c.chat.as_str())), line: lead_chat.and_then(|c| c.last.as_ref()).map(|l| l.text.clone()) };
+        let lead = LeadModel {
+            tone: lead_tone(lead_chat.map(|c| c.chat.as_str())),
+            line: lead_chat
+                .and_then(|c| c.last.as_ref())
+                .map(|l| l.text.clone()),
+        };
         // A project with no agents and a quiet lead has no area: an empty rug
         // helps no one, and its chat is a click away in the sidebar.
         if desks.is_empty() && lead.tone == LeadTone::Idle {
             continue;
         }
         let lead_needs = lead.tone == LeadTone::Needs;
-        areas.push(AreaModel { project: p.name.clone(), label: label.clone(), hue: hue_of(&p.name), lead, desks: desks.clone() });
+        areas.push(AreaModel {
+            project: p.name.clone(),
+            label: label.clone(),
+            hue: hue_of(&p.name),
+            lead,
+            desks: desks.clone(),
+        });
 
         if lead_needs {
-            needs.push(BoardItem { r#ref: lead_ref(&p.name), project: p.name.clone(), title: label.clone(), text: None, tone: DeskTone::Needs, pr: None });
+            needs.push(BoardItem {
+                r#ref: lead_ref(&p.name),
+                project: p.name.clone(),
+                title: label.clone(),
+                text: None,
+                tone: DeskTone::Needs,
+                pr: None,
+            });
         }
         for d in &desks {
             if d.tone == DeskTone::Needs || d.tone == DeskTone::Error {
-                needs.push(BoardItem { r#ref: d.id.clone(), project: p.name.clone(), title: d.title.clone(), text: d.question.clone(), tone: d.tone, pr: d.pr.clone() });
+                needs.push(BoardItem {
+                    r#ref: d.id.clone(),
+                    project: p.name.clone(),
+                    title: d.title.clone(),
+                    text: d.question.clone(),
+                    tone: d.tone,
+                    pr: d.pr.clone(),
+                });
             // Titled as the review queue has it, which a click on it opens.
-            } else if d.tone == DeskTone::Finished || (d.pr.as_ref().is_some_and(|pr| pr.state == PrState::Open) && d.tone != DeskTone::Working) {
-                let title = review_by_ref.get(d.id.as_str()).map(|r| r.title.as_str()).filter(|s| !s.is_empty()).unwrap_or(&d.title).to_string();
-                review.push(BoardItem { r#ref: d.id.clone(), project: p.name.clone(), title, text: None, tone: d.tone, pr: d.pr.clone() });
+            } else if d.tone == DeskTone::Finished
+                || (d.pr.as_ref().is_some_and(|pr| pr.state == PrState::Open)
+                    && d.tone != DeskTone::Working)
+            {
+                let title = review_by_ref
+                    .get(d.id.as_str())
+                    .map(|r| r.title.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(&d.title)
+                    .to_string();
+                review.push(BoardItem {
+                    r#ref: d.id.clone(),
+                    project: p.name.clone(),
+                    title,
+                    text: None,
+                    tone: d.tone,
+                    pr: d.pr.clone(),
+                });
             }
         }
     }
@@ -367,17 +447,31 @@ pub fn office_model(inp: &OfficeInputs) -> OfficeModel {
         }
     }
     for i in needs.iter_mut().chain(review.iter_mut()) {
-        let d = if i.r#ref.ends_with("/lead") { None } else { areas.iter().find(|a| a.project == i.project).and_then(|a| a.desks.iter().find(|x| x.id == i.r#ref)) };
+        let d = if i.r#ref.ends_with("/lead") {
+            None
+        } else {
+            areas
+                .iter()
+                .find(|a| a.project == i.project)
+                .and_then(|a| a.desks.iter().find(|x| x.id == i.r#ref))
+        };
         if let Some(d) = d {
             i.title = d.title.clone();
         }
     }
-    OfficeModel { areas, board: Board { needs, review } }
+    OfficeModel {
+        areas,
+        board: Board { needs, review },
+    }
 }
 
 /// deskOf finds a desk by its agent's ref.
 pub fn desk_of<'a>(model: &'a OfficeModel, r#ref: &str) -> Option<&'a DeskModel> {
-    model.areas.iter().flat_map(|a| a.desks.iter()).find(|d| d.id == r#ref)
+    model
+        .areas
+        .iter()
+        .flat_map(|a| a.desks.iter())
+        .find(|d| d.id == r#ref)
 }
 
 /// A JSON value with its objects' keys in the order JS reads them, which is
@@ -436,7 +530,11 @@ impl<'de> serde::Deserialize<'de> for Json {
                     }
                 }
                 // Integer-like keys come first, ascending, as JS orders them.
-                let index = |k: &str| k.parse::<u32>().ok().filter(|n| *n != u32::MAX && n.to_string() == k);
+                let index = |k: &str| {
+                    k.parse::<u32>()
+                        .ok()
+                        .filter(|n| *n != u32::MAX && n.to_string() == k)
+                };
                 v.sort_by_key(|(k, _)| index(k).map_or((1, 0), |n| (0, n)));
                 Ok(Json::Obj(v))
             }
@@ -454,8 +552,21 @@ fn stringify(v: &Json) -> String {
         Json::Num(n) if n.fract() == 0. && n.abs() < 1e21 => format!("{}", *n as i128),
         Json::Num(n) => format!("{n}"),
         Json::Str(s) => serde_json::to_string(s).unwrap_or_default(),
-        Json::Arr(a) => format!("[{}]", a.iter().map(stringify).collect::<Vec<_>>().join(",")),
-        Json::Obj(o) => format!("{{{}}}", o.iter().map(|(k, x)| format!("{}:{}", serde_json::to_string(k).unwrap_or_default(), stringify(x))).collect::<Vec<_>>().join(",")),
+        Json::Arr(a) => format!(
+            "[{}]",
+            a.iter().map(stringify).collect::<Vec<_>>().join(",")
+        ),
+        Json::Obj(o) => format!(
+            "{{{}}}",
+            o.iter()
+                .map(|(k, x)| format!(
+                    "{}:{}",
+                    serde_json::to_string(k).unwrap_or_default(),
+                    stringify(x)
+                ))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
     }
 }
 
@@ -463,7 +574,17 @@ fn stringify(v: &Json) -> String {
 const WS_ITEMS: &str = r"\t\n\x0B\x0C\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
 
 fn is_js_space(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+    matches!(
+        c,
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
 }
 
 /// readable is a question as a person reads it: JSON, which some agents ask
@@ -474,14 +595,21 @@ pub fn readable(text: &str) -> String {
         return text.to_string();
     }
     // (Not JSON after all: as it is.)
-    let Ok(v) = serde_json::from_str::<Json>(t) else { return text.to_string() };
+    let Ok(v) = serde_json::from_str::<Json>(t) else {
+        return text.to_string();
+    };
     let show = |x: &Json| match x {
         Json::Str(s) => s.clone(),
         x => stringify(x),
     };
     match &v {
         Json::Arr(a) => a.iter().take(6).map(show).collect::<Vec<_>>().join(" · "),
-        Json::Obj(o) => o.iter().take(6).map(|(k, x)| format!("{k}: {}", show(x))).collect::<Vec<_>>().join(" · "),
+        Json::Obj(o) => o
+            .iter()
+            .take(6)
+            .map(|(k, x)| format!("{k}: {}", show(x)))
+            .collect::<Vec<_>>()
+            .join(" · "),
         _ => text.to_string(),
     }
 }
@@ -501,7 +629,9 @@ static PLAIN: LazyLock<PlainRes> = LazyLock::new(|| {
         re("(?i)```[a-z]*\n?".into()),
         re(r"\[([^\]]+)\]\([^)]+\)".into()),
         re(format!(r"(\*\*|__)({dot}+?)\1")),
-        re(format!(r"(^|[{WS_ITEMS}(])[*_]([^*_{WS_ITEMS}][^*_]*?)[*_](?=[{WS_ITEMS}).,!?:;]|$)")),
+        re(format!(
+            r"(^|[{WS_ITEMS}(])[*_]([^*_{WS_ITEMS}][^*_]*?)[*_](?=[{WS_ITEMS}).,!?:;]|$)"
+        )),
         re("`([^`]+)`".into()),
         re(format!(r"(?m)^{ws}{{0,3}}(#{{1,6}}|[-*+]|[0-9]+\.){ws}+")),
         re(format!(r"{ws}*\n+{ws}*")),
@@ -549,12 +679,28 @@ mod tests {
         Row { agent: a, st }
     }
     fn pr(f: impl FnOnce(&mut t::PullRequest)) -> t::PullRequest {
-        let mut p = t::PullRequest { number: 7, title: "feat: x".into(), state: "OPEN".into(), checks: "passing".into(), url: "https://github.com/o/r/pull/7".into(), ..Default::default() };
+        let mut p = t::PullRequest {
+            number: 7,
+            title: "feat: x".into(),
+            state: "OPEN".into(),
+            checks: "passing".into(),
+            url: "https://github.com/o/r/pull/7".into(),
+            ..Default::default()
+        };
         f(&mut p);
         p
     }
     fn projects() -> Vec<ProjectRef> {
-        vec![ProjectRef { name: "web".into(), display_name: "Web app".into() }, ProjectRef { name: "api".into(), display_name: String::new() }]
+        vec![
+            ProjectRef {
+                name: "web".into(),
+                display_name: "Web app".into(),
+            },
+            ProjectRef {
+                name: "api".into(),
+                display_name: String::new(),
+            },
+        ]
     }
 
     /// Everything the model reads, owned, so a test fills in what it needs.
@@ -568,11 +714,26 @@ mod tests {
     }
     impl In {
         fn model(&self) -> OfficeModel {
-            office_model(&OfficeInputs { projects: &projects(), rows: &self.rows, fleets: &self.fleets, questions: &self.questions, leads: &self.leads, review: &self.review })
+            office_model(&OfficeInputs {
+                projects: &projects(),
+                rows: &self.rows,
+                fleets: &self.fleets,
+                questions: &self.questions,
+                leads: &self.leads,
+                review: &self.review,
+            })
         }
     }
     fn lead(chat: &str, text: Option<&str>) -> t::ProjectChat {
-        t::ProjectChat { chat: chat.into(), last: text.map(|t| t::ChatLine { kind: "assistant".into(), text: t.into(), at: String::new() }), ..Default::default() }
+        t::ProjectChat {
+            chat: chat.into(),
+            last: text.map(|t| t::ChatLine {
+                kind: "assistant".into(),
+                text: t.into(),
+                at: String::new(),
+            }),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -582,7 +743,10 @@ mod tests {
         assert_eq!(desk_tone(&a("p/a"), AgentSt::Review), DeskTone::Finished);
         assert_eq!(desk_tone(&a("p/a"), AgentSt::Working), DeskTone::Working);
         assert_eq!(desk_tone(&a("p/a"), AgentSt::Done), DeskTone::Idle);
-        assert_eq!(desk_tone(&agent("p/a", |x| x.state = "stopped".into()), AgentSt::Done), DeskTone::Stopped);
+        assert_eq!(
+            desk_tone(&agent("p/a", |x| x.state = "stopped".into()), AgentSt::Done),
+            DeskTone::Stopped
+        );
     }
 
     #[test]
@@ -590,18 +754,45 @@ mod tests {
         assert_eq!(pr_look(None), None);
         assert_eq!(
             pr_look(Some(&pr(|_| {}))),
-            Some(PrLook { number: 7, state: PrState::Open, checks: PrChecks::Passing, url: "https://github.com/o/r/pull/7".into(), title: "feat: x".into() })
+            Some(PrLook {
+                number: 7,
+                state: PrState::Open,
+                checks: PrChecks::Passing,
+                url: "https://github.com/o/r/pull/7".into(),
+                title: "feat: x".into()
+            })
         );
-        assert_eq!(pr_look(Some(&pr(|p| p.draft = true))).unwrap().state, PrState::Draft);
-        assert_eq!(pr_look(Some(&pr(|p| {
-            p.state = "MERGED".into();
-            p.draft = true;
-        })))
-        .unwrap()
-        .state, PrState::Merged);
-        assert_eq!(pr_look(Some(&pr(|p| p.state = "closed".into()))).unwrap().state, PrState::Closed);
-        assert_eq!(pr_look(Some(&pr(|p| p.checks = "failing".into()))).unwrap().checks, PrChecks::Failing);
-        assert_eq!(pr_look(Some(&pr(|p| p.checks = String::new()))).unwrap().checks, PrChecks::None);
+        assert_eq!(
+            pr_look(Some(&pr(|p| p.draft = true))).unwrap().state,
+            PrState::Draft
+        );
+        assert_eq!(
+            pr_look(Some(&pr(|p| {
+                p.state = "MERGED".into();
+                p.draft = true;
+            })))
+            .unwrap()
+            .state,
+            PrState::Merged
+        );
+        assert_eq!(
+            pr_look(Some(&pr(|p| p.state = "closed".into())))
+                .unwrap()
+                .state,
+            PrState::Closed
+        );
+        assert_eq!(
+            pr_look(Some(&pr(|p| p.checks = "failing".into())))
+                .unwrap()
+                .checks,
+            PrChecks::Failing
+        );
+        assert_eq!(
+            pr_look(Some(&pr(|p| p.checks = String::new())))
+                .unwrap()
+                .checks,
+            PrChecks::None
+        );
     }
 
     #[test]
@@ -622,32 +813,93 @@ mod tests {
     fn areas_go_in_the_projects_order_desks_in_the_order_agents_were_made() {
         let m = In {
             rows: vec![
-                row(agent("api/agent-3", |x| x.created_at = "2026-11-03T00:00:00Z".into()), AgentSt::Working),
-                row(agent("web/agent-2", |x| x.created_at = "2026-11-02T00:00:00Z".into()), AgentSt::Working),
-                row(agent("web/agent-1", |x| x.created_at = "2026-11-01T00:00:00Z".into()), AgentSt::Done),
+                row(
+                    agent("api/agent-3", |x| {
+                        x.created_at = "2026-11-03T00:00:00Z".into()
+                    }),
+                    AgentSt::Working,
+                ),
+                row(
+                    agent("web/agent-2", |x| {
+                        x.created_at = "2026-11-02T00:00:00Z".into()
+                    }),
+                    AgentSt::Working,
+                ),
+                row(
+                    agent("web/agent-1", |x| {
+                        x.created_at = "2026-11-01T00:00:00Z".into()
+                    }),
+                    AgentSt::Done,
+                ),
             ],
             ..Default::default()
         }
         .model();
-        assert_eq!(m.areas.iter().map(|a| a.project.as_str()).collect::<Vec<_>>(), ["web", "api"]);
+        assert_eq!(
+            m.areas
+                .iter()
+                .map(|a| a.project.as_str())
+                .collect::<Vec<_>>(),
+            ["web", "api"]
+        );
         assert_eq!(m.areas[0].label, "Web app");
         assert_eq!(m.areas[1].label, "api");
-        assert_eq!(m.areas[0].desks.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["web/agent-1", "web/agent-2"]);
+        assert_eq!(
+            m.areas[0]
+                .desks
+                .iter()
+                .map(|d| d.id.as_str())
+                .collect::<Vec<_>>(),
+            ["web/agent-1", "web/agent-2"]
+        );
     }
 
     #[test]
     fn a_project_with_nothing_going_on_has_no_area_one_the_list_lacks_still_does() {
-        let m = In { rows: vec![row(a("new/agent-1"), AgentSt::Working)], ..Default::default() }.model();
-        assert_eq!(m.areas.iter().map(|a| a.project.as_str()).collect::<Vec<_>>(), ["new"]);
-        let quiet = In { leads: HashMap::from([("api".into(), lead("ready", Some("Hi")))]), ..Default::default() }.model();
+        let m = In {
+            rows: vec![row(a("new/agent-1"), AgentSt::Working)],
+            ..Default::default()
+        }
+        .model();
+        assert_eq!(
+            m.areas
+                .iter()
+                .map(|a| a.project.as_str())
+                .collect::<Vec<_>>(),
+            ["new"]
+        );
+        let quiet = In {
+            leads: HashMap::from([("api".into(), lead("ready", Some("Hi")))]),
+            ..Default::default()
+        }
+        .model();
         assert!(quiet.areas.is_empty());
-        let thinking = In { leads: HashMap::from([("api".into(), lead("running", Some("Hi")))]), ..Default::default() }.model();
-        assert_eq!(thinking.areas.iter().map(|a| a.project.as_str()).collect::<Vec<_>>(), ["api"]);
+        let thinking = In {
+            leads: HashMap::from([("api".into(), lead("running", Some("Hi")))]),
+            ..Default::default()
+        }
+        .model();
+        assert_eq!(
+            thinking
+                .areas
+                .iter()
+                .map(|a| a.project.as_str())
+                .collect::<Vec<_>>(),
+            ["api"]
+        );
         assert_eq!(thinking.areas[0].lead.line.as_deref(), Some("Hi"));
     }
 
     fn question(id: &str, agent: &str, r: &str, q: &str, status: &str) -> t::Question {
-        t::Question { id: id.into(), project: "web".into(), agent: agent.into(), r#ref: r.into(), question: q.into(), status: status.into(), ..Default::default() }
+        t::Question {
+            id: id.into(),
+            project: "web".into(),
+            agent: agent.into(),
+            r#ref: r.into(),
+            question: q.into(),
+            status: status.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -661,40 +913,102 @@ mod tests {
         let pr_open = a("web/agent-4");
         let busy = a("web/agent-5");
         // (TS: `{ ref, pr, changes }` cast to a Fleet, the rest absent.)
-        let fa = |r: &str, p: t::PullRequest, changes: Option<t::AgentChanges>| t::FleetAgent { r#ref: r.into(), pr: Some(p), changes: changes.unwrap_or_default(), ..Default::default() };
+        let fa = |r: &str, p: t::PullRequest, changes: Option<t::AgentChanges>| t::FleetAgent {
+            r#ref: r.into(),
+            pr: Some(p),
+            changes: changes.unwrap_or_default(),
+            ..Default::default()
+        };
         let m = In {
-            rows: vec![row(asking, AgentSt::Needs), row(broken, AgentSt::Error), row(done, AgentSt::Review), row(pr_open, AgentSt::Done), row(busy, AgentSt::Working)],
+            rows: vec![
+                row(asking, AgentSt::Needs),
+                row(broken, AgentSt::Error),
+                row(done, AgentSt::Review),
+                row(pr_open, AgentSt::Done),
+                row(busy, AgentSt::Working),
+            ],
             questions: vec![(
                 "web".into(),
-                vec![question("q1", "agent-1", "web/agent-1", "Paginate?", "escalated"), question("q2", "agent-2", "web/agent-2", "For the lead only", "pending")],
+                vec![
+                    question("q1", "agent-1", "web/agent-1", "Paginate?", "escalated"),
+                    question(
+                        "q2",
+                        "agent-2",
+                        "web/agent-2",
+                        "For the lead only",
+                        "pending",
+                    ),
+                ],
             )],
             fleets: HashMap::from([(
                 "web".into(),
                 t::Fleet {
                     project: "web".into(),
                     agents: vec![
-                        fa("web/agent-4", pr(|p| p.number = 9), Some(t::AgentChanges { files: 2, insertions: 10, deletions: 1, dirty: false })),
+                        fa(
+                            "web/agent-4",
+                            pr(|p| p.number = 9),
+                            Some(t::AgentChanges {
+                                files: 2,
+                                insertions: 10,
+                                deletions: 1,
+                                dirty: false,
+                            }),
+                        ),
                         fa("web/agent-5", pr(|p| p.number = 10), None),
                     ],
                     ..Default::default()
                 },
             )]),
-            review: vec![t::ReviewItem { project: "web".into(), agent: "agent-3".into(), r#ref: "web/agent-3".into(), pr: Some(pr(|p| {
-                p.number = 8;
-                p.checks = "failing".into();
-            })), ..Default::default() }],
+            review: vec![t::ReviewItem {
+                project: "web".into(),
+                agent: "agent-3".into(),
+                r#ref: "web/agent-3".into(),
+                pr: Some(pr(|p| {
+                    p.number = 8;
+                    p.checks = "failing".into();
+                })),
+                ..Default::default()
+            }],
             leads: HashMap::from([("web".into(), lead("waiting", None))]),
         }
         .model();
         assert_eq!(
-            m.board.needs.iter().map(|i| (i.r#ref.as_str(), i.tone, i.text.as_deref())).collect::<Vec<_>>(),
-            [("web/lead", DeskTone::Needs, None), ("web/agent-1", DeskTone::Needs, Some("Paginate?")), ("web/agent-2", DeskTone::Error, Some("WebSocket closed"))]
+            m.board
+                .needs
+                .iter()
+                .map(|i| (i.r#ref.as_str(), i.tone, i.text.as_deref()))
+                .collect::<Vec<_>>(),
+            [
+                ("web/lead", DeskTone::Needs, None),
+                ("web/agent-1", DeskTone::Needs, Some("Paginate?")),
+                ("web/agent-2", DeskTone::Error, Some("WebSocket closed"))
+            ]
         );
         // A working agent's open PR isn't waiting for you yet.
-        assert_eq!(m.board.review.iter().map(|i| (i.r#ref.as_str(), i.pr.as_ref().map(|p| p.number))).collect::<Vec<_>>(), [("web/agent-3", Some(8)), ("web/agent-4", Some(9))]);
+        assert_eq!(
+            m.board
+                .review
+                .iter()
+                .map(|i| (i.r#ref.as_str(), i.pr.as_ref().map(|p| p.number)))
+                .collect::<Vec<_>>(),
+            [("web/agent-3", Some(8)), ("web/agent-4", Some(9))]
+        );
         let d = desk_of(&m, "web/agent-4");
-        assert_eq!(d.and_then(|d| d.changes), Some(Changes { files: 2, insertions: 10, deletions: 1 }));
-        assert_eq!(desk_of(&m, "web/agent-3").and_then(|d| d.pr.as_ref()).map(|p| p.checks), Some(PrChecks::Failing));
+        assert_eq!(
+            d.and_then(|d| d.changes),
+            Some(Changes {
+                files: 2,
+                insertions: 10,
+                deletions: 1
+            })
+        );
+        assert_eq!(
+            desk_of(&m, "web/agent-3")
+                .and_then(|d| d.pr.as_ref())
+                .map(|p| p.checks),
+            Some(PrChecks::Failing)
+        );
         assert!(desk_of(&m, "nope/agent-1").is_none());
     }
 
@@ -718,28 +1032,54 @@ mod tests {
     fn agents_with_the_same_title_are_told_apart_by_name() {
         let titled = |r: &str, title: &str| agent(r, |x| x.title = title.into());
         let m = In {
-            rows: vec![row(titled("web/agent-1", "Fix it"), AgentSt::Needs), row(titled("web/agent-2", "Fix it"), AgentSt::Working), row(titled("web/agent-3", "Other"), AgentSt::Working)],
+            rows: vec![
+                row(titled("web/agent-1", "Fix it"), AgentSt::Needs),
+                row(titled("web/agent-2", "Fix it"), AgentSt::Working),
+                row(titled("web/agent-3", "Other"), AgentSt::Working),
+            ],
             ..Default::default()
         }
         .model();
-        assert_eq!(m.areas[0].desks.iter().map(|d| d.title.as_str()).collect::<Vec<_>>(), ["Fix it (agent-1)", "Fix it (agent-2)", "Other"]);
+        assert_eq!(
+            m.areas[0]
+                .desks
+                .iter()
+                .map(|d| d.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Fix it (agent-1)", "Fix it (agent-2)", "Other"]
+        );
         assert_eq!(m.board.needs[0].title, "Fix it (agent-1)");
     }
 
     #[test]
     fn a_question_asked_in_json_reads_as_its_fields() {
         assert_eq!(readable("Paginate?"), "Paginate?");
-        assert_eq!(readable(r#"{"state":"running","limit":3}"#), "state: running · limit: 3");
+        assert_eq!(
+            readable(r#"{"state":"running","limit":3}"#),
+            "state: running · limit: 3"
+        );
         assert_eq!(readable(r#"["a", 2]"#), "a · 2");
         assert_eq!(readable("{not json"), "{not json");
         // JS orders integer-like keys first, and prints numbers as it does.
-        assert_eq!(readable(r#"{"b":1.0,"2":[1,"x"],"a":null,"1":{"k":true}}"#), r#"1: {"k":true} · 2: [1,"x"] · b: 1 · a: null"#);
+        assert_eq!(
+            readable(r#"{"b":1.0,"2":[1,"x"],"a":null,"1":{"k":true}}"#),
+            r#"1: {"k":true} · 2: [1,"x"] · b: 1 · a: null"#
+        );
     }
 
     #[test]
     fn chat_markdown_reads_as_plain_text_on_a_card() {
-        assert_eq!(plain("agent-12 finished the **New project** button: PR #318 is green"), "agent-12 finished the New project button: PR #318 is green");
-        assert_eq!(plain("`git push -u origin x` fails, see [the log](https://x.y/z)"), "git push -u origin x fails, see the log");
-        assert_eq!(plain("## Done\n- one *small* thing\n- snake_case_name stays"), "Done one small thing snake_case_name stays");
+        assert_eq!(
+            plain("agent-12 finished the **New project** button: PR #318 is green"),
+            "agent-12 finished the New project button: PR #318 is green"
+        );
+        assert_eq!(
+            plain("`git push -u origin x` fails, see [the log](https://x.y/z)"),
+            "git push -u origin x fails, see the log"
+        );
+        assert_eq!(
+            plain("## Done\n- one *small* thing\n- snake_case_name stays"),
+            "Done one small thing snake_case_name stays"
+        );
     }
 }

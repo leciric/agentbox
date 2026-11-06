@@ -24,7 +24,11 @@ pub struct Node {
 
 impl Node {
     pub fn local(&self) -> Mat4 {
-        Mat4::from_scale_rotation_translation(self.scale, Quat::from_euler(glam::EulerRot::XYZ, self.rot.x, self.rot.y, self.rot.z), self.pos)
+        Mat4::from_scale_rotation_translation(
+            self.scale,
+            Quat::from_euler(glam::EulerRot::XYZ, self.rot.x, self.rot.y, self.rot.z),
+            self.pos,
+        )
     }
 }
 
@@ -45,7 +49,16 @@ impl Rig {
 
     /// add is a new node under parent (None for the root's level), at pos.
     pub fn add(&mut self, name: &'static str, parent: Option<NodeId>, pos: Vec3) -> NodeId {
-        self.nodes.push(Node { name, parent, pos, rot: Vec3::ZERO, scale: Vec3::ONE, visible: true, meshes: Vec::new(), opacity: 1. });
+        self.nodes.push(Node {
+            name,
+            parent,
+            pos,
+            rot: Vec3::ZERO,
+            scale: Vec3::ONE,
+            visible: true,
+            meshes: Vec::new(),
+            opacity: 1.,
+        });
         self.nodes.len() - 1
     }
 

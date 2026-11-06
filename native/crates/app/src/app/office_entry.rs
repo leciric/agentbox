@@ -21,7 +21,9 @@ impl AppView {
             None => {
                 let client = self.client.clone();
                 let o = cx.new(|cx| OfficeView::new(client, window, cx));
-                let sub = cx.subscribe_in(&o, window, |this, _, ev: &OfficeEvent, window, cx| this.on_office(ev.clone(), window, cx));
+                let sub = cx.subscribe_in(&o, window, |this, _, ev: &OfficeEvent, window, cx| {
+                    this.on_office(ev.clone(), window, cx)
+                });
                 self._subs.push(sub);
                 self.office = Some(o);
             }
@@ -75,10 +77,14 @@ impl AppView {
             return None;
         }
         // Who needs you: asks and failures, every project's (#668's officeNeeds).
-        let needs: usize = self.projects.iter().map(|p| {
-            let [asks, failed, _, _] = self.st_counts(&p.name);
-            asks + failed
-        }).sum();
+        let needs: usize = self
+            .projects
+            .iter()
+            .map(|p| {
+                let [asks, failed, _, _] = self.st_counts(&p.name);
+                asks + failed
+            })
+            .sum();
         Some(
             h_flex()
                 .id("row-office")
@@ -90,17 +96,58 @@ impl AppView {
                 .cursor_pointer()
                 .when(self.office_open, |el| el.bg(theme::surface_strong()))
                 .hover(|el| el.bg(theme::surface_raised()))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_office(window, cx)))
-                .child(div().flex_none().size_6().flex().items_center().justify_center().rounded_md().bg(theme::surface_raised()).text_color(theme::muted()).child(crate::icons::of("🪑")))
+                .on_click(
+                    cx.listener(|this, _: &ClickEvent, window, cx| this.open_office(window, cx)),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .size_6()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_md()
+                        .bg(theme::surface_raised())
+                        .text_color(theme::muted())
+                        .child(crate::icons::of("🪑")),
+                )
                 .child(
                     v_flex()
                         .min_w_0()
                         .flex_1()
-                        .child(div().text_sm().text_color(theme::primary()).child(t("native.office.title")))
-                        .child(div().text_xs().text_color(theme::faint()).truncate().child(t("native.office.hint.nav"))),
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(theme::primary())
+                                .child(t("native.office.title")),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::faint())
+                                .truncate()
+                                .child(t("native.office.hint.nav")),
+                        ),
                 )
                 .when(needs > 0, |el| {
-                    el.child(div().flex_none().min_w_4().px_1().rounded_full().bg(gpui::rgb(0xfbbf24)).text_size(px(10.)).font_weight(FontWeight::SEMIBOLD).text_color(gpui::black()).flex().justify_center().child(if needs > 99 { "99+".to_string() } else { needs.to_string() }))
+                    el.child(
+                        div()
+                            .flex_none()
+                            .min_w_4()
+                            .px_1()
+                            .rounded_full()
+                            .bg(gpui::rgb(0xfbbf24))
+                            .text_size(px(10.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(gpui::black())
+                            .flex()
+                            .justify_center()
+                            .child(if needs > 99 {
+                                "99+".to_string()
+                            } else {
+                                needs.to_string()
+                            }),
+                    )
                 })
                 .into_any_element(),
         )

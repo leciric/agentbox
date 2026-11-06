@@ -656,6 +656,13 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
     };
     let res = match (&method, parts.as_slice()) {
         (&Method::GET, ["v1", "events"]) => events(fake.clone()).await,
+        // On its own, it's the daemon too: up, and set up with defaults.
+        (&Method::GET, ["v1", "version"]) if fake.opts.upstream.is_none() => {
+            json(StatusCode::OK, &serde_json::json!({ "version": "fake", "api": 1 }))
+        }
+        (&Method::GET, ["v1", "settings"]) if fake.opts.upstream.is_none() => {
+            json(StatusCode::OK, &serde_json::json!({}))
+        }
         (&Method::GET, ["v1", "projects"]) if fake.opts.upstream.is_none() => {
             let p = Project {
                 name: fake.opts.project.clone(),

@@ -41,7 +41,12 @@ pub enum Note {
     Near(Option<String>),
     /// Which room you're in (project, floor of floors), or the campus, and
     /// whether at its overview.
-    View { project: Option<String>, floor: i64, floors: usize, overview: bool },
+    View {
+        project: Option<String>,
+        floor: i64,
+        floors: usize,
+        overview: bool,
+    },
     /// What the pointer is over.
     Hover(Option<String>),
     /// A click on what you're standing at, or E: open it.
@@ -185,7 +190,12 @@ impl Camera {
     fn new(eye: Vec3, target: Vec3, aspect: f32) -> Self {
         let view = Mat4::look_at_rh(eye, target, Vec3::Y);
         let proj = Mat4::perspective_rh((FOV as f32).to_radians(), aspect.max(0.01), 0.1, 900.);
-        Self { eye, target, view, proj }
+        Self {
+            eye,
+            target,
+            view,
+            proj,
+        }
     }
 
     pub fn view_proj(&self) -> Mat4 {
@@ -216,7 +226,10 @@ fn floor_hit(o: Vec3, d: Vec3) -> Option<P> {
         return None;
     }
     let t = -o.y / d.y;
-    (t > 0.).then(|| P { x: (o.x + d.x * t) as f64, z: (o.z + d.z * t) as f64 })
+    (t > 0.).then_some(P {
+        x: (o.x + d.x * t) as f64,
+        z: (o.z + d.z * t) as f64,
+    })
 }
 
 fn ray_box(o: Vec3, d: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
@@ -228,11 +241,8 @@ fn ray_box(o: Vec3, d: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
     (hi >= lo.max(0.)).then_some(lo.max(0.))
 }
 
-const fn is_board(r: &Option<String>) -> bool {
-    match r {
-        Some(s) => s.as_bytes().len() > 6 && s.as_bytes()[0] == b'b' && s.as_bytes()[5] == b':',
-        None => false,
-    }
+fn is_board(r: &Option<String>) -> bool {
+    r.as_deref().is_some_and(board)
 }
 
 fn board(r: &str) -> bool {
@@ -267,7 +277,11 @@ impl Sim {
             dist: 13.,
             zoom_z: 0.,
             follow_target: 0.,
-            eased: Eased { dist: 20., pitch: 0.9, ..Default::default() },
+            eased: Eased {
+                dist: 20.,
+                pitch: 0.9,
+                ..Default::default()
+            },
             near: None,
             focus_ref: None,
             zoom_focus: None,
@@ -293,7 +307,12 @@ impl Sim {
 
     fn room_bounds(&self, i: usize) -> Rect {
         let b = self.lay.rooms[i].r#box;
-        Rect { x0: b.x0 + RADIUS, z0: b.z0 + RADIUS, x1: b.x1 - RADIUS, z1: b.z1 - RADIUS }
+        Rect {
+            x0: b.x0 + RADIUS,
+            z0: b.z0 + RADIUS,
+            x1: b.x1 - RADIUS,
+            z1: b.z1 - RADIUS,
+        }
     }
 
     fn aspect(&self) -> f64 {
@@ -310,7 +329,12 @@ impl Sim {
         if n == 0 {
             return;
         }
-        self.cur = (if self.placed { layout::room_at(&self.lay, self.pos).unwrap_or(self.cur) } else { 0 }).min(n - 1);
+        self.cur = (if self.placed {
+            layout::room_at(&self.lay, self.pos).unwrap_or(self.cur)
+        } else {
+            0
+        })
+        .min(n - 1);
         if let Some(s) = self.scope {
             self.scope = Some(s.min(n - 1));
         }
@@ -328,7 +352,11 @@ impl Sim {
             self.follow_k = v.follow;
             self.yaw = v.yaw;
             self.dist = v.dist;
-            self.zoom_z = if v.follow < 1. { v.follow / 2. } else { 0.5 + ((FOLLOW_FAR - v.dist) / (FOLLOW_FAR - FOLLOW_NEAR)) * 0.5 };
+            self.zoom_z = if v.follow < 1. {
+                v.follow / 2.
+            } else {
+                0.5 + ((FOLLOW_FAR - v.dist) / (FOLLOW_FAR - FOLLOW_NEAR)) * 0.5
+            };
             self.moved = true;
             self.placed = true;
             let back = path(&self.boxes, &self.bounds, self.pos, self.pos);
@@ -348,7 +376,10 @@ impl Sim {
             self.scope = None;
             self.yaw = CAMPUS_YAW;
             self.bounds = self.room_bounds(0);
-            self.pos = P { x: self.lay.spawn.x, z: self.lay.spawn.z };
+            self.pos = P {
+                x: self.lay.spawn.x,
+                z: self.lay.spawn.z,
+            };
             self.facing = self.lay.spawn.face;
             self.placed = true;
             self.show_scope();
@@ -368,7 +399,14 @@ impl Sim {
 
     /// visit is where you are, kept for coming back.
     pub fn visit(&self) -> Visit {
-        Visit { pos: self.pos, facing: self.facing, follow: self.follow_target, yaw: self.yaw, dist: self.dist, scope: self.scope }
+        Visit {
+            pos: self.pos,
+            facing: self.facing,
+            follow: self.follow_target,
+            yaw: self.yaw,
+            dist: self.dist,
+            scope: self.scope,
+        }
     }
 
     pub fn poke(&mut self) {
@@ -378,12 +416,20 @@ impl Sim {
     fn zoom_to(&mut self, z: f64) {
         self.zoom_z = z.clamp(0., 1.);
         self.follow_target = (self.zoom_z * 2.).min(1.);
-        self.dist = if self.zoom_z <= 0.5 { FOLLOW_FAR } else { FOLLOW_FAR - (self.zoom_z - 0.5) * 2. * (FOLLOW_FAR - FOLLOW_NEAR) };
+        self.dist = if self.zoom_z <= 0.5 {
+            FOLLOW_FAR
+        } else {
+            FOLLOW_FAR - (self.zoom_z - 0.5) * 2. * (FOLLOW_FAR - FOLLOW_NEAR)
+        };
         self.tell_view();
     }
 
     fn home_yaw(&self) -> f64 {
-        if self.scope.is_none() { CAMPUS_YAW } else { HOME_YAW }
+        if self.scope.is_none() {
+            CAMPUS_YAW
+        } else {
+            HOME_YAW
+        }
     }
 
     pub fn scope_box(&self) -> Rect {
@@ -442,7 +488,12 @@ impl Sim {
 
     fn tell_view(&mut self) {
         let rm = self.scope.and_then(|s| self.lay.rooms.get(s));
-        let note = Note::View { project: rm.map(|r| r.project.clone()), floor: rm.map(|r| r.floor).unwrap_or(1), floors: rm.map(|r| r.floors).unwrap_or(1), overview: self.follow_target == 0. };
+        let note = Note::View {
+            project: rm.map(|r| r.project.clone()),
+            floor: rm.map(|r| r.floor).unwrap_or(1),
+            floors: rm.map(|r| r.floors).unwrap_or(1),
+            overview: self.follow_target == 0.,
+        };
         let k = format!("{note:?}");
         if k != self.told_view {
             self.told_view = k;
@@ -509,16 +560,36 @@ impl Sim {
         if self.lay.rooms.is_empty() {
             return;
         }
-        let r = if ref0 == "board" { layout::board_ref(&self.lay.rooms[self.cur]) } else { ref0.to_string() };
-        let (Some(ri), Some(spot)) = (layout::room_of(&self.lay, &r), layout::spot_of(&self.lay, &r)) else { return };
+        let r = if ref0 == "board" {
+            layout::board_ref(&self.lay.rooms[self.cur])
+        } else {
+            ref0.to_string()
+        };
+        let (Some(ri), Some(spot)) = (
+            layout::room_of(&self.lay, &r),
+            layout::spot_of(&self.lay, &r),
+        ) else {
+            return;
+        };
         // In another room: there already, at it, the camera gliding in.
         let other = ri != self.cur;
         self.into(ri);
         if other {
-            self.pos = P { x: spot.x, z: spot.z };
+            self.pos = P {
+                x: spot.x,
+                z: spot.z,
+            };
             self.facing = spot.face;
         }
-        self.route = path(&self.boxes, &self.bounds, self.pos, P { x: spot.x, z: spot.z });
+        self.route = path(
+            &self.boxes,
+            &self.bounds,
+            self.pos,
+            P {
+                x: spot.x,
+                z: spot.z,
+            },
+        );
         self.route_goal = Some(r.clone());
         self.came_to = Some(r);
         self.zoom_to(self.zoom_z.max(0.5));
@@ -578,9 +649,15 @@ impl Sim {
 
     /// floor goes to another floor of the project whose room you're in.
     pub fn floor(&mut self, f: i64) {
-        let Some(here) = self.lay.rooms.get(self.cur) else { return };
+        let Some(here) = self.lay.rooms.get(self.cur) else {
+            return;
+        };
         let p = here.project.clone();
-        if let Some(i) = self.lay.rooms.iter().position(|r| r.project == p && r.floor == f)
+        if let Some(i) = self
+            .lay
+            .rooms
+            .iter()
+            .position(|r| r.project == p && r.floor == f)
             && Some(i) != self.scope
         {
             self.enter(i);
@@ -627,7 +704,17 @@ impl Sim {
         let mut stepped = 0.;
         let motion = self.motion;
         // Speeds ease up and down: you set off and come to a stop, not jump to a pace.
-        let toward = |v: f64, want: f64| if motion { if want > v { want.min(v + ACCEL * dt) } else { want.max(v - BRAKE * 1.6 * dt) } } else { want };
+        let toward = |v: f64, want: f64| {
+            if motion {
+                if want > v {
+                    want.min(v + ACCEL * dt)
+                } else {
+                    want.max(v - BRAKE * 1.6 * dt)
+                }
+            } else {
+                want
+            }
+        };
         if kx != 0. || kz != 0. {
             self.route.clear();
             self.route_goal = None;
@@ -643,7 +730,10 @@ impl Sim {
             let len = f64::hypot(kx, kz);
             let (s, c) = self.eased.yaw.sin_cos();
             self.pace = toward(self.pace, SPEED);
-            let d = P { x: (kx * c + kz * s) / len, z: (-kx * s + kz * c) / len };
+            let d = P {
+                x: (kx * c + kz * s) / len,
+                z: (-kx * s + kz * c) / len,
+            };
             self.key_dir = Some(d);
             vx = d.x * self.pace;
             vz = d.z * self.pace;
@@ -651,10 +741,19 @@ impl Sim {
             let dx = goal.x - self.pos.x;
             let dz = goal.z - self.pos.z;
             let dist = dx.hypot(dz);
-            let left = dist + if self.route.len() > 1 { path_length(self.route[0], &self.route[1..]) } else { 0. };
+            let left = dist
+                + if self.route.len() > 1 {
+                    path_length(self.route[0], &self.route[1..])
+                } else {
+                    0.
+                };
             // A long walk, or one you asked for by name, is a run; a short
             // one a walk. Slowing in time to stop where it ends.
-            let top = if self.route_goal.is_some() || left > 7. { RUN } else { SPEED };
+            let top = if self.route_goal.is_some() || left > 7. {
+                RUN
+            } else {
+                SPEED
+            };
             self.pace = toward(self.pace, top.min((2. * BRAKE * left).sqrt().max(0.9)));
             let step_len = self.pace * dt;
             if dist <= step_len {
@@ -688,11 +787,34 @@ impl Sim {
             self.key_dir = None;
         }
         if vx != 0. || vz != 0. {
-            let next = if self.key_dir.is_some() && self.route.is_empty() { slide(&self.boxes, &self.bounds, self.pos, P { x: vx * dt, z: vz * dt }) } else { P { x: self.pos.x + vx * dt, z: self.pos.z + vz * dt } };
+            let next = if self.key_dir.is_some() && self.route.is_empty() {
+                slide(
+                    &self.boxes,
+                    &self.bounds,
+                    self.pos,
+                    P {
+                        x: vx * dt,
+                        z: vz * dt,
+                    },
+                )
+            } else {
+                P {
+                    x: self.pos.x + vx * dt,
+                    z: self.pos.z + vz * dt,
+                }
+            };
             let moved1 = (next.x - self.pos.x).hypot(next.z - self.pos.z);
             self.pos = next;
             self.speed = moved1 / dt.max(1e-3);
-            self.facing = turn(self.facing, vx.atan2(vz), if motion { dt * 12. } else { std::f64::consts::PI });
+            self.facing = turn(
+                self.facing,
+                vx.atan2(vz),
+                if motion {
+                    dt * 12.
+                } else {
+                    std::f64::consts::PI
+                },
+            );
             moving = true;
             self.still_for = 0.;
         } else if stepped > 0. && !self.route.is_empty() {
@@ -706,7 +828,15 @@ impl Sim {
             if let Some(g) = &self.route_goal
                 && let Some(spot) = layout::spot_of(&self.lay, g)
             {
-                let f = turn(self.facing, spot.face, if motion { dt * 8. } else { std::f64::consts::PI });
+                let f = turn(
+                    self.facing,
+                    spot.face,
+                    if motion {
+                        dt * 8.
+                    } else {
+                        std::f64::consts::PI
+                    },
+                );
                 if (f - self.facing).abs() > 1e-3 {
                     moving = true;
                 }
@@ -727,7 +857,11 @@ impl Sim {
         };
         if at != self.near {
             self.near = at;
-            self.notes.push(Note::Near(self.near.as_ref().map(|n| if board(n) { "board".into() } else { n.clone() })));
+            self.notes.push(Note::Near(
+                self.near
+                    .as_ref()
+                    .map(|n| if board(n) { "board".into() } else { n.clone() }),
+            ));
             self.dirty = true;
         }
         let cam = self.cam_step(dt);
@@ -746,9 +880,17 @@ impl Sim {
             let free = 1.;
             let pitch = 0.4;
             // Wide enough for you, standing at its left end, too.
-            let dist = ((rm.board.w + 3.6) / (free * 2. * tan * aspect)).max(((bh + 0.9) * f64::cos(pitch)) / (0.7 * 2. * tan));
+            let dist = ((rm.board.w + 3.6) / (free * 2. * tan * aspect))
+                .max(((bh + 0.9) * f64::cos(pitch)) / (0.7 * 2. * tan));
             let vw = 2. * dist * tan * aspect;
-            return Some(Focus { x: rm.board.x + (vw * (1. - free)) / 2., y: 0.45 + bh / 2., z: rm.oz + 0.1, dist, pitch, yaw: 0. });
+            return Some(Focus {
+                x: rm.board.x + (vw * (1. - free)) / 2.,
+                y: 0.45 + bh / 2.,
+                z: rm.oz + 0.1,
+                dist,
+                pitch,
+                yaw: 0.,
+            });
         }
         for a in &self.lay.areas {
             let ar = &a.area;
@@ -757,12 +899,32 @@ impl Sim {
             if let Some(l) = &ar.lead
                 && r == format!("{}/lead", ar.project)
             {
-                return Some(self.aside(Focus { x: l.x - 0.4, y: 1.1, z: l.z - 0.2, dist: 17., pitch: 0.7, yaw: self.yaw.clamp(0.1, 0.75) }, aspect));
+                return Some(self.aside(
+                    Focus {
+                        x: l.x - 0.4,
+                        y: 1.1,
+                        z: l.z - 0.2,
+                        dist: 17.,
+                        pitch: 0.7,
+                        yaw: self.yaw.clamp(0.1, 0.75),
+                    },
+                    aspect,
+                ));
             }
             // One angle for every desk, a little from the right as the
             // room's view is: N from desk to desk doesn't swing the room round.
             if let Some(d) = ar.desks.iter().find(|d| d.id == r) {
-                return Some(self.aside(Focus { x: d.x + d.side as f64 * 0.35, y: 0.9, z: d.z - 0.3, dist: 22., pitch: 0.85, yaw: self.yaw.clamp(0.1, 0.75) }, aspect));
+                return Some(self.aside(
+                    Focus {
+                        x: d.x + d.side as f64 * 0.35,
+                        y: 0.9,
+                        z: d.z - 0.3,
+                        dist: 22.,
+                        pitch: 0.85,
+                        yaw: self.yaw.clamp(0.1, 0.75),
+                    },
+                    aspect,
+                ));
             }
         }
         None
@@ -775,7 +937,11 @@ impl Sim {
         let share = (if self.cover > 0. { self.cover } else { CARD } / w).min(0.6);
         let vw = 2. * f.dist * (FOV / 2.).to_radians().tan() * aspect;
         let shift = vw * share / 2.;
-        Focus { x: f.x + f.yaw.cos() * shift, z: f.z - f.yaw.sin() * shift, ..f }
+        Focus {
+            x: f.x + f.yaw.cos() * shift,
+            z: f.z - f.yaw.sin() * shift,
+            ..f
+        }
     }
 
     /// fit_distance is how far back the overview stands for the whole room
@@ -783,8 +949,15 @@ impl Sim {
     /// found by trying, since a tilted view of a box has no neat formula.
     fn fit_distance(&mut self, bx: Rect, h: f64, aspect: f64, pitch: f64) -> (f64, f64, f64) {
         // Over the campus, as it's turned: after a drag every building's in view.
-        let yaw0 = if self.scope.is_none() { self.yaw } else { self.home_yaw() };
-        let key = format!("{:?}:{:.2}:{:.2}:{:.2}:{:.2}:{h}:{aspect:.3}:{}:{yaw0}", self.scope, bx.x0, bx.z0, bx.x1, bx.z1, self.inset);
+        let yaw0 = if self.scope.is_none() {
+            self.yaw
+        } else {
+            self.home_yaw()
+        };
+        let key = format!(
+            "{:?}:{:.2}:{:.2}:{:.2}:{:.2}:{h}:{aspect:.3}:{}:{yaw0}",
+            self.scope, bx.x0, bx.z0, bx.x1, bx.z1, self.inset
+        );
         if self.fit_cache.0 == key {
             return (self.fit_cache.1, self.fit_cache.2, self.fit_cache.3);
         }
@@ -793,12 +966,30 @@ impl Sim {
         let cover = (self.inset / (self.size.x as f64).max(1.)).min(0.45);
         // The window the diorama fills, in clip space: nearly all of it, the
         // top bar's and the legend's clear parts over its corners and edges.
-        let win = if self.scope.is_none() { (-0.94 + 2. * cover, 0.9, -0.74, 0.78) } else { (-0.98 + 2. * cover, 0.99, -0.82, 0.9) };
+        let win = if self.scope.is_none() {
+            (-0.94 + 2. * cover, 0.9, -0.74, 0.78)
+        } else {
+            (-0.98 + 2. * cover, 0.99, -0.82, 0.9)
+        };
         // The diorama's outline: the slab's underside, the walls' tops where
         // there are walls (back and left), the floor's open corner; over the
         // campus every room's, each floor where the campus shows it.
         let outlines: Vec<(Rect, f64)> = if self.scope.is_none() {
-            self.lay.rooms.iter().map(|r| (Rect { x0: r.r#box.x0 + r.shown.dx, z0: r.r#box.z0 + r.shown.dz, x1: r.r#box.x1 + r.shown.dx, z1: r.r#box.z1 + r.shown.dz }, r.shown.dy)).collect()
+            self.lay
+                .rooms
+                .iter()
+                .map(|r| {
+                    (
+                        Rect {
+                            x0: r.r#box.x0 + r.shown.dx,
+                            z0: r.r#box.z0 + r.shown.dz,
+                            x1: r.r#box.x1 + r.shown.dx,
+                            z1: r.r#box.z1 + r.shown.dz,
+                        },
+                        r.shown.dy,
+                    )
+                })
+                .collect()
         } else {
             vec![(bx, 0.)]
         };
@@ -809,14 +1000,30 @@ impl Sim {
                     corners.push(Vec3::new(x as f32, (y - 0.72) as f32, z as f32));
                 }
             }
-            corners.push(Vec3::new((b.x0 - 0.3) as f32, (y + h) as f32, (b.z0 - 0.3) as f32));
-            corners.push(Vec3::new((b.x1 + 0.1) as f32, (y + h) as f32, (b.z0 - 0.3) as f32));
-            corners.push(Vec3::new((b.x0 - 0.3) as f32, (y + h) as f32, (b.z1 + 0.1) as f32));
+            corners.push(Vec3::new(
+                (b.x0 - 0.3) as f32,
+                (y + h) as f32,
+                (b.z0 - 0.3) as f32,
+            ));
+            corners.push(Vec3::new(
+                (b.x1 + 0.1) as f32,
+                (y + h) as f32,
+                (b.z0 - 0.3) as f32,
+            ));
+            corners.push(Vec3::new(
+                (b.x0 - 0.3) as f32,
+                (y + h) as f32,
+                (b.z1 + 0.1) as f32,
+            ));
         }
         let right = (yaw0.cos(), -yaw0.sin());
         let back = (-yaw0.sin(), -yaw0.cos());
         let bounds = |t: (f64, f64), d: f64| {
-            let eye = Vec3::new((t.0 + yaw0.sin() * pitch.cos() * d) as f32, (pitch.sin() * d) as f32, (t.1 + yaw0.cos() * pitch.cos() * d) as f32);
+            let eye = Vec3::new(
+                (t.0 + yaw0.sin() * pitch.cos() * d) as f32,
+                (pitch.sin() * d) as f32,
+                (t.1 + yaw0.cos() * pitch.cos() * d) as f32,
+            );
             let cam = Camera::new(eye, Vec3::new(t.0 as f32, 0., t.1 as f32), aspect as f32);
             let mut b = (f64::MAX, f64::MIN, f64::MAX, f64::MIN, false);
             for c in &corners {
@@ -870,16 +1077,40 @@ impl Sim {
         let motion = self.motion;
         // From the overview down to following you is a long way: taken
         // gently. Standing back is quicker than coming down to you.
-        let k = if motion { 1. - (-dt * if self.follow_target < self.follow_k { 6.5 } else { 4.2 }).exp() } else { 1. };
+        let k = if motion {
+            1. - (-dt
+                * if self.follow_target < self.follow_k {
+                    6.5
+                } else {
+                    4.2
+                })
+            .exp()
+        } else {
+            1.
+        };
         self.follow_k += (self.follow_target - self.follow_k) * k;
         if (self.follow_target - self.follow_k).abs() < 1e-3 {
             self.follow_k = self.follow_target;
         }
         // Close up at what you're at, and gliding into it over a walk's last
         // few metres; only at what you walked to by name.
-        let mut close_target = if self.near.is_some() && self.near == self.came_to && self.still_for > 0.15 && !self.held && !self.turned { 1. } else { 0. };
+        let mut close_target = if self.near.is_some()
+            && self.near == self.came_to
+            && self.still_for > 0.15
+            && !self.held
+            && !self.turned
+        {
+            1.
+        } else {
+            0.
+        };
         if close_target == 0. && self.route_goal.is_some() && !self.route.is_empty() {
-            let rem = (self.route[0].x - self.pos.x).hypot(self.route[0].z - self.pos.z) + if self.route.len() > 1 { path_length(self.route[0], &self.route[1..]) } else { 0. };
+            let rem = (self.route[0].x - self.pos.x).hypot(self.route[0].z - self.pos.z)
+                + if self.route.len() > 1 {
+                    path_length(self.route[0], &self.route[1..])
+                } else {
+                    0.
+                };
             if rem < 8. {
                 close_target = 1. - rem / 8.;
             }
@@ -887,24 +1118,38 @@ impl Sim {
         if close_target > 0. {
             self.focus_ref = self.near.clone().or_else(|| self.route_goal.clone());
         }
-        self.close_k += (close_target - self.close_k) * if motion { 1. - (-dt * 6.5).exp() } else { 1. };
+        self.close_k +=
+            (close_target - self.close_k) * if motion { 1. - (-dt * 6.5).exp() } else { 1. };
         if (close_target - self.close_k).abs() < 1e-3 {
             self.close_k = close_target;
         }
         // The overview fits the room, from the front and above.
         let o_pitch = OVERVIEW_PITCH;
-        let (o_dist, o_x, o_z) = self.fit_distance(self.scope_box(), self.scope_wall(), aspect, o_pitch);
+        let (o_dist, o_x, o_z) =
+            self.fit_distance(self.scope_box(), self.scope_wall(), aspect, o_pitch);
         let c = self.close_k;
-        let focus = self.focus_ref.as_deref().and_then(|r| self.focus_of(r, aspect));
+        let focus = self
+            .focus_ref
+            .as_deref()
+            .and_then(|r| self.focus_of(r, aspect));
         let f = self.follow_k;
         // Following you, or the spot the wheel zoomed in on; kept over the
         // room near its walls, so the view isn't half sky.
         let sb = self.scope.map(|s| self.lay.rooms[s].r#box);
-        let clamp_to = |v: f64, a: f64, b: f64, m: f64| if b - a < 2. * m { (a + b) / 2. } else { v.clamp(a + m, b - m) };
+        let clamp_to = |v: f64, a: f64, b: f64, m: f64| {
+            if b - a < 2. * m {
+                (a + b) / 2.
+            } else {
+                v.clamp(a + m, b - m)
+            }
+        };
         let fx0 = self.zoom_focus.map(|z| z.x).unwrap_or(self.pos.x);
         let fz0 = self.zoom_focus.map(|z| z.z).unwrap_or(self.pos.z);
         let (fx, fz) = match sb {
-            Some(b) => (clamp_to(fx0, b.x0, b.x1, 5.), clamp_to(fz0, b.z0, b.z1, 3.5)),
+            Some(b) => (
+                clamp_to(fx0, b.x0, b.x1, 5.),
+                clamp_to(fz0, b.z0, b.z1, 3.5),
+            ),
             None => (fx0, fz0),
         };
         let mut tx = o_x + (fx - o_x) * f;
@@ -923,11 +1168,25 @@ impl Sim {
         }
         let e0 = self.eased;
         if !self.eased.init {
-            self.eased = Eased { tx, ty, tz, dist, pitch, yaw, init: true };
+            self.eased = Eased {
+                tx,
+                ty,
+                tz,
+                dist,
+                pitch,
+                yaw,
+                init: true,
+            };
         } else {
             // Standing back for the overview settles quickly; following you,
             // gently; at the board quicker still.
-            let rate = if is_board(&self.focus_ref) && self.close_k > 0.5 { 14. } else if self.held { 10. } else { 8. };
+            let rate = if is_board(&self.focus_ref) && self.close_k > 0.5 {
+                14.
+            } else if self.held {
+                10.
+            } else {
+                8.
+            };
             let e = if motion { 1. - (-dt * rate).exp() } else { 1. };
             let ey = if motion { 1. - (-dt * 10.).exp() } else { 1. };
             let s = &mut self.eased;
@@ -940,17 +1199,36 @@ impl Sim {
         }
         let s = self.eased;
         let cp = s.pitch.cos();
-        let eye = Vec3::new((s.tx + s.yaw.sin() * cp * s.dist) as f32, (s.ty + s.pitch.sin() * s.dist) as f32, (s.tz + s.yaw.cos() * cp * s.dist) as f32);
-        self.camera = Camera::new(eye, Vec3::new(s.tx as f32, s.ty as f32, s.tz as f32), aspect as f32);
+        let eye = Vec3::new(
+            (s.tx + s.yaw.sin() * cp * s.dist) as f32,
+            (s.ty + s.pitch.sin() * s.dist) as f32,
+            (s.tz + s.yaw.cos() * cp * s.dist) as f32,
+        );
+        self.camera = Camera::new(
+            eye,
+            Vec3::new(s.tx as f32, s.ty as f32, s.tz as f32),
+            aspect as f32,
+        );
         // Still easing while it moves more than a hair a frame.
-        let moved = (s.tx - e0.tx).abs() + (s.tz - e0.tz).abs() + (s.ty - e0.ty).abs() + (s.dist - e0.dist).abs() * 0.1 + (s.pitch - e0.pitch).abs() * 10. + (s.yaw - e0.yaw).abs() * 10.;
-        !e0.init || moved > 1e-4 || self.follow_k != self.follow_target || self.close_k != close_target
+        let moved = (s.tx - e0.tx).abs()
+            + (s.tz - e0.tz).abs()
+            + (s.ty - e0.ty).abs()
+            + (s.dist - e0.dist).abs() * 0.1
+            + (s.pitch - e0.pitch).abs() * 10.
+            + (s.yaw - e0.yaw).abs() * 10.;
+        !e0.init
+            || moved > 1e-4
+            || self.follow_k != self.follow_target
+            || self.close_k != close_target
     }
 
     // ---- Input ----
 
     fn ndc(&self, x: f64, y: f64) -> Vec2 {
-        Vec2::new((x / self.size.x as f64 * 2. - 1.) as f32, (-(y / self.size.y as f64) * 2. + 1.) as f32)
+        Vec2::new(
+            (x / self.size.x as f64 * 2. - 1.) as f32,
+            (-(y / self.size.y as f64) * 2. + 1.) as f32,
+        )
     }
 
     /// floor_at is the floor under a point of the view, whatever stands on it.
@@ -967,7 +1245,11 @@ impl Sim {
             if !self.in_scope(h.room) || (h.campus_only && self.scope.is_some()) {
                 continue;
             }
-            let off = if h.room >= 0 { self.shown(h.room as usize) } else { Vec3::ZERO };
+            let off = if h.room >= 0 {
+                self.shown(h.room as usize)
+            } else {
+                Vec3::ZERO
+            };
             if let Some(t) = ray_box(o, d, h.min + off, h.max + off)
                 && best.is_none_or(|(bt, _)| t < bt)
             {
@@ -975,20 +1257,37 @@ impl Sim {
             }
         }
         if let Some((_, h)) = best {
-            return Aim { r#ref: Some(h.r#ref.clone()), floor: None, bubble: h.bubble };
+            return Aim {
+                r#ref: Some(h.r#ref.clone()),
+                floor: None,
+                bubble: h.bubble,
+            };
         }
-        Aim { r#ref: None, floor: floor_hit(o, d), bubble: false }
+        Aim {
+            r#ref: None,
+            floor: floor_hit(o, d),
+            bubble: false,
+        }
     }
 
     fn cam_at(&self) -> String {
         let e = self.eased;
-        format!("{:.2}:{:.2}:{:.2}:{:.3}:{:.3}", e.tx, e.tz, e.dist, e.pitch, e.yaw)
+        format!(
+            "{:.2}:{:.2}:{:.2}:{:.3}:{:.3}",
+            e.tx, e.tz, e.dist, e.pitch, e.yaw
+        )
     }
 
     pub fn pointer_down(&mut self, x: f64, y: f64) {
         // What's under the pointer as it's pressed is what the click is for,
         // even if the camera moves on before it's released.
-        self.pointer = Some(Pointer { x, y, dragged: false, aim: self.pick(x, y), cam: self.cam_at() });
+        self.pointer = Some(Pointer {
+            x,
+            y,
+            dragged: false,
+            aim: self.pick(x, y),
+            cam: self.cam_at(),
+        });
         self.poke();
     }
 
@@ -1007,8 +1306,13 @@ impl Sim {
                     self.yaw = self.eased.yaw;
                 }
                 // Over the campus a little either way.
-                let (lo, hi) = if self.scope.is_none() { (0.35, 0.35) } else { (0.7, 0.5) };
-                self.yaw = (self.yaw - mx * 0.0035).clamp(self.home_yaw() - lo, self.home_yaw() + hi);
+                let (lo, hi) = if self.scope.is_none() {
+                    (0.35, 0.35)
+                } else {
+                    (0.7, 0.5)
+                };
+                self.yaw =
+                    (self.yaw - mx * 0.0035).clamp(self.home_yaw() - lo, self.home_yaw() + hi);
                 self.poke();
                 return true;
             }
@@ -1016,7 +1320,11 @@ impl Sim {
         let over = self.pick(x, y).r#ref;
         if over != self.hover {
             self.hover = over;
-            let shown = self.hover.clone().filter(|h| !h.starts_with("room:")).map(|h| if board(&h) { "board".into() } else { h });
+            let shown = self
+                .hover
+                .clone()
+                .filter(|h| !h.starts_with("room:"))
+                .map(|h| if board(&h) { "board".into() } else { h });
             self.notes.push(Note::Hover(shown));
             self.poke();
         }
@@ -1037,9 +1345,16 @@ impl Sim {
         if p.dragged {
             return;
         }
-        let aim = if p.cam == self.cam_at() { p.aim } else { self.pick(x, y) };
+        let aim = if p.cam == self.cam_at() {
+            p.aim
+        } else {
+            self.pick(x, y)
+        };
         // On the way to a board, a click on what's in front of it waits.
-        if aim.r#ref.is_some() && is_board(&self.route_goal) && (!self.route.is_empty() || self.close_k < 0.95) {
+        if aim.r#ref.is_some()
+            && is_board(&self.route_goal)
+            && (!self.route.is_empty() || self.close_k < 0.95)
+        {
             return;
         }
         // Over the campus, a click anywhere on a room goes into it (a "!"
@@ -1079,11 +1394,20 @@ impl Sim {
     /// wheel zooms in steps from the overview down to following you, and
     /// then closer; `d` is the wheel's delta in pixels (positive: outwards).
     pub fn wheel(&mut self, x: f64, y: f64, d: f64) {
-        let n = (if d.abs() >= 50. { d.signum() * (d.abs() / 120.).max(1.) } else { d / 100. }).clamp(-3., 3.);
+        let n = (if d.abs() >= 50. {
+            d.signum() * (d.abs() / 120.).max(1.)
+        } else {
+            d / 100.
+        })
+        .clamp(-3., 3.);
         // Over the campus, a turn inwards goes into the room under the
         // pointer; at a room's overview, a turn outwards stands back to the campus.
         let over = self.floor_at(x, y);
-        let hit = if self.scope.is_none() { Some(self.pick(x, y)) } else { None };
+        let hit = if self.scope.is_none() {
+            Some(self.pick(x, y))
+        } else {
+            None
+        };
         let over_room = match hit.as_ref().and_then(|h| h.r#ref.clone()) {
             Some(r) if r.starts_with("room:") => r[5..].parse().ok(),
             Some(r) => layout::room_of(&self.lay, &r),
@@ -1111,8 +1435,13 @@ impl Sim {
                 let before = (self.eased.tx, self.eased.tz, self.eased.dist);
                 let z1 = (self.zoom_z - n * 0.07).clamp(0., 1.);
                 let f1 = (z1 * 2.).min(1.);
-                let (o_dist, cx, cz) = self.fit_distance(sb, self.scope_wall(), self.aspect(), OVERVIEW_PITCH);
-                let fd1 = if z1 <= 0.5 { FOLLOW_FAR } else { FOLLOW_FAR - (z1 - 0.5) * 2. * (FOLLOW_FAR - FOLLOW_NEAR) };
+                let (o_dist, cx, cz) =
+                    self.fit_distance(sb, self.scope_wall(), self.aspect(), OVERVIEW_PITCH);
+                let fd1 = if z1 <= 0.5 {
+                    FOLLOW_FAR
+                } else {
+                    FOLLOW_FAR - (z1 - 0.5) * 2. * (FOLLOW_FAR - FOLLOW_NEAR)
+                };
                 let d1 = o_dist + (fd1 - o_dist) * f1;
                 let k = d1 / before.2.max(0.01);
                 let mut tx = under.x + (before.0 - under.x) * k;
@@ -1122,8 +1451,16 @@ impl Sim {
                 for _ in 0..3 {
                     let cp = p1.cos();
                     let yaw = self.eased.yaw;
-                    let eye = Vec3::new((tx + yaw.sin() * cp * d1) as f32, (0.9 * f1 + p1.sin() * d1) as f32, (tz + yaw.cos() * cp * d1) as f32);
-                    let probe = Camera::new(eye, Vec3::new(tx as f32, (0.9 * f1) as f32, tz as f32), self.aspect() as f32);
+                    let eye = Vec3::new(
+                        (tx + yaw.sin() * cp * d1) as f32,
+                        (0.9 * f1 + p1.sin() * d1) as f32,
+                        (tz + yaw.cos() * cp * d1) as f32,
+                    );
+                    let probe = Camera::new(
+                        eye,
+                        Vec3::new(tx as f32, (0.9 * f1) as f32, tz as f32),
+                        self.aspect() as f32,
+                    );
                     let (o, dd) = probe.ray(at);
                     let Some(g) = floor_hit(o, dd) else { break };
                     tx += under.x - g.x;
@@ -1131,7 +1468,10 @@ impl Sim {
                 }
                 // ...and the focus that, blended with the overview's centre, gives it.
                 if f1 > 0.02 {
-                    self.zoom_focus = Some(P { x: (cx + (tx - cx) / f1).clamp(sb.x0, sb.x1), z: (cz + (tz - cz) / f1).clamp(sb.z0, sb.z1) });
+                    self.zoom_focus = Some(P {
+                        x: (cx + (tx - cx) / f1).clamp(sb.x0, sb.x1),
+                        z: (cz + (tz - cz) / f1).clamp(sb.z0, sb.z1),
+                    });
                 }
             }
             self.zoom_to(self.zoom_z - n * 0.07);
@@ -1235,7 +1575,23 @@ mod tests {
 
     #[test]
     fn a_ray_hits_a_box_in_its_way() {
-        assert!(ray_box(Vec3::new(0., 0., -5.), Vec3::Z, Vec3::splat(-1.), Vec3::splat(1.)).is_some());
-        assert!(ray_box(Vec3::new(3., 0., -5.), Vec3::Z, Vec3::splat(-1.), Vec3::splat(1.)).is_none());
+        assert!(
+            ray_box(
+                Vec3::new(0., 0., -5.),
+                Vec3::Z,
+                Vec3::splat(-1.),
+                Vec3::splat(1.)
+            )
+            .is_some()
+        );
+        assert!(
+            ray_box(
+                Vec3::new(3., 0., -5.),
+                Vec3::Z,
+                Vec3::splat(-1.),
+                Vec3::splat(1.)
+            )
+            .is_none()
+        );
     }
 }

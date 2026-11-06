@@ -17,10 +17,15 @@ use crate::figures::{Mascot, hash, mascot};
 use crate::glb::Image;
 use crate::kit::{Draw, Kit, MeshKey, Piece};
 use crate::layout::{self, COUNTER, Campus, DESK, FLOOR_LIFT, SEAT};
-use crate::mesh::{Baker, Geo, Mat, at, cuboid, cyl, hex, hsl, plane, rbox, rbox_seg, slab, sphere, torus, trs};
-use crate::model::{DeskTone, LeadTone, OfficeModel, PrState, PrChecks};
+use crate::mesh::{
+    Baker, Geo, Mat, at, cuboid, cyl, hex, hsl, plane, rbox, rbox_seg, slab, sphere, torus, trs,
+};
+use crate::model::{DeskTone, LeadTone, OfficeModel, PrChecks, PrState};
 use crate::sim::{Hit, Sim};
-use crate::textures::{self, BoardRow, BoardScreen, Screen, bubble_of, draw_board, draw_contact, draw_plate, draw_screen, flip, tone_color};
+use crate::textures::{
+    self, BoardRow, BoardScreen, Screen, bubble_of, draw_board, draw_contact, draw_plate,
+    draw_screen, flip, tone_color,
+};
 use glam::{Mat4, Vec3};
 use std::collections::HashMap;
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -178,7 +183,10 @@ pub fn ring_geo(inner: f32, outer: f32, seg: usize) -> Geo {
         for r in [inner, outer] {
             g.pos.push(Vec3::new(r * c, r * s, 0.));
             g.normal.push(Vec3::Z);
-            g.uv.push(glam::Vec2::new((c * r / outer + 1.) / 2., (s * r / outer + 1.) / 2.));
+            g.uv.push(glam::Vec2::new(
+                (c * r / outer + 1.) / 2.,
+                (s * r / outer + 1.) / 2.,
+            ));
         }
     }
     for i in 0..seg as u32 {
@@ -238,7 +246,10 @@ pub fn lathe(profile: &[(f32, f32)], seg: usize) -> Geo {
             let (nx, ny) = normal_at(i);
             g.pos.push(Vec3::new(r * sa, y, r * ca));
             g.normal.push(Vec3::new(nx * sa, ny, nx * ca));
-            g.uv.push(glam::Vec2::new(s as f32 / seg as f32, i as f32 / (n - 1) as f32));
+            g.uv.push(glam::Vec2::new(
+                s as f32 / seg as f32,
+                i as f32 / (n - 1) as f32,
+            ));
         }
     }
     for s in 0..seg as u32 {
@@ -276,7 +287,18 @@ impl Geos {
             sp: sphere(1., 18, 12),
             pl: plane(1., 1.),
             circ: circle_geo(1., 24),
-            mug: lathe(&[(0., 0.), (0.038, 0.), (0.042, 0.01), (0.043, 0.1), (0.036, 0.1), (0.036, 0.02), (0., 0.02)], 24),
+            mug: lathe(
+                &[
+                    (0., 0.),
+                    (0.038, 0.),
+                    (0.042, 0.01),
+                    (0.043, 0.1),
+                    (0.036, 0.1),
+                    (0.036, 0.02),
+                    (0., 0.02),
+                ],
+                24,
+            ),
             handle: torus(0.026, 0.007, 8, 16, PI),
         }
     }
@@ -368,13 +390,23 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
     for (ri, rm) in lay.rooms.iter().enumerate() {
         let am = area_of(&rm.project);
         let label = am.map_or("AgentBox".to_string(), |a| a.label.clone());
-        let sign = if rm.floors > 1 { format!("{label} {}", rm.floor) } else { label };
+        let sign = if rm.floors > 1 {
+            format!("{label} {}", rm.floor)
+        } else {
+            label
+        };
         let dio = diorama(&rm.local, &sign, am.map(|a| a.hue), kit);
         let origin = at(rm.ox as f32, 0., rm.oz as f32);
         add(&mut statics, kit, ri as i64, dio.solid, origin);
         for (side, b) in dio.side_walls {
             for k in register(kit, b) {
-                side_walls.push(SideWall { room: ri as i64, left: side == decor::Side::Left, mesh: k, at: origin, opacity: 1. });
+                side_walls.push(SideWall {
+                    room: ri as i64,
+                    left: side == decor::Side::Left,
+                    mesh: k,
+                    at: origin,
+                    opacity: 1.,
+                });
             }
         }
 
@@ -382,17 +414,49 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
         let bw = rm.board.w as f32;
         let bh = (bw * 0.52).min(2.6);
         let (px_w, px_h) = (1024u32, (1024. * bh / bw).round() as u32);
-        let tex = kit.add(flip(Image { width: px_w, height: px_h, rgba: [0xfb, 0xfa, 0xf6, 255].repeat((px_w * px_h) as usize) }));
+        let tex = kit.add(flip(Image {
+            width: px_w,
+            height: px_h,
+            rgba: [0xfb, 0xfa, 0xf6, 255].repeat((px_w * px_h) as usize),
+        }));
         let (bx, oz) = (rm.board.x as f32, rm.oz as f32);
         let mut b = Baker::default();
         let cy = 0.45 + bh / 2.;
-        b.put(&g.top, &std(FRAME), s(bx, cy, oz + 0.04, bw + 0.16, bh + 0.16, 0.06));
-        b.put(&g.pl, &Mat::new([1., 1., 1.]).tex(tex, [1., 1.]).glow(), s(bx, cy, oz + 0.04 + 0.045, bw, bh, 1.));
-        b.put(&g.top, &std(FRAME), s(bx, 0.42, oz + 0.1, bw * 0.6, 0.04, 0.14));
+        b.put(
+            &g.top,
+            &std(FRAME),
+            s(bx, cy, oz + 0.04, bw + 0.16, bh + 0.16, 0.06),
+        );
+        b.put(
+            &g.pl,
+            &Mat::new([1., 1., 1.]).tex(tex, [1., 1.]).glow(),
+            s(bx, cy, oz + 0.04 + 0.045, bw, bh, 1.),
+        );
+        b.put(
+            &g.top,
+            &std(FRAME),
+            s(bx, 0.42, oz + 0.1, bw * 0.6, 0.04, 0.14),
+        );
         add(&mut statics, kit, ri as i64, b, Mat4::IDENTITY);
         let bref = layout::board_ref(rm);
-        hits.push(Hit { r#ref: bref, min: Vec3::new(bx - bw / 2., 0., oz), max: Vec3::new(bx + bw / 2., 3., oz + 0.6), bubble: false, room: ri as i64, campus_only: false });
-        boards.push(BoardObj { room: ri, tex, rows: Vec::new(), titles: HashMap::new(), px: (px_w, px_h), center: Vec3::new(bx, cy, oz + 0.085), size: (bw, bh), key: String::new() });
+        hits.push(Hit {
+            r#ref: bref,
+            min: Vec3::new(bx - bw / 2., 0., oz),
+            max: Vec3::new(bx + bw / 2., 3., oz + 0.6),
+            bubble: false,
+            room: ri as i64,
+            campus_only: false,
+        });
+        boards.push(BoardObj {
+            room: ri,
+            tex,
+            rows: Vec::new(),
+            titles: HashMap::new(),
+            px: (px_w, px_h),
+            center: Vec3::new(bx, cy, oz + 0.085),
+            size: (bw, bh),
+            key: String::new(),
+        });
     }
 
     // The campus's ground: a soft green under every building (the campus only).
@@ -400,10 +464,21 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
         let mut b = Baker::default();
         for rm in lay.rooms.iter().filter(|r| r.floor == 1) {
             let r = rm.r#box;
-            let (cx, cz) = (((r.x0 + r.x1) / 2.) as f32 + 0.6, ((r.z0 + r.z1) / 2.) as f32);
+            let (cx, cz) = (
+                ((r.x0 + r.x1) / 2.) as f32 + 0.6,
+                ((r.z0 + r.z1) / 2.) as f32,
+            );
             let (w, d) = ((r.x1 - r.x0) as f32, (r.z1 - r.z0) as f32);
-            b.put(&g.top, &std("#dfeadb"), s(cx, -1.32, cz, w + 7., 0.24, d + 6.));
-            b.put(&g.top, &std("#c9d9c4"), s(cx, -1.5, cz, w + 7.6, 0.2, d + 6.6));
+            b.put(
+                &g.top,
+                &std("#dfeadb"),
+                s(cx, -1.32, cz, w + 7., 0.24, d + 6.),
+            );
+            b.put(
+                &g.top,
+                &std("#c9d9c4"),
+                s(cx, -1.5, cz, w + 7.6, 0.2, d + 6.6),
+            );
         }
         add(&mut statics, kit, -1, b, Mat4::IDENTITY);
     }
@@ -417,31 +492,75 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
             let hue = area_of(&f.project).map_or(260., |a| a.hue) as f32;
             let r = f.r#box;
             let (w, d) = ((r.x1 - r.x0) as f32, (r.z1 - r.z0) as f32);
-            b.put(&g.top, &Mat::new(hsl(hue / 360., 0.45, 0.66)), s(((r.x0 + r.x1) / 2.) as f32, -1.0, ((r.z0 + r.z1) / 2.) as f32, w + 3.2, 0.2, d + 3.2));
-            let ups: Vec<_> = lay.rooms.iter().filter(|o| o.project == f.project && o.floor > 1).collect();
+            b.put(
+                &g.top,
+                &Mat::new(hsl(hue / 360., 0.45, 0.66)),
+                s(
+                    ((r.x0 + r.x1) / 2.) as f32,
+                    -1.0,
+                    ((r.z0 + r.z1) / 2.) as f32,
+                    w + 3.2,
+                    0.2,
+                    d + 3.2,
+                ),
+            );
+            let ups: Vec<_> = lay
+                .rooms
+                .iter()
+                .filter(|o| o.project == f.project && o.floor > 1)
+                .collect();
             let top = ups.iter().map(|o| o.shown.dy as f32).fold(0., f32::max);
             for up in &ups {
-                let sb = (up.r#box.x0 + up.shown.dx, up.r#box.z0 + up.shown.dz, up.r#box.x1 + up.shown.dx, up.r#box.z1 + up.shown.dz);
+                let sb = (
+                    up.r#box.x0 + up.shown.dx,
+                    up.r#box.z0 + up.shown.dz,
+                    up.r#box.x1 + up.shown.dx,
+                    up.r#box.z1 + up.shown.dz,
+                );
                 let below = up.shown.dy as f32 - FLOOR_LIFT as f32;
                 let h = FLOOR_LIFT as f32 - 0.75;
-                for (px, pz) in [(sb.0 + 0.35, sb.3 - 0.35), (sb.2 - 0.35, sb.3 - 0.35), (sb.2 - 0.35, sb.1 + 0.35)] {
-                    b.put(&g.top, &frame, s(px as f32, below + h / 2., pz as f32, 0.42, h, 0.42));
+                for (px, pz) in [
+                    (sb.0 + 0.35, sb.3 - 0.35),
+                    (sb.2 - 0.35, sb.3 - 0.35),
+                    (sb.2 - 0.35, sb.1 + 0.35),
+                ] {
+                    b.put(
+                        &g.top,
+                        &frame,
+                        s(px as f32, below + h / 2., pz as f32, 0.42, h, 0.42),
+                    );
                 }
             }
             // The lift: beside the building, from its plinth to its top.
             let lx = (r.x0 - 0.85) as f32;
-            let lz = ups.iter().map(|o| o.r#box.z0 + o.shown.dz).fold(f64::MIN, f64::max) as f32 + 1.6;
+            let lz = ups
+                .iter()
+                .map(|o| o.r#box.z0 + o.shown.dz)
+                .fold(f64::MIN, f64::max) as f32
+                + 1.6;
             let lh = top + 4.2;
-            glass.put(&g.bx, &Mat::hex("#9fd3e8").opacity(0.55), s(lx, -0.9 + lh / 2., lz, 1.4, lh, 1.8));
+            glass.put(
+                &g.bx,
+                &Mat::hex("#9fd3e8").opacity(0.55),
+                s(lx, -0.9 + lh / 2., lz, 1.4, lh, 1.8),
+            );
             for y in std::iter::once(0.).chain(ups.iter().map(|o| o.shown.dy as f32)) {
                 b.put(&g.top, &frame, s(lx, y - 0.05, lz, 1.5, 0.1, 1.9));
             }
             for dx in [-0.7, 0.7] {
                 for dz in [-0.9, 0.9] {
-                    b.put(&g.top, &frame, s(lx + dx, -0.9 + lh / 2., lz + dz, 0.14, lh, 0.14));
+                    b.put(
+                        &g.top,
+                        &frame,
+                        s(lx + dx, -0.9 + lh / 2., lz + dz, 0.14, lh, 0.14),
+                    );
                 }
             }
-            b.put(&g.top, &std("#f4c66a"), s(lx, top / 2. + 0.9, lz, 1.1, 1.8, 1.4));
+            b.put(
+                &g.top,
+                &std("#f4c66a"),
+                s(lx, top / 2. + 0.9, lz, 1.1, 1.8, 1.4),
+            );
         }
         add(&mut statics, kit, -1, b, Mat4::IDENTITY);
         add(&mut statics, kit, -1, glass, Mat4::IDENTITY);
@@ -451,7 +570,11 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
     let shared = {
         let ring = {
             let mut b = Baker::default();
-            b.put(&ring_geo(0.85, 1., 48), &Mat::new([1., 1., 1.]).opacity(0.99).glow(), Mat4::from_rotation_x(-FRAC_PI_2));
+            b.put(
+                &ring_geo(0.85, 1., 48),
+                &Mat::new([1., 1., 1.]).opacity(0.99).glow(),
+                Mat4::from_rotation_x(-FRAC_PI_2),
+            );
             register(kit, b)[0]
         };
         let pole = {
@@ -471,18 +594,28 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
     let plate_tex: HashMap<String, usize> = HashMap::new();
     let mut plate_tex = plate_tex;
     for place in &lay.areas {
-        let Some(area) = area_of(&place.project) else { continue };
+        let Some(area) = area_of(&place.project) else {
+            continue;
+        };
         let floor = lay.rooms.get(place.room).map_or(1, |r| r.floor);
         let mut rugs = Baker::default();
         for (pi, pod) in place.pods.iter().enumerate() {
-            let shade = [0., 30., -30., 15., -15.][(pi as i64 + 2 * floor - 2).rem_euclid(5) as usize];
+            let shade =
+                [0., 30., -30., 15., -15.][(pi as i64 + 2 * floor - 2).rem_euclid(5) as usize];
             let hh = ((area.hue as f32 + shade + 360.) % 360.) / 360.;
             let rug = Mat::new(hsl(hh, 0.8, if pi % 2 == 1 { 0.5 } else { 0.55 }));
             let edge = Mat::new(hsl(hh, 0.6, 0.45));
             let (pw, pd) = ((pod.x1 - pod.x0) as f32, (pod.z1 - pod.z0) as f32);
-            let (cx, cz) = (((pod.x0 + pod.x1) / 2.) as f32, ((pod.z0 + pod.z1) / 2.) as f32);
+            let (cx, cz) = (
+                ((pod.x0 + pod.x1) / 2.) as f32,
+                ((pod.z0 + pod.z1) / 2.) as f32,
+            );
             rugs.put(&slab(pw, pd, 0.5, 0.02), &edge, at(cx, 0., cz));
-            rugs.put(&slab(pw - 0.16, pd - 0.16, 0.42, 0.024), &rug, at(cx, 0., cz));
+            rugs.put(
+                &slab(pw - 0.16, pd - 0.16, 0.42, 0.024),
+                &rug,
+                at(cx, 0., cz),
+            );
         }
         add(&mut statics, kit, place.room as i64, rugs, Mat4::IDENTITY);
 
@@ -493,23 +626,86 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
                 *n += 1;
                 v
             };
-            let ai = area.desks.iter().find(|x| x.id == d.id).map(|x| x.ai.clone());
-            desks.push(add_desk(&g, kit, &mut hits, &d.id, place.room, d.x as f32, d.z as f32, false, d.side, ai.as_deref(), Some(variant), contact_tex, &shared));
+            let ai = area
+                .desks
+                .iter()
+                .find(|x| x.id == d.id)
+                .map(|x| x.ai.clone());
+            desks.push(add_desk(
+                &g,
+                kit,
+                &mut hits,
+                &d.id,
+                place.room,
+                d.x as f32,
+                d.z as f32,
+                false,
+                d.side,
+                ai.as_deref(),
+                Some(variant),
+                contact_tex,
+                &shared,
+            ));
         }
         let Some(lead) = &place.lead else { continue };
         let (lx, lz) = (lead.x as f32, lead.z as f32);
         let mut b = Baker::default();
-        b.put(&g.top, &std("#dfa86e"), s(lx, 1.0, lz, COUNTER.w as f32 + 0.1, 0.07, COUNTER.d as f32 + 0.1));
-        b.put(&g.soft, &Mat::new(hsl(area.hue as f32 / 360., 0.5, 0.62)), s(lx, 0.5, lz + 0.05, COUNTER.w as f32, 0.96, COUNTER.d as f32 - 0.1));
+        b.put(
+            &g.top,
+            &std("#dfa86e"),
+            s(
+                lx,
+                1.0,
+                lz,
+                COUNTER.w as f32 + 0.1,
+                0.07,
+                COUNTER.d as f32 + 0.1,
+            ),
+        );
+        b.put(
+            &g.soft,
+            &Mat::new(hsl(area.hue as f32 / 360., 0.5, 0.62)),
+            s(
+                lx,
+                0.5,
+                lz + 0.05,
+                COUNTER.w as f32,
+                0.96,
+                COUNTER.d as f32 - 0.1,
+            ),
+        );
         // Its front says whose it is: the project's lead, its front desk.
-        let plate = *plate_tex.entry(place.project.clone()).or_insert_with(|| kit.add(flip(draw_plate(LEAD_WORD, &area.label))));
+        let plate = *plate_tex
+            .entry(place.project.clone())
+            .or_insert_with(|| kit.add(flip(draw_plate(LEAD_WORD, &area.label))));
         b.put(
             &g.pl,
             &Mat::new([1., 1., 1.]).tex(plate, [1., 1.]).opacity(0.995),
-            s(lx, 0.52, lz + 0.05 + (COUNTER.d as f32 - 0.1) / 2. + 0.006, COUNTER.w as f32 * 0.86, COUNTER.w as f32 * 0.86 * (160. / 512.), 1.),
+            s(
+                lx,
+                0.52,
+                lz + 0.05 + (COUNTER.d as f32 - 0.1) / 2. + 0.006,
+                COUNTER.w as f32 * 0.86,
+                COUNTER.w as f32 * 0.86 * (160. / 512.),
+                1.,
+            ),
         );
         add(&mut statics, kit, place.room as i64, b, Mat4::IDENTITY);
-        desks.push(add_desk(&g, kit, &mut hits, &format!("{}/lead", area.project), place.room, lx, lz, true, -1, Some("claude"), None, contact_tex, &shared));
+        desks.push(add_desk(
+            &g,
+            kit,
+            &mut hits,
+            &format!("{}/lead", area.project),
+            place.room,
+            lx,
+            lz,
+            true,
+            -1,
+            Some("claude"),
+            None,
+            contact_tex,
+            &shared,
+        ));
     }
 
     // Potted plants, Kenney's.
@@ -520,7 +716,15 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
         .map(|(i, p)| {
             let room = layout::room_at_margin(lay, *p, 0.5).unwrap_or(0);
             let meshes = plant_meshes(&g, kit);
-            PlantObj { room, x: p.x as f32, z: p.z as f32, visible: true, meshes, scale: 0.9 + (i % 3) as f32 * 0.14, rot: i as f32 * 1.3 }
+            PlantObj {
+                room,
+                x: p.x as f32,
+                z: p.z as f32,
+                visible: true,
+                meshes,
+                scale: 0.9 + (i % 3) as f32 * 0.14,
+                rot: i as f32 * 1.3,
+            }
         })
         .collect();
 
@@ -558,12 +762,30 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
 
 /// plant_meshes registers a potted plant: Kenney's, or a pot and a bush.
 fn plant_meshes(g: &Geos, kit: &mut Kit) -> Vec<MeshKey> {
-    let ms: Option<Vec<_>> = kit.piece(Piece::PottedPlant).map(|p| p.model.meshes.clone());
+    let ms: Option<Vec<_>> = kit
+        .piece(Piece::PottedPlant)
+        .map(|p| p.model.meshes.clone());
     match ms {
         Some(ms) => ms.into_iter().map(|m| kit.mesh(m)).collect(),
         None => {
             let mut b = Baker::default();
-            b.put(&lathe(&[(0., 0.), (0.15, 0.), (0.19, 0.36), (0.215, 0.37), (0.215, 0.42), (0.19, 0.42), (0.18, 0.38), (0., 0.38)], 28), &std("#d27c55"), Mat4::IDENTITY);
+            b.put(
+                &lathe(
+                    &[
+                        (0., 0.),
+                        (0.15, 0.),
+                        (0.19, 0.36),
+                        (0.215, 0.37),
+                        (0.215, 0.42),
+                        (0.19, 0.42),
+                        (0.18, 0.38),
+                        (0., 0.38),
+                    ],
+                    28,
+                ),
+                &std("#d27c55"),
+                Mat4::IDENTITY,
+            );
             b.put(&g.sp, &std("#3f8f55"), s(0., 0.7, 0., 0.3, 0.3, 0.3));
             register(kit, b)
         }
@@ -571,7 +793,21 @@ fn plant_meshes(g: &Geos, kit: &mut Kit) -> Vec<MeshKey> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn add_desk(g: &Geos, kit: &mut Kit, hits: &mut Vec<Hit>, r#ref: &str, room: usize, x: f32, z: f32, lead: bool, side: i32, ai: Option<&str>, variant: Option<u32>, contact: usize, _shared: &Shared) -> DeskObj {
+fn add_desk(
+    g: &Geos,
+    kit: &mut Kit,
+    hits: &mut Vec<Hit>,
+    r#ref: &str,
+    room: usize,
+    x: f32,
+    z: f32,
+    lead: bool,
+    side: i32,
+    ai: Option<&str>,
+    variant: Option<u32>,
+    contact: usize,
+    _shared: &Shared,
+) -> DeskObj {
     let n = hash(r#ref);
     let sd = side as f32;
     let rx = if lead { 0. } else { sd * 0.48 };
@@ -585,74 +821,235 @@ fn add_desk(g: &Geos, kit: &mut Kit, hits: &mut Vec<Hit>, r#ref: &str, room: usi
     let ceramic = std("#fbfaf7");
     if !lead {
         // An oak top on two metal side frames, with a modesty panel.
-        b.put(&g.top, &std("#dfa86e"), s(0., dh, 0., DESK.w as f32, 0.05, DESK.d as f32));
+        b.put(
+            &g.top,
+            &std("#dfa86e"),
+            s(0., dh, 0., DESK.w as f32, 0.05, DESK.d as f32),
+        );
         for sx in [-1., 1.] {
-            b.put(&g.top, &metal, s(sx * 0.66, dh / 2., 0., 0.05, dh - 0.02, 0.08));
-            b.put(&g.top, &metal, s(sx * 0.66, 0.02, 0., 0.07, 0.04, DESK.d as f32 - 0.04));
-            b.put(&g.top, &metal, s(sx * 0.66, dh - 0.04, 0., 0.06, 0.03, DESK.d as f32 - 0.06));
+            b.put(
+                &g.top,
+                &metal,
+                s(sx * 0.66, dh / 2., 0., 0.05, dh - 0.02, 0.08),
+            );
+            b.put(
+                &g.top,
+                &metal,
+                s(sx * 0.66, 0.02, 0., 0.07, 0.04, DESK.d as f32 - 0.04),
+            );
+            b.put(
+                &g.top,
+                &metal,
+                s(sx * 0.66, dh - 0.04, 0., 0.06, 0.03, DESK.d as f32 - 0.06),
+            );
         }
         b.put(&g.top, &metal, s(0., 0.48, 0.3, 1.28, 0.32, 0.02));
         // A mug, a pen cup, a sticky note on the monitor: some of each, by desk.
-        if n % 3 != 0 {
-            b.put(&g.mug, &ceramic, rot(0.02 * out, dh + 0.025, 0.25, 1., 1., 1., 0., (n % 7) as f32 * 0.8, 0.));
-            b.put(&g.handle, &ceramic, rot((0.02 + 0.045) * out, dh + 0.075, 0.25, 1., 1., 1., 0., FRAC_PI_2, 0.));
+        if !n.is_multiple_of(3) {
+            b.put(
+                &g.mug,
+                &ceramic,
+                rot(
+                    0.02 * out,
+                    dh + 0.025,
+                    0.25,
+                    1.,
+                    1.,
+                    1.,
+                    0.,
+                    (n % 7) as f32 * 0.8,
+                    0.,
+                ),
+            );
+            b.put(
+                &g.handle,
+                &ceramic,
+                rot(
+                    (0.02 + 0.045) * out,
+                    dh + 0.075,
+                    0.25,
+                    1.,
+                    1.,
+                    1.,
+                    0.,
+                    FRAC_PI_2,
+                    0.,
+                ),
+            );
         }
-        if n % 2 == 0 {
-            b.put(&g.cy, &metal, s((-0.72 + 0.1) * out, dh + 0.07, -0.25, 0.035, 0.1, 0.035));
+        if n.is_multiple_of(2) {
+            b.put(
+                &g.cy,
+                &metal,
+                s((-0.72 + 0.1) * out, dh + 0.07, -0.25, 0.035, 0.1, 0.035),
+            );
             for (dx, c) in [(-0.012, "#ef6f6c"), (0.012, "#4f86f7")] {
-                b.put(&g.cy, &std(c), rot((-0.62 + dx) * out, dh + 0.14, -0.25, 0.006, 0.14, 0.006, 0., 0., dx * 8.));
+                b.put(
+                    &g.cy,
+                    &std(c),
+                    rot(
+                        (-0.62 + dx) * out,
+                        dh + 0.14,
+                        -0.25,
+                        0.006,
+                        0.14,
+                        0.006,
+                        0.,
+                        0.,
+                        dx * 8.,
+                    ),
+                );
             }
         }
         // A little plant where a bench's two desks meet (Kenney's).
         if side > 0 {
             let p = [Piece::PlantSmall1, Piece::PlantSmall2, Piece::PlantSmall3][(n % 3) as usize];
             if let Some(l) = kit.piece(p) {
-                b.put_model(&l.model, &[], at(-0.72, dh + 0.025, -0.26) * Mat4::from_scale(Vec3::splat(1.3)));
+                b.put_model(
+                    &l.model,
+                    &[],
+                    at(-0.72, dh + 0.025, -0.26) * Mat4::from_scale(Vec3::splat(1.3)),
+                );
             }
         }
     }
     // An office chair under the agent, in one of the room's pastels.
     let seat = std(CHAIRS[n as usize % CHAIRS.len()]);
     b.put(&g.soft, &seat, s(rx, 0.45, cz, 0.5, 0.08, 0.48));
-    b.put(&g.soft, &seat, rot(rx, 0.8, cz - 0.25, 0.48, 0.5, 0.07, 0.12, 0., 0.));
+    b.put(
+        &g.soft,
+        &seat,
+        rot(rx, 0.8, cz - 0.25, 0.48, 0.5, 0.07, 0.12, 0., 0.),
+    );
     b.put(&g.top, &metal, s(rx, 0.6, cz - 0.27, 0.05, 0.22, 0.03));
     b.put(&g.cy, &metal, s(rx, 0.26, cz, 0.028, 0.34, 0.028));
     for k in 0..5 {
         let a = k as f32 / 5. * TAU + 0.3;
-        b.put(&g.top, &plastic, rot(rx + a.sin() * 0.13, 0.07, cz + a.cos() * 0.13, 0.05, 0.04, 0.27, 0., a, 0.));
-        b.put(&g.sp, &plastic, s(rx + a.sin() * 0.26, 0.03, cz + a.cos() * 0.26, 0.03, 0.03, 0.03));
+        b.put(
+            &g.top,
+            &plastic,
+            rot(
+                rx + a.sin() * 0.13,
+                0.07,
+                cz + a.cos() * 0.13,
+                0.05,
+                0.04,
+                0.27,
+                0.,
+                a,
+                0.,
+            ),
+        );
+        b.put(
+            &g.sp,
+            &plastic,
+            s(
+                rx + a.sin() * 0.26,
+                0.03,
+                cz + a.cos() * 0.26,
+                0.03,
+                0.03,
+                0.03,
+            ),
+        );
     }
     // The laptop before the agent, its lid's back glowing in its state's colour.
     let mut glow = Baker::default();
     let glow_mat = Mat::new([1., 1., 1.]).glow();
     let lx = if lead { 0.4 } else { rx };
-    b.put(&g.thin, &std("#d3d7de"), s(lx, top + 0.012, -0.16, 0.4, 0.022, 0.27));
-    b.put(&g.pl, &std("#262b35"), rot(lx, top + 0.024, -0.13, 0.34, 0.13, 1., -FRAC_PI_2, 0., 0.));
+    b.put(
+        &g.thin,
+        &std("#d3d7de"),
+        s(lx, top + 0.012, -0.16, 0.4, 0.022, 0.27),
+    );
+    b.put(
+        &g.pl,
+        &std("#262b35"),
+        rot(lx, top + 0.024, -0.13, 0.34, 0.13, 1., -FRAC_PI_2, 0., 0.),
+    );
     let lid = rot(lx, top + 0.022, -0.035, 1., 1., 1., -0.75, 0., 0.);
-    b.put(&g.thin, &std("#d3d7de"), lid * s(0., 0.1, 0., 0.4, 0.2, 0.012));
+    b.put(
+        &g.thin,
+        &std("#d3d7de"),
+        lid * s(0., 0.1, 0., 0.4, 0.2, 0.012),
+    );
     glow.put(&g.circ, &glow_mat, lid * s(0., 0.1, 0.0075, 0.03, 0.03, 1.));
     // The monitor across the desk from the agent, turned to it.
-    let mon = rot(if lead { -0.9 } else { rx - sd * 0.55 }, top, if lead { -0.05 } else { 0.2 }, 1., 1., 1., 0., if lead { 2.45 } else { sd * (PI - 0.59) }, 0.);
+    let mon = rot(
+        if lead { -0.9 } else { rx - sd * 0.55 },
+        top,
+        if lead { -0.05 } else { 0.2 },
+        1.,
+        1.,
+        1.,
+        0.,
+        if lead { 2.45 } else { sd * (PI - 0.59) },
+        0.,
+    );
     let mw = if lead { 0.86 } else { 0.76 };
     let mh = mw * (320. / 512.);
     let my = 0.07 + mh / 2. + 0.06;
     let bezel = std("#141922");
-    b.put(&g.thin, &bezel, mon * s(0., my, 0., mw + 0.05, mh + 0.05, 0.035));
-    b.put(&g.thin, &bezel, mon * s(0., my, -0.03, mw * 0.6, mh * 0.6, 0.04));
+    b.put(
+        &g.thin,
+        &bezel,
+        mon * s(0., my, 0., mw + 0.05, mh + 0.05, 0.035),
+    );
+    b.put(
+        &g.thin,
+        &bezel,
+        mon * s(0., my, -0.03, mw * 0.6, mh * 0.6, 0.04),
+    );
     b.put(&g.top, &metal, mon * s(0., 0.09, -0.04, 0.05, 0.16, 0.03));
     b.put(&g.cy, &metal, mon * s(0., 0.006, -0.03, 0.13, 0.012, 0.09));
-    let screen_tex = kit.add(flip(Image { width: textures::SCREEN_W, height: textures::SCREEN_H, rgba: [0x11, 0x18, 0x27, 255].repeat((textures::SCREEN_W * textures::SCREEN_H) as usize) }));
-    b.put(&g.pl, &Mat::new([1., 1., 1.]).tex(screen_tex, [1., 1.]).glow(), mon * s(0., my, 0.0185, mw, mh, 1.));
-    glow.put(&g.circ, &glow_mat, mon * rot(0., my + 0.02, -0.052, 0.06, 0.06, 1., 0., PI, 0.));
+    let screen_tex = kit.add(flip(Image {
+        width: textures::SCREEN_W,
+        height: textures::SCREEN_H,
+        rgba: [0x11, 0x18, 0x27, 255].repeat((textures::SCREEN_W * textures::SCREEN_H) as usize),
+    }));
+    b.put(
+        &g.pl,
+        &Mat::new([1., 1., 1.]).tex(screen_tex, [1., 1.]).glow(),
+        mon * s(0., my, 0.0185, mw, mh, 1.),
+    );
+    glow.put(
+        &g.circ,
+        &glow_mat,
+        mon * rot(0., my + 0.02, -0.052, 0.06, 0.06, 1., 0., PI, 0.),
+    );
     if !lead && n % 4 == 1 {
         let note = [std("#ffe27a"), std("#ffb3c9"), std("#a6ecff")][(n % 3) as usize];
-        b.put(&g.pl, &note, mon * rot(mw / 2. - 0.02, my + mh / 2. - 0.02, 0.019, 0.08, 0.08, 1., 0., 0., 0.12));
+        b.put(
+            &g.pl,
+            &note,
+            mon * rot(
+                mw / 2. - 0.02,
+                my + mh / 2. - 0.02,
+                0.019,
+                0.08,
+                0.08,
+                1.,
+                0.,
+                0.,
+                0.12,
+            ),
+        );
     }
     // A soft contact shadow under it all.
     b.put(
         &g.pl,
         &Mat::new([1., 1., 1.]).tex(contact, [1., 1.]).opacity(0.995),
-        rot(if lead { 0. } else { sd * 0.1 }, 0.03, if lead { -0.3 } else { -0.2 }, if lead { 3.0 } else { 2.1 }, if lead { 2.2 } else { 1.9 }, 1., -FRAC_PI_2, 0., 0.),
+        rot(
+            if lead { 0. } else { sd * 0.1 },
+            0.03,
+            if lead { -0.3 } else { -0.2 },
+            if lead { 3.0 } else { 2.1 },
+            if lead { 2.2 } else { 1.9 },
+            1.,
+            -FRAC_PI_2,
+            0.,
+            0.,
+        ),
     );
     let fixed = register(kit, b);
     let glow_key = register(kit, glow)[0];
@@ -661,18 +1058,55 @@ fn add_desk(g: &Geos, kit: &mut Kit, hits: &mut Vec<Hit>, r#ref: &str, room: usi
     let mut fig = mascot(r#ref, ai, lead, if lead { None } else { variant }, kit);
     let base = fig.rig.nodes[0].scale.x;
     fig.rig.nodes[0].pos = Vec3::new(rx, 0.49 * (1. - base), cz + 0.1);
-    let fig_keys: Vec<Vec<MeshKey>> = fig.rig.nodes.iter().map(|nd| nd.meshes.iter().map(|m| kit.mesh(m.clone())).collect()).collect();
+    let fig_keys: Vec<Vec<MeshKey>> = fig
+        .rig
+        .nodes
+        .iter()
+        .map(|nd| nd.meshes.iter().map(|m| kit.mesh(m.clone())).collect())
+        .collect();
     let (lo, hi) = bounds_of(&fig.rig);
 
     let o = Vec3::new(x, 0., z);
     // What a click picks: the desk and the robot, as one box; and the robot's
     // whole figure, big head and all.
-    let (c, sz) = (Vec3::new(if lead { 0. } else { sd * 0.1 }, 0.7, if lead { -0.3 } else { -0.25 }), Vec3::new(if lead { COUNTER.w as f32 } else { 1.5 }, 1.4, if lead { 1.45 } else { 1.25 }));
-    hits.push(Hit { r#ref: r#ref.to_string(), min: o + c - sz / 2., max: o + c + sz / 2., bubble: false, room: room as i64, campus_only: false });
+    let (c, sz) = (
+        Vec3::new(
+            if lead { 0. } else { sd * 0.1 },
+            0.7,
+            if lead { -0.3 } else { -0.25 },
+        ),
+        Vec3::new(
+            if lead { COUNTER.w as f32 } else { 1.5 },
+            1.4,
+            if lead { 1.45 } else { 1.25 },
+        ),
+    );
+    hits.push(Hit {
+        r#ref: r#ref.to_string(),
+        min: o + c - sz / 2.,
+        max: o + c + sz / 2.,
+        bubble: false,
+        room: room as i64,
+        campus_only: false,
+    });
     let (fc, fs) = ((lo + hi) / 2., (hi - lo) * Vec3::new(0.9, 1., 0.9));
-    hits.push(Hit { r#ref: r#ref.to_string(), min: o + fc - fs / 2., max: o + fc + fs / 2., bubble: false, room: room as i64, campus_only: false });
+    hits.push(Hit {
+        r#ref: r#ref.to_string(),
+        min: o + fc - fs / 2.,
+        max: o + fc + fs / 2.,
+        bubble: false,
+        room: room as i64,
+        campus_only: false,
+    });
     let bc = Vec3::new(rx, 2.05, cz + 0.05);
-    hits.push(Hit { r#ref: r#ref.to_string(), min: o + bc - Vec3::new(0.2, 0.235, 0.2), max: o + bc + Vec3::new(0.2, 0.235, 0.2), bubble: true, room: room as i64, campus_only: false });
+    hits.push(Hit {
+        r#ref: r#ref.to_string(),
+        min: o + bc - Vec3::new(0.2, 0.235, 0.2),
+        max: o + bc + Vec3::new(0.2, 0.235, 0.2),
+        bubble: true,
+        room: room as i64,
+        campus_only: false,
+    });
 
     DeskObj {
         r#ref: r#ref.to_string(),
@@ -707,15 +1141,39 @@ impl Built {
     pub fn update(&mut self, input: &SceneInput, kit: &mut Kit) {
         self.you = input.you.clone();
         self.area_labels = input.area_labels.clone();
-        self.hues = input.model.areas.iter().map(|a| (a.project.clone(), a.hue)).collect();
-        self.names = input.model.areas.iter().map(|a| (a.project.clone(), a.label.clone())).collect();
+        self.hues = input
+            .model
+            .areas
+            .iter()
+            .map(|a| (a.project.clone(), a.hue))
+            .collect();
+        self.names = input
+            .model
+            .areas
+            .iter()
+            .map(|a| (a.project.clone(), a.label.clone()))
+            .collect();
         for d in &mut self.desks {
             let project = d.r#ref.split('/').next().unwrap_or("");
             let area = input.model.areas.iter().find(|a| a.project == project);
-            let desk = if d.lead { None } else { area.and_then(|a| a.desks.iter().find(|x| x.id == d.r#ref)) };
-            d.tone = if d.lead { area.map_or(DeskTone::Idle, |a| lead_tone(a.lead.tone)) } else { desk.map_or(DeskTone::Idle, |x| x.tone) };
-            d.title = if d.lead { area.map_or(project.to_string(), |a| a.label.clone()) } else { desk.map_or(d.r#ref.clone(), |x| x.title.clone()) };
-            d.pr = desk.and_then(|x| x.pr.as_ref()).map(|p| (p.state, p.checks));
+            let desk = if d.lead {
+                None
+            } else {
+                area.and_then(|a| a.desks.iter().find(|x| x.id == d.r#ref))
+            };
+            d.tone = if d.lead {
+                area.map_or(DeskTone::Idle, |a| lead_tone(a.lead.tone))
+            } else {
+                desk.map_or(DeskTone::Idle, |x| x.tone)
+            };
+            d.title = if d.lead {
+                area.map_or(project.to_string(), |a| a.label.clone())
+            } else {
+                desk.map_or(d.r#ref.clone(), |x| x.title.clone())
+            };
+            d.pr = desk
+                .and_then(|x| x.pr.as_ref())
+                .map(|p| (p.state, p.checks));
             if let Some(sc) = input.screens.get(&d.r#ref)
                 && d.screen.as_ref() != Some(sc)
             {
@@ -735,7 +1193,13 @@ impl Built {
                 b.key = key;
                 let (img, rows) = draw_board(&bs, b.px.0, b.px.1);
                 b.rows = rows;
-                b.titles = bs.needs.items.iter().chain(&bs.review.items).map(|i| (i.r#ref.clone(), i.title.clone())).collect();
+                b.titles = bs
+                    .needs
+                    .items
+                    .iter()
+                    .chain(&bs.review.items)
+                    .map(|i| (i.r#ref.clone(), i.title.clone()))
+                    .collect();
                 kit.replace(b.tex, flip(img));
             }
         }
@@ -743,7 +1207,11 @@ impl Built {
 
     /// walls is each room's wall height, for `sim.set_layout`.
     pub fn walls(&self) -> Vec<f64> {
-        self.lay.rooms.iter().map(|r| decor::wall_height(&r.local) as f64).collect()
+        self.lay
+            .rooms
+            .iter()
+            .map(|r| decor::wall_height(&r.local) as f64)
+            .collect()
     }
 
     pub fn desk(&self, r#ref: &str) -> Option<&DeskObj> {
@@ -765,22 +1233,40 @@ impl Built {
         let close = sim.close_k as f32;
         let follow = sim.visit().follow as f32;
         let white = [1.; 4];
-        let shown = |room: i64| if room >= 0 { sim.shown(room as usize) } else { Vec3::ZERO };
+        let shown = |room: i64| {
+            if room >= 0 {
+                sim.shown(room as usize)
+            } else {
+                Vec3::ZERO
+            }
+        };
         let in_scope = |room: i64| if room < 0 { campus } else { sim.in_scope(room) };
 
         for st in &self.statics {
             if in_scope(st.room) {
-                out.push(Draw { mesh: st.mesh, at: Mat4::from_translation(shown(st.room)) * st.at, tint: white });
+                out.push(Draw {
+                    mesh: st.mesh,
+                    at: Mat4::from_translation(shown(st.room)) * st.at,
+                    tint: white,
+                });
             }
         }
         for w in &mut self.side_walls {
             // A side wall the camera is behind fades away.
             let r = &self.lay.room;
-            let behind = if w.left { eye.x < 0.5 } else { eye.x > r.x1 as f32 - 0.5 };
+            let behind = if w.left {
+                eye.x < 0.5
+            } else {
+                eye.x > r.x1 as f32 - 0.5
+            };
             let o = if behind { 0.08 } else { 1. };
             w.opacity += (o - w.opacity) * if motion { 0.2 } else { 1. };
             if in_scope(w.room) {
-                out.push(Draw { mesh: w.mesh, at: Mat4::from_translation(shown(w.room)) * w.at, tint: [1., 1., 1., w.opacity] });
+                out.push(Draw {
+                    mesh: w.mesh,
+                    at: Mat4::from_translation(shown(w.room)) * w.at,
+                    tint: [1., 1., 1., w.opacity],
+                });
             }
         }
 
@@ -795,14 +1281,32 @@ impl Built {
         // The board you're at: how far it is from the camera.
         let focus = sim.focus_ref.clone();
         let board_dist = match &focus {
-            Some(f) if f.starts_with("board:") && close > 0.3 => layout::room_of(&self.lay, f).and_then(|ri| self.lay.rooms.get(ri)).map_or(0., |rm| eye.distance(Vec3::new(rm.board.x as f32, 1.5, rm.board.spot.z as f32 - 2.1))),
+            Some(f) if f.starts_with("board:") && close > 0.3 => layout::room_of(&self.lay, f)
+                .and_then(|ri| self.lay.rooms.get(ri))
+                .map_or(0., |rm| {
+                    eye.distance(Vec3::new(
+                        rm.board.x as f32,
+                        1.5,
+                        rm.board.spot.z as f32 - 2.1,
+                    ))
+                }),
             _ => 0.,
         };
         // In a close-up: where on screen the agent you're at and you are.
-        let look_at: Option<(f32, Vec<(f32, f32)>)> = if let Some(fd) = focus.as_ref().and_then(|f| self.desks.iter().find(|d| &d.r#ref == f)).filter(|_| close > 0.3) {
+        let look_at: Option<(f32, Vec<(f32, f32)>)> = if let Some(fd) = focus
+            .as_ref()
+            .and_then(|f| self.desks.iter().find(|d| &d.r#ref == f))
+            .filter(|_| close > 0.3)
+        {
             let off = shown(fd.room as i64);
             let v = fd.at + off + Vec3::new(fd.rx, 0.49 * (1. - fd.k), fd.cz + 0.1) + Vec3::Y;
-            Some((v.distance(eye), vec![to_px(v), to_px(Vec3::new(sim.pos.x as f32, 0.7, sim.pos.z as f32))]))
+            Some((
+                v.distance(eye),
+                vec![
+                    to_px(v),
+                    to_px(Vec3::new(sim.pos.x as f32, 0.7, sim.pos.z as f32)),
+                ],
+            ))
         } else if !campus && follow > 0.5 {
             let v = Vec3::new(sim.pos.x as f32, 0.8, sim.pos.z as f32);
             Some((v.distance(eye), vec![to_px(v)]))
@@ -816,15 +1320,33 @@ impl Built {
         let sh = &self.shared;
         for d in &mut self.desks {
             let off = shown(d.room as i64);
-            let root = Vec3::new(d.at.x + off.x, off.y + if hover.as_deref() == Some(d.r#ref.as_str()) { 0.02 } else { 0. }, d.at.z + off.z);
+            let root = Vec3::new(
+                d.at.x + off.x,
+                off.y
+                    + if hover.as_deref() == Some(d.r#ref.as_str()) {
+                        0.02
+                    } else {
+                        0.
+                    },
+                d.at.z + off.z,
+            );
             // Where you are, from the robot: near enough, it looks at you.
             let (fx, fz) = (d.at.x + d.rx, d.at.z + d.cz + 0.1);
             let (dx, dz) = (sim.pos.x as f32 - fx, sim.pos.z as f32 - fz);
-            d.figure.pose(d.tone, t, motion, (dx * dx + dz * dz < 25.).then_some((dx, dz)));
+            d.figure.pose(
+                d.tone,
+                t,
+                motion,
+                (dx * dx + dz * dz < 25.).then_some((dx, dz)),
+            );
             // From afar the characters grow a little, toy-like, always seated.
             let fig_at = root + Vec3::new(d.rx, 0.49 * (1. - d.k), d.cz + 0.1);
             let far = fig_at.distance(eye);
-            let k = d.base * (1. + ((if crowded { 0.35 } else { 0.15 }) as f32).min(((far - 12.) / 36.).max(0.)) * (1. - follow));
+            let k = d.base
+                * (1.
+                    + ((if crowded { 0.35 } else { 0.15 }) as f32)
+                        .min(((far - 12.) / 36.).max(0.))
+                        * (1. - follow));
             d.k = k;
             d.figure.rig.nodes[0].scale = Vec3::splat(k);
             d.figure.rig.nodes[0].pos = Vec3::new(d.rx, 0.49 * (1. - k), d.cz + 0.1);
@@ -834,7 +1356,10 @@ impl Built {
                 (Some((dist, spots)), false) => {
                     let p = fig_at + Vec3::Y;
                     let (sx, sy) = to_px(p);
-                    p.distance(eye) < dist - 0.8 && spots.iter().any(|&(px, py)| (sx - px).abs() < 190. && (sy - py).abs() < 230.)
+                    p.distance(eye) < dist - 0.8
+                        && spots
+                            .iter()
+                            .any(|&(px, py)| (sx - px).abs() < 190. && (sy - py).abs() < 230.)
                 }
                 _ => false,
             };
@@ -854,15 +1379,25 @@ impl Built {
                 1.5
             };
             let grow = grow_max.min(((far - 8.) / 12.).max(1.));
-            let mut bubble_visible = visible && glyph.is_some() && !in_way && !(close > 0.3 && !is_focus && far < 8.);
+            let mut bubble_visible =
+                visible && glyph.is_some() && !in_way && !(close > 0.3 && !is_focus && far < 8.);
             if crowded && !loud_tone && far > 30. {
                 bubble_visible = false;
             }
             let lift = if d.lead { 0.3 } else { 0.12 };
-            let bob = if motion && d.tone == DeskTone::Needs { (t * 3.5).sin().abs() * if crowded { 0.12 * grow } else { 0.06 } } else { 0. };
+            let bob = if motion && d.tone == DeskTone::Needs {
+                (t * 3.5).sin().abs() * if crowded { 0.12 * grow } else { 0.06 }
+            } else {
+                0.
+            };
             let side = if crowded { 0. } else { 0.27 * k };
-            let by = if crowded { 0.49 + 1.18 * k + lift * 0.5 + (grow - 1.) * 0.2 } else { 0.49 + 0.86 * k + 0.12 * grow } + bob;
-            let bpos = root + Vec3::new(d.rx + yaw.cos() * side, by, d.cz + 0.05 - yaw.sin() * side);
+            let by = if crowded {
+                0.49 + 1.18 * k + lift * 0.5 + (grow - 1.) * 0.2
+            } else {
+                0.49 + 0.86 * k + 0.12 * grow
+            } + bob;
+            let bpos =
+                root + Vec3::new(d.rx + yaw.cos() * side, by, d.cz + 0.05 - yaw.sin() * side);
             let is_near = near.as_deref() == Some(d.r#ref.as_str());
             if is_near && visible {
                 // The arrow over the agent whose card is up.
@@ -870,16 +1405,34 @@ impl Built {
                 let p = if d.lead {
                     root + Vec3::new(d.rx, 0.49 + 0.95 * k + wob * 0.06, d.cz + 0.1 + 0.35)
                 } else {
-                    root + Vec3::new(d.rx, by + if glyph.is_some() && bubble_visible { 0.42 * grow } else { 0. } + 0.05 + wob * 0.08, d.cz + 0.1)
+                    root + Vec3::new(
+                        d.rx,
+                        by + if glyph.is_some() && bubble_visible {
+                            0.42 * grow
+                        } else {
+                            0.
+                        } + 0.05
+                            + wob * 0.08,
+                        d.cz + 0.1,
+                    )
                 };
                 if close > 0.2 || follow > 0.3 {
                     self.at_mark = Some(p);
                 }
             }
-            d.frame = Frame { visible, root, k, bubble: bubble_visible.then_some((bpos, grow)), mark: is_near };
+            d.frame = Frame {
+                visible,
+                root,
+                k,
+                bubble: bubble_visible.then_some((bpos, grow)),
+                mark: is_near,
+            };
 
             // The monitor you're at blinks its cursor.
-            if is_near && d.tone == DeskTone::Working && let Some(sc) = &d.screen {
+            if is_near
+                && d.tone == DeskTone::Working
+                && let Some(sc) = &d.screen
+            {
                 let blink = (t * 2.).floor() as i64;
                 if d.blink != Some(blink) {
                     d.blink = Some(blink);
@@ -892,12 +1445,20 @@ impl Built {
 
             let m_root = Mat4::from_translation(root);
             for f in &d.fixed {
-                out.push(Draw { mesh: *f, at: m_root, tint: white });
+                out.push(Draw {
+                    mesh: *f,
+                    at: m_root,
+                    tint: white,
+                });
             }
             // The glow in its state's colour (dark when stopped).
             let gl = lin(tone_color(d.tone));
             let gi = if d.tone == DeskTone::Stopped { 0.4 } else { 1. };
-            out.push(Draw { mesh: d.glow, at: m_root, tint: [gl[0] * gi, gl[1] * gi, gl[2] * gi, 1.] });
+            out.push(Draw {
+                mesh: d.glow,
+                at: m_root,
+                tint: [gl[0] * gi, gl[1] * gi, gl[2] * gi, 1.],
+            });
             // The agent.
             let world = d.figure.rig.world(m_root);
             for (i, (m, vis)) in world.iter().enumerate() {
@@ -906,7 +1467,11 @@ impl Built {
                 }
                 let op = d.figure.rig.nodes[i].opacity;
                 for key in &d.fig_keys[i] {
-                    out.push(Draw { mesh: *key, at: *m, tint: [1., 1., 1., op] });
+                    out.push(Draw {
+                        mesh: *key,
+                        at: *m,
+                        tint: [1., 1., 1., op],
+                    });
                 }
             }
             // A ring: the desk you're at wears a soft white one, a loud desk its own colour.
@@ -914,17 +1479,42 @@ impl Built {
             if chosen || loud_tone {
                 let p = if motion { (t * 0.8) % 1. } else { 0.5 };
                 let sc = (0.9 + p * 0.5) * grow.min(1.8);
-                let c = if chosen { [1., 1., 1.] } else { lin(tone_color(d.tone)) };
-                out.push(Draw { mesh: sh.ring, at: m_root * at(0., 0.025, -0.1) * Mat4::from_scale(Vec3::splat(sc)), tint: [c[0], c[1], c[2], 0.55 * (1. - p)] });
+                let c = if chosen {
+                    [1., 1., 1.]
+                } else {
+                    lin(tone_color(d.tone))
+                };
+                out.push(Draw {
+                    mesh: sh.ring,
+                    at: m_root * at(0., 0.025, -0.1) * Mat4::from_scale(Vec3::splat(sc)),
+                    tint: [c[0], c[1], c[2], 0.55 * (1. - p)],
+                });
             }
             // The pull request's flag, at the desk's back corner.
             if let Some((state, checks)) = d.pr
                 && state != PrState::Closed
             {
-                let flag = m_root * at(if d.lead { 1.05 } else { -d.side as f32 * 0.6 }, d.top, -0.28);
-                out.push(Draw { mesh: sh.pole, at: flag, tint: white });
-                let wave = if motion { (t * 3. + d.rx).sin() * 0.25 } else { 0. };
-                out.push(Draw { mesh: sh.cloth, at: flag * at(0.2, 0.75, 0.) * Mat4::from_rotation_y(wave), tint: tint(pr_color(state, checks), 1.) });
+                let flag = m_root
+                    * at(
+                        if d.lead { 1.05 } else { -d.side as f32 * 0.6 },
+                        d.top,
+                        -0.28,
+                    );
+                out.push(Draw {
+                    mesh: sh.pole,
+                    at: flag,
+                    tint: white,
+                });
+                let wave = if motion {
+                    (t * 3. + d.rx).sin() * 0.25
+                } else {
+                    0.
+                };
+                out.push(Draw {
+                    mesh: sh.cloth,
+                    at: flag * at(0.2, 0.75, 0.) * Mat4::from_rotation_y(wave),
+                    tint: tint(pr_color(state, checks), 1.),
+                });
             }
         }
 
@@ -934,13 +1524,22 @@ impl Built {
             if let Some((dist, spots)) = &look_at {
                 let v = Vec3::new(p.x, 0.9, p.z);
                 let (sx, sy) = to_px(v);
-                hide = v.distance(eye) < dist - 0.8 && spots.iter().any(|&(px, py)| (sx - px).abs() < 170. && (sy - py).abs() < 220.);
+                hide = v.distance(eye) < dist - 0.8
+                    && spots
+                        .iter()
+                        .any(|&(px, py)| (sx - px).abs() < 170. && (sy - py).abs() < 220.);
             }
             p.visible = in_scope(p.room as i64) && !hide;
             if p.visible {
-                let m = Mat4::from_translation(Vec3::new(p.x, 0., p.z) + shown(p.room as i64)) * Mat4::from_rotation_y(p.rot) * Mat4::from_scale(Vec3::splat(p.scale));
+                let m = Mat4::from_translation(Vec3::new(p.x, 0., p.z) + shown(p.room as i64))
+                    * Mat4::from_rotation_y(p.rot)
+                    * Mat4::from_scale(Vec3::splat(p.scale));
                 for k in &p.meshes {
-                    out.push(Draw { mesh: *k, at: m, tint: white });
+                    out.push(Draw {
+                        mesh: *k,
+                        at: m,
+                        tint: white,
+                    });
                 }
             }
         }
@@ -954,7 +1553,10 @@ impl Built {
         let eye = sim.camera.eye;
         let close = sim.close_k as f32;
         let follow = sim.visit().follow as f32;
-        let small_room = sim.scope.and_then(|s| self.lay.rooms.get(s)).is_some_and(|r| r.desks.len() <= 8);
+        let small_room = sim
+            .scope
+            .and_then(|s| self.lay.rooms.get(s))
+            .is_some_and(|r| r.desks.len() <= 8);
         let focus = sim.focus_ref.as_deref();
         for d in &self.desks {
             let f = &d.frame;
@@ -964,31 +1566,85 @@ impl Built {
             // the desk you're at (its card says it).
             let tag = f.root + Vec3::new(d.rx, 0.5, 0.55);
             let dist = tag.distance(eye);
-            let loud = matches!(d.tone, DeskTone::Needs | DeskTone::Error) && (d.tone == DeskTone::Needs || follow > 0.2 || close > 0.3);
-            let want = !campus && f.visible && !(focus == Some(d.r#ref.as_str()) && close > 0.3) && dist > 2.6 && (loud || small_room || follow > 0.4) && (loud || small_room || (close < 0.3 && dist < 17.));
-            out.push(SceneLabel { r#ref: d.r#ref.clone(), kind: LabelKind::Tag, text: d.title.clone(), color: color.clone(), world: tag, visible: want });
+            let loud = matches!(d.tone, DeskTone::Needs | DeskTone::Error)
+                && (d.tone == DeskTone::Needs || follow > 0.2 || close > 0.3);
+            let want = !campus
+                && f.visible
+                && !(focus == Some(d.r#ref.as_str()) && close > 0.3)
+                && dist > 2.6
+                && (loud || small_room || follow > 0.4)
+                && (loud || small_room || (close < 0.3 && dist < 17.));
+            out.push(SceneLabel {
+                r#ref: d.r#ref.clone(),
+                kind: LabelKind::Tag,
+                text: d.title.clone(),
+                color: color.clone(),
+                world: tag,
+                visible: want,
+            });
             if let Some((g, c)) = bubble_of(d.tone) {
-                out.push(SceneLabel { r#ref: d.r#ref.clone(), kind: LabelKind::Bubble, text: g.to_string(), color: c.to_string(), world: f.bubble.map_or(f.root + Vec3::new(d.rx, 2.05, d.cz + 0.05), |b| b.0), visible: f.bubble.is_some() });
+                out.push(SceneLabel {
+                    r#ref: d.r#ref.clone(),
+                    kind: LabelKind::Bubble,
+                    text: g.to_string(),
+                    color: c.to_string(),
+                    world: f
+                        .bubble
+                        .map_or(f.root + Vec3::new(d.rx, 2.05, d.cz + 0.05), |b| b.0),
+                    visible: f.bubble.is_some(),
+                });
             }
         }
         // Each room's pill, over the campus: its project's name, at its room's front.
         for rm in &self.lay.rooms {
-            let Some(base) = self.area_labels.get(&rm.project).map(|l| l.name.clone()).or_else(|| self.names.get(&rm.project).cloned()) else { continue };
+            let Some(base) = self
+                .area_labels
+                .get(&rm.project)
+                .map(|l| l.name.clone())
+                .or_else(|| self.names.get(&rm.project).cloned())
+            else {
+                continue;
+            };
             if !self.hues.contains_key(&rm.project) {
                 continue;
             }
             let (sx, sy, sz) = (rm.shown.dx as f32, rm.shown.dy as f32, rm.shown.dz as f32);
             let world = if rm.floors > 1 {
-                let right = self.lay.rooms.iter().filter(|o| o.project == rm.project).map(|o| (o.r#box.x1 + o.shown.dx) as f32).fold(f32::MIN, f32::max);
+                let right = self
+                    .lay
+                    .rooms
+                    .iter()
+                    .filter(|o| o.project == rm.project)
+                    .map(|o| (o.r#box.x1 + o.shown.dx) as f32)
+                    .fold(f32::MIN, f32::max);
                 Vec3::new(right + 2.6, 0.6 + sy, rm.r#box.z1 as f32 - 1.2 + sz)
             } else {
-                Vec3::new((rm.r#box.x1 - 5f64.min((rm.r#box.x1 - rm.r#box.x0) / 3.)) as f32 + sx, -0.4 + sy, rm.r#box.z1 as f32 + 1.0 + sz)
+                Vec3::new(
+                    (rm.r#box.x1 - 5f64.min((rm.r#box.x1 - rm.r#box.x0) / 3.)) as f32 + sx,
+                    -0.4 + sy,
+                    rm.r#box.z1 as f32 + 1.0 + sz,
+                )
             };
             // Not red, which the failed use: a red project's pill is coral.
             let hue = self.hues[&rm.project] as f32;
-            let ph = if !(18. ..=342.).contains(&hue) { 18. } else { hue };
-            let name = if rm.floors > 1 { format!("{} {}", base, rm.floor) } else { base };
-            out.push(SceneLabel { r#ref: rm.key.clone(), kind: LabelKind::Area, text: name, color: textures::css_hsl(ph, 62., 50.), world, visible: campus });
+            let ph = if !(18. ..=342.).contains(&hue) {
+                18.
+            } else {
+                hue
+            };
+            let name = if rm.floors > 1 {
+                format!("{} {}", base, rm.floor)
+            } else {
+                base
+            };
+            out.push(SceneLabel {
+                r#ref: rm.key.clone(),
+                kind: LabelKind::Area,
+                text: name,
+                color: textures::css_hsl(ph, 62., 50.),
+                world,
+                visible: campus,
+            });
         }
         out
     }
@@ -1000,12 +1656,22 @@ mod tests {
     use crate::model::{AreaModel, DeskModel, LeadModel};
 
     fn area(project: &str, n: usize) -> AreaModel {
-        let tones = [DeskTone::Working, DeskTone::Needs, DeskTone::Finished, DeskTone::Error, DeskTone::Idle, DeskTone::Stopped];
+        let tones = [
+            DeskTone::Working,
+            DeskTone::Needs,
+            DeskTone::Finished,
+            DeskTone::Error,
+            DeskTone::Idle,
+            DeskTone::Stopped,
+        ];
         AreaModel {
             project: project.into(),
             label: project.into(),
             hue: 200.,
-            lead: LeadModel { tone: LeadTone::Working, line: None },
+            lead: LeadModel {
+                tone: LeadTone::Working,
+                line: None,
+            },
             desks: (0..n)
                 .map(|i| DeskModel {
                     id: format!("{project}/agent-{}", i + 1),
@@ -1025,14 +1691,34 @@ mod tests {
     }
 
     fn input(sizes: &[usize]) -> SceneInput {
-        let areas: Vec<AreaModel> = sizes.iter().enumerate().map(|(i, &n)| area(&format!("p{i}"), n)).collect();
+        let areas: Vec<AreaModel> = sizes
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| area(&format!("p{i}"), n))
+            .collect();
         let mut screens = HashMap::new();
         for a in &areas {
             for d in &a.desks {
-                screens.insert(d.id.clone(), Screen { tone: d.tone, head: "Working".into(), title: d.title.clone(), lines: vec![] });
+                screens.insert(
+                    d.id.clone(),
+                    Screen {
+                        tone: d.tone,
+                        head: "Working".into(),
+                        title: d.title.clone(),
+                        lines: vec![],
+                    },
+                );
             }
         }
-        SceneInput { model: OfficeModel { areas, ..Default::default() }, screens, you: "You".into(), ..Default::default() }
+        SceneInput {
+            model: OfficeModel {
+                areas,
+                ..Default::default()
+            },
+            screens,
+            you: "You".into(),
+            ..Default::default()
+        }
     }
 
     fn check(sizes: &[usize]) {
@@ -1044,14 +1730,26 @@ mod tests {
         let leads = lay.areas.iter().filter(|a| a.lead.is_some()).count();
         assert_eq!(built.desks.len(), total + leads);
         for d in &built.desks {
-            assert!(built.hits.iter().any(|h| h.r#ref == d.r#ref && !h.bubble), "{} has a hit", d.r#ref);
+            assert!(
+                built.hits.iter().any(|h| h.r#ref == d.r#ref && !h.bubble),
+                "{} has a hit",
+                d.r#ref
+            );
         }
         assert_eq!(built.boards.len(), lay.rooms.len());
         for h in &built.hits {
-            assert!(h.min.is_finite() && h.max.is_finite() && h.min.cmple(h.max).all(), "{}", h.r#ref);
+            assert!(
+                h.min.is_finite() && h.max.is_finite() && h.min.cmple(h.max).all(),
+                "{}",
+                h.r#ref
+            );
         }
         for m in &kit.meshes {
-            assert!(m.vertices.iter().all(|v| v.pos.iter().chain(&v.normal).all(|x| x.is_finite())));
+            assert!(
+                m.vertices
+                    .iter()
+                    .all(|v| v.pos.iter().chain(&v.normal).all(|x| x.is_finite()))
+            );
             assert!(m.indices.iter().all(|&i| (i as usize) < m.vertices.len()));
         }
         // Draws for the campus, then a room.
@@ -1064,12 +1762,24 @@ mod tests {
         let mut out = Vec::new();
         built.draws(&sim, 1., true, &mut kit, &mut out);
         assert!(!out.is_empty());
-        assert!(out.iter().all(|d| d.at.to_cols_array().iter().all(|x| x.is_finite()) && d.mesh.0 < kit.meshes.len()));
+        assert!(
+            out.iter()
+                .all(|d| d.at.to_cols_array().iter().all(|x| x.is_finite())
+                    && d.mesh.0 < kit.meshes.len())
+        );
         let campus_n = out.len();
         let labels = built.labels(&sim);
-        assert!(labels.iter().any(|l| l.kind == LabelKind::Area && l.visible));
+        assert!(
+            labels
+                .iter()
+                .any(|l| l.kind == LabelKind::Area && l.visible)
+        );
         assert!(labels.iter().all(|l| l.world.is_finite()));
-        let desk = built.desks.iter().find(|d| !d.lead).map(|d| d.r#ref.clone());
+        let desk = built
+            .desks
+            .iter()
+            .find(|d| !d.lead)
+            .map(|d| d.r#ref.clone());
         if let Some(r) = desk {
             sim.walk_to(&r);
             for _ in 0..200 {
@@ -1079,7 +1789,11 @@ mod tests {
             built.draws(&sim, 2., true, &mut kit, &mut out);
             assert!(!out.is_empty(), "{campus_n}");
             let labels = built.labels(&sim);
-            assert!(!labels.iter().any(|l| l.kind == LabelKind::Area && l.visible));
+            assert!(
+                !labels
+                    .iter()
+                    .any(|l| l.kind == LabelKind::Area && l.visible)
+            );
         }
     }
 

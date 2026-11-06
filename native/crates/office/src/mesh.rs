@@ -71,7 +71,11 @@ pub fn cuboid(w: f32, h: f32, d: f32) -> Geo {
 /// rbox is three's RoundedBoxGeometry(w, h, d, 3, r), its radius kept
 /// within the box as #668's helper does.
 pub fn rbox(w: f32, h: f32, d: f32, r: f32) -> Geo {
-    let r = r.min(w / 2. - 1e-3).min(h / 2. - 1e-3).min(d / 2. - 1e-3).max(0.);
+    let r = r
+        .min(w / 2. - 1e-3)
+        .min(h / 2. - 1e-3)
+        .min(d / 2. - 1e-3)
+        .max(0.);
     rbox_n(w, h, d, r, 3)
 }
 
@@ -96,7 +100,14 @@ fn rbox_n(w: f32, h: f32, d: f32, r: f32, seg: usize) -> Geo {
     };
     let mut g = Geo::default();
     // Each face: (normal axis, u axis, v axis, sign).
-    let faces: [(usize, usize, usize, f32); 6] = [(0, 2, 1, 1.), (0, 2, 1, -1.), (1, 0, 2, 1.), (1, 0, 2, -1.), (2, 0, 1, 1.), (2, 0, 1, -1.)];
+    let faces: [(usize, usize, usize, f32); 6] = [
+        (0, 2, 1, 1.),
+        (0, 2, 1, -1.),
+        (1, 0, 2, 1.),
+        (1, 0, 2, -1.),
+        (2, 0, 1, 1.),
+        (2, 0, 1, -1.),
+    ];
     for (n, ua, va, s) in faces {
         let us = axis(half[ua]);
         let vs = axis(half[va]);
@@ -117,9 +128,16 @@ fn rbox_n(w: f32, h: f32, d: f32, r: f32, seg: usize) -> Geo {
                     normal = Vec3::ZERO;
                     normal[n] = s;
                 }
-                let uv = Vec2::new(i as f32 / (us.len() - 1) as f32, j as f32 / (vs.len() - 1) as f32);
+                let uv = Vec2::new(
+                    i as f32 / (us.len() - 1) as f32,
+                    j as f32 / (vs.len() - 1) as f32,
+                );
                 // Faces read from outside: flip u on the far sides.
-                let uv = if (s < 0.) ^ (n == 1) { Vec2::new(1. - uv.x, uv.y) } else { uv };
+                let uv = if (s < 0.) ^ (n == 1) {
+                    Vec2::new(1. - uv.x, uv.y)
+                } else {
+                    uv
+                };
                 g.push(pos, normal, uv);
             }
         }
@@ -159,8 +177,16 @@ pub fn cyl(top: f32, bottom: f32, h: f32, seg: usize) -> Geo {
         let a = i as f32 / seg as f32 * TAU;
         let (s, c) = a.sin_cos();
         let n = Vec3::new(s, slope, c).normalize();
-        g.push(Vec3::new(top * s, h / 2., top * c), n, Vec2::new(i as f32 / seg as f32, 1.));
-        g.push(Vec3::new(bottom * s, -h / 2., bottom * c), n, Vec2::new(i as f32 / seg as f32, 0.));
+        g.push(
+            Vec3::new(top * s, h / 2., top * c),
+            n,
+            Vec2::new(i as f32 / seg as f32, 1.),
+        );
+        g.push(
+            Vec3::new(bottom * s, -h / 2., bottom * c),
+            n,
+            Vec2::new(i as f32 / seg as f32, 0.),
+        );
     }
     for i in 0..seg as u32 {
         let a = base + i * 2;
@@ -174,7 +200,11 @@ pub fn cyl(top: f32, bottom: f32, h: f32, seg: usize) -> Geo {
         for i in 0..=seg {
             let a = i as f32 / seg as f32 * TAU;
             let (s, co) = a.sin_cos();
-            g.push(Vec3::new(rr * s, y, rr * co), Vec3::Y * up, Vec2::new(0.5 + s / 2., 0.5 + co / 2.));
+            g.push(
+                Vec3::new(rr * s, y, rr * co),
+                Vec3::Y * up,
+                Vec2::new(0.5 + s / 2., 0.5 + co / 2.),
+            );
         }
         for i in 0..seg as u32 {
             if up > 0. {
@@ -219,7 +249,12 @@ pub fn sphere(r: f32, ws: usize, hs: usize) -> Geo {
 /// plane is three's PlaneGeometry(w, h): in x and y, facing +z.
 pub fn plane(w: f32, h: f32) -> Geo {
     let mut g = Geo::default();
-    for (x, y, u, v) in [(-0.5, 0.5, 0., 1.), (0.5, 0.5, 1., 1.), (-0.5, -0.5, 0., 0.), (0.5, -0.5, 1., 0.)] {
+    for (x, y, u, v) in [
+        (-0.5, 0.5, 0., 1.),
+        (0.5, 0.5, 1., 1.),
+        (-0.5, -0.5, 0., 0.),
+        (0.5, -0.5, 1., 0.),
+    ] {
         g.push(Vec3::new(x * w, y * h, 0.), Vec3::Z, Vec2::new(u, v));
     }
     g.indices.extend([0, 2, 1, 2, 3, 1]);
@@ -236,11 +271,21 @@ pub fn floor_plane(w: f32, d: f32) -> Geo {
 pub fn slab(w: f32, d: f32, r: f32, h: f32) -> Geo {
     let rr = r.min(w / 2.).min(d / 2.).max(0.);
     let mut outline: Vec<Vec2> = Vec::new();
-    let corners = [(w / 2. - rr, d / 2. - rr, 0.), (-w / 2. + rr, d / 2. - rr, FRAC_PI_2), (-w / 2. + rr, -d / 2. + rr, PI), (w / 2. - rr, -d / 2. + rr, 1.5 * PI)];
+    let corners = [
+        (w / 2. - rr, d / 2. - rr, 0.),
+        (-w / 2. + rr, d / 2. - rr, FRAC_PI_2),
+        (-w / 2. + rr, -d / 2. + rr, PI),
+        (w / 2. - rr, -d / 2. + rr, 1.5 * PI),
+    ];
     for (cx, cz, a0) in corners {
         let n = if rr > 0. { 6 } else { 0 };
         for i in 0..=n {
-            let a = a0 + if n > 0 { i as f32 / n as f32 * FRAC_PI_2 } else { 0. };
+            let a = a0
+                + if n > 0 {
+                    i as f32 / n as f32 * FRAC_PI_2
+                } else {
+                    0.
+                };
             outline.push(Vec2::new(cx + rr * a.cos(), cz + rr * a.sin()));
         }
     }
@@ -249,7 +294,11 @@ pub fn slab(w: f32, d: f32, r: f32, h: f32) -> Geo {
     for (y, up) in [(h, 1.), (0., -1.)] {
         let c = g.push(Vec3::new(0., y, 0.), Vec3::Y * up, Vec2::splat(0.5));
         for p in &outline {
-            g.push(Vec3::new(p.x, y, p.y), Vec3::Y * up, Vec2::new(0.5 + p.x / w, 0.5 + p.y / d));
+            g.push(
+                Vec3::new(p.x, y, p.y),
+                Vec3::Y * up,
+                Vec2::new(0.5 + p.x / w, 0.5 + p.y / d),
+            );
         }
         let n = outline.len() as u32;
         for i in 0..n {
@@ -274,7 +323,8 @@ pub fn slab(w: f32, d: f32, r: f32, h: f32) -> Geo {
             g.push(Vec3::new(b.x, 0., b.y), nn, Vec2::X);
             g.push(Vec3::new(a.x, h, a.y), nn, Vec2::Y);
             g.push(Vec3::new(b.x, h, b.y), nn, Vec2::ONE);
-            g.indices.extend([base, base + 2, base + 1, base + 1, base + 2, base + 3]);
+            g.indices
+                .extend([base, base + 2, base + 1, base + 1, base + 2, base + 3]);
         }
     }
     g
@@ -288,8 +338,16 @@ pub fn torus(r: f32, tube: f32, radial: usize, tubular: usize, arc: f32) -> Geo 
             let u = i as f32 / tubular as f32 * arc;
             let v = j as f32 / radial as f32 * TAU;
             let c = Vec3::new(r * u.cos(), r * u.sin(), 0.);
-            let p = Vec3::new((r + tube * v.cos()) * u.cos(), (r + tube * v.cos()) * u.sin(), tube * v.sin());
-            g.push(p, (p - c).normalize_or_zero(), Vec2::new(i as f32 / tubular as f32, j as f32 / radial as f32));
+            let p = Vec3::new(
+                (r + tube * v.cos()) * u.cos(),
+                (r + tube * v.cos()) * u.sin(),
+                tube * v.sin(),
+            );
+            g.push(
+                p,
+                (p - c).normalize_or_zero(),
+                Vec2::new(i as f32 / tubular as f32, j as f32 / radial as f32),
+            );
         }
     }
     let row = tubular as u32 + 1;
@@ -311,7 +369,11 @@ pub fn hex(s: &str) -> [f32; 3] {
     let v = u32::from_str_radix(s.trim_start_matches('#'), 16).unwrap_or(0xff00ff);
     let c = |x: u32| {
         let f = x as f32 / 255.;
-        if f <= 0.04045 { f / 12.92 } else { ((f + 0.055) / 1.055).powf(2.4) }
+        if f <= 0.04045 {
+            f / 12.92
+        } else {
+            ((f + 0.055) / 1.055).powf(2.4)
+        }
     };
     [c(v >> 16 & 255), c(v >> 8 & 255), c(v & 255)]
 }
@@ -320,7 +382,11 @@ pub fn hex(s: &str) -> [f32; 3] {
 /// working colour space, linear, so they stay as they are (unlike a hex).
 pub fn hsl(h: f32, s: f32, l: f32) -> [f32; 3] {
     let h = h.rem_euclid(1.);
-    let q = if l <= 0.5 { l * (1. + s) } else { l + s - l * s };
+    let q = if l <= 0.5 {
+        l * (1. + s)
+    } else {
+        l + s - l * s
+    };
     let p = 2. * l - q;
     let f = |t: f32| {
         let t = t.rem_euclid(1.);
@@ -350,7 +416,13 @@ pub struct Mat {
 
 impl Mat {
     pub fn new(color: [f32; 3]) -> Self {
-        Self { color, opacity: 1., texture: None, repeat: [1., 1.], emissive: false }
+        Self {
+            color,
+            opacity: 1.,
+            texture: None,
+            repeat: [1., 1.],
+            emissive: false,
+        }
     }
     pub fn hex(s: &str) -> Self {
         Self::new(hex(s))
@@ -371,14 +443,23 @@ impl Mat {
     /// The vertex colour the shader reads: alpha is opacity, plus 2 for
     /// something lit by itself.
     pub fn rgba(&self) -> [f32; 4] {
-        [self.color[0], self.color[1], self.color[2], self.opacity + if self.emissive { 2. } else { 0. }]
+        [
+            self.color[0],
+            self.color[1],
+            self.color[2],
+            self.opacity + if self.emissive { 2. } else { 0. },
+        ]
     }
 }
 
 /// trs is a transform as three's object: position, rotation (Euler XYZ, as
 /// three's default order) and scale.
 pub fn trs(x: f32, y: f32, z: f32, rx: f32, ry: f32, rz: f32, s: Vec3) -> Mat4 {
-    Mat4::from_scale_rotation_translation(s, Quat::from_euler(glam::EulerRot::XYZ, rx, ry, rz), Vec3::new(x, y, z))
+    Mat4::from_scale_rotation_translation(
+        s,
+        Quat::from_euler(glam::EulerRot::XYZ, rx, ry, rz),
+        Vec3::new(x, y, z),
+    )
 }
 
 /// at is a transform that only moves.
@@ -395,10 +476,22 @@ pub struct Baker {
 
 impl Baker {
     fn batch(&mut self, texture: Option<usize>, clear: bool) -> &mut MeshData {
-        let i = match self.batches.iter().position(|(t, c, _)| *t == texture && *c == clear) {
+        let i = match self
+            .batches
+            .iter()
+            .position(|(t, c, _)| *t == texture && *c == clear)
+        {
             Some(i) => i,
             None => {
-                self.batches.push((texture, clear, MeshData { texture, transparent: clear, ..Default::default() }));
+                self.batches.push((
+                    texture,
+                    clear,
+                    MeshData {
+                        texture,
+                        transparent: clear,
+                        ..Default::default()
+                    },
+                ));
                 self.batches.len() - 1
             }
         };
@@ -447,8 +540,23 @@ impl Baker {
     }
 
     pub fn finish(self) -> Vec<MeshData> {
-        self.batches.into_iter().map(|(_, _, m)| m).filter(|m| !m.indices.is_empty()).collect()
+        self.batches
+            .into_iter()
+            .map(|(_, _, m)| m)
+            .filter(|m| !m.indices.is_empty())
+            .collect()
     }
+}
+
+/// rbox_seg is three's RoundedBoxGeometry(w, h, d, segments, r) with its
+/// own number of segments per corner (figures.rs's heads use eight).
+pub fn rbox_seg(w: f32, h: f32, d: f32, segments: usize, r: f32) -> Geo {
+    let r = r
+        .min(w / 2. - 1e-3)
+        .min(h / 2. - 1e-3)
+        .min(d / 2. - 1e-3)
+        .max(0.);
+    rbox_n(w, h, d, r, segments)
 }
 
 #[cfg(test)]
@@ -463,14 +571,22 @@ mod tests {
 
     #[test]
     fn faces_wind_outwards() {
-        for g in [cuboid(1., 2., 3.), rbox(1., 1., 1., 0.2), cyl(0.5, 0.5, 1., 12), sphere(1., 12, 8), slab(2., 1., 0.3, 0.1)] {
+        for g in [
+            cuboid(1., 2., 3.),
+            rbox(1., 1., 1., 0.2),
+            cyl(0.5, 0.5, 1., 12),
+            sphere(1., 12, 8),
+            slab(2., 1., 0.3, 0.1),
+        ] {
             for t in g.indices.chunks(3) {
                 let [a, b, c] = [t[0], t[1], t[2]].map(|i| g.pos[i as usize]);
                 let n = (b - a).cross(c - a);
                 if n.length() < 1e-7 {
                     continue;
                 }
-                let avg = (g.normal[t[0] as usize] + g.normal[t[1] as usize] + g.normal[t[2] as usize]).normalize_or_zero();
+                let avg =
+                    (g.normal[t[0] as usize] + g.normal[t[1] as usize] + g.normal[t[2] as usize])
+                        .normalize_or_zero();
                 assert!(n.normalize().dot(avg) > 0., "a face winds inwards");
             }
         }
@@ -483,11 +599,4 @@ mod tests {
         let c = hsl(0., 1., 0.5);
         assert!((c[0] - 1.).abs() < 1e-5 && c[1].abs() < 1e-5);
     }
-}
-
-/// rbox_seg is three's RoundedBoxGeometry(w, h, d, segments, r) with its
-/// own number of segments per corner (figures.rs's heads use eight).
-pub fn rbox_seg(w: f32, h: f32, d: f32, segments: usize, r: f32) -> Geo {
-    let r = r.min(w / 2. - 1e-3).min(h / 2. - 1e-3).min(d / 2. - 1e-3).max(0.);
-    rbox_n(w, h, d, r, segments)
 }

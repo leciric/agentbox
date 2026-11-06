@@ -56,13 +56,20 @@ impl Player {
             .images
             .iter()
             .enumerate()
-            .map(|(i, img)| kit.texture(&format!("player:{i}"), || glb::Image { width: img.width, height: img.height, rgba: img.rgba.clone() }))
+            .map(|(i, img)| {
+                kit.texture(&format!("player:{i}"), || glb::Image {
+                    width: img.width,
+                    height: img.height,
+                    rgba: img.rgba.clone(),
+                })
+            })
             .collect();
         // Its walk and sprint as they are, but for their hop: the root's bounce
         // goes, so you glide over the floor rather than skip along it.
         let root = skinned.node("root");
         for c in &mut skinned.clips {
-            c.channels.retain(|ch| !(Some(ch.node) == root && ch.path == glb::Path::Translation));
+            c.channels
+                .retain(|ch| !(Some(ch.node) == root && ch.path == glb::Path::Translation));
         }
         let h = (skinned.max.y - skinned.min.y).max(0.01);
         let k = HEIGHT / h;
@@ -107,7 +114,13 @@ impl Player {
         };
         self.last_t = Some(t);
         self.motion = motion;
-        let ease = |from: f32, to: f32, rate: f32| if motion { from + (to - from) * (1. - (-dt * rate).exp()) } else { to };
+        let ease = |from: f32, to: f32, rate: f32| {
+            if motion {
+                from + (to - from) * (1. - (-dt * rate).exp())
+            } else {
+                to
+            }
+        };
         self.move_k = ease(self.move_k, (speed / 0.9).min(1.), 9.);
         self.run_k = ease(self.run_k, ((speed - 3.4) / 1.4).clamp(0., 1.), 6.);
         // Both cycles share one phase, so blending them never crosses the feet.
@@ -124,7 +137,11 @@ impl Player {
             blend.push((c, self.idle_t % dur(self.idle), 1. - self.move_k));
         }
         if let Some(c) = self.walk {
-            blend.push((c, self.phase * dur(self.walk), self.move_k * (1. - self.run_k)));
+            blend.push((
+                c,
+                self.phase * dur(self.walk),
+                self.move_k * (1. - self.run_k),
+            ));
         }
         if let Some(c) = self.sprint {
             blend.push((c, self.phase * dur(self.sprint), self.move_k * self.run_k));
@@ -139,15 +156,31 @@ impl Player {
             turn_rate = d.sin().atan2(d.cos()) / dt;
         }
         self.last_yaw = Some(self.yaw);
-        self.roll = ease(self.roll, (-turn_rate * speed * 0.012).clamp(-0.16, 0.16), 8.);
-        self.lean = if motion { self.move_k * (0.04 + 0.08 * self.run_k) } else { 0. };
+        self.roll = ease(
+            self.roll,
+            (-turn_rate * speed * 0.012).clamp(-0.16, 0.16),
+            8.,
+        );
+        self.lean = if motion {
+            self.move_k * (0.04 + 0.08 * self.run_k)
+        } else {
+            0.
+        };
     }
 
     /// matrix places the posed meshes under you: scaled to metres, standing on
     /// the floor, leaning (three's model.rotation, Euler XYZ).
     pub fn matrix(&self) -> Mat4 {
         let roll = if self.motion { self.roll } else { 0. };
-        crate::mesh::trs(0., self.base_y, 0., self.lean, 0., roll, Vec3::splat(self.k))
+        crate::mesh::trs(
+            0.,
+            self.base_y,
+            0.,
+            self.lean,
+            0.,
+            roll,
+            Vec3::splat(self.k),
+        )
     }
 
     /// fade is how much of you shows: the scene draws with this alpha as the
@@ -184,7 +217,10 @@ mod tests {
     }
 
     fn flat(p: &Player) -> Vec<f32> {
-        p.meshes.iter().flat_map(|m| m.vertices.iter().flat_map(|v| v.pos)).collect()
+        p.meshes
+            .iter()
+            .flat_map(|m| m.vertices.iter().flat_map(|v| v.pos))
+            .collect()
     }
 
     #[test]
@@ -192,7 +228,11 @@ mod tests {
         let mut kit = Kit::default();
         let mut p = Player::new(&mut kit).expect("the character loads");
         assert_eq!(kit.textures.len(), 1);
-        assert!(p.meshes.iter().all(|m| m.texture == Some(0) && !m.indices.is_empty()));
+        assert!(
+            p.meshes
+                .iter()
+                .all(|m| m.texture == Some(0) && !m.indices.is_empty())
+        );
         // Standing: idle.
         for i in 0..30 {
             p.stride(0., i as f32 * 0.05, true);
@@ -207,7 +247,10 @@ mod tests {
         }
         let walk = flat(&p);
         assert_eq!(idle.len(), walk.len());
-        assert!(idle.iter().zip(&walk).any(|(a, b)| (a - b).abs() > 0.02), "walking looks like standing");
+        assert!(
+            idle.iter().zip(&walk).any(|(a, b)| (a - b).abs() > 0.02),
+            "walking looks like standing"
+        );
         // Sprinting differs from walking.
         for i in 70..140 {
             p.stride(4.8, i as f32 * 0.05, true);
