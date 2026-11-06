@@ -102,9 +102,11 @@ type lanState struct {
 
 	// cloudflared finds cloudflared, downloading it the first time, and
 	// tunnelPort is where a named tunnel reaches the daemon (0: any free
-	// port). Fields for tests: nil is tunnel.Installer's.
+	// port). Fields for tests: nil is tunnel.Installer's. resolve looks a
+	// quick tunnel's name up (nil: its zone's nameservers).
 	cloudflared func(ctx context.Context, status func(string)) (string, error)
 	tunnelPort  int
+	resolve     func(ctx context.Context, host string) error
 	// tailscale finds the directory of tailscale and tailscaled, for a hub
 	// that gives out tailnet addresses; nil is tunnel.TailscaleInstaller's.
 	tailscale func(ctx context.Context, status func(string)) (string, error)

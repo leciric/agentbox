@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -112,10 +114,13 @@ func binary(path string) func(context.Context, func(string)) (string, error) {
 	return func(context.Context, func(string)) (string, error) { return path, nil }
 }
 
+// resolved is a Resolve for which every name is already in DNS.
+func resolved(context.Context, string) error { return nil }
+
 func TestQuickTunnel(t *testing.T) {
 	bin, dir := fake(t, 0)
 	home := t.TempDir()
-	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Home: home}, nil, t.Logf)
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Home: home, Resolve: resolved}, nil, t.Logf)
 	st := waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
 	if st.URL != "https://quiet-river-1234.trycloudflare.com/" {
 		t.Fatalf("URL %q", st.URL)
@@ -178,7 +183,7 @@ func TestADownloadThatFailsIsTriedAgain(t *testing.T) {
 	minBackoff = 10 * time.Millisecond
 	bin, _ := fake(t, 0)
 	tries := 0
-	tun := Start(context.Background(), Config{Origin: "http://127.0.0.1:1", Binary: func(_ context.Context, status func(string)) (string, error) {
+	tun := Start(context.Background(), Config{Origin: "http://127.0.0.1:1", Resolve: resolved, Binary: func(_ context.Context, status func(string)) (string, error) {
 		tries++
 		status("Downloading cloudflared, once for this machine")
 		if tries == 1 {
@@ -188,4 +193,40 @@ func TestADownloadThatFailsIsTriedAgain(t *testing.T) {
 	}}, nil, t.Logf)
 	defer tun.Stop()
 	waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+}
+
+func TestAQuickTunnelIsRunningOnlyOnceItsNameResolves(t *testing.T) {
+	defer func(a time.Duration) { resolveEvery = a }(resolveEvery)
+	resolveEvery = 10 * time.Millisecond
+	bin, _ := fake(t, 0)
+	var mu sync.Mutex
+	inDNS := false
+	var asked string
+	tun := Start(context.Background(), Config{Binary: binary(bin), Origin: "http://127.0.0.1:4321", Resolve: func(_ context.Context, host string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		asked = host
+		if !inDNS {
+			return errors.New("no such host")
+		}
+		return nil
+	}}, nil, t.Logf)
+	defer tun.Stop()
+	// Connected, but not in DNS yet: a phone opening it would be told the
+	// name doesn't exist, and keep that answer a while.
+	time.Sleep(300 * time.Millisecond)
+	if st := tun.Status(); st.State != StateStarting || st.URL != "" {
+		t.Fatalf("before its name resolves: %+v", st)
+	}
+	mu.Lock()
+	inDNS = true
+	host := asked
+	mu.Unlock()
+	if host != "quiet-river-1234.trycloudflare.com" {
+		t.Fatalf("resolved %q", host)
+	}
+	st := waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
+	if st.URL != "https://quiet-river-1234.trycloudflare.com/" {
+		t.Fatalf("URL %q", st.URL)
+	}
 }

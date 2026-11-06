@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"regexp"
@@ -47,6 +48,9 @@ type Config struct {
 	// Home is cloudflared's HOME, so a ~/.cloudflared of the user's doesn't
 	// change what it does: a config file there turns a quick tunnel down.
 	Home string
+	// Resolve looks a quick tunnel's name up in DNS; nil asks its zone's
+	// nameservers (authoritativeResolve).
+	Resolve func(ctx context.Context, host string) error
 }
 
 // Restarting: after minBackoff, doubling each time up to maxBackoff, back to
@@ -56,6 +60,35 @@ var (
 	maxBackoff  = time.Minute
 	stableAfter = 2 * time.Minute
 )
+
+// A quick tunnel's name reaches DNS some seconds after cloudflared connects,
+// and a phone that opens it before then caches "no such host": it's shown
+// once it resolves, asked every resolveEvery, or after resolveFor anyway, for
+// a network that blocks outside DNS. Variables for tests.
+var (
+	resolveEvery = time.Second
+	resolveFor   = time.Minute
+)
+
+// authoritativeResolve asks the nameservers of host's zone, which have a new
+// quick tunnel's name first: a caching resolver, 1.1.1.1 included, keeps
+// answering "no such host" a few seconds longer once it has asked.
+func authoritativeResolve(ctx context.Context, host string) error {
+	_, zone, _ := strings.Cut(host, ".")
+	ns, err := net.DefaultResolver.LookupNS(ctx, zone)
+	if err != nil {
+		return err
+	}
+	if len(ns) == 0 {
+		return fmt.Errorf("%s has no nameservers", zone)
+	}
+	r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, network, net.JoinHostPort(ns[0].Host, "53"))
+	}}
+	_, err = r.LookupHost(ctx, host)
+	return err
+}
 
 // Tunnel is a supervised cloudflared.
 type Tunnel struct {
@@ -162,11 +195,13 @@ func (t *Tunnel) run(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	watchCtx, stopWatch := context.WithCancel(ctx)
 	lastErr := make(chan string, 1)
 	go func() {
-		lastErr <- t.watch(pr, named)
+		lastErr <- t.watch(watchCtx, pr, named)
 	}()
 	werr := cmd.Wait()
+	stopWatch()
 	_ = pw.Close()
 	last := <-lastErr
 	if ctx.Err() != nil {
@@ -183,8 +218,11 @@ func (t *Tunnel) run(ctx context.Context) error {
 
 // watch reads cloudflared's log for the tunnel's address and for when it's
 // connected, and returns the last error it logged.
-func (t *Tunnel) watch(r io.Reader, named bool) string {
+func (t *Tunnel) watch(ctx context.Context, r io.Reader, named bool) string {
 	var url, last string
+	var resolving sync.WaitGroup
+	resolveStarted := false
+	defer resolving.Wait()
 	if named {
 		url = "https://" + t.cfg.Hostname + "/"
 	}
@@ -198,7 +236,13 @@ func (t *Tunnel) watch(r io.Reader, named bool) string {
 			}
 		}
 		if strings.Contains(line, "Registered tunnel connection") && url != "" {
-			t.set(func(s *Status) { *s = Status{State: StateRunning, URL: url} })
+			switch {
+			case named:
+				t.set(func(s *Status) { *s = Status{State: StateRunning, URL: url} })
+			case !resolveStarted:
+				resolveStarted = true
+				resolving.Go(func() { t.runningOnceResolved(ctx, url) })
+			}
 		}
 		if msg, ok := logError(line); ok {
 			last = msg
@@ -206,6 +250,39 @@ func (t *Tunnel) watch(r io.Reader, named bool) string {
 	}
 	_, _ = io.Copy(io.Discard, r)
 	return last
+}
+
+// runningOnceResolved says the quick tunnel at url is running once its name
+// is in DNS, unless ctx, this run of cloudflared, ends first.
+func (t *Tunnel) runningOnceResolved(ctx context.Context, url string) {
+	resolve := t.cfg.Resolve
+	if resolve == nil {
+		resolve = authoritativeResolve
+	}
+	host := strings.TrimSuffix(strings.TrimPrefix(url, "https://"), "/")
+	giveUp := time.After(resolveFor)
+wait:
+	for {
+		ask, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := resolve(ask, host)
+		cancel()
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-giveUp:
+			t.logf("phones: %s isn't in DNS after %s (%v); showing it anyway", host, resolveFor, err)
+			break wait
+		case <-time.After(resolveEvery):
+		}
+	}
+	t.set(func(s *Status) {
+		if ctx.Err() == nil {
+			*s = Status{State: StateRunning, URL: url}
+		}
+	})
 }
 
 // logError picks out an error line of cloudflared's log, like

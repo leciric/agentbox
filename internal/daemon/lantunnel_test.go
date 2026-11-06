@@ -76,6 +76,7 @@ func TestPhoneThroughATunnel(t *testing.T) {
 	// of its own, and the tunnel works all the same.
 	d.srv.lan.own = false
 	d.srv.lan.cloudflared = find
+	d.srv.lan.resolve = func(context.Context, string) error { return nil }
 	d.srv.lan.tunnelPort = freePort(t)
 	d.srv.lan.mu.Unlock()
 
@@ -275,6 +276,7 @@ func TestPhoneThroughTheHubsTunnel(t *testing.T) {
 	d.srv.lan.mu.Lock()
 	d.srv.lan.own = false
 	d.srv.lan.cloudflared = find
+	d.srv.lan.resolve = func(context.Context, string) error { return nil }
 	d.srv.lan.tunnelPort = freePort(t)
 	d.srv.lan.hubRetry = 20 * time.Millisecond
 	d.srv.lan.mu.Unlock()
@@ -404,6 +406,7 @@ func TestPhoneOverTheHubsTailnet(t *testing.T) {
 	d.srv.lan.mu.Lock()
 	d.srv.lan.own = false
 	d.srv.lan.cloudflared = cloudflared
+	d.srv.lan.resolve = func(context.Context, string) error { return nil }
 	d.srv.lan.tailscale = find
 	d.srv.lan.tunnelPort = freePort(t)
 	d.srv.lan.hubRetry = 20 * time.Millisecond
