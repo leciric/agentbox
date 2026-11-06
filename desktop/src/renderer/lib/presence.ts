@@ -51,10 +51,13 @@ export function usePresence(view: T.PresenceView | undefined): void {
 const defaultRenewMs = 15_000;
 
 // startPresence keeps this window's lease; the function it returns stops it.
+// The web app (a phone's browser, through the LAN) holds none: a phone's
+// requests that change something are each audited (internal/daemon/lan.go),
+// and a renewal every 15 seconds would bury the audit log.
 export function startPresence(): () => void {
   const bridge = window.agentbox;
-  const web = 'web' in bridge;
-  const client = `${web ? 'web' : 'desktop'}-${crypto.randomUUID()}`;
+  if ('web' in bridge) return () => {};
+  const client = `desktop-${crypto.randomUUID()}`;
   let power: T.HostPower | undefined;
   let last = '';
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -64,7 +67,7 @@ export function startPresence(): () => void {
 
   const renew = async (force: boolean) => {
     if (stopped) return;
-    const req: T.PresenceRequest = { client, kind: web ? 'web' : 'desktop', visible: !document.hidden, views: mergeViews(shown.values(), document.hidden), ...(power ? { power } : {}) };
+    const req: T.PresenceRequest = { client, kind: 'desktop', visible: !document.hidden, views: mergeViews(shown.values(), document.hidden), ...(power ? { power } : {}) };
     const body = JSON.stringify(req);
     if (!force && body === last && Date.now() - lastAt < every) return;
     last = body;
@@ -85,21 +88,17 @@ export function startPresence(): () => void {
   };
   changed = soon;
   const tick = setInterval(() => void renew(true), defaultRenewMs);
-  const offPower = web
-    ? () => {}
-    : bridge.onHostPower((next) => {
-        power = next;
-        soon();
-      });
-  if (!web) {
-    void bridge
-      .hostPower()
-      .then((p) => {
-        power = p;
-        soon();
-      })
-      .catch(() => {});
-  }
+  const offPower = bridge.onHostPower((next) => {
+    power = next;
+    soon();
+  });
+  void bridge
+    .hostPower()
+    .then((p) => {
+      power = p;
+      soon();
+    })
+    .catch(() => {});
   const onVisibility = () => soon();
   const onUnload = () => void api.endPresence(client).catch(() => {});
   document.addEventListener('visibilitychange', onVisibility);
