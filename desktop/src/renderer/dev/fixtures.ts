@@ -1782,7 +1782,6 @@ let defaultsSettings = {
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
   agentFreeze: false,
-  agentGoals: true,
   prWatch: true,
   // &green=off starts with "Resolved — merge when CI is green" off, as it ships.
   mergeWhenGreen: typeof location === 'undefined' || new URLSearchParams(location.search).get('green') !== 'off',

@@ -123,6 +123,7 @@ is kept short: a family of operations on one thing is one tool, with an `action`
   connectors). See [An agent's lifecycle](agent-lifecycle.md).
 - `list_agents` — list the project's agents and their status, or its past (archived) ones.
 - `tell_agent` — send a message into a running agent's chat.
+- `set_goal` — give an agent a goal, or change or clear it (see [Goals](agent-lifecycle.md#goals)).
 - `read_agent` — read an agent's chat transcript, or (`show`) its diff or the diff's summary.
 - `run_in_agent` — run a shell command inside an agent's machine.
 - `copy_to_agent` — copy a file or directory into an agent's machine, from another agent's

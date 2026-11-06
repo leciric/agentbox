@@ -221,11 +221,9 @@ const (
 	// when CI is green" (state.MergeWhenGreen), and whether the daemon acts
 	// on those marks. Off until somebody turns it on (Flag).
 	SettingMergeWhenGreen = "merge_when_green"
-	// SettingAgentGoals says whether agents have goals (Settings →
-	// Experimental): the tool's own /goal shown as the agent's goal, and a
-	// goal create_agent sets that the daemon checks after each turn and sends
-	// the agent back to. Off until somebody turns it on (Flag).
-	SettingAgentGoals = "agent_goals"
+	// "agent_goals" was the switch for agent goals while they were
+	// experimental; they are always on now, and a row left with that key is
+	// never read.
 	// SettingAgentGPU says whether every agent gets the GPU of AgentBox's VM
 	// (agent.FindVMGPU), when it has one. Off until somebody turns it on
 	// (Flag). Not #66's gpu_for_agents, which a migration deletes.

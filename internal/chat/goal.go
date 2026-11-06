@@ -9,7 +9,7 @@ import (
 	"agentbox/internal/state"
 )
 
-// Agent goals (Settings → Experimental, off by default). An AI tool with a
+// Agent goals. An AI tool with a
 // /goal of its own — Claude Code, Codex, OpenCode from 2.2.1 — keeps working
 // until its own check says the goal is met, and its ACP adapter reports the
 // goal on session_info_update (acp.GoalSnapshot). This file turns those
@@ -24,12 +24,6 @@ import (
 // that ends on its own while the goal is active ended because the check
 // found it met, which is how met is known (goalTurnEnded). Codex says
 // "complete" itself.
-//
-// Nothing here runs while agent goals are off: the tool's /goal then works
-// exactly as before, its "Goal set" line an ordinary message.
-
-// goalsOn says whether agent goals are on. Caller may hold c.mu.
-func (m *Manager) goalsOn() bool { return m.GoalsOn != nil && m.GoalsOn() }
 
 // goalCommand says whether a prompt is the tool's /goal command.
 func goalCommand(text string) bool {
@@ -116,7 +110,7 @@ func goalStatusOf(status string) (string, string) {
 // hook, which only lets a turn end once its check finds the goal met.
 // Caller holds c.mu.
 func (c *conversation) goalTurnEnded(t *turn, completed bool) {
-	if !c.m.goalsOn() || c.agent.AI != "claude" {
+	if c.agent.AI != "claude" {
 		return
 	}
 	g := c.goalNow()
@@ -221,7 +215,7 @@ func goalText(g api.AgentGoal, event string) string {
 // its own echo of the command ("Goal set: …", "Goal cleared…"), which the
 // goal row stands for. Caller holds c.mu.
 func (c *conversation) goalEcho(text string) bool {
-	if c.turn == nil || !goalCommand(c.turn.text) || !c.m.goalsOn() {
+	if c.turn == nil || !goalCommand(c.turn.text) {
 		return false
 	}
 	text = strings.TrimSpace(text)

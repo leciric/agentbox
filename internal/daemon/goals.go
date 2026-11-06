@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -15,14 +16,16 @@ import (
 	"agentbox/internal/state"
 )
 
-// Agent goals (Settings → Experimental, off by default; api.AgentGoal).
+// Agent goals (api.AgentGoal).
 //
 // A goal the AI tool keeps itself (its own /goal) only shows: package chat
 // reads it from the adapter and goalFromTool keeps it, so the agent's row
 // and header carry it.
 //
-// A goal create_agent gives (source "agentbox") is the daemon's to drive.
-// The agent is told it with its task. Each time it ends a turn, the daemon
+// A goal create_agent gives, or one set later on the agent (setGoal: the
+// app, the lead's set_goal, `agentbox goal`), has source "agentbox" and is
+// the daemon's to drive. The agent is told it with its task, or in a message
+// of its own, which sends an agent that had finished back to work. Each time it ends a turn, the daemon
 // runs the goal's checks itself — an open pull request, green CI, a command
 // that must exit 0 in the agent's machine — and, while one fails, sends the
 // agent back with what is missing instead of reporting a finish, like the
@@ -32,9 +35,6 @@ import (
 // one time a goal counts as needing the user). Uniform for every tool: for
 // Claude Code AgentBox doesn't also set its /goal, whose check reads only the
 // transcript and can't see CI.
-//
-// While goals are off nothing here runs: create refuses a goal, a goal kept
-// from when they were on is neither shown nor driven, and turns end as ever.
 
 // goalBlockedLine is how an agent working towards a goal says it can't go on
 // without the user: a line of its last message starting "GOAL BLOCKED:".
@@ -43,34 +43,8 @@ var goalBlockedLine = regexp.MustCompile(`(?im)^[\s>*_` + "`" + `]*GOAL BLOCKED:
 // goalCheckTimeout bounds one check: a command, a GitHub read.
 const goalCheckTimeout = 5 * time.Minute
 
-// goalsEnabled says whether agent goals are on, from memory: package chat asks
-// under a conversation's lock.
-func (s *Server) goalsEnabled() bool { return s.goalsOn.Load() }
-
-// loadGoalsFlag reads Settings → Experimental's switch into memory.
-func (s *Server) loadGoalsFlag(ctx context.Context) {
-	on, err := s.store.Flag(ctx, state.SettingAgentGoals)
-	if err != nil {
-		s.logf("reading whether agent goals are on: %v", err)
-	}
-	s.goalsOn.Store(on)
-}
-
-// setGoalsFlag is the switch moving.
-func (s *Server) setGoalsFlag(ctx context.Context, on bool) error {
-	if err := s.store.SetFlag(ctx, state.SettingAgentGoals, on); err != nil {
-		return err
-	}
-	s.goalsOn.Store(on)
-	return nil
-}
-
-// goalOf is an agent's goal for the API: nil while goals are off or it has
-// none.
+// goalOf is an agent's goal for the API: nil when it has none.
 func (s *Server) goalOf(ctx context.Context, project, name string) *api.AgentGoal {
-	if !s.goalsEnabled() {
-		return nil
-	}
 	g, ok, err := s.store.AgentGoalOf(ctx, project, name)
 	if err != nil || !ok {
 		return nil
@@ -100,14 +74,11 @@ func (s *Server) goalFromTool(a state.Agent, g api.AgentGoal) {
 	}
 }
 
-// checkGoal refuses a goal create_agent could never drive, and fills in its
+// checkGoal refuses a goal the daemon could never drive, and fills in its
 // budget.
 func (s *Server) checkGoal(spec *api.GoalSpec) (*api.GoalSpec, error) {
 	if spec == nil {
 		return nil, nil
-	}
-	if !s.goalsEnabled() {
-		return nil, errors.New("agent goals are off: turn them on in Settings → Experimental, or create the agent without a goal")
 	}
 	out := *spec
 	out.Objective = strings.TrimSpace(out.Objective)
@@ -161,6 +132,107 @@ func (s *Server) startGoal(ctx context.Context, a state.Agent, spec *api.GoalSpe
 	return strings.TrimSpace(task + "\n\n" + goalBrief(g))
 }
 
+// setGoal gives a's goal from now on (setGoal) or clears it (spec nil): the
+// app's goal on an agent's page, the lead's set_goal, `agentbox goal`. The
+// goal starts again — active, sent back 0 times — and the agent is told it:
+// mid-work it hears it as an aside and is checked when that turn ends; one
+// that had finished, or was stopped, goes back to work towards it.
+func (s *Server) setGoal(ctx context.Context, a state.Agent, spec *api.GoalSpec) (api.GoalResult, error) {
+	if spec == nil {
+		return s.clearGoal(ctx, a)
+	}
+	spec, err := s.checkGoal(spec)
+	if err != nil {
+		return api.GoalResult{}, err
+	}
+	if a.Status == state.AgentDestroying || a.Status == state.AgentArchived {
+		return api.GoalResult{}, fmt.Errorf("%s is being retired: it can't take a goal", a.Ref())
+	}
+	event := "set"
+	if cur, ok, err := s.store.AgentGoalOf(ctx, a.Project, a.Name); err == nil && ok && cur.Status == api.GoalActive {
+		event = "changed"
+	}
+	g := api.AgentGoal{
+		Objective: spec.Objective, Source: api.GoalSourceAgentBox, Status: api.GoalActive,
+		Checks: spec.Checks, Budget: spec.Budget, UpdatedAt: time.Now(),
+	}
+	if err := s.store.SetAgentGoal(ctx, state.AgentGoal{Project: a.Project, Agent: a.Name, AgentGoal: g}); err != nil {
+		return api.GoalResult{}, err
+	}
+	if _, err := s.chat.ShowGoal(a, g, event); err != nil {
+		s.logf("%s: showing its goal: %v", a.Ref(), err)
+	}
+	brief := goalBrief(g)
+	if event == "changed" {
+		brief = strings.Replace(brief, "you have a goal:", "your goal has changed; it is now:", 1)
+	}
+	t, err := s.tellAgent(ctx, a, brief)
+	if err != nil {
+		// The goal is kept: it is checked when the agent next ends a turn.
+		return api.GoalResult{Goal: &g}, fmt.Errorf("kept %s's goal, but couldn't tell it: %w", a.Ref(), err)
+	}
+	s.logf("%s: goal %s: %s", a.Ref(), event, g.Objective)
+	return api.GoalResult{Goal: &g, Woke: t.woke, Working: t.item.Kind == "aside"}, nil
+}
+
+// clearGoal stops a's goal: nothing is checked after its turns any more. An
+// agent working towards one AgentBox gave hears so the next time it is
+// written to; the tool's own /goal it is the tool's to clear.
+func (s *Server) clearGoal(ctx context.Context, a state.Agent) (api.GoalResult, error) {
+	cur, ok, err := s.store.AgentGoalOf(ctx, a.Project, a.Name)
+	if err != nil {
+		return api.GoalResult{}, err
+	}
+	if !ok || cur.Status == api.GoalCleared {
+		return api.GoalResult{}, nil
+	}
+	g := cur.AgentGoal
+	wasActive := g.Status == api.GoalActive
+	g.Status, g.UpdatedAt = api.GoalCleared, time.Now()
+	s.saveGoal(ctx, a, g, api.GoalCleared)
+	if wasActive && g.Source == api.GoalSourceAgentBox {
+		if err := s.chat.Notice(a, "[AgentBox: your goal was cleared: "+g.Objective+". Nothing is checked after your turns any more; carry on with what you were asked.]",
+			chat.NoticeOptions{Hidden: true}); err != nil {
+			s.logf("%s: telling it its goal was cleared: %v", a.Ref(), err)
+		}
+	}
+	return api.GoalResult{Goal: &g}, nil
+}
+
+// putGoal is PUT /v1/agents/{project}/{agent}/goal, and the lead's.
+func (s *Server) putGoal(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := from(r)
+		if err != nil {
+			return err
+		}
+		var spec api.GoalSpec
+		if err := readJSON(r, &spec); err != nil {
+			return err
+		}
+		out, err := s.setGoal(r.Context(), a, &spec)
+		if err != nil {
+			return err
+		}
+		return writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// deleteGoal is DELETE /v1/agents/{project}/{agent}/goal, and the lead's.
+func (s *Server) deleteGoal(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := from(r)
+		if err != nil {
+			return err
+		}
+		out, err := s.setGoal(r.Context(), a, nil)
+		if err != nil {
+			return err
+		}
+		return writeJSON(w, http.StatusOK, out)
+	}
+}
+
 // goalBrief is what an agent is told of its goal with its task.
 func goalBrief(g api.AgentGoal) string {
 	var b strings.Builder
@@ -194,9 +266,6 @@ func describeCheck(c api.GoalCheck) string {
 // user told — so the caller reports no finish; false lets the ordinary
 // finish go on, the goal met or no goal to drive.
 func (s *Server) goalAfterTurn(ctx context.Context, a state.Agent, end chat.TurnEnd) bool {
-	if !s.goalsEnabled() {
-		return false
-	}
 	stored, ok, err := s.store.AgentGoalOf(ctx, a.Project, a.Name)
 	if err != nil || !ok || stored.Source != api.GoalSourceAgentBox || stored.Status != api.GoalActive {
 		return false

@@ -70,6 +70,8 @@ func TestLeadToolsDoWhatTheOldOnesDid(t *testing.T) {
 		{"compare_group", "compare_group", `{"group":"g"}`, "GET /v1/project/groups/g"},
 		{"recommend_agent", "compare_group", `{"group":"g","recommend":"agent-01","why":"w"}`, "POST /v1/project/groups/g/recommend"},
 		{"tell_agent", "tell_agent", `{"agent":"agent-01","message":"m"}`, "POST /v1/project/agents/agent-01/chat/messages"},
+		{"set_goal", "set_goal", `{"agent":"agent-01","goal":"g","goal_checks":["pr_open"]}`, "PUT /v1/project/agents/agent-01/goal"},
+		{"set_goal clear", "set_goal", `{"agent":"agent-01"}`, "DELETE /v1/project/agents/agent-01/goal"},
 		{"read_agent", "read_agent", `{"agent":"agent-01"}`, "GET /v1/project/agents/agent-01/chat"},
 		{"agent_diff", "read_agent", `{"agent":"agent-01","show":"diff"}`, "GET /v1/project/agents/agent-01/diff"},
 		{"agent_diff stat", "read_agent", `{"agent":"agent-01","show":"stat"}`, "GET /v1/project/agents/agent-01/diff"},
@@ -129,8 +131,8 @@ func TestLeadToolsDoWhatTheOldOnesDid(t *testing.T) {
 			t.Errorf("%s, now %s(%s), called %v, want %s", tc.old, tc.tool, tc.args, got, tc.route)
 		}
 	}
-	if len(tools) != 21 {
-		t.Errorf("the lead has %d tools, want 21", len(tools))
+	if len(tools) != 22 {
+		t.Errorf("the lead has %d tools, want 22", len(tools))
 	}
 }
 
@@ -157,8 +159,10 @@ func TestLeadToolsBudget(t *testing.T) {
 	raw, _ := json.Marshal(list)
 	// 1 KiB more since leads direct agents on other machines: a machine on
 	// create_agent, list_agents, questions and list_resources, and
-	// agent@machine in every agent's name.
-	const budget = 27 << 10
+	// agent@machine in every agent's name. 1.5 KiB more since agent goals
+	// left Experimental: create_agent's goal is always offered, and
+	// set_goal sets one on a running agent.
+	const budget = 28<<10 + 512
 	if len(raw) > budget {
 		t.Errorf("the lead's tools are %d bytes, over the %d budget", len(raw), budget)
 	}

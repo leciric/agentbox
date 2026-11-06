@@ -640,12 +640,6 @@ type Settings struct {
 	// review: the daemon merges a pull request the user resolved once its
 	// checks pass. Off unless turned on.
 	MergeWhenGreen bool `json:"mergeWhenGreen"`
-	// AgentGoals is the experimental agent goals (AgentGoal): the AI tool's
-	// own /goal shown as the agent's goal, and create_agent's goal, whose
-	// checks the daemon verifies after each turn, sending the agent back
-	// until they pass or its budget runs out. Off unless turned on; while off
-	// nothing about agents or their chats changes.
-	AgentGoals bool `json:"agentGoals"`
 	// AgentFreeze is the experimental memory governor: under memory
 	// pressure whole agents' machines are frozen, newest first, never the
 	// oldest working one, and thaw oldest first; a new machine starts once
@@ -869,8 +863,6 @@ type UpdateSettingsRequest struct {
 	PRWatch *bool `json:"prWatch,omitempty"`
 	// MergeWhenGreen turns "Resolved — merge when CI is green" on or off.
 	MergeWhenGreen *bool `json:"mergeWhenGreen,omitempty"`
-	// AgentGoals turns the experimental agent goals on or off.
-	AgentGoals *bool `json:"agentGoals,omitempty"`
 	// AgentFreeze turns the experimental memory governor on or off.
 	AgentFreeze *bool `json:"agentFreeze,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
@@ -1029,9 +1021,8 @@ type Agent struct {
 	// "stopped" when its machine was stopped after it finished. Absent
 	// otherwise.
 	Reclaimed string `json:"reclaimed,omitempty"`
-	// Goal is what it works towards, while agent goals are on
-	// (Settings.AgentGoals): absent for an agent with none, and whenever
-	// they are off.
+	// Goal is what it works towards (AgentGoal): absent for an agent with
+	// none.
 	Goal      *AgentGoal `json:"goal,omitempty"`
 	IP        string     `json:"ip"`
 	CreatedAt time.Time  `json:"createdAt"`
@@ -1171,8 +1162,7 @@ type CreateAgentRequest struct {
 	// "lead" means the same as "chat".
 	FinishNotice string `json:"finishNotice,omitempty"`
 	// Goal is what the agent works towards, with checks the daemon verifies
-	// after each of its turns (AgentGoal). Refused while agent goals are off
-	// (Settings.AgentGoals).
+	// after each of its turns (AgentGoal).
 	Goal *GoalSpec `json:"goal,omitempty"`
 	// Queue and Size are accepted for the callers that still send them,
 	// and do nothing: every agent starts at once, and the VM's memory

@@ -254,15 +254,14 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 			", Settings → Models' default, which is also the most you may use: pass any window from " +
 			state.FormatContextWindow(state.MinContextWindow) + " up to " + defaultWindow + ", and a longer one is refused.")
 	}
-	return params, auto, readyTools{openCode: openCode, cursor: cursorReady, gemini: geminiReady, goals: err == nil && settings.AgentGoals}
+	return params, auto, readyTools{openCode: openCode, cursor: cursorReady, gemini: geminiReady}
 }
 
 // readyTools says which AI tools besides Claude Code an agent could run right
-// now, so create_agent offers only those, and whether agent goals are on
-// (Settings → Experimental), so it offers a goal only then.
-type readyTools struct{ openCode, cursor, gemini, goals bool }
+// now, so create_agent offers only those.
+type readyTools struct{ openCode, cursor, gemini bool }
 
-// goalParams are create_agent's goal, offered while agent goals are on.
+// goalParams are create_agent's goal.
 func goalParams() map[string]any {
 	return map[string]any{
 		"goal": str("what done looks like, when AgentBox should hold it to that: after each turn it runs goal_checks and sends " +
@@ -271,6 +270,34 @@ func goalParams() map[string]any {
 			"description": "with goal: \"pr_open\", \"ci_green\" (its pull request's checks all passed), or a shell command that must exit 0 in its worktree"},
 		"goal_budget": map[string]any{"type": "integer", "description": "with goal: the most times it is sent back, 10 by default"},
 	}
+}
+
+// runSetGoal is set_goal's call and its answer, the lead's and the Home
+// chat's.
+func runSetGoal(call func() (api.GoalResult, error), agent, goal string, extras bool) (string, error) {
+	if strings.TrimSpace(goal) == "" && extras {
+		return "", errors.New("goal_checks and goal_budget go with goal: name what done looks like")
+	}
+	out, err := call()
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case strings.TrimSpace(goal) == "" && out.Goal == nil:
+		return agent + " had no goal to clear.", nil
+	case strings.TrimSpace(goal) == "":
+		return fmt.Sprintf("Cleared %s's goal %q.", agent, out.Goal.Objective), nil
+	case out.Goal == nil:
+		return "", fmt.Errorf("AgentBox kept no goal for %s", agent)
+	}
+	how := "it is working towards it"
+	switch {
+	case out.Working:
+		how = "it hears it mid-work, and is checked when that turn ends"
+	case out.Woke != "":
+		how = fmt.Sprintf("AgentBox %s its machine, and it is working towards it", out.Woke)
+	}
+	return fmt.Sprintf("Set %s's goal (sent back at most %d times); %s.", agent, out.Goal.Budget, how), nil
 }
 
 // goalSpec is create_agent's goal arguments as the API takes them; nil
@@ -448,10 +475,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	if leadPicksModel {
 		startsOn = "Choose its model (see model); effort and permissions default to what new agents start on here."
 	}
-	var goals map[string]any
-	if ready.goals {
-		goals = goalParams()
-	}
+	goals := goalParams()
 	agent := str("its name, like agent-03; agent-03@vps on the machine vps")
 	machine := str("another machine (list_resources machines)")
 	// Each account left out is yours when the agent runs the tool you run,
@@ -712,6 +736,38 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return fmt.Sprintf("%s was %s, so AgentBox %s its machine first. Told it; it is working on it.", in.Agent, map[string]string{"started": "stopped", "resumed": "paused"}[it.Woke], it.Woke), nil
 				}
 				return fmt.Sprintf("Told %s; it is working on it.", in.Agent), nil
+			},
+		},
+		{
+			Name: "set_goal",
+			Description: "Give an agent a goal, or change or clear it: as create_agent's goal, replacing the one it had. It is told, and " +
+				"goes back to work if it had finished.",
+			Schema: object([]string{"agent"}, map[string]any{
+				"agent":       agent,
+				"goal":        str("what done looks like; leave it out to clear its goal"),
+				"goal_checks": goals["goal_checks"],
+				"goal_budget": goals["goal_budget"],
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Agent, Goal string
+					GoalChecks  []string `json:"goal_checks"`
+					GoalBudget  int      `json:"goal_budget"`
+				}
+				if err := decodeArgs(args, &in); err != nil {
+					return "", err
+				}
+				on, name := agentOn(c, args, in.Agent)
+				out, err := runSetGoal(func() (api.GoalResult, error) {
+					if spec := goalSpec(in.Goal, in.GoalChecks, in.GoalBudget); spec != nil {
+						return on.SetGoal(ctx, name, *spec)
+					}
+					return on.ClearGoal(ctx, name)
+				}, in.Agent, in.Goal, len(in.GoalChecks) > 0 || in.GoalBudget != 0)
+				if err == nil && strings.TrimSpace(in.Goal) != "" {
+					out += " You hear when it is met or blocked."
+				}
+				return out, err
 			},
 		},
 		{

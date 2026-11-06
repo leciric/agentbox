@@ -21,6 +21,7 @@ import {
   Smartphone,
   Square,
   SquareTerminal,
+  Target,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -59,7 +60,7 @@ import { Tabs, TabsContent } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 import { PanelButton } from './v2/PanelButton';
 import { AgentMachineBar } from './v2/AgentMachineBar';
-import { GoalChip } from './GoalChip';
+import { GoalBar, GoalDialog } from './GoalEditor';
 
 // An agent's Settings tab: what it says about the agent's machine, code and AI
 // tool (OverviewTab), and the secrets and connectors only it gets.
@@ -112,6 +113,7 @@ export function AgentView({
   const chatMenu = useChatMenu(agent && usesChat(agent) ? agent : undefined);
   const [destroying, setDestroying] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
+  const [editingGoal, setEditingGoal] = useState(false);
   // A tab opened on purpose, by its tab, a link or the agent's menu; the one
   // an agent opens on by itself isn't counted.
   useEffect(() => countFeature(tab && agentTabFeatures[tab]), [tab, agentRef]);
@@ -182,6 +184,9 @@ export function AgentView({
         ))}
       <MenuItem icon={Pencil} onSelect={() => setEditingTitle(true)}>
         {t('agent.view.editTitle')}
+      </MenuItem>
+      <MenuItem icon={Target} onSelect={() => setEditingGoal(true)} data-goal-menu>
+        {t(agent.goal && agent.goal.status !== 'cleared' ? 'goal.dialog.editTitle' : 'goal.dialog.setTitle')}
       </MenuItem>
       <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
         {t('agent.view.openWorktree')}
@@ -255,7 +260,6 @@ export function AgentView({
                 {agent.branch}
               </Chip>
             )}
-            {agent.goal && <GoalChip goal={agent.goal} ai={agent.ai} className="max-w-72 px-2 py-0.5" />}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 self-center">
@@ -283,6 +287,7 @@ export function AgentView({
           <Notice>{errorMessage(error)}</Notice>
         </div>
       )}
+      <GoalBar agent={agent} onEdit={() => setEditingGoal(true)} />
       <AgentMachineBar agent={agent} />
 
       <Tabs value={active} onValueChange={(value) => onTab(value as AgentTab)} className="flex min-h-0 flex-1 flex-col">
@@ -327,6 +332,7 @@ export function AgentView({
       </Tabs>
 
       {chatMenu?.dialogs}
+      <GoalDialog agent={agent} open={editingGoal} onClose={() => setEditingGoal(false)} />
       <DestroyAgentDialog
         agent={agent}
         open={destroying}

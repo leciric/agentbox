@@ -110,6 +110,32 @@ Any failure before the last step unwinds through the undo functions registered a
 (dropping the worktree/branch, the database row, and so on), so a failed create doesn't leave a
 half-built agent behind.
 
+## Goals
+
+An agent can have a goal: what done looks like, with checks AgentBox runs itself each time the
+agent ends a turn. While a check fails, the agent is sent back with what is missing, at most its
+budget of times (10 by default, 50 at most); then the goal is **blocked** and the agent waits for
+you. An agent can also end its message with `GOAL BLOCKED: <what it needs>`. When every check
+passes, the goal is **met** and the agent finishes as usual. A goal with no checks is met when the
+agent ends its turn with it done.
+
+The checks are `pr_open` (its branch has an open pull request), `ci_green` (every check on that
+pull request passed) and any shell command, which must exit 0 in the agent's worktree.
+
+Set a goal:
+
+- when creating a task, under **Goal** in the New task form, or with `create_agent`'s `goal` and
+  `agentbox create --goal … --goal-check …`;
+- on an agent that already runs, from its page (the goal sits under its title), the lead's or the
+  Home chat's `set_goal`, or `agentbox goal <project/agent> "<what done looks like>" --check …`.
+  It replaces the goal the agent had, the agent is told, and one that had finished goes back to
+  work towards it. `agentbox goal <project/agent> --clear` clears it.
+
+`agentbox goal <project/agent>` shows an agent's goal, and `agentbox list` has a GOAL column
+(`active:1/2` is active with one of its two checks passed). An agent's AI tool may keep its own
+goal too (Claude Code's and Codex's `/goal`, typed in its chat): AgentBox shows it the same way, but
+the tool checks it.
+
 ## Jobs
 
 Anything this slow runs as a job (`internal/daemon/jobs.go`), so the caller isn't blocked and can

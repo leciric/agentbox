@@ -2,14 +2,14 @@ package api
 
 import "time"
 
-// Agent goals are experimental (Settings.AgentGoals, off by default). A goal
-// is what an agent works towards across turns, and comes from one of two
-// places:
+// A goal is what an agent works towards across turns, and comes from one of
+// two places:
 //
 //   - the AI tool's own /goal (GoalSourceTool), typed in the agent's chat:
 //     Claude Code and Codex keep working until their own check says it is
 //     met, and AgentBox only shows what their ACP adapter reports of it;
-//   - create_agent's goal (GoalSourceAgentBox), with checks the daemon runs
+//   - one AgentBox gives it (GoalSourceAgentBox) — create_agent's goal, or
+//     set later on a running agent (SetGoalRequest) — with checks the daemon runs
 //     itself after each of the agent's turns: when one fails, the agent is
 //     sent back with what is missing, until they all pass or the budget of
 //     continuations runs out.
@@ -58,6 +58,24 @@ type GoalSpec struct {
 	Checks []GoalCheck `json:"checks,omitempty"`
 	// Budget is the most continuations it gets: 0 is DefaultGoalBudget.
 	Budget int `json:"budget,omitempty"`
+}
+
+// SetGoal (PUT …/agents/{project}/{agent}/goal, and the lead's
+// /v1/project/agents/{agent}/goal) takes a GoalSpec: the agent's goal from
+// now on, replacing whatever it had, with its count of continuations back at
+// 0. The agent is told it, and one that had finished or was stopped goes back
+// to work towards it. DELETE clears it.
+
+// GoalResult is what setting or clearing an agent's goal did.
+type GoalResult struct {
+	// Goal is the agent's goal now: cleared after a DELETE.
+	Goal *AgentGoal `json:"goal,omitempty"`
+	// Woke is "started" or "resumed" when the agent's machine had to be
+	// started or resumed to tell it, as TellResult.Woke.
+	Woke string `json:"woke,omitempty"`
+	// Working says the agent was already in a turn: it hears of the goal
+	// mid-work, and is checked against it when that turn ends.
+	Working bool `json:"working,omitempty"`
 }
 
 // GoalCheck is one thing the daemon verifies of a goal.

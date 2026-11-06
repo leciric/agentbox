@@ -2,23 +2,22 @@ package daemon
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"agentbox/internal/api"
+	"agentbox/internal/chat"
 	"agentbox/internal/state"
 )
 
 func TestCheckGoal(t *testing.T) {
 	t.Parallel()
 	s := &Server{}
-	if _, err := s.checkGoal(&api.GoalSpec{Objective: "x"}); err == nil || !strings.Contains(err.Error(), "Experimental") {
-		t.Errorf("a goal while goals are off: %v", err)
-	}
 	if g, err := s.checkGoal(nil); g != nil || err != nil {
 		t.Errorf("no goal = %v, %v", g, err)
 	}
-	s.goalsOn.Store(true)
 	for _, bad := range []api.GoalSpec{
 		{Objective: "  "},
 		{Objective: "x", Budget: -1},
@@ -70,9 +69,6 @@ func TestAGoalSendsTheAgentBackUntilItsBudgetIsSpent(t *testing.T) {
 	}
 	lead := leadReadyToChat(t, d, "hello-stack")
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Open the PR")
-	if err := d.srv.setGoalsFlag(ctx, true); err != nil {
-		t.Fatal(err)
-	}
 	g := api.AgentGoal{Objective: "a PR is open", Source: api.GoalSourceAgentBox, Status: api.GoalActive, Budget: 2,
 		Checks: []api.GoalCheck{{Kind: api.GoalCheckPROpen}}}
 	if err := d.srv.store.SetAgentGoal(ctx, state.AgentGoal{Project: a.Project, Agent: a.Name, AgentGoal: g}); err != nil {
@@ -110,13 +106,6 @@ func TestAGoalSendsTheAgentBackUntilItsBudgetIsSpent(t *testing.T) {
 	if info, err := d.client.Agent(ctx, a.Ref()); err != nil || info.Goal == nil || info.Goal.Status != api.GoalBlocked {
 		t.Errorf("the API's agent has goal %+v (%v)", info.Goal, err)
 	}
-	// Off, the goal isn't the API's to show.
-	if err := d.srv.setGoalsFlag(ctx, false); err != nil {
-		t.Fatal(err)
-	}
-	if info, _ := d.client.Agent(ctx, a.Ref()); info.Goal != nil {
-		t.Errorf("goal shown while goals are off: %+v", info.Goal)
-	}
 }
 
 // An agent that says it is blocked is, at once; one whose goal has no checks
@@ -132,9 +121,6 @@ func TestAGoalBlockedByTheAgentOrMet(t *testing.T) {
 	}
 	leadReadyToChat(t, d, "hello-stack")
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Build the page")
-	if err := d.srv.setGoalsFlag(ctx, true); err != nil {
-		t.Fatal(err)
-	}
 	set := func() {
 		t.Helper()
 		g := api.AgentGoal{Objective: "the page works", Source: api.GoalSourceAgentBox, Status: api.GoalActive, Budget: 5}
@@ -169,4 +155,93 @@ func TestAGoalBlockedByTheAgentOrMet(t *testing.T) {
 		}
 		return false
 	})
+}
+
+// A goal set on an agent that has finished sends it back to work towards it,
+// and is checked when that turn ends; changing it starts it again, and
+// clearing it stops it being checked. The lead sets one through its own
+// socket.
+func TestSettingAGoalOnARunningAgent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tool := &sayTool{replies: []string{"Built the page.", "Opened nothing yet."}}
+	d := restartDaemon(t, t.TempDir(), "Running", tool.launch)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	leadReadyToChat(t, d, "hello-stack")
+	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Build the page")
+	if _, err := d.client.SetAgentGoal(ctx, a.Ref(), api.GoalSpec{Objective: " "}); err == nil {
+		t.Error("a goal with no objective was taken")
+	}
+	if got, err := d.client.ClearAgentGoal(ctx, a.Ref()); err != nil || got.Goal != nil {
+		t.Errorf("clearing no goal = %+v, %v", got, err)
+	}
+
+	// Set: the agent, idle, is told its goal and works towards it; with no
+	// checks, ending that turn meets it.
+	got, err := d.client.SetAgentGoal(ctx, a.Ref(), api.GoalSpec{Objective: "the page works"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Goal == nil || got.Goal.Status != api.GoalActive || got.Goal.Source != api.GoalSourceAgentBox || got.Goal.Budget != api.DefaultGoalBudget {
+		t.Fatalf("set = %+v", got.Goal)
+	}
+	waitFor(t, "the goal to be met", func() bool {
+		g := d.srv.goalOf(ctx, a.Project, a.Name)
+		return g != nil && g.Status == api.GoalMet
+	})
+	if n := tool.got("you have a goal: the page works"); n != 1 {
+		t.Errorf("told its goal %d times, want 1", n)
+	}
+
+	// The lead changes it: a check that fails sends it back once, then it
+	// is blocked.
+	lead, err := d.client.NewLeadSession(ctx, "hello-stack", "Goals")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("PUT", "/v1/project/agents/agent-01/goal",
+		strings.NewReader(`{"objective":"a PR is open","checks":[{"kind":"pr_open"}],"budget":1}`))
+	rec := httptest.NewRecorder()
+	d.srv.leadRoutes("hello-stack", lead.ID).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the lead's set_goal = %d %s", rec.Code, rec.Body)
+	}
+	waitFor(t, "the changed goal to be blocked", func() bool {
+		g := d.srv.goalOf(ctx, a.Project, a.Name)
+		return g != nil && g.Status == api.GoalBlocked && g.Objective == "a PR is open"
+	})
+	if g := d.srv.goalOf(ctx, a.Project, a.Name); g.Continuations != 1 || len(g.Checks) != 1 {
+		t.Errorf("changed goal = %+v", g)
+	}
+	if n := tool.got("you have a goal: a PR is open"); n != 1 {
+		t.Errorf("told the new goal %d times, want 1", n)
+	}
+
+	// Cleared: it stays, as cleared, and isn't checked any more.
+	cleared, err := d.client.ClearAgentGoal(ctx, a.Ref())
+	if err != nil || cleared.Goal == nil || cleared.Goal.Status != api.GoalCleared {
+		t.Fatalf("clear = %+v, %v", cleared, err)
+	}
+	if info, err := d.client.Agent(ctx, a.Ref()); err != nil || info.Goal == nil || info.Goal.Status != api.GoalCleared {
+		t.Errorf("the API's agent has goal %+v (%v)", info.Goal, err)
+	}
+	if done := d.srv.goalAfterTurn(ctx, a, chat.TurnEnd{LastMessage: "More."}); done {
+		t.Error("a cleared goal still drove the agent")
+	}
+	thread, err := d.client.Chat(ctx, a.Ref())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []string
+	for _, it := range thread.Items {
+		if it.Kind == "goal" {
+			rows = append(rows, it.Text)
+		}
+	}
+	if len(rows) < 4 || rows[0] != "Goal set: the page works" || rows[len(rows)-1] != "Goal cleared: a PR is open" {
+		t.Errorf("goal rows = %q", rows)
+	}
 }

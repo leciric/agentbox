@@ -1222,20 +1222,6 @@ function InstalledSettings({
           ],
         },
         {
-          id: "experimental-agents",
-          title: t("settings.group.experimental-agents.title"),
-          entries: [
-            {
-              id: "agent-goals",
-              description: t("settings.agentGoals.description"),
-              label: t("settings.entry.agent-goals.label"),
-              keywords: t("settings.entry.agent-goals.keywords"),
-              modified: changed((s) => s.agentGoals),
-              render: () => <AgentGoalsSetting />,
-            },
-          ],
-        },
-        {
           id: "experimental-memory",
           title: t("settings.group.experimental-memory.title"),
           entries: [
@@ -2612,39 +2598,6 @@ function AgentFreezeSetting() {
           aria-label={t("settings.entry.agent-freeze.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.agentFreeze ?? false}
-          onCheckedChange={(next) => save.mutate(next)}
-        />
-      }
-    />
-  );
-}
-
-// AgentGoalsSetting is the experimental agent goals (internal/daemon/goals.go,
-// internal/chat/goal.go): agents' goals shown, and create_agent's driven by
-// the daemon's own checks. Off until turned on; nothing changes while off.
-function AgentGoalsSetting() {
-  const t = useT();
-  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (agentGoals: boolean) => api.updateSettings({ agentGoals }),
-    onSuccess: (next) => {
-      queryClient.setQueryData(["settings"], next);
-      void queryClient.invalidateQueries({ queryKey: ["agents"] });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  return (
-    <SettingRow
-      label={t("settings.entry.agent-goals.label")}
-      description={t("settings.agentGoals.description")}
-      details={t("settings.agentGoals.details")}
-      control={
-        <Switch
-          data-agent-goals
-          aria-label={t("settings.entry.agent-goals.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.agentGoals ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

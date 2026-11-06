@@ -657,6 +657,10 @@ export const api = {
   restore: (ref: string, snapshot: string) => call<T.Job>('POST', `${agent(ref)}/restore`, { snapshot } satisfies T.RestoreRequest),
   fork: (ref: string, req: T.ForkRequest) => call<T.Job>('POST', `${agent(ref)}/fork`, req),
   checkpoints: (ref: string) => call<T.Checkpoint[]>('GET', `${agent(ref)}/checkpoints`),
+  // An agent's goal from now on, replacing the one it had; it is told, and
+  // goes back to work towards it (internal/daemon/goals.go).
+  setAgentGoal: (ref: string, spec: T.GoalSpec) => call<T.GoalResult>('PUT', `${agent(ref)}/goal`, spec),
+  clearAgentGoal: (ref: string) => call<T.GoalResult>('DELETE', `${agent(ref)}/goal`),
   rollback: (ref: string, checkpoint: string) => call<T.RollbackResult>('POST', `${agent(ref)}/rollback`, { checkpoint } satisfies T.RollbackRequest),
 
   browser: (ref: string) => call<T.BrowserStatus>('GET', `${agent(ref)}/browser`),

@@ -212,7 +212,6 @@ export interface Settings {
   errorReports: boolean;
   prWatch: boolean;
   mergeWhenGreen: boolean;
-  agentGoals: boolean;
   agentFreeze: boolean;
   mediaRetention: string;
   language: string;
@@ -298,7 +297,6 @@ export interface UpdateSettingsRequest {
   errorReports?: boolean;
   prWatch?: boolean;
   mergeWhenGreen?: boolean;
-  agentGoals?: boolean;
   agentFreeze?: boolean;
   mediaRetention?: string;
   language?: string;
@@ -2840,6 +2838,12 @@ export interface GoalCheck {
   command?: string;
   met?: boolean;
   detail?: string;
+}
+
+export interface GoalResult {
+  goal?: AgentGoal;
+  woke?: string;
+  working?: boolean;
 }
 
 export interface ChatProjectMessage {

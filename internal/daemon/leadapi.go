@@ -176,6 +176,8 @@ func (s *Server) leadRoutes(project, session string) http.Handler {
 	mux.HandleFunc("POST /v1/project/agents/{agent}/run", withProject(s.leadRunInAgent))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/checkpoints", withProject(s.listCheckpoints))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/rollback", withProject(s.rollback))
+	mux.HandleFunc("PUT /v1/project/agents/{agent}/goal", withProject(s.putGoal(s.leadAgentAsking)))
+	mux.HandleFunc("DELETE /v1/project/agents/{agent}/goal", withProject(s.deleteGoal(s.leadAgentAsking)))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/fork", withProject(s.fork))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/account", withProject(s.leadSwitchAccount))
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
@@ -245,6 +247,16 @@ func (s *Server) leadAgent(r *http.Request) (state.Agent, error) {
 		return state.Agent{}, errNotAnAgent
 	}
 	return a, nil
+}
+
+// leadAgentAsking is leadAgent for a lead that will hear back from the agent:
+// it waits on it, as after tell_agent.
+func (s *Server) leadAgentAsking(r *http.Request) (state.Agent, error) {
+	a, err := s.leadAgent(r)
+	if err == nil {
+		s.leadAsked(a)
+	}
+	return a, err
 }
 
 // leadProject describes the project to its chat, which starts its tools from

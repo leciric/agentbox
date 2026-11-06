@@ -24,6 +24,16 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		return json.Unmarshal(args, into)
 	}
 	project := str("the project's name, exactly as list_projects gives it")
+	goals := goalParams()
+	createParams := map[string]any{
+		"project": project,
+		"title":   str("a short name the user will recognise in the sidebar, like \"Reminders page\""),
+		"task":    str("what to do, directly: usually a few lines"),
+		"branch":  str("its branch, after the project's prefix: short lowercase kebab-case naming the work, like \"fix-login-redirect\""),
+	}
+	for k, v := range goals {
+		createParams[k] = v
+	}
 	return []mcp.Tool{
 		{
 			Name:        "list_projects",
@@ -97,15 +107,12 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"start on there. Write the " +
 				"task directly: what to do, what done looks like, what to leave alone. When the work needs the " +
 				"project's judgement — splitting it up, following it through — use tell_lead instead.",
-			Schema: object([]string{"project", "title", "task"}, map[string]any{
-				"project": project,
-				"title":   str("a short name the user will recognise in the sidebar, like \"Reminders page\""),
-				"task":    str("what to do, directly: usually a few lines"),
-				"branch":  str("its branch, after the project's prefix: short lowercase kebab-case naming the work, like \"fix-login-redirect\""),
-			}),
+			Schema: object([]string{"project", "title", "task"}, createParams),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
-					Project, Title, Task, Branch string
+					Project, Title, Task, Branch, Goal string
+					GoalChecks                         []string `json:"goal_checks"`
+					GoalBudget                         int      `json:"goal_budget"`
 				}
 				if err := decode(args, &in); err != nil {
 					return "", err
@@ -116,16 +123,49 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Task) == "" {
 					return "", errors.New("an agent needs a title and a task")
 				}
+				goal := goalSpec(in.Goal, in.GoalChecks, in.GoalBudget)
+				if goal == nil && (len(in.GoalChecks) > 0 || in.GoalBudget != 0) {
+					return "", errors.New("goal_checks and goal_budget go with goal: name what done looks like")
+				}
 				autonomous := true
 				job, err := c.CreateAgent(ctx, api.CreateAgentRequest{
 					Project: in.Project, Title: in.Title, Task: in.Task, Branch: in.Branch,
-					Autonomous: &autonomous,
+					Autonomous: &autonomous, Goal: goal,
 				})
 				if err != nil {
 					return "", err
 				}
 				return fmt.Sprintf("Creating %q in %s%s; it starts on the task by itself. Job %s.%s",
 					in.Title, in.Project, describeChoices(job.AI, nil, nil, true, "", ""), job.ID, toolNotice(job.Notice)), nil
+			},
+		},
+		{
+			Name: "set_goal",
+			Description: "Give one of a project's agents a goal, or change or clear it, replacing the one it had: after each turn " +
+				"AgentBox runs goal_checks and sends it back until they pass. It is told, and goes back to work if it had finished.",
+			Schema: object([]string{"project", "agent"}, map[string]any{
+				"project":     project,
+				"agent":       str("its name, like agent-03"),
+				"goal":        str("what done looks like; leave it out to clear its goal"),
+				"goal_checks": goals["goal_checks"],
+				"goal_budget": goals["goal_budget"],
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Project, Agent, Goal string
+					GoalChecks           []string `json:"goal_checks"`
+					GoalBudget           int      `json:"goal_budget"`
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				ref := in.Project + "/" + in.Agent
+				return runSetGoal(func() (api.GoalResult, error) {
+					if spec := goalSpec(in.Goal, in.GoalChecks, in.GoalBudget); spec != nil {
+						return c.SetAgentGoal(ctx, ref, *spec)
+					}
+					return c.ClearAgentGoal(ctx, ref)
+				}, in.Agent, in.Goal, len(in.GoalChecks) > 0 || in.GoalBudget != 0)
 			},
 		},
 		{

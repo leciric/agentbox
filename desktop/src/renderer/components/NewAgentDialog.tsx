@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, LoaderCircle, MessageSquare, Split, SquareTerminal } from 'lucide-react';
+import { ChevronRight, LoaderCircle, MessageSquare, Split, SquareTerminal, Target } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
@@ -11,6 +11,8 @@ import { projectAgentDefaults, startingPick } from '../lib/agentPick';
 import { choiceName } from '../lib/modelChoices';
 import { useT, type MessageKey } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
+import { emptyGoalDraft, specFromDraft, type GoalDraft } from '../lib/goalDraft';
+import { GoalFields } from './GoalEditor';
 import { JobProgress } from './JobProgress';
 import { AIIcon, aiLabel } from './state';
 import { Button } from './ui/button';
@@ -98,6 +100,9 @@ export function NewAgentDialog({
   const queryClient = useQueryClient();
   const [form, setForm] = useState<Form>(emptyForm);
   const [advanced, setAdvanced] = useState(false);
+  // The goal it works towards, when it is given one (GoalEditor.tsx).
+  const [withGoal, setWithGoal] = useState(false);
+  const [goal, setGoal] = useState<GoalDraft>(emptyGoalDraft);
   const [job, setJob] = useState<T.Job | null>(null);
   const [finished, setFinished] = useState<T.Job | null>(null);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: open });
@@ -171,6 +176,8 @@ export function NewAgentDialog({
         claudeAccount: form.ai === 'claude' ? form.claudeAccount || undefined : undefined,
         githubAccount: form.githubAccount || undefined,
         finishNotice: form.notify || undefined,
+        // With a goal and no task of its own, its first message is the goal.
+        goal: withGoal && form.ai !== 'none' ? specFromDraft(goal) : undefined,
       }),
     onSuccess: (started) => {
       setJob(started);
@@ -189,6 +196,8 @@ export function NewAgentDialog({
     startedFor.current = '';
     setForm({ ...emptyForm, project: project ?? '' });
     setAdvanced(false);
+    setWithGoal(false);
+    setGoal(emptyGoalDraft);
     setJob(null);
     setFinished(null);
     create.reset();
@@ -376,6 +385,27 @@ export function NewAgentDialog({
                   ))}
                 </div>
               </div>
+            )}
+
+            {form.ai !== 'none' && (
+              <>
+                <button
+                  type="button"
+                  className="-mt-1 flex items-center gap-1.5 justify-self-start text-ui text-muted hover:text-primary"
+                  aria-expanded={withGoal}
+                  onClick={() => setWithGoal((v) => !v)}
+                  data-new-agent-goal
+                >
+                  <ChevronRight className={cn('size-3.5 transition-transform', withGoal && 'rotate-90')} />
+                  <Target className="size-3.5" />
+                  {t('goal.new.toggle')}
+                </button>
+                {withGoal && (
+                  <div className="-mt-2 animate-slide-up rounded-xl border border-line bg-surface-faint p-4">
+                    <GoalFields id="new-agent-goal" draft={goal} onChange={setGoal} autoFocus />
+                  </div>
+                )}
+              </>
             )}
 
             <button

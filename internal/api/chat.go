@@ -189,7 +189,7 @@ type ChatItem struct {
 	// Compaction is set on a compaction's card (D73): the conversation being
 	// saved to the project's memory and carried on in a fresh session.
 	Compaction *ChatCompaction `json:"compaction,omitempty"`
-	// Goal is set on a goal row (kind goal, while agent goals are on): the
+	// Goal is set on a goal row (kind goal): the
 	// agent's goal as it stood when it was set, checked, met, blocked or
 	// cleared. Text says what happened, in AgentBox's words.
 	Goal *AgentGoal `json:"goal,omitempty"`
