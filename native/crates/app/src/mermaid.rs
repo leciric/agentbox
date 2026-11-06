@@ -12,6 +12,8 @@ use crate::theme;
 
 const NODE: &str = "mermaid";
 const HTML: &str = "html-preview";
+/// Every other fenced block, drawn as Electron's CodeBlock.
+const CODE: &str = "codeblock";
 
 type Rendered = Result<Arc<Image>, String>;
 
@@ -55,6 +57,69 @@ fn rendered(src: &str) -> Rendered {
     r
 }
 
+/// code_block is a fenced block as Electron's CodeBlock (components/chat/
+/// CodeBlock.tsx, .chat-codeblock): a well with a border, rounded 0.75rem; a
+/// header h-8 with the language at its left over a faint rule; the code at
+/// 0.78rem, line height 1.6, in 0.7rem 0.9rem of padding, in Shiki's colours.
+pub fn code_block(lang: &str, text: &str) -> AnyElement {
+    let lines: Vec<String> = text
+        .trim_end_matches('\n')
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let runs =
+        crate::highlight::lang_of_fence(lang).map(|l| crate::highlight::line_runs(l, &lines));
+    div()
+        .w_full()
+        .min_w_0()
+        .my(rems(0.65))
+        .rounded(px(12.))
+        .overflow_hidden()
+        .border_1()
+        .border_color(theme::line())
+        .bg(theme::well())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .h_8()
+                .pl_3()
+                .pr_1()
+                .border_b_1()
+                .border_color(theme::line_faint())
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::subtle())
+                .child(div().min_w_0().truncate().font_family(theme::mono()).child(
+                    if lang.is_empty() {
+                        "text".to_string()
+                    } else {
+                        lang.to_string()
+                    },
+                )),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .px(rems(0.9))
+                .py(rems(0.7))
+                .overflow_x_hidden()
+                .font_family(theme::mono())
+                .text_size(rems(0.78))
+                .line_height(relative(1.6))
+                .text_color(crate::highlight::code_fg())
+                .children(lines.into_iter().enumerate().map(|(i, l)| {
+                    let l = if l.is_empty() { " ".to_string() } else { l };
+                    div().whitespace_nowrap().child(crate::highlight::styled(
+                        l,
+                        runs.as_ref().and_then(|r| r.get(i)),
+                    ))
+                })),
+        )
+        .into_any_element()
+}
+
 /// with_mermaid makes a TextView draw ```mermaid fences as diagrams, and
 /// ```html preview fences as pages in a webview (webview.rs).
 pub fn with_mermaid(view: TextView) -> TextView {
@@ -69,7 +134,16 @@ pub fn with_mermaid(view: TextView) -> TextView {
                 .text(code.value.clone())
                 .markdown(code.value.clone()),
         ),
+        markdown::mdast::Node::Code(code) => Some(
+            MarkdownNode::new(CODE, code.lang.clone().unwrap_or_default())
+                .text(code.value.clone())
+                .markdown(code.value.clone()),
+        ),
         _ => None,
+    })
+    .markdown_block_renderer(CODE, |node, _, _| {
+        let lang = node.data::<String>().cloned().unwrap_or_default();
+        code_block(&lang, node.as_text())
     })
     .markdown_block_renderer(NODE, |node, _, _| {
         let src = node.as_text().to_string();

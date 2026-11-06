@@ -113,6 +113,8 @@ fn panel_box(want: f32, room: f32, window: f32) -> PanelBox {
 impl AppView {
     fn which(&self) -> Which {
         match self.panel_whose() {
+            // The project's settings over the lead's panel: the lead's width.
+            Whose::Lead if self.panel_settings.is_some() => Which::Lead,
             Whose::Lead if self.pulls.tab == RailTab::Agents => Which::List,
             Whose::List => Which::List,
             Whose::Lead => Which::Lead,

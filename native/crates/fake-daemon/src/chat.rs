@@ -14,7 +14,7 @@ fn at(t: SystemTime) -> String {
 }
 
 fn base(n: usize) -> SystemTime {
-    SystemTime::now() - Duration::from_secs(60 * (n as u64 + 30))
+    crate::clock() - Duration::from_secs(60 * (n as u64 + 30))
 }
 
 fn item(id: String, kind: &str, turn: &str, t: SystemTime) -> ChatItem {

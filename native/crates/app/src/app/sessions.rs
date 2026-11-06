@@ -31,6 +31,8 @@ use crate::{prefs, theme};
 const CHOSEN: &str = "sessions.current";
 
 pub struct Sessions {
+    /// Home's tab: 0 its chat, 1 Status (every project's agents), 2 Memory.
+    pub home_tab: u8,
     pub lists: HashMap<String, Vec<LeadSession>>,
     closed: HashMap<String, Vec<LeadSession>>,
     chosen: HashMap<String, String>,
@@ -238,6 +240,7 @@ impl Sessions {
             },
         );
         Self {
+            home_tab: 0,
             lists: HashMap::new(),
             closed: HashMap::new(),
             chosen,
@@ -993,24 +996,28 @@ impl AppView {
                 .on_drop(cx.listener(move |this, d: &DragSession, _, cx| {
                     this.reorder_session(&d.project, &d.id, &target, cx)
                 }))
+                // SessionTabs' tab: h-8 max-w-56 rounded-t-lg border pl-2.5
+                // pr-7 text-ui, its close button in the padding.
+                .relative()
+                .group(SharedString::from(format!("session-tab-{}", s.id)))
                 .h_8()
                 .max_w(px(224.))
                 .flex_none()
-                .gap_1p5()
-                .pl_2p5()
-                .pr_1()
+                .gap(px(6.))
+                .pl(px(10.))
+                .pr_7()
                 .rounded_t_lg()
                 .border_1()
                 .border_color(theme::line())
                 .cursor_pointer()
-                .text_sm()
+                .text_size(theme::text::UI)
                 .when(on, |el| {
                     el.border_b_0()
                         .bg(theme::ink())
                         .text_color(theme::primary())
                 })
                 .when(!on, |el| {
-                    el.border_color(theme::line().opacity(0.5))
+                    el.border_color(theme::line_faint())
                         .text_color(theme::muted())
                         .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                 })
@@ -1019,9 +1026,8 @@ impl AppView {
                     el.child(
                         div()
                             .flex_none()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .child(crate::icons::of("📌")),
+                            .text_color(theme::subtle())
+                            .child(crate::icons::ic("pin").size(px(12.))),
                     )
                 })
                 .child(div().min_w_0().truncate().child(topic(s)))
@@ -1029,7 +1035,7 @@ impl AppView {
                     el.child(
                         div()
                             .flex_none()
-                            .text_xs()
+                            .text_size(theme::text::CAPTION)
                             .text_color(theme::faint())
                             .child(s.agents.to_string()),
                     )
@@ -1037,16 +1043,21 @@ impl AppView {
                 .child(
                     div()
                         .id(SharedString::from(format!("session-close-{}", s.id)))
-                        .flex_none()
+                        .absolute()
+                        .right(px(6.))
+                        .top(px(6.))
                         .size_5()
                         .flex()
                         .items_center()
                         .justify_center()
                         .rounded_md()
-                        .text_xs()
                         .text_color(theme::faint())
+                        .when(!on, |el| {
+                            el.opacity(0.)
+                                .group_hover(format!("session-tab-{}", s.id), |el| el.opacity(1.))
+                        })
                         .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
-                        .child(crate::icons::of("✕"))
+                        .child(crate::icons::ic("x").size(px(12.)))
                         .tooltip(move |w, cx| {
                             gpui_component::tooltip::Tooltip::new(t("sessions.close")).build(w, cx)
                         })
@@ -1114,8 +1125,6 @@ impl AppView {
                 .gap_1()
                 .px_5()
                 .pt_1()
-                .border_b_1()
-                .border_color(theme::line())
                 .overflow_x_scroll()
                 .children(tabs)
                 .child(
@@ -1127,13 +1136,14 @@ impl AppView {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .rounded_md()
+                        .rounded_lg()
                         .cursor_pointer()
-                        .text_sm()
+                        .text_size(theme::text::UI)
+                        .font_weight(FontWeight::MEDIUM)
                         .text_color(theme::muted())
-                        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
+                        .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                         .when(self.sessions.adding, |el| el.opacity(0.5))
-                        .child("+")
+                        .child(crate::icons::ic("plus").size(px(14.)))
                         .when(awake.is_empty(), |el| el.child(t("sessions.new")))
                         .tooltip(|w, cx| {
                             gpui_component::tooltip::Tooltip::new(format!(
@@ -1203,13 +1213,14 @@ impl AppView {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .rounded_md()
+                        .rounded_lg()
                         .cursor_pointer()
-                        .text_sm()
+                        .text_size(theme::text::UI)
+                        .font_weight(FontWeight::MEDIUM)
                         .text_color(theme::muted())
-                        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
+                        .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                         .when(self.sessions.history, |el| el.bg(theme::surface_strong()))
-                        .child(crate::icons::of("🕘"))
+                        .child(crate::icons::ic("rotate-ccw-clock").size(px(14.)))
                         .when(closed > 0, |el| {
                             el.child(
                                 div()
@@ -1288,13 +1299,21 @@ impl AppView {
                 }))
         });
         Some(
+            // SessionHeader: border-b border-line-faint px-4 py-1.5, a Bot first.
             h_flex()
                 .flex_none()
+                .min_w_0()
                 .gap_2()
                 .px_4()
-                .py_1p5()
+                .py(px(6.))
                 .border_b_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
+                .child(
+                    div()
+                        .flex_none()
+                        .text_color(theme::faint())
+                        .child(crate::icons::ic("bot").size(px(14.))),
+                )
                 .children(parent)
                 .child(
                     h_flex()
@@ -1303,13 +1322,17 @@ impl AppView {
                         .gap_1p5()
                         .overflow_hidden()
                         .when(agents.is_empty(), |el| {
-                            el.child(div().truncate().text_xs().text_color(theme::faint()).child(
-                                if output.is_some() {
-                                    t("sessions.header.none")
-                                } else {
-                                    t("common.loading")
-                                },
-                            ))
+                            el.child(
+                                div()
+                                    .truncate()
+                                    .text_size(theme::text::CAPTION)
+                                    .text_color(theme::faint())
+                                    .child(if output.is_some() {
+                                        t("sessions.header.none")
+                                    } else {
+                                        t("common.loading")
+                                    }),
+                            )
                         })
                         .children(agents.iter().map(|a| {
                             let name = if a.title.is_empty() {
@@ -1380,8 +1403,15 @@ impl AppView {
                 .child(
                     Button::new("session-snooze")
                         .ghost()
-                        .xsmall()
-                        .label(format!("⏰ {}", t("sessions.snooze.label")))
+                        .compact()
+                        .h_6()
+                        .px(px(6.))
+                        .gap_1()
+                        .rounded(gpui_component::button::ButtonRounded::Size(px(8.)))
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::muted())
+                        .icon(crate::icons::ic("alarm-clock").size(px(14.)))
+                        .label(t("sessions.snooze.label"))
                         .tooltip(t("sessions.snooze.hint"))
                         .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                             let mut menu = menu.label(t("sessions.snooze.until"));

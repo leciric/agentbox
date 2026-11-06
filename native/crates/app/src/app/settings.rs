@@ -17,6 +17,7 @@ pub(super) mod first_run;
 pub(super) mod kit;
 mod memory;
 mod notify;
+pub(super) mod panel;
 mod phone;
 mod project;
 mod sent;
@@ -34,10 +35,10 @@ use agentbox_i18n::{LANGUAGES, t, tv};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use super::AppView;
-use super::controls::{Btn, Row, button, segmented, toggle};
+use super::controls::{Btn, Row, button, choices, segmented, toggle};
 use crate::{prefs, theme};
 use kit::note;
 
@@ -114,6 +115,12 @@ pub struct SettingsPage {
     skill_draft: Entity<gpui_component::input::TextareaState>,
     /// scroll is the open section's, put back at its top as another opens.
     scroll: ScrollHandle,
+    /// The section list's, for its scrollbar.
+    nav_scroll: ScrollHandle,
+    /// The right-hand panel's project settings: their scroller, and whether
+    /// General's Advanced is open (panel.rs).
+    panel_scroll: ScrollHandle,
+    panel_advanced: bool,
     watching_claude_code: bool,
     _sub: Subscription,
     _field_subs: Vec<Subscription>,
@@ -206,6 +213,9 @@ impl SettingsPage {
             project: Default::default(),
             skill_draft: cx.new(|cx| gpui_component::input::TextareaState::new(window, cx)),
             scroll: ScrollHandle::new(),
+            nav_scroll: ScrollHandle::new(),
+            panel_scroll: ScrollHandle::new(),
+            panel_advanced: false,
             watching_claude_code: false,
             _sub: sub,
             _field_subs: field_subs,
@@ -223,6 +233,7 @@ pub(super) struct PaletteSetting {
 }
 
 /// Entry is one setting, as the search sees it (lib/settingsSearch.ts).
+#[derive(Clone)]
 struct Entry {
     id: &'static str,
     label: String,
@@ -711,19 +722,25 @@ impl AppView {
                         )
                         .modified(prefs::group_idle()),
                         entry(
+                            "office",
+                            "settings.entry.office.label",
+                            "settings.office.description",
+                            "settings.entry.office.keywords",
+                        )
+                        .modified(crate::office::enabled()),
+                        entry(
+                            "environment",
+                            "settings.entry.environment.label",
+                            "settings.environment.description",
+                            "settings.entry.environment.keywords",
+                        ),
+                        entry(
                             "tray",
                             "settings.entry.tray.label",
                             "settings.tray.description",
                             "settings.entry.tray.keywords",
                         )
                         .modified(prefs::tray_keep_running()),
-                        entry(
-                            "office",
-                            "native.settings.entry.office.label",
-                            "native.settings.office.description",
-                            "native.settings.entry.office.keywords",
-                        )
-                        .modified(crate::office::enabled()),
                     ],
                 ),
                 group(
@@ -813,7 +830,8 @@ impl AppView {
                         "settings.idleReclaim.description",
                         "settings.entry.idle-reclaim.keywords",
                     )
-                    .modified(changed(|s| s.idle_reclaim)),
+                    // On by default (SettingsView.tsx: !s.idleReclaim).
+                    .modified(changed(|s| !s.idle_reclaim)),
                     entry(
                         "agent-freeze",
                         "settings.entry.agent-freeze.label",
@@ -954,50 +972,60 @@ impl AppView {
             .child(
                 self.render_settings_nav(&sections, &ess, &found, searching, changed, &query, cx),
             )
-            .child(
+            .child({
+                // Chromium's thin scrollbar takes 10px off the right of
+                // Electron's main, so max-w-3xl centres in what's left.
+                let gutter = page.scroll.max_offset().y > px(0.5);
                 div()
-                    .id("settings-main")
+                    .relative()
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .overflow_y_scroll()
-                    .track_scroll(&page.scroll)
                     .child(
-                        v_flex()
-                            .w_full()
-                            .max_w(px(768.))
-                            .mx_auto()
-                            .px_8()
-                            .py_8()
-                            .gap_4()
-                            .when_some(self.error.clone(), |el, e| {
-                                el.child(
-                                    h_flex()
-                                        .mb_1()
-                                        .items_start()
-                                        .gap_2p5()
-                                        .px(px(14.))
-                                        .py_2p5()
-                                        .rounded_xl()
-                                        .border_1()
-                                        .border_color(theme::rose(400).opacity(0.25))
-                                        .bg(theme::rose(400).opacity(0.08))
-                                        .text_size(theme::text::UI)
-                                        .text_color(theme::rose(100))
-                                        .child(
-                                            div()
-                                                .flex_none()
-                                                .mt(px(1.))
-                                                .text_size(px(16.))
-                                                .text_color(theme::rose(300))
-                                                .child(crate::icons::of("circle-alert")),
+                        div()
+                            .id("settings-main")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&page.scroll)
+                            .when(gutter, |el| el.pr(super::controls::SCROLLBAR))
+                            .child(
+                                v_flex()
+                                    .w_full()
+                                    .max_w(px(768.))
+                                    .mx_auto()
+                                    .px_8()
+                                    .py_8()
+                                    .gap_4()
+                                    .when_some(self.error.clone(), |el, e| {
+                                        el.child(
+                                            h_flex()
+                                                .mb_1()
+                                                .items_start()
+                                                .gap_2p5()
+                                                .px(px(14.))
+                                                .py_2p5()
+                                                .rounded_xl()
+                                                .border_1()
+                                                .border_color(theme::rose(400).opacity(0.25))
+                                                .bg(theme::rose(400).opacity(0.08))
+                                                .text_size(theme::text::UI)
+                                                .text_color(theme::rose(100))
+                                                .child(
+                                                    div()
+                                                        .flex_none()
+                                                        .mt(px(1.))
+                                                        .text_size(px(16.))
+                                                        .text_color(theme::rose(300))
+                                                        .child(crate::icons::of("circle-alert")),
+                                                )
+                                                .child(div().min_w_0().flex_1().child(e)),
                                         )
-                                        .child(div().min_w_0().flex_1().child(e)),
-                                )
-                            })
-                            .child(main),
-                    ),
-            )
+                                    })
+                                    .child(main),
+                            ),
+                    )
+                    .child(super::controls::scrollbar(&page.scroll, gutter))
+            })
             .into_any_element()
     }
 
@@ -1041,7 +1069,7 @@ impl AppView {
             "setup" => look(&["incus", "host", "image", "storage", "android", "preview"]),
             _ => 0,
         };
-        let nav_item = |s: &Section, cx: &mut Context<Self>| {
+        let nav_item = |s: &Section, tall: bool, cx: &mut Context<Self>| {
             let active = !searching && s.id == page.open;
             let n = if searching { hits(&s.id) } else { 0 };
             let look = if searching { 0 } else { attention(&s.id) };
@@ -1058,6 +1086,9 @@ impl AppView {
                 .py(px(7.))
                 .rounded_lg()
                 .text_size(theme::text::UI)
+                // Chromium's 33.5px rows (7 + 19.5 + 7) land 33 and 34
+                // high by turns.
+                .line_height(px(if tall { 20. } else { 19. }))
                 .cursor_pointer()
                 .when(active, |el| {
                     el.bg(theme::surface_raised()).text_color(theme::title())
@@ -1116,19 +1147,21 @@ impl AppView {
                 .into_any_element()
         };
         let heading = |text: String| {
+            // NavLabel: mt-4 px-2.5 pb-1 text-caption font-semibold
+            // uppercase subtle (gpui has no letter spacing for its tracking).
             div()
                 .px_2p5()
-                .pt_4()
+                .mt_4()
                 .pb_1()
                 .text_size(theme::text::CAPTION)
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme::muted())
-                .child(text)
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::subtle())
+                .child(text.to_uppercase())
                 .into_any_element()
         };
 
         let show_advanced = page.advanced || searching;
-        let mut items = vec![nav_item(ess, cx)];
+        let mut items = vec![nav_item(ess, false, cx)];
         items.push(
             h_flex()
                 .id("settings-advanced-nav")
@@ -1136,6 +1169,7 @@ impl AppView {
                 .gap_1p5()
                 .px_2p5()
                 .py(px(7.))
+                .line_height(px(20.))
                 .rounded_lg()
                 .text_size(theme::text::UI)
                 .text_color(theme::muted())
@@ -1157,6 +1191,8 @@ impl AppView {
                 .child(t("settings.page.advanced"))
                 .into_any_element(),
         );
+        // Essentials and Advanced are the first two rows.
+        let mut rows = 2;
         if show_advanced {
             let mut last: Option<&String> = None;
             for s in sections.iter().filter(|s| !s.project) {
@@ -1166,25 +1202,30 @@ impl AppView {
                     items.push(heading(nav.clone()));
                 }
                 last = s.nav.as_ref();
-                items.push(nav_item(s, cx));
+                items.push(nav_item(s, rows % 2 == 1, cx));
+                rows += 1;
             }
             if sections.iter().any(|s| s.project) {
                 items.push(heading(t("settings.page.projects")));
                 for s in sections.iter().filter(|s| s.project) {
-                    items.push(nav_item(s, cx));
+                    items.push(nav_item(s, rows % 2 == 1, cx));
+                    rows += 1;
                 }
             }
         }
         let changed_on = query.to_lowercase().contains("@changed");
-        v_flex()
+        let gutter = page.nav_scroll.max_offset().y > px(0.5);
+        let nav = v_flex()
             .id("settings-nav")
-            .w(px(240.))
-            .flex_none()
-            .h_full()
+            .size_full()
             .overflow_y_scroll()
-            .border_r_1()
-            .border_color(theme::line())
-            .px_3()
+            .track_scroll(&page.nav_scroll)
+            .pl_3()
+            .pr(if gutter {
+                px(12.) + super::controls::SCROLLBAR
+            } else {
+                px(12.)
+            })
             .pt(px(28.))
             .pb_6()
             .gap_3()
@@ -1207,11 +1248,13 @@ impl AppView {
                             .child(crate::icons::of("arrow-left")),
                     )
                     .child(t("common.back"))
-                    .child(theme::kbd("Esc")),
+                    .child(theme::key_cap("Esc")),
             )
             .child(
+                // h1 text-xl: 20px on Tailwind's 28px line.
                 div()
                     .px_2()
+                    .line_height(px(28.))
                     .text_size(theme::text::DISPLAY)
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::title())
@@ -1220,7 +1263,38 @@ impl AppView {
             .child(
                 v_flex()
                     .gap_1p5()
-                    .child(Input::new(&page.search).cleanable(true))
+                    // The search box: h-8 rounded-lg border-line-strong
+                    // bg-sunken pl-8 pr-8 text-ui, a size-4 search icon at
+                    // left-2.5 and the "/" key at right-2 while it's empty.
+                    .child({
+                        let empty = page.search.read(cx).value().is_empty();
+                        h_flex()
+                            .h_8()
+                            .pl(px(10.))
+                            .pr(px(8.))
+                            .gap(px(6.))
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(theme::line_strong())
+                            .bg(theme::sunken())
+                            .text_size(theme::text::UI)
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_color(theme::subtle())
+                                    .child(crate::icons::ic("search").size(px(16.))),
+                            )
+                            .child(
+                                div().flex_1().min_w_0().child(
+                                    Input::new(&page.search)
+                                        .appearance(false)
+                                        .with_size(gpui_component::Size::Size(px(13. / 0.875)))
+                                        .px_0()
+                                        .cleanable(true),
+                                ),
+                            )
+                            .when(empty, |el| el.child(theme::key_cap("/")))
+                    })
                     .when(changed > 0, |el| {
                         el.child(
                             h_flex()
@@ -1266,7 +1340,16 @@ impl AppView {
                         )
                     }),
             )
-            .child(v_flex().gap(px(2.)).children(items))
+            .child(v_flex().gap(px(2.)).children(items));
+        div()
+            .relative()
+            .w(px(240.))
+            .flex_none()
+            .h_full()
+            .border_r_1()
+            .border_color(theme::line())
+            .child(nav)
+            .child(super::controls::scrollbar(&page.nav_scroll, gutter))
             .into_any_element()
     }
 
@@ -1327,7 +1410,7 @@ impl AppView {
                             .child(
                                 div()
                                     .text_size(theme::text::UI)
-                                    .line_height(rems(1.4))
+                                    .line_height(relative(1.625))
                                     .text_color(theme::muted())
                                     .child(s.description.clone()),
                             ),
@@ -1351,7 +1434,7 @@ impl AppView {
                     div()
                         .px_1()
                         .text_size(theme::text::CAPTION)
-                        .line_height(rems(1.4))
+                        .line_height(relative(1.625))
                         .text_color(theme::subtle())
                         .child(format!("💡 {}", t("settings.models.tip"))),
                 )
@@ -1376,8 +1459,11 @@ impl AppView {
     }
 
     fn render_group(&self, g: &Group, cx: &mut Context<Self>) -> AnyElement {
+        // Electron's 19.5px heading line puts the panel a pixel lower than
+        // gpui's 19.
         let heading = v_flex()
             .px_1()
+            .pb(px(1.))
             .gap_0p5()
             .child(
                 div()
@@ -1390,7 +1476,7 @@ impl AppView {
                 el.child(
                     div()
                         .text_size(theme::text::CAPTION)
-                        .line_height(rems(1.4))
+                        .line_height(relative(1.625))
                         .text_color(theme::subtle())
                         .child(g.description.clone()),
                 )
@@ -1756,16 +1842,22 @@ impl AppView {
             "appearance" => {
                 let mut row = self.more_row(e, Some(t("settings.appearance.details")), cx);
                 let th = page.theme.as_ref();
-                let options = ["follow", "light", "dark", "dracula"]
-                    .into_iter()
-                    .map(|v| {
-                        (
-                            SharedString::from(v),
-                            t(&format!("settings.appearance.{v}")),
-                        )
-                    })
-                    .collect();
-                row.body.push(segmented(
+                let options = [
+                    ("follow", "monitor"),
+                    ("light", "sun"),
+                    ("dark", "moon"),
+                    ("dracula", "droplet"),
+                ]
+                .into_iter()
+                .map(|(v, icon)| {
+                    (
+                        SharedString::from(v),
+                        t(&format!("settings.appearance.{v}")),
+                        Some(icon),
+                    )
+                })
+                .collect();
+                row.body.push(choices(
                     "appearance",
                     options,
                     th.map(|t| t.appearance.as_str()),
@@ -1798,9 +1890,15 @@ impl AppView {
                 let mut row = self.more_row(e, None, cx);
                 let options = LANGUAGES
                     .iter()
-                    .map(|(tag, name)| (SharedString::from(*tag), name.to_string()))
+                    .map(|(tag, name)| {
+                        (
+                            SharedString::from(*tag),
+                            name.to_string(),
+                            Some("languages"),
+                        )
+                    })
                     .collect();
-                row.body.push(segmented(
+                row.body.push(choices(
                     "lang",
                     options,
                     Some(agentbox_i18n::language()),
@@ -1842,6 +1940,66 @@ impl AppView {
                 ));
                 row
             }
+            "environment" => {
+                // EnvironmentSwitcher's button, in a w-60 column: the
+                // native app manages this machine only (no hub sign-in yet),
+                // so it says so and opens no menu.
+                let mut row = self.more_row(e, None, cx);
+                row.control = Some(
+                    h_flex()
+                        .w(px(240.))
+                        .gap(px(10.))
+                        .px_2p5()
+                        .py_2()
+                        .rounded_xl()
+                        .border_1()
+                        .border_color(theme::line())
+                        .bg(theme::surface_faint())
+                        .child(
+                            div()
+                                .flex_none()
+                                .size_7()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_lg()
+                                .bg(theme::surface())
+                                .border_1()
+                                .border_color(theme::line())
+                                .text_color(theme::tertiary())
+                                .child(crate::icons::ic("laptop").size(px(14.))),
+                        )
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_size(theme::text::UI)
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(theme::primary())
+                                        .child(t("shell.env.thisMachine")),
+                                )
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_size(theme::text::CAPTION)
+                                        .line_height(px(18.))
+                                        .text_color(theme::subtle())
+                                        .child(t("shell.env.local")),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(theme::subtle())
+                                .child(crate::icons::ic("chevrons-up-down").size(px(14.))),
+                        )
+                        .into_any_element(),
+                );
+                row
+            }
             "tray" => {
                 let on = prefs::tray_keep_running();
                 let mut row = self.more_row(e, None, cx);
@@ -1881,9 +2039,16 @@ impl AppView {
                 let mut row = self.more_row(e, Some(t("settings.channel.details")), cx);
                 let options = ["stable", "nightly"]
                     .into_iter()
-                    .map(|v| (SharedString::from(v), t(&format!("settings.channel.{v}"))))
+                    .zip(["circle-check", "moon-star"])
+                    .map(|(v, icon)| {
+                        (
+                            SharedString::from(v),
+                            t(&format!("settings.channel.{v}")),
+                            Some(icon),
+                        )
+                    })
                     .collect();
-                row.body.push(segmented(
+                row.body.push(choices(
                     "channel",
                     options,
                     update.map(|u| u.channel.as_str()),

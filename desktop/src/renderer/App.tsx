@@ -309,6 +309,14 @@ export function App({ initial }: { initial?: View } = {}) {
     return () => window.removeEventListener(openAgentEvent, open);
   }, []);
 
+  // Any view, by its description: native/scripts/parity.sh opens each of its
+  // scenarios with it, as the native app opens them with AGENTBOX_NATIVE_VIEW.
+  useEffect(() => {
+    const open = (e: Event) => selectRef.current((e as CustomEvent<View>).detail);
+    window.addEventListener("agentbox:select-view", open);
+    return () => window.removeEventListener("agentbox:select-view", open);
+  }, []);
+
   // Leave an agent's view once the agent is gone, destroyed here or from the CLI.
   useEffect(() => {
     if (view.kind !== "agent" || !agents.data) return;

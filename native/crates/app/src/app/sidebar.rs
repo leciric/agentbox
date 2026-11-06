@@ -369,7 +369,13 @@ impl AppView {
             this.update(cx, |this, cx| {
                 this.side.questions.insert(
                     project,
-                    q.into_iter().filter(|q| q.status == "open").collect(),
+                    // What asks the user, as Electron's isAsking (lib/agentStatus.ts)
+                    // reads it: escalated, or pending with a kind.
+                    q.into_iter()
+                        .filter(|q| {
+                            q.status == "escalated" || (q.status == "pending" && !q.kind.is_empty())
+                        })
+                        .collect(),
                 );
                 cx.notify();
             })
@@ -564,9 +570,15 @@ impl AppView {
                     .overflow_y_scroll()
                     .child(
                         v_flex()
-                            .pb_4()
+                            .px_2()
+                            .pb_3()
+                            .pt_1()
                             .child(
                                 self.row("new-task", false, cx)
+                                    // NewTaskRow: mb-1, py-1.5, centred, text-secondary.
+                                    .items_center()
+                                    .py(px(6.))
+                                    .mb_1()
                                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                         this.open_new_task(window, cx)
                                     }))
@@ -577,13 +589,13 @@ impl AppView {
                                             .flex()
                                             .items_center()
                                             .justify_center()
-                                            .text_color(theme::muted())
-                                            .child(crate::icons::of("✎")),
+                                            .text_color(theme::secondary())
+                                            .child(crate::icons::ic("square-pen").size(px(16.))),
                                     )
                                     .child(
                                         div()
                                             .flex_1()
-                                            .text_size(theme::text::UI)
+                                            .text_size(px(13.))
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(theme::secondary())
                                             .child(t("v2.sidebar.newTask")),
@@ -737,23 +749,16 @@ impl AppView {
             return None;
         }
         Some(
-            div()
-                .id("review-all")
-                .px_2()
-                .py_0p5()
-                .rounded_md()
-                .border_1()
-                .border_color(theme::line())
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme::muted())
-                .cursor_pointer()
-                .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
-                .child(tv("v2.review.all", &[("count", n.into())]))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.open_work(String::new(), "review".into(), window, cx)
-                }))
-                .into_any_element(),
+            review_chip(
+                "review-all",
+                tv("v2.review.all", &[("count", n.into())]),
+                t("v2.review.allHint"),
+            )
+            .ml(px(6.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.open_work(String::new(), "review".into(), window, cx)
+            }))
+            .into_any_element(),
         )
     }
 
@@ -792,7 +797,8 @@ impl AppView {
     }
 
     fn home_row(&self, cx: &mut Context<Self>) -> AnyElement {
-        let selected = self.project.as_deref() == Some(HOME_PROJECT);
+        // Settings is a page of its own: Electron marks no row under it.
+        let selected = !self.settings && self.project.as_deref() == Some(HOME_PROJECT);
         let line = self
             .line(HOME_PROJECT)
             .unwrap_or_else(|| t("v2.sidebar.homeHint"));
@@ -810,7 +816,7 @@ impl AppView {
                     .rounded_md()
                     .bg(theme::surface_strong())
                     .text_color(theme::secondary())
-                    .child(crate::icons::of("⌂")),
+                    .child(crate::icons::ic("house").size(px(14.))),
             )
             .child(
                 v_flex()
@@ -818,14 +824,16 @@ impl AppView {
                     .flex_1()
                     .child(
                         div()
-                            .text_sm()
-                            .text_color(theme::primary())
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::title())
+                            .truncate()
                             .child(t("shell.nav.home")),
                     )
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(theme::faint())
+                            .text_size(px(11.5))
+                            .text_color(theme::subtle())
                             .truncate()
                             .child(line),
                     ),
@@ -836,9 +844,11 @@ impl AppView {
     fn row(&self, id: &str, selected: bool, _: &mut Context<Self>) -> Stateful<Div> {
         h_flex()
             .id(SharedString::from(format!("row-{id}")))
-            .mx_2()
+            .relative()
+            .min_w_0()
+            .items_start()
             .px_2()
-            .py_1p5()
+            .py_2()
             .gap_2()
             .rounded_lg()
             .cursor_pointer()
@@ -848,7 +858,7 @@ impl AppView {
     }
 
     fn project_row(&self, p: &Project, place: Place, cx: &mut Context<Self>) -> AnyElement {
-        let selected = self.project.as_deref() == Some(p.name.as_str());
+        let selected = !self.settings && self.project.as_deref() == Some(p.name.as_str());
         let name = p.name.clone();
         let display = if p.display_name.is_empty() {
             p.name.clone()
@@ -873,46 +883,81 @@ impl AppView {
             .clone()
             .or_else(|| self.line(&p.name))
             .unwrap_or_else(|| t("v2.sidebar.leadHint"));
-        let right = if needs > 0 {
-            div()
-                .px_1p5()
-                .rounded_full()
-                .bg(theme::amber(400).opacity(0.15))
-                .text_color(theme::amber(300))
-                .font_weight(FontWeight::MEDIUM)
-                .child(tv("v2.attention.needs", &[("count", needs.into())]))
-        } else {
-            div().text_color(theme::subtle()).child(
-                activity
-                    .and_then(|a| a.last_activity.as_deref())
-                    .map(ago)
-                    .unwrap_or_default(),
-            )
-        };
-        let mut counts: Vec<(String, Hsla)> = Vec::new();
+        // ProjectLead (components/v2/SidebarV2.tsx), class for class.
+        let mut counts: Vec<(String, Hsla, bool)> = Vec::new();
         if c.asks > 0 {
             counts.push((
                 tv("v2.count.needs", &[("count", c.asks.into())]),
-                theme::starting(),
+                theme::amber(300),
+                true,
             ));
         }
         if c.failed > 0 {
             counts.push((
                 tv("v2.count.error", &[("count", c.failed.into())]),
-                theme::error(),
+                theme::rose(300),
+                false,
             ));
         }
         if c.working > 0 {
             counts.push((
                 tv("v2.count.working", &[("count", c.working.into())]),
-                theme::accent(),
+                theme::subtle(),
+                false,
             ));
         }
         let working = c.working > 0 || s_working;
+        let when = activity.and_then(|a| a.last_activity.as_deref()).map(ago);
+        let right = if needs > 0 {
+            Some(
+                div()
+                    .ml_auto()
+                    .flex_none()
+                    .px(px(6.))
+                    .py(px(1.))
+                    .rounded_full()
+                    .bg(theme::amber(400).opacity(0.15))
+                    .text_color(theme::amber(300))
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(tv("v2.attention.needs", &[("count", needs.into())]))
+                    .into_any_element(),
+            )
+        } else if !selected {
+            when.map(|w| {
+                div()
+                    .ml_auto()
+                    .flex_none()
+                    .text_size(px(11.))
+                    .text_color(theme::faint())
+                    .child(w)
+                    .into_any_element()
+            })
+        } else {
+            None
+        };
+        let settings_tip: SharedString = t("v2.sidebar.projectSettings").into();
+        let gear_project = p.name.clone();
+        let gear = div()
+            .id(SharedString::from(format!("gear-{}", p.name)))
+            .flex_none()
+            .my(px(-4.))
+            .size_5()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.))
+            .text_color(theme::subtle())
+            .when(needs == 0, |el| el.ml_auto())
+            .hover(|el| el.bg(theme::surface_strong()).text_color(theme::title()))
+            .tooltip(move |w, cx| Tooltip::new(settings_tip.clone()).build(w, cx))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                this.open_settings_at(format!("project:{gear_project}"), window, cx);
+            }))
+            .child(crate::icons::ic("settings").size(px(14.)));
         let row = self
             .row(&p.name, selected, cx)
-            .relative()
-            .items_start()
             .when(needs > 0 && !selected, |el| {
                 el.bg(theme::amber(400).opacity(0.05))
                     .hover(|el| el.bg(theme::amber(400).opacity(0.1)))
@@ -938,6 +983,7 @@ impl AppView {
                 div()
                     .relative()
                     .flex_none()
+                    .mt(px(1.))
                     .child({
                         // One of its agents just finished: its icon bursts,
                         // whether or not the panel is showing.
@@ -956,14 +1002,16 @@ impl AppView {
                         el.child(
                             div()
                                 .absolute()
-                                .top(px(-2.))
-                                .right(px(-2.))
-                                .size_2()
+                                .top(px(-4.))
+                                .right(px(-4.))
+                                .size(px(12.))
                                 .rounded_full()
+                                .border_2()
+                                .border_color(theme::rail())
                                 .bg(if needs > 0 {
-                                    theme::starting()
+                                    theme::amber(400)
                                 } else {
-                                    theme::accent()
+                                    theme::brand(400)
                                 }),
                         )
                     }),
@@ -974,19 +1022,15 @@ impl AppView {
                     .flex_1()
                     .child(
                         h_flex()
-                            .gap_2()
+                            .min_w_0()
+                            .gap(px(6.))
                             .child(
                                 div()
-                                    .flex_1()
                                     .min_w_0()
-                                    .text_size(theme::text::UI)
+                                    .text_size(px(13.))
                                     .font_weight(FontWeight::MEDIUM)
                                     .truncate()
-                                    .text_color(if selected {
-                                        theme::title()
-                                    } else {
-                                        theme::secondary()
-                                    })
+                                    .text_color(theme::title())
                                     .child(display.clone()),
                             )
                             .when(draft, |el| {
@@ -994,80 +1038,70 @@ impl AppView {
                                 el.child(
                                     div()
                                         .id(SharedString::from(format!("draft-{}", p.name)))
-                                        .text_xs()
-                                        .text_color(theme::faint())
+                                        .flex_none()
+                                        .text_color(theme::subtle())
                                         .tooltip(move |w, cx| {
                                             Tooltip::new(tip.clone()).build(w, cx)
                                         })
-                                        .child(crate::icons::of("✎")),
+                                        .child(crate::icons::ic("pencil").size(px(12.))),
                                 )
                             })
-                            .when(working, |el| {
-                                el.child(crate::motion::pulse(
-                                    div()
-                                        .flex_none()
-                                        .mt(px(5.))
-                                        .size(px(6.))
-                                        .rounded_full()
-                                        .bg(theme::sky(400)),
-                                    SharedString::from(format!("working-dot-{}", p.name)),
-                                ))
-                            })
-                            .child(right.flex_none().text_xs()),
+                            .children(right)
+                            .when(selected, |el| el.child(gear)),
                     )
                     .child(
-                        div()
-                            .text_xs()
-                            .truncate()
-                            .text_color(if question.is_some() {
-                                theme::amber(300)
-                            } else {
-                                theme::subtle()
-                            })
-                            .child(line),
+                        h_flex()
+                            .min_w_0()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .flex_1()
+                                    .text_size(px(11.5))
+                                    .truncate()
+                                    .text_color(if question.is_some() && needs > 0 {
+                                        theme::secondary()
+                                    } else {
+                                        theme::subtle()
+                                    })
+                                    .child(line),
+                            )
+                            .when(to_review > 0, |el| {
+                                // "N to review" opens Work on what waits.
+                                let project = p.name.clone();
+                                el.child(
+                                    review_chip(
+                                        format!("to-review-{project}"),
+                                        tv("v2.review.toReview", &[("count", to_review.into())]),
+                                        t("v2.review.allHint"),
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            cx.stop_propagation();
+                                            this.open_work(
+                                                project.clone(),
+                                                "review".into(),
+                                                window,
+                                                cx,
+                                            )
+                                        },
+                                    )),
+                                )
+                            }),
                     )
-                    .when(!counts.is_empty() || to_review > 0, |el| {
-                        let project = p.name.clone();
+                    .when(!counts.is_empty(), |el| {
                         el.child(
                             h_flex()
-                                .gap_2()
-                                .text_xs()
-                                .children(
-                                    counts
-                                        .into_iter()
-                                        .map(|(s, c)| div().text_color(c).child(s)),
-                                )
-                                .when(to_review > 0, |el| {
-                                    // "N to review" opens Work on what waits.
-                                    el.child(div().flex_1()).child(
-                                        div()
-                                            .id(SharedString::from(format!("to-review-{project}")))
-                                            .px_1p5()
-                                            .rounded_full()
-                                            .border_1()
-                                            .border_color(theme::line())
-                                            .text_color(theme::muted())
-                                            .hover(|el| {
-                                                el.bg(theme::surface_strong())
-                                                    .text_color(theme::primary())
-                                            })
-                                            .child(tv(
-                                                "v2.review.toReview",
-                                                &[("count", to_review.into())],
-                                            ))
-                                            .on_click(cx.listener(
-                                                move |this, _: &ClickEvent, window, cx| {
-                                                    cx.stop_propagation();
-                                                    this.open_work(
-                                                        project.clone(),
-                                                        "review".into(),
-                                                        window,
-                                                        cx,
-                                                    )
-                                                },
-                                            )),
-                                    )
-                                }),
+                                .mt_1()
+                                .flex_wrap()
+                                .gap_x_2()
+                                .text_size(theme::text::CAPTION)
+                                .children(counts.into_iter().map(|(s, c, strong)| {
+                                    div()
+                                        .text_color(c)
+                                        .when(strong, |el| el.font_weight(FontWeight::MEDIUM))
+                                        .child(s)
+                                })),
                         )
                     }),
             )
@@ -1081,6 +1115,37 @@ impl AppView {
             .children(self.render_snoozed_rows(&p.name, cx))
             .into_any_element()
     }
+}
+
+/// review_chip is Electron's "N to review" pill (ReviewCount's button, the
+/// Projects heading's Review N): rounded-full, border-line-strong, 12px medium.
+pub(super) fn review_chip(
+    id: impl Into<SharedString>,
+    label: String,
+    tip: String,
+) -> Stateful<Div> {
+    let tip: SharedString = tip.into();
+    div()
+        .id(ElementId::Name(id.into()))
+        .flex_none()
+        .px(px(6.))
+        .py(px(1.))
+        .rounded_full()
+        .border_1()
+        .border_color(theme::line_strong())
+        .bg(theme::surface())
+        .text_size(theme::text::CAPTION)
+        .line_height(px(18.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::secondary())
+        .cursor_pointer()
+        .hover(|el| {
+            el.border_color(theme::line_heavy())
+                .bg(theme::surface_strong())
+                .text_color(theme::title())
+        })
+        .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
+        .child(label)
 }
 
 /// ago is how long since an RFC 3339 time, as the sidebar writes it: now, 5m,

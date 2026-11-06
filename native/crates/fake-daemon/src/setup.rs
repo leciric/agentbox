@@ -14,7 +14,7 @@
 //! account's limits from a few minutes ago, its windows still open.
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use agentbox_api::*;
 use http_body_util::BodyExt;
@@ -32,7 +32,7 @@ fn on(name: &str) -> Option<String> {
 
 /// at is a time this far from now, as the daemon writes them.
 fn at(secs: i64) -> String {
-    let now = SystemTime::now();
+    let now = crate::clock();
     let t = if secs >= 0 {
         now + Duration::from_secs(secs as u64)
     } else {

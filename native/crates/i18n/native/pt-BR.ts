@@ -56,9 +56,6 @@ export const ptBRNative = {
   'native.date.dayMonthYear': '{day} de {month} de {year}',
   'native.date.at': '{date}, {time}',
   // The Office (#668), drawn natively (crates/office).
-  'native.settings.entry.office.label': 'Escritório (protótipo)',
-  'native.settings.entry.office.keywords': 'escritório 3d sala mesas andar agentes protótipo experimental',
-  'native.settings.office.description': 'Coloca o Escritório na barra lateral: uma sala em 3D com uma mesa para cada agente, onde você anda e vê eles trabalhando.',
   'native.office.title': 'Escritório',
   'native.office.canvas': 'O Escritório: vá até uma mesa para ver o que o agente está fazendo',
   'native.office.loading': 'Montando o escritório…',

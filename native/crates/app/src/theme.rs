@@ -853,6 +853,25 @@ pub fn kbd(keys: impl Into<SharedString>) -> gpui::Div {
         .child(keys.into())
 }
 
+/// key_cap is Electron's Kbd (ui/card.tsx): a key in mono caption, framed
+/// with a strong line on the raised surface.
+pub fn key_cap(keys: impl Into<SharedString>) -> gpui::Div {
+    use gpui::{ParentElement, Styled, div};
+    div()
+        .flex_none()
+        .px_1p5()
+        .py(px(1.))
+        .rounded(radius::MD)
+        .border_1()
+        .border_color(line_strong())
+        .bg(surface_raised())
+        .font_family(MONO_FACE)
+        .text_size(text::CAPTION)
+        .line_height(px(18.))
+        .text_color(tertiary())
+        .child(keys.into())
+}
+
 /// logo is AgentBox's mark, as Electron's Logo: a box on the brand's
 /// gradient, with a gloss across its top and a glow of the brand beneath.
 pub fn logo(size: Pixels) -> gpui::Div {
@@ -925,6 +944,42 @@ pub mod text {
 /// JetBrains Mono. Both are embedded (assets/fonts, Latin subsets, OFL) and
 /// registered by `init`, so every platform draws the same letters.
 pub const SANS: &str = "Inter";
+
+/// balanced_width is the width that splits `text` (Inter at `size`) into
+/// lines of about equal length within `max`, as CSS's text-wrap: balance
+/// (Tailwind's text-balance) does: `max` when it fits on one line.
+pub fn balanced_width(window: &gpui::Window, text: &str, size: Pixels, max: Pixels) -> Pixels {
+    let mut font = gpui::font(SANS);
+    font.features = sans_features();
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let w = f32::from(
+        window
+            .text_system()
+            .layout_line(text, size, &[run], None)
+            .width,
+    );
+    let max_f = f32::from(max);
+    if w <= max_f {
+        return max;
+    }
+    let lines = (w / max_f).ceil();
+    px((w / lines).ceil() + f32::from(size) * 0.5).min(max)
+}
+
+/// sans_features are the Inter alternates Electron's body turns on
+/// (styles.css: font-feature-settings "cv11", "ss01"), as they come out
+/// there: the open digits. Its Inter (@fontsource-variable/inter) draws the
+/// double-storey a whatever cv11 says, so the native app keeps it too.
+pub fn sans_features() -> gpui::FontFeatures {
+    gpui::FontFeatures(std::sync::Arc::new(vec![("ss01".into(), 1)]))
+}
 pub const MONO_FACE: &str = "JetBrains Mono";
 
 static FONTS: &[&[u8]] = &[

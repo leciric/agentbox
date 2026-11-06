@@ -1053,6 +1053,19 @@ impl AppView {
     /// render_panel_body is the panel at a width: its header and its view.
     pub(super) fn render_panel_body(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
         let whose = self.panel_whose();
+        if matches!(whose, Whose::Lead) && self.panel_settings.is_some() {
+            let (header, body) = self.render_project_settings(cx);
+            return v_flex()
+                .w(px(width))
+                .flex_none()
+                .h_full()
+                .bg(theme::sunken())
+                .border_l_1()
+                .border_color(theme::line())
+                .child(header)
+                .child(div().flex_1().min_h_0().child(body))
+                .into_any_element();
+        }
         let header = match &whose {
             Whose::Lead => self.lead_header(cx),
             Whose::List => self.list_header(cx),
@@ -1101,7 +1114,10 @@ impl AppView {
             .child(div().flex_1())
             .when(self.pulls.tab == RailTab::Agents, |el| {
                 el.child(self.new_agent_button(cx))
-                    .child(self.fold_button(cx))
+            })
+            .child(self.project_buttons(cx))
+            .when(self.pulls.tab == RailTab::Agents, |el| {
+                el.child(self.fold_button(cx))
             })
             .into_any_element()
     }
@@ -1164,9 +1180,12 @@ impl AppView {
         div()
             .id("panel-toggle")
             .flex_none()
-            .px_1p5()
-            .rounded_md()
-            .text_sm()
+            // Button size="icon" variant="ghost": size-9, rounded-lg, a 16px icon.
+            .size_9()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_lg()
             .cursor_pointer()
             .text_color(if open {
                 theme::primary()
@@ -1174,10 +1193,11 @@ impl AppView {
                 theme::muted()
             })
             .when(open, |el| el.bg(theme::surface_raised()))
-            .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
+            .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+            .active(|el| el.bg(theme::surface_strong()))
             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
             .on_click(cx.listener(|this, _: &ClickEvent, w, cx| this.toggle_panel(w, cx)))
-            .child(crate::icons::of("◨"))
+            .child(crate::icons::ic("panel-right").size(px(16.)))
             .into_any_element()
     }
 

@@ -186,30 +186,111 @@ impl AppView {
             .into_any_element()
     }
 
-    /// render_home_bar is Home's top bar: its name, and the chips.
-    pub(super) fn render_home_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.is_home() {
-            return None;
+    /// render_top_bar is Electron's TopBar (components/TopBar.tsx), over the
+    /// page and the panel both: the breadcrumb, then Search, the chips, and
+    /// the page's ⋯ and panel button at the far right.
+    pub(super) fn render_top_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+        use super::foot::FootPage;
+        let page = if self.settings {
+            Some(t("common.settings"))
+        } else if self.work.is_some() {
+            Some(t("work.title"))
+        } else {
+            match self.side.page {
+                Some(FootPage::Media) => Some(t("shell.nav.media")),
+                Some(FootPage::Jobs) => Some(t("shell.nav.jobs")),
+                None if self.is_home() || self.project.is_none() => Some(t("shell.nav.home")),
+                None => None,
+            }
+        };
+        if page.is_none()
+            && let Some(bar) = self.render_project_header(cx)
+        {
+            return bar;
         }
-        Some(
-            h_flex()
-                .flex_none()
-                .h(px(44.))
-                .px_4()
-                .gap_2()
-                .bg(theme::card())
-                .border_b_1()
-                .border_color(theme::line())
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(t("shell.nav.home")),
-                )
-                .child(div().flex_1())
-                .child(self.render_top_chips(cx))
-                .into_any_element(),
-        )
+        let crumb = div()
+            .min_w_0()
+            .truncate()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme::primary())
+            .child(page.unwrap_or_default());
+        self.top_bar_frame(crumb.into_any_element(), None, cx)
+    }
+
+    /// top_bar_frame is the bar itself: min-h-14, px-5 py-2, gap-x-4, the
+    /// breadcrumb's nav at text-ui taking what's left.
+    pub(super) fn top_bar_frame(
+        &self,
+        crumbs: AnyElement,
+        end: Option<AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        h_flex()
+            .id("top-bar")
+            .flex_none()
+            .min_h(px(56.))
+            .flex_wrap()
+            .gap_x(px(16.))
+            .gap_y(px(6.))
+            .px(px(20.))
+            .py_2()
+            .border_b_1()
+            .border_color(theme::line())
+            .child(
+                h_flex()
+                    .min_w(px(128.))
+                    .flex_grow(1.)
+                    .flex_basis(relative(0.))
+                    .gap(px(6.))
+                    .text_size(theme::text::UI)
+                    .child(crumbs),
+            )
+            .child(
+                h_flex()
+                    .ml_auto()
+                    .min_w_0()
+                    .gap_2()
+                    .child(self.search_button(cx))
+                    .child(self.render_top_chips(cx))
+                    .children(end),
+            )
+            .into_any_element()
+    }
+
+    /// search_button is the palette's way in for the pointer (TopBar's
+    /// SearchButton), its shortcut on it.
+    fn search_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        h_flex()
+            .id("top-search")
+            .flex_none()
+            .gap_2()
+            .rounded_full()
+            .py_1()
+            .pl(px(10.))
+            .pr(px(6.))
+            .border_1()
+            .border_color(theme::line())
+            .text_color(theme::muted())
+            .cursor_pointer()
+            .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_search(window, cx)))
+            .child(crate::icons::ic("search").size(px(14.)))
+            .child(
+                div()
+                    .text_size(theme::text::CAPTION)
+                    .child(t("common.search")),
+            )
+            .child(
+                div()
+                    .px(px(6.))
+                    .rounded_md()
+                    .bg(theme::surface_raised())
+                    .font_family(theme::MONO)
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
+                    .child("Ctrl K"),
+            )
+            .into_any_element()
     }
 
     fn finish_setup_chip(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
