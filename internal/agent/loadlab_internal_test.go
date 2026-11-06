@@ -458,9 +458,16 @@ func waitIO(t *testing.T, limit float64, what string) {
 	}
 }
 
-// ioAvg10 is /proc/pressure/io's some avg10: the VM's, in a container too.
+// ioAvg10 is this machine's IO pressure, some avg10: its own cgroup's in a
+// container, where /proc/pressure/io is the whole VM's. Backing off on the
+// VM's froze the lab's Incus for as long as other agents' work kept the
+// shared disk busy (18 minutes on 2026-11-06), with nothing of the lab's
+// left to back off.
 func ioAvg10() float64 {
-	b, _ := os.ReadFile("/proc/pressure/io")
+	b, err := os.ReadFile("/sys/fs/cgroup/io.pressure")
+	if err != nil || len(b) == 0 {
+		b, _ = os.ReadFile("/proc/pressure/io")
+	}
 	for _, f := range strings.Fields(string(b)) {
 		if v, ok := strings.CutPrefix(f, "avg10="); ok {
 			n, _ := strconv.ParseFloat(v, 64)
