@@ -8,7 +8,8 @@
 
 use agentbox_api::{Agent, Client, Fleet, Project, ProjectChat, Question, ReviewItem, ReviewPage};
 use agentbox_i18n::{t, tv};
-use agentbox_office::desks::{AreaLabel, BoardColumn, BoardEntry, BoardScreen, LineTone, SceneInput, Screen, ScreenLine};
+use agentbox_office::desks::{AreaLabel, SceneInput};
+use agentbox_office::textures::{BoardColumn, BoardEntry, BoardScreen, LineTone, Screen, ScreenLine};
 use agentbox_office::engine::{Engine, In, Label, LabelKind, Out};
 use agentbox_office::model::{self, AgentSt, DeskTone, LeadTone, OfficeInputs, OfficeModel, PrLook, Row};
 use agentbox_office::sim::Note;
@@ -85,6 +86,10 @@ pub struct OfficeView {
     /// The chat open in place, over the room's right side (the app's own).
     chat: Option<AnyView>,
     shown: bool,
+    /// AGENTBOX_NATIVE_BENCH: when each frame was painted, and the render
+    /// thread's time for each (printed every 5 s with the CPU used).
+    bench: Option<(Vec<std::time::Instant>, Vec<f32>)>,
+    _bench: Option<Task<()>>,
     _task: Task<()>,
     _blur: Subscription,
 }
@@ -141,11 +146,47 @@ impl OfficeView {
             tray: false,
             chat: None,
             shown: true,
+            bench: None,
+            _bench: None,
             _task: task,
             _blur: blur,
         };
         this.focus.focus(window, cx);
         this.load(cx);
+        if std::env::var_os("AGENTBOX_NATIVE_BENCH").is_some() {
+            this.bench = Some((Vec::new(), Vec::new()));
+            this._bench = Some(cx.spawn(async move |this, cx| {
+                let mut cpu0 = cpu_secs();
+                loop {
+                    cx.background_executor().timer(Duration::from_secs(5)).await;
+                    let cpu1 = cpu_secs();
+                    let ok = this.update(cx, |this, _| {
+                        let Some((painted, render)) = &mut this.bench else { return };
+                        let mut gaps: Vec<f32> = painted.windows(2).map(|w| (w[1] - w[0]).as_secs_f32() * 1000.).collect();
+                        gaps.sort_by(f32::total_cmp);
+                        render.sort_by(f32::total_cmp);
+                        let p = |v: &[f32], q: f32| v.get(((v.len() as f32 - 1.) * q) as usize).copied().unwrap_or(0.);
+                        let size = this.sent.map(|(w, h, s)| format!("{}x{}", (w * s) as u32, (h * s) as u32)).unwrap_or_default();
+                        eprintln!(
+                            "bench office {size}: {} frames in 5s ({:.1} fps), gap p50 {:.1} p95 {:.1} ms, render+readback p50 {:.1} p95 {:.1} ms, cpu {:.0}% of a core",
+                            painted.len(),
+                            painted.len() as f32 / 5.,
+                            p(&gaps, 0.5),
+                            p(&gaps, 0.95),
+                            p(render, 0.5),
+                            p(render, 0.95),
+                            (cpu1 - cpu0) / 5. * 100.
+                        );
+                        painted.clear();
+                        render.clear();
+                    });
+                    cpu0 = cpu1;
+                    if ok.is_err() {
+                        return;
+                    }
+                }
+            }));
+        }
         this
     }
 
@@ -351,7 +392,9 @@ impl OfficeView {
             Out::Adapter { name, software } => self.adapter = Some((name, software)),
             Out::Failed(e) => self.failed = Some(e),
             Out::Frame { frame, labels, render_ms } => {
-                crate::bench::sample("office-render", Duration::from_secs_f32(render_ms / 1000.));
+                if let Some((_, r)) = &mut self.bench {
+                    r.push(render_ms);
+                }
                 if let Some(rgba) = image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra) {
                     let img = Arc::new(RenderImage::new(vec![image::Frame::new(rgba)]));
                     if let Some(old) = self.frame.replace(img) {
@@ -417,10 +460,6 @@ impl OfficeView {
         cx.notify();
     }
 
-    pub fn has_chat(&self) -> bool {
-        self.chat.is_some()
-    }
-
     fn activate(&mut self, r: &str, cx: &mut Context<Self>) {
         let Some((project, who)) = r.split_once('/') else { return };
         cx.emit(OfficeEvent::Open { project: project.to_string(), who: who.to_string() });
@@ -462,6 +501,14 @@ impl OfficeView {
             _ => return None,
         })
     }
+}
+
+/// cpu_secs is the CPU this process has used (Linux; 0 elsewhere).
+fn cpu_secs() -> f32 {
+    let s = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let f: Vec<&str> = s.rsplit(')').next().unwrap_or("").split_whitespace().collect();
+    let t = |i: usize| f.get(i).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.);
+    (t(11) + t(12)) / 100.
 }
 
 fn lead_word(t: LeadTone) -> &'static str {
@@ -579,6 +626,9 @@ impl Render for OfficeView {
             if id != self.painted {
                 self.painted = id;
                 self.send(In::Painted);
+                if let Some((p, _)) = &mut self.bench {
+                    p.push(std::time::Instant::now());
+                }
             }
         }
         let bounds = self.bounds.clone();
@@ -646,7 +696,7 @@ impl Render for OfficeView {
                     this.send(In::PointerLeave);
                 }
             }))
-            .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, _| {
+            .on_scroll(cx.listener(|this, ev: &ScrollEvent, _, _| {
                 let d = ev.delta.pixel_delta(px(33.));
                 let (x, y) = this.local(ev.position);
                 // As a browser's deltaY: positive is outwards.
@@ -713,7 +763,7 @@ impl Render for OfficeView {
                         // The chat's own keys and clicks stay its own.
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_key_down(|_, _, cx| cx.stop_propagation())
-                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                        .on_scroll(|_, _, cx| cx.stop_propagation())
                         .child(
                             h_flex()
                                 .h_9()
