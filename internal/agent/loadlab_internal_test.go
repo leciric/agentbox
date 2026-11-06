@@ -260,9 +260,13 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 	if err := c.do(ctx, http.MethodGet, "/v1/agents?project="+url.QueryEscape(cfg.project), nil, &have); err != nil {
 		t.Fatal(err)
 	}
-	byName := map[string]api.Agent{}
+	// An agent is found by its title, "Load lab load-NN": a destroyed agent's
+	// name stays taken, so a slot made again gets a name of its own.
+	bySlot := map[string]api.Agent{}
 	for _, a := range have {
-		byName[a.Name] = a
+		if slot, ok := strings.CutPrefix(a.Title, "Load lab "); ok {
+			bySlot[slot] = a
+		}
 	}
 	// Made a few at a time: making them is its own load, not what this
 	// measures. How long each took is logged.
@@ -342,8 +346,8 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 	var mu sync.Mutex
 	var took []time.Duration
 	for i := range cfg.agents {
-		name := fmt.Sprintf("load-%02d", i+1)
-		if _, ok := byName[name]; ok {
+		slot := fmt.Sprintf("load-%02d", i+1)
+		if _, ok := bySlot[slot]; ok {
 			continue
 		}
 		wg.Add(1)
@@ -351,6 +355,7 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			name := slot
 			waitIO(t, cfg.ioMax, "making "+name)
 			if err := waitRoom(name); err != nil {
 				t.Error(err)
@@ -360,9 +365,16 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 			start := time.Now()
 			var job api.Job
 			no := false
-			err := c.do(ctx, http.MethodPost, "/v1/agents", api.CreateAgentRequest{
-				Project: cfg.project, Name: name, Title: "Load lab " + name, AI: cfg.ai, Autonomous: &no,
-			}, &job)
+			create := func() error {
+				return c.do(ctx, http.MethodPost, "/v1/agents", api.CreateAgentRequest{
+					Project: cfg.project, Name: name, Title: "Load lab " + slot, AI: cfg.ai, Autonomous: &no,
+				}, &job)
+			}
+			err := create()
+			if err != nil && strings.Contains(err.Error(), "already exists") {
+				name = fmt.Sprintf("%s-%s", slot, strconv.FormatInt(time.Now().UnixNano()%46656, 36))
+				err = create()
+			}
 			for err == nil && !job.Done() {
 				time.Sleep(2 * time.Second)
 				err = c.do(ctx, http.MethodGet, "/v1/jobs/"+job.ID, nil, &job)
@@ -413,7 +425,7 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 	var out []*loadAgent
 	for i := range cfg.agents {
 		name := fmt.Sprintf("load-%02d", i+1)
-		i := slices.IndexFunc(have, func(a api.Agent) bool { return a.Name == name })
+		i := slices.IndexFunc(have, func(a api.Agent) bool { return a.Title == "Load lab "+name })
 		if i < 0 {
 			t.Fatalf("%s isn't there after making it", name)
 		}
