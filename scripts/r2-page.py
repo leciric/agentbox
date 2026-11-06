@@ -45,8 +45,14 @@ THEME = (
 
 # What each asset is, by its name: (pattern, platform, label, detail, OS the
 # button offers it to), listed in this order. Anything unmatched
-# (latest-linux.yml, blockmaps) isn't listed.
+# (latest-linux.yml, blockmaps) isn't listed. The native app's experimental
+# builds (scripts/native-package.sh) come first, so that their .deb isn't taken
+# for the Electron app's, and the download button never offers them.
 KINDS = [
+    (r"^AgentBox-Native-experimental-.*\.tar\.gz$", "native", "Linux", ".tar.gz archive, x86_64", None),
+    (r"^AgentBox-Native-experimental-.*\.deb$", "native", "Debian and Ubuntu", ".deb package (Ubuntu 24.04 or newer)", None),
+    (r"^AgentBox-Native-experimental-.*\.zip$", "native", "Windows", ".zip of the .exe, x64", None),
+    (r"^AgentBox-Native-experimental-", None, None, None, None),
     (r"\.AppImage$", "linux", "AppImage", "Any distribution; updates itself", "linux"),
     (r"\.deb$", "linux", "Debian and Ubuntu", ".deb package", None),
     (r"\.pacman$", "linux", "Arch Linux", ".pacman package", None),
@@ -61,7 +67,8 @@ KINDS = [
     (r"-darwin-arm64$", "cli", "macOS", "Apple Silicon", None),
     (r"-darwin-amd64$", "cli", "macOS", "Intel", None),
 ]
-PLATFORMS = [("linux", "Linux"), ("mac", "macOS"), ("windows", "Windows"), ("cli", "Command line")]
+PLATFORMS = [("linux", "Linux"), ("mac", "macOS"), ("windows", "Windows"), ("cli", "Command line"),
+             ("native", "Native app (experimental)")]
 OS_NAMES = {"linux": "Linux", "mac": "macOS", "windows": "Windows"}
 
 
@@ -89,7 +96,8 @@ def day(iso):
 def kind(name):
     for i, (pattern, platform, label, detail, os_) in enumerate(KINDS):
         if re.search(pattern, name):
-            return platform, label, detail, os_, i
+            # Another native asset: listed nowhere, rather than as Electron's.
+            return (platform, label, detail, os_, i) if platform else None
     return None
 
 
