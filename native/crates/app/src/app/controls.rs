@@ -683,59 +683,6 @@ pub fn range(id: &str, value: i64, disabled: bool, on_change: Pick<i64>) -> AnyE
         .into_any_element()
 }
 
-/// stepper is a number within bounds, moved by a step: − value +.
-pub fn stepper(
-    id: &str,
-    value: i64,
-    (min, max, step): (i64, i64, i64),
-    unit: &str,
-    disabled: bool,
-    on_change: Pick<i64>,
-) -> AnyElement {
-    let button = |name: &str, label: &'static str, next: i64| {
-        let change = on_change.clone();
-        let usable = !disabled && next != value;
-        div()
-            .id(SharedString::from(format!("{id}-{name}")))
-            .w(px(26.))
-            .h(px(26.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_md()
-            .text_color(if usable {
-                theme::primary()
-            } else {
-                theme::faint()
-            })
-            .when(usable, |el| {
-                el.cursor_pointer()
-                    .hover(|s| s.bg(theme::surface_strong()))
-                    .on_click(move |_, window, cx| change(&next, window, cx))
-            })
-            .child(label)
-    };
-    h_flex()
-        .w_auto()
-        .p(px(2.))
-        .gap_1()
-        .rounded_lg()
-        .border_1()
-        .border_color(theme::line())
-        .bg(theme::card())
-        .child(button("down", "−", (value - step).max(min)))
-        .child(
-            div()
-                .min_w(px(48.))
-                .text_center()
-                .text_sm()
-                .text_color(theme::primary())
-                .child(format!("{value}{unit}")),
-        )
-        .child(button("up", "+", (value + step).min(max)))
-        .into_any_element()
-}
-
 /// note is a line under a setting's control: why it's off, what's out.
 pub fn note(text: impl Into<SharedString>) -> AnyElement {
     note_in(text, theme::muted())
