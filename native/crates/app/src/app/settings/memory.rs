@@ -11,9 +11,10 @@ use gpui_component::input::Input;
 use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, badge, button, note, note_in};
+use super::super::controls::{Btn, button, note_in};
 use super::defaults::time_ago;
 use super::kit::{ask, card, empty, enc};
+use super::kit::{badge, note};
 use super::{Entry, Group, group};
 use crate::theme;
 
@@ -136,13 +137,13 @@ impl AppView {
             .id("global-memories")
             .gap_2()
             .when_some(m.error.clone(), |el, e| {
-                el.child(note_in(e, theme::error()))
+                el.child(note_in(e, theme::rose(300)))
             })
             .when_some(m.said.clone(), |el, s| {
-                el.child(note_in(s, theme::running()))
+                el.child(note_in(s, theme::emerald(300)))
             })
             .when(m.list.is_none() && m.error.is_none(), |el| {
-                el.child(note(t("common.loading")))
+                el.child(super::super::panel::loading("memories"))
             })
             .when(!all.is_empty(), |el| {
                 el.child(self.input_small("memory-filter"))
@@ -183,6 +184,9 @@ impl AppView {
             facts.push(tv("memory.updatedAgo", &[("when", (&when).into())]));
         }
         card(SharedString::from(format!("memory-{}", mem.id)))
+            .px_4()
+            .py_3()
+            .gap_0()
             .child(
                 h_flex()
                     .gap_2()
@@ -192,9 +196,9 @@ impl AppView {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_sm()
+                            .text_size(theme::text::BODY)
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(mem.title.clone()),
                     )
                     .child(h_flex().gap(px(3.)).pt(px(5.)).children((1..=5).map(|n| {
@@ -204,7 +208,7 @@ impl AppView {
                             .bg(if n <= mem.importance {
                                 theme::accent()
                             } else {
-                                theme::hover()
+                                theme::surface_strong()
                             })
                     })))
                     .child(button(
@@ -221,15 +225,18 @@ impl AppView {
             .when(!mem.content.is_empty(), |el| {
                 el.child(
                     div()
-                        .text_sm()
+                        .mt_1p5()
+                        .text_size(theme::text::UI)
+                        .line_height(rems(1.5))
                         .text_color(theme::muted())
                         .child(mem.content.clone()),
                 )
             })
             .child(
                 div()
-                    .text_xs()
-                    .text_color(theme::faint())
+                    .mt_2()
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
                     .child(facts.join(" · ")),
             )
             .when(deleting, |el| {

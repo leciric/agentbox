@@ -22,8 +22,9 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, badge, button, note, note_in};
-use super::kit::{check, local_date_time, mono};
+use super::super::controls::{Btn, button, note_in};
+use super::kit::{badge, note};
+use super::kit::{check, label, local_date_time, mono};
 use super::skills::format_bytes;
 use super::{Entry, Group, entry, group};
 use crate::theme;
@@ -528,7 +529,7 @@ impl AppView {
                 return row.render();
             }
             Some(Err(err)) => {
-                row.body.push(note_in(err.clone(), theme::error()));
+                row.body.push(note_in(err.clone(), theme::rose(300)));
                 return row.render();
             }
             Some(Ok(p)) => p,
@@ -554,8 +555,8 @@ impl AppView {
                 .p_3()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::bg())
+                .border_color(theme::line())
+                .bg(theme::surface())
                 .child(check(
                     SharedString::from(format!("transfer-p-{}", p.name)),
                     on,
@@ -591,7 +592,7 @@ impl AppView {
                             h_flex()
                                 .gap_1()
                                 .child(kind_label(&c.kind))
-                                .child(div().text_color(theme::faint()).child(size)),
+                                .child(div().text_color(theme::subtle()).child(size)),
                             cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.set_export_pick(&name, |k| {
                                     if !k.kinds.remove(&kind) {
@@ -655,13 +656,7 @@ impl AppView {
         row.body.push(
             v_flex()
                 .gap_1p5()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::muted())
-                        .child(t("transfer.logins.title")),
-                )
+                .child(label(t("transfer.logins.title")))
                 .child(h_flex().flex_wrap().gap_x_4().gap_y_1p5().children(
                     preview.logins.iter().map(|l| {
                         let kind = l.kind.clone();
@@ -749,11 +744,11 @@ impl AppView {
                         &[("size", (&format_bytes(total)).into())],
                     )
                 })))
-                .when_some(problem, |el, p| el.child(note_in(p, theme::starting())))
+                .when_some(problem, |el, p| el.child(note_in(p, theme::amber(300))))
                 .into_any_element(),
         );
         if let Some(e) = &tr.export_error {
-            row.body.push(note_in(e.clone(), theme::error()));
+            row.body.push(note_in(e.clone(), theme::rose(300)));
         }
         if let Some(j) = &tr.export_job {
             row.body.push(self.job_progress(j));
@@ -804,7 +799,7 @@ impl AppView {
                 .into_any_element(),
         );
         if let Some(e) = &tr.inspect_error {
-            row.body.push(note_in(e.clone(), theme::error()));
+            row.body.push(note_in(e.clone(), theme::rose(300)));
         }
         if let Some(c) = &tr.contents {
             row.body.push(note(tv(
@@ -824,8 +819,8 @@ impl AppView {
                     .p_3()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
+                    .border_color(theme::line())
+                    .bg(theme::surface())
                     .child(
                         h_flex()
                             .gap_2()
@@ -856,7 +851,7 @@ impl AppView {
                                 pick.kinds.contains(&k.kind),
                                 false,
                                 h_flex().gap_1().child(kind_label(&k.kind)).child(
-                                    div().text_color(theme::faint()).child(tv(
+                                    div().text_color(theme::subtle()).child(tv(
                                         "transfer.count",
                                         &[
                                             ("count", k.items.into()),
@@ -891,7 +886,7 @@ impl AppView {
                                 .child(note(line))
                                 .child(mono(p.path.clone()))
                                 .when(!p.plan_error.is_empty(), |el| {
-                                    el.child(note_in(p.plan_error.clone(), theme::starting()))
+                                    el.child(note_in(p.plan_error.clone(), theme::amber(300)))
                                 }),
                         );
                     }
@@ -903,13 +898,7 @@ impl AppView {
                 row.body.push(
                     v_flex()
                         .gap_1p5()
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::muted())
-                                .child(t("transfer.logins.title")),
-                        )
+                        .child(label(t("transfer.logins.title")))
                         .child(h_flex().flex_wrap().gap_x_4().gap_y_1p5().children(
                             c.logins.iter().map(|l| {
                                 let kind = l.kind.clone();
@@ -919,7 +908,7 @@ impl AppView {
                                     on.contains(&l.kind),
                                     l.items == 0,
                                     h_flex().gap_1().child(login_label(&l.kind)).child(
-                                        div().text_color(theme::faint()).child(tv(
+                                        div().text_color(theme::subtle()).child(tv(
                                             "transfer.accounts",
                                             &[("count", l.items.into())],
                                         )),
@@ -959,7 +948,7 @@ impl AppView {
             );
         }
         if let Some(e) = &tr.import_error {
-            row.body.push(note_in(e.clone(), theme::error()));
+            row.body.push(note_in(e.clone(), theme::rose(300)));
         }
         if let Some(j) = &tr.import_job {
             row.body.push(self.job_progress(j));
@@ -975,7 +964,13 @@ impl AppView {
 
     fn import_report(&self, r: &InstanceImportReport) -> AnyElement {
         let col = |text: String, w: Option<f32>, color: Hsla| {
-            let el = div().text_xs().text_color(color);
+            let el = div()
+                .py_1()
+                .text_xs()
+                .when(color == theme::muted(), |el| {
+                    el.font_weight(FontWeight::MEDIUM)
+                })
+                .text_color(color);
             match w {
                 Some(w) => el.w(px(w)).flex_none().child(text),
                 None => el.flex_1().min_w_0().child(text),
@@ -986,13 +981,13 @@ impl AppView {
             .p_3()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::bg())
+            .border_color(theme::line())
+            .bg(theme::surface())
             .child(
                 div()
-                    .text_sm()
+                    .text_size(theme::text::UI)
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(tv(
                         "transfer.report.summary",
                         &[
@@ -1028,6 +1023,8 @@ impl AppView {
                 h_flex()
                     .gap_2()
                     .items_start()
+                    .border_t_1()
+                    .border_color(theme::line())
                     .child(
                         v_flex()
                             .flex_1()
@@ -1035,15 +1032,15 @@ impl AppView {
                             .child(mono(e.id.clone()))
                             .children(e.notes.iter().map(|n| note(n.clone()))),
                     )
-                    .child(col(e.added.to_string(), Some(80.), theme::fg()))
-                    .child(col(e.skipped.to_string(), Some(100.), theme::fg()))
+                    .child(col(e.added.to_string(), Some(80.), theme::secondary()))
+                    .child(col(e.skipped.to_string(), Some(100.), theme::secondary()))
                     .child(col(
                         e.conflicted.to_string(),
                         Some(160.),
                         if e.conflicted > 0 {
-                            theme::starting()
+                            theme::amber(300)
                         } else {
-                            theme::fg()
+                            theme::secondary()
                         },
                     ))
             }))

@@ -6423,6 +6423,104 @@ pub struct DiagnosticsResources {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct PresenceRequest {
+    pub client: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub kind: String,
+    pub visible: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub views: Vec<PresenceView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub power: Option<HostPower>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PresenceView {
+    pub project: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub agent: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub resources: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HostPower {
+    #[serde(rename = "onBattery")]
+    pub on_battery: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub thermal: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PresenceResponse {
+    #[serde(rename = "ttlSeconds")]
+    pub ttl_seconds: i64,
+    pub idle: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PresenceState {
+    #[serde(deserialize_with = "nullable")]
+    pub leases: Vec<PresenceLease>,
+    pub idle: bool,
+    pub power: HostPower,
+    #[serde(deserialize_with = "nullable")]
+    pub sampling: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PresenceLease {
+    pub client: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub kind: String,
+    pub visible: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub views: Vec<PresenceView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub power: Option<HostPower>,
+    pub expires: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentResourcePoint {
+    pub at: String,
+    pub cpu: f64,
+    pub memory: i64,
+    pub swap: i64,
+    #[serde(rename = "diskRead")]
+    pub disk_read: i64,
+    #[serde(rename = "diskWrite")]
+    pub disk_write: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentResourceHistory {
+    pub r#ref: String,
+    #[serde(rename = "intervalSeconds")]
+    pub interval_seconds: i64,
+    #[serde(rename = "windowSeconds")]
+    pub window_seconds: i64,
+    pub sampling: bool,
+    #[serde(deserialize_with = "nullable")]
+    pub points: Vec<AgentResourcePoint>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentResourcesEvent {
+    pub r#ref: String,
+    pub point: AgentResourcePoint,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PackageCachePart {
     pub name: String,
     pub bytes: i64,
@@ -6542,6 +6640,7 @@ pub const EVENT_JOB: &str = "job";
 pub const EVENT_JOB_LOG: &str = "job.log";
 pub const EVENT_AGENT: &str = "agent";
 pub const EVENT_USAGE: &str = "usage";
+pub const EVENT_AGENT_RESOURCES: &str = "agent-resources";
 pub const EVENT_PROJECT: &str = "project";
 pub const EVENT_MEDIA: &str = "media";
 pub const EVENT_NOTIFICATION: &str = "notification";

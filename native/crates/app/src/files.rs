@@ -386,8 +386,8 @@ impl FileBrowser {
                         .rounded_sm()
                         .cursor_pointer()
                         .text_xs()
-                        .when(selected, |el| el.bg(theme::hover()))
-                        .hover(|el| el.bg(theme::raised()))
+                        .when(selected, |el| el.bg(theme::surface_strong()))
+                        .hover(|el| el.bg(theme::surface_raised()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             if dir {
                                 this.toggle_dir(p.clone(), cx)
@@ -415,7 +415,7 @@ impl FileBrowser {
                                 .truncate()
                                 .text_color(match change {
                                     Some(c) if !dir => change_color(c),
-                                    _ => theme::fg(),
+                                    _ => theme::primary(),
                                 })
                                 .child(name),
                         )
@@ -468,12 +468,12 @@ impl FileBrowser {
                                 .rounded_sm()
                                 .cursor_pointer()
                                 .text_xs()
-                                .when(selected, |el| el.bg(theme::hover()))
-                                .hover(|el| el.bg(theme::raised()))
+                                .when(selected, |el| el.bg(theme::surface_strong()))
+                                .hover(|el| el.bg(theme::surface_raised()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.open_file(p.clone(), cx)
                                 }))
-                                .child(div().truncate().text_color(theme::fg()).child(name))
+                                .child(div().truncate().text_color(theme::primary()).child(name))
                                 .when(!dir.is_empty(), |el| {
                                     el.child(div().truncate().text_color(theme::faint()).child(dir))
                                 })
@@ -516,7 +516,7 @@ impl FileBrowser {
             .px_2()
             .py_1p5()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 div()
                     .text_xs()
@@ -646,7 +646,7 @@ impl FileBrowser {
                     .px_2()
                     .py_1()
                     .border_b_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .text_xs()
                     .text_color(theme::muted())
                     .child(
@@ -688,8 +688,10 @@ impl FileBrowser {
                             .px_1p5()
                             .rounded_sm()
                             .cursor_pointer()
-                            .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
-                            .when(self.pdf_zoom.is_none(), |el| el.text_color(theme::fg()))
+                            .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                            .when(self.pdf_zoom.is_none(), |el| {
+                                el.text_color(theme::primary())
+                            })
                             .tooltip(|w, cx| {
                                 gpui_component::tooltip::Tooltip::new(t("files.pdf.fit"))
                                     .build(w, cx)
@@ -719,7 +721,7 @@ impl FileBrowser {
             .child(match self.pdf_zoom {
                 None => div()
                     .p_3()
-                    .bg(theme::bg())
+                    .bg(theme::ink())
                     .child(
                         img(pages.pages[page].clone())
                             .w_full()
@@ -731,7 +733,7 @@ impl FileBrowser {
                 Some(z) => div()
                     .id("pdf-zoomed")
                     .p_3()
-                    .bg(theme::bg())
+                    .bg(theme::ink())
                     .overflow_x_scroll()
                     .child(
                         img(pages.pages[page].clone())
@@ -762,8 +764,8 @@ impl FileBrowser {
                     .rounded_sm()
                     .cursor_pointer()
                     .text_xs()
-                    .when(selected, |el| el.bg(theme::hover()))
-                    .hover(|el| el.bg(theme::raised()))
+                    .when(selected, |el| el.bg(theme::surface_strong()))
+                    .hover(|el| el.bg(theme::surface_raised()))
                     .when(!path.ends_with('/'), |el| {
                         el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.open_file(p.clone(), cx)
@@ -782,7 +784,7 @@ impl FileBrowser {
                             .flex_1()
                             .truncate()
                             .font_family(theme::mono())
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(path.clone()),
                     )
                     .into_any_element()
@@ -815,7 +817,7 @@ impl FileBrowser {
             .px_2()
             .gap_1p5()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 div()
                     .min_w_0()
@@ -823,7 +825,7 @@ impl FileBrowser {
                     .truncate()
                     .text_xs()
                     .font_family(theme::mono())
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(path.clone()),
             )
             .when(
@@ -967,7 +969,7 @@ impl FileBrowser {
                                         .flex_none()
                                         .pr_4()
                                         .whitespace_nowrap()
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .child(if l.is_empty() {
                                             " ".into_any_element()
                                         } else {
@@ -1026,7 +1028,7 @@ impl Render for FileBrowser {
                     .px_2()
                     .gap_1p5()
                     .border_b_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(
                         chip(
                             "files-changes",
@@ -1083,7 +1085,7 @@ impl Render for FileBrowser {
                             .flex_none()
                             .h_full()
                             .border_r_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .child(if self.query.is_empty() {
                                 self.render_tree(cx)
                             } else {
@@ -1161,11 +1163,11 @@ fn chip(id: &'static str, label: String, on: bool) -> Stateful<Div> {
         .border_color(if on {
             theme::accent().opacity(0.5)
         } else {
-            theme::border()
+            theme::line()
         })
         .when(on, |el| el.bg(theme::accent().opacity(0.12)))
-        .text_color(if on { theme::fg() } else { theme::muted() })
-        .hover(|el| el.text_color(theme::fg()))
+        .text_color(if on { theme::primary() } else { theme::muted() })
+        .hover(|el| el.text_color(theme::primary()))
         .child(label)
 }
 
@@ -1179,7 +1181,7 @@ fn icon_button(id: &'static str, glyph: &'static str, tip: String) -> Stateful<D
         .text_sm()
         .text_color(theme::muted())
         .cursor_pointer()
-        .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
+        .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
         })

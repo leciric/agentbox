@@ -602,7 +602,7 @@ fn summary(f: &PullFile) -> Vec<AnyElement> {
             .min_w_0()
             .truncate()
             .font_family(crate::theme::mono())
-            .text_color(theme::fg())
+            .text_color(theme::primary())
             .child(f.path.clone())
             .into_any_element(),
     ];
@@ -635,7 +635,7 @@ fn summary(f: &PullFile) -> Vec<AnyElement> {
                 .flex_none()
                 .px_1p5()
                 .rounded_sm()
-                .bg(theme::hover())
+                .bg(theme::surface_strong())
                 .text_xs()
                 .text_color(theme::muted())
                 .child(k)
@@ -769,7 +769,7 @@ pub fn table_with(
                     .map(|el| match l.kind {
                         LineKind::Hunk => el.text_color(theme::muted()),
                         LineKind::Note => el.text_color(theme::faint()).italic(),
-                        _ => el.text_color(theme::fg()),
+                        _ => el.text_color(theme::primary()),
                     })
                     .child(if l.text.is_empty() {
                         " ".into_any_element()
@@ -785,9 +785,9 @@ pub fn table_with(
         .id(id)
         .w_full()
         .overflow_x_scroll()
-        .bg(theme::bg())
+        .bg(theme::ink())
         .border_t_1()
-        .border_color(theme::border())
+        .border_color(theme::line())
         .child(
             v_flex()
                 .flex_none()
@@ -814,7 +814,7 @@ impl DiffView {
                 .px_3()
                 .py_2()
                 .border_t_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .text_xs()
                 .text_color(color)
                 .child(text)
@@ -868,7 +868,7 @@ impl DiffView {
                             .text_xs()
                             .text_color(theme::muted())
                             .cursor_pointer()
-                            .hover(|s| s.bg(theme::raised()).text_color(theme::fg()))
+                            .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 if !this.folded.remove(&p) {
                                     this.folded.insert(p.clone());
@@ -907,8 +907,8 @@ impl DiffView {
                             .py_1()
                             .text_xs()
                             .cursor_pointer()
-                            .when(on, |el| el.bg(theme::hover()))
-                            .hover(|s| s.bg(theme::raised()))
+                            .when(on, |el| el.bg(theme::surface_strong()))
+                            .hover(|s| s.bg(theme::surface_raised()))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 this.focus.focus(window, cx);
                                 this.select(ix, cx)
@@ -919,7 +919,7 @@ impl DiffView {
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .text_color(if on { theme::fg() } else { theme::muted() })
+                                    .text_color(if on { theme::primary() } else { theme::muted() })
                                     .when(f.status == "removed", |el| el.line_through())
                                     .child(name.clone()),
                             )
@@ -946,7 +946,7 @@ impl DiffView {
             .min_w_0()
             .rounded_lg()
             .border_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .overflow_hidden()
             .child(header)
             .when(open, |el| el.child(self.body(f, ix, cx)))
@@ -986,11 +986,13 @@ impl Render for DiffView {
                 .rounded_md()
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
-                .when(on, |el| el.bg(theme::hover()).text_color(theme::fg()))
+                .when(on, |el| {
+                    el.bg(theme::surface_strong()).text_color(theme::primary())
+                })
                 .when(!on, |el| {
                     el.text_color(theme::muted())
                         .cursor_pointer()
-                        .hover(|s| s.text_color(theme::fg()))
+                        .hover(|s| s.text_color(theme::primary()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.set_layout(layout, cx)
                         }))
@@ -1003,7 +1005,7 @@ impl Render for DiffView {
             .px_4()
             .py_2()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 div()
                     .text_xs()
@@ -1019,7 +1021,7 @@ impl Render for DiffView {
                     .gap(px(2.))
                     .rounded_lg()
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(switch(
                         "tree",
                         t("pulls.detail.view.tree"),
@@ -1063,7 +1065,7 @@ impl Render for DiffView {
                             .py_2()
                             .overflow_y_scroll()
                             .border_r_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .children(self.render_tree(&tree, 0, cx)),
                     )
                     .child(
@@ -1081,7 +1083,7 @@ impl Render for DiffView {
                                         .gap_2()
                                         .px_3()
                                         .py_2()
-                                        .bg(theme::raised())
+                                        .bg(theme::surface_raised())
                                         .text_xs()
                                         .children(summary(f))
                                         .into_any_element();
@@ -1112,10 +1114,10 @@ impl Render for DiffView {
                         .gap_2()
                         .px_3()
                         .py_2()
-                        .bg(theme::raised())
+                        .bg(theme::surface_raised())
                         .text_xs()
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
+                        .hover(|s| s.bg(theme::surface_strong()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.toggle_open(&path, cx)
                         }))
@@ -1136,7 +1138,7 @@ impl Render for DiffView {
             .id(self.id.clone())
             .track_focus(&self.focus)
             .size_full()
-            .bg(theme::panel())
+            .bg(theme::card())
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                 if this.layout != Layout::Tree {
                     return;

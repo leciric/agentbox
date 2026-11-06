@@ -155,6 +155,8 @@ const unavailable = (message: MessageKey) => () => Promise.reject(new Error(t(me
 export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
   lan,
+  hostPower: async () => ({ onBattery: false }),
+  onHostPower: () => () => {},
   keepAwake: async () => {},
   // A browser has no tray.
   tray: { settings: async () => null, set: unavailable('web.bridge.tray'), reviewing: () => {}, onOpen: () => () => {} },

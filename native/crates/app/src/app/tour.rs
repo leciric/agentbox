@@ -252,7 +252,7 @@ impl AppView {
             .gap_3()
             .p_5()
             .rounded_xl()
-            .bg(theme::panel())
+            .bg(theme::card())
             .border_1()
             .border_color(theme::accent().opacity(0.5))
             .shadow_lg()
@@ -329,7 +329,7 @@ impl AppView {
                 cx.listener(|this, _: &MouseDownEvent, _, cx| this.tour_to(None, cx)),
             )
         };
-        let dim = gpui::black().opacity(0.45);
+        let dim = theme::scrim();
         let shade = |x: Pixels, y: Pixels, w: Pixels, h: Pixels| {
             skip(
                 div()
@@ -394,7 +394,7 @@ impl AppView {
             .absolute()
             .inset_0()
             .occlude()
-            .bg(gpui::black().opacity(0.55))
+            .bg(theme::scrim())
             .flex()
             .items_center()
             .justify_center()
@@ -408,9 +408,9 @@ impl AppView {
                     .gap_4()
                     .p_5()
                     .rounded_xl()
-                    .bg(theme::panel())
+                    .bg(theme::card())
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .shadow_lg()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(

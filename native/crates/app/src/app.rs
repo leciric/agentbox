@@ -25,9 +25,11 @@ mod new_agent;
 mod new_task;
 mod panel;
 mod past;
+mod presence;
 pub(crate) mod pulls;
 mod recap;
 mod recap_card;
+mod resources;
 mod review;
 mod schedules;
 mod search;
@@ -104,6 +106,10 @@ pub struct AppView {
     agent_settings: agent_settings::AgentSettings,
     /// The past agent open (past.rs).
     past: past::Past,
+    /// The panel's Resources view of an agent (resources.rs).
+    resources: resources::Resources,
+    /// The window's presence lease (presence.rs).
+    presence: presence::Presence,
     /// The panel's widths, and its drawer (width.rs).
     widths: width::Widths,
     side: sidebar::Sidebar,
@@ -197,6 +203,8 @@ impl AppView {
             issues: issues::Issues::default(),
             agent_settings: agent_settings::AgentSettings::new(window, cx),
             past: past::Past::new(window, cx),
+            resources: Default::default(),
+            presence: Default::default(),
             widths: width::Widths::load(),
             side: sidebar::Sidebar::new(window, cx),
             new_task: None,
@@ -221,6 +229,7 @@ impl AppView {
         this.watch_connection(window, cx);
         this.watch_topbar(cx);
         this.start_alerts(window, cx);
+        this.start_presence(window, cx);
         if let Ok(secs) =
             std::env::var("AGENTBOX_NATIVE_SCROLL_BENCH").map(|s| s.parse::<u64>().unwrap_or(3))
         {
@@ -271,6 +280,7 @@ impl AppView {
                 self.load_sessions(p, cx);
             }
             self.load_pulls(false, cx);
+            self.reload_resources(cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
             }
@@ -374,6 +384,7 @@ impl AppView {
                 }
             }
             agentbox_api::EVENT_MEDIA => self.on_media_event(cx),
+            agentbox_api::EVENT_AGENT_RESOURCES => self.on_resources_event(ev.data, cx),
             agentbox_api::EVENT_AGENT_EVENT => {
                 if let Some(p) = ev.data.get("project").and_then(|v| v.as_str())
                     && self.project.as_deref() == Some(p)
@@ -767,20 +778,20 @@ impl AppView {
                 .gap_2()
                 .rounded_md()
                 .cursor_pointer()
-                .when(selected, |el| el.bg(theme::hover()))
-                .hover(|el| el.bg(theme::raised()))
+                .when(selected, |el| el.bg(theme::surface_strong()))
+                .hover(|el| el.bg(theme::surface_raised()))
         };
         let lead = row("rail-lead".into(), self.open == "lead")
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.open_chat("lead".into(), window, cx)
             }))
-            .child(div().size_2().rounded_full().bg(theme::accent()))
+            .child(div().size_2().rounded_full().bg(theme::brand(500)))
             .child(
                 v_flex()
                     .child(
                         div()
                             .text_sm()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(t("v2.header.lead")),
                     )
                     .child(
@@ -795,9 +806,9 @@ impl AppView {
             .w(px(if pulls_tab { 400. } else { 300. }))
             .flex_none()
             .h_full()
-            .bg(theme::panel())
+            .bg(theme::card())
             .border_l_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 h_flex()
                     .h_12()
@@ -810,7 +821,7 @@ impl AppView {
                             .child(
                                 div()
                                     .text_sm()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(t("shell.home.agents")),
                             )
@@ -827,7 +838,7 @@ impl AppView {
             return rail.child(self.render_pulls_panel(cx));
         }
         rail.child(lead)
-            .child(div().mx_4().my_1().h(px(1.)).bg(theme::border()))
+            .child(div().mx_4().my_1().h(px(1.)).bg(theme::line()))
             .children(self.rail_rows().into_iter().map(|a| {
                 let (name, project) = (a.name.clone(), a.project.clone());
                 let busy = a.busy;
@@ -860,7 +871,7 @@ impl AppView {
                                 .child(
                                     div()
                                         .text_sm()
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .child(a.name.clone()),
                                 )
                                 .when_some(a.pr.as_ref(), |el, pr| {
@@ -923,6 +934,8 @@ impl AppView {
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.panel.track(&self.fleet);
+        self.presence_check(window, cx);
         bench::mark("first-render");
         controls::set_viewport(window.viewport_size());
         self.focus_tour(window, cx);
@@ -1004,8 +1017,10 @@ impl Render for AppView {
                 }
             }))
             .size_full()
-            .bg(theme::bg())
-            .text_color(theme::fg())
+            .bg(theme::ink())
+            .text_color(theme::primary())
+            .font_family(theme::SANS)
+            .child(theme::window_washes(window))
             .child(crate::webview::pages_begin())
             .when(self.widths.dragging(), |el| {
                 el.cursor_col_resize()

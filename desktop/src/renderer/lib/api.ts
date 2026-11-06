@@ -717,6 +717,11 @@ export const api = {
   exportMedia: (ref: string) => call<T.ExportResult>('POST', `${agent(ref)}/media/export`, {}),
 
   usage: () => call<T.Usage>('GET', '/v1/usage?interval=500ms'),
+  // Presence (lib/presence.ts): this window's lease on what it shows, and an
+  // agent's live resources, sampled while a lease asks for them.
+  renewPresence: (req: T.PresenceRequest) => call<T.PresenceResponse>('PUT', '/v1/presence', req),
+  endPresence: (client: string) => call<void>('DELETE', `/v1/presence/${encodeURIComponent(client)}`),
+  agentResources: (ref: string) => call<T.AgentResourceHistory>('GET', `${agent(ref)}/resources`),
   // Settings → Diagnostics: spans and stalls since a stretch back from now
   // ("30m"), resource samples over a window ("1h"), and the app's own spans.
   diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),

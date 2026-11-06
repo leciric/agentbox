@@ -277,7 +277,7 @@ impl TerminalView {
                 let (mut fg, mut bg) = (color(cell.fg, true), color(cell.bg, false));
                 if cell.flags.contains(Flags::INVERSE) {
                     std::mem::swap(&mut fg, &mut bg);
-                    bg = bg.or(Some(theme::fg()));
+                    bg = bg.or(Some(theme::primary()));
                 }
                 let is_cursor = offset == 0
                     && line == cursor.line
@@ -286,7 +286,7 @@ impl TerminalView {
                 if is_cursor {
                     bg = Some(theme::accent());
                 }
-                let fg = fg.unwrap_or(theme::fg());
+                let fg = fg.unwrap_or(theme::primary());
                 let fg = if cell.flags.contains(Flags::DIM) {
                     fg.opacity(0.6)
                 } else {
@@ -374,12 +374,12 @@ impl Render for TerminalView {
                 cx.listener(|this, _, window, cx| this.focus.focus(window, cx)),
             )
             .size_full()
-            .bg(gpui::rgb(0x0b0b0d))
+            .bg(theme::stage())
             .p_2()
             .font_family(FONT)
             .text_size(px(FONT_SIZE))
             .line_height(px(LINE_HEIGHT))
-            .text_color(theme::fg())
+            .text_color(theme::primary())
             .child(
                 div()
                     .relative()
@@ -420,7 +420,7 @@ fn color(c: Color, fg: bool) -> Option<Hsla> {
         Color::Spec(Rgb { r, g, b }) => Some(rgb_u8(r, g, b)),
         Color::Indexed(i) => Some(indexed(i)),
         Color::Named(n) => match n {
-            NamedColor::Foreground | NamedColor::BrightForeground => fg.then(theme::fg),
+            NamedColor::Foreground | NamedColor::BrightForeground => fg.then(theme::primary),
             NamedColor::Background => None,
             NamedColor::Cursor => Some(theme::accent()),
             n if (n as usize) < 16 => Some(indexed(n as u8)),
@@ -429,7 +429,7 @@ fn color(c: Color, fg: bool) -> Option<Hsla> {
             {
                 Some(indexed((n as usize - NamedColor::DimBlack as usize) as u8).opacity(0.7))
             }
-            _ => fg.then(theme::fg),
+            _ => fg.then(theme::primary),
         },
     }
 }

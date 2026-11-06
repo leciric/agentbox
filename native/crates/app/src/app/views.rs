@@ -399,7 +399,7 @@ impl AppView {
             .px_2()
             .py_1p5()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 div()
                     .id("browser-reload")
@@ -407,7 +407,7 @@ impl AppView {
                     .rounded_md()
                     .text_color(theme::muted())
                     .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                    .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                     .tooltip(move |w, cx| Tooltip::new(reload_tip.clone()).build(w, cx))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.browser_go(cx)))
                     .child(crate::icons::of("↻")),
@@ -421,8 +421,8 @@ impl AppView {
                     .h(px(28.))
                     .rounded_md()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
+                    .border_color(theme::line())
+                    .bg(theme::ink())
                     .text_xs()
                     .child(
                         div()
@@ -460,7 +460,7 @@ impl AppView {
                     .when(url.is_empty(), |el| el.opacity(0.4))
                     .when(!url.is_empty(), |el| {
                         el.cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                            .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                             .on_click(move |_, _, cx| cx.open_url(&open_url))
                     })
                     .tooltip(move |w, cx| Tooltip::new(out_tip.clone()).build(w, cx))
@@ -473,7 +473,7 @@ impl AppView {
                 .px_2()
                 .py_1()
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .children(ports.iter().map(|p| {
                     let on = p.port == current;
                     let port = p.port.clone();
@@ -491,11 +491,13 @@ impl AppView {
                         .py(px(2.))
                         .rounded_md()
                         .text_xs()
-                        .when(on, |el| el.bg(theme::raised()).text_color(theme::fg()))
+                        .when(on, |el| {
+                            el.bg(theme::surface_raised()).text_color(theme::primary())
+                        })
                         .when(!on, |el| {
-                            el.text_color(theme::muted())
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                            el.text_color(theme::muted()).cursor_pointer().hover(|s| {
+                                s.bg(theme::surface_strong()).text_color(theme::primary())
+                            })
                         })
                         .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -518,7 +520,7 @@ impl AppView {
                     .justify_center()
                     .gap_2()
                     .px_6()
-                    .bg(theme::panel())
+                    .bg(theme::card())
                     .text_sm()
                     .text_color(theme::muted())
                     .child(
@@ -555,7 +557,7 @@ impl AppView {
             } else {
                 div()
                     .size_full()
-                    .bg(gpui::white())
+                    .bg(theme::paper())
                     .child(crate::webview::page(
                         format!("browser-{}", a.r#ref),
                         format!("{url}#{}", self.views.reloads),
@@ -824,7 +826,7 @@ impl AppView {
                 .when(!enabled, |el| el.opacity(0.4))
                 .when(enabled, |el| {
                     el.cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                        .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                 })
                 .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                 .child(crate::icons::of(glyph))
@@ -894,7 +896,7 @@ impl AppView {
             .px_3()
             .gap_1p5()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 h_flex()
                     .min_w_0()
@@ -903,10 +905,14 @@ impl AppView {
                     .gap_2()
                     .rounded_full()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
+                    .border_color(theme::line())
+                    .bg(theme::ink())
                     .text_xs()
-                    .text_color(if booted { theme::fg() } else { theme::muted() })
+                    .text_color(if booted {
+                        theme::primary()
+                    } else {
+                        theme::muted()
+                    })
                     .child(div().size(px(6.)).rounded_full().bg(dot))
                     .child(crate::icons::of("▯"))
                     .child(div().truncate().child(device_name)),
@@ -951,7 +957,7 @@ impl AppView {
                     el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.android_record(cx)))
                 }),
             )
-            .child(div().w(px(1.)).h(px(18.)).bg(theme::border()))
+            .child(div().w(px(1.)).h(px(18.)).bg(theme::line()))
             .child(
                 h_flex()
                     .id("android-control")
@@ -1017,8 +1023,8 @@ impl AppView {
                             .h(px(96.))
                             .rounded(px(14.))
                             .border_1()
-                            .border_color(theme::border())
-                            .bg(theme::raised())
+                            .border_color(theme::line())
+                            .bg(theme::surface_raised())
                             .flex()
                             .items_center()
                             .justify_center()
@@ -1107,7 +1113,7 @@ impl AppView {
             .px_4()
             .gap_3()
             .border_t_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .text_xs()
             .text_color(theme::muted())
             .child(
@@ -1301,7 +1307,7 @@ impl AppView {
             .when(!enabled, |el| el.opacity(0.4))
             .when(enabled, |el| {
                 el.cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                    .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_pick(cx)))
             })
             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))

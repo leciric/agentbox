@@ -27,7 +27,6 @@ pub struct VideoPlayer {
     path: PathBuf,
     frame: Option<Arc<RenderImage>>,
     /// Frames shown and replaced, whose textures go back to GPUI next render.
-    stale: Vec<Arc<RenderImage>>,
     playing: bool,
     position: f64,
     duration: f64,
@@ -51,7 +50,6 @@ impl VideoPlayer {
         let mut this = Self {
             path,
             frame: None,
-            stale: Vec::new(),
             playing: false,
             position: 0.,
             duration: 0.,
@@ -162,7 +160,8 @@ impl VideoPlayer {
                 let image = Arc::new(RenderImage::new(vec![image::Frame::new(frame.image)]));
                 let ok = this.update(cx, |this, cx| {
                     if let Some(old) = this.frame.replace(image) {
-                        this.stale.push(old);
+                        // Out of every window's atlas now, drawn or not.
+                        cx.drop_image(old, None);
                     }
                     this.position = frame.pts;
                     this.shown += 1;
@@ -261,10 +260,7 @@ fn decode(path: &PathBuf, at: f64, tx: &tokio::sync::mpsc::Sender<Result<Decoded
 }
 
 impl Render for VideoPlayer {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        for old in self.stale.drain(..) {
-            let _ = window.drop_image(old);
-        }
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let label = format!("{} / {}", clock(self.position), clock(self.duration));
         let share = if self.duration > 0. {
             (self.position / self.duration).clamp(0., 1.) as f32
@@ -276,7 +272,7 @@ impl Render for VideoPlayer {
         if self.bare {
             return div()
                 .size_full()
-                .bg(gpui::black())
+                .bg(theme::pitch())
                 .when_some(self.frame.clone(), |el, f| {
                     el.child(img(f).size_full().object_fit(ObjectFit::Cover))
                 })
@@ -294,7 +290,7 @@ impl Render for VideoPlayer {
                     .items_center()
                     .justify_center()
                     .rounded_lg()
-                    .bg(gpui::black())
+                    .bg(theme::pitch())
                     .overflow_hidden()
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle(cx)))
@@ -337,9 +333,9 @@ impl Render for VideoPlayer {
                             .px_3()
                             .py_1()
                             .rounded_md()
-                            .bg(theme::raised())
+                            .bg(theme::surface_raised())
                             .cursor_pointer()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(if self.playing {
                                 agentbox_i18n::t("native.video.pause")
                             } else if self.position >= self.duration - 0.05 && self.shown > 0 {
@@ -380,12 +376,12 @@ impl Render for VideoPlayer {
                                     .top(px(7.))
                                     .h(px(4.))
                                     .rounded_full()
-                                    .bg(theme::raised())
+                                    .bg(theme::surface_raised())
                                     .child(
                                         div()
                                             .h_full()
                                             .rounded_full()
-                                            .bg(theme::accent())
+                                            .bg(theme::brand(500))
                                             .w(relative(share)),
                                     ),
                             )
@@ -396,7 +392,7 @@ impl Render for VideoPlayer {
                                     .left(relative((m / duration).clamp(0., 1.) as f32))
                                     .w(px(2.))
                                     .h(px(10.))
-                                    .bg(theme::fg().opacity(0.7))
+                                    .bg(theme::primary().opacity(0.7))
                             })),
                     )
                     .child(div().flex_none().child(label))

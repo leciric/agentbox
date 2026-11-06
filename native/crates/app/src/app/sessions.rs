@@ -75,11 +75,11 @@ impl Render for TabPreview {
             .px_2p5()
             .py_1()
             .rounded_md()
-            .bg(theme::raised())
+            .bg(theme::surface_raised())
             .border_1()
             .border_color(theme::accent())
             .text_sm()
-            .text_color(theme::fg())
+            .text_color(theme::primary())
             .child(self.0.clone())
     }
 }
@@ -191,7 +191,7 @@ fn mark(s: &LeadSession, unread: bool) -> Option<AnyElement> {
                 .justify_center()
                 .text_size(px(10.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(gpui::black())
+                .text_color(theme::on_bright())
                 .child(s.needs_you.max(1).to_string())
                 .into_any_element(),
         ),
@@ -216,7 +216,7 @@ fn mark(s: &LeadSession, unread: bool) -> Option<AnyElement> {
                 .flex_none()
                 .size_1p5()
                 .rounded_full()
-                .bg(theme::accent())
+                .bg(theme::brand(500))
                 .into_any_element(),
         ),
         _ => None,
@@ -1001,16 +1001,18 @@ impl AppView {
                 .pr_1()
                 .rounded_t_lg()
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .cursor_pointer()
                 .text_sm()
                 .when(on, |el| {
-                    el.border_b_0().bg(theme::bg()).text_color(theme::fg())
+                    el.border_b_0()
+                        .bg(theme::ink())
+                        .text_color(theme::primary())
                 })
                 .when(!on, |el| {
-                    el.border_color(theme::border().opacity(0.5))
+                    el.border_color(theme::line().opacity(0.5))
                         .text_color(theme::muted())
-                        .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
+                        .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                 })
                 .children(mark(s, unread))
                 .when(pinned && status(s) == "idle" && !unread, |el| {
@@ -1043,7 +1045,7 @@ impl AppView {
                         .rounded_md()
                         .text_xs()
                         .text_color(theme::faint())
-                        .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+                        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
                         .child(crate::icons::of("✕"))
                         .tooltip(move |w, cx| {
                             gpui_component::tooltip::Tooltip::new(t("sessions.close")).build(w, cx)
@@ -1113,7 +1115,7 @@ impl AppView {
                 .px_5()
                 .pt_1()
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .overflow_x_scroll()
                 .children(tabs)
                 .child(
@@ -1129,7 +1131,7 @@ impl AppView {
                         .cursor_pointer()
                         .text_sm()
                         .text_color(theme::muted())
-                        .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+                        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
                         .when(self.sessions.adding, |el| el.opacity(0.5))
                         .child("+")
                         .when(awake.is_empty(), |el| el.child(t("sessions.new")))
@@ -1205,8 +1207,8 @@ impl AppView {
                         .cursor_pointer()
                         .text_sm()
                         .text_color(theme::muted())
-                        .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
-                        .when(self.sessions.history, |el| el.bg(theme::hover()))
+                        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
+                        .when(self.sessions.history, |el| el.bg(theme::surface_strong()))
                         .child(crate::icons::of("🕘"))
                         .when(closed > 0, |el| {
                             el.child(
@@ -1274,7 +1276,7 @@ impl AppView {
                 .text_xs()
                 .text_color(theme::faint())
                 .cursor_pointer()
-                .hover(|el| el.text_color(theme::fg()).underline())
+                .hover(|el| el.text_color(theme::primary()).underline())
                 .child(format!("↳ {label}"))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     if this.sessions.awake(&p).iter().any(|s| s.id == ps) {
@@ -1292,7 +1294,7 @@ impl AppView {
                 .px_4()
                 .py_1p5()
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .children(parent)
                 .child(
                     h_flex()
@@ -1324,8 +1326,8 @@ impl AppView {
                                 .px_2()
                                 .rounded_full()
                                 .border_1()
-                                .border_color(theme::border())
-                                .bg(theme::panel())
+                                .border_color(theme::line())
+                                .bg(theme::card())
                                 .text_xs()
                                 .text_color(if a.archived {
                                     theme::faint()
@@ -1350,7 +1352,10 @@ impl AppView {
                                 })
                                 .when(!a.archived, |el| {
                                     el.cursor_pointer()
-                                        .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
+                                        .hover(|el| {
+                                            el.bg(theme::surface_raised())
+                                                .text_color(theme::primary())
+                                        })
                                         .on_click(cx.listener(
                                             move |this, _: &ClickEvent, window, cx| {
                                                 this.open_agent_ref(r.clone(), window, cx)
@@ -1425,7 +1430,7 @@ impl AppView {
             .gap_3()
             .child(
                 div()
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(t("sessions.none")),
             )
@@ -1551,147 +1556,154 @@ impl AppView {
             cx.notify();
         });
         Some(
-            div()
-                .id("session-changes")
-                .absolute()
-                .inset_0()
-                .bg(gpui::black().opacity(0.55))
-                .flex()
-                .items_center()
-                .justify_center()
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.sessions.changes = None;
-                        cx.notify();
-                    }),
-                )
-                .child(
-                    v_flex()
-                        .w(px(1024.))
-                        .max_w(relative(0.94))
-                        .h(relative(0.88))
-                        .rounded_xl()
-                        .bg(theme::panel())
-                        .border_1()
-                        .border_color(theme::border())
-                        .overflow_hidden()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(
-                            h_flex()
-                                .flex_none()
-                                .px_6()
-                                .py_4()
-                                .gap_3()
-                                .border_b_1()
-                                .border_color(theme::border())
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .child(
-                                            div()
-                                                .text_lg()
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(theme::fg())
-                                                .child(tv(
-                                                    "sessions.header.changesTitle",
-                                                    &[("topic", topic.into())],
-                                                )),
-                                        )
-                                        .child(div().text_sm().text_color(theme::muted()).child(
-                                            tv(
-                                                "sessions.header.changesDescription",
-                                                &[("count", list.len().into())],
+            crate::motion::scrim_in(
+                div()
+                    .id("session-changes")
+                    .absolute()
+                    .inset_0()
+                    .bg(theme::scrim())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.sessions.changes = None;
+                            cx.notify();
+                        }),
+                    )
+                    .child(
+                        v_flex()
+                            .w(px(1024.))
+                            .max_w(relative(0.94))
+                            .h(relative(0.88))
+                            .rounded_xl()
+                            .bg(theme::card())
+                            .border_1()
+                            .border_color(theme::line())
+                            .overflow_hidden()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(
+                                h_flex()
+                                    .flex_none()
+                                    .px_6()
+                                    .py_4()
+                                    .gap_3()
+                                    .border_b_1()
+                                    .border_color(theme::line())
+                                    .child(
+                                        v_flex()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .child(
+                                                div()
+                                                    .text_lg()
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(theme::primary())
+                                                    .child(tv(
+                                                        "sessions.header.changesTitle",
+                                                        &[("topic", topic.into())],
+                                                    )),
+                                            )
+                                            .child(
+                                                div().text_sm().text_color(theme::muted()).child(
+                                                    tv(
+                                                        "sessions.header.changesDescription",
+                                                        &[("count", list.len().into())],
+                                                    ),
+                                                ),
                                             ),
-                                        )),
-                                )
-                                .child(controls::button(
-                                    "session-changes-close",
-                                    "✕",
-                                    Btn::Ghost,
-                                    false,
-                                    close,
-                                )),
-                        )
-                        .child(
-                            v_flex()
-                                .id("session-changes-list")
-                                .flex_1()
-                                .min_h_0()
-                                .overflow_y_scroll()
-                                .children(list.iter().map(|(a, view)| {
-                                    v_flex()
-                                        .border_b_1()
-                                        .border_color(theme::border())
-                                        .child(
-                                            h_flex()
-                                                .px_5()
-                                                .py_2p5()
-                                                .gap_2()
-                                                .border_b_1()
-                                                .border_color(theme::border().opacity(0.5))
-                                                .child(
-                                                    div()
-                                                        .min_w_0()
-                                                        .truncate()
-                                                        .text_sm()
-                                                        .font_weight(FontWeight::MEDIUM)
-                                                        .text_color(theme::fg())
-                                                        .child(if a.title.is_empty() {
-                                                            a.name.clone()
-                                                        } else {
-                                                            a.title.clone()
-                                                        }),
-                                                )
-                                                .when(!a.branch.is_empty(), |el| {
-                                                    el.child(
+                                    )
+                                    .child(controls::button(
+                                        "session-changes-close",
+                                        "✕",
+                                        Btn::Ghost,
+                                        false,
+                                        close,
+                                    )),
+                            )
+                            .child(
+                                v_flex()
+                                    .id("session-changes-list")
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_y_scroll()
+                                    .children(list.iter().map(|(a, view)| {
+                                        v_flex()
+                                            .border_b_1()
+                                            .border_color(theme::line())
+                                            .child(
+                                                h_flex()
+                                                    .px_5()
+                                                    .py_2p5()
+                                                    .gap_2()
+                                                    .border_b_1()
+                                                    .border_color(theme::line().opacity(0.5))
+                                                    .child(
                                                         div()
                                                             .min_w_0()
                                                             .truncate()
-                                                            .font_family(crate::theme::mono())
-                                                            .text_xs()
-                                                            .text_color(theme::faint())
-                                                            .child(crate::icons::lead(
-                                                                "git-branch",
-                                                                a.branch.clone(),
-                                                            )),
+                                                            .text_sm()
+                                                            .font_weight(FontWeight::MEDIUM)
+                                                            .text_color(theme::primary())
+                                                            .child(if a.title.is_empty() {
+                                                                a.name.clone()
+                                                            } else {
+                                                                a.title.clone()
+                                                            }),
                                                     )
-                                                })
-                                                .when_some(a.pr.as_ref(), |el, pr| {
-                                                    el.child(super::work::pr_chip(pr))
-                                                })
-                                                .when(a.archived, |el| {
-                                                    el.child(
-                                                        div()
-                                                            .text_xs()
-                                                            .text_color(theme::faint())
-                                                            .child(t("sessions.header.retired")),
-                                                    )
-                                                }),
-                                        )
-                                        .child(match view {
-                                            None => div()
-                                                .p_4()
-                                                .text_sm()
-                                                .text_color(theme::faint())
-                                                .child(t("common.loading"))
-                                                .into_any_element(),
-                                            Some(Err(e)) => div()
-                                                .p_4()
-                                                .text_sm()
-                                                .text_color(theme::error())
-                                                .child(e.clone())
-                                                .into_any_element(),
-                                            Some(Ok(d)) => div()
-                                                .h(px(520.))
-                                                .child(d.clone())
-                                                .into_any_element(),
-                                        })
-                                })),
-                        ),
-                )
-                .into_any_element(),
+                                                    .when(!a.branch.is_empty(), |el| {
+                                                        el.child(
+                                                            div()
+                                                                .min_w_0()
+                                                                .truncate()
+                                                                .font_family(crate::theme::mono())
+                                                                .text_xs()
+                                                                .text_color(theme::faint())
+                                                                .child(crate::icons::lead(
+                                                                    "git-branch",
+                                                                    a.branch.clone(),
+                                                                )),
+                                                        )
+                                                    })
+                                                    .when_some(a.pr.as_ref(), |el, pr| {
+                                                        el.child(super::work::pr_chip(pr))
+                                                    })
+                                                    .when(a.archived, |el| {
+                                                        el.child(
+                                                            div()
+                                                                .text_xs()
+                                                                .text_color(theme::faint())
+                                                                .child(t(
+                                                                    "sessions.header.retired",
+                                                                )),
+                                                        )
+                                                    }),
+                                            )
+                                            .child(match view {
+                                                None => div()
+                                                    .p_4()
+                                                    .text_sm()
+                                                    .text_color(theme::faint())
+                                                    .child(t("common.loading"))
+                                                    .into_any_element(),
+                                                Some(Err(e)) => div()
+                                                    .p_4()
+                                                    .text_sm()
+                                                    .text_color(theme::error())
+                                                    .child(e.clone())
+                                                    .into_any_element(),
+                                                Some(Ok(d)) => div()
+                                                    .h(px(520.))
+                                                    .child(d.clone())
+                                                    .into_any_element(),
+                                            })
+                                    })),
+                            ),
+                    ),
+                "idsession-changes-in",
+            )
+            .into_any_element(),
         )
     }
 
@@ -1840,7 +1852,7 @@ impl AppView {
                                         .truncate()
                                         .text_lg()
                                         .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .child(topic(s)),
                                 )
                                 .child(div().text_xs().text_color(theme::faint()).child(meta)),
@@ -1854,7 +1866,7 @@ impl AppView {
                         .mb_6()
                         .rounded_xl()
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .overflow_hidden()
                         .child(chat.clone()),
                 )
@@ -1889,7 +1901,7 @@ impl AppView {
                             .flex_1()
                             .text_lg()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(t("sessions.historyTitle")),
                     )
                     .child(controls::button(
@@ -1914,7 +1926,7 @@ impl AppView {
                 h_flex()
                     .id(SharedString::from(format!("history-row-{}", s.id)))
                     .cursor_pointer()
-                    .hover(|el| el.bg(theme::hover()))
+                    .hover(|el| el.bg(theme::surface_strong()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.read_closed(read.clone(), window, cx)
                     }))
@@ -1923,8 +1935,8 @@ impl AppView {
                     .py_3()
                     .rounded_lg()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
+                    .border_color(theme::line())
+                    .bg(theme::card())
                     .child(
                         v_flex()
                             .flex_1()
@@ -1933,7 +1945,7 @@ impl AppView {
                                 div()
                                     .truncate()
                                     .text_sm()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(topic(&s)),
                             )
                             .child(
@@ -2017,7 +2029,7 @@ impl AppView {
                         .cursor_pointer()
                         .text_xs()
                         .text_color(theme::faint())
-                        .hover(|el| el.bg(theme::raised()).text_color(theme::muted()))
+                        .hover(|el| el.bg(theme::surface_raised()).text_color(theme::muted()))
                         .child(crate::icons::of(if open { "▾" } else { "▸" }))
                         .child(crate::icons::of("⏰"))
                         .child(div().truncate().child(tv(
@@ -2046,7 +2058,7 @@ impl AppView {
                             .rounded_md()
                             .cursor_pointer()
                             .text_xs()
-                            .hover(|el| el.bg(theme::raised()))
+                            .hover(|el| el.bg(theme::surface_raised()))
                             .tooltip(|w, cx| {
                                 gpui_component::tooltip::Tooltip::new(t("sessions.snoozed.wake"))
                                     .build(w, cx)

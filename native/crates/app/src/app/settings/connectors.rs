@@ -26,9 +26,10 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, badge, button, labeled, note, note_in, segmented, toggle};
+use super::super::controls::{Btn, button, labeled, note_in, segmented, toggle};
 use super::defaults::time_ago;
 use super::kit::{ask, card, check, enc, link, mono, title};
+use super::kit::{badge, note};
 use super::{Entry, Group, group};
 use crate::theme;
 
@@ -577,10 +578,10 @@ impl AppView {
             .id("connectors")
             .gap_4()
             .when_some(c.error.clone(), |el, e| {
-                el.child(note_in(e, theme::error()))
+                el.child(note_in(e, theme::rose(300)))
             })
             .when_some(c.said.clone(), |el, s| {
-                el.child(note_in(s, theme::running()))
+                el.child(note_in(s, theme::emerald(300)))
             })
             .child(if c.importing {
                 self.connector_import(cx)
@@ -596,7 +597,7 @@ impl AppView {
                     )))
                     .child(note(t("project.connectors.wideOwnDescription")))
                     .when(c.list.is_none() && c.error.is_none(), |el| {
-                        el.child(note(t("common.loading")))
+                        el.child(super::super::panel::loading("connectors"))
                     })
                     .when(c.list.as_ref().is_some_and(|l| l.is_empty()), |el| {
                         el.child(note(
@@ -622,19 +623,23 @@ impl AppView {
             let pick = id.clone();
             v_flex()
                 .id(SharedString::from(format!("connector-preset-{id}")))
-                .gap_1()
+                .gap_1p5()
                 .px_3()
                 .py_2p5()
-                .rounded_lg()
+                .rounded_xl()
                 .border_1()
                 .border_color(if on {
-                    theme::accent().opacity(0.6)
+                    theme::brand(400).opacity(0.6)
                 } else {
-                    theme::border()
+                    theme::line_faint()
                 })
-                .when(on, |el| el.bg(theme::accent().opacity(0.08)))
+                .bg(if on {
+                    theme::brand(500).opacity(0.1)
+                } else {
+                    theme::surface_faint()
+                })
                 .cursor_pointer()
-                .hover(|st| st.bg(theme::raised()))
+                .hover(|st| st.border_color(theme::line_strong()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     this.pick_preset(pick.clone(), window, cx)
                 }))
@@ -643,29 +648,32 @@ impl AppView {
                         .gap_2()
                         .child(
                             div()
-                                .size(px(22.))
+                                .size_6()
                                 .rounded_md()
-                                .bg(theme::raised())
+                                .border_1()
+                                .border_color(theme::line())
+                                .bg(theme::surface())
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_xs()
+                                .text_size(theme::text::CAPTION)
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(theme::fg())
+                                .text_color(theme::secondary())
                                 .child(crate::icons::of(mark)),
                         )
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(theme::text::UI)
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(label),
                         ),
                 )
                 .child(
                     div()
-                        .text_xs()
-                        .text_color(theme::faint())
+                        .text_size(theme::text::CAPTION)
+                        .line_height(rems(1.375))
+                        .text_color(theme::subtle())
                         .line_clamp(2)
                         .child(detail),
                 )
@@ -749,10 +757,11 @@ impl AppView {
             }
         };
         v_flex()
-            .gap_3()
-            .pt_2()
+            .mt_3()
+            .gap_4()
+            .pt_4()
             .border_t_1()
-            .border_color(theme::border())
+            .border_color(theme::line_faint())
             .child(
                 h_flex()
                     .gap_3()
@@ -763,7 +772,7 @@ impl AppView {
                             .gap_1()
                             .child(self.input_small("connector-name"))
                             .child(if taken {
-                                note_in(t("project.connectors.nameTaken"), theme::error())
+                                note_in(t("project.connectors.nameTaken"), theme::rose(300))
                             } else if self.field_value("connector-name", cx).is_empty()
                                 && !name.is_empty()
                             {
@@ -908,9 +917,11 @@ impl AppView {
             .gap_1p5()
             .px_3()
             .py_2p5()
-            .rounded_lg()
+            .rounded_xl()
             .border_1()
-            .border_color(theme::border())
+            .border_color(theme::line_faint())
+            .bg(theme::surface_faint())
+            .hover(|st| st.border_color(theme::line_strong()))
             .child(
                 h_flex()
                     .flex_wrap()
@@ -918,8 +929,8 @@ impl AppView {
                     .child(
                         div()
                             .font_family(crate::theme::mono())
-                            .text_sm()
-                            .text_color(theme::fg())
+                            .text_size(theme::text::UI)
+                            .text_color(theme::primary())
                             .child(x.name.clone()),
                     )
                     .child(badge(label, color))
@@ -988,13 +999,13 @@ impl AppView {
                     )),
             )
             .when(!x.error.is_empty(), |el| {
-                el.child(note_in(x.error.clone(), theme::error()))
+                el.child(note_in(x.error.clone(), theme::rose(300)))
             })
             .when(!facts.is_empty(), |el| {
                 el.child(
                     div()
-                        .text_xs()
-                        .text_color(theme::faint())
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::subtle())
                         .child(facts.join(" ")),
                 )
             })
@@ -1055,7 +1066,7 @@ impl AppView {
                 el.child(note(t("project.connectors.importLooking")))
             })
             .when_some(c.scan.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                el.child(note_in(e.clone(), theme::error()))
+                el.child(note_in(e.clone(), theme::rose(300)))
             })
             .children(scan.into_iter().flat_map(|s| &s.unreadable).map(|u| {
                 note_in(
@@ -1067,7 +1078,7 @@ impl AppView {
                             ("error", (&u.error).into()),
                         ],
                     ),
-                    theme::starting(),
+                    theme::amber(300),
                 )
             }))
             .when(scan.is_some() && found.is_empty(), |el| {
@@ -1128,7 +1139,7 @@ impl AppView {
                     ))
                     .when(!x.url.is_empty(), |el| el.child(mono(x.url.clone())))
                     .child(match &problem {
-                        Some(p) => note_in(p.clone(), theme::starting()),
+                        Some(p) => note_in(p.clone(), theme::amber(300)),
                         None if x.needs_value => note(tv(
                             "project.connectors.importNeedsValue",
                             &[

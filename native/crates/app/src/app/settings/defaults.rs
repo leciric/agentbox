@@ -23,7 +23,8 @@ use gpui_component::input::Input;
 use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, Choice, Row, button, labeled, note, note_in, select, select_at};
+use super::super::controls::{Btn, Choice, Row, button, labeled, note_in, select, select_at};
+use super::kit::note;
 use super::{Entry, Group, entry, group};
 use crate::theme;
 
@@ -961,7 +962,7 @@ impl AppView {
             .child(self.field(name, 96.))
             .child(
                 div()
-                    .text_sm()
+                    .text_size(theme::text::UI)
                     .text_color(theme::muted())
                     .child(if minutes == fallback {
                         t("defaults.newAgent.minutesDefault")
@@ -976,11 +977,11 @@ impl AppView {
     fn accounts_link(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .id("defaults-accounts-link")
-            .text_xs()
+            .text_size(theme::text::CAPTION)
             .font_weight(FontWeight::MEDIUM)
-            .text_color(theme::accent())
+            .text_color(theme::brand(300))
             .cursor_pointer()
-            .hover(|s| s.underline())
+            .hover(|s| s.text_color(theme::brand(200)).underline())
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.open_settings_section("accounts".into(), window, cx)
             }))
@@ -1149,581 +1150,589 @@ impl AppView {
     pub(super) fn defaults_row(&self, e: &Entry, cx: &mut Context<Self>) -> Option<Row> {
         let s = self.settings_page.settings.as_ref();
         let req = UpdateSettingsRequest::default;
-        let row = match e.id {
-            "default-tool" => {
-                let current = s
-                    .map(|s| s.last_agent_pick.ai.as_str())
-                    .filter(|ai| TOOLS.contains(ai))
-                    .unwrap_or("claude");
-                let choices = TOOLS
-                    .iter()
-                    .map(|ai| Choice::new(*ai, ai_label(ai)))
-                    .collect();
-                self.select_row(
-                    e,
-                    Some(t("defaults.tool.details")),
-                    choices,
-                    current,
-                    false,
-                    |v| UpdateSettingsRequest {
-                        last_agent_pick: Some(AgentPick {
-                            ai: v.to_string(),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    },
-                    cx,
-                )
-            }
-            "agent-model" => self.model_row(e, Role::Agents, cx),
-            "lead-model" => self.model_row(e, Role::Lead, cx),
-            "agent-window" => self.window_row(e, Role::Agents, cx),
-            "lead-window" => self.window_row(e, Role::Lead, cx),
-            "agent-effort" => self.pick_row(e, Pickable::AgentEffort, cx),
-            "lead-effort" => self.pick_row(e, Pickable::LeadEffort, cx),
-            "lead-mode" => self.pick_row(e, Pickable::LeadMode, cx),
-            "cursor-model" | "gemini-model" => {
-                let cursor = e.id == "cursor-model";
-                let (list, value, ready) = match s {
-                    Some(s) if cursor => (
-                        s.cursor_model_choices.clone(),
-                        s.default_cursor_model.clone(),
-                        s.cursor_ready,
-                    ),
-                    Some(s) => (
-                        s.gemini_model_choices.clone(),
-                        s.default_gemini_model.clone(),
-                        s.gemini_ready,
-                    ),
-                    None => (Vec::new(), String::new(), false),
-                };
-                let tool = if cursor { "cursor" } else { "gemini" };
-                let mut row = self.select_row(
-                    e,
-                    None,
-                    plain_choices(t(&format!("defaults.{tool}.modelAuto")), &list, &value),
-                    &value,
-                    !ready,
-                    move |v| {
-                        let mut r = UpdateSettingsRequest::default();
-                        if cursor {
-                            r.default_cursor_model = Some(v.to_string());
-                        } else {
-                            r.default_gemini_model = Some(v.to_string());
-                        }
-                        r
-                    },
-                    cx,
-                );
-                if s.is_some() && !ready {
-                    row.body.push(
-                        h_flex()
-                            .flex_wrap()
-                            .gap_2()
-                            .child(note_in(
-                                t(&format!("defaults.{tool}.signIn")),
-                                theme::starting(),
-                            ))
-                            .child(self.accounts_link(cx))
-                            .into_any_element(),
-                    );
-                } else if s.is_some() && list.is_empty() {
-                    row.body
-                        .push(note(t(&format!("defaults.{tool}.listLater"))));
-                }
-                row
-            }
-            "cursor-effort" => {
-                let (efforts, value, ready) = s
-                    .map(|s| {
-                        (
-                            s.cursor_model_choices
-                                .iter()
-                                .find(|c| c.value == s.default_cursor_model)
-                                .map(|c| c.efforts.clone())
-                                .unwrap_or_default(),
-                            s.default_cursor_effort.clone(),
-                            s.cursor_ready,
-                        )
-                    })
-                    .unwrap_or_default();
-                let mut choices = vec![Choice::new("", t("defaults.cursor.effortDefault"))];
-                choices.extend(efforts.iter().map(|l| Choice::new(l.clone(), l.clone())));
-                self.select_row(
-                    e,
-                    None,
-                    choices,
-                    &value,
-                    !ready,
-                    |v| UpdateSettingsRequest {
-                        default_cursor_effort: Some(v.to_string()),
-                        ..Default::default()
-                    },
-                    cx,
-                )
-            }
-            "enforce" => {
-                let on = s.is_some_and(|s| s.enforce_agent_defaults);
-                let details = format!(
-                    "{} {}",
-                    t(if on {
-                        "settings.enforce.detailsOn"
-                    } else {
-                        "settings.enforce.detailsOff"
-                    }),
-                    t("settings.enforce.detailsNote")
-                );
-                let mut row = self.switch_row(
-                    e,
-                    "",
-                    |s| s.enforce_agent_defaults,
-                    |v| UpdateSettingsRequest {
-                        enforce_agent_defaults: Some(v),
-                        ..Default::default()
-                    },
-                    cx,
-                );
-                row.description = t(if on {
-                    "settings.enforce.descriptionOn"
-                } else {
-                    "settings.enforce.descriptionOff"
-                });
-                row.details = Some(details);
-                self.wire_more(&mut row, e.id, cx);
-                row
-            }
-            "claude-code-update" => {
-                let u = s.map(|s| s.claude_code_update.clone());
-                let pinned = u.as_ref().map(|u| u.pinned.clone()).unwrap_or_default();
-                let mut row = self.switch_row(
-                    e,
-                    "",
-                    |s| s.claude_code_update.on,
-                    |v| UpdateSettingsRequest {
-                        claude_code_auto_update: Some(v),
-                        ..Default::default()
-                    },
-                    cx,
-                );
-                row.details = Some(tv(
-                    "settings.claudeCodeUpdate.details",
-                    &[("pinned", (&pinned).into())],
-                ));
-                self.wire_more(&mut row, e.id, cx);
-                if let Some(u) = u {
-                    let installed = if u.installed.is_empty() {
-                        u.pinned.clone()
-                    } else {
-                        u.installed.clone()
-                    };
-                    let mut line = h_flex().flex_wrap().items_center().gap_4().child(
-                        div().text_xs().text_color(theme::muted()).child(tv(
-                            "settings.claudeCodeUpdate.installed",
-                            &[("version", (&installed).into())],
-                        )),
-                    );
-                    if u.on {
-                        if !u.latest.is_empty() {
-                            line =
-                                line.child(div().text_xs().text_color(theme::muted()).child(tv(
-                                    "settings.claudeCodeUpdate.latest",
-                                    &[("version", (&u.latest).into())],
-                                )));
-                        }
-                        line = line
-                            .child(note(match &u.checked_at {
-                                Some(at) => tv(
-                                    "settings.claudeCodeUpdate.checked",
-                                    &[("when", (&time_ago(at)).into())],
-                                ),
-                                None => t("settings.claudeCodeUpdate.neverChecked"),
-                            }))
-                            .child(button(
-                                "claude-code-check",
-                                if u.checking {
-                                    t("settings.claudeCodeUpdate.checking")
-                                } else {
-                                    t("settings.claudeCodeUpdate.checkNow")
-                                },
-                                Btn::Secondary,
-                                u.checking,
-                                cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.save(
-                                        UpdateSettingsRequest {
-                                            check_claude_code: true,
-                                            ..Default::default()
-                                        },
-                                        cx,
-                                    )
-                                }),
-                            ));
-                    }
-                    row.body.push(line.into_any_element());
-                    if u.on && !u.checking && !u.error.is_empty() {
-                        row.body.push(note_in(
-                            tv(
-                                "settings.claudeCodeUpdate.failed",
-                                &[
-                                    ("reason", (&u.error).into()),
-                                    ("version", (&installed).into()),
-                                ],
-                            ),
-                            theme::error(),
-                        ));
-                    }
-                    if u.on
-                        && !u.checking
-                        && u.error.is_empty()
-                        && !u.latest.is_empty()
-                        && u.latest == u.installed
-                    {
-                        row.body.push(note(t("settings.claudeCodeUpdate.upToDate")));
-                    }
-                }
-                row
-            }
-            "compact" => {
-                let fallback = s.map_or(500_000, |s| s.default_claude_compact_window);
-                let value = s.map_or(fallback, |s| s.claude_compact_window);
-                let words = |n: i64| {
-                    let w = tv(
-                        "defaults.newAgent.tokens",
-                        &[("count", (&format_tokens(n)).into())],
-                    );
-                    if n == fallback { with_default(&w) } else { w }
-                };
-                let mut choices: Vec<Choice> = COMPACT_WINDOWS
-                    .iter()
-                    .map(|n| Choice::new(n.to_string(), words(*n)))
-                    .collect();
-                if value != 0 && !COMPACT_WINDOWS.contains(&value) {
-                    choices.push(Choice::new(value.to_string(), words(value)));
-                }
-                choices.push(Choice::new("0", t("defaults.newAgent.wholeWindow")));
-                self.select_row(
-                    e,
-                    Some(t("defaults.newAgent.compactDetails")),
-                    choices,
-                    &value.to_string(),
-                    false,
-                    |v| UpdateSettingsRequest {
-                        claude_compact_window: v.parse().ok(),
-                        ..Default::default()
-                    },
-                    cx,
-                )
-            }
-            "resume" => self.switch_row(
-                e,
-                "defaults.newAgent.resumeDetails",
-                |s| s.resume_after_limit,
-                |v| UpdateSettingsRequest {
-                    resume_after_limit: Some(v),
-                    ..Default::default()
-                },
-                cx,
-            ),
-            "continue-after-restart" => self.switch_row(
-                e,
-                "defaults.newAgent.continueDetails",
-                |s| s.continue_after_restart,
-                |v| UpdateSettingsRequest {
-                    continue_after_restart: Some(v),
-                    ..Default::default()
-                },
-                cx,
-            ),
-            "lead-sleep" => {
-                let mut row = self.switch_row(
-                    e,
-                    "defaults.newAgent.sleepDetails",
-                    |s| s.lead_sleep,
-                    |v| UpdateSettingsRequest {
-                        lead_sleep: Some(v),
-                        ..Default::default()
-                    },
-                    cx,
-                );
-                if let Some(s) = s.filter(|s| s.lead_sleep) {
-                    row.body.push(self.minutes_body(
-                        "lead-sleep",
-                        s.lead_sleep_minutes,
-                        LEAD_SLEEP,
-                    ));
-                }
-                row
-            }
-            "pr-watch" => self.switch_row(
-                e,
-                "settings.prWatch.details",
-                |s| s.pr_watch,
-                |v| UpdateSettingsRequest {
-                    pr_watch: Some(v),
-                    ..Default::default()
-                },
-                cx,
-            ),
-            "merge-when-green" => self.switch_row(
-                e,
-                "settings.mergeWhenGreen.details",
-                |s| s.merge_when_green,
-                |v| UpdateSettingsRequest {
-                    merge_when_green: Some(v),
-                    ..Default::default()
-                },
-                cx,
-            ),
-            "lead-recheck" => {
-                let mut row = self.switch_row(
-                    e,
-                    "",
-                    |s| s.lead_recheck,
-                    |v| UpdateSettingsRequest {
-                        lead_recheck: Some(v),
-                        ..Default::default()
-                    },
-                    cx,
-                );
-                if let Some(s) = s.filter(|s| s.lead_recheck) {
-                    row.body.push(self.minutes_body(
-                        "lead-recheck",
-                        s.lead_recheck_minutes,
-                        LEAD_RECHECK,
-                    ));
-                }
-                row
-            }
-            "auto-stop" => {
-                let mut row = self.switch_row(
-                    e,
-                    "defaults.newAgent.idleDetails",
-                    |s| s.auto_stop_idle,
-                    |v| UpdateSettingsRequest {
-                        auto_stop_idle: Some(v),
-                        ..Default::default()
-                    },
-                    cx,
-                );
-                if let Some(s) = s.filter(|s| s.auto_stop_idle) {
-                    let value = if s.idle_time_seconds > 0 {
-                        s.idle_time_seconds
-                    } else {
-                        IDLE_FALLBACK
-                    };
-                    let mut times = IDLE_TIMES.to_vec();
-                    if !times.contains(&value) {
-                        times.push(value);
-                    }
-                    let choices = times
+        let row =
+            match e.id {
+                "default-tool" => {
+                    let current = s
+                        .map(|s| s.last_agent_pick.ai.as_str())
+                        .filter(|ai| TOOLS.contains(ai))
+                        .unwrap_or("claude");
+                    let choices = TOOLS
                         .iter()
-                        .map(|n| {
-                            let w = idle_words(*n);
-                            Choice::new(
-                                n.to_string(),
-                                if *n == IDLE_FALLBACK {
-                                    with_default(&w)
-                                } else {
-                                    w
-                                },
+                        .map(|ai| Choice::new(*ai, ai_label(ai)))
+                        .collect();
+                    self.select_row(
+                        e,
+                        Some(t("defaults.tool.details")),
+                        choices,
+                        current,
+                        false,
+                        |v| UpdateSettingsRequest {
+                            last_agent_pick: Some(AgentPick {
+                                ai: v.to_string(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                        cx,
+                    )
+                }
+                "agent-model" => self.model_row(e, Role::Agents, cx),
+                "lead-model" => self.model_row(e, Role::Lead, cx),
+                "agent-window" => self.window_row(e, Role::Agents, cx),
+                "lead-window" => self.window_row(e, Role::Lead, cx),
+                "agent-effort" => self.pick_row(e, Pickable::AgentEffort, cx),
+                "lead-effort" => self.pick_row(e, Pickable::LeadEffort, cx),
+                "lead-mode" => self.pick_row(e, Pickable::LeadMode, cx),
+                "cursor-model" | "gemini-model" => {
+                    let cursor = e.id == "cursor-model";
+                    let (list, value, ready) = match s {
+                        Some(s) if cursor => (
+                            s.cursor_model_choices.clone(),
+                            s.default_cursor_model.clone(),
+                            s.cursor_ready,
+                        ),
+                        Some(s) => (
+                            s.gemini_model_choices.clone(),
+                            s.default_gemini_model.clone(),
+                            s.gemini_ready,
+                        ),
+                        None => (Vec::new(), String::new(), false),
+                    };
+                    let tool = if cursor { "cursor" } else { "gemini" };
+                    let mut row = self.select_row(
+                        e,
+                        None,
+                        plain_choices(t(&format!("defaults.{tool}.modelAuto")), &list, &value),
+                        &value,
+                        !ready,
+                        move |v| {
+                            let mut r = UpdateSettingsRequest::default();
+                            if cursor {
+                                r.default_cursor_model = Some(v.to_string());
+                            } else {
+                                r.default_gemini_model = Some(v.to_string());
+                            }
+                            r
+                        },
+                        cx,
+                    );
+                    if s.is_some() && !ready {
+                        row.body.push(
+                            h_flex()
+                                .flex_wrap()
+                                .gap_2()
+                                .child(note_in(
+                                    t(&format!("defaults.{tool}.signIn")),
+                                    theme::amber(300),
+                                ))
+                                .child(self.accounts_link(cx))
+                                .into_any_element(),
+                        );
+                    } else if s.is_some() && list.is_empty() {
+                        row.body
+                            .push(note(t(&format!("defaults.{tool}.listLater"))));
+                    }
+                    row
+                }
+                "cursor-effort" => {
+                    let (efforts, value, ready) = s
+                        .map(|s| {
+                            (
+                                s.cursor_model_choices
+                                    .iter()
+                                    .find(|c| c.value == s.default_cursor_model)
+                                    .map(|c| c.efforts.clone())
+                                    .unwrap_or_default(),
+                                s.default_cursor_effort.clone(),
+                                s.cursor_ready,
                             )
                         })
+                        .unwrap_or_default();
+                    let mut choices = vec![Choice::new("", t("defaults.cursor.effortDefault"))];
+                    choices.extend(efforts.iter().map(|l| Choice::new(l.clone(), l.clone())));
+                    self.select_row(
+                        e,
+                        None,
+                        choices,
+                        &value,
+                        !ready,
+                        |v| UpdateSettingsRequest {
+                            default_cursor_effort: Some(v.to_string()),
+                            ..Default::default()
+                        },
+                        cx,
+                    )
+                }
+                "enforce" => {
+                    let on = s.is_some_and(|s| s.enforce_agent_defaults);
+                    let details = format!(
+                        "{} {}",
+                        t(if on {
+                            "settings.enforce.detailsOn"
+                        } else {
+                            "settings.enforce.detailsOff"
+                        }),
+                        t("settings.enforce.detailsNote")
+                    );
+                    let mut row = self.switch_row(
+                        e,
+                        "",
+                        |s| s.enforce_agent_defaults,
+                        |v| UpdateSettingsRequest {
+                            enforce_agent_defaults: Some(v),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                    row.description = t(if on {
+                        "settings.enforce.descriptionOn"
+                    } else {
+                        "settings.enforce.descriptionOff"
+                    });
+                    row.details = Some(details);
+                    self.wire_more(&mut row, e.id, cx);
+                    row
+                }
+                "claude-code-update" => {
+                    let u = s.map(|s| s.claude_code_update.clone());
+                    let pinned = u.as_ref().map(|u| u.pinned.clone()).unwrap_or_default();
+                    let mut row = self.switch_row(
+                        e,
+                        "",
+                        |s| s.claude_code_update.on,
+                        |v| UpdateSettingsRequest {
+                            claude_code_auto_update: Some(v),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                    row.details = Some(tv(
+                        "settings.claudeCodeUpdate.details",
+                        &[("pinned", (&pinned).into())],
+                    ));
+                    self.wire_more(&mut row, e.id, cx);
+                    if let Some(u) = u {
+                        let installed = if u.installed.is_empty() {
+                            u.pinned.clone()
+                        } else {
+                            u.installed.clone()
+                        };
+                        let mut line = h_flex().flex_wrap().items_center().gap_4().child(
+                            div()
+                                .font_family(theme::mono())
+                                .text_xs()
+                                .text_color(theme::muted())
+                                .child(tv(
+                                    "settings.claudeCodeUpdate.installed",
+                                    &[("version", (&installed).into())],
+                                )),
+                        );
+                        if u.on {
+                            if !u.latest.is_empty() {
+                                line = line.child(
+                                    div()
+                                        .font_family(theme::mono())
+                                        .text_xs()
+                                        .text_color(theme::muted())
+                                        .child(tv(
+                                            "settings.claudeCodeUpdate.latest",
+                                            &[("version", (&u.latest).into())],
+                                        )),
+                                );
+                            }
+                            line = line
+                                .child(note(match &u.checked_at {
+                                    Some(at) => tv(
+                                        "settings.claudeCodeUpdate.checked",
+                                        &[("when", (&time_ago(at)).into())],
+                                    ),
+                                    None => t("settings.claudeCodeUpdate.neverChecked"),
+                                }))
+                                .child(button(
+                                    "claude-code-check",
+                                    if u.checking {
+                                        t("settings.claudeCodeUpdate.checking")
+                                    } else {
+                                        t("settings.claudeCodeUpdate.checkNow")
+                                    },
+                                    Btn::Secondary,
+                                    u.checking,
+                                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.save(
+                                            UpdateSettingsRequest {
+                                                check_claude_code: true,
+                                                ..Default::default()
+                                            },
+                                            cx,
+                                        )
+                                    }),
+                                ));
+                        }
+                        row.body.push(line.into_any_element());
+                        if u.on && !u.checking && !u.error.is_empty() {
+                            row.body.push(note_in(
+                                tv(
+                                    "settings.claudeCodeUpdate.failed",
+                                    &[
+                                        ("reason", (&u.error).into()),
+                                        ("version", (&installed).into()),
+                                    ],
+                                ),
+                                theme::rose(300),
+                            ));
+                        }
+                        if u.on
+                            && !u.checking
+                            && u.error.is_empty()
+                            && !u.latest.is_empty()
+                            && u.latest == u.installed
+                        {
+                            row.body.push(note(t("settings.claudeCodeUpdate.upToDate")));
+                        }
+                    }
+                    row
+                }
+                "compact" => {
+                    let fallback = s.map_or(500_000, |s| s.default_claude_compact_window);
+                    let value = s.map_or(fallback, |s| s.claude_compact_window);
+                    let words = |n: i64| {
+                        let w = tv(
+                            "defaults.newAgent.tokens",
+                            &[("count", (&format_tokens(n)).into())],
+                        );
+                        if n == fallback { with_default(&w) } else { w }
+                    };
+                    let mut choices: Vec<Choice> = COMPACT_WINDOWS
+                        .iter()
+                        .map(|n| Choice::new(n.to_string(), words(*n)))
                         .collect();
-                    row.body.push(select_at(
-                        "idle-time",
+                    if value != 0 && !COMPACT_WINDOWS.contains(&value) {
+                        choices.push(Choice::new(value.to_string(), words(value)));
+                    }
+                    choices.push(Choice::new("0", t("defaults.newAgent.wholeWindow")));
+                    self.select_row(
+                        e,
+                        Some(t("defaults.newAgent.compactDetails")),
                         choices,
                         &value.to_string(),
                         false,
-                        Rc::new(cx.listener(|this, v: &str, _, cx| {
+                        |v| UpdateSettingsRequest {
+                            claude_compact_window: v.parse().ok(),
+                            ..Default::default()
+                        },
+                        cx,
+                    )
+                }
+                "resume" => self.switch_row(
+                    e,
+                    "defaults.newAgent.resumeDetails",
+                    |s| s.resume_after_limit,
+                    |v| UpdateSettingsRequest {
+                        resume_after_limit: Some(v),
+                        ..Default::default()
+                    },
+                    cx,
+                ),
+                "continue-after-restart" => self.switch_row(
+                    e,
+                    "defaults.newAgent.continueDetails",
+                    |s| s.continue_after_restart,
+                    |v| UpdateSettingsRequest {
+                        continue_after_restart: Some(v),
+                        ..Default::default()
+                    },
+                    cx,
+                ),
+                "lead-sleep" => {
+                    let mut row = self.switch_row(
+                        e,
+                        "defaults.newAgent.sleepDetails",
+                        |s| s.lead_sleep,
+                        |v| UpdateSettingsRequest {
+                            lead_sleep: Some(v),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                    if let Some(s) = s.filter(|s| s.lead_sleep) {
+                        row.body.push(self.minutes_body(
+                            "lead-sleep",
+                            s.lead_sleep_minutes,
+                            LEAD_SLEEP,
+                        ));
+                    }
+                    row
+                }
+                "pr-watch" => self.switch_row(
+                    e,
+                    "settings.prWatch.details",
+                    |s| s.pr_watch,
+                    |v| UpdateSettingsRequest {
+                        pr_watch: Some(v),
+                        ..Default::default()
+                    },
+                    cx,
+                ),
+                "merge-when-green" => self.switch_row(
+                    e,
+                    "settings.mergeWhenGreen.details",
+                    |s| s.merge_when_green,
+                    |v| UpdateSettingsRequest {
+                        merge_when_green: Some(v),
+                        ..Default::default()
+                    },
+                    cx,
+                ),
+                "lead-recheck" => {
+                    let mut row = self.switch_row(
+                        e,
+                        "",
+                        |s| s.lead_recheck,
+                        |v| UpdateSettingsRequest {
+                            lead_recheck: Some(v),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                    if let Some(s) = s.filter(|s| s.lead_recheck) {
+                        row.body.push(self.minutes_body(
+                            "lead-recheck",
+                            s.lead_recheck_minutes,
+                            LEAD_RECHECK,
+                        ));
+                    }
+                    row
+                }
+                "auto-stop" => {
+                    let mut row = self.switch_row(
+                        e,
+                        "defaults.newAgent.idleDetails",
+                        |s| s.auto_stop_idle,
+                        |v| UpdateSettingsRequest {
+                            auto_stop_idle: Some(v),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                    if let Some(s) = s.filter(|s| s.auto_stop_idle) {
+                        let value = if s.idle_time_seconds > 0 {
+                            s.idle_time_seconds
+                        } else {
+                            IDLE_FALLBACK
+                        };
+                        let mut times = IDLE_TIMES.to_vec();
+                        if !times.contains(&value) {
+                            times.push(value);
+                        }
+                        let choices = times
+                            .iter()
+                            .map(|n| {
+                                let w = idle_words(*n);
+                                Choice::new(
+                                    n.to_string(),
+                                    if *n == IDLE_FALLBACK {
+                                        with_default(&w)
+                                    } else {
+                                        w
+                                    },
+                                )
+                            })
+                            .collect();
+                        row.body.push(select_at(
+                            "idle-time",
+                            choices,
+                            &value.to_string(),
+                            false,
+                            Rc::new(cx.listener(|this, v: &str, _, cx| {
+                                this.save(
+                                    UpdateSettingsRequest {
+                                        idle_time_seconds: v.parse().ok(),
+                                        ..Default::default()
+                                    },
+                                    cx,
+                                )
+                            })),
+                            Anchor::TopLeft,
+                        ));
+                    }
+                    row
+                }
+                "remove-stopped" => self.remove_stopped_row(e, cx),
+                "agent-gpu" => {
+                    let gpu = s.map(|s| s.vm_gpu.clone());
+                    let unavailable = gpu
+                        .as_ref()
+                        .is_some_and(|g| g.kind.is_empty() && g.setup.is_empty());
+                    let on = !unavailable && s.is_some_and(|s| s.agent_gpu);
+                    let mut row = self.more_row(e, Some(t("settings.agentGPU.details")), cx);
+                    row.control = Some(super::super::controls::toggle(
+                        "switch-agent-gpu",
+                        on,
+                        s.is_none() || unavailable,
+                        cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.save(
                                 UpdateSettingsRequest {
-                                    idle_time_seconds: v.parse().ok(),
+                                    agent_gpu: Some(!on),
                                     ..Default::default()
                                 },
                                 cx,
                             )
-                        })),
-                        Anchor::TopLeft,
+                        }),
                     ));
+                    if let Some(g) = gpu {
+                        row.body.push(note(if unavailable {
+                            tv(
+                                "settings.agentGPU.unavailable",
+                                &[("reason", (&g.reason).into())],
+                            )
+                        } else {
+                            vm_gpu_note(&g)
+                        }));
+                    }
+                    row
                 }
-                row
-            }
-            "remove-stopped" => self.remove_stopped_row(e, cx),
-            "agent-gpu" => {
-                let gpu = s.map(|s| s.vm_gpu.clone());
-                let unavailable = gpu
-                    .as_ref()
-                    .is_some_and(|g| g.kind.is_empty() && g.setup.is_empty());
-                let on = !unavailable && s.is_some_and(|s| s.agent_gpu);
-                let mut row = self.more_row(e, Some(t("settings.agentGPU.details")), cx);
-                row.control = Some(super::super::controls::toggle(
-                    "switch-agent-gpu",
-                    on,
-                    s.is_none() || unavailable,
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.save(
-                            UpdateSettingsRequest {
-                                agent_gpu: Some(!on),
+                "disk-floor" => {
+                    let mut row = self.more_row(e, Some(t("defaults.newAgent.diskDetails")), cx);
+                    row.body.push(
+                        h_flex()
+                            .flex_wrap()
+                            .items_start()
+                            .gap_3()
+                            .child(labeled(
+                                t("defaults.newAgent.atLeast"),
+                                v_flex()
+                                    .gap_1()
+                                    .child(self.field("disk-min", 180.))
+                                    .child(note(t("defaults.newAgent.atLeastHint"))),
+                            ))
+                            .child(labeled(
+                                t("defaults.newAgent.share"),
+                                v_flex()
+                                    .gap_1()
+                                    .child(self.field("disk-percent", 180.))
+                                    .child(note(t("defaults.newAgent.shareHint"))),
+                            ))
+                            .into_any_element(),
+                    );
+                    row
+                }
+                "media-retention" => {
+                    let choices = RETENTIONS
+                        .iter()
+                        .map(|r| {
+                            let w = t(&format!("defaults.newAgent.retention.{r}"));
+                            Choice::new(*r, if *r == "1d" { with_default(&w) } else { w })
+                        })
+                        .collect();
+                    let value = s.map_or("1d".to_string(), |s| s.media_retention.clone());
+                    self.select_row(
+                        e,
+                        Some(t("defaults.newAgent.mediaDetails")),
+                        choices,
+                        &value,
+                        false,
+                        |v| UpdateSettingsRequest {
+                            media_retention: Some(v.to_string()),
+                            ..Default::default()
+                        },
+                        cx,
+                    )
+                }
+                "docker-prune" => self.switch_row(
+                    e,
+                    "defaults.newAgent.pruneDetails",
+                    |s| s.docker_prune_on_stop,
+                    |v| UpdateSettingsRequest {
+                        docker_prune_on_stop: Some(v),
+                        ..Default::default()
+                    },
+                    cx,
+                ),
+                "docker-image-cache" | "package-caches" => {
+                    let image = e.id == "docker-image-cache";
+                    let mut row = if image {
+                        self.switch_row(
+                            e,
+                            "defaults.newAgent.imageCacheDetails",
+                            |s| s.image_cache,
+                            |v| UpdateSettingsRequest {
+                                image_cache: Some(v),
                                 ..Default::default()
                             },
                             cx,
                         )
-                    }),
-                ));
-                if let Some(g) = gpu {
-                    row.body.push(note(if unavailable {
-                        tv(
-                            "settings.agentGPU.unavailable",
-                            &[("reason", (&g.reason).into())],
-                        )
                     } else {
-                        vm_gpu_note(&g)
-                    }));
+                        self.switch_row(
+                            e,
+                            "defaults.newAgent.pkgCacheDetails",
+                            |s| s.package_cache,
+                            |v| UpdateSettingsRequest {
+                                package_cache: Some(v),
+                                ..Default::default()
+                            },
+                            cx,
+                        )
+                    };
+                    let held = s.map_or(0, |s| {
+                        if image {
+                            s.image_cache_bytes
+                        } else {
+                            s.package_cache_bytes
+                        }
+                    });
+                    row.body.push(
+                        h_flex()
+                            .flex_wrap()
+                            .items_start()
+                            .gap_3()
+                            .child(labeled(
+                                t("defaults.newAgent.holdAtMost"),
+                                v_flex()
+                                    .gap_1()
+                                    .child(self.field(
+                                        if image { "image-max" } else { "package-max" },
+                                        180.,
+                                    ))
+                                    .child(note(t("defaults.newAgent.holdHint"))),
+                            ))
+                            .child(labeled(
+                                tv(
+                                    "defaults.newAgent.holds",
+                                    &[("size", (&human_bytes(held)).into())],
+                                ),
+                                h_flex().child(button(
+                                    SharedString::from(format!("{}-empty", e.id)),
+                                    t("defaults.newAgent.emptyIt"),
+                                    Btn::Secondary,
+                                    s.is_none() || held == 0,
+                                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        let mut r = req();
+                                        if image {
+                                            r.clear_image_cache = true;
+                                        } else {
+                                            r.clear_package_cache = true;
+                                        }
+                                        this.save(r, cx)
+                                    }),
+                                )),
+                            ))
+                            .into_any_element(),
+                    );
+                    row
                 }
-                row
-            }
-            "disk-floor" => {
-                let mut row = self.more_row(e, Some(t("defaults.newAgent.diskDetails")), cx);
-                row.body.push(
-                    h_flex()
-                        .flex_wrap()
-                        .items_start()
-                        .gap_3()
-                        .child(labeled(
-                            t("defaults.newAgent.atLeast"),
-                            v_flex()
-                                .gap_1()
-                                .child(self.field("disk-min", 180.))
-                                .child(note(t("defaults.newAgent.atLeastHint"))),
-                        ))
-                        .child(labeled(
-                            t("defaults.newAgent.share"),
-                            v_flex()
-                                .gap_1()
-                                .child(self.field("disk-percent", 180.))
-                                .child(note(t("defaults.newAgent.shareHint"))),
-                        ))
-                        .into_any_element(),
-                );
-                row
-            }
-            "media-retention" => {
-                let choices = RETENTIONS
-                    .iter()
-                    .map(|r| {
-                        let w = t(&format!("defaults.newAgent.retention.{r}"));
-                        Choice::new(*r, if *r == "1d" { with_default(&w) } else { w })
-                    })
-                    .collect();
-                let value = s.map_or("1d".to_string(), |s| s.media_retention.clone());
-                self.select_row(
+                "local-node-modules" => self.switch_row(
                     e,
-                    Some(t("defaults.newAgent.mediaDetails")),
-                    choices,
-                    &value,
-                    false,
+                    "defaults.newAgent.localNodeModulesDetails",
+                    |s| s.local_node_modules,
                     |v| UpdateSettingsRequest {
-                        media_retention: Some(v.to_string()),
+                        local_node_modules: Some(v),
                         ..Default::default()
                     },
                     cx,
-                )
-            }
-            "docker-prune" => self.switch_row(
-                e,
-                "defaults.newAgent.pruneDetails",
-                |s| s.docker_prune_on_stop,
-                |v| UpdateSettingsRequest {
-                    docker_prune_on_stop: Some(v),
-                    ..Default::default()
-                },
-                cx,
-            ),
-            "docker-image-cache" | "package-caches" => {
-                let image = e.id == "docker-image-cache";
-                let mut row = if image {
-                    self.switch_row(
-                        e,
-                        "defaults.newAgent.imageCacheDetails",
-                        |s| s.image_cache,
-                        |v| UpdateSettingsRequest {
-                            image_cache: Some(v),
-                            ..Default::default()
-                        },
-                        cx,
-                    )
-                } else {
-                    self.switch_row(
-                        e,
-                        "defaults.newAgent.pkgCacheDetails",
-                        |s| s.package_cache,
-                        |v| UpdateSettingsRequest {
-                            package_cache: Some(v),
-                            ..Default::default()
-                        },
-                        cx,
-                    )
-                };
-                let held = s.map_or(0, |s| {
-                    if image {
-                        s.image_cache_bytes
-                    } else {
-                        s.package_cache_bytes
-                    }
-                });
-                row.body.push(
-                    h_flex()
-                        .flex_wrap()
-                        .items_start()
-                        .gap_3()
-                        .child(labeled(
-                            t("defaults.newAgent.holdAtMost"),
-                            v_flex()
-                                .gap_1()
-                                .child(
-                                    self.field(
-                                        if image { "image-max" } else { "package-max" },
-                                        180.,
-                                    ),
-                                )
-                                .child(note(t("defaults.newAgent.holdHint"))),
-                        ))
-                        .child(labeled(
-                            tv(
-                                "defaults.newAgent.holds",
-                                &[("size", (&human_bytes(held)).into())],
-                            ),
-                            h_flex().child(button(
-                                SharedString::from(format!("{}-empty", e.id)),
-                                t("defaults.newAgent.emptyIt"),
-                                Btn::Secondary,
-                                s.is_none() || held == 0,
-                                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    let mut r = req();
-                                    if image {
-                                        r.clear_image_cache = true;
-                                    } else {
-                                        r.clear_package_cache = true;
-                                    }
-                                    this.save(r, cx)
-                                }),
-                            )),
-                        ))
-                        .into_any_element(),
-                );
-                row
-            }
-            "local-node-modules" => self.switch_row(
-                e,
-                "defaults.newAgent.localNodeModulesDetails",
-                |s| s.local_node_modules,
-                |v| UpdateSettingsRequest {
-                    local_node_modules: Some(v),
-                    ..Default::default()
-                },
-                cx,
-            ),
-            _ => return None,
-        };
+                ),
+                _ => return None,
+            };
         Some(row)
     }
 
@@ -1776,7 +1785,7 @@ impl AppView {
         let st = &self.settings_page.stopped;
         let preview = match &st.loaded {
             None => v_flex().child(note(t("defaults.newAgent.removeStoppedChecking"))),
-            Some(Err(err)) => v_flex().child(note_in(err.clone(), theme::error())),
+            Some(Err(err)) => v_flex().child(note_in(err.clone(), theme::rose(300))),
             Some(Ok(m)) => {
                 let removable: Vec<_> =
                     m.machines.iter().filter(|m| !m.remove.is_empty()).collect();
@@ -1797,7 +1806,7 @@ impl AppView {
                                 ],
                             )
                         },
-                        theme::fg(),
+                        theme::secondary(),
                     ))
                     .children(removable.iter().map(|m| {
                         h_flex()
@@ -1808,7 +1817,7 @@ impl AppView {
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(format!(
                                         "{} · {}",
                                         if m.title.is_empty() {
@@ -1819,12 +1828,20 @@ impl AppView {
                                         m.project
                                     )),
                             )
-                            .child(div().text_color(theme::muted()).child(tv(
+                            .child(div().flex_none().text_color(theme::subtle()).child(tv(
                                 "defaults.newAgent.removeStoppedSince",
                                 &[("ago", (&time_ago(&m.stopped_since)).into())],
                             )))
                             .when_some(m.machine, |el, b| {
-                                el.child(div().text_color(theme::muted()).child(human_bytes(b)))
+                                el.child(
+                                    div()
+                                        .w_16()
+                                        .flex_none()
+                                        .text_right()
+                                        .font_family(theme::mono())
+                                        .text_color(theme::secondary())
+                                        .child(human_bytes(b)),
+                                )
                             })
                     }))
                     .when(kept > 0, |el| {
@@ -1856,13 +1873,13 @@ impl AppView {
                 .py_2p5()
                 .rounded_lg()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::bg())
+                .border_color(theme::line())
+                .bg(theme::surface())
                 .child(preview)
                 .into_any_element(),
         );
         if let Some(said) = &st.said {
-            row.body.push(note_in(said.clone(), theme::running()));
+            row.body.push(note_in(said.clone(), theme::emerald(300)));
         }
         row
     }

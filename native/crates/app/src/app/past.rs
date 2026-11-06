@@ -271,7 +271,7 @@ impl AppView {
                 .py_2p5()
                 .gap_3()
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(
                     v_flex()
                         .min_w_0()
@@ -328,7 +328,7 @@ impl AppView {
                                         div()
                                             .id("past-pr")
                                             .cursor_pointer()
-                                            .hover(|s| s.text_color(theme::fg()))
+                                            .hover(|s| s.text_color(theme::primary()))
                                             .tooltip(move |w, cx| {
                                                 Tooltip::new(tip.clone()).build(w, cx)
                                             })
@@ -429,7 +429,7 @@ impl AppView {
             .pr_1p5()
             .gap_1()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 super::panel::icon_button("past-back", "←", t("panel.back")).on_click(cx.listener(
                     |this, _: &ClickEvent, w, cx| {
@@ -460,8 +460,8 @@ impl AppView {
                     .p(px(2.))
                     .rounded_lg()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::bg())
+                    .border_color(theme::line())
+                    .bg(theme::ink())
                     .children(PAST_VIEWS.into_iter().map(|v| {
                         let on = v == view;
                         let tip: SharedString = v.label().into();
@@ -473,14 +473,16 @@ impl AppView {
                             .text_xs()
                             .font_weight(FontWeight::MEDIUM)
                             .when(on, |el| {
-                                el.px_2p5().bg(theme::raised()).text_color(theme::fg())
+                                el.px_2p5()
+                                    .bg(theme::surface_raised())
+                                    .text_color(theme::primary())
                             })
                             .when(!on, |el| {
                                 el.w(px(28.))
                                     .justify_center()
                                     .text_color(theme::muted())
                                     .cursor_pointer()
-                                    .hover(|s| s.text_color(theme::fg()))
+                                    .hover(|s| s.text_color(theme::primary()))
                                     .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                                         this.past.view = v;
@@ -499,7 +501,7 @@ impl AppView {
     /// render_past_view is the past agent's view in the panel.
     pub(super) fn render_past_view(&self, r: &str, cx: &mut Context<Self>) -> AnyElement {
         let Some(a) = self.past.agent.as_ref().filter(|a| a.r#ref == r) else {
-            return super::panel::note(t("common.loading"));
+            return super::panel::loading("past");
         };
         let fleet = as_fleet(a);
         match self.past.view {

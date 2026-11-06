@@ -7,6 +7,8 @@ export default defineConfig({
   root: fileURLToPath(new URL('./src/renderer', import.meta.url)),
   base: './',
   plugins: [react(), tailwindcss()],
+  // The Office's 3D figure (office/assets/kenney) is a binary glTF.
+  assetsInclude: ['**/*.glb'],
   build: {
     outDir: fileURLToPath(new URL('./out/renderer', import.meta.url)),
     emptyOutDir: true,

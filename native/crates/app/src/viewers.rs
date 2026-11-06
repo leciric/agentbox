@@ -99,10 +99,11 @@ pub fn grid(id: &str, header: &[String], rows: &[Vec<String>]) -> AnyElement {
             .py_1()
             .truncate()
             .border_r_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .when(num, |el| el.text_right().font_family(theme::mono()))
             .when(head, |el| {
-                el.font_weight(FontWeight::SEMIBOLD).text_color(theme::fg())
+                el.font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::primary())
             })
             .child(text)
     };
@@ -116,9 +117,9 @@ pub fn grid(id: &str, header: &[String], rows: &[Vec<String>]) -> AnyElement {
                 .text_xs()
                 .child(
                     h_flex()
-                        .bg(theme::raised())
+                        .bg(theme::surface_raised())
                         .border_b_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .children((0..cols).map(|c| {
                             cell(header.get(c).cloned().unwrap_or_default(), widths[c], true)
                         })),
@@ -126,9 +127,9 @@ pub fn grid(id: &str, header: &[String], rows: &[Vec<String>]) -> AnyElement {
                 .children(rows.iter().take(MAX_ROWS).enumerate().map(|(i, r)| {
                     h_flex()
                         .text_color(theme::muted())
-                        .when(i % 2 == 1, |el| el.bg(theme::bg().opacity(0.5)))
+                        .when(i % 2 == 1, |el| el.bg(theme::ink().opacity(0.5)))
                         .border_b_1()
-                        .border_color(theme::border().opacity(0.5))
+                        .border_color(theme::line().opacity(0.5))
                         .children(
                             (0..cols).map(|c| {
                                 cell(r.get(c).cloned().unwrap_or_default(), widths[c], false)
@@ -276,7 +277,7 @@ pub fn page_stage(project: &str, page: &agentbox_api::Artifact, shown: bool) -> 
             .size_full()
             .rounded_lg()
             .overflow_y_scroll()
-            .bg(gpui::white())
+            .bg(theme::paper())
             .child(crate::snapshot::page_snapshot(
                 format!("hatch-{}", page.id),
                 &path,
@@ -291,7 +292,7 @@ pub fn page_stage(project: &str, page: &agentbox_api::Artifact, shown: bool) -> 
             .justify_center()
             .gap_3()
             .rounded_lg()
-            .bg(theme::bg())
+            .bg(theme::ink())
             .child(
                 div()
                     .text_3xl()
@@ -302,7 +303,7 @@ pub fn page_stage(project: &str, page: &agentbox_api::Artifact, shown: bool) -> 
                 div()
                     .text_lg()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .child(page.title.clone()),
             )
             .child(
@@ -319,8 +320,8 @@ pub fn page_stage(project: &str, page: &agentbox_api::Artifact, shown: bool) -> 
         .rounded_lg()
         .overflow_hidden()
         .border_1()
-        .border_color(theme::border())
-        .bg(gpui::white())
+        .border_color(theme::line())
+        .bg(theme::paper())
         .child(crate::webview::page(
             format!("hatch-{}", page.id),
             crate::webview::daemon_url(&path),

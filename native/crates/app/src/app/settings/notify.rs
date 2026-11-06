@@ -13,7 +13,8 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, Row, button, note, stepper, toggle};
+use super::super::controls::{Btn, Row, button, stepper, toggle};
+use super::kit::note;
 use super::{Entry, Group, entry, group};
 use crate::{prefs, theme};
 
@@ -151,9 +152,10 @@ impl AppView {
                         div()
                             .w(px(80.))
                             .text_center()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .child(t(&format!("notify.channel.{c}")).to_uppercase())
+                            .text_size(theme::text::CAPTION)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::muted())
+                            .child(t(&format!("notify.channel.{c}")))
                     }),
                 );
                 let rows = prefs::NOTIFY_KINDS.iter().map(|k| {
@@ -166,15 +168,16 @@ impl AppView {
                                 .min_w_0()
                                 .child(
                                     div()
-                                        .text_sm()
+                                        .text_size(theme::text::UI)
                                         .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme::fg())
+                                        .text_color(theme::primary())
                                         .child(t(&format!("notify.kind.{k}.label"))),
                                 )
                                 .child(
                                     div()
-                                        .text_xs()
-                                        .text_color(theme::muted())
+                                        .text_size(theme::text::CAPTION)
+                                        .line_height(rems(1.4))
+                                        .text_color(theme::subtle())
                                         .child(t(&format!("notify.kind.{k}.description"))),
                                 ),
                         )
@@ -208,7 +211,7 @@ impl AppView {
                                     .bottom_4()
                                     .w(px(2.))
                                     .rounded_r_full()
-                                    .bg(theme::accent()),
+                                    .bg(theme::brand(400)),
                             )
                         })
                         .child(head)

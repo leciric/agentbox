@@ -316,7 +316,7 @@ impl AppView {
             .border_color(color.opacity(0.35))
             .bg(color.opacity(0.08))
             .text_sm()
-            .text_color(theme::fg())
+            .text_color(theme::primary())
             .child(text)
             .into_any_element()
     }
@@ -335,7 +335,7 @@ impl AppView {
                 .border_color(color.opacity(0.35))
                 .bg(color.opacity(0.08))
                 .text_sm()
-                .text_color(theme::fg())
+                .text_color(theme::primary())
                 .child(text)
                 .into_any_element()
         };

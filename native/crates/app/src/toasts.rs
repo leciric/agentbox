@@ -145,21 +145,22 @@ impl Render for Toasts {
                     Kind::Error => ("✕", theme::error()),
                     Kind::Info => ("•", theme::muted()),
                 };
-                h_flex()
+                let burst = (toast.kind == Kind::Success).then(theme::running);
+                let el = h_flex()
                     .id(("toast", id))
                     .items_start()
                     .gap_2p5()
                     .px_4()
                     .py_3()
                     .rounded(px(14.))
-                    .bg(theme::raised())
+                    .bg(theme::card())
                     .border_1()
                     .border_color(if toast.kind == Kind::Error {
                         theme::error().opacity(0.5)
                     } else {
-                        theme::border()
+                        theme::line()
                     })
-                    .shadow_lg()
+                    .shadow(theme::shadow_pop())
                     // A click on it stays on it, never reaching what's under.
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
@@ -180,7 +181,7 @@ impl Render for Toasts {
                                 div()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(toast.title.clone()),
                             )
                             .when_some(toast.description.clone(), |el, d| {
@@ -195,12 +196,12 @@ impl Render for Toasts {
                                 .px_2()
                                 .py_0p5()
                                 .rounded_md()
-                                .bg(theme::hover())
+                                .bg(theme::surface_strong())
                                 .text_xs()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .cursor_pointer()
-                                .hover(|s| s.bg(theme::border()))
+                                .hover(|s| s.bg(theme::line()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                     act(window, cx);
                                     this.dismiss(id, cx);
@@ -215,14 +216,15 @@ impl Render for Toasts {
                             .text_xs()
                             .text_color(theme::faint())
                             .cursor_pointer()
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| s.text_color(theme::primary()))
                             .on_click(
                                 cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.dismiss(id, cx)
                                 }),
                             )
                             .child(crate::icons::of("✕")),
-                    )
+                    );
+                crate::motion::toast_in(el, ("toast-in", id), burst)
             }))
             .into_any_element()
     }

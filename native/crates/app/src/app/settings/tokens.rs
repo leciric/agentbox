@@ -16,9 +16,10 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, note, note_in, segmented};
+use super::super::controls::{Btn, button, note_in, segmented};
 use super::defaults::time_ago;
 use super::kit::enc;
+use super::kit::note;
 use crate::theme;
 
 const PERIODS: [&str; 5] = ["5h", "24h", "7d", "30d", "all"];
@@ -178,27 +179,25 @@ fn kind_label(kind: &str) -> String {
 }
 
 fn card_box(title: String, description: String) -> Div {
-    v_flex()
+    super::kit::panel(v_flex())
         .gap_3()
-        .p_4()
-        .rounded_xl()
-        .border_1()
-        .border_color(theme::border())
-        .bg(theme::panel())
+        .px_5()
+        .pt_4()
+        .pb_5()
         .child(
             v_flex()
-                .gap_0p5()
                 .child(
                     div()
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::primary())
                         .child(title),
                 )
                 .when(!description.is_empty(), |el| {
                     el.child(
                         div()
                             .text_xs()
-                            .text_color(theme::muted())
+                            .text_color(theme::subtle())
                             .child(description),
                     )
                 }),
@@ -212,19 +211,21 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
         .p_3()
         .rounded_xl()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::bg())
+        .border_color(theme::line_faint())
+        .bg(theme::surface_faint())
         .child(
             div()
-                .text_xs()
-                .text_color(theme::faint())
-                .child(label.to_uppercase()),
+                .text_size(theme::text::CAPTION)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::muted())
+                .child(label),
         )
         .child(
             div()
                 .mt_1()
-                .text_xl()
+                .text_size(theme::text::DISPLAY)
                 .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::title())
                 .child(value),
         )
         .when(!hint.is_empty(), |el| {
@@ -244,7 +245,7 @@ fn bar(fraction: f64, color: Hsla, h: f32) -> Div {
         .h(px(h))
         .w_full()
         .rounded_full()
-        .bg(theme::raised())
+        .bg(theme::surface_strong())
         .overflow_hidden()
         .child(
             div()
@@ -383,26 +384,34 @@ impl AppView {
             pick,
         );
         let body: AnyElement = match &tk.report {
-            _ if tk.project != project => note(t("common.loading")),
-            None => note(t("common.loading")),
-            Some(Err(e)) => note_in(e.clone(), theme::error()),
-            Some(Ok(r)) if r.agents.is_empty() => v_flex()
+            _ if tk.project != project => super::super::panel::loading("tokens"),
+            None => super::super::panel::loading("tokens"),
+            Some(Err(e)) => note_in(e.clone(), theme::rose(300)),
+            Some(Ok(r)) if r.agents.is_empty() => super::kit::panel(v_flex())
                 .items_center()
                 .gap_1()
                 .p_6()
-                .rounded_xl()
-                .border_1()
-                .border_color(theme::border())
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(px(20.))
+                        .text_color(theme::faint())
+                        .child(crate::icons::of("circle-dot")),
+                )
+                .child(
+                    div()
+                        .mt_1()
+                        .text_size(theme::text::UI)
                         .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::secondary())
                         .child(tv("vm.tokens.nothingSpent", &[("period", period.into())])),
                 )
                 .child(
                     div()
-                        .text_xs()
-                        .text_color(theme::muted())
+                        .max_w(px(448.))
+                        .text_center()
+                        .text_size(theme::text::CAPTION)
+                        .line_height(rems(1.5))
+                        .text_color(theme::subtle())
                         .child(t("vm.tokens.emptyDescription")),
                 )
                 .into_any_element(),
@@ -421,7 +430,8 @@ impl AppView {
                         .flex_1()
                         .min_w(px(256.))
                         .text_xs()
-                        .text_color(theme::faint())
+                        .line_height(rems(1.5))
+                        .text_color(theme::subtle())
                         .child(t("vm.tokens.intro")),
                 ),
             )
@@ -468,9 +478,9 @@ impl AppView {
                     _ => Some(w.utilization),
                 };
                 let color = match used {
-                    Some(u) if u > 0.85 => theme::error(),
-                    Some(u) if u > 0.65 => theme::starting(),
-                    _ => theme::accent(),
+                    Some(u) if u > 0.85 => theme::rose(400),
+                    Some(u) if u > 0.65 => theme::amber(400),
+                    _ => theme::brand(400),
                 };
                 v_flex()
                     .flex_1()
@@ -481,10 +491,10 @@ impl AppView {
                         h_flex()
                             .justify_between()
                             .child(div().text_color(theme::muted()).child(w.label.clone()))
-                            .child(match used {
+                            .child(div().text_color(theme::secondary()).child(match used {
                                 Some(u) => format!("{}%", (u * 100.).round()),
                                 None => t("vm.tokens.resetSince"),
-                            }),
+                            })),
                     )
                     .child(bar(used.unwrap_or(0.), color, 6.))
                     .child(div().text_color(theme::faint()).child(match used {
@@ -507,6 +517,7 @@ impl AppView {
                         .child(
                             div()
                                 .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::secondary())
                                 .child(l.account.clone()),
                         )
                         .when(l.default, |el| {
@@ -622,12 +633,13 @@ impl AppView {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::primary())
                             .child(t("vm.tokens.overTime")),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(theme::muted())
+                            .text_color(theme::subtle())
                             .child(step_words(step)),
                     ),
             )
@@ -638,33 +650,29 @@ impl AppView {
                     .w(px(w))
                     .flex_none()
                     .when(right, |el| el.text_right())
-                    .text_color(if strong { theme::fg() } else { theme::muted() })
+                    .text_color(if strong {
+                        theme::secondary()
+                    } else {
+                        theme::tertiary()
+                    })
                     .child(text)
             };
             let header = h_flex()
                 .px_3()
                 .py_1p5()
                 .gap_2()
+                .bg(theme::surface())
                 .text_xs()
-                .text_color(theme::faint())
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::muted())
                 .border_b_1()
-                .border_color(theme::border())
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(t("vm.tokens.when").to_uppercase()),
-                )
-                .child(cell(t("vm.tokens.tokens").to_uppercase(), 80., true, false))
-                .child(cell(
-                    t("vm.tokens.cacheRead").to_uppercase(),
-                    90.,
-                    true,
-                    false,
-                ))
-                .child(cell(t("vm.tokens.output").to_uppercase(), 80., true, false))
-                .child(cell(t("vm.tokens.avgTPS").to_uppercase(), 80., true, false))
-                .child(cell(t("vm.tokens.cost").to_uppercase(), 70., true, false));
+                .border_color(theme::line())
+                .child(div().flex_1().min_w_0().child(t("vm.tokens.when")))
+                .child(cell(t("vm.tokens.tokens"), 80., true, false))
+                .child(cell(t("vm.tokens.cacheRead"), 90., true, false))
+                .child(cell(t("vm.tokens.output"), 80., true, false))
+                .child(cell(t("vm.tokens.avgTPS"), 80., true, false))
+                .child(cell(t("vm.tokens.cost"), 70., true, false));
             let rows = series.iter().filter_map(|(start, b)| {
                 let b = (*b)?;
                 Some(
@@ -674,7 +682,7 @@ impl AppView {
                         .gap_2()
                         .text_xs()
                         .border_t_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line_faint())
                         .child(
                             div()
                                 .flex_1()
@@ -690,13 +698,11 @@ impl AppView {
                         .child(cell(usd(b.cost_usd), 70., true, false)),
                 )
             });
-            return v_flex()
+            return super::kit::panel(v_flex())
                 .gap_3()
-                .p_4()
-                .rounded_xl()
-                .border_1()
-                .border_color(theme::border())
-                .bg(theme::panel())
+                .px_5()
+                .pt_4()
+                .pb_5()
                 .child(head)
                 .child(
                     v_flex()
@@ -705,7 +711,7 @@ impl AppView {
                         .overflow_y_scroll()
                         .rounded_xl()
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line_faint())
                         .child(header)
                         .children(rows),
                 )
@@ -764,7 +770,7 @@ impl AppView {
                         .max_w(px(24.))
                         .h(relative(h as f32))
                         .rounded_t(px(4.))
-                        .bg(theme::accent())
+                        .bg(theme::brand(500))
                         .hover(|s| s.opacity(0.8)),
                 )
         });
@@ -773,13 +779,11 @@ impl AppView {
                 .replace(".0K", "K")
                 .replace(".0M", "M")
         };
-        v_flex()
+        super::kit::panel(v_flex())
             .gap_3()
-            .p_4()
-            .rounded_xl()
-            .border_1()
-            .border_color(theme::border())
-            .bg(theme::panel())
+            .px_5()
+            .pt_4()
+            .pb_5()
             .child(head)
             .child(
                 h_flex()
@@ -804,7 +808,7 @@ impl AppView {
                             .items_end()
                             .gap(px(2.))
                             .border_b_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line_faint())
                             .children(columns),
                     ),
             )
@@ -828,25 +832,15 @@ impl AppView {
     fn agents_table(&self, r: &TokenReport, cx: &mut Context<Self>) -> AnyElement {
         let tk = &self.settings_page.tokens;
         let top = r.agents.iter().map(|a| a.total).max().unwrap_or(1).max(1);
-        let head = |label: String, w: f32| {
-            div()
-                .w(px(w))
-                .flex_none()
-                .text_right()
-                .child(label.to_uppercase())
-        };
+        let head = |label: String, w: f32| div().w(px(w)).flex_none().text_right().child(label);
         let header = h_flex()
             .px_3()
             .py_1p5()
             .gap_2()
             .text_xs()
-            .text_color(theme::faint())
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(t("vm.tokens.agent").to_uppercase()),
-            )
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme::muted())
+            .child(div().flex_1().min_w_0().child(t("vm.tokens.agent")))
             .child(head(t("vm.tokens.tokens"), 140.))
             .child(head(t("vm.tokens.cacheRead"), 56.))
             .child(head(t("vm.tokens.avgTPS"), 72.))
@@ -871,8 +865,8 @@ impl AppView {
             };
             v_flex()
                 .border_t_1()
-                .border_color(theme::border())
-                .when(open, |el| el.bg(theme::raised()))
+                .border_color(theme::line_faint())
+                .when(open, |el| el.bg(theme::surface()))
                 .child(
                     h_flex()
                         .id(SharedString::from(format!("tokens-{}", a.r#ref)))
@@ -882,7 +876,7 @@ impl AppView {
                         .gap_2()
                         .text_xs()
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
+                        .hover(|s| s.bg(theme::surface_raised()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.unfold_agent(r2.clone(), cx)
                         }))
@@ -915,7 +909,7 @@ impl AppView {
                                                         div()
                                                             .px_1()
                                                             .rounded_sm()
-                                                            .bg(theme::raised())
+                                                            .bg(theme::surface_raised())
                                                             .text_color(theme::muted())
                                                             .child(t("vm.tokens.retired")),
                                                     )
@@ -973,7 +967,7 @@ impl AppView {
                 v_flex()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line_faint())
                     .overflow_hidden()
                     .child(header)
                     .children(rows),
@@ -1011,8 +1005,8 @@ impl AppView {
                 .child(bar(m.total as f64 / total as f64, theme::accent(), 4.))
         });
         let turns: AnyElement = match self.settings_page.tokens.turns.get(&a.r#ref) {
-            None => note(t("common.loading")),
-            Some(Err(e)) => note_in(e.clone(), theme::error()),
+            None => super::super::panel::loading("agent-tokens"),
+            Some(Err(e)) => note_in(e.clone(), theme::rose(300)),
             Some(Ok(list)) if list.is_empty() => note(t("vm.tokens.noneInStretch")),
             Some(Ok(list)) => {
                 let col = |text: String, w: f32| {
@@ -1026,7 +1020,7 @@ impl AppView {
                 v_flex()
                     .rounded_lg()
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .text_xs()
                     .children(list.iter().map(|turn| {
                         let speed = if turn.generation_ms > 0 {
@@ -1039,7 +1033,7 @@ impl AppView {
                             .py_1()
                             .gap_2()
                             .border_t_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .text_color(theme::muted())
                             .child(div().w(px(72.)).flex_none().child(time_ago(&turn.at)))
                             .child(div().w(px(96.)).flex_none().child(kind_label(&turn.kind)))
@@ -1099,7 +1093,7 @@ impl AppView {
                         div()
                             .text_xs()
                             .text_color(theme::faint())
-                            .child(t("vm.tokens.byModel").to_uppercase()),
+                            .child(t("vm.tokens.byModel")),
                     )
                     .child(h_flex().flex_wrap().gap_x_6().gap_y_1p5().children(models)),
             )
@@ -1110,7 +1104,7 @@ impl AppView {
                         div()
                             .text_xs()
                             .text_color(theme::faint())
-                            .child(t("vm.tokens.lastTurns").to_uppercase()),
+                            .child(t("vm.tokens.lastTurns")),
                     )
                     .child(turns),
             )

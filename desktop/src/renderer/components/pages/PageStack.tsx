@@ -29,6 +29,9 @@ const pile = [
   { x: 6, y: -7, r: 5 },
 ];
 const fan = [-1.5, 1.2, -0.8];
+// The room the pile takes above the composer, with its margin: the chat
+// leaves it at its end (ChatTab), so its last message isn't under the pile.
+export const pileRoom = Math.round((cardW * 0.625 + captionH) * piled) + 12;
 
 // PageStack is the pages a chat's agents published or updated that you
 // haven't opened, piled at the composer's corner: in the lead's chat every

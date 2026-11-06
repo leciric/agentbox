@@ -216,7 +216,7 @@ fn marked(text: &str, query: &str) -> AnyElement {
         }
     }
     let style = HighlightStyle {
-        background_color: Some(theme::accent().opacity(0.3)),
+        background_color: Some(theme::brand(400).opacity(0.25)),
         ..Default::default()
     };
     StyledText::new(text.to_string())
@@ -1310,20 +1310,23 @@ impl AppView {
             .flex_none()
             .gap_1p5()
             .px_2p5()
-            .py_0p5()
+            .py_1()
             .rounded_full()
             .border_1()
-            .text_xs()
+            .text_size(theme::text::CAPTION)
             .cursor_pointer()
             .when(on, |el| {
-                el.border_color(theme::accent().opacity(0.4))
-                    .bg(theme::accent().opacity(0.15))
-                    .text_color(theme::accent())
+                el.border_color(theme::brand(400).opacity(0.4))
+                    .bg(theme::brand(400).opacity(0.15))
+                    .text_color(theme::brand(200))
             })
             .when(!on, |el| {
-                el.border_color(theme::border())
+                el.border_color(theme::line())
                     .text_color(theme::muted())
-                    .hover(|s| s.text_color(theme::fg()))
+                    .hover(|s| {
+                        s.border_color(theme::line_strong())
+                            .text_color(theme::title())
+                    })
             })
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 click(this, cx);
@@ -1420,12 +1423,14 @@ impl AppView {
             gpui::Anchor::TopRight,
         );
         h_flex()
+            .flex_none()
             .flex_wrap()
+            .items_center()
             .gap_1p5()
             .px_3()
             .py_2()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .children(chips)
             .child(div().flex_1())
             .child(past)
@@ -1447,12 +1452,12 @@ impl AppView {
             .id(SharedString::from(format!("cmd-{ix}")))
             .mx_2()
             .px_3()
-            .py_1p5()
+            .py_2()
             .gap_3()
-            .rounded_md()
+            .rounded_xl()
             .cursor_pointer()
-            .when(on, |el| el.bg(theme::hover()))
-            .hover(|el| el.bg(theme::raised()))
+            .when(on, |el| el.bg(theme::surface_raised()))
+            .when(!on, |el| el.hover(|el| el.bg(theme::surface_faint())))
             .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
                 if e.click_count() > 1 {
                     return this.palette_go(Some(ix), false, Some(window), cx);
@@ -1466,8 +1471,12 @@ impl AppView {
             .child(
                 div()
                     .flex_none()
-                    .text_xs()
-                    .text_color(theme::faint())
+                    .text_size(theme::text::BODY)
+                    .text_color(if on {
+                        theme::brand(300)
+                    } else {
+                        theme::subtle()
+                    })
                     .child(crate::icons::of(if c.setting { "⚙" } else { "⚡" })),
             )
             .child(
@@ -1476,17 +1485,17 @@ impl AppView {
                     .min_w_0()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(theme::text::UI)
                             .truncate()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(marked(&c.title, query)),
                     )
                     .when_some(whom.filter(|_| on), |el, w| {
                         el.child(
                             div()
-                                .text_xs()
+                                .text_size(theme::text::CAPTION)
                                 .truncate()
-                                .text_color(theme::faint())
+                                .text_color(theme::subtle())
                                 .child(w),
                         )
                     }),
@@ -1495,10 +1504,10 @@ impl AppView {
                 el.child(
                     div()
                         .flex_none()
-                        .max_w(px(220.))
+                        .max_w(relative(0.4))
                         .truncate()
-                        .text_xs()
-                        .text_color(theme::faint())
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::subtle())
                         .child(c.place.clone()),
                 )
             })
@@ -1509,9 +1518,10 @@ impl AppView {
                         .px_1()
                         .rounded_sm()
                         .border_1()
-                        .border_color(theme::border())
-                        .text_xs()
-                        .text_color(theme::faint())
+                        .border_color(theme::line())
+                        .font_family(theme::mono())
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::subtle())
                         .child(c.keys),
                 )
             })
@@ -1532,13 +1542,13 @@ impl AppView {
             .id(SharedString::from(format!("hit-{ix}")))
             .mx_2()
             .px_3()
-            .py_1p5()
+            .py_2()
             .gap_3()
             .items_start()
-            .rounded_md()
+            .rounded_xl()
             .cursor_pointer()
-            .when(on, |el| el.bg(theme::hover()))
-            .hover(|el| el.bg(theme::raised()))
+            .when(on, |el| el.bg(theme::surface_raised()))
+            .when(!on, |el| el.hover(|el| el.bg(theme::surface_faint())))
             .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
                 if e.click_count() > 1 {
                     return this.palette_go(Some(ix), false, Some(window), cx);
@@ -1553,6 +1563,7 @@ impl AppView {
                 v_flex()
                     .flex_1()
                     .min_w_0()
+                    .gap_0p5()
                     .child(
                         h_flex()
                             .gap_2()
@@ -1560,18 +1571,23 @@ impl AppView {
                             .child(
                                 div()
                                     .min_w_0()
-                                    .text_sm()
+                                    .text_size(theme::text::UI)
                                     .truncate()
-                                    .text_color(theme::fg())
-                                    .when(kind == SEARCH_EVENTS, |el| el.font_family(theme::mono()))
+                                    .text_color(theme::primary())
+                                    .when(kind == SEARCH_EVENTS, |el| {
+                                        el.font_family(theme::mono())
+                                            .text_size(theme::text::CAPTION)
+                                    })
                                     .child(marked(&h.title.replace('\n', " "), asked)),
                             )
                             .when(!h.tag.is_empty(), |el| {
                                 el.child(
                                     div()
                                         .flex_none()
-                                        .text_xs()
-                                        .text_color(theme::faint())
+                                        .max_w(relative(0.4))
+                                        .truncate()
+                                        .text_size(theme::text::CAPTION)
+                                        .text_color(theme::subtle())
                                         .font_family(theme::mono())
                                         .child(h.tag.clone()),
                                 )
@@ -1580,7 +1596,8 @@ impl AppView {
                     .when(!h.detail.is_empty(), |el| {
                         el.child(
                             div()
-                                .text_xs()
+                                .text_size(theme::text::CAPTION)
+                                .line_height(relative(1.375))
                                 .line_clamp(2)
                                 .text_color(theme::muted())
                                 .child(marked(&h.detail.replace('\n', " "), asked)),
@@ -1590,14 +1607,22 @@ impl AppView {
             .child(
                 v_flex()
                     .flex_none()
-                    .max_w(px(220.))
+                    .max_w(relative(0.34))
                     .items_end()
-                    .text_xs()
-                    .text_color(theme::faint())
+                    .gap_0p5()
+                    .pt_0p5()
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
                     .when(!place.is_empty(), |el| {
-                        el.child(div().truncate().child(place))
+                        el.child(div().max_w_full().truncate().child(place))
                     })
-                    .when_some(h.at.as_ref(), |el, at| el.child(super::sidebar::ago(at))),
+                    .when_some(h.at.as_ref(), |el, at| {
+                        el.child(
+                            div()
+                                .text_color(theme::faint())
+                                .child(super::sidebar::ago(at)),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -1626,25 +1651,37 @@ impl AppView {
             },
             String::new(),
             v_flex()
-                .gap_2()
+                .gap_3()
                 .child(
-                    div()
+                    h_flex()
+                        .gap_2()
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::fg())
+                        .text_color(theme::title())
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(theme::brand(300))
+                                .child(crate::icons::of(if c.setting { "⚙" } else { "⚡" })),
+                        )
                         .child(c.title.clone()),
                 )
                 .child(div().text_color(theme::muted()).child(about))
                 .when(c.setting && !c.keywords.trim().is_empty(), |el| {
                     el.child(
                         div()
-                            .text_xs()
+                            .text_size(theme::text::CAPTION)
                             .line_clamp(4)
-                            .text_color(theme::faint())
+                            .text_color(theme::subtle())
                             .child(c.keywords.clone()),
                     )
                 })
                 .when_some(whom, |el, w| {
-                    el.child(div().text_xs().text_color(theme::faint()).child(w))
+                    el.child(
+                        div()
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::subtle())
+                            .child(w),
+                    )
                 })
                 .into_any_element(),
             h_flex()
@@ -1701,7 +1738,7 @@ impl AppView {
                         .child("…")
                         .into_any_element(),
                     Some(Preview::Failed(e)) => div()
-                        .text_color(theme::error())
+                        .text_color(theme::rose(300))
                         .child(e.clone())
                         .into_any_element(),
                     Some(Preview::Chat(items)) => {
@@ -1737,8 +1774,8 @@ impl AppView {
                                             .child(
                                                 div()
                                                     .px_1()
-                                                    .text_xs()
-                                                    .text_color(theme::faint())
+                                                    .text_size(theme::text::CAPTION)
+                                                    .text_color(theme::subtle())
                                                     .child(who),
                                             )
                                             .child(
@@ -1747,10 +1784,12 @@ impl AppView {
                                                     .px_3()
                                                     .py_2()
                                                     .rounded_xl()
-                                                    .when(mine, |el| el.bg(theme::raised()))
+                                                    .text_color(theme::primary())
+                                                    .when(mine, |el| el.bg(theme::surface_raised()))
                                                     .when(here, |el| {
-                                                        el.border_1()
-                                                            .border_color(gpui::rgb(0xf59e0b))
+                                                        el.border_1().border_color(
+                                                            theme::amber(400).opacity(0.6),
+                                                        )
                                                     })
                                                     .when(!here, |el| {
                                                         el.line_clamp(4).text_color(theme::muted())
@@ -1782,7 +1821,7 @@ impl AppView {
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::title())
                                     .child(marked(
                                         if r.task.is_empty() {
                                             &r.summary
@@ -1794,15 +1833,15 @@ impl AppView {
                             )
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(theme::text::CAPTION)
                                     .font_family(theme::mono())
-                                    .text_color(theme::faint())
+                                    .text_color(theme::subtle())
                                     .child(r.status.clone()),
                             ),
                     )
                     .child(
                         div()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(marked(&r.summary, asked)),
                     )
                     .children(lists.into_iter().filter(|(_, l)| !l.is_empty()).map(
@@ -1811,15 +1850,16 @@ impl AppView {
                                 .gap_1()
                                 .child(
                                     div()
-                                        .text_xs()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(theme::faint())
-                                        .child(t(label).to_uppercase()),
+                                        .text_size(theme::text::CAPTION)
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(theme::muted())
+                                        .child(t(label)),
                                 )
                                 .children(lines.iter().map(|l| {
                                     h_flex()
-                                        .gap_1()
+                                        .gap_1p5()
                                         .items_start()
+                                        .pl_1()
                                         .text_color(theme::muted())
                                         .child("•")
                                         .child(marked(l, asked))
@@ -1836,20 +1876,20 @@ impl AppView {
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::title())
                                     .child(marked(&m.title, asked)),
                             )
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(theme::text::CAPTION)
                                     .font_family(theme::mono())
-                                    .text_color(theme::faint())
+                                    .text_color(theme::subtle())
                                     .child(m.kind.clone()),
                             ),
                     )
                     .child(
                         div()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(marked(&m.content, asked)),
                     )
                     .into_any_element()
@@ -1867,14 +1907,16 @@ impl AppView {
                                     .max_h(px(288.))
                                     .w_full()
                                     .object_fit(ObjectFit::Contain)
-                                    .rounded_lg(),
+                                    .rounded_lg()
+                                    .border_1()
+                                    .border_color(theme::line()),
                             )
                         },
                     )
                     .child(
                         div()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::title())
                             .child(marked(&m.name, asked)),
                     )
                     .when(!m.text.is_empty(), |el| {
@@ -1891,9 +1933,10 @@ impl AppView {
                     .child(
                         div()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::title())
                             .when(kind == SEARCH_EVENTS, |el| {
-                                el.font_family(theme::mono()).text_xs()
+                                el.font_family(theme::mono())
+                                    .text_size(theme::text::CAPTION)
                             })
                             .child(marked(&h.title, asked)),
                     )
@@ -1982,12 +2025,12 @@ impl AppView {
                         .id(SharedString::from(format!("choice-{i}")))
                         .mx_2()
                         .px_3()
-                        .py_1p5()
+                        .py_2()
                         .gap_3()
-                        .rounded_md()
+                        .rounded_xl()
                         .cursor_pointer()
-                        .when(on, |el| el.bg(theme::hover()))
-                        .hover(|el| el.bg(theme::raised()))
+                        .when(on, |el| el.bg(theme::surface_raised()))
+                        .when(!on, |el| el.hover(|el| el.bg(theme::surface_faint())))
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.pick(Some(i), window, cx)
                         }))
@@ -1996,17 +2039,17 @@ impl AppView {
                                 .flex_1()
                                 .min_w_0()
                                 .truncate()
-                                .text_sm()
-                                .text_color(theme::fg())
+                                .text_size(theme::text::UI)
+                                .text_color(theme::primary())
                                 .child(marked(&title, &query)),
                         )
                         .child(
                             div()
                                 .flex_none()
-                                .max_w(px(240.))
+                                .max_w(relative(0.4))
                                 .truncate()
-                                .text_xs()
-                                .text_color(theme::faint())
+                                .text_size(theme::text::CAPTION)
+                                .text_color(theme::subtle())
                                 .child(detail),
                         )
                         .into_any_element(),
@@ -2020,10 +2063,11 @@ impl AppView {
             } else if let (Some(e), true) = (&p.error, rows.is_empty()) {
                 list.push(
                     div()
-                        .px_4()
-                        .py_6()
-                        .text_sm()
-                        .text_color(theme::error())
+                        .px_3()
+                        .py_8()
+                        .text_center()
+                        .text_size(theme::text::UI)
+                        .text_color(theme::rose(300))
                         .child(e.clone())
                         .into_any_element(),
                 );
@@ -2046,11 +2090,11 @@ impl AppView {
             if !typed && p.kind.is_empty() && !rows.is_empty() {
                 list.push(
                     div()
-                        .px_4()
+                        .px_5()
                         .pt_1()
                         .pb_2()
-                        .text_xs()
-                        .text_color(theme::faint())
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::subtle())
                         .child(t("palette.hint"))
                         .into_any_element(),
                 );
@@ -2085,18 +2129,20 @@ impl AppView {
                         let newest = p.newest;
                         list.push(
                             h_flex()
-                                .px_4()
-                                .pt_3()
+                                .px_5()
+                                .pt_2()
                                 .pb_1()
                                 .justify_between()
-                                .text_xs()
-                                .text_color(theme::faint())
+                                .text_size(theme::text::CAPTION)
+                                .text_color(theme::subtle())
                                 .child(label)
                                 .child(
                                     div()
                                         .id("search-sort")
+                                        .px_1()
+                                        .rounded_sm()
                                         .cursor_pointer()
-                                        .hover(|s| s.text_color(theme::fg()))
+                                        .hover(|s| s.text_color(theme::title()))
                                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                             if let Some(p) = this.side.palette.as_mut() {
                                                 p.newest = !p.newest;
@@ -2119,20 +2165,17 @@ impl AppView {
                     } else {
                         list.push(
                             div()
-                                .px_4()
-                                .pt_3()
+                                .px_5()
+                                .pt_2()
                                 .pb_1()
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(theme::faint())
-                                .child(
-                                    t(if g == 1 {
-                                        "palette.group.settings"
-                                    } else {
-                                        "palette.group.actions"
-                                    })
-                                    .to_uppercase(),
-                                )
+                                .text_size(theme::text::CAPTION)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::muted())
+                                .child(t(if g == 1 {
+                                    "palette.group.settings"
+                                } else {
+                                    "palette.group.actions"
+                                }))
                                 .into_any_element(),
                         );
                     }
@@ -2166,10 +2209,10 @@ impl AppView {
                 .py_1()
                 .rounded_full()
                 .border_1()
-                .border_color(theme::accent().opacity(0.4))
-                .bg(theme::accent().opacity(0.15))
-                .text_xs()
-                .text_color(theme::accent())
+                .border_color(theme::brand(400).opacity(0.4))
+                .bg(theme::brand(400).opacity(0.15))
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::brand(200))
                 .cursor_pointer()
                 .on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.pick_back(window, cx)),
@@ -2211,87 +2254,136 @@ impl AppView {
             keys.push(format!("> {}", t("palette.keys.commandsOnly")));
         }
         Some(
-            div()
-                .id("search-palette")
-                .absolute()
-                .inset_0()
-                .bg(gpui::black().opacity(0.5))
-                .flex()
-                .justify_center()
-                .pt(relative(0.08))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                        this.close_search(window, cx)
-                    }),
-                )
-                .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                    this.on_search_key(ev, window, cx)
-                }))
-                .child(
-                    v_flex()
-                        .id("search-card")
-                        .w(px(1152.))
-                        .max_w(relative(0.95))
-                        .h(relative(0.8))
-                        .rounded_2xl()
-                        .overflow_hidden()
-                        .bg(theme::panel())
-                        .border_1()
-                        .border_color(theme::border())
-                        .shadow_lg()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .p_3()
-                                .border_b_1()
-                                .border_color(theme::border())
-                                .children(picking_chip)
-                                .child(div().flex_1().child(Input::new(&p.input).cleanable(true))),
-                        )
-                        .when(picking.is_none(), |el| el.child(self.filters_bar(cx)))
-                        .child(
-                            h_flex()
-                                .flex_1()
-                                .min_h_0()
-                                .items_start()
-                                .child(
-                                    div()
-                                        .id("search-results")
-                                        .flex_1()
-                                        .min_w_0()
-                                        .h_full()
-                                        .overflow_y_scroll()
-                                        .py_2()
-                                        .children(list),
-                                )
-                                .when_some(side, |el, s| el.child(s)),
-                        )
-                        .child(
-                            h_flex()
-                                .flex_wrap()
-                                .px_4()
-                                .py_2()
-                                .gap_4()
-                                .border_t_1()
-                                .border_color(theme::border())
-                                .text_xs()
-                                .text_color(theme::faint())
-                                .children(keys),
-                        ),
-                )
-                .into_any_element(),
+            crate::motion::scrim_in(
+                div()
+                    .id("search-palette")
+                    .absolute()
+                    .inset_0()
+                    .bg(theme::scrim())
+                    .flex()
+                    .justify_center()
+                    .pt(relative(0.08))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                            this.close_search(window, cx)
+                        }),
+                    )
+                    .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                        this.on_search_key(ev, window, cx)
+                    }))
+                    .child(
+                        v_flex()
+                            .id("search-card")
+                            .w(px(1152.))
+                            .max_w(relative(0.95))
+                            .h(relative(0.8))
+                            .rounded(theme::radius::XXL)
+                            .overflow_hidden()
+                            .bg(theme::modal())
+                            .border_1()
+                            .border_color(theme::line_strong())
+                            .shadow(theme::shadow_modal())
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(
+                                h_flex()
+                                    .flex_none()
+                                    .h(px(56.))
+                                    .gap_3()
+                                    .px_4()
+                                    .border_b_1()
+                                    .border_color(theme::line())
+                                    .child(
+                                        crate::icons::ic("search")
+                                            .size_4()
+                                            .flex_none()
+                                            .text_color(theme::subtle()),
+                                    )
+                                    .children(picking_chip)
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .text_size(theme::text::HEADING)
+                                            .text_color(theme::primary())
+                                            .child(
+                                                Input::new(&p.input)
+                                                    .appearance(false)
+                                                    .cleanable(true),
+                                            ),
+                                    ),
+                            )
+                            .when(picking.is_none(), |el| el.child(self.filters_bar(cx)))
+                            .child(
+                                h_flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .items_start()
+                                    .child(
+                                        div()
+                                            .id("search-results")
+                                            .flex_1()
+                                            .min_w_0()
+                                            .h_full()
+                                            .overflow_y_scroll()
+                                            .py_2()
+                                            .text_color(theme::primary())
+                                            .children(list),
+                                    )
+                                    .when_some(side, |el, s| el.child(s)),
+                            )
+                            .child(
+                                h_flex()
+                                    .flex_none()
+                                    .flex_wrap()
+                                    .items_center()
+                                    .px_4()
+                                    .py_2()
+                                    .gap_x_4()
+                                    .gap_y_1()
+                                    .border_t_1()
+                                    .border_color(theme::line())
+                                    .text_size(theme::text::CAPTION)
+                                    .text_color(theme::subtle())
+                                    .children(keys.into_iter().map(key_hint)),
+                            ),
+                    ),
+                "idsearch-palette-in",
+            )
+            .into_any_element(),
         )
     }
 }
 
+/// key_hint is a footer hint, "↵ Open": its keys in a bordered kbd, then
+/// what they do (SearchModal's footer).
+fn key_hint(hint: String) -> AnyElement {
+    let (keys, what) = hint.split_once(' ').unwrap_or((hint.as_str(), ""));
+    let mut row = h_flex().gap_1p5();
+    for k in if keys == "↑↓" {
+        vec!["↑", "↓"]
+    } else {
+        vec![keys]
+    } {
+        row = row.child(
+            div()
+                .px_1()
+                .rounded_sm()
+                .border_1()
+                .border_color(theme::line())
+                .font_family(theme::mono())
+                .child(k.to_string()),
+        );
+    }
+    row.child(what.to_string()).into_any_element()
+}
+
 fn note(text: String) -> AnyElement {
     div()
-        .px_4()
+        .px_3()
         .py_8()
         .text_center()
-        .text_sm()
+        .text_size(theme::text::UI)
         .text_color(theme::muted())
         .child(text)
         .into_any_element()
@@ -2304,20 +2396,23 @@ fn aside(place: String, at: String, body: AnyElement, foot: AnyElement) -> AnyEl
         .flex_none()
         .h_full()
         .border_l_1()
-        .border_color(theme::border())
-        .bg(theme::bg())
+        .border_color(theme::line())
+        .bg(theme::surface_faint())
         .child(
             h_flex()
+                .flex_none()
                 .justify_between()
                 .gap_3()
                 .px_4()
                 .py_2p5()
                 .border_b_1()
-                .border_color(theme::border())
-                .text_xs()
-                .text_color(theme::faint())
+                .border_color(theme::line())
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::subtle())
                 .child(div().min_w_0().truncate().child(place))
-                .when(!at.is_empty(), |el| el.child(div().flex_none().child(at))),
+                .when(!at.is_empty(), |el| {
+                    el.child(div().flex_none().text_color(theme::faint()).child(at))
+                }),
         )
         .child(
             div()
@@ -2327,15 +2422,19 @@ fn aside(place: String, at: String, body: AnyElement, foot: AnyElement) -> AnyEl
                 .overflow_y_scroll()
                 .px_4()
                 .py_4()
-                .text_sm()
+                .text_size(theme::text::UI)
+                .line_height(relative(1.625))
+                .text_color(theme::primary())
                 .child(body),
         )
         .child(
             h_flex()
+                .flex_none()
+                .flex_wrap()
                 .px_4()
                 .py_2p5()
                 .border_t_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(foot),
         )
         .into_any_element()
@@ -2351,11 +2450,13 @@ fn primary(
         .px_2p5()
         .py_1()
         .rounded_lg()
-        .bg(theme::accent())
-        .text_xs()
+        .bg(theme::brand(500))
+        .text_size(theme::text::CAPTION)
         .font_weight(FontWeight::MEDIUM)
-        .text_color(gpui::white())
+        .text_color(theme::on_brand())
         .cursor_pointer()
+        .hover(|s| s.bg(theme::brand(400)))
+        .active(|s| s.bg(theme::brand(600)))
         .on_click(click)
         .child(label)
         .into_any_element()
@@ -2372,11 +2473,12 @@ fn secondary(
         .py_1()
         .rounded_lg()
         .border_1()
-        .border_color(theme::border())
-        .text_xs()
+        .border_color(theme::line())
+        .text_size(theme::text::CAPTION)
         .text_color(theme::muted())
         .cursor_pointer()
-        .hover(|s| s.text_color(theme::fg()))
+        .hover(|s| s.text_color(theme::title()))
+        .active(|s| s.bg(theme::surface_raised()))
         .on_click(click)
         .child(label)
         .into_any_element()

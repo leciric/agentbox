@@ -42,6 +42,10 @@ cargo run -p fake-daemon -- --listen /t/fake.sock --upstream ~/.local/share/agen
 cargo run --release -p agentbox-native -- --socket /t/fake.sock
 ```
 
+Its agents' Resources views sample made-up numbers every two seconds while the app's presence lease
+asks for them (`GET /v1/presence` on the fake shows the leases it holds); the leases go on to the
+upstream daemon too.
+
 `--project` (demo), `--agents` (6), `--history` (400 messages per agent) and `--rate` (60 chunks a
 second) shape the fixtures. Without `--upstream` it serves one project on its own.
 

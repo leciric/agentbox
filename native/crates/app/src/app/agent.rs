@@ -924,7 +924,7 @@ impl AppView {
                 .px_4()
                 .py_2()
                 .gap_2()
-                .bg(theme::bg())
+                .bg(theme::ink())
                 .child(
                     h_flex()
                         .id("agent-status")
@@ -986,7 +986,7 @@ impl AppView {
                             .py_0p5()
                             .rounded_md()
                             .border_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .text_xs()
                             .font_family(theme::mono())
                             .text_color(theme::muted())
@@ -1027,7 +1027,7 @@ impl AppView {
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_color(theme::fg())
+                        .text_color(theme::primary())
                         .when(mono, |el| el.font_family(theme::mono()))
                         .child(value),
                 )
@@ -1073,9 +1073,9 @@ impl AppView {
             .gap_1p5()
             .p_3()
             .rounded_lg()
-            .bg(theme::panel())
+            .bg(theme::card())
             .border_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .shadow_lg()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
@@ -1095,7 +1095,7 @@ impl AppView {
                             .truncate()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(title),
                     )
                     .child(controls::badge(state_text, tone_color(tone))),
@@ -1302,8 +1302,8 @@ impl AppView {
                 .pr_2()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::panel())
+                .border_color(theme::line())
+                .bg(theme::card())
                 .child(
                     div()
                         .id("machine-peek")
@@ -1312,9 +1312,9 @@ impl AppView {
                         .h(px(65.))
                         .rounded_lg()
                         .overflow_hidden()
-                        .bg(theme::bg())
+                        .bg(theme::ink())
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .cursor_pointer()
                         .hover(|el| el.border_color(theme::accent()))
                         .on_click({
@@ -1342,7 +1342,7 @@ impl AppView {
                                 .truncate()
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(tv("desk.ownComputer", &[("name", (&a.name).into())])),
                         )
                         .child(
@@ -1367,14 +1367,17 @@ impl AppView {
                         .border_color(if on {
                             theme::accent().opacity(0.5)
                         } else {
-                            theme::border()
+                            theme::line()
                         })
                         .when(on, |el| el.bg(theme::accent().opacity(0.1)))
                         .text_xs()
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(if on { theme::fg() } else { theme::muted() })
+                        .text_color(if on { theme::primary() } else { theme::muted() })
                         .cursor_pointer()
-                        .hover(|el| el.text_color(theme::fg()).border_color(theme::accent()))
+                        .hover(|el| {
+                            el.text_color(theme::primary())
+                                .border_color(theme::accent())
+                        })
                         .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                             this.show_panel_view(&r, v, w, cx)
                         }))
@@ -1396,13 +1399,13 @@ impl AppView {
                 .p_4()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::panel())
+                .border_color(theme::line())
+                .bg(theme::card())
                 .child(
                     div()
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::fg())
+                        .text_color(theme::primary())
                         .child(title),
                 )
         };
@@ -1434,7 +1437,7 @@ impl AppView {
                             .child(
                                 div()
                                     .text_sm()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(t("agent.snapshots.consistent")),
                             ),
                     )
@@ -1476,8 +1479,8 @@ impl AppView {
                 .py_2()
                 .rounded_lg()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::bg())
+                .border_color(theme::line())
+                .bg(theme::ink())
                 .child(
                     div()
                         .size(px(9.))
@@ -1492,7 +1495,7 @@ impl AppView {
                             div()
                                 .text_sm()
                                 .font_family(theme::mono())
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(s.name.clone()),
                         )
                         .child(div().text_xs().text_color(theme::muted()).child(format!(
@@ -1629,7 +1632,7 @@ impl AppView {
                             .flex_1()
                             .min_w_0()
                             .text_sm()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(label),
                     )
             };
@@ -1638,8 +1641,8 @@ impl AppView {
                 .p_3()
                 .rounded_xl()
                 .border_1()
-                .border_color(theme::border())
-                .bg(theme::bg())
+                .border_color(theme::line())
+                .bg(theme::ink())
                 .child(switch(
                     "destroy-force",
                     d.force,
@@ -1796,7 +1799,7 @@ impl AppView {
                     .id("agent-info-dialog")
                     .absolute()
                     .inset_0()
-                    .bg(gpui::black().opacity(0.45))
+                    .bg(theme::scrim())
                     .flex()
                     .items_center()
                     .justify_center()
@@ -1824,62 +1827,66 @@ pub fn modal(
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let backdrop = on_cancel.clone();
-    div()
-        .id(SharedString::from(format!("{id}-backdrop")))
-        .absolute()
-        .inset_0()
-        .bg(gpui::black().opacity(0.55))
-        .flex()
-        .items_center()
-        .justify_center()
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
-        .child(
-            v_flex()
-                .id(SharedString::from(format!("{id}-card")))
-                .w(px(480.))
-                .max_w(relative(0.92))
-                .gap_4()
-                .p_6()
-                .rounded_xl()
-                .bg(theme::panel())
-                .border_1()
-                .border_color(theme::border())
-                .shadow_lg()
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::fg())
-                        .child(title),
-                )
-                .when_some(description, |el, d| {
-                    el.child(div().text_sm().text_color(theme::muted()).child(d))
-                })
-                .children(body)
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .justify_end()
-                        .child(controls::button(
-                            SharedString::from(format!("{id}-cancel")),
-                            t("common.cancel"),
-                            Btn::Ghost,
-                            false,
-                            move |_, w, cx| on_cancel(w, cx),
-                        ))
-                        .child(controls::button(
-                            SharedString::from(format!("{id}-confirm")),
-                            confirm,
-                            if destructive {
-                                Btn::Danger
-                            } else {
-                                Btn::Primary
-                            },
-                            disabled,
-                            on_confirm,
-                        )),
-                ),
-        )
-        .into_any_element()
+    crate::motion::scrim_in(
+        div()
+            .id(SharedString::from(format!("{id}-backdrop")))
+            .absolute()
+            .inset_0()
+            .bg(theme::scrim())
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
+            .child(crate::motion::pop_in(
+                v_flex()
+                    .id(SharedString::from(format!("{id}-card")))
+                    .w(px(480.))
+                    .max_w(relative(0.92))
+                    .gap_4()
+                    .p_6()
+                    .rounded(theme::radius::XXL)
+                    .bg(theme::card())
+                    .border_1()
+                    .border_color(theme::line_strong())
+                    .shadow(theme::shadow_modal())
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(
+                        div()
+                            .text_size(theme::text::HEADING)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::primary())
+                            .child(title),
+                    )
+                    .when_some(description, |el, d| {
+                        el.child(div().text_sm().text_color(theme::muted()).child(d))
+                    })
+                    .children(body)
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .justify_end()
+                            .child(controls::button(
+                                SharedString::from(format!("{id}-cancel")),
+                                t("common.cancel"),
+                                Btn::Ghost,
+                                false,
+                                move |_, w, cx| on_cancel(w, cx),
+                            ))
+                            .child(controls::button(
+                                SharedString::from(format!("{id}-confirm")),
+                                confirm,
+                                if destructive {
+                                    Btn::Danger
+                                } else {
+                                    Btn::Primary
+                                },
+                                disabled,
+                                on_confirm,
+                            )),
+                    ),
+                "dialog-card-in",
+            )),
+        "dialog-backdrop-in",
+    )
+    .into_any_element()
 }

@@ -193,17 +193,16 @@ func (s *Server) runPressure(ctx context.Context) {
 }
 
 // protectDaemon keeps the daemon going when the VM runs out of memory: its
-// memory locked in, so the pressure loop never waits on a page the kernel
-// pushed out, and the OOM killer told to take others first. That is the
+// code locked in, so the pressure loop never waits on the binary being read
+// back from disk, and the OOM killer told to take others first. That is the
 // VM's daemon only: on a machine of the user's own, its memory is theirs.
 //
-// mlockall, not a memory.min: the daemon runs in its ssh session's cgroup,
+// mlock, not a memory.min: the daemon runs in its ssh session's cgroup,
 // and a memory.min there means nothing unless every cgroup above it has one,
 // while moving the daemon into one of its own would take the lead chats it
-// starts with it, which a lock doesn't (children don't inherit it). Locked
-// as the pages are first touched (MCL_ONFAULT), so what Go reserves and
-// never uses costs nothing, after locking all that is mapped now: the
-// binary's code, the pause included, never has to be read back from disk.
+// starts with it, which a lock doesn't (children don't inherit it). Only the
+// executable's mappings (lockMemory): a locked heap can never be given back,
+// and its pages that do go out under pressure come back from zram, not disk.
 func (s *Server) protectDaemon() {
 	if !hostos.InVM() {
 		return

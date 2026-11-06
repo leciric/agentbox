@@ -97,7 +97,7 @@ fn link(id: impl Into<ElementId>, label: String) -> Stateful<Div> {
         .cursor_pointer()
         .text_xs()
         .text_color(theme::muted())
-        .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
         .child(format!("{label}  ↗"))
 }
 
@@ -147,7 +147,7 @@ pub(super) fn diff_block(id: String, d: &ChatDiff) -> AnyElement {
         .w_full()
         .rounded_lg()
         .border_1()
-        .border_color(theme::border())
+        .border_color(theme::line())
         .overflow_hidden()
         .child(
             h_flex()
@@ -211,7 +211,7 @@ impl ChatView {
                     .pb_2()
                     .pt_1()
                     .border_b_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(
                         h_flex()
                             .id(SharedString::from(format!("fold-{turn}")))
@@ -246,7 +246,7 @@ impl ChatView {
                     .pb_2()
                     .pt_1()
                     .border_b_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(
                         h_flex()
                             .text_sm()
@@ -331,7 +331,7 @@ impl ChatView {
                     .w_full()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(
                         h_flex()
                             .id(SharedString::from(format!("changes-{key}")))
@@ -341,7 +341,7 @@ impl ChatView {
                             .cursor_pointer()
                             .text_sm()
                             .text_color(theme::muted())
-                            .hover(|el| el.text_color(theme::fg()))
+                            .hover(|el| el.text_color(theme::primary()))
                             .on_click(move |_, _, cx| v.update(cx, |this, cx| this.toggle(&k2, cx)))
                             .child(chevron(open))
                             .child(tv(
@@ -367,7 +367,7 @@ impl ChatView {
                                 .text_xs()
                                 .font_family(theme::mono())
                                 .border_t_1()
-                                .border_color(theme::border())
+                                .border_color(theme::line())
                                 .child(
                                     div()
                                         .flex_1()
@@ -397,7 +397,7 @@ impl ChatView {
                 h_flex()
                     .mb_3()
                     .gap_2()
-                    .child(div().flex_1().h(px(1.)).bg(theme::border()))
+                    .child(div().flex_1().h(px(1.)).bg(theme::line()))
                     .child(
                         Button::new(SharedString::from(format!("turn-{n}")))
                             .ghost()
@@ -453,13 +453,19 @@ impl ChatView {
             Row::Assistant { ix, .. } | Row::Subagent { ix, .. } => self.found(&self.items[*ix].id),
             _ => false,
         };
-        div()
+        let row = div()
             .w_full()
             .px_6()
             .when(ix == 0, |el| el.pt_4())
             .when(found, |el| el.bg(theme::starting().opacity(0.08)))
-            .child(body)
-            .into_any_element()
+            .child(body);
+        match self.entering.get(&r.key) {
+            Some(t) if t.elapsed() < std::time::Duration::from_millis(800) => {
+                crate::motion::enter(row, SharedString::from(format!("arrive-{}", r.key)), 0)
+                    .into_any_element()
+            }
+            _ => row.into_any_element(),
+        }
     }
 
     /// message_menu is a message's right-click menu: Copy, and in a lead's
@@ -510,7 +516,7 @@ impl ChatView {
                     .px_1()
                     .rounded_sm()
                     .cursor_pointer()
-                    .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+                    .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
                     .child(t("chat.message.copy"))
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new(t("chat.timeline.copyMessage"))
@@ -576,11 +582,11 @@ impl ChatView {
                     div()
                         .max_w(relative(0.85))
                         .rounded_2xl()
-                        .bg(theme::raised())
+                        .bg(theme::surface_raised())
                         .px_3p5()
                         .py_2p5()
                         .text_sm()
-                        .text_color(theme::fg())
+                        .text_color(theme::primary())
                         .child(it.text.clone()),
                 )
             })
@@ -605,8 +611,8 @@ impl ChatView {
             .rounded_xl()
             .overflow_hidden()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::raised())
+            .border_color(theme::line())
+            .bg(theme::surface_raised())
             .cursor_pointer()
             .hover(|el| el.border_color(theme::muted()))
             .when_some(picture.clone(), |el, p: Arc<Image>| {
@@ -646,8 +652,8 @@ impl ChatView {
             .pr_3()
             .rounded_xl()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::panel())
+            .border_color(theme::line())
+            .bg(theme::card())
             .cursor_pointer()
             .hover(|el| el.border_color(theme::muted()))
             .child(
@@ -658,7 +664,7 @@ impl ChatView {
                     .items_center()
                     .justify_center()
                     .rounded_lg()
-                    .bg(theme::raised())
+                    .bg(theme::surface_raised())
                     .text_color(theme::muted())
                     .child(crate::icons::of("▤")),
             )
@@ -669,7 +675,7 @@ impl ChatView {
                         div()
                             .text_sm()
                             .truncate()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(f.name.clone()),
                     )
                     .child(
@@ -728,13 +734,20 @@ impl ChatView {
             .px_1()
             .when(last, |el| el.pb_4())
             .when(!last, |el| el.pb_2p5())
+            // A reply streaming in since it started here eases in; one already
+            // streaming when the chat loaded is drawn as it is.
             .child(
-                crate::mermaid::with_mermaid(TextView::markdown(
-                    SharedString::from(format!("md-{}", it.id)),
-                    it.text.clone(),
-                ))
-                .selectable(true)
-                .text_color(theme::fg()),
+                if let Some(shown) = self.shown.get(&it.id).filter(|_| it.streaming) {
+                    super::stream::reveal(&it.id, &it.text, shown.clone())
+                } else {
+                    crate::mermaid::with_mermaid(TextView::markdown(
+                        SharedString::from(format!("md-{}", it.id)),
+                        it.text.clone(),
+                    ))
+                    .selectable(true)
+                    .text_color(theme::primary())
+                    .into_any_element()
+                },
             )
             .when(last, |el| {
                 el.child(div().mt_1p5().child(self.meta(it, false)))
@@ -759,14 +772,18 @@ impl ChatView {
                 .rounded_md()
                 .cursor_pointer()
                 .text_sm()
-                .hover(|el| el.bg(theme::panel()))
+                .hover(|el| el.bg(theme::card()))
                 .on_click(move |_, _, cx| v.update(cx, |this, cx| this.toggle(&k, cx)))
                 .child(icon(g, theme::faint()))
                 .child(
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_color(if shine { theme::fg() } else { theme::faint() })
+                        .text_color(if shine {
+                            theme::primary()
+                        } else {
+                            theme::faint()
+                        })
                         .child(label),
                 )
                 .when_some(extra, |el, e| {
@@ -786,7 +803,7 @@ impl ChatView {
                 .mt_0p5()
                 .pl_2p5()
                 .border_l_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .children(items.iter().map(|it| self.render_entry(it, view)))
         };
         if live && rows::is_active(last) {
@@ -856,7 +873,7 @@ impl ChatView {
             .rounded_md()
             .text_sm()
             .when(has_detail || page.is_some(), |el| {
-                el.cursor_pointer().hover(|el| el.bg(theme::panel()))
+                el.cursor_pointer().hover(|el| el.bg(theme::card()))
             })
             .child(icon(
                 if page.is_some() { "globe" } else { glyph(it) },
@@ -875,7 +892,7 @@ impl ChatView {
                     .text_color(if failed {
                         theme::error()
                     } else if active {
-                        theme::fg()
+                        theme::primary()
                     } else {
                         theme::faint()
                     })
@@ -927,8 +944,8 @@ impl ChatView {
                         .mb_1p5()
                         .rounded_lg()
                         .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::panel())
+                        .border_color(theme::line())
+                        .bg(theme::card())
                         .overflow_hidden()
                         .child(d)
                 }))
@@ -972,7 +989,7 @@ impl ChatView {
         Some(
             mono()
                 .when_some(command, |el, c| {
-                    el.child(div().text_color(theme::fg()).child(format!("$ {c}")))
+                    el.child(div().text_color(theme::primary()).child(format!("$ {c}")))
                 })
                 .when(!out.is_empty(), |el| el.child(out))
                 .into_any_element(),
@@ -1020,8 +1037,8 @@ impl ChatView {
                 v_flex()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
+                    .border_color(theme::line())
+                    .bg(theme::card())
                     .child(
                         h_flex()
                             .id(SharedString::from(format!("sub-{}", it.id)))
@@ -1031,7 +1048,7 @@ impl ChatView {
                             .py_1p5()
                             .cursor_pointer()
                             .rounded_xl()
-                            .hover(|el| el.bg(theme::raised()))
+                            .hover(|el| el.bg(theme::surface_raised()))
                             .on_click(move |_, _, cx| v.update(cx, |this, cx| this.toggle(&id, cx)))
                             .child(icon("◆", theme::muted()))
                             .child(
@@ -1046,7 +1063,7 @@ impl ChatView {
                                                 div()
                                                     .flex_none()
                                                     .font_weight(FontWeight::MEDIUM)
-                                                    .text_color(theme::fg())
+                                                    .text_color(theme::primary())
                                                     .child(sub.name.clone()),
                                             )
                                             .when(!sub.task.is_empty() && !open, |el| {
@@ -1064,7 +1081,7 @@ impl ChatView {
                                             .text_xs()
                                             .truncate()
                                             .text_color(if running {
-                                                theme::fg()
+                                                theme::primary()
                                             } else {
                                                 theme::faint()
                                             })
@@ -1081,7 +1098,7 @@ impl ChatView {
                                 .mb_2()
                                 .pt_1p5()
                                 .border_t_1()
-                                .border_color(theme::border())
+                                .border_color(theme::line())
                                 .when(!sub.task.is_empty(), |el| {
                                     el.child(
                                         div()
@@ -1097,7 +1114,7 @@ impl ChatView {
                                         .ml_3()
                                         .pl_2p5()
                                         .border_l_1()
-                                        .border_color(theme::border())
+                                        .border_color(theme::line())
                                         .when(kids.is_empty(), |el| {
                                             el.child(
                                                 div()
@@ -1150,7 +1167,7 @@ impl ChatView {
                         .child(
                             h_flex().gap_2().child(crate::icons::of("⟳")).child(
                                 div()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(t("chat.compaction.running")),
                             ),
                         )
@@ -1266,17 +1283,13 @@ impl ChatView {
                         }),
                 )
                 .child(
-                    div()
-                        .pl_3()
-                        .border_l_2()
-                        .border_color(theme::border())
-                        .child(
-                            TextView::markdown(
-                                SharedString::from(format!("md-{}", it.id)),
-                                it.text.clone(),
-                            )
-                            .text_color(theme::muted()),
-                        ),
+                    div().pl_3().border_l_2().border_color(theme::line()).child(
+                        TextView::markdown(
+                            SharedString::from(format!("md-{}", it.id)),
+                            it.text.clone(),
+                        )
+                        .text_color(theme::muted()),
+                    ),
                 )
                 .into_any_element();
         }
@@ -1299,7 +1312,7 @@ impl ChatView {
                             .child(
                                 div()
                                     .min_w_0()
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(it.text.clone()),
                             ),
                     ),
@@ -1339,8 +1352,8 @@ impl ChatView {
                     .py_2p5()
                     .rounded_xl()
                     .border_1()
-                    .border_color(theme::border())
-                    .bg(theme::panel())
+                    .border_color(theme::line())
+                    .bg(theme::card())
                     .text_sm()
                     .child(
                         h_flex()
@@ -1364,7 +1377,7 @@ impl ChatView {
                                 .cursor_pointer()
                                 .text_xs()
                                 .text_color(theme::faint())
-                                .hover(|el| el.text_color(theme::fg()))
+                                .hover(|el| el.text_color(theme::primary()))
                                 .on_click(move |_, _, cx| {
                                     v.update(cx, |this, cx| this.toggle(&key, cx))
                                 })
@@ -1377,7 +1390,7 @@ impl ChatView {
                                     .ml_6()
                                     .mt_1p5()
                                     .rounded_lg()
-                                    .bg(theme::raised())
+                                    .bg(theme::surface_raised())
                                     .child(it.handoff.clone()),
                             )
                         })
@@ -1455,7 +1468,7 @@ impl ChatView {
                                     .min_w_0()
                                     .truncate()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::fg())
+                                    .text_color(theme::primary())
                                     .child(title),
                             )
                             .when(!pm.topic.is_empty() && !settled, |el| {
@@ -1477,7 +1490,7 @@ impl ChatView {
                                     div()
                                         .px_1p5()
                                         .rounded_md()
-                                        .bg(theme::raised())
+                                        .bg(theme::surface_raised())
                                         .text_xs()
                                         .text_color(theme::muted())
                                         .child(t("chat.project.expectsReply")),
@@ -1511,7 +1524,7 @@ impl ChatView {
                                 SharedString::from(format!("md-{}", it.id)),
                                 it.text.clone(),
                             )
-                            .text_color(theme::fg()),
+                            .text_color(theme::primary()),
                         ),
                     ),
             )
@@ -1570,7 +1583,7 @@ impl ChatView {
                                 .flex_1()
                                 .truncate()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(tv(
                                     "chat.agentPermission.asks",
                                     &[("agent", who.into()), ("action", (&tool.kind).into())],
@@ -1588,7 +1601,11 @@ impl ChatView {
                 )
                 .child(
                     div()
-                        .text_color(if waiting { theme::fg() } else { theme::muted() })
+                        .text_color(if waiting {
+                            theme::primary()
+                        } else {
+                            theme::muted()
+                        })
                         .child(p.title.clone()),
                 )
                 .when(!detail.is_empty() && !p.title.contains(&detail), |el| {
@@ -1654,9 +1671,13 @@ impl ChatView {
                     .bg(if primary {
                         theme::accent()
                     } else {
-                        theme::hover()
+                        theme::surface_strong()
                     })
-                    .text_color(if primary { gpui::white() } else { theme::fg() })
+                    .text_color(if primary {
+                        theme::on_brand()
+                    } else {
+                        theme::primary()
+                    })
                     .when(sending, |el| el.opacity(0.5))
                     .when(!sending, |el| {
                         el.cursor_pointer().on_click(move |_, _, cx| {
@@ -1686,7 +1707,7 @@ impl ChatView {
             .track_focus(&z.focus)
             .w(size.width)
             .h(size.height)
-            .bg(gpui::black().opacity(0.92))
+            .bg(theme::media_shade(0.92))
             .flex()
             .flex_col()
             .occlude()
@@ -1717,13 +1738,13 @@ impl ChatView {
                             .min_w_0()
                             .truncate()
                             .text_sm()
-                            .text_color(gpui::white().opacity(0.8))
+                            .text_color(theme::on_media().opacity(0.8))
                             .child(z.name.clone()),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(gpui::white().opacity(0.6))
+                            .text_color(theme::on_media().opacity(0.6))
                             .child(format!("{:.0}%", scale * 100.)),
                     )
                     .child(
@@ -1732,8 +1753,8 @@ impl ChatView {
                             .px_2()
                             .rounded_md()
                             .cursor_pointer()
-                            .text_color(gpui::white())
-                            .hover(|el| el.bg(gpui::white().opacity(0.1)))
+                            .text_color(theme::on_media())
+                            .hover(|el| el.bg(theme::on_media().opacity(0.1)))
                             .child(crate::icons::of("✕"))
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.zoom = None;

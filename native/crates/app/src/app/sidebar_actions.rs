@@ -56,11 +56,11 @@ impl Render for DragPreview {
             .px_2()
             .py_1()
             .rounded_md()
-            .bg(theme::raised())
+            .bg(theme::surface_raised())
             .border_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .text_sm()
-            .text_color(theme::fg())
+            .text_color(theme::primary())
             .shadow_md()
             .child(self.0.clone())
     }
@@ -88,7 +88,7 @@ fn glyph_button(id: impl Into<ElementId>, glyph: &'static str, tip: String) -> S
         .text_sm()
         .text_color(theme::muted())
         .cursor_pointer()
-        .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
         .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
         .child(crate::icons::of(glyph))
 }
@@ -141,12 +141,12 @@ impl AppView {
             .h(px(56.))
             .flex_none()
             .px_4()
-            .gap_1()
-            .child(div().size_5().rounded_md().bg(theme::accent()))
+            .gap_2()
+            .child(theme::logo(px(28.)))
             .child(
                 div()
-                    .ml_1()
-                    .text_color(theme::fg())
+                    .text_size(theme::text::BODY)
+                    .text_color(theme::title())
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("AgentBox"),
             )
@@ -206,12 +206,16 @@ impl AppView {
             .border_color(if on > 0 {
                 theme::muted()
             } else {
-                theme::border()
+                theme::line()
             })
-            .when(on > 0, |el| el.bg(theme::hover()))
-            .text_color(if on > 0 { theme::fg() } else { theme::muted() })
+            .when(on > 0, |el| el.bg(theme::surface_strong()))
+            .text_color(if on > 0 {
+                theme::primary()
+            } else {
+                theme::muted()
+            })
             .cursor_pointer()
-            .hover(|el| el.text_color(theme::fg()))
+            .hover(|el| el.text_color(theme::primary()))
             .tooltip(|w, cx| Tooltip::new(t("v2.filters.button")).build(w, cx))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.side.filter_open = !this.side.filter_open;
@@ -228,9 +232,9 @@ impl AppView {
                         .h(px(16.))
                         .px_1()
                         .rounded_full()
-                        .bg(theme::raised())
+                        .bg(theme::surface_raised())
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line())
                         .flex()
                         .items_center()
                         .justify_center()
@@ -279,8 +283,8 @@ impl AppView {
                                 .py_0p5()
                                 .rounded_full()
                                 .border_1()
-                                .border_color(theme::border())
-                                .bg(theme::raised())
+                                .border_color(theme::line())
+                                .bg(theme::surface_raised())
                                 .text_xs()
                                 .text_color(theme::muted())
                                 .child(div().min_w_0().truncate().child(label))
@@ -289,7 +293,7 @@ impl AppView {
                                         .id(SharedString::from(format!("chip-x-{key}")))
                                         .cursor_pointer()
                                         .text_color(theme::faint())
-                                        .hover(|el| el.text_color(theme::fg()))
+                                        .hover(|el| el.text_color(theme::primary()))
                                         .tooltip(move |w, cx| {
                                             Tooltip::new(remove.clone()).build(w, cx)
                                         })
@@ -313,7 +317,7 @@ impl AppView {
                                 .text_xs()
                                 .text_color(theme::faint())
                                 .cursor_pointer()
-                                .hover(|el| el.text_color(theme::fg()))
+                                .hover(|el| el.text_color(theme::primary()))
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.side.st.clear();
                                     this.side.only.clear();
@@ -347,12 +351,12 @@ impl AppView {
                 .py_0p5()
                 .rounded_full()
                 .border_1()
-                .border_color(if on { theme::muted() } else { theme::border() })
-                .when(on, |el| el.bg(theme::hover()))
+                .border_color(if on { theme::muted() } else { theme::line() })
+                .when(on, |el| el.bg(theme::surface_strong()))
                 .text_xs()
-                .text_color(if on { theme::fg() } else { theme::muted() })
+                .text_color(if on { theme::primary() } else { theme::muted() })
                 .cursor_pointer()
-                .hover(|el| el.text_color(theme::fg()))
+                .hover(|el| el.text_color(theme::primary()))
                 .when(on, |el| el.child(crate::icons::of("✓")))
                 .child(div().max_w(px(180.)).truncate().child(label))
                 .when_some(count, |el, n| {
@@ -373,9 +377,9 @@ impl AppView {
             .p_3()
             .gap_3()
             .rounded_lg()
-            .bg(theme::panel())
+            .bg(theme::card())
             .border_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .shadow_lg()
             .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, _, cx| {
                 this.side.filter_open = false;
@@ -438,9 +442,10 @@ impl AppView {
             .pt_3()
             .pb_1()
             .gap_2()
-            .text_xs()
-            .text_color(theme::faint())
-            .child(label.to_uppercase())
+            .text_size(theme::text::CAPTION)
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme::muted())
+            .child(label)
             .child(div().flex_1())
             .when(review, |el| el.children(self.review_all(cx)))
             .when(new_section, |el| {
@@ -536,7 +541,7 @@ impl AppView {
             .text_xs()
             .text_color(theme::faint())
             .cursor_pointer()
-            .hover(|el| el.bg(theme::raised()).text_color(theme::muted()))
+            .hover(|el| el.bg(theme::surface_raised()).text_color(theme::muted()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.fold_section(&fold, !collapsed, cx)
             }))
@@ -562,7 +567,7 @@ impl AppView {
                     .min_w_0()
                     .truncate()
                     .font_weight(FontWeight::MEDIUM)
-                    .child(s.name.to_uppercase()),
+                    .child(s.name.clone()),
             )
             .child(div().child(count.to_string()))
             .child(div().flex_1())
@@ -595,7 +600,7 @@ impl AppView {
             .rounded_lg()
             .border_1()
             .border_dashed()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .text_xs()
             .text_color(theme::faint())
             .drag_over::<DragProject>(|s, _, _, _| {
@@ -627,17 +632,10 @@ impl AppView {
             Some(Shown::Emoji(e)) => base.text_size(px(size * 0.62)).child(e.clone()),
             Some(Shown::Image(i)) => base.child(img(i.clone()).size(px(size))),
             _ => base
-                .bg(theme::raised())
+                .bg(theme::surface_raised())
                 .text_size(px(size * 0.5))
                 .text_color(theme::muted())
-                .child(
-                    label_of(p)
-                        .chars()
-                        .next()
-                        .unwrap_or('?')
-                        .to_uppercase()
-                        .to_string(),
-                ),
+                .child(label_of(p).chars().next().unwrap_or('?').to_string()),
         }
         .into_any_element()
     }
@@ -1231,8 +1229,8 @@ impl AppView {
                 .rounded_lg()
                 .cursor_pointer()
                 .text_color(if on { theme::accent() } else { theme::muted() })
-                .when(on, |el| el.bg(theme::hover()))
-                .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
+                .when(on, |el| el.bg(theme::surface_strong()))
+                .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                 .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                 .child(crate::icons::of(glyph))
         };
@@ -1243,7 +1241,7 @@ impl AppView {
             .p_2()
             .gap_1()
             .border_t_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 item("foot-settings", "⚙", t("common.settings"), settings).on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.open_settings(window, cx)),

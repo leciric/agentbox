@@ -151,7 +151,7 @@ impl ChatView {
                 .rounded_md()
                 .cursor_pointer()
                 .text_color(theme::muted())
-                .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+                .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
                 .child(crate::icons::of(label))
                 .tooltip(move |w, cx| {
                     gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
@@ -165,8 +165,8 @@ impl ChatView {
                 .px_4()
                 .py_1p5()
                 .border_b_1()
-                .border_color(theme::border())
-                .bg(theme::panel())
+                .border_color(theme::line())
+                .bg(theme::card())
                 .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                     if ev.keystroke.key == "escape" {
                         this.close_find(window, cx);
@@ -204,7 +204,7 @@ impl ChatView {
                         .rounded_md()
                         .cursor_pointer()
                         .text_color(theme::muted())
-                        .hover(|el| el.bg(theme::hover()).text_color(theme::fg()))
+                        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
                         .child(crate::icons::of("✕"))
                         .tooltip(|w, cx| {
                             gpui_component::tooltip::Tooltip::new(t("chat.find.close")).build(w, cx)

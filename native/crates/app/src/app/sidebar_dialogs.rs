@@ -521,8 +521,8 @@ impl AppView {
                                     .rounded_lg()
                                     .text_lg()
                                     .cursor_pointer()
-                                    .when(on, |el| el.bg(theme::hover()))
-                                    .hover(|el| el.bg(theme::raised()))
+                                    .when(on, |el| el.bg(theme::surface_strong()))
+                                    .hover(|el| el.bg(theme::surface_raised()))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         if !busy {
                                             this.set_icon(
@@ -582,10 +582,10 @@ impl AppView {
                                     .border_color(if c.chosen {
                                         theme::accent()
                                     } else {
-                                        theme::border()
+                                        theme::line()
                                     })
                                     .cursor_pointer()
-                                    .hover(|el| el.bg(theme::raised()))
+                                    .hover(|el| el.bg(theme::surface_raised()))
                                     .tooltip(move |w, cx| {
                                         gpui_component::tooltip::Tooltip::new(tip.clone())
                                             .build(w, cx)
@@ -951,7 +951,7 @@ impl AppView {
                                         div()
                                             .flex_1()
                                             .min_w_0()
-                                            .text_color(theme::fg())
+                                            .text_color(theme::primary())
                                             .child(t(label)),
                                     )
                                     .child(h_flex().gap_1().children(keys.iter().map(|k| {
@@ -960,8 +960,8 @@ impl AppView {
                                             .px_1p5()
                                             .rounded_md()
                                             .border_1()
-                                            .border_color(theme::border())
-                                            .bg(theme::raised())
+                                            .border_color(theme::line())
+                                            .bg(theme::surface_raised())
                                             .text_xs()
                                             .font_family(crate::theme::MONO)
                                             .flex()

@@ -19,6 +19,7 @@ mod evidence;
 mod find;
 mod items;
 pub mod rows;
+mod stream;
 
 pub use composer::{Composer, match_files, tokens};
 
@@ -115,12 +116,12 @@ pub(crate) fn btn(
         .font_weight(FontWeight::MEDIUM)
         .map(|el| {
             if primary {
-                el.bg(theme::accent()).text_color(gpui::white())
+                el.bg(theme::brand(500)).text_color(theme::on_brand())
             } else {
                 el.border_1()
-                    .border_color(theme::border())
-                    .bg(theme::raised())
-                    .text_color(theme::fg())
+                    .border_color(theme::line())
+                    .bg(theme::surface_raised())
+                    .text_color(theme::primary())
             }
         })
         .when(disabled, |el| el.opacity(0.5))
@@ -167,6 +168,9 @@ pub struct ChatView {
     composer: Composer,
     /// When the last unpainted chunk arrived, for bench's arrival-to-paint.
     arrived: Option<Instant>,
+    /// How much of each streaming message is on screen (bytes): the reveal
+    /// (chat/stream.rs) eases toward what has arrived rather than jumping.
+    pub(crate) shown: HashMap<String, std::rc::Rc<std::cell::Cell<usize>>>,
     last_frame: Option<Instant>,
     /// Opened: tool calls and work groups (by item id or row key), settled
     /// turns past their fold, subagents, handoffs.
@@ -190,6 +194,10 @@ pub struct ChatView {
     find: Option<find::Find>,
     focus: FocusHandle,
     _tick: Option<Task<()>>,
+    /// Rows that arrived at the end after the chat loaded, and when: they
+    /// slide in (motion::enter) the first time they're drawn; history
+    /// scrolled into view never does.
+    pub(crate) entering: std::collections::HashMap<String, std::time::Instant>,
     _subs: Vec<Subscription>,
 }
 
@@ -260,6 +268,7 @@ impl ChatView {
             list,
             composer,
             arrived: None,
+            shown: Default::default(),
             last_frame: None,
             expanded: Default::default(),
             open_turns: Default::default(),
@@ -274,6 +283,7 @@ impl ChatView {
             find: None,
             focus: cx.focus_handle(),
             _tick: None,
+            entering: Default::default(),
             _subs: subs,
         };
         this.load(cx);
@@ -309,6 +319,15 @@ impl ChatView {
                 .filter(|&k| old[old.len() - 1 - k].sig != new[new.len() - 1 - k].sig)
                 .map(|k| new.len() - 1 - k),
         );
+        // What's new past the old end, once there was something: arrivals.
+        if !old.is_empty() && suf == 0 && new.len() > old.len().max(pre) {
+            let now = std::time::Instant::now();
+            self.entering
+                .retain(|_, t| now.duration_since(*t).as_secs() < 2);
+            for r in &new[pre.max(old.len())..] {
+                self.entering.entry(r.key.clone()).or_insert(now);
+            }
+        }
         if pre + suf != old.len() || pre + suf != new.len() {
             self.list
                 .splice(pre..old.len() - suf, new.len() - pre - suf);
@@ -670,11 +689,17 @@ impl ChatView {
             return;
         }
         if let Some(item) = ev.item {
+            // A reply that starts streaming now is revealed from nothing.
+            if item.streaming {
+                self.shown.entry(item.id.clone()).or_default();
+            }
             match self.items.iter().position(|i| i.id == item.id) {
                 Some(ix) => self.items[ix] = item,
                 None => self.items.push(item),
             }
         }
+        self.shown
+            .retain(|id, _| self.items.iter().any(|i| &i.id == id && i.streaming));
         if let Some(app) = ev.append
             && let Some(ix) = self.items.iter().rposition(|i| i.id == app.id)
         {
@@ -804,10 +829,10 @@ impl ChatView {
             .px_6()
             .gap_3()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(
                 div()
-                    .text_color(theme::fg())
+                    .text_color(theme::primary())
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(self.title.clone()),
             )
@@ -844,13 +869,13 @@ impl ChatView {
                         .py_1()
                         .rounded_full()
                         .border_1()
-                        .border_color(theme::border())
-                        .bg(theme::raised())
+                        .border_color(theme::line())
+                        .bg(theme::surface_raised())
                         .shadow_md()
                         .cursor_pointer()
                         .text_xs()
-                        .text_color(theme::fg())
-                        .hover(|el| el.bg(theme::hover()))
+                        .text_color(theme::primary())
+                        .hover(|el| el.bg(theme::surface_strong()))
                         .child(format!("↓  {}", t("chat.tab.jumpToLatest")))
                         .on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| this.jump_to_latest(cx)),
@@ -904,7 +929,7 @@ impl Render for ChatView {
             .track_focus(&self.focus)
             .relative()
             .size_full()
-            .bg(theme::bg())
+            .bg(theme::chat())
             // Ctrl+F finds in this chat; Escape closes the find bar.
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 let k = &ev.keystroke;
@@ -951,7 +976,7 @@ impl Render for ChatView {
                                     div()
                                         .px_2()
                                         .rounded_md()
-                                        .bg(theme::raised())
+                                        .bg(theme::surface_raised())
                                         .text_xs()
                                         .text_color(theme::muted())
                                         .child(t("chat.tab.loadingOlder")),
@@ -963,12 +988,8 @@ impl Render for ChatView {
                             div()
                                 .absolute()
                                 .inset_0()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_sm()
-                                .text_color(theme::faint())
-                                .child(t("chat.tab.loading")),
+                                .bg(theme::chat())
+                                .child(crate::motion::skeleton_chat("chat-loading")),
                         )
                     })
                     .children(self.render_jump(cx)),

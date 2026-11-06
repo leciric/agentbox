@@ -552,9 +552,9 @@ impl AppView {
             .w(px(288.))
             .flex_none()
             .h_full()
-            .bg(theme::panel())
+            .bg(theme::rail())
             .border_r_1()
-            .border_color(theme::border())
+            .border_color(theme::line())
             .child(self.sidebar_head(cx))
             .child(
                 div()
@@ -583,13 +583,12 @@ impl AppView {
                                     .child(
                                         div()
                                             .flex_1()
-                                            .text_sm()
-                                            .text_color(theme::muted())
+                                            .text_size(theme::text::UI)
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme::secondary())
                                             .child(t("v2.sidebar.newTask")),
                                     )
-                                    .child(
-                                        div().text_xs().text_color(theme::faint()).child("Ctrl N"),
-                                    ),
+                                    .child(theme::kbd("Ctrl N")),
                             )
                             .child(self.home_row(cx))
                             .child(self.filter_bar(cx))
@@ -602,11 +601,11 @@ impl AppView {
                                         .rounded_md()
                                         .border_1()
                                         .border_dashed()
-                                        .border_color(theme::border())
+                                        .border_color(theme::line())
                                         .text_sm()
                                         .text_color(theme::muted())
                                         .cursor_pointer()
-                                        .hover(|el| el.text_color(theme::fg()))
+                                        .hover(|el| el.text_color(theme::primary()))
                                         .on_click(cx.listener(
                                             |this, _: &ClickEvent, window, cx| {
                                                 this.open_add_project(window, cx)
@@ -743,12 +742,12 @@ impl AppView {
                 .py_0p5()
                 .rounded_md()
                 .border_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::muted())
                 .cursor_pointer()
-                .hover(|el| el.bg(theme::raised()).text_color(theme::fg()))
+                .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                 .child(tv("v2.review.all", &[("count", n.into())]))
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.open_work(String::new(), "review".into(), window, cx)
@@ -808,8 +807,8 @@ impl AppView {
                     .items_center()
                     .justify_center()
                     .rounded_md()
-                    .bg(theme::raised())
-                    .text_color(theme::muted())
+                    .bg(theme::surface_strong())
+                    .text_color(theme::secondary())
                     .child(crate::icons::of("⌂")),
             )
             .child(
@@ -819,7 +818,7 @@ impl AppView {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(theme::fg())
+                            .text_color(theme::primary())
                             .child(t("shell.nav.home")),
                     )
                     .child(
@@ -840,10 +839,11 @@ impl AppView {
             .px_2()
             .py_1p5()
             .gap_2()
-            .rounded_md()
+            .rounded_lg()
             .cursor_pointer()
-            .when(selected, |el| el.bg(theme::hover()))
-            .hover(|el| el.bg(theme::raised()))
+            .when(selected, |el| el.bg(theme::surface_raised()))
+            .when(!selected, |el| el.hover(|el| el.bg(theme::surface())))
+            .active(|el| el.bg(theme::surface_strong()))
     }
 
     fn project_row(&self, p: &Project, place: Place, cx: &mut Context<Self>) -> AnyElement {
@@ -875,12 +875,13 @@ impl AppView {
         let right = if needs > 0 {
             div()
                 .px_1p5()
-                .rounded_sm()
-                .bg(theme::starting().opacity(0.15))
-                .text_color(theme::starting())
+                .rounded_full()
+                .bg(theme::amber(400).opacity(0.15))
+                .text_color(theme::amber(300))
+                .font_weight(FontWeight::MEDIUM)
                 .child(tv("v2.attention.needs", &[("count", needs.into())]))
         } else {
-            div().text_color(theme::faint()).child(
+            div().text_color(theme::subtle()).child(
                 activity
                     .and_then(|a| a.last_activity.as_deref())
                     .map(ago)
@@ -906,9 +907,29 @@ impl AppView {
                 theme::accent(),
             ));
         }
+        let working = c.working > 0 || s_working;
         let row = self
             .row(&p.name, selected, cx)
+            .relative()
             .items_start()
+            .when(needs > 0 && !selected, |el| {
+                el.bg(theme::amber(400).opacity(0.05))
+                    .hover(|el| el.bg(theme::amber(400).opacity(0.1)))
+            })
+            // Working: a thin sky bar down its left edge, breathing.
+            .when(working, |el| {
+                el.child(crate::motion::pulse(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_2()
+                        .bottom_2()
+                        .w(px(2.))
+                        .rounded_full()
+                        .bg(theme::sky(400)),
+                    SharedString::from(format!("working-bar-{}", p.name)),
+                ))
+            })
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.select_project(name.clone(), window, cx)
             }))
@@ -916,7 +937,20 @@ impl AppView {
                 div()
                     .relative()
                     .flex_none()
-                    .child(self.project_icon(p, 24.))
+                    .child({
+                        // One of its agents just finished: its icon bursts,
+                        // whether or not the panel is showing.
+                        let icon = div().rounded_md().child(self.project_icon(p, 24.));
+                        match self.panel.any_finished().filter(|_| selected) {
+                            Some(t) => crate::motion::celebrate(
+                                icon,
+                                SharedString::from(format!("project-done-{}-{t:?}", p.name)),
+                                theme::brand(400),
+                            )
+                            .into_any_element(),
+                            None => icon.into_any_element(),
+                        }
+                    })
                     .when(needs > 0 || s_unread, |el| {
                         el.child(
                             div()
@@ -944,12 +978,13 @@ impl AppView {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .text_sm()
+                                    .text_size(theme::text::UI)
+                                    .font_weight(FontWeight::MEDIUM)
                                     .truncate()
                                     .text_color(if selected {
-                                        theme::fg()
+                                        theme::title()
                                     } else {
-                                        theme::muted()
+                                        theme::secondary()
                                     })
                                     .child(display.clone()),
                             )
@@ -966,8 +1001,16 @@ impl AppView {
                                         .child(crate::icons::of("✎")),
                                 )
                             })
-                            .when(c.working > 0 || s_working, |el| {
-                                el.child(div().text_xs().text_color(theme::accent()).child("●"))
+                            .when(working, |el| {
+                                el.child(crate::motion::pulse(
+                                    div()
+                                        .flex_none()
+                                        .mt(px(5.))
+                                        .size(px(6.))
+                                        .rounded_full()
+                                        .bg(theme::sky(400)),
+                                    SharedString::from(format!("working-dot-{}", p.name)),
+                                ))
                             })
                             .child(right.flex_none().text_xs()),
                     )
@@ -976,9 +1019,9 @@ impl AppView {
                             .text_xs()
                             .truncate()
                             .text_color(if question.is_some() {
-                                theme::starting()
+                                theme::amber(300)
                             } else {
-                                theme::faint()
+                                theme::subtle()
                             })
                             .child(line),
                     )
@@ -1001,10 +1044,11 @@ impl AppView {
                                             .px_1p5()
                                             .rounded_full()
                                             .border_1()
-                                            .border_color(theme::border())
+                                            .border_color(theme::line())
                                             .text_color(theme::muted())
                                             .hover(|el| {
-                                                el.bg(theme::hover()).text_color(theme::fg())
+                                                el.bg(theme::surface_strong())
+                                                    .text_color(theme::primary())
                                             })
                                             .child(tv(
                                                 "v2.review.toReview",

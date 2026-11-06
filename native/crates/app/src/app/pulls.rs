@@ -34,7 +34,7 @@ use super::merge;
 use super::settings::defaults::time_ago;
 use super::settings::kit::plain;
 use crate::diff::DiffView;
-use crate::{prefs, theme, toasts};
+use crate::{motion, prefs, theme, toasts};
 
 /// Which of a project's pull requests the list shows (lib/pulls.ts PullsState).
 #[derive(Clone, Copy, PartialEq)]
@@ -448,7 +448,7 @@ pub(super) fn github_fix(
 pub(super) fn hex(color: &str) -> Hsla {
     match u32::from_str_radix(color, 16) {
         Ok(v) if color.len() == 6 => rgb(v).into(),
-        _ => rgb(0x8b949e).into(),
+        _ => theme::label_grey(),
     }
 }
 
@@ -464,73 +464,169 @@ pub(super) fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
     .into()
 }
 
+/// Tone is a Badge's variant (Electron's ui/badge.tsx).
+#[derive(Clone, Copy)]
+pub(super) enum Tone {
+    Default,
+    Success,
+    Warning,
+    Danger,
+    Info,
+}
+
+/// pill is Electron's Badge: a word in a ringed pill, tinted by its tone,
+/// with an icon before it when `icon` names one.
+pub(super) fn pill(text: impl Into<SharedString>, tone: Tone, icon: Option<&str>) -> Div {
+    let (bg, fg, ring) = match tone {
+        Tone::Default => (theme::surface(), theme::tertiary(), theme::line_strong()),
+        Tone::Success => (
+            theme::emerald(400).opacity(0.1),
+            theme::emerald(300),
+            theme::emerald(400).opacity(0.25),
+        ),
+        Tone::Warning => (
+            theme::amber(400).opacity(0.1),
+            theme::amber(200),
+            theme::amber(400).opacity(0.25),
+        ),
+        Tone::Danger => (
+            theme::rose(400).opacity(0.1),
+            theme::rose(300),
+            theme::rose(400).opacity(0.25),
+        ),
+        Tone::Info => (
+            theme::sky(400).opacity(0.1),
+            theme::sky(300),
+            theme::sky(400).opacity(0.25),
+        ),
+    };
+    h_flex()
+        .flex_none()
+        .gap_1p5()
+        .px_2()
+        .py(px(1.))
+        .rounded_full()
+        .border_1()
+        .border_color(ring)
+        .bg(bg)
+        .text_size(theme::text::CAPTION)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(fg)
+        .whitespace_nowrap()
+        .when_some(icon, |el, i| el.child(crate::icons::ic(i).size(px(12.))))
+        .child(text.into())
+}
+
 pub(super) fn state_badge(pr_state: &str, draft: bool) -> AnyElement {
     if draft {
-        return controls::badge(t("memory.pulls.draft"), theme::muted());
+        return pill(t("memory.pulls.draft"), Tone::Default, None).into_any_element();
     }
-    let (key, color) = match pr_state {
-        "open" => ("memory.pulls.state.open", theme::accent()),
-        "merged" => ("memory.pulls.state.merged", theme::running()),
-        "closed" => ("memory.pulls.state.closed", theme::muted()),
-        s => return controls::badge(s.to_string(), theme::muted()),
+    let (key, tone) = match pr_state {
+        "open" => ("memory.pulls.state.open", Tone::Info),
+        "merged" => ("memory.pulls.state.merged", Tone::Success),
+        "closed" => ("memory.pulls.state.closed", Tone::Default),
+        s => return pill(s.to_string(), Tone::Default, None).into_any_element(),
     };
-    controls::badge(t(key), color)
+    pill(t(key), tone, None).into_any_element()
 }
 
 fn checks_badge(checks: &str) -> Option<AnyElement> {
-    let (key, color) = match checks {
+    let (key, tone) = match checks {
         "" => return None,
-        "passing" => ("memory.pulls.checks.passing", theme::running()),
-        "failing" => ("memory.pulls.checks.failing", theme::error()),
-        "pending" => ("memory.pulls.checks.pending", theme::starting()),
+        "passing" => ("memory.pulls.checks.passing", Tone::Success),
+        "failing" => ("memory.pulls.checks.failing", Tone::Danger),
+        "pending" => ("memory.pulls.checks.pending", Tone::Warning),
         s => {
-            return Some(controls::badge(
-                tv("memory.pulls.checks", &[("state", s.into())]),
-                theme::muted(),
-            ));
+            return Some(
+                pill(
+                    tv("memory.pulls.checks", &[("state", s.into())]),
+                    Tone::Default,
+                    None,
+                )
+                .into_any_element(),
+            );
         }
     };
-    Some(controls::badge(
-        tv("memory.pulls.checks", &[("state", (&t(key)).into())]),
-        color,
-    ))
+    Some(
+        pill(
+            tv("memory.pulls.checks", &[("state", (&t(key)).into())]),
+            tone,
+            None,
+        )
+        .into_any_element(),
+    )
 }
 
-/// check_state is a check run's mark, colour and word.
+/// check_state is a check run's icon, colour and word.
 fn check_state(run: &PullCheck) -> (&'static str, Hsla, &'static str) {
     if run.status != "completed" {
         return if run.status == "queued" {
-            ("○", theme::starting(), "pulls.detail.check.queued")
+            ("circle", theme::amber(400), "pulls.detail.check.queued")
         } else {
-            ("◌", theme::starting(), "pulls.detail.check.running")
+            (
+                "loader-circle",
+                theme::amber(400),
+                "pulls.detail.check.running",
+            )
         };
     }
     match run.conclusion.as_str() {
-        "success" => ("✓", theme::running(), "pulls.detail.check.success"),
-        "failure" => ("✕", theme::error(), "pulls.detail.check.failure"),
-        "timed_out" => ("✕", theme::error(), "pulls.detail.check.timedOut"),
-        "cancelled" => ("✕", theme::muted(), "pulls.detail.check.cancelled"),
-        "action_required" => ("✕", theme::starting(), "pulls.detail.check.actionRequired"),
-        "skipped" => ("–", theme::muted(), "pulls.detail.check.skipped"),
-        _ => ("–", theme::muted(), "pulls.detail.check.neutral"),
+        "success" => (
+            "circle-check",
+            theme::emerald(400),
+            "pulls.detail.check.success",
+        ),
+        "failure" => ("circle-x", theme::rose(400), "pulls.detail.check.failure"),
+        "timed_out" => ("circle-x", theme::rose(400), "pulls.detail.check.timedOut"),
+        "cancelled" => ("circle-x", theme::subtle(), "pulls.detail.check.cancelled"),
+        "action_required" => (
+            "circle-x",
+            theme::amber(400),
+            "pulls.detail.check.actionRequired",
+        ),
+        "skipped" => ("circle", theme::subtle(), "pulls.detail.check.skipped"),
+        _ => ("circle", theme::subtle(), "pulls.detail.check.neutral"),
     }
 }
 
 /// pr_chip is a pull request as a small pill (PrChip): its number in the
 /// colour of its state, and its checks' mark; a click opens it on GitHub.
 pub(super) fn pr_chip(id: impl Into<ElementId>, pr: &PullRequest) -> AnyElement {
-    let color = match pr.state.as_str() {
-        "merged" => hsla(0.75, 0.6, 0.72, 1.),
-        "closed" => theme::error(),
-        _ if pr.draft => theme::muted(),
-        _ if pr.checks == "failing" => theme::error(),
-        _ => theme::running(),
+    // PrChip's tone: its fill, text, ring and hover fill, and its icon.
+    let hue = |h: Hsla, fg: Hsla, ring: f32| (h.opacity(0.1), fg, h.opacity(ring), h.opacity(0.2));
+    let ((bg, fg, ring, hover), icon) = match pr.state.as_str() {
+        "merged" => (
+            hue(theme::violet(400), theme::violet(300), 0.25),
+            "git-merge",
+        ),
+        "closed" => (
+            hue(theme::rose(400), theme::rose(300), 0.25),
+            "git-pull-request",
+        ),
+        _ if pr.draft => (
+            (
+                theme::surface_raised(),
+                theme::muted(),
+                theme::line_strong(),
+                theme::surface_vivid(),
+            ),
+            "git-pull-request",
+        ),
+        _ if pr.checks == "failing" => (
+            hue(theme::rose(400), theme::rose(300), 0.3),
+            "git-pull-request",
+        ),
+        _ => (
+            hue(theme::emerald(400), theme::emerald(300), 0.25),
+            "git-pull-request",
+        ),
     };
+    let draft = pr.draft && pr.state == "open";
     let (mark, mark_color) = match pr.checks.as_str() {
-        "passing" => ("✓", theme::running()),
-        "failing" => ("✕", theme::error()),
-        "pending" => ("•", theme::starting()),
-        _ => ("", color),
+        "passing" => ("✓", theme::emerald(300)),
+        "failing" => ("✕", theme::rose(300)),
+        "pending" => ("•", theme::amber(300)),
+        _ => ("", fg),
     };
     let state = match pr.state.as_str() {
         _ if pr.draft => t("agent.pr.draft"),
@@ -553,34 +649,39 @@ pub(super) fn pr_chip(id: impl Into<ElementId>, pr: &PullRequest) -> AnyElement 
         .id(id)
         .flex_none()
         .gap_1()
+        .h(px(18.))
         .px_1p5()
         .rounded_full()
-        .bg(color.opacity(0.1))
+        .bg(bg)
         .border_1()
-        .border_color(color.opacity(0.3))
-        .text_xs()
+        .border_color(ring)
+        .text_size(theme::text::CAPTION)
         .font_family(crate::theme::mono())
-        .text_color(color)
+        .text_color(fg)
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
         .when(!url.is_empty(), |el| {
             el.cursor_pointer()
-                .hover(|s| s.bg(color.opacity(0.2)))
+                .hover(move |s| {
+                    let s = s.bg(hover);
+                    if draft {
+                        s.text_color(theme::primary())
+                    } else {
+                        s
+                    }
+                })
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(move |_, _, cx| {
                     cx.stop_propagation();
                     cx.open_url(&url)
                 })
         })
+        .child(crate::icons::ic(icon).size(px(12.)).flex_none())
         .child(format!("#{}", pr.number))
         .when(!mark.is_empty(), |el| {
-            el.child(div().text_color(mark_color).child(crate::icons::of(mark)))
+            el.child(div().text_color(mark_color).child(mark))
         })
         .when(pr.conflict, |el| {
-            el.child(
-                div()
-                    .text_color(theme::error())
-                    .child(crate::icons::of("⚠")),
-            )
+            el.child(div().text_color(theme::rose(300)).child("⚠"))
         })
         .into_any_element()
 }
@@ -592,9 +693,10 @@ fn number_link(id: impl Into<ElementId>, pr: &PullRequest) -> AnyElement {
     div()
         .id(id)
         .flex_none()
-        .text_color(theme::accent())
+        .font_weight(FontWeight::NORMAL)
+        .text_color(theme::subtle())
         .cursor_pointer()
-        .hover(|s| s.underline())
+        .hover(|s| s.text_color(theme::brand(300)))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {
             cx.stop_propagation();
@@ -608,7 +710,7 @@ pub(super) fn link(id: impl Into<ElementId>, text: impl Into<SharedString>) -> S
     div()
         .id(id)
         .flex_none()
-        .text_color(theme::accent())
+        .text_color(theme::brand(300))
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
         .hover(|s| s.underline())
@@ -616,71 +718,132 @@ pub(super) fn link(id: impl Into<ElementId>, text: impl Into<SharedString>) -> S
         .child(text.into())
 }
 
+/// notice is Electron's Notice: a tinted, ringed note with its tone's icon,
+/// rose for a failure, amber for a warning, else sky's information.
 pub(super) fn notice(text: impl Into<SharedString>, color: Hsla) -> Div {
-    div()
-        .px_3()
-        .py_2()
-        .rounded_lg()
-        .border_1()
-        .border_color(color.opacity(0.4))
-        .bg(color.opacity(0.08))
-        .text_xs()
-        .text_color(color)
-        .child(text.into())
-}
-
-pub(super) fn empty_state(title: String, body: String) -> AnyElement {
-    v_flex()
-        .items_center()
-        .gap_2()
-        .px_6()
-        .py_8()
+    let (icon, fg, mark) = if color == theme::error() {
+        ("circle-alert", theme::rose(100), theme::rose(300))
+    } else if color == theme::starting() {
+        ("triangle-alert", theme::amber(50), theme::amber(300))
+    } else {
+        ("info", theme::sky(50), theme::sky(300))
+    };
+    h_flex()
+        .items_start()
+        .gap_2p5()
+        .px(px(14.))
+        .py(px(10.))
         .rounded_xl()
         .border_1()
-        .border_color(theme::border())
-        .bg(theme::raised())
+        .border_color(color.opacity(0.25))
+        .bg(color.opacity(0.08))
+        .text_size(theme::text::UI)
+        .line_height(relative(1.6))
+        .text_color(fg)
         .child(
             div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::fg())
-                .child(title),
+                .flex_none()
+                .pt(px(2.))
+                .text_color(mark)
+                .child(crate::icons::ic(icon).size(px(16.))),
         )
-        .child(
-            div()
-                .text_xs()
-                .text_center()
-                .text_color(theme::muted())
-                .child(body),
-        )
+        .child(div().flex_1().min_w_0().child(text.into()))
+}
+
+/// merge_blocked is why Merge is greyed out, beside it (MergeBlocked).
+fn merge_blocked(reason: String) -> Stateful<Div> {
+    let tip: SharedString = reason.clone().into();
+    div()
+        .id(SharedString::from(format!("merge-blocked-{reason}")))
+        .min_w_0()
+        .truncate()
+        .text_size(theme::text::CAPTION)
+        .text_color(theme::amber(200))
+        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+        .child(reason)
+}
+
+/// empty_state is Electron's EmptyState, on a panel: a title and a line
+/// under it, centred.
+pub(super) fn empty_state(title: String, body: String) -> AnyElement {
+    empty_state_with(None, title, body)
+}
+
+/// empty_state_with is empty_state with its icon in a lit tile over it.
+pub(super) fn empty_state_with(icon: Option<&str>, title: String, body: String) -> AnyElement {
+    let id = SharedString::from(format!("empty-{title}"));
+    div()
+        .rounded(theme::radius::XXL)
+        .border_1()
+        .border_color(theme::line())
+        .bg(theme::linear_panel())
+        .shadow(theme::shadow_card())
+        .child(motion::enter(
+            v_flex()
+                .items_center()
+                .gap_3()
+                .p_8()
+                .when_some(icon, |el, i| {
+                    el.child(
+                        div()
+                            .mb_2()
+                            .size(px(56.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(theme::radius::XXL)
+                            .border_1()
+                            .border_color(theme::line_strong())
+                            .bg(theme::overlay())
+                            .shadow(theme::glow(theme::brand(400), 1.2))
+                            .text_color(theme::brand(300))
+                            .child(crate::icons::ic(i).size(px(24.))),
+                    )
+                })
+                .child(
+                    div()
+                        .text_size(theme::text::HEADING)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::title())
+                        .text_center()
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .max_w(px(448.))
+                        .text_size(theme::text::BODY)
+                        .line_height(relative(1.6))
+                        .text_center()
+                        .text_color(theme::muted())
+                        .child(body),
+                ),
+            id,
+            0,
+        ))
         .into_any_element()
 }
 
+/// chip is Electron's FilterChip: a word and its count, lit while it's on.
 pub(super) fn chip(id: &str, label: String, count: Option<usize>, on: bool) -> Stateful<Div> {
     h_flex()
         .id(SharedString::from(id.to_string()))
         .gap_1p5()
+        .h(px(28.))
         .px_2p5()
-        .py_0p5()
-        .rounded_full()
-        .border_1()
-        .text_xs()
-        .font_weight(FontWeight::MEDIUM)
+        .rounded_lg()
+        .text_size(theme::text::UI)
         .map(|el| {
             if on {
-                el.bg(theme::hover())
-                    .border_color(theme::border())
-                    .text_color(theme::fg())
+                el.bg(theme::surface_strong()).text_color(theme::title())
             } else {
-                el.border_color(transparent_black())
-                    .text_color(theme::muted())
+                el.text_color(theme::muted())
                     .cursor_pointer()
-                    .hover(|s| s.text_color(theme::fg()).bg(theme::raised()))
+                    .hover(|s| s.text_color(theme::primary()).bg(theme::surface()))
             }
         })
         .child(label)
         .when_some(count, |el, n| {
-            el.child(div().text_color(theme::faint()).child(n.to_string()))
+            el.child(div().text_color(theme::subtle()).child(n.to_string()))
         })
 }
 
@@ -1081,9 +1244,9 @@ impl AppView {
                     .border_1()
                     .border_color(c.opacity(0.45))
                     .bg(c.opacity(0.18))
-                    .text_xs()
+                    .text_size(px(11.))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(mix(c, theme::fg(), 0.4))
+                    .text_color(mix(c, theme::primary(), 0.4))
                     .when(!tip.is_empty(), |el| {
                         el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
                     })
@@ -1109,7 +1272,7 @@ impl AppView {
                                 cx.stop_propagation();
                                 this.toggle_label(number, label.clone(), false, cx)
                             }))
-                            .child(crate::icons::of("✕")),
+                            .child(crate::icons::ic("x").size(px(12.))),
                     )
             }))
             .child(
@@ -1123,11 +1286,22 @@ impl AppView {
                             .rounded_full()
                             .border_1()
                             .border_dashed()
-                            .border_color(if open { theme::fg() } else { theme::border() })
-                            .text_xs()
-                            .text_color(if open { theme::fg() } else { theme::muted() })
+                            .border_color(if open {
+                                theme::line_vivid()
+                            } else {
+                                theme::line_strong()
+                            })
+                            .text_size(px(11.))
+                            .text_color(if open {
+                                theme::primary()
+                            } else {
+                                theme::subtle()
+                            })
                             .cursor_pointer()
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| {
+                                s.border_color(theme::line_vivid())
+                                    .text_color(theme::primary())
+                            })
                             .tooltip({
                                 let tip: SharedString = t(if none {
                                     "memory.pulls.labels.add"
@@ -1172,15 +1346,15 @@ impl AppView {
             None => div()
                 .px_2()
                 .py_2()
-                .text_xs()
-                .text_color(theme::muted())
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::subtle())
                 .child(t("memory.pulls.labels.loading"))
                 .into_any_element(),
             Some(Err(e)) => div()
                 .px_2()
                 .py_2()
-                .text_xs()
-                .text_color(theme::error())
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::rose(300))
                 .child(tv(
                     "memory.pulls.labels.unavailable",
                     &[("error", e.into())],
@@ -1189,8 +1363,8 @@ impl AppView {
             Some(Ok(all)) if shown.is_empty() => div()
                 .px_2()
                 .py_2()
-                .text_xs()
-                .text_color(theme::muted())
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::subtle())
                 .child(t(if all.is_empty() {
                     "memory.pulls.labels.none"
                 } else {
@@ -1209,17 +1383,17 @@ impl AppView {
                         .py_1p5()
                         .rounded_md()
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
+                        .hover(|s| s.bg(theme::surface()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.toggle_label(number, label.clone(), !on, cx)
                         }))
                         .child(
                             div()
-                                .w(px(12.))
+                                .w(px(14.))
+                                .mt(px(2.))
                                 .flex_none()
-                                .text_xs()
-                                .text_color(theme::accent())
-                                .child(crate::icons::of(if on { "✓" } else { "" })),
+                                .text_color(theme::brand(300))
+                                .when(on, |el| el.child(crate::icons::ic("check").size(px(14.)))),
                         )
                         .child(
                             div()
@@ -1234,16 +1408,16 @@ impl AppView {
                                 .min_w_0()
                                 .child(
                                     div()
-                                        .text_xs()
-                                        .text_color(theme::fg())
+                                        .text_size(px(12.5))
+                                        .text_color(theme::primary())
                                         .truncate()
                                         .child(l.name.clone()),
                                 )
                                 .when(!l.description.is_empty(), |el| {
                                     el.child(
                                         div()
-                                            .text_xs()
-                                            .text_color(theme::muted())
+                                            .text_size(px(11.))
+                                            .text_color(theme::subtle())
                                             .truncate()
                                             .child(l.description.clone()),
                                     )
@@ -1254,13 +1428,14 @@ impl AppView {
         };
         v_flex()
             .id("label-picker")
-            .mt_1()
+            .mt_2()
             .w(px(288.))
-            .rounded_lg()
-            .bg(theme::panel())
+            .rounded_xl()
+            .bg(theme::overlay())
             .border_1()
-            .border_color(theme::border())
-            .shadow_lg()
+            .border_color(theme::line_strong())
+            .shadow(theme::shadow_pop())
+            .overflow_hidden()
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
@@ -1278,7 +1453,7 @@ impl AppView {
                 div()
                     .p_2()
                     .border_b_1()
-                    .border_color(theme::border())
+                    .border_color(theme::line())
                     .child(Input::new(&self.pulls.search).small()),
             )
             .child(
@@ -1309,9 +1484,9 @@ impl AppView {
             None => {
                 return wrap(
                     div()
-                        .p_3()
+                        .p_6()
                         .text_sm()
-                        .text_color(theme::muted())
+                        .text_color(theme::subtle())
                         .child(t("common.loading"))
                         .into_any_element(),
                 );
@@ -1319,9 +1494,9 @@ impl AppView {
             Some(Err(_)) => {
                 return wrap(
                     div()
-                        .p_3()
+                        .p_6()
                         .text_sm()
-                        .text_color(theme::muted())
+                        .text_color(theme::subtle())
                         .child(t("memory.pulls.unavailable"))
                         .into_any_element(),
                 );
@@ -1348,7 +1523,7 @@ impl AppView {
                     t("memory.pulls.notConnected.body"),
                 )
             };
-            return wrap(empty_state(t(title), body));
+            return wrap(empty_state_with(Some("git-pull-request"), t(title), body));
         }
         let project = self.pulls.project.clone();
         let me = data.github_login.clone();
@@ -1384,14 +1559,14 @@ impl AppView {
             col = col.child(
                 h_flex()
                     .flex_wrap()
-                    .gap_1p5()
+                    .gap_x_1p5()
                     .px_1()
-                    .text_xs()
-                    .text_color(theme::muted())
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
                     .child(
                         div()
                             .font_family(crate::theme::mono())
-                            .text_color(theme::fg())
+                            .text_color(theme::muted())
                             .child(data.github.clone()),
                     )
                     .when_some(account, |el, a| {
@@ -1419,18 +1594,20 @@ impl AppView {
                     "memory.pulls.cannotMerge",
                     &[("repo", (&data.github).into())],
                 ),
-                theme::accent(),
+                theme::sky(400),
             ));
         }
         if data.pull_requests.is_empty() {
             if data.github_error.is_none() {
                 col = col.child(if data.fetched_at.is_some() {
-                    empty_state(
+                    empty_state_with(
+                        Some("git-pull-request"),
                         t("memory.pulls.none.title"),
                         tv("memory.pulls.none.body", &[("repo", (&data.github).into())]),
                     )
                 } else {
-                    empty_state(
+                    empty_state_with(
+                        Some("git-pull-request"),
                         t("memory.pulls.reading.title"),
                         tv(
                             "memory.pulls.reading.body",
@@ -1488,7 +1665,7 @@ impl AppView {
                     .on_click(pick(Filter::All)),
                 )
                 .when(!me.is_empty(), |el| {
-                    el.child(div().mx_1().w(px(1.)).h(px(14.)).bg(theme::border()))
+                    el.child(div().mx_1().w(px(1.)).h(px(16.)).bg(theme::line_strong()))
                         .child(
                             chip(
                                 "pulls-mine",
@@ -1512,7 +1689,8 @@ impl AppView {
                 .child(
                     h_flex()
                         .gap_1p5()
-                        .text_xs()
+                        .pr_1()
+                        .text_size(px(11.5))
                         .text_color(theme::faint())
                         .child(if refreshing {
                             t("memory.pulls.refreshing")
@@ -1527,14 +1705,18 @@ impl AppView {
                         .child(
                             div()
                                 .id("pulls-refresh")
-                                .px_1()
+                                .size(px(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
                                 .rounded_md()
-                                .text_sm()
-                                .text_color(theme::muted())
+                                .text_color(theme::subtle())
                                 .when(refreshing, |el| el.opacity(0.4))
                                 .when(!refreshing, |el| {
                                     el.cursor_pointer()
-                                        .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                                        .hover(|s| {
+                                            s.bg(theme::surface()).text_color(theme::primary())
+                                        })
                                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                             this.load_pulls(true, cx);
                                             cx.notify();
@@ -1543,7 +1725,7 @@ impl AppView {
                                 .tooltip(move |window, cx| {
                                     Tooltip::new(refresh_tip.clone()).build(window, cx)
                                 })
-                                .child(crate::icons::of("↻")),
+                                .child(crate::icons::ic("refresh-cw").size(px(14.))),
                         ),
                 ),
         );
@@ -1551,16 +1733,18 @@ impl AppView {
             col = col.child(
                 div()
                     .px_1()
-                    .text_sm()
-                    .text_color(theme::muted())
+                    .text_size(theme::text::UI)
+                    .text_color(theme::subtle())
                     .child(t("memory.pulls.noMatch")),
             );
         } else {
+            let mut list = v_flex().gap_2();
             for (ix, depth, on, by) in stack_order(&visible) {
                 let pr = &visible[ix];
                 let offer = can_offer(pr);
-                col = col.child(self.pull_row(pr, depth, on, by, offer, data, cx));
+                list = list.child(self.pull_row(pr, depth, on, by, offer, data, cx));
             }
+            col = col.child(list);
         }
         wrap(col.into_any_element())
     }
@@ -1592,133 +1776,173 @@ impl AppView {
                 div()
                     .id(SharedString::from(format!("pull-stacked-{number}")))
                     .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                    .child(controls::badge(
-                        format!(
-                            "≡ {}",
-                            tv("memory.pulls.stackedOn", &[("number", on.into())])
-                        ),
-                        theme::accent(),
+                    .child(pill(
+                        tv("memory.pulls.stackedOn", &[("number", on.into())]),
+                        Tone::Info,
+                        Some("layers"),
                     ))
                     .into_any_element(),
             );
         }
         if pr.conflict {
-            pills.push(controls::badge(t("memory.pulls.conflicts"), theme::error()));
+            pills.push(pill(t("memory.pulls.conflicts"), Tone::Danger, None).into_any_element());
         }
         if pr.review == "changes_requested" {
-            pills.push(controls::badge(
-                t("memory.pulls.changesRequested"),
-                theme::starting(),
-            ));
+            pills.push(
+                pill(t("memory.pulls.changesRequested"), Tone::Warning, None).into_any_element(),
+            );
         }
         let agent = pr.agent.clone();
+        // A meta item: its icon and what it says (the row's foot).
+        let meta = |icon: &str| {
+            h_flex()
+                .gap_1p5()
+                .child(crate::icons::ic(icon).size(px(14.)))
+        };
+        // Electron's .panel, rounded-2xl: a card lifting off the rail, its
+        // edge brightening under the pointer.
         v_flex()
             .id(SharedString::from(format!("pull-{number}")))
-            .ml(px(depth.min(3) as f32 * 18.))
-            .gap_1p5()
-            .px_3()
-            .py_3()
-            .rounded_xl()
+            .relative()
+            .ml(px(depth.min(3) as f32 * 28.))
+            .px_4()
+            .py(px(14.))
+            .rounded(theme::radius::XXL)
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::raised())
+            .border_color(theme::line())
+            .bg(theme::linear_panel())
+            .shadow(theme::shadow_card())
             .cursor_pointer()
-            .hover(|s| s.border_color(theme::muted().opacity(0.5)))
+            .hover(|s| s.border_color(theme::line_strong()))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.open_pull(number, window, cx)
             }))
+            .when(depth > 0, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .top(px(16.))
+                        .left(px(-24.))
+                        .text_color(theme::faint())
+                        .child(crate::icons::ic("corner-down-right").size(px(16.))),
+                )
+            })
             .child(
                 h_flex()
                     .items_start()
-                    .gap_1p5()
-                    .when(depth > 0, |el| {
-                        el.child(
-                            div()
-                                .flex_none()
-                                .text_color(theme::faint())
-                                .child(crate::icons::of("↳")),
-                        )
-                    })
+                    .gap_3()
                     .child(
                         div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::fg())
-                            .line_clamp(2)
-                            .child(pr.title.clone()),
+                            .flex_none()
+                            .mt(px(2.))
+                            .text_color(theme::subtle())
+                            .child(crate::icons::ic("git-pull-request").size(px(16.))),
                     )
                     .child(
-                        div()
-                            .id(SharedString::from(format!("pull-gh-{number}")))
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            // The title first: two lines of it before anything beside it gives way.
+                            .child(
+                                h_flex()
+                                    .items_start()
+                                    .gap_1p5()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .min_w_0()
+                                            .text_size(theme::text::BODY)
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme::primary())
+                                            .line_clamp(2)
+                                            .child(pr.title.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .id(SharedString::from(format!("pull-gh-{number}")))
+                                            .flex_none()
+                                            .mt(px(3.))
+                                            .text_color(theme::faint())
+                                            .cursor_pointer()
+                                            .hover(|s| s.text_color(theme::brand(300)))
+                                            .tooltip({
+                                                let tip: SharedString =
+                                                    t("pulls.detail.openOnGitHub").into();
+                                                move |window, cx| {
+                                                    Tooltip::new(tip.clone()).build(window, cx)
+                                                }
+                                            })
+                                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                                cx.stop_propagation()
+                                            })
+                                            .on_click(move |_, _, cx| {
+                                                cx.stop_propagation();
+                                                cx.open_url(&url)
+                                            })
+                                            .child(crate::icons::ic("external-link").size(px(14.))),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .font_family(crate::theme::mono())
+                                    .text_size(theme::text::CAPTION)
+                                    .text_color(theme::subtle())
+                                    .child(format!(
+                                        "#{number} · {} → {}",
+                                        pr.head_branch, pr.base_branch
+                                    )),
+                            )
+                            .child(div().mt_1p5().child(self.labels_row("row", number, cx))),
+                    )
+                    .child(
+                        h_flex()
                             .flex_none()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .cursor_pointer()
-                            .hover(|s| s.text_color(theme::accent()))
-                            .tooltip({
-                                let tip: SharedString = t("pulls.detail.openOnGitHub").into();
-                                move |window, cx| Tooltip::new(tip.clone()).build(window, cx)
-                            })
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                cx.open_url(&url)
-                            })
-                            .child(crate::icons::of("↗")),
+                            .max_w(relative(0.4))
+                            .min_w_0()
+                            .flex_wrap()
+                            .justify_end()
+                            .gap_1()
+                            .children(pills),
                     ),
             )
             .child(
-                div()
-                    .truncate()
-                    .font_family(crate::theme::mono())
-                    .text_xs()
-                    .text_color(theme::muted())
-                    .child(format!(
-                        "#{number} · {} → {}",
-                        pr.head_branch, pr.base_branch
-                    )),
-            )
-            .child(self.labels_row("row", number, cx))
-            .child(h_flex().flex_wrap().gap_1().children(pills))
-            .child(
                 h_flex()
+                    .mt(px(10.))
                     .flex_wrap()
-                    .gap_x_3()
-                    .gap_y_1()
-                    .text_xs()
+                    .gap_x_4()
+                    .gap_y_1p5()
+                    .text_size(theme::text::CAPTION)
                     .text_color(theme::muted())
                     .when(!pr.author.is_empty(), |el| {
                         el.child(
                             div()
-                                .max_w(px(140.))
+                                .max_w(px(160.))
+                                .min_w_0()
                                 .truncate()
-                                .child(format!("◍ {}", pr.author)),
+                                .child(pr.author.clone()),
                         )
                     })
                     .when(pr.additions > 0 || pr.deletions > 0, |el| {
                         el.child(
-                            h_flex()
-                                .gap_1()
-                                .font_family(crate::theme::mono())
+                            meta("git-branch")
                                 .child(
                                     div()
-                                        .text_color(theme::running())
+                                        .text_color(theme::emerald(400))
                                         .child(format!("+{}", pr.additions)),
                                 )
                                 .child(
                                     div()
-                                        .text_color(theme::error())
+                                        .text_color(theme::rose(400))
                                         .child(format!("−{}", pr.deletions)),
                                 ),
                         )
                     })
                     .when(pr.comments > 0, |el| {
-                        el.child(tv(
+                        el.child(meta("message-square").child(tv(
                             "memory.pulls.comments",
                             &[("count", pr.comments.into())],
-                        ))
+                        )))
                     })
                     .when(!stacked_by.is_empty(), |el| {
                         let numbers = stacked_by
@@ -1726,13 +1950,13 @@ impl AppView {
                             .map(|n| format!("#{n}"))
                             .collect::<Vec<_>>()
                             .join(", ");
-                        el.child(tv(
+                        el.child(meta("layers").child(tv(
                             "memory.pulls.stackedBy",
                             &[
                                 ("count", stacked_by.len().into()),
                                 ("numbers", (&numbers).into()),
                             ],
-                        ))
+                        )))
                     })
                     .when(!agent.is_empty(), |el| {
                         let a = agent.clone();
@@ -1754,50 +1978,44 @@ impl AppView {
                         div()
                             .text_color(theme::faint())
                             .child(pr.updated_at.as_deref().map(time_ago).unwrap_or_default()),
-                    ),
+                    )
+                    .when(offer, |el| {
+                        el.child(
+                            h_flex()
+                                .min_w_0()
+                                .gap_2()
+                                .when_some(blocked.clone(), |el, b| el.child(merge_blocked(b)))
+                                .child(
+                                    div()
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation()
+                                        })
+                                        .child(controls::button(
+                                            SharedString::from(format!("pull-merge-{number}")),
+                                            if running {
+                                                format!("… {}", t("memory.pulls.merge"))
+                                            } else {
+                                                t("memory.pulls.merge")
+                                            },
+                                            Btn::Secondary,
+                                            running || blocked.is_some(),
+                                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                                cx.stop_propagation();
+                                                this.request_merge(number, cx)
+                                            }),
+                                        )),
+                                ),
+                        )
+                    }),
             )
-            .when(offer, |el| {
-                el.child(
-                    h_flex()
-                        .gap_2()
-                        .justify_end()
-                        .when_some(blocked.clone(), |el, b| {
-                            el.child(
-                                div()
-                                    .min_w_0()
-                                    .flex_1()
-                                    .truncate()
-                                    .text_right()
-                                    .text_xs()
-                                    .text_color(theme::starting())
-                                    .child(b),
-                            )
-                        })
-                        .child(
-                            div()
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .child(controls::button(
-                                    SharedString::from(format!("pull-merge-{number}")),
-                                    if running {
-                                        format!("… {}", t("memory.pulls.merge"))
-                                    } else {
-                                        t("memory.pulls.merge")
-                                    },
-                                    Btn::Secondary,
-                                    running || blocked.is_some(),
-                                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                        cx.stop_propagation();
-                                        this.request_merge(number, cx)
-                                    }),
-                                )),
-                        ),
-                )
-            })
             .when_some(self.pulls.failed.get(&number), |el, e| {
-                el.child(notice(
-                    tv("memory.pulls.mergeFailed", &[("error", e.into())]),
-                    theme::error(),
-                ))
+                el.child(
+                    notice(
+                        tv("memory.pulls.mergeFailed", &[("error", e.into())]),
+                        theme::error(),
+                    )
+                    .mt(px(10.)),
+                )
             })
             .into_any_element()
     }
@@ -1859,16 +2077,19 @@ impl AppView {
             |id: &'static str, label: String, on: bool, to: DetailTab, cx: &mut Context<Self>| {
                 h_flex()
                     .id(id)
-                    .gap_1p5()
+                    .gap_2()
+                    .h(px(32.))
                     .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .text_sm()
-                    .text_color(if on { theme::fg() } else { theme::muted() })
-                    .when(on, |el| el.bg(theme::hover()))
+                    .rounded_lg()
+                    .text_size(theme::text::UI)
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if on { theme::title() } else { theme::muted() })
+                    .when(on, |el| {
+                        el.bg(theme::surface_strong()).shadow(theme::shadow_card())
+                    })
                     .when(!on, |el| {
                         el.cursor_pointer()
-                            .hover(|s| s.text_color(theme::fg()))
+                            .hover(|s| s.text_color(theme::primary()))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 if let Some(v) = &mut this.pulls.viewing {
                                     v.tab = to;
@@ -1893,22 +2114,22 @@ impl AppView {
                     )
                     .into_any_element(),
                     None => div()
-                        .text_sm()
-                        .text_color(theme::muted())
+                        .text_size(theme::text::UI)
+                        .text_color(theme::subtle())
                         .child(t("common.loading"))
                         .into_any_element(),
                     Some(Ok(d)) => v_flex()
                         .gap_6()
                         .child(if d.body.trim().is_empty() {
                             div()
-                                .text_sm()
+                                .text_size(theme::text::UI)
                                 .italic()
-                                .text_color(theme::muted())
+                                .text_color(theme::subtle())
                                 .child(t("pulls.detail.noDescription"))
                                 .into_any_element()
                         } else {
                             div()
-                                .text_sm()
+                                .text_size(px(13.5))
                                 .child({
                                     let images = v.images.clone();
                                     let n = images.lock().map(|m| m.len()).unwrap_or(0);
@@ -1935,16 +2156,16 @@ impl AppView {
                                     .gap_2()
                                     .child(
                                         div()
-                                            .text_xs()
-                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_size(theme::text::CAPTION)
+                                            .font_weight(FontWeight::MEDIUM)
                                             .text_color(theme::muted())
-                                            .child(t("pulls.detail.checks").to_uppercase()),
+                                            .child(t("pulls.detail.checks")),
                                     )
                                     .child(
                                         v_flex()
-                                            .rounded_lg()
+                                            .rounded_xl()
                                             .border_1()
-                                            .border_color(theme::border())
+                                            .border_color(theme::line_faint())
                                             .overflow_hidden()
                                             .children(d.check_runs.iter().enumerate().map(
                                                 |(i, run)| {
@@ -1957,25 +2178,29 @@ impl AppView {
                                                         .py_1p5()
                                                         .when(i > 0, |el| {
                                                             el.border_t_1()
-                                                                .border_color(theme::border())
+                                                                .border_color(theme::line_faint())
                                                         })
-                                                        .text_xs()
+                                                        .text_size(px(12.5))
                                                         .child(
                                                             div()
-                                                                .w(px(12.))
+                                                                .flex_none()
                                                                 .text_color(color)
-                                                                .child(crate::icons::of(mark)),
+                                                                .child(
+                                                                    crate::icons::ic(mark)
+                                                                        .size(px(14.)),
+                                                                ),
                                                         )
                                                         .child(
                                                             div()
                                                                 .flex_1()
                                                                 .min_w_0()
                                                                 .truncate()
-                                                                .text_color(theme::fg())
+                                                                .text_color(theme::secondary())
                                                                 .child(run.name.clone()),
                                                         )
                                                         .child(
                                                             div()
+                                                                .flex_none()
                                                                 .text_color(theme::faint())
                                                                 .child(t(key)),
                                                         )
@@ -1983,17 +2208,25 @@ impl AppView {
                                                             el.child(
                                                                 div()
                                                                     .id(("pull-check-gh", i))
+                                                                    .flex_none()
+                                                                    .p(px(2.))
+                                                                    .rounded_sm()
                                                                     .text_color(theme::faint())
                                                                     .cursor_pointer()
                                                                     .hover(|s| {
-                                                                        s.text_color(
-                                                                                theme::accent(),
-                                                                            )
+                                                                        s.text_color(theme::brand(
+                                                                            300,
+                                                                        ))
                                                                     })
                                                                     .on_click(move |_, _, cx| {
                                                                         cx.open_url(&url)
                                                                     })
-                                                                    .child(crate::icons::of("↗")),
+                                                                    .child(
+                                                                        crate::icons::ic(
+                                                                            "external-link",
+                                                                        )
+                                                                        .size(px(14.)),
+                                                                    ),
                                                             )
                                                         })
                                                 },
@@ -2016,39 +2249,55 @@ impl AppView {
         let agent = pr.agent.clone();
         let url = pr.url.clone();
         let header = v_flex()
+            .relative()
             .flex_none()
             .gap_2()
-            .px_6()
+            .pl_6()
+            .pr(px(56.))
             .pt_5()
             .pb_3()
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::line_faint())
             .child(
                 h_flex()
                     .items_start()
                     .gap_2()
+                    .text_size(px(17.))
+                    .line_height(relative(1.375))
                     .child(
                         div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::fg())
-                            .child(pr.title.clone()),
+                            .flex_none()
+                            .mt(px(4.))
+                            .text_color(theme::subtle())
+                            .child(crate::icons::ic("git-pull-request").size(px(16.))),
                     )
                     .child(
-                        div()
-                            .text_lg()
+                        h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .flex_wrap()
+                            .items_start()
+                            .gap_x_1p5()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme::title())
+                                    .child(pr.title.clone()),
+                            )
                             .child(number_link(("pull-detail-number", number as u64), &pr)),
                     )
                     .child(
                         div()
                             .id("pull-close")
-                            .px_1p5()
+                            .absolute()
+                            .top_4()
+                            .right_4()
+                            .p_1()
                             .rounded_md()
-                            .text_color(theme::muted())
+                            .text_color(theme::subtle())
                             .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()).text_color(theme::fg()))
+                            .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
                             .tooltip({
                                 let tip: SharedString = t("common.close").into();
                                 move |window, cx| Tooltip::new(tip.clone()).build(window, cx)
@@ -2056,15 +2305,15 @@ impl AppView {
                             .on_click(
                                 cx.listener(|this, _: &ClickEvent, _, cx| this.close_pull(cx)),
                             )
-                            .child(crate::icons::of("✕")),
+                            .child(crate::icons::ic("x").size(px(16.))),
                     ),
             )
             .child(
                 h_flex()
                     .flex_wrap()
                     .gap_x_2()
-                    .gap_y_1()
-                    .text_xs()
+                    .gap_y_1p5()
+                    .text_size(px(12.5))
                     .text_color(theme::muted())
                     .child(state_badge(&pr.state, pr.draft))
                     .child(tv(
@@ -2103,12 +2352,13 @@ impl AppView {
                     .gap_1p5()
                     .children(checks_badge(&pr.checks))
                     .when(pr.conflict, |el| {
-                        el.child(controls::badge(t("memory.pulls.conflicts"), theme::error()))
+                        el.child(pill(t("memory.pulls.conflicts"), Tone::Danger, None))
                     })
                     .when(pr.review == "changes_requested", |el| {
-                        el.child(controls::badge(
+                        el.child(pill(
                             t("memory.pulls.changesRequested"),
-                            theme::starting(),
+                            Tone::Warning,
+                            None,
                         ))
                     })
                     .child(self.labels_row("detail", number, cx)),
@@ -2116,7 +2366,13 @@ impl AppView {
             .child(
                 h_flex()
                     .mt_1()
-                    .gap_1()
+                    .self_start()
+                    .gap(px(2.))
+                    .p_1()
+                    .rounded_xl()
+                    .border_1()
+                    .border_color(theme::line())
+                    .bg(theme::surface_faint())
                     .child(tab_el(
                         "pull-tab-description",
                         t("pulls.detail.tab.description"),
@@ -2137,9 +2393,10 @@ impl AppView {
                                 div()
                                     .px_1p5()
                                     .rounded_full()
-                                    .bg(theme::raised())
-                                    .text_xs()
-                                    .text_color(theme::muted())
+                                    .bg(theme::surface_raised())
+                                    .text_size(px(11.))
+                                    .font_weight(FontWeight::NORMAL)
+                                    .text_color(theme::subtle())
                                     .child(n.to_string()),
                             )
                         }),
@@ -2149,10 +2406,11 @@ impl AppView {
             .flex_none()
             .flex_wrap()
             .gap_2()
+            .items_center()
             .px_6()
             .py_3()
             .border_t_1()
-            .border_color(theme::border())
+            .border_color(theme::line_faint())
             .when_some(self.pulls.failed.get(&number), |el, e| {
                 el.child(
                     notice(
@@ -2171,20 +2429,20 @@ impl AppView {
                 move |_, _, cx| cx.open_url(&url),
             ))
             .when(offer, |el| {
-                el.when_some(blocked.clone(), |el, b| {
-                    el.child(div().text_xs().text_color(theme::starting()).child(b))
-                })
-                .child(controls::button(
-                    "pull-detail-merge",
-                    if running {
-                        format!("… {}", t("memory.pulls.merge"))
-                    } else {
-                        t("memory.pulls.merge")
-                    },
-                    Btn::Primary,
-                    running || blocked.is_some(),
-                    cx.listener(move |this, _: &ClickEvent, _, cx| this.request_merge(number, cx)),
-                ))
+                el.when_some(blocked.clone(), |el, b| el.child(merge_blocked(b)))
+                    .child(controls::button(
+                        "pull-detail-merge",
+                        if running {
+                            format!("… {}", t("memory.pulls.merge"))
+                        } else {
+                            t("memory.pulls.merge")
+                        },
+                        Btn::Primary,
+                        running || blocked.is_some(),
+                        cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.request_merge(number, cx)
+                        }),
+                    ))
             });
         Some(
             div()
@@ -2192,7 +2450,6 @@ impl AppView {
                 .track_focus(&self.pulls.focus)
                 .absolute()
                 .inset_0()
-                .bg(gpui::black().opacity(0.6))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -2210,22 +2467,29 @@ impl AppView {
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| this.close_pull(cx)),
                 )
-                .child(
+                // The scrim fades in under the card, which pops in over it.
+                .child(motion::scrim_in(
+                    div().absolute().inset_0().bg(theme::scrim()),
+                    SharedString::from(format!("pull-scrim-{number}")),
+                ))
+                .child(motion::pop_in(
                     v_flex()
                         .id("pull-card")
                         .w(relative(0.94))
-                        .max_w(px(1150.))
+                        .max_w(px(1152.))
                         .h(relative(0.88))
-                        .rounded_xl()
-                        .bg(theme::panel())
+                        .rounded(theme::radius::XXL)
+                        .bg(theme::modal())
                         .border_1()
-                        .border_color(theme::border())
+                        .border_color(theme::line_strong())
+                        .shadow(theme::shadow_modal())
                         .overflow_hidden()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(header)
                         .child(div().flex_1().min_h_0().child(body))
                         .child(footer),
-                )
+                    SharedString::from(format!("pull-card-{number}")),
+                ))
                 .into_any_element(),
         )
     }
@@ -2269,7 +2533,7 @@ impl AppView {
                 .bg(if lit {
                     theme::accent().opacity(0.18)
                 } else {
-                    theme::hover()
+                    theme::surface_strong()
                 })
                 .text_color(if lit { theme::accent() } else { theme::muted() })
                 .child(n.to_string())
@@ -2283,11 +2547,13 @@ impl AppView {
                 .rounded_md()
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
-                .when(on, |el| el.bg(theme::raised()).text_color(theme::fg()))
+                .when(on, |el| {
+                    el.bg(theme::surface_raised()).text_color(theme::primary())
+                })
                 .when(!on, |el| {
                     el.text_color(theme::muted())
                         .cursor_pointer()
-                        .hover(|s| s.text_color(theme::fg()))
+                        .hover(|s| s.text_color(theme::primary()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.pulls.tab = to;
                             if to == RailTab::Pulls {
@@ -2311,8 +2577,8 @@ impl AppView {
             .p(px(2.))
             .rounded_lg()
             .border_1()
-            .border_color(theme::border())
-            .bg(theme::bg())
+            .border_color(theme::line())
+            .bg(theme::ink())
             .child(
                 item(
                     "rail-tab-agents",
@@ -2562,9 +2828,9 @@ impl AppView {
                 .h(px(44.))
                 .px_4()
                 .gap_2()
-                .bg(theme::panel())
+                .bg(theme::card())
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::line())
                 .child(
                     h_flex()
                         .id("project-crumb")
@@ -2573,7 +2839,7 @@ impl AppView {
                         .py_0p5()
                         .rounded_md()
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::raised()))
+                        .hover(|s| s.bg(theme::surface_raised()))
                         .tooltip(move |window, cx| Tooltip::new(root_tip.clone()).build(window, cx))
                         .map(|el| {
                             if lead {
@@ -2593,7 +2859,7 @@ impl AppView {
                                 .size(px(20.))
                                 .rounded_md()
                                 .bg(theme::accent().opacity(0.25))
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .text_xs()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .flex()
@@ -2607,7 +2873,7 @@ impl AppView {
                                 .truncate()
                                 .text_sm()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::fg())
+                                .text_color(theme::primary())
                                 .child(display.clone()),
                         ),
                 )
@@ -2622,7 +2888,7 @@ impl AppView {
                             theme::faint()
                         })
                         .cursor_pointer()
-                        .hover(|s| s.text_color(theme::fg()))
+                        .hover(|s| s.text_color(theme::primary()))
                         .tooltip(move |window, cx| Tooltip::new(copy_tip.clone()).build(window, cx))
                         .on_click(move |e, w, cx| copy(e, w, cx))
                         .child(crate::icons::of(if self.pulls.copied {
@@ -2644,7 +2910,11 @@ impl AppView {
                         .truncate()
                         .text_base()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if lead { theme::muted() } else { theme::fg() })
+                        .text_color(if lead {
+                            theme::muted()
+                        } else {
+                            theme::primary()
+                        })
                         .child(then),
                 )
                 .when(!status.is_empty(), |el| {
@@ -2674,11 +2944,11 @@ impl AppView {
                             .py_0p5()
                             .rounded_full()
                             .border_1()
-                            .border_color(theme::border())
+                            .border_color(theme::line())
                             .text_xs()
                             .text_color(theme::muted())
                             .cursor_pointer()
-                            .hover(|s| s.bg(theme::raised()).text_color(theme::fg()))
+                            .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.pulls.tab = RailTab::Pulls;
                                 this.load_pulls(false, cx);
@@ -2696,7 +2966,7 @@ impl AppView {
                         .text_sm()
                         .text_color(theme::muted())
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::raised()).text_color(theme::fg()))
+                        .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
                         .tooltip(move |window, cx| {
                             Tooltip::new(settings_tip.clone()).build(window, cx)
                         })
