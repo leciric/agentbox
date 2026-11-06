@@ -91,7 +91,7 @@ func freeLocalAddr() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().String(), nil
 }
 
@@ -112,7 +112,11 @@ func authoritativeResolve(ctx context.Context, host string) error {
 			var d net.Dialer
 			return d.DialContext(ctx, network, net.JoinHostPort(server.Host, "53"))
 		}}
-		if _, err = r.LookupHost(ctx, host); err == nil {
+		// A share of ctx each, so one that doesn't answer leaves time for the next.
+		ask, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_, err = r.LookupHost(ask, host)
+		cancel()
+		if err == nil {
 			return nil
 		}
 	}
