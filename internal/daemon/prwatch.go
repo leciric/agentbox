@@ -33,6 +33,12 @@ import (
 //   - An interval that adapts: prWatchFast while checks are running, GitHub
 //     is still working out whether it merges, or the head just moved; doubling
 //     from prWatchCalm up to prWatchIdle while nothing changes.
+//   - Back off while nobody looks: for a project no client views, or while
+//     the computer is on battery or hot (presence.go), the next look is at
+//     least prWatchIdle away, or prWatchCalm while a pull request waits to be
+//     merged when green or an event trigger waits. Nothing is dropped: a
+//     conflict, failed checks or a requested change is still told, only
+//     later, and a project that comes into view is looked at soon (wake).
 //   - A pause until GitHub's reset when the budget runs low or GitHub says to
 //     slow down, and a doubling back-off on any other failure.
 //
@@ -61,6 +67,17 @@ const (
 	prWatchLowBudget = 250
 )
 
+// prWatchAwayFloor is the least time between two looks at a project nobody
+// views, or while the computer saves power: prWatchIdle, or prWatchCalm while
+// something the user asked for waits on GitHub (a merge when green, an event
+// trigger), which backs off less.
+func prWatchAwayFloor(merging, triggers bool) time.Duration {
+	if merging || triggers {
+		return prWatchCalm
+	}
+	return prWatchIdle
+}
+
 // prWatcher is the watch's schedule and what it last read, per project.
 type prWatcher struct {
 	// every is how often the loop runs; zero turns the loop off, which is
@@ -76,6 +93,7 @@ type prWatcher struct {
 
 type prRepo struct {
 	next     time.Time
+	last     time.Time // when it was last looked at
 	interval time.Duration
 	failures int
 	// live is each followed pull request as last read, by number: what the
@@ -108,6 +126,20 @@ func (w *prWatcher) poke(project string) {
 	if r, ok := w.repos[project]; ok {
 		r.next = time.Time{}
 		r.interval = 0
+	}
+}
+
+// wake brings a project's next look forward to prWatchFast after its last,
+// if it was further off: the project came into view, and what the app shows
+// of it should be fresh, but switching back and forth between projects
+// shouldn't cost a look each time.
+func (w *prWatcher) wake(project string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if r, ok := w.repos[project]; ok {
+		if soon := r.last.Add(prWatchFast); r.next.After(soon) {
+			r.next = soon
+		}
 	}
 }
 
@@ -244,7 +276,7 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, w
 	schedule := func(next time.Time, interval time.Duration, live map[int]github.WatchedPR) {
 		s.prWatch.mu.Lock()
 		defer s.prWatch.mu.Unlock()
-		r.next, r.interval = next, interval
+		r.next, r.interval, r.last = next, interval, now
 		if live != nil {
 			r.live = live
 		}
@@ -401,6 +433,9 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, w
 	// Under a fifth of the account's budget left, the looks spread out, up
 	// to eight times as far apart near the floor.
 	next := now.Add(time.Duration(float64(interval) * client.Slowdown()))
+	if s.presence.idle(p.Name) {
+		next = later(next, now.Add(prWatchAwayFloor(waiting, len(triggers) > 0)))
+	}
 	if watch.Remaining >= 0 && watch.Remaining < prWatchLowBudget && watch.Reset.After(next) {
 		// Little left of the account's budget: leave it to the user and their
 		// agents until it fills up again.

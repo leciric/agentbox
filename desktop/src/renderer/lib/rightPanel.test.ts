@@ -34,7 +34,7 @@ test('the lead and a past agent have files and evidence, but no machine views, a
     assert.equal(P.hasView(gone, view), wide || !P.needsMachine(view), `past ${view}`);
     assert.equal(P.hasView(live, view), true, `agent ${view}`);
   }
-  assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser', 'android']);
+  assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser', 'android', 'resources']);
   assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'issues', 'schedules', 'settings']);
   // Every view is on the switch but Pull requests, Issues and Settings, the lead's tabs and header's.
   assert.deepEqual([...P.switchViews, 'pulls', 'issues', 'settings'].toSorted(), [...P.panelViews].toSorted());
@@ -49,8 +49,8 @@ test('an agent’s switch has every view it has, in one order, Android only when
   const asleep: Whose = { kind: 'agent', agent: agent('agent-3', 'stopped') };
   const gone: Whose = { kind: 'past', past: past('agent-1') };
   const lead: Whose = { kind: 'lead', ref: 'pawly/lead' };
-  assert.deepEqual(P.viewsOf(live, false), ['desktop', 'terminal', 'browser', 'files', 'evidence', 'timeline', 'schedules']);
-  assert.deepEqual(P.viewsOf(live, true), ['desktop', 'terminal', 'browser', 'android', 'files', 'evidence', 'timeline', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, false), ['desktop', 'terminal', 'browser', 'files', 'evidence', 'timeline', 'resources', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, true), ['desktop', 'terminal', 'browser', 'android', 'files', 'evidence', 'timeline', 'resources', 'schedules']);
   // Asleep, its machine's views stay, to wake it from.
   assert.deepEqual(P.viewsOf(asleep, true), P.viewsOf(live, true));
   // No machine, no machine views, Android included.
@@ -78,8 +78,8 @@ test('iOS is on an agent’s switch when the app runs on a Mac, after Android', 
   const live: Whose = { kind: 'agent', agent: agent('agent-2', 'running') };
   const gone: Whose = { kind: 'past', past: past('agent-1') };
   const lead: Whose = { kind: 'lead', ref: 'pawly/lead' };
-  assert.deepEqual(P.viewsOf(live, true, true), ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'schedules']);
-  assert.deepEqual(P.viewsOf(live, false, true), ['desktop', 'terminal', 'browser', 'ios', 'files', 'evidence', 'timeline', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, true, true), ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'resources', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, false, true), ['desktop', 'terminal', 'browser', 'ios', 'files', 'evidence', 'timeline', 'resources', 'schedules']);
   assert.deepEqual(P.viewsOf(gone, true, true), ['files', 'evidence', 'timeline', 'schedules']);
   assert.deepEqual(P.viewsOf(lead, true, true), ['files', 'evidence', 'schedules']);
 });

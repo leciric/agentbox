@@ -44,12 +44,14 @@ pub enum PView {
     Files,
     Evidence,
     Timeline,
+    /// What its machine uses (resources.rs).
+    Resources,
     /// The project's schedules, picked on an agent's switch: its header stays.
     Schedules,
 }
 
 impl PView {
-    pub const ALL: [PView; 8] = [
+    pub const ALL: [PView; 9] = [
         PView::Desktop,
         PView::Terminal,
         PView::Browser,
@@ -57,6 +59,7 @@ impl PView {
         PView::Files,
         PView::Evidence,
         PView::Timeline,
+        PView::Resources,
         PView::Schedules,
     ];
 
@@ -67,6 +70,7 @@ impl PView {
             PView::Files => "files",
             PView::Evidence => "evidence",
             PView::Timeline => "timeline",
+            PView::Resources => "resources",
             PView::Browser => "browser",
             PView::Android => "android",
             PView::Schedules => "schedules",
@@ -84,6 +88,7 @@ impl PView {
             PView::Files => "folder-tree",
             PView::Evidence => "images",
             PView::Timeline => "chart-gantt",
+            PView::Resources => "activity",
             PView::Browser => "globe",
             PView::Android => "smartphone",
             PView::Schedules => "alarm-clock",
@@ -94,7 +99,7 @@ impl PView {
     fn machine(self) -> bool {
         matches!(
             self,
-            PView::Desktop | PView::Terminal | PView::Browser | PView::Android
+            PView::Desktop | PView::Terminal | PView::Browser | PView::Android | PView::Resources
         )
     }
 }
@@ -424,6 +429,7 @@ impl AppView {
                     ),
                     PView::Evidence => {}
                     PView::Timeline => self.load_timeline(r.clone(), cx),
+                    PView::Resources => self.load_resources(r.clone(), cx),
                     PView::Browser => {
                         self.load_desktop_status(cx);
                         self.load_preview(cx);
@@ -1763,6 +1769,7 @@ impl AppView {
             PView::Files => self.render_files(),
             PView::Evidence => self.render_evidence(Some(&a), cx),
             PView::Timeline => self.render_timeline(r),
+            PView::Resources => self.render_resources(r),
             PView::Browser => self.render_browser(&a, self.overlaid(), cx),
             PView::Android => self.render_android(&a, cx),
             PView::Schedules => self.render_schedules(cx),

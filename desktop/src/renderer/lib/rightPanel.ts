@@ -20,13 +20,13 @@ import { isLeadRef } from './pages.ts';
 import type { RichKind } from './rich.ts';
 import type { ProjectSection } from './tabs.ts';
 
-export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'android' | 'ios' | 'timeline' | 'pulls' | 'issues' | 'schedules' | 'settings';
-export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'android', 'ios', 'timeline', 'pulls', 'issues', 'schedules', 'settings'];
+export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'android' | 'ios' | 'timeline' | 'resources' | 'pulls' | 'issues' | 'schedules' | 'settings';
+export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'android', 'ios', 'timeline', 'resources', 'pulls', 'issues', 'schedules', 'settings'];
 // The switch's views, in this order: the machine's first, then what the
 // work left, ending as the lead's does, Files, Evidence, then Schedules. The
 // project's Pull requests, Issues and Settings are off it: tabs of the
 // lead's panel, and on its header.
-export const switchViews: PanelView[] = ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'schedules'];
+export const switchViews: PanelView[] = ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'resources', 'schedules'];
 // The agent's machine bar under its chat's header (AgentMachineBar): four.
 export const machineBarViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
 
@@ -36,8 +36,8 @@ export type WideView = 'pulls' | 'issues' | 'schedules' | 'settings';
 export const projectWide = (view: PanelView): view is WideView => view === 'pulls' || view === 'issues' || view === 'schedules' || view === 'settings';
 
 // The views that show a machine: an agent's display, its shell, its dev
-// server, its Android emulator.
-export const needsMachine = (view: PanelView) => view === 'desktop' || view === 'terminal' || view === 'browser' || view === 'android';
+// server, its Android emulator, what it uses (Resources).
+export const needsMachine = (view: PanelView) => view === 'desktop' || view === 'terminal' || view === 'browser' || view === 'android' || view === 'resources';
 
 // The views only an agent has: the lead does no work of its own to show as a
 // timeline (its project's day is the Today page).

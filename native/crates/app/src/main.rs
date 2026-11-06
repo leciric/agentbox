@@ -14,6 +14,7 @@ mod device;
 mod diff;
 mod files;
 mod highlight;
+mod hostpower;
 mod icons;
 mod media;
 mod mermaid;

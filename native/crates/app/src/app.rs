@@ -25,9 +25,11 @@ mod new_agent;
 mod new_task;
 mod panel;
 mod past;
+mod presence;
 pub(crate) mod pulls;
 mod recap;
 mod recap_card;
+mod resources;
 mod review;
 mod schedules;
 mod search;
@@ -104,6 +106,10 @@ pub struct AppView {
     agent_settings: agent_settings::AgentSettings,
     /// The past agent open (past.rs).
     past: past::Past,
+    /// The panel's Resources view of an agent (resources.rs).
+    resources: resources::Resources,
+    /// The window's presence lease (presence.rs).
+    presence: presence::Presence,
     /// The panel's widths, and its drawer (width.rs).
     widths: width::Widths,
     side: sidebar::Sidebar,
@@ -197,6 +203,8 @@ impl AppView {
             issues: issues::Issues::default(),
             agent_settings: agent_settings::AgentSettings::new(window, cx),
             past: past::Past::new(window, cx),
+            resources: Default::default(),
+            presence: Default::default(),
             widths: width::Widths::load(),
             side: sidebar::Sidebar::new(window, cx),
             new_task: None,
@@ -221,6 +229,7 @@ impl AppView {
         this.watch_connection(window, cx);
         this.watch_topbar(cx);
         this.start_alerts(window, cx);
+        this.start_presence(window, cx);
         if let Ok(secs) =
             std::env::var("AGENTBOX_NATIVE_SCROLL_BENCH").map(|s| s.parse::<u64>().unwrap_or(3))
         {
@@ -271,6 +280,7 @@ impl AppView {
                 self.load_sessions(p, cx);
             }
             self.load_pulls(false, cx);
+            self.reload_resources(cx);
             if let Some(chat) = &self.chat {
                 chat.update(cx, |c, cx| c.load(cx));
             }
@@ -374,6 +384,7 @@ impl AppView {
                 }
             }
             agentbox_api::EVENT_MEDIA => self.on_media_event(cx),
+            agentbox_api::EVENT_AGENT_RESOURCES => self.on_resources_event(ev.data, cx),
             agentbox_api::EVENT_AGENT_EVENT => {
                 if let Some(p) = ev.data.get("project").and_then(|v| v.as_str())
                     && self.project.as_deref() == Some(p)
@@ -924,6 +935,7 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.panel.track(&self.fleet);
+        self.presence_check(window, cx);
         bench::mark("first-render");
         controls::set_viewport(window.viewport_size());
         self.focus_tour(window, cx);

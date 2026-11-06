@@ -45,7 +45,9 @@ export function SessionHeader({ project, session, onSnooze }: { project: string;
   return (
     <div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-line-faint px-4 py-1.5" data-session-header={session.id}>
       <Bot className="size-3.5 shrink-0 text-faint" aria-hidden />
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none]" data-session-agents>
+      {/* It scrolls sideways with no scrollbar: its end fades, so a chip cut
+          off reads as "more this way" rather than a broken word. */}
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pr-6 [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none]" data-session-agents>
         {agents.length === 0 ? (
           <span className="truncate text-caption text-faint">{output.data ? t('sessions.header.none') : t('common.loading')}</span>
         ) : (
@@ -88,17 +90,30 @@ function AgentPill({ agent }: { agent: T.SessionAgent }) {
       </span>
     );
   }
+  // The pill is the agent's button stretched over it (its ::before), with the
+  // PR chip, a link of its own, above it: not a link inside a button, which a
+  // screen reader takes as one control.
   return (
-    <button
-      type="button"
-      className={cn(cls, 'hover:border-line hover:bg-surface-raised hover:text-primary', !agent.pr && 'pr-2')}
-      onClick={() => openAgent(agent.ref)}
-      title={name}
+    <span
+      className={cn(cls, 'relative has-[>button:hover]:border-line has-[>button:hover]:bg-surface-raised has-[>button:hover]:text-primary', !agent.pr && 'pr-2')}
       data-session-agent={agent.ref}
       data-session-agent-working={agent.working ? '' : undefined}
     >
-      {body}
-    </button>
+      <button
+        type="button"
+        className="flex min-w-0 items-center gap-1.5 rounded-full before:absolute before:inset-0 before:rounded-full focus-visible:outline-none focus-visible:before:ring-2 focus-visible:before:ring-brand-400"
+        onClick={() => openAgent(agent.ref)}
+        title={name}
+      >
+        {agent.working && <LoaderCircle className="size-3 shrink-0 animate-spin text-sky-400" aria-label={t('sessions.working')} />}
+        <span className="max-w-40 truncate">{name}</span>
+      </button>
+      {agent.pr && (
+        <span className="relative">
+          <PrChip pr={agent.pr} dataAttr="data-session-pr" />
+        </span>
+      )}
+    </span>
   );
 }
 
