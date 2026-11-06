@@ -356,6 +356,7 @@ func New(cfg Config) (*Server, error) {
 		cpuTime:          agent.CPUTime,
 		connectorsGiven:  map[string]bool{},
 	}
+	store.SetLog(s.logf)
 	s.fileWatches = newFileWatches(func(c api.FilesChange) { s.events.publish(api.EventFiles, c) })
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux

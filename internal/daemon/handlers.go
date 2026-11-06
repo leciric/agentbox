@@ -1112,6 +1112,17 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 	return req, nil
 }
 
+// createFailedNote is what a project's chat is told of a create_agent that
+// failed: whether anything was made, since a chat that tries again after a
+// create that did leave an agent behind makes a second one.
+func createFailedNote(err error) string {
+	var left *agent.LeftBehindError
+	if errors.As(err, &left) {
+		return fmt.Sprintf("create_agent failed: %v. %s still exists: retire it rather than create the agent again.", err, left.Agent)
+	}
+	return fmt.Sprintf("create_agent failed: %v. Nothing was created, so trying again is safe.", err)
+}
+
 // createJob is the job that makes an agent from req: a new one, or, when
 // queued names one, the queued agent of that name, which the queue is
 // starting (queue.go).
@@ -1178,7 +1189,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// failure that only Create itself could find — the machine
 				// couldn't be copied, the name collided — is news the chat
 				// is still waiting on, the same as a finish it asked for.
-				s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
+				s.tellLead(ctx, req.Project, createFailedNote(err), true)
 			}
 			s.recordError(errCreateFailed, req.AI)
 			return nil, err
