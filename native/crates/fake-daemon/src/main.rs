@@ -32,6 +32,7 @@ mod chat;
 mod notify;
 mod panel;
 mod pulls;
+mod resources;
 mod review;
 mod setup;
 
@@ -604,6 +605,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         Err(req) => *req,
     };
     let req = match agents::route(&fake, req, &query).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
+    let req = match resources::route(&fake, req).await {
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };
@@ -1546,6 +1551,7 @@ async fn main() -> Result<()> {
     let fake = Fake::new(opts);
     tokio::spawn(fake.clone().churn());
     tokio::spawn(agents::touch(fake.clone()));
+    tokio::spawn(resources::sample(fake.clone()));
     tokio::spawn(panel::serve_preview());
     loop {
         let (stream, _) = listener.accept().await?;

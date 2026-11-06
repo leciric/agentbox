@@ -364,6 +364,7 @@ mod tests {
             "folder-tree",
             "images",
             "chart-gantt",
+            "activity",
             "globe",
             "smartphone",
             "alarm-clock",
