@@ -412,7 +412,8 @@ jobs:
   # The native app, experimental: a release build of agentbox-native on the
   # Ubuntu the Electron app builds on, packaged as a .tar.gz and a .deb whose
   # Depends dpkg-shlibdeps works out (WebKitGTK 4.1, FFmpeg 6.1, ...), so
-  # Ubuntu 24.04 or newer. No AppImage: WebKitGTK's helper processes don't
+  # Ubuntu 24.04 and what's built on it (FFmpeg 7 distributions lack its
+  # libavcodec60). No AppImage: WebKitGTK's helper processes don't
   # bundle. Its failure doesn't hold the nightly back (see publish).
   native-linux:
     name: Native app, Linux (experimental)
@@ -638,7 +639,7 @@ jobs:
           short=${SHA:0:7}
           notes="A nightly build of what's coming in the next release, from ${PR:+the release PR #$PR, }commit $short. Not a release: it may break, and it is never marked latest. Pick **Nightly** under Settings → Update channel (or run \`agentbox version --channel nightly\`) to be offered the next one."
           if compgen -G 'out/AgentBox-Native-experimental-*' >/dev/null; then
-            notes+=$'\n\n'"**Experimental: the native app.** The \`AgentBox-Native-experimental-*\` files are AgentBox's desktop app rewritten in Rust and GPUI: for Linux (Ubuntu 24.04 or newer; .deb or .tar.gz), Windows (.zip) and Apple Silicon Macs (.dmg). It talks to the same AgentBox, so install AgentBox as usual and start \`agentbox-native\` (on a Mac, AgentBox Native) instead of the app. It doesn't update itself, and can't yet: show an agent's iOS simulator; resize or restart the VM, run host setup or install the command-line tool (it shows the command to run instead); hide to the tray (it minimises). On Wayland, HTML previews are a still picture; on Windows and macOS, recordings don't play. There is no Intel Mac build."
+            notes+=$'\n\n'"**Experimental: the native app.** The \`AgentBox-Native-experimental-*\` files are AgentBox's desktop app rewritten in Rust and GPUI: for Linux (Ubuntu 24.04 and distributions built on it: .deb or .tar.gz), Windows (.zip) and Apple Silicon Macs (.dmg). It talks to the same AgentBox, so install AgentBox as usual and start \`agentbox-native\` (on a Mac, AgentBox Native) instead of the app. It doesn't update itself, and can't yet: show an agent's iOS simulator; resize or restart the VM, run host setup or install the command-line tool (it shows the command to run instead); hide to the tray (it minimises). On Wayland, HTML previews are a still picture; on Windows and macOS, recordings don't play. There is no Intel Mac build."
             if compgen -G 'out/AgentBox-Native-experimental-*.dmg' >/dev/null && [ "$NATIVE_MAC_SIGNED" != true ]; then
               notes+=" The Mac app isn't notarized: after copying it to Applications, run \`xattr -dr com.apple.quarantine \"/Applications/AgentBox Native (experimental).app\"\` once, or macOS says it is damaged."
             fi

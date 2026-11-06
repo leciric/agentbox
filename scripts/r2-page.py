@@ -50,7 +50,7 @@ THEME = (
 # for the Electron app's, and the download button never offers them.
 KINDS = [
     (r"^AgentBox-Native-experimental-.*\.tar\.gz$", "native", "Linux", ".tar.gz archive, x86_64", None),
-    (r"^AgentBox-Native-experimental-.*\.deb$", "native", "Debian and Ubuntu", ".deb package (Ubuntu 24.04 or newer)", None),
+    (r"^AgentBox-Native-experimental-.*\.deb$", "native", "Ubuntu 24.04", ".deb package", None),
     (r"^AgentBox-Native-experimental-.*\.zip$", "native", "Windows", ".zip of the .exe, x64", None),
     (r"^AgentBox-Native-experimental-.*-mac-arm64\.dmg$", "native", "macOS", ".dmg disk image, Apple Silicon", None),
     (r"^AgentBox-Native-experimental-", None, None, None, None),

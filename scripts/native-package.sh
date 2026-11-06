@@ -25,8 +25,10 @@
 #
 # The .deb is the package agentbox-native, beside (not instead of) the
 # Electron app's agentbox, with /usr/bin/agentbox-native and a menu entry.
-# Its Depends come from dpkg-shlibdeps on the binary, so it installs on the
-# Ubuntu it was built on (24.04) and Debian of the same age or newer.
+# Its Depends come from dpkg-shlibdeps on the binary, so it installs where
+# FFmpeg 6.1's libraries are (libavcodec60): Ubuntu 24.04, which it is built
+# on, and what is built on it (Mint 22, Pop!_OS 24.04), not Debian 13 or
+# Ubuntu 24.10, whose FFmpeg is 7. The tarball's binary needs them as well.
 set -euo pipefail
 
 os=${1:?usage: $0 linux|windows|mac <version> <out>}
