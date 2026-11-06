@@ -434,6 +434,20 @@
     "height": 900
   },
   {
+    "id": "settings-storage-dark",
+    "description": "Settings at Storage and machine on a Linux machine in VM mode: what AgentBox takes on disk, by kind, with the last trim and Give space back now — dark",
+    "query": "settings=resources&chv=live&theme=dark",
+    "width": 1280,
+    "height": 1400
+  },
+  {
+    "id": "settings-storage-pt-light",
+    "description": "The same breakdown in Portuguese — light",
+    "query": "settings=resources&chv=live&theme=light&lang=pt-BR",
+    "width": 1280,
+    "height": 1400
+  },
+  {
     "id": "settings-essentials-dark",
     "description": "Settings as it first opens: Essentials, with every section folded under Advanced in the sidebar and at the page's end — dark",
     "query": "settings=essentials&theme=dark",

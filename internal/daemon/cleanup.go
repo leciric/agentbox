@@ -370,6 +370,7 @@ func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.
 	s.dropHeavy(ctx, a.Ref())
 	s.stopAgentAPI(a.Instance)
 	s.removeBrowserSockets(a.Instance)
+	s.trim.Kick()
 	return nil
 }
 

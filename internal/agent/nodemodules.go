@@ -187,13 +187,14 @@ func (m *Manager) nodeModulesMeta(a state.Agent) (nodeModulesMeta, bool) {
 }
 
 // nodeModulesMounts are where a's node_modules of the VM's are mounted in
-// its machine.
+// its machine, and its target/ directories (buildoutputs.go), which are in
+// the same store and are handed back to the user the same way.
 func (m *Manager) nodeModulesMounts(a state.Agent) []string {
 	var out []string
 	for _, dir := range m.nodeModulesDirs(a) {
 		out = append(out, filepath.Join(a.Worktree, dir, "node_modules"))
 	}
-	return out
+	return append(out, m.buildOutputMounts(a)...)
 }
 
 func nodeModulesInstalls(worktree string, meta nodeModulesMeta) []nodemods.Install {
@@ -278,8 +279,14 @@ func (m *Manager) nodeABI(ctx context.Context, a state.Agent) string {
 // trackedFiles are the package.json files, lockfiles and pnpm workspaces git
 // tracks in worktree, from its index: no walk through the share.
 func trackedFiles(worktree string) []string {
+	return trackedFilesNamed(worktree, append([]string{"package.json", "pnpm-workspace.yaml"}, nodemods.Lockfiles...)...)
+}
+
+// trackedFilesNamed are the files git tracks in worktree with one of names,
+// anywhere in it.
+func trackedFilesNamed(worktree string, names ...string) []string {
 	var patterns []string
-	for _, name := range append([]string{"package.json", "pnpm-workspace.yaml"}, nodemods.Lockfiles...) {
+	for _, name := range names {
 		patterns = append(patterns, name, ":(glob)**/"+name)
 	}
 	out, err := exec.Command("git", append([]string{"-C", worktree, "ls-files", "-z", "--"}, patterns...)...).Output()

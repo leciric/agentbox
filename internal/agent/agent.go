@@ -945,6 +945,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// Before the brief, which names them, and the session, so the AI tool
 	// finds node_modules already there when its lockfile was installed before.
 	m.ensureNodeModules(ctx, a)
+	m.ensureBuildOutputs(ctx, a)
 	m.logf("Configuring git, AI tool logins and the agent brief")
 	if err := m.configure(ctx, a, inst.IPv4(), envFiles, task); err != nil {
 		return "configure", err
@@ -1669,6 +1670,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		IP:             ip,
 		EnvFiles:       envFiles,
 		NodeModules:    m.nodeModulesDirs(a),
+		CargoTargets:   m.buildOutputDirs(a),
 		Secrets:        secretNames,
 		Android:        android.IsProject(a.Worktree),
 		IOS:            hostos.OS() == "darwin" && iossim.IsProject(a.Worktree),
@@ -2151,6 +2153,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		}
 		release := m.holdNodeModules(a)
 		m.nodeModulesSources(ctx, a)
+		m.buildOutputSources(ctx, a)
 		err := m.Incus.Start(ctx, a.Instance)
 		release()
 		if err != nil {

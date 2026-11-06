@@ -1,3 +1,4 @@
+import { diskCategoryLabel, diskItemLabel } from '../lib/diskUsage';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LoaderCircle, Square, TriangleAlert, Unplug } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -619,14 +620,14 @@ function DiskUsageCategories({ query, kinds }: { query: ReturnType<typeof useQue
         {categories.map((cat) => (
           <div key={cat.label} className="grid gap-1">
             <div className="flex items-center justify-between text-caption text-secondary">
-              <span className="font-medium">{cat.label}</span>
+              <span className="font-medium">{diskCategoryLabel(cat)}</span>
               <span className="font-mono tabular-nums text-tertiary">{humanBytes(cat.bytes)}</span>
             </div>
             {cat.items && cat.items.length > 0 && (
               <div className="grid gap-0.5 border-l border-line pl-2.5">
                 {cat.items.map((item) => (
                   <div key={item.label} className="flex items-center justify-between gap-3 text-caption text-muted">
-                    <span className="min-w-0 truncate">{item.label}</span>
+                    <span className="min-w-0 truncate">{diskItemLabel(item)}</span>
                     <span className="shrink-0 font-mono tabular-nums text-faint">{humanBytes(item.bytes)}</span>
                   </div>
                 ))}

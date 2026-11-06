@@ -697,6 +697,8 @@ export interface Usage {
 export interface DiskUsageItem {
   label: string;
   bytes: number;
+  kind?: string;
+  name?: string;
 }
 
 export interface DiskUsageCategory {
@@ -706,9 +708,16 @@ export interface DiskUsageCategory {
   items?: DiskUsageItem[];
 }
 
+export interface DiskTrim {
+  at: string;
+  bytes: number;
+  error?: string;
+}
+
 export interface DiskUsage {
   total: number;
   categories: DiskUsageCategory[];
+  trim?: DiskTrim;
 }
 
 export interface AgentDisk {

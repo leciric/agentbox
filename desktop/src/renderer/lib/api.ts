@@ -742,6 +742,7 @@ export const api = {
   diagnosticPackageCache: () => call<T.DiagnosticsPackageCache>('GET', '/v1/diagnostics/package-cache'),
   sendClientSpans: (spans: T.TraceSpan[]) => call<void>('POST', clientSpansPath, { spans } satisfies T.ClientSpansRequest),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
+  trimDisk: () => call<T.DiskTrim>('POST', '/v1/usage/disk/trim'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),
   cpuUsage: () => call<T.CPUUsage>('GET', '/v1/usage/cpu?interval=500ms'),
