@@ -175,6 +175,72 @@ pub fn choices(
         .into_any_element()
 }
 
+/// SCROLLBAR is the width Chromium's thin scrollbar takes from a scroller
+/// that overflows: Electron's content is laid out in what's left.
+pub const SCROLLBAR: Pixels = px(10.);
+
+/// scrollbar draws, over the scroller `handle` tracks, the thin scrollbar
+/// Chromium gives Electron's (`scrollbar-width: thin` in line-vivid): an
+/// arrow at each end in a 12px button, a 6px pill between, two pixels in
+/// from the gutter's left. Put it after the scroller, in a relative parent.
+/// `gutter` is whether this frame was laid out with the gutter: when the
+/// scroller turns out to overflow, or not, otherwise, it draws again.
+pub fn scrollbar(handle: &ScrollHandle, gutter: bool) -> AnyElement {
+    let handle = handle.clone();
+    canvas(
+        |_, _, _| (),
+        move |_, _, window, _| {
+            let vp = handle.bounds();
+            let max = handle.max_offset().y;
+            let overflow = max > px(0.5);
+            if overflow != gutter {
+                window.refresh();
+            }
+            if !overflow || vp.size.height < px(40.) {
+                return;
+            }
+            let color = theme::line_vivid();
+            let hovered = vp.contains(&window.mouse_position());
+            // Chromium brightens the arrows of the scroller the pointer is in.
+            let arrow = if hovered { gpui::white().opacity(0.75) } else { color };
+            let x = vp.right() - SCROLLBAR;
+            let top = vp.top();
+            let bottom = vp.bottom();
+            let row = |window: &mut Window, y: Pixels, from: f32, w: f32, c: Hsla| {
+                window.paint_quad(fill(
+                    Bounds::new(point(x + px(from), y), size(px(w), px(1.))),
+                    c,
+                ));
+            };
+            let scrolled = -handle.offset().y;
+            let up = if scrolled > px(0.5) { arrow } else { color };
+            let down = if scrolled < max - px(0.5) { arrow } else { color };
+            // Each arrow is three rows, 2, 4 and 6 wide, its point outward.
+            for i in 0..3 {
+                let i = i as f32;
+                row(window, top + px(4. + i), 4. - i, 2. + 2. * i, up);
+                row(window, bottom - px(7. - i), 2. + i, 6. - 2. * i, down);
+            }
+            let track = vp.size.height - px(24.);
+            let content = vp.size.height + max;
+            let len = (track * (vp.size.height / content)).round().max(px(18.));
+            let at = ((scrolled / max).clamp(0., 1.) * (track - len)).round();
+            window.paint_quad(
+                fill(
+                    Bounds::new(point(x + px(2.), top + px(12.) + at), size(px(6.), len)),
+                    color,
+                )
+                .corner_radii(px(3.)),
+            );
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+    .into_any_element()
+}
+
 /// Btn is how loud a button is: the one thing to do, one of several, or
 /// one that's barely there (Electron's primary, secondary and ghost).
 #[derive(Clone, Copy, PartialEq)]
@@ -459,8 +525,8 @@ pub fn note(text: impl Into<SharedString>) -> AnyElement {
 pub fn note_in(text: impl Into<SharedString>, color: Hsla) -> AnyElement {
     div()
         .min_w_0()
-        .text_xs()
-        .line_height(rems(1.25))
+        .text_size(theme::text::CAPTION)
+        .line_height(relative(1.625))
         .text_color(color)
         .child(text.into())
         .into_any_element()
@@ -505,10 +571,12 @@ impl Row {
         // details under it, mt-1.5 in the same type.
         let more = self.details.clone().zip(self.on_more.clone());
         let description = (!self.description.is_empty()).then(|| {
+            // Chromium's two 19.5px lines are gpui's 19 and 20, with the
+            // margin a pixel less and the pixel after the words.
             let words = div()
-                .mt_1()
+                .mt(px(3.))
                 .text_size(theme::text::CAPTION)
-                .line_height(relative(1.625))
+                .line_height(px(20.))
                 .text_color(theme::subtle());
             match &more {
                 Some((_, on_more)) => {
@@ -545,6 +613,7 @@ impl Row {
         let words = v_flex()
             .flex_1()
             .min_w_0()
+            .pb(px(1.))
             .child(
                 div()
                     .text_size(theme::text::UI)

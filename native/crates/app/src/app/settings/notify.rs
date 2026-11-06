@@ -147,15 +147,17 @@ impl AppView {
                 Some(row.render())
             }
             "notify-kinds" => {
-                let head = h_flex().gap_3().child(div().flex_1()).children(
+                // NotificationKinds' head: text-caption uppercase faint, over
+                // two 5rem columns (gpui has no letter spacing for its
+                // tracking-wider).
+                let head = h_flex().items_end().gap_3().child(div().flex_1()).children(
                     prefs::NOTIFY_CHANNELS.iter().map(|c| {
                         div()
                             .w(px(80.))
                             .text_center()
                             .text_size(theme::text::CAPTION)
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::muted())
-                            .child(t(&format!("notify.channel.{c}")))
+                            .text_color(theme::faint())
+                            .child(t(&format!("notify.channel.{c}")).to_uppercase())
                     }),
                 );
                 let rows = prefs::NOTIFY_KINDS.iter().map(|k| {
@@ -169,6 +171,8 @@ impl AppView {
                                 .child(
                                     div()
                                         .text_size(theme::text::UI)
+                                        // Chromium's 19.5px line, as it lands.
+                                        .line_height(px(20.))
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(theme::primary())
                                         .child(t(&format!("notify.kind.{k}.label"))),
@@ -176,7 +180,7 @@ impl AppView {
                                 .child(
                                     div()
                                         .text_size(theme::text::CAPTION)
-                                        .line_height(rems(1.4))
+                                        .line_height(relative(1.625))
                                         .text_color(theme::subtle())
                                         .child(t(&format!("notify.kind.{k}.description"))),
                                 ),

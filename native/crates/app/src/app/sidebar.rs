@@ -797,7 +797,8 @@ impl AppView {
     }
 
     fn home_row(&self, cx: &mut Context<Self>) -> AnyElement {
-        let selected = self.project.as_deref() == Some(HOME_PROJECT);
+        // Settings is a page of its own: Electron marks no row under it.
+        let selected = !self.settings && self.project.as_deref() == Some(HOME_PROJECT);
         let line = self
             .line(HOME_PROJECT)
             .unwrap_or_else(|| t("v2.sidebar.homeHint"));
@@ -857,7 +858,7 @@ impl AppView {
     }
 
     fn project_row(&self, p: &Project, place: Place, cx: &mut Context<Self>) -> AnyElement {
-        let selected = self.project.as_deref() == Some(p.name.as_str());
+        let selected = !self.settings && self.project.as_deref() == Some(p.name.as_str());
         let name = p.name.clone();
         let display = if p.display_name.is_empty() {
             p.name.clone()
