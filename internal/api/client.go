@@ -1502,6 +1502,12 @@ func (c *Client) TerminalTails(ctx context.Context, project string, agents []str
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
+// DebugStats reads the daemon's process and memory figures (socket only).
+func (c *Client) DebugStats(ctx context.Context) (DebugStats, error) {
+	var out DebugStats
+	return out, c.do(ctx, http.MethodGet, "/debug/stats", nil, &out)
+}
+
 // Profile copies one of the daemon's Go profiles (net/http/pprof, served on
 // its socket only) to w: "heap", "goroutine", "allocs"; query is pprof's own,
 // "gc=1" or "debug=1".

@@ -2513,6 +2513,21 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 	if err != nil {
 		return nil, err
 	}
+	return m.statuses(ctx, agents, instances)
+}
+
+// ListFrom is List(ctx, "") from a listing of Incus's instances already
+// taken (a UsageSample's), rather than asking Incus for another.
+func (m *Manager) ListFrom(ctx context.Context, instances []incus.Instance) ([]Status, error) {
+	agents, err := m.Store.Agents(ctx, "")
+	if err != nil || len(agents) == 0 {
+		return nil, err
+	}
+	return m.statuses(ctx, agents, instances)
+}
+
+func (m *Manager) statuses(ctx context.Context, agents []state.Agent, instances []incus.Instance) ([]Status, error) {
+	var err error
 	byName := make(map[string]incus.Instance, len(instances))
 	for _, inst := range instances {
 		byName[inst.Name] = inst

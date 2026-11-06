@@ -4127,3 +4127,35 @@ type GitHubRepo struct {
 	// CloneURL is its https:// URL, what CloneProjectRequest.URL takes.
 	CloneURL string `json:"cloneUrl"`
 }
+
+// DebugStats is what `agentbox debug stats` prints: the daemon's process and
+// Go runtime figures, and the size of what it keeps in memory, to tell what
+// grows over a long uptime. Served on the socket only, at /debug/stats.
+type DebugStats struct {
+	UptimeSeconds float64 `json:"uptimeSeconds"`
+	CPUSeconds    float64 `json:"cpuSeconds"` // user and system, since it started
+	Goroutines    int     `json:"goroutines"`
+	Threads       int     `json:"threads"`
+	FDs           int     `json:"fds"`
+	RSS           int64   `json:"rss"`    // bytes resident
+	Locked        int64   `json:"locked"` // bytes mlocked (VmLck)
+	HeapAlloc     uint64  `json:"heapAlloc"`
+	HeapInuse     uint64  `json:"heapInuse"`
+	HeapIdle      uint64  `json:"heapIdle"`
+	HeapReleased  uint64  `json:"heapReleased"`
+	StackInuse    uint64  `json:"stackInuse"`
+	Sys           uint64  `json:"sys"` // all the Go runtime has from the OS
+	MemoryLimit   int64   `json:"memoryLimit"`
+	NumGC         uint32  `json:"numGC"`
+	GCCPUFraction float64 `json:"gcCPUFraction"`
+	// DBOpen and DBInUse are state.db's pooled connections.
+	DBOpen  int `json:"dbOpen"`
+	DBInUse int `json:"dbInUse"`
+	// Chats are the conversations in memory, ChatsLoaded those with their
+	// transcript loaded, and ChatItems the items those hold.
+	Chats            int `json:"chats"`
+	ChatsLoaded      int `json:"chatsLoaded"`
+	ChatItems        int `json:"chatItems"`
+	Jobs             int `json:"jobs"` // jobs kept in memory
+	EventSubscribers int `json:"eventSubscribers"`
+}
