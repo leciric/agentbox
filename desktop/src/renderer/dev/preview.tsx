@@ -36,6 +36,8 @@
 //                           needing you, working, finishing and failing every
 //                           few seconds, as the daemon's status events say
 //                           (dev/fixtures.ts' liveSessionSteps); use ?app=project
+//   ?busy=host|daemon       the top bar's busy marks: this computer busy, or
+//                           the daemon not answering (both: host,daemon)
 //   ?homeAsk=1              the Home chat asked the project's lead something
 //                           and got its answer: cards in both chats (with
 //                           &home=1 for the Home chat's side)
