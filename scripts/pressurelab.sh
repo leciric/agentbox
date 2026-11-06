@@ -52,10 +52,15 @@ trim_subids() {
   # A container's own uid map often ends near 1e9: a subordinate range past it
   # makes newuidmap fail with EPERM when a nested container starts.
   local top
-  top=$(awk '{ e = $2 + $3; if (e > m) m = e } END { print m }' /proc/self/uid_map)
+  # The ids that exist here are the map's first column (inside), not its
+  # second (the parent's).
+  top=$(awk '{ e = $1 + $3; if (e > m) m = e } END { print m }' /proc/self/uid_map)
   for f in /etc/subuid /etc/subgid; do
     sudo awk -F: -v top="$top" '!($2 + $3 > top)' "$f" | sudo tee "$f.lab" >/dev/null
-    grep -q '^root:' "$f.lab" || echo "root:100000:65536" | sudo tee -a "$f.lab" >/dev/null
+    # Root needs a range of a container's size (Incus maps 65536 ids at
+    # least), not just the one id a nested agent's setup gives it.
+    awk -F: '$1 == "root" && $3 >= 65536 { ok = 1 } END { exit !ok }' "$f.lab" ||
+      echo "root:1000000:$(( top - 1000000 < 1000000000 ? top - 1000000 : 1000000000 ))" | sudo tee -a "$f.lab" >/dev/null
     if ! sudo cmp -s "$f" "$f.lab"; then
       sudo mv "$f.lab" "$f"
       sudo systemctl restart incus
