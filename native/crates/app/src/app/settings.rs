@@ -830,7 +830,8 @@ impl AppView {
                         "settings.idleReclaim.description",
                         "settings.entry.idle-reclaim.keywords",
                     )
-                    .modified(changed(|s| s.idle_reclaim)),
+                    // On by default (SettingsView.tsx: !s.idleReclaim).
+                    .modified(changed(|s| !s.idle_reclaim)),
                     entry(
                         "agent-freeze",
                         "settings.entry.agent-freeze.label",
