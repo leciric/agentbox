@@ -5,6 +5,9 @@
 //!   agentbox-native [--socket PATH]
 //!
 //! AGENTBOX_NATIVE_BENCH=1 prints timings to stderr (bench.rs).
+// A release build on Windows is a GUI program, so starting it from Explorer
+// doesn't open a console window beside it too (stderr goes nowhere there).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod app;
 mod bench;
 mod chat;
