@@ -74,8 +74,14 @@ func (c Client) RecoverLeftovers(ctx context.Context, names ...string) ([]string
 	case len(found.DependencyErrors) > 0:
 		return nil, fmt.Errorf("Incus can't take back %s: %s: %w", strings.Join(ours, ", "), strings.Join(found.DependencyErrors, "; "), ErrCantRecover)
 	}
-	if err := c.post(ctx, "/internal/recover/import", req, nil); err != nil {
+	// A dependency gone since validating makes the import succeed, import
+	// nothing, and say so only in its answer.
+	var imported recoverResult
+	if err := c.post(ctx, "/internal/recover/import", req, &imported); err != nil {
 		return nil, err
+	}
+	if len(imported.DependencyErrors) > 0 {
+		return nil, fmt.Errorf("Incus can't take back %s: %s: %w", strings.Join(ours, ", "), strings.Join(imported.DependencyErrors, "; "), ErrCantRecover)
 	}
 	return ours, nil
 }
@@ -131,7 +137,7 @@ func (c Client) post(ctx context.Context, path string, body, out any) error {
 	args := []string{"query", "-X", "POST", "--data", string(data), path}
 	if c.cli() {
 		got, err := c.run(ctx, args...)
-		if err != nil || out == nil {
+		if err != nil || out == nil || strings.TrimSpace(got) == "" {
 			return err
 		}
 		if err := json.Unmarshal([]byte(got), out); err != nil {

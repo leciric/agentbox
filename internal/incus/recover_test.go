@@ -2,6 +2,7 @@ package incus
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -54,5 +55,20 @@ func TestRecoverLeftoversTakesBackOnlyWhatItIsAskedFor(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.lost) != 2 {
 		t.Errorf("imported anyway: %v left lost", f.lost)
+	}
+}
+
+// A dependency gone between validating and importing: Incus imports nothing
+// and says so in its answer, which isn't taken for having taken it back.
+func TestRecoverLeftoversSaysWhenTheImportTookNothingBack(t *testing.T) {
+	f := startFakeAPI(t)
+	var c Client
+	f.mu.Lock()
+	f.lost = []string{"base-next"}
+	f.importDeps = []string{"network incusbr0 is missing"}
+	f.mu.Unlock()
+	got, err := c.RecoverLeftovers(context.Background(), "base-next")
+	if !errors.Is(err, ErrCantRecover) || !strings.Contains(err.Error(), "incusbr0") || got != nil {
+		t.Fatalf("RecoverLeftovers() = %v, %v", got, err)
 	}
 }
