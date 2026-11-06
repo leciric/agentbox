@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -35,5 +36,27 @@ func TestKeyedMutexHoldsOnlyItsKey(t *testing.T) {
 	defer k.mu.Unlock()
 	if len(k.locks) != 0 {
 		t.Errorf("locks left: %v", k.locks)
+	}
+}
+
+// forEachLimited runs every item, never more than n at once.
+func TestForEachLimitedBoundsHowManyRunAtOnce(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var now, most, ran int
+	items := make([]int, 30)
+	forEachLimited(items, 4, func(int) {
+		mu.Lock()
+		now++
+		most = max(most, now)
+		mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+		mu.Lock()
+		now--
+		ran++
+		mu.Unlock()
+	})
+	if ran != 30 || most > 4 || most < 2 {
+		t.Errorf("ran %d, at most %d at once; want 30, 2 to 4", ran, most)
 	}
 }
