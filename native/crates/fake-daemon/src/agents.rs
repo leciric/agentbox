@@ -79,7 +79,7 @@ fn sha(n: u64) -> String {
 }
 
 fn ago(d: Duration) -> String {
-    humantime::format_rfc3339_millis(std::time::SystemTime::now() - d).to_string()
+    humantime::format_rfc3339_millis(crate::clock() - d).to_string()
 }
 
 fn no_content() -> Response<Body> {
@@ -615,7 +615,7 @@ pub async fn route(
             let name = if asked.name.is_empty() {
                 format!(
                     "snap-{}",
-                    humantime::format_rfc3339_seconds(std::time::SystemTime::now())
+                    humantime::format_rfc3339_seconds(crate::clock())
                 )
                 .replace([':', 'T'], "-")
                 .trim_end_matches('Z')
@@ -774,7 +774,7 @@ pub async fn route(
             };
             let secs = started
                 .and_then(|s| humantime::parse_rfc3339_weak(s.trim_end_matches('Z')).ok())
-                .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
+                .and_then(|t| crate::clock().duration_since(t).ok())
                 .map_or(9., |d| d.as_secs_f64());
             let item = MediaItem {
                 id: format!(

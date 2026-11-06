@@ -586,6 +586,7 @@ impl ChatView {
                         .px_3p5()
                         .py_2p5()
                         .text_sm()
+                        .line_height(relative(1.625))
                         .text_color(theme::primary())
                         .child(it.text.clone()),
                 )
@@ -734,6 +735,10 @@ impl ChatView {
             .px_1()
             .when(last, |el| el.pb_4())
             .when(!last, |el| el.pb_2p5())
+            // Timeline's assistant text: text-sm leading-relaxed text-tertiary.
+            .text_size(theme::text::BODY)
+            .line_height(relative(1.625))
+            .text_color(theme::tertiary())
             // A reply streaming in since it started here eases in; one already
             // streaming when the chat loaded is drawn as it is.
             .child(
@@ -745,7 +750,7 @@ impl ChatView {
                         it.text.clone(),
                     ))
                     .selectable(true)
-                    .text_color(theme::primary())
+                    .text_color(theme::tertiary())
                     .into_any_element()
                 },
             )

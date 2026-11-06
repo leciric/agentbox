@@ -74,6 +74,41 @@ pub fn ai_icon(ai: &str, size: Pixels, color: Hsla) -> AnyElement {
         .into_any_element()
 }
 
+/// character is a tool's character at rest, as Electron's AgentCharacter
+/// draws it in the idle mood (components/AgentCharacter.tsx): Claude's
+/// Clawd, Codex's cloud, OpenCode's frame. None for a tool with none.
+fn character(ai: &str) -> Option<String> {
+    let light = crate::theme::look() == crate::theme::Look::Light;
+    let (frame, inner) = if light { ("#3a3535", "#d6d4d3") } else { ("#e4dede", "#5a5454") };
+    let body = match ai {
+        "claude" => r##"<path fill="#DE8A6E" d="M3 5h18v12.08h-1.49V20H18v-2.92h-1.49V20H15v-2.92H9V20H7.49v-2.92H6V20H4.49v-2.92H3v-3.03H0v-3.1h3z"/><rect x="18.5" y="10.95" width="5.5" height="3.1" fill="#DE8A6E"/><g fill="#3D2B25"><rect x="6.15" y="8.5" width="1.2" height="2.1" rx="0.3"/><rect x="16.66" y="8.5" width="1.2" height="2.1" rx="0.3"/></g>"##.to_string(),
+        "codex" => r##"<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="12" x2="12" y1="3" y2="21"><stop stop-color="#C9C2FF"/><stop offset=".5" stop-color="#97B2FF"/><stop offset="1" stop-color="#6670FF"/></linearGradient></defs><rect x="17" y="11.2" width="6.6" height="2.5" rx="1.25" fill="#97B2FF"/><path fill="url(#g)" d="M9.064 3.344a4.578 4.578 0 012.285-.312c1 .115 1.891.54 2.673 1.275.01.01.024.017.037.021a.09.09 0 00.043 0 4.55 4.55 0 013.046.275l.047.022.116.057a4.581 4.581 0 012.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 01-.134 1.223.123.123 0 00.03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 01-2.201 1.388.123.123 0 00-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 00-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 01-1.945-.466 4.544 4.544 0 01-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 01-.37-.961 4.582 4.582 0 01-.014-2.298.124.124 0 00.006-.056.085.085 0 00-.027-.048 4.467 4.467 0 01-1.034-1.651 3.896 3.896 0 01-.251-1.192 5.189 5.189 0 01.141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 00.065-.066 4.51 4.51 0 01.829-1.615 4.535 4.535 0 011.837-1.388z"/><g stroke="#fff" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M8.2 10.15l1 1.9-1 1.85"/><path d="M12.9 14.2h2.9"/></g>"##.to_string(),
+        "opencode" => format!(r##"<rect x="8" y="10" width="8" height="8" fill="{inner}"/><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z" fill-rule="evenodd" fill="{frame}"/><rect x="17.5" y="12" width="5.8" height="3" fill="{frame}"/><g fill="{frame}"><rect x="9.8" y="12.4" width="1.2" height="1.9" rx="0.3"/><rect x="13" y="12.4" width="1.2" height="1.9" rx="0.3"/></g>"##),
+        _ => return None,
+    };
+    Some(format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 24 24">{body}</svg>"##))
+}
+
+/// tool_mark is Electron's ToolMark: a tool's character where it has one,
+/// else its icon in `color`.
+pub fn tool_mark(ai: &str, size: Pixels, color: Hsla) -> AnyElement {
+    let ai = if ai.is_empty() { "claude" } else { ai };
+    let light = crate::theme::look() == crate::theme::Look::Light;
+    let key = (format!("char:{ai}:{light}"), 0);
+    let Some(image) = CACHE.with(|c| {
+        if let Some(i) = c.borrow().get(&key) {
+            return Some(i.clone());
+        }
+        let svg = character(ai)?;
+        let i = Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()));
+        c.borrow_mut().insert(key.clone(), i.clone());
+        Some(i)
+    }) else {
+        return ai_icon(ai, size, color);
+    };
+    img(image).flex_none().size(size).into_any_element()
+}
+
 gpui_kit_assets::icon_assets!(
     Lucide,
     [
@@ -136,6 +171,7 @@ gpui_kit_assets::icon_assets!(
         GitPullRequest,
         Globe,
         Highlighter,
+        RotateCcwClock,
         Hourglass,
         House,
         Image,
@@ -153,11 +189,13 @@ gpui_kit_assets::icon_assets!(
         Maximize2,
         Menu,
         MessageSquare,
+        MessagesSquare,
         Minimize2,
         Monitor,
         Moon,
         MoonStar,
         PanelRight,
+        Paperclip,
         Pause,
         Pencil,
         Pin,

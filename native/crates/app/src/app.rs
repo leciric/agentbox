@@ -632,8 +632,9 @@ impl AppView {
         self.past.agent = None;
         self.agent.reset();
         let client = self.client.clone();
-        // Under the project's header, the chat draws no title of its own.
-        let header = self.is_home();
+        // Under the top bar (and Home's own header), the chat draws no
+        // title of its own, as Electron's.
+        let header = false;
         let name = if self.open == "lead" {
             String::new()
         } else {
@@ -763,6 +764,166 @@ impl AppView {
                 }
             }
         }
+    }
+
+    /// lead_frame puts a lead's chat in Electron's frame (ProjectChatPanel's
+    /// SessionChatPanel): its session tabs over a rounded-2xl card holding
+    /// the session's header and the chat. A project's sits mx-6 mb-6 with a
+    /// border (ProjectView); Home's has none, under Home's own header and
+    /// tabs (HomeChatPanel). Anything else passes through.
+    fn lead_frame(
+        &self,
+        lead_view: bool,
+        no_session: bool,
+        content: Div,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if !lead_view {
+            return content.into_any_element();
+        }
+        let home = self.is_home();
+        if home && self.sessions.home_tab == 1 {
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(self.render_home_header(cx))
+                .child(div().flex_1().min_h_0().child(self.render_rail(cx).size_full()))
+                .into_any_element();
+        }
+        if home && self.sessions.home_tab == 2 {
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(self.render_home_header(cx))
+                .child(
+                    div()
+                        .mx_auto()
+                        .max_w(px(896.))
+                        .w_full()
+                        .px_8()
+                        .py_2()
+                        .text_size(theme::text::UI)
+                        .text_color(theme::muted())
+                        .child(t("chat.home.memoryIntro")),
+                )
+                .into_any_element();
+        }
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .when(home, |el| el.child(self.render_home_header(cx)))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .when(!home, |el| el.mx_6().mb_6())
+                    .children(self.render_session_tabs(cx))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_h_0()
+                            .mt(px(-1.))
+                            .rounded_2xl()
+                            .border_1()
+                            .border_color(if home {
+                                gpui::transparent_black()
+                            } else {
+                                theme::line()
+                            })
+                            .overflow_hidden()
+                            .when(!no_session, |el| el.children(self.render_session_header(cx)))
+                            .child(content),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// render_home_header is HomeChatPanel's head: Home and its subtitle,
+    /// and the Chat, Status and Memory tabs.
+    fn render_home_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let tab = |ix: u8, icon: &'static str, label: String, cx: &mut Context<Self>| {
+            let on = self.sessions.home_tab == ix;
+            h_flex()
+                .id(SharedString::from(format!("home-tab-{ix}")))
+                .flex_none()
+                .h_8()
+                .px_3()
+                .gap_2()
+                .rounded_lg()
+                .text_size(theme::text::UI)
+                .font_weight(FontWeight::MEDIUM)
+                .cursor_pointer()
+                .text_color(if on { theme::title() } else { theme::muted() })
+                .when(on, |el| el.bg(theme::surface_strong()))
+                .when(!on, |el| el.hover(|el| el.text_color(theme::primary())))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.sessions.home_tab = ix;
+                    cx.notify();
+                }))
+                .child(crate::icons::ic(icon).size(px(15.)))
+                .child(label)
+        };
+        h_flex()
+            .flex_none()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap_x_4()
+            .gap_y_3()
+            .px_8()
+            .pb_3()
+            .pt_5()
+            .child(
+                v_flex()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .text_size(theme::text::DISPLAY)
+                            .line_height(px(28.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::title())
+                            .child(t("shell.nav.home")),
+                    )
+                    .child(
+                        div()
+                            .mt_0p5()
+                            .text_size(theme::text::UI)
+                            .text_color(theme::muted())
+                            .child(t("chat.home.subtitle")),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .min_w_0()
+                    .gap_3()
+                    .child(
+                        h_flex()
+                            .gap_0p5()
+                            .p_1()
+                            .rounded_xl()
+                            .border_1()
+                            .border_color(theme::line())
+                            .bg(theme::surface_faint())
+                            .child(tab(0, "messages-square", t("project.view.tab.chat"), cx))
+                            .child(tab(1, "activity", t("chat.home.tab.status"), cx))
+                            .child(tab(2, "brain", t("chat.home.tab.memory"), cx)),
+                    )
+                    .child(
+                        div()
+                            .id("home-menu")
+                            .flex_none()
+                            .size_8()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_lg()
+                            .text_color(theme::muted())
+                            .cursor_pointer()
+                            .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                            .child(crate::icons::ic("ellipsis").size(px(15.))),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn is_home(&self) -> bool {
@@ -1110,13 +1271,15 @@ impl Render for AppView {
                             el.children(self.render_agent_header(cx))
                                 .children(self.render_past_header(cx))
                                 .children(self.render_machine_bar(cx))
-                                .children(self.render_session_tabs(cx))
-                                .when(!no_session, |el| {
-                                    el.children(self.render_session_header(cx))
+                                .when(!lead_view, |el| {
+                                    el.children(self.render_session_tabs(cx))
+                                        .when(!no_session, |el| {
+                                            el.children(self.render_session_header(cx))
+                                        })
                                 })
                         },
                     )
-                    .child(
+                    .child(self.lead_frame(lead_view, no_session,
                         div().flex_1().min_h_0().child(match &self.chat {
                             _ if self.cut_off() => self.render_unreachable(cx),
                             _ if self.first_run_open() => self.render_first_run(cx),
@@ -1151,7 +1314,7 @@ impl Render for AppView {
                                 })
                                 .into_any_element(),
                         }),
-                    ),
+                    cx)),
             
                             )
                             // Home has no panel (its agents are its Status tab).

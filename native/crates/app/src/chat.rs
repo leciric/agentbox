@@ -822,6 +822,75 @@ impl ChatView {
         cx.notify();
     }
 
+    /// render_hero is an empty lead chat's welcome, as ChatTab's Hero (and
+    /// HomeHero): the tool's mark in a box, a title and a line under it.
+    fn render_hero(&self, window: &Window) -> Option<AnyElement> {
+        if !self.loaded || !self.items.is_empty() {
+            return None;
+        }
+        let (project, name) = self.agent.split_once('/')?;
+        let lead = name == "lead" || name.starts_with("lead.");
+        if !lead {
+            return None;
+        }
+        let (title, line) = if project == agentbox_api::HOME_PROJECT {
+            (t("chat.hero.homeTitle"), t("chat.hero.home"))
+        } else {
+            (
+                tv("chat.hero.title", &[("project", project.into())]),
+                tv(
+                    "chat.hero.project",
+                    &[("project", project.into()), ("branch", t("chat.hero.itsBranch").into())],
+                ),
+            )
+        };
+        let tool = if self.session.tool.is_empty() { "claude" } else { self.session.tool.as_str() };
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .mt_6()
+                .min_h(window.viewport_size().height * 0.42)
+                .pt_6()
+                .child(
+                    div()
+                        .mb_5()
+                        .size_12()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_2xl()
+                        .border_1()
+                        .border_color(theme::line_strong())
+                        .bg(theme::overlay())
+                        .child(crate::icons::ai_icon(tool, px(20.), theme::brand(300))),
+                )
+                .child(
+                    div()
+                        .text_size(theme::text::DISPLAY)
+                        .text_color(theme::primary())
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .mt_2()
+                        .max_w(theme::balanced_width(window, &line, px(14.), px(448.)))
+                        .text_center()
+                        .text_size(theme::text::BODY)
+                        .line_height(relative(1.625))
+                        .text_color(theme::subtle())
+                        .child(line),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn render_header(&self, working: bool) -> AnyElement {
         h_flex()
             .h_12()
@@ -992,6 +1061,7 @@ impl Render for ChatView {
                                 .child(crate::motion::skeleton_chat("chat-loading")),
                         )
                     })
+                    .children(self.render_hero(window))
                     .children(self.render_jump(cx)),
             )
             .when_some(self.error.clone(), |el, e| {

@@ -13,8 +13,6 @@ use std::rc::Rc;
 use std::sync::LazyLock;
 
 use gpui::{AnyElement, HighlightStyle, IntoElement, StyledText};
-use gpui_component::highlighter::HighlightTheme;
-use gpui_component::input::HighlightStyleResolver as _;
 use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxSet};
 
 /// One line's coloured spans, by byte within the line.
@@ -45,12 +43,59 @@ pub fn lang_of(path: &str) -> Option<&'static str> {
     (found.name != "Plain Text").then_some(found.name.as_str())
 }
 
-fn theme() -> std::sync::Arc<HighlightTheme> {
-    if crate::theme::look() == crate::theme::Look::Light {
-        HighlightTheme::default_light()
-    } else {
-        HighlightTheme::default_dark()
-    }
+/// lang_of_fence is the syntax a fenced block's language names (go, rust,
+/// ts…), when syntect knows one.
+pub fn lang_of_fence(token: &str) -> Option<&'static str> {
+    let set = &*SYNTAXES;
+    let found = set
+        .find_syntax_by_token(token)
+        .or_else(|| set.find_syntax_by_extension(&token.to_lowercase()))?;
+    (found.name != "Plain Text").then_some(found.name.as_str())
+}
+
+/// The palettes Electron's Shiki themes paint with (lib/highlight.ts):
+/// github-dark-default, github-light-default and Dracula, by the semantic
+/// names below, as 0xRRGGBB.
+fn palette(name: &str) -> Option<u32> {
+    use crate::theme::Look;
+    let look = crate::theme::look();
+    let pick = |dark: u32, light: u32, dracula: u32| match look {
+        Look::Dark => dark,
+        Look::Light => light,
+        Look::Dracula => dracula,
+    };
+    Some(match name {
+        "keyword" | "preproc" | "operator" => pick(0xff7b72, 0xcf222e, 0xff79c6),
+        "number" | "boolean" | "constant" | "variable.special" | "attribute" | "property"
+        | "string.escape" => pick(0x79c0ff, 0x0550ae, 0xbd93f9),
+        "string" | "string.regex" | "text.literal" | "link_uri" => pick(0xa5d6ff, 0x0a3069, 0xf1fa8c),
+        "comment" | "comment.doc" => pick(0x8b949e, 0x6e7781, 0x6272a4),
+        "function" => pick(0xd2a8ff, 0x8250df, 0x50fa7b),
+        "type" => pick(0xffa657, 0x953800, 0x8be9fd),
+        "tag" => pick(0x7ee787, 0x116329, 0xff79c6),
+        "title" => pick(0x1f6feb, 0x0550ae, 0xbd93f9),
+        _ => return None,
+    })
+}
+
+/// code_fg is the palette's plain text, for what no scope colours.
+pub fn code_fg() -> gpui::Hsla {
+    use crate::theme::Look;
+    gpui::rgb(match crate::theme::look() {
+        Look::Dark => 0xe6edf3,
+        Look::Light => 0x1f2328,
+        Look::Dracula => 0xf8f8f2,
+    })
+    .into()
+}
+
+fn style_of(name: &str) -> Option<HighlightStyle> {
+    let colour = palette(name)?;
+    Some(HighlightStyle {
+        color: Some(gpui::rgb(colour).into()),
+        font_style: (name == "comment" || name == "comment.doc").then_some(gpui::FontStyle::Normal),
+        ..Default::default()
+    })
 }
 
 /// line_runs colours the lines of one text in a syntax (lang_of's), each
@@ -86,7 +131,6 @@ fn colour(lang: &str, lines: &[String]) -> Vec<Runs> {
     let Some(syntax) = set.find_syntax_by_name(lang) else {
         return vec![Vec::new(); lines.len()];
     };
-    let theme = theme();
     let mut parser = ParseState::new(syntax);
     let mut scopes = ScopeStack::new();
     let mut names = HashMap::<Scope, Option<&'static str>>::new();
@@ -103,7 +147,7 @@ fn colour(lang: &str, lines: &[String]) -> Vec<Runs> {
                 .iter()
                 .rev()
                 .find_map(|s| *names.entry(*s).or_insert_with(|| semantic_name(*s)))
-                .and_then(|n| theme.style(n));
+                .and_then(style_of);
             if let Some(style) = style {
                 match runs.last_mut() {
                     Some((last, s)) if last.end == range.start && *s == style => {

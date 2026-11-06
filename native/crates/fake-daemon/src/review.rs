@@ -175,7 +175,7 @@ impl Review {
         Self {
             media_dir,
             pulls: Some(crate::pulls::Pulls::new()),
-            epoch: Some(SystemTime::now()),
+            epoch: Some(crate::clock()),
             ..Default::default()
         }
     }

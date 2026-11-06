@@ -926,6 +926,29 @@ pub mod text {
 /// registered by `init`, so every platform draws the same letters.
 pub const SANS: &str = "Inter";
 
+/// balanced_width is the width that splits `text` (Inter at `size`) into
+/// lines of about equal length within `max`, as CSS's text-wrap: balance
+/// (Tailwind's text-balance) does: `max` when it fits on one line.
+pub fn balanced_width(window: &gpui::Window, text: &str, size: Pixels, max: Pixels) -> Pixels {
+    let mut font = gpui::font(SANS);
+    font.features = sans_features();
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let w = f32::from(window.text_system().layout_line(text, size, &[run], None).width);
+    let max_f = f32::from(max);
+    if w <= max_f {
+        return max;
+    }
+    let lines = (w / max_f).ceil();
+    px((w / lines).ceil() + f32::from(size) * 0.5).min(max)
+}
+
 /// sans_features are the Inter alternates Electron's body turns on
 /// (styles.css: font-feature-settings "cv11", "ss01"): the single-storey a
 /// and the open digits.

@@ -32,7 +32,7 @@ fn on(name: &str) -> Option<String> {
 
 /// at is a time this far from now, as the daemon writes them.
 fn at(secs: i64) -> String {
-    let now = SystemTime::now();
+    let now = crate::clock();
     let t = if secs >= 0 {
         now + Duration::from_secs(secs as u64)
     } else {

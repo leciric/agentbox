@@ -65,6 +65,8 @@ pub struct Failed {
 }
 
 pub struct Composer {
+    /// Its width as last drawn, for what folds in a narrow one.
+    pub width: f32,
     pub input: Entity<TextareaState>,
     pub attachments: Vec<Attachment>,
     menu_ix: usize,
@@ -298,6 +300,7 @@ impl Composer {
                 input,
                 attachments: Vec::new(),
                 menu_ix: 0,
+            width: 896.,
                 dismissed: None,
                 files: None,
                 projects: None,
@@ -1042,11 +1045,26 @@ impl ChatView {
         let view = cx.entity().downgrade();
         let current = shown;
         Some(
+            // TargetChip: h-8 max-w-44 rounded-full px-2.5, 12px, "To:" faint.
             Button::new("chat-target")
                 .ghost()
-                .xsmall()
-                .label(format!("{} {label} ▾", t("chat.target.to")))
-                .when(current.is_some(), |b| b.text_color(theme::accent()))
+                .compact()
+                .h_8()
+                .max_w(px(176.))
+                .px(px(10.))
+                .gap_1()
+                .rounded(gpui_component::button::ButtonRounded::Size(px(999.)))
+                .text_size(px(12.))
+                .text_color(if current.is_some() { theme::brand(200) } else { theme::subtle() })
+                .when(current.is_some(), |b| b.bg(theme::brand(500).opacity(0.15)))
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_1()
+                        .child(div().flex_none().text_color(theme::faint()).child(t("chat.target.to")))
+                        .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(label.clone()))
+                        .child(div().flex_none().opacity(0.7).child(crate::icons::ic("chevron-down").size(px(12.)))),
+                )
                 .tooltip(tv("chat.target.label", &[("target", (&label).into())]))
                 .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                     let pick = |to: Option<String>| {
@@ -1222,14 +1240,20 @@ impl ChatView {
             )
         } else if self.composer.held.is_some() {
             t("chat.composer.held")
-        } else if pending {
-            t("chat.composer.answerRequest")
         } else if let Some(to) = &self.composer.target {
             tv("chat.composer.placeholderTo", &[("name", to.into())])
+        } else if pending {
+            t("chat.composer.answerRequest")
         } else if self.session.turn_started_at.is_some() {
             tv("chat.composer.busy", &[("tool", tool.into())])
-        } else if self.items.is_empty() && !self.older && self.is_lead() {
-            t("chat.composer.placeholderLead")
+        } else if self.items.is_empty() && !self.older {
+            // Composer.tsx: the lead's own words in a project's chat, Home's
+            // and an agent's the plain ones.
+            t(if self.is_lead() && !self.agent.starts_with(&format!("{}/", agentbox_api::HOME_PROJECT)) {
+                "chat.composer.placeholderLead"
+            } else {
+                "chat.composer.placeholderEmpty"
+            })
         } else {
             t("chat.composer.placeholder")
         }
@@ -1238,10 +1262,15 @@ impl ChatView {
     fn option_button(&self, o: &ChatOption, label: String, cx: &mut Context<Self>) -> AnyElement {
         let view = cx.entity().downgrade();
         let (id, value, choices) = (o.id.clone(), o.value.clone(), o.choices.clone());
-        Button::new(SharedString::from(format!("opt-{}", o.id)))
-            .ghost()
-            .xsmall()
-            .label(format!("{label} ▾"))
+        let icon = if o.category == "thought_level" || o.id.contains("effort") { Some("brain") } else { None };
+        option_chip(Button::new(SharedString::from(format!("opt-{}", o.id))))
+            .child(
+                h_flex()
+                    .gap(px(6.))
+                    .children(icon.map(|i| crate::icons::ic(i).size(px(16.))))
+                    .child(div().max_w(px(160.)).truncate().child(label))
+                    .child(div().text_color(theme::faint()).child(crate::icons::ic("chevron-down").size(px(14.)))),
+            )
             .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                 let mut menu = menu.max_h(px(420.)).scrollable(true);
                 let mut group = String::new();
@@ -1335,22 +1364,35 @@ impl ChatView {
             .collect();
         let sentence = parts.join(" · ");
         let nothing = runner.is_none() && model.is_none() && window_opt.is_none();
+        // SetupChip: the tool's mark, its name (hidden in a composer under
+        // 46rem, Electron's container query) and the model, a chevron.
+        let shown_parts: Vec<String> = [
+            (self.composer.width >= 736.).then(|| tool_name.clone()),
+            model_name.clone(),
+            size.clone(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|p| !p.is_empty())
+        .collect();
         let chip_label = h_flex()
-            .gap_1p5()
-            .child(crate::icons::ai_icon(&tool, px(14.), theme::muted()))
-            .child(sentence.clone())
+            .gap(px(6.))
+            .child(crate::icons::tool_mark(&tool, px(16.), theme::muted()))
+            .child(div().min_w_0().truncate().child(if shown_parts.is_empty() { tool_name.clone() } else { shown_parts.join(" · ") }))
             .when(!nothing, |el| {
                 el.child(
                     div()
                         .text_color(theme::faint())
-                        .child(crate::icons::of("▾")),
+                        .child(crate::icons::ic("chevron-down").size(px(14.))),
                 )
             });
         if nothing {
             row = row.child(
-                div()
+                h_flex()
+                    .h_7()
                     .px_2()
-                    .text_xs()
+                    .rounded_lg()
+                    .text_size(theme::text::UI)
                     .text_color(theme::muted())
                     .child(chip_label),
             );
@@ -1367,9 +1409,7 @@ impl ChatView {
                 format!("{tool_name} · {account}")
             };
             row = row.child(
-                Button::new("opt-setup")
-                    .ghost()
-                    .xsmall()
+                option_chip(Button::new("opt-setup"))
                     .child(chip_label)
                     .tooltip(tv("chat.setup.label", &[("setup", sentence.into())]))
                     .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, window, cx| {
@@ -2212,8 +2252,12 @@ impl ChatView {
         });
         let session = self.session.clone();
         let paste_view = view.downgrade();
+        // Composer.tsx's textarea: 14px, leading-relaxed, no padding of its
+        // own (Size::Size(16) is 14px text and 2px/8px of the input's).
         let input = Textarea::new(&self.composer.input)
             .appearance(false)
+            .with_size(gpui_component::Size::Size(px(16.)))
+            .line_height(px(22.75))
             .on_paste(move |item, _, cx| {
                 paste_view
                     .update(cx, |this, cx| {
@@ -2231,11 +2275,33 @@ impl ChatView {
             .read(cx)
             .focus_handle(cx)
             .contains_focused(window, cx);
-        v_flex()
-            .flex_none()
-            .px_4()
-            .pt_2()
-            .pb_3()
+        let width_view = view.downgrade();
+        div().flex_none().w_full().px_6().pt(px(28.)).pb_5().child(v_flex()
+            .w_full()
+            .max_w(px(896.))
+            .mx_auto()
+            .relative()
+            // Its width, for SetupChip's fold (a container query in Electron).
+            .child(
+                canvas(
+                    move |bounds, _, cx| {
+                        let w = f32::from(bounds.size.width);
+                        width_view
+                            .update(cx, |this, cx| {
+                                if (this.composer.width - w).abs() > 0.5 {
+                                    this.composer.width = w;
+                                    cx.notify();
+                                }
+                            })
+                            .ok();
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .left_0()
+                .right_0()
+                .h_0(),
+            )
             .children(tasks_list)
             .children(menu_el)
             .children(above)
@@ -2251,9 +2317,6 @@ impl ChatView {
                     })
                     .bg(theme::composer())
                     .shadow(theme::shadow_composer(focused))
-                    .px_3p5()
-                    .pt_2p5()
-                    .pb_2()
                     // While a menu is open, its keys are its own.
                     .capture_action(cx.listener(move |this, _: &MoveDown, _, cx| {
                         if menu_len > 0 {
@@ -2300,25 +2363,36 @@ impl ChatView {
                         }
                     }))
                     .children(attachments)
-                    .child(div().text_sm().child(input))
+                    .child(
+                        div()
+                            .px_2()
+                            .pb_0p5()
+                            .pt_3()
+                            .text_sm()
+                            .line_height(relative(1.625))
+                            .child(input),
+                    )
                     .child(
                         h_flex()
-                            .pt_1()
+                            .px_2()
+                            .pb_2()
                             .gap_1()
+                            .children(target)
                             .child(
                                 div()
                                     .id("attach")
-                                    .size_7()
+                                    .flex_none()
+                                    .size_8()
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .rounded_md()
+                                    .rounded_full()
                                     .cursor_pointer()
-                                    .text_color(theme::muted())
+                                    .text_color(theme::subtle())
                                     .hover(|el| {
-                                        el.bg(theme::surface_strong()).text_color(theme::primary())
+                                        el.bg(theme::surface_raised()).text_color(theme::primary())
                                     })
-                                    .child("+")
+                                    .child(crate::icons::ic("paperclip").size(px(16.)))
                                     .tooltip(|w, cx| {
                                         gpui_component::tooltip::Tooltip::new(t(
                                             "chat.composer.attachTip",
@@ -2329,7 +2403,6 @@ impl ChatView {
                                         this.pick_files(cx)
                                     })),
                             )
-                            .children(target)
                             .child(div().flex_1().min_w_0().child(self.render_options(cx)))
                             .children(tasks_chip)
                             .when(working, |el| {
@@ -2353,27 +2426,20 @@ impl ChatView {
                                 };
                                 // Electron's round send: an arrow on the brand,
                                 // its words in the tooltip.
+                                // The send button: size-8, brand-500, at 30% while there's nothing to send.
                                 div()
                                     .id("send")
                                     .flex_none()
-                                    .size(px(30.))
+                                    .size_8()
                                     .rounded_full()
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .bg(if can_send {
-                                        theme::brand(500)
-                                    } else {
-                                        theme::surface_strong()
-                                    })
-                                    .text_color(if can_send {
-                                        theme::on_brand()
-                                    } else {
-                                        theme::faint()
-                                    })
+                                    .bg(theme::brand(500))
+                                    .text_color(theme::on_brand())
+                                    .when(!can_send, |el| el.opacity(0.3))
                                     .when(can_send, |el| {
                                         el.cursor_pointer()
-                                            .shadow(theme::glow(theme::brand(500), 0.6))
                                             .hover(|el| el.bg(theme::brand(600)))
                                             .active(|el| el.bg(theme::brand(700)))
                                     })
@@ -2387,9 +2453,21 @@ impl ChatView {
                                     }))
                             }),
                     ),
-            )
+            ))
             .into_any_element()
     }
+}
+
+/// option_chip is a composer option's trigger as Electron's OptionMenu:
+/// h-7, px-2, rounded-lg, text-ui, text-muted.
+fn option_chip(b: Button) -> Button {
+    b.ghost()
+        .compact()
+        .h_7()
+        .px_2()
+        .rounded(gpui_component::button::ButtonRounded::Size(px(8.)))
+        .text_size(theme::text::UI)
+        .text_color(theme::muted())
 }
 
 pub fn tokens(n: i64) -> String {

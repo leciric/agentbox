@@ -98,13 +98,25 @@ fn chat_options() -> Vec<ChatOption> {
     ]
 }
 
+/// clock is the fixtures' now: the time, or with FAKE_STILL one instant two
+/// days before the fake started, so every "ago" and "for" reads the same in
+/// two clients a minute apart (days change slower than screenshots are taken).
+pub(crate) fn clock() -> std::time::SystemTime {
+    static START: std::sync::OnceLock<std::time::SystemTime> = std::sync::OnceLock::new();
+    if still() {
+        *START.get_or_init(|| std::time::SystemTime::now() - Duration::from_secs(2 * 86400))
+    } else {
+        std::time::SystemTime::now()
+    }
+}
+
 /// still says FAKE_STILL is set: fixtures that never change on their own.
 fn still() -> bool {
     std::env::var_os("FAKE_STILL").is_some()
 }
 
 fn now() -> String {
-    humantime::format_rfc3339_millis(std::time::SystemTime::now()).to_string()
+    humantime::format_rfc3339_millis(crate::clock()).to_string()
 }
 
 const TITLES: &[&str] = &[
@@ -368,7 +380,7 @@ impl Fake {
                 kind: "user".into(),
                 text: "Now render the tool calls and the permission requests.".into(),
                 created_at: humantime::format_rfc3339_millis(
-                    std::time::SystemTime::now() - Duration::from_secs(40),
+                    crate::clock() - Duration::from_secs(40),
                 )
                 .to_string(),
                 updated_at: now(),
@@ -523,7 +535,7 @@ fn rand_id() -> u64 {
 fn fake_jobs() -> Vec<Job> {
     let at = |mins: u64| {
         humantime::format_rfc3339_seconds(
-            std::time::SystemTime::now() - Duration::from_secs(mins * 60),
+            crate::clock() - Duration::from_secs(mins * 60),
         )
         .to_string()
     };

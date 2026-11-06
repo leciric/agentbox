@@ -362,7 +362,7 @@ pub struct Pulls {
 impl Pulls {
     pub fn new() -> Self {
         Self {
-            epoch: SystemTime::now(),
+            epoch: crate::clock(),
             merged: Vec::new(),
             labels: HashMap::new(),
             marks: HashMap::new(),
