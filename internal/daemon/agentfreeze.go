@@ -138,6 +138,9 @@ func (s *Server) loadFleet(ctx context.Context) {
 	fl.on = on
 	fl.f.BootCost = pressure.MedianBootCost(costs)
 	fl.mu.Unlock()
+	s.admit.mu.Lock()
+	s.admit.a.BootCost = pressure.MedianBootCost(costs)
+	s.admit.mu.Unlock()
 	for _, ref := range left {
 		a, err := s.agentByRef(ctx, ref)
 		if err != nil || a.Instance == "" {
@@ -560,7 +563,7 @@ func (s *Server) admitMachine(ctx context.Context, a state.Agent) error {
 	fl.mu.Lock()
 	if !fl.on {
 		fl.mu.Unlock()
-		return nil
+		return s.admitBoot(ctx, a)
 	}
 	fl.instance[ref] = a.Instance
 	if fl.f.Ask(ref, time.Now()) {
@@ -630,6 +633,9 @@ func (s *Server) measureBoot(ctx context.Context, instance string) {
 	fl.mu.Lock()
 	fl.f.BootCost = pressure.MedianBootCost(costs)
 	fl.mu.Unlock()
+	s.admit.mu.Lock()
+	s.admit.a.BootCost = pressure.MedianBootCost(costs)
+	s.admit.mu.Unlock()
 }
 
 // machineHold is what pausing whole agents holds of an agent's machine, nil
@@ -639,7 +645,7 @@ func (s *Server) machineHold(ref string) *api.MemoryHold {
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
 	if !fl.on {
-		return nil
+		return s.admitHold(ref)
 	}
 	n, frozen, ok := fl.f.Ahead(ref)
 	if !ok {

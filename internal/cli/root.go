@@ -300,6 +300,7 @@ func NewRootCmd() *cobra.Command {
 		newDebugCmd(a),
 		newDoctorCmd(a),
 		newHeavyHookCmd(),
+		newHeavyShimCmd(),
 		newHeavyJoinCmd(),
 		newQuestionsCmd(a),
 		newAnswerCmd(a),

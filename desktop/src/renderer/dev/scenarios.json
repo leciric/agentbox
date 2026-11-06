@@ -2162,6 +2162,14 @@
     "click": "[data-v2-idle-toggle]"
   },
   {
+    "id": "on-hold-v2-dark",
+    "description": "At 1920×1080, the lead's panel scrolled to agents On hold: agent-84 waiting to boot (its tooltip saying why), agent-83 waiting its turn for memory behind other agents' builds (2nd in line), agent-82 stopped after it sat idle — dark",
+    "query": "app=project&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "hover": "[data-list-agent='agentbox/agent-84']"
+  },
+  {
     "id": "frozen-badge-v2-dark",
     "description": "At 1920×1080, the lead's panel: agent-85 (machine paused for memory, 2 ahead) and agent-35 (idle, processes frozen by idle reclaim) carry a Frozen badge whose tooltip says why — dark",
     "query": "app=project&theme=dark",

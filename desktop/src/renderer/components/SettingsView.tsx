@@ -1231,7 +1231,7 @@ function InstalledSettings({
               description: t("settings.idleReclaim.description"),
               label: t("settings.idleReclaim.label"),
               keywords: t("settings.entry.idle-reclaim.keywords"),
-              modified: changed((s) => s.idleReclaim),
+              modified: changed((s) => !s.idleReclaim), // on by default
               render: () => <IdleReclaim />,
             },
             {

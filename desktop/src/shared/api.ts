@@ -359,6 +359,7 @@ export interface Agent {
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
+  hold?: string;
   goal?: AgentGoal;
   ip: string;
   createdAt: string;
@@ -894,6 +895,7 @@ export interface AgentChange {
   memory?: MemoryHold;
   waitingForImage?: boolean;
   reclaimed?: string;
+  hold?: string;
 }
 
 export interface Theme {
@@ -2132,6 +2134,7 @@ export interface FleetAgent {
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
+  hold?: string;
   goal?: AgentGoal;
   ip: string;
   createdAt: string;

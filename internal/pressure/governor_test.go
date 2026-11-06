@@ -565,12 +565,16 @@ func TestAFullSwapWithMemoryToSpareHoldsNothing(t *testing.T) {
 		if len(got.Pause) > 0 {
 			t.Fatalf("at %ds paused %v: %s", sec, keys(got.Pause), trace20261012(sec))
 		}
-		if why := g.Why(); why != "" {
+		// Paced as they start, so six at once don't all fit the same
+		// gigabytes (Full), but never held for pressure.
+		if why := g.Why(); why != "" && why != Full {
 			t.Fatalf("at %ds held back for %q: %s", sec, why, trace20261012(sec))
 		}
-	}
-	if n := len(g.Waiting()); n != 0 {
-		t.Fatalf("%d runs still waiting", n)
+		if sec == 60 {
+			if n := len(g.Waiting()); n != 0 {
+				t.Fatalf("%d runs still waiting after a minute", n)
+			}
+		}
 	}
 }
 

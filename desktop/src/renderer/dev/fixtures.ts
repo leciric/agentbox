@@ -384,6 +384,16 @@ export function buildFixtures(): FixtureData {
       state: 'initializing',
       memory: { machine: 'waiting', ahead: 3, since: new Date(Date.now() - 30_000).toISOString(), why: 'easing', available: 2.4 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
+    // On hold (daemon/admission.go): one waiting its turn for memory behind
+    // other agents' builds, machine stopped, and one stopped after it sat idle.
+    agent({
+      ref: `${PROJECT}/agent-83`,
+      title: 'Migrate the billing tables',
+      state: 'stopped',
+      hold: 'memory',
+      memory: { machine: 'waiting', ahead: 1, since: new Date(Date.now() - 90_000).toISOString(), why: 'builds', available: 1.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+    }),
+    agent({ ref: `${PROJECT}/agent-82`, title: 'Tidy the onboarding copy', state: 'stopped', outcome: 'done', hold: 'idle' }),
     // A name given to create by hand, as long as the title beside it: the
     // row's name must give way before it pushes the title out.
     agent({
@@ -1799,7 +1809,7 @@ let defaultsSettings = {
   removeStoppedDays: 7,
   dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
-  idleReclaim: false,
+  idleReclaim: true,
   idleFreezeSeconds: 5 * 60,
   idleStopSeconds: 10 * 60,
   leadRecheck: false,
