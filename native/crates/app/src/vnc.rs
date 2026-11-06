@@ -77,7 +77,14 @@ impl Framebuffer {
 
 pub struct VncView {
     image: Option<Arc<RenderImage>>,
-    stale: Vec<Arc<RenderImage>>,
+    /// Whether the view has drawn since the last image was made: a new image
+    /// is made only then, so a view that isn't on screen (the panel on
+    /// another tab) holds one frame rather than piling them up.
+    drawn: bool,
+    /// A frame arrived while the last one was still undrawn.
+    pending: bool,
+    /// Asks the frame loop for the newest frame (render, after `pending`).
+    frames: mpsc::UnboundedSender<Result<(), String>>,
     size: (u32, u32),
     status: Option<SharedString>,
     input: Option<mpsc::UnboundedSender<X11Event>>,
@@ -96,6 +103,7 @@ impl VncView {
         let fb = Arc::new(Mutex::new(Framebuffer::default()));
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (frame_tx, mut frame_rx) = mpsc::unbounded_channel::<Result<(), String>>();
+        let frames = frame_tx.clone();
         let task = cx.spawn({
             let fb = fb.clone();
             async move |this, cx| {
@@ -122,6 +130,20 @@ impl VncView {
                     while let Ok(m) = frame_rx.try_recv() {
                         last = m;
                     }
+                    // Not drawn since the last image: note it and wait for the
+                    // view to draw (render asks again) rather than make another.
+                    if last.is_ok() {
+                        let waiting = this
+                            .update(cx, |v, _| {
+                                let waiting = !v.drawn && v.image.is_some();
+                                v.pending |= waiting;
+                                waiting
+                            })
+                            .unwrap_or(true);
+                        if waiting {
+                            continue;
+                        }
+                    }
                     let frame = match last {
                         Ok(()) => {
                             let mut fb = fb.lock().unwrap();
@@ -145,9 +167,13 @@ impl VncView {
                     let Some((img, w, h)) = frame else { continue };
                     let image = Arc::new(RenderImage::new(vec![image::Frame::new(img)]));
                     let ok = this.update(cx, |v, cx| {
+                        // The frame it replaces leaves every window's atlas
+                        // now, drawn or not: one texture per desktop at a time.
                         if let Some(old) = v.image.replace(image) {
-                            v.stale.push(old);
+                            cx.drop_image(old, None);
                         }
+                        v.drawn = false;
+                        v.pending = false;
                         v.size = (w, h);
                         v.status = None;
                         cx.notify();
@@ -160,7 +186,9 @@ impl VncView {
         });
         Self {
             image: None,
-            stale: Vec::new(),
+            drawn: true,
+            pending: false,
+            frames,
             size: (0, 0),
             status: Some(agentbox_i18n::t("device.connecting").into()),
             input: Some(input_tx),
@@ -379,9 +407,11 @@ async fn run(
 }
 
 impl Render for VncView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        for old in self.stale.drain(..) {
-            let _ = window.drop_image(old);
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.drawn = true;
+        // A frame waited for this draw: send for it.
+        if std::mem::take(&mut self.pending) {
+            self.frames.send(Ok(())).ok();
         }
         let shown = self.shown.clone();
         let (w, h) = self.size;

@@ -26,7 +26,6 @@ const MAX_WIDTH: u32 = 1080;
 
 pub struct DeviceView {
     image: Option<Arc<RenderImage>>,
-    stale: Vec<Arc<RenderImage>>,
     size: (u32, u32),
     status: Option<SharedString>,
     input: Option<mpsc::UnboundedSender<Out>>,
@@ -218,7 +217,8 @@ impl DeviceView {
                             v.size = (img.width(), img.height());
                             let image = Arc::new(RenderImage::new(vec![image::Frame::new(img)]));
                             if let Some(old) = v.image.replace(image) {
-                                v.stale.push(old);
+                                // Out of every window's atlas now, drawn or not.
+                                cx.drop_image(old, None);
                             }
                             v.status = None;
                         }
@@ -233,7 +233,6 @@ impl DeviceView {
         });
         Self {
             image: None,
-            stale: Vec::new(),
             size: (0, 0),
             status: Some(agentbox_i18n::t("device.connecting").into()),
             input: None,
@@ -320,10 +319,7 @@ impl DeviceView {
 }
 
 impl Render for DeviceView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        for old in self.stale.drain(..) {
-            let _ = window.drop_image(old);
-        }
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let shown = self.shown.clone();
         let (w, h) = self.size;
         let control = self.control;

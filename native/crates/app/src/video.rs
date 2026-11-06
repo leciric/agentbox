@@ -27,7 +27,6 @@ pub struct VideoPlayer {
     path: PathBuf,
     frame: Option<Arc<RenderImage>>,
     /// Frames shown and replaced, whose textures go back to GPUI next render.
-    stale: Vec<Arc<RenderImage>>,
     playing: bool,
     position: f64,
     duration: f64,
@@ -51,7 +50,6 @@ impl VideoPlayer {
         let mut this = Self {
             path,
             frame: None,
-            stale: Vec::new(),
             playing: false,
             position: 0.,
             duration: 0.,
@@ -162,7 +160,8 @@ impl VideoPlayer {
                 let image = Arc::new(RenderImage::new(vec![image::Frame::new(frame.image)]));
                 let ok = this.update(cx, |this, cx| {
                     if let Some(old) = this.frame.replace(image) {
-                        this.stale.push(old);
+                        // Out of every window's atlas now, drawn or not.
+                        cx.drop_image(old, None);
                     }
                     this.position = frame.pts;
                     this.shown += 1;
@@ -261,10 +260,7 @@ fn decode(path: &PathBuf, at: f64, tx: &tokio::sync::mpsc::Sender<Result<Decoded
 }
 
 impl Render for VideoPlayer {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        for old in self.stale.drain(..) {
-            let _ = window.drop_image(old);
-        }
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let label = format!("{} / {}", clock(self.position), clock(self.duration));
         let share = if self.duration > 0. {
             (self.position / self.duration).clamp(0., 1.) as f32
