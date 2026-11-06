@@ -126,7 +126,7 @@ const (
 	// memHostReserveMin and memHostReserveShare (of its memory) make
 	// HostReserve.
 	memHostReserveMin   = 4 * GiB
-	memHostReserveShare = 0.20
+	memHostReserveShare = 0.25
 	// memShrinkAfterHost is how long a lower target waits to be given back
 	// while the host has less than its reserve.
 	memShrinkAfterHost = 5 * time.Second
@@ -206,12 +206,14 @@ type memSample struct {
 	HostPressure             float64
 }
 
-// HostReserve is what a Linux host with total bytes of memory keeps for
-// itself, its desktop and the app: the larger of memHostReserveMin, what a
-// desktop session with a browser and the app needs to stay responsive, and
-// memHostReserveShare of it, as a bigger machine runs more beside the VM. A
-// quarter would hold 8 to 16 GiB idle on 32 to 64 GiB machines, and stop the
-// VM growing while the host is comfortable.
+// HostReserve is what a host with total bytes of memory keeps for itself,
+// its desktop and the app: the larger of memHostReserveMin, what a desktop
+// session with a browser and the app needs to stay responsive, and
+// memHostReserveShare of it, as a bigger machine runs more beside the VM. It
+// was a fifth, and an agent building Rust froze a Linux PC whose VM had
+// grown to its cap: a quarter is what a desktop with a browser, an editor
+// and the app uses on 16 to 32 GiB machines. The VM never grows past the
+// rest (MaxCap), on Linux and on a Mac alike.
 func HostReserve(total int64) int64 {
 	return max(memHostReserveMin, int64(float64(total)*memHostReserveShare))
 }
@@ -228,11 +230,11 @@ func MaxCap(total int64) int64 {
 
 // FitHost lowers c's memory cap to MaxCap for a host with total bytes of
 // memory, and reports whether it did: a cap from an earlier release, or set
-// by hand, may leave the host less than its reserve. A Mac's VM (vz) is
-// left as it is.
+// by hand, may leave the host less than its reserve. A Mac's VM (vz) too:
+// its balloon gives memory back, but not before the Mac is short.
 func FitHost(c Config, total int64) (Config, bool) {
 	most := MaxCap(total)
-	if c.VZ() || most == 0 || c.MemoryCap <= most {
+	if most == 0 || c.MemoryCap <= most {
 		return c, false
 	}
 	c.MemoryCap = max(most, c.MemoryMin)

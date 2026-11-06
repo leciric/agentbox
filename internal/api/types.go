@@ -673,6 +673,21 @@ type Settings struct {
 	// and DiskFloorPercent of the disk (DiskGuard).
 	DiskFloorMin     int64   `json:"diskFloorMin"`
 	DiskFloorPercent float64 `json:"diskFloorPercent"`
+	// AgentMemoryShare is the share of the VM's memory, in percent, one
+	// agent's machine may have: a process that takes it past that is killed
+	// inside its machine, and the agent told, so one runaway build can't take
+	// the VM's daemon, Incus and other agents down with it. It follows the
+	// VM's memory cap. DefaultAgentMemoryShare (50) until the user chose,
+	// from MinAgentMemoryShare to MaxAgentMemoryShare.
+	AgentMemoryShare        int `json:"agentMemoryShare"`
+	DefaultAgentMemoryShare int `json:"defaultAgentMemoryShare"`
+	MinAgentMemoryShare     int `json:"minAgentMemoryShare"`
+	MaxAgentMemoryShare     int `json:"maxAgentMemoryShare"`
+	// AgentMemoryLimit is what AgentMemoryShare comes to now, in bytes, and
+	// VMMemory what it is a share of: the most the VM may grow to. 0 when
+	// the VM's size isn't known.
+	AgentMemoryLimit int64 `json:"agentMemoryLimit"`
+	VMMemory         int64 `json:"vmMemory"`
 	// AutoStopIdle and IdleTimeSeconds are "auto-stop idle agents": while on,
 	// the daemon stops a running or paused agent once it has gone
 	// IdleTimeSeconds with no chat turn in progress, no running job, no
@@ -897,6 +912,9 @@ type UpdateSettingsRequest struct {
 	// one going back to the default.
 	DiskFloorMin     *int64   `json:"diskFloorMin,omitempty"`
 	DiskFloorPercent *float64 `json:"diskFloorPercent,omitempty"`
+	// AgentMemoryShare sets Settings.AgentMemoryShare, in percent, 0 going
+	// back to the default. Running agents take it at once.
+	AgentMemoryShare *int `json:"agentMemoryShare,omitempty"`
 	// ImageCache turns the shared image cache on or off, for running agents
 	// at once and for the others as they start.
 	ImageCache *bool `json:"imageCache,omitempty"`

@@ -171,7 +171,7 @@ func checkConfig(c chv.Config, hostCPUs int, hostMem int64) error {
 	if c.MemoryCap < c.MemoryMin {
 		errs = append(errs, fmt.Errorf("--memory-cap %s is less than --memory-min %s", sizeWords(c.MemoryCap), sizeWords(c.MemoryMin)))
 	}
-	if most := chv.MaxCap(hostMem); most > 0 && c.MemoryCap > most && !c.VZ() {
+	if most := chv.MaxCap(hostMem); most > 0 && c.MemoryCap > most {
 		errs = append(errs, fmt.Errorf("--memory-cap %s would leave this machine (%s) less than the %s it keeps for itself: the most is %s",
 			sizeWords(c.MemoryCap), sizeWords(hostMem), sizeWords(chv.HostReserve(hostMem)), sizeWords(most)))
 	} else if hostMem > 0 && c.MemoryCap > hostMem {

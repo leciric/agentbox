@@ -51,7 +51,7 @@ func TestPressureLab(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "memory.max"), strconv.FormatInt(vm, 10))
 	mustWrite(t, filepath.Join(root, "memory.swap.max"), "max")
 	mustWrite(t, filepath.Join(root, "cgroup.subtree_control"), "+memory")
-	limit := MemoryLimit(vm)
+	limit := MemoryLimit(vm, 0)
 	t.Logf("VM %s, %d agents, each memory.max %s, running %q", HumanBytes(vm), agents, HumanBytes(limit), command)
 
 	type labAgent struct {

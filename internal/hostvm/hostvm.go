@@ -53,6 +53,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
@@ -384,10 +385,21 @@ type Size struct {
 	Disk   string // like 100GiB
 }
 
-// DefaultSize is half the host's cores (two to eight), 8 GiB and a 100 GiB
-// disk, which Lima allocates as it's used.
+// DefaultSize is half the host's cores (two to eight), 8 GiB, or less on a
+// Mac that would keep less than its reserve with that (chv.MaxCap), and a
+// 100 GiB disk, which Lima allocates as it's used.
 func DefaultSize() Size {
-	return Size{CPUs: defaultCPUs(numCPU()), Memory: "8GiB", Disk: "100GiB"}
+	return Size{CPUs: defaultCPUs(numCPU()), Memory: defaultMemory(hostMemory()), Disk: "100GiB"}
+}
+
+// defaultMemory is the memory a Lima VM is made with on a host of total
+// bytes, as Lima takes it: 8GiB, or the most the host's reserve leaves.
+func defaultMemory(total int64) string {
+	gib := int64(8)
+	if most := chv.MaxCap(total) / chv.GiB; most > 0 {
+		gib = min(gib, max(most, MinMemory>>30))
+	}
+	return strconv.FormatInt(gib, 10) + "GiB"
 }
 
 // defaultCPUs is what a VM is given of a host's cores: half, two to eight.

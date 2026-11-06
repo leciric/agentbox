@@ -198,6 +198,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	srv.readCPUPressure = func() (pressure.PSI, error) { return pressure.PSI{}, nil }
 	srv.runCgroups = &fakeRunCgroups{}
 	srv.setMemoryLimit = func(string, int64) error { return nil }
+	srv.setIOWeight = func(string, int) error { return nil }
 	srv.memoryEvents = func(string) (agent.MemoryCounts, bool) { return agent.MemoryCounts{}, false }
 	srv.oomVictim = func(string) (agent.OOMVictim, bool) { return agent.OOMVictim{}, false }
 	if tc.setup != nil {

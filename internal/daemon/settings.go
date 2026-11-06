@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/opencode"
 	"agentbox/internal/schedule"
@@ -266,6 +267,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		if err := s.store.SetSetting(r.Context(), state.SettingTimezone, want); err != nil {
+			return err
+		}
+	}
+	if req.AgentMemoryShare != nil {
+		if err := s.setAgentMemoryShare(r.Context(), *req.AgentMemoryShare); err != nil {
 			return err
 		}
 	}
@@ -732,6 +738,8 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	diskFloor := s.diskFloor(r.Context())
+	memoryShare := s.agentMemoryShare(r.Context())
+	vmMemory := s.vmMemory()
 	idleReclaim, idleFreeze, idleStop, err := s.store.IdleReclaim(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -833,6 +841,13 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		DiskFloorMin:     diskFloor.Min,
 		DiskFloorPercent: diskFloor.Percent,
+
+		AgentMemoryShare:        memoryShare,
+		DefaultAgentMemoryShare: agent.DefaultAgentMemoryShare,
+		MinAgentMemoryShare:     agent.MinAgentMemoryShare,
+		MaxAgentMemoryShare:     agent.MaxAgentMemoryShare,
+		AgentMemoryLimit:        agent.MemoryLimit(vmMemory, memoryShare),
+		VMMemory:                vmMemory,
 
 		AutoStopIdle:      autoStopIdle,
 		RemoveStopped:     removeStopped,

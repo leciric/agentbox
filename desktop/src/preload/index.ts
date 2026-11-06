@@ -137,6 +137,7 @@ export interface VMLimits {
   maxCpus: number;
   minMemory: number; // bytes
   maxMemory: number; // bytes
+  hostMemory?: number; // bytes, the Mac's own
 }
 
 export interface WSLStatus {

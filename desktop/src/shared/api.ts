@@ -220,6 +220,12 @@ export interface Settings {
   defaultClaudeCompactWindow: number;
   diskFloorMin: number;
   diskFloorPercent: number;
+  agentMemoryShare: number;
+  defaultAgentMemoryShare: number;
+  minAgentMemoryShare: number;
+  maxAgentMemoryShare: number;
+  agentMemoryLimit: number;
+  vmMemory: number;
   autoStopIdle: boolean;
   removeStopped: boolean;
   removeStoppedDays: number;
@@ -311,6 +317,7 @@ export interface UpdateSettingsRequest {
   leadSleepMinutes?: number;
   diskFloorMin?: number;
   diskFloorPercent?: number;
+  agentMemoryShare?: number;
   imageCache?: boolean;
   imageCacheMaxBytes?: number;
   clearImageCache?: boolean;
@@ -3580,6 +3587,7 @@ export interface VMMemory {
   cap: number;
   granted: number;
   hostReserve?: number;
+  hostTotal?: number;
   used: number;
   resident: number;
   hostCache: number;
