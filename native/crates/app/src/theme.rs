@@ -590,6 +590,13 @@ pub fn on_bright() -> Hsla {
     c(worn().on_bright)
 }
 
+/// hex is a colour as #rrggbb, for what takes colours as strings (an SVG).
+pub fn hex(color: Hsla) -> String {
+    let c = color.to_rgb();
+    let b = |v: f32| (v.clamp(0., 1.) * 255.).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", b(c.r), b(c.g), b(c.b))
+}
+
 /// paper and pitch are the literal ends, for what must not turn with the look:
 /// a QR code's modules, a web page's or a recording's backdrop.
 pub fn paper() -> Hsla {
@@ -708,6 +715,11 @@ pub fn violet(shade: u16) -> Hsla {
     } else {
         p.violet[1]
     })
+}
+/// destructive is a deleting confirm's fill and its hover and press: Tailwind's
+/// rose 600, 700 and 800, as Electron's destructive button (white on it).
+pub fn destructive(step: usize) -> Hsla {
+    c(op([0xe11d48, 0xbe123c, 0x9f1239][step.min(2)]))
 }
 /// running is a working agent's green.
 pub fn running() -> Hsla {

@@ -937,7 +937,20 @@ impl AppView {
                 div()
                     .relative()
                     .flex_none()
-                    .child(self.project_icon(p, 24.))
+                    .child({
+                        // One of its agents just finished: its icon bursts,
+                        // whether or not the panel is showing.
+                        let icon = div().rounded_md().child(self.project_icon(p, 24.));
+                        match self.panel.any_finished().filter(|_| selected) {
+                            Some(t) => crate::motion::celebrate(
+                                icon,
+                                SharedString::from(format!("project-done-{}-{t:?}", p.name)),
+                                theme::brand(400),
+                            )
+                            .into_any_element(),
+                            None => icon.into_any_element(),
+                        }
+                    })
                     .when(needs > 0 || s_unread, |el| {
                         el.child(
                             div()

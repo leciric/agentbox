@@ -734,14 +734,19 @@ impl ChatView {
             .px_1()
             .when(last, |el| el.pb_4())
             .when(!last, |el| el.pb_2p5())
-            .child(
+            // A reply streaming in since it started here eases in; one already
+            // streaming when the chat loaded is drawn as it is.
+            .child(if let Some(shown) = self.shown.get(&it.id).filter(|_| it.streaming) {
+                super::stream::reveal(&it.id, &it.text, shown.clone())
+            } else {
                 crate::mermaid::with_mermaid(TextView::markdown(
                     SharedString::from(format!("md-{}", it.id)),
                     it.text.clone(),
                 ))
                 .selectable(true)
-                .text_color(theme::primary()),
-            )
+                .text_color(theme::primary())
+                .into_any_element()
+            })
             .when(last, |el| {
                 el.child(div().mt_1p5().child(self.meta(it, false)))
             });

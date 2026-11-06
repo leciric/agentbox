@@ -18,6 +18,7 @@ mod composer;
 mod evidence;
 mod find;
 mod items;
+mod stream;
 pub mod rows;
 
 pub use composer::{Composer, match_files, tokens};
@@ -167,6 +168,9 @@ pub struct ChatView {
     composer: Composer,
     /// When the last unpainted chunk arrived, for bench's arrival-to-paint.
     arrived: Option<Instant>,
+    /// How much of each streaming message is on screen (bytes): the reveal
+    /// (chat/stream.rs) eases toward what has arrived rather than jumping.
+    pub(crate) shown: HashMap<String, std::rc::Rc<std::cell::Cell<usize>>>,
     last_frame: Option<Instant>,
     /// Opened: tool calls and work groups (by item id or row key), settled
     /// turns past their fold, subagents, handoffs.
@@ -264,6 +268,7 @@ impl ChatView {
             list,
             composer,
             arrived: None,
+            shown: Default::default(),
             last_frame: None,
             expanded: Default::default(),
             open_turns: Default::default(),
@@ -684,11 +689,16 @@ impl ChatView {
             return;
         }
         if let Some(item) = ev.item {
+            // A reply that starts streaming now is revealed from nothing.
+            if item.streaming {
+                self.shown.entry(item.id.clone()).or_default();
+            }
             match self.items.iter().position(|i| i.id == item.id) {
                 Some(ix) => self.items[ix] = item,
                 None => self.items.push(item),
             }
         }
+        self.shown.retain(|id, _| self.items.iter().any(|i| &i.id == id && i.streaming));
         if let Some(app) = ev.append
             && let Some(ix) = self.items.iter().rposition(|i| i.id == app.id)
         {

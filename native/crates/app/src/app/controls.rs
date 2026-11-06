@@ -27,29 +27,36 @@ pub fn toggle(
     disabled: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
+    // Electron's Switch: a white thumb on line-strong, on the brand when on;
+    // the thumb travels on a spring rather than jumping.
+    let id: ElementId = id.into();
+    let knob = ElementId::Name(format!("{id}-knob").into());
     div()
         .id(id)
         .flex_none()
-        .w(px(34.))
+        .relative()
+        .w(px(36.))
         .h(px(20.))
-        .p(px(2.))
         .rounded_full()
-        .flex()
-        .when(on, |el| el.justify_end())
-        .bg(if on {
-            theme::accent()
-        } else {
-            theme::surface_strong()
-        })
+        .bg(if on { theme::brand(500) } else { theme::line_strong() })
         .border_1()
-        .border_color(if on { theme::accent() } else { theme::line() })
-        .when(disabled, |el| el.opacity(0.5))
+        .border_color(if on { gpui::transparent_black() } else { theme::line_vivid() })
+        .when(disabled, |el| el.opacity(0.45))
         .when(!disabled, |el| el.cursor_pointer().on_click(on_click))
-        .child(div().size(px(14.)).rounded_full().bg(if on {
-            theme::on_brand()
-        } else {
-            theme::muted()
-        }))
+        .child(
+            div()
+                .absolute()
+                .top(px(1.))
+                .size(px(16.))
+                .rounded_full()
+                .bg(gpui::white())
+                .shadow(theme::shadow_card())
+                .with_spring(
+                    knob,
+                    SpringAnimation::new(crate::motion::SNAPPY).to(if on { 1f32 } else { 0. }),
+                    |el, x| el.left(px(1. + 16. * x)),
+                ),
+        )
         .into_any_element()
 }
 
@@ -83,7 +90,7 @@ fn segments(
         .rounded_lg()
         .border_1()
         .border_color(theme::line())
-        .bg(theme::card())
+        .bg(theme::surface())
         .children(options.into_iter().map(|(value, label)| {
             let on = current == Some(value.as_ref());
             let pick = on_pick.clone();
@@ -93,10 +100,12 @@ fn segments(
                 .py_1()
                 .rounded_md()
                 .text_sm()
+                .text_size(theme::text::UI)
                 .when(on, |el| {
-                    el.bg(theme::surface_strong())
-                        .text_color(theme::primary())
+                    el.bg(theme::surface_vivid())
+                        .text_color(theme::title())
                         .font_weight(FontWeight::MEDIUM)
+                        .shadow(theme::shadow_card())
                 })
                 .when(!on, |el| el.text_color(theme::muted()))
                 .when(disabled, |el| el.opacity(0.5))
@@ -118,6 +127,8 @@ pub enum Btn {
     Ghost,
     /// One that destroys something (Electron's destructive).
     Danger,
+    /// Quiet danger: rose text that tints on hover (a row's Delete).
+    DangerQuiet,
 }
 
 /// button is a labelled button in the app's palette.
@@ -131,10 +142,16 @@ pub fn button(
     div()
         .id(id)
         .flex_none()
+        // Electron's Button, size sm: 32 px tall, 13 px, rounded-lg; a
+        // hover or press moves the fill a step rather than lighting it.
+        .h(px(32.))
         .px_3()
-        .py(px(5.))
-        .rounded_md()
-        .text_sm()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .rounded_lg()
+        .text_size(theme::text::UI)
         .font_weight(FontWeight::MEDIUM)
         .map(|el| match kind {
             Btn::Primary => el.bg(theme::brand(500)).text_color(theme::on_brand()),
@@ -144,14 +161,25 @@ pub fn button(
                 .border_color(theme::line())
                 .text_color(theme::primary()),
             Btn::Ghost => el.text_color(theme::muted()),
-            Btn::Danger => el.bg(theme::error()).text_color(theme::on_bright()),
+            Btn::Danger => el.bg(theme::destructive(0)).text_color(gpui::white()),
+            Btn::DangerQuiet => el.text_color(theme::rose(300)),
         })
-        .when(disabled, |el| el.opacity(0.5))
+        .when(disabled, |el| el.opacity(0.45))
         .when(!disabled, |el| {
             el.cursor_pointer()
                 .hover(move |s| match kind {
-                    Btn::Primary | Btn::Danger => s.opacity(0.9),
-                    _ => s.bg(theme::surface_strong()).text_color(theme::primary()),
+                    Btn::Primary => s.bg(theme::brand(600)),
+                    Btn::Danger => s.bg(theme::destructive(1)),
+                    Btn::DangerQuiet => s.bg(theme::rose(400).opacity(0.1)).text_color(theme::rose(200)),
+                    Btn::Ghost => s.bg(theme::surface_raised()).text_color(theme::primary()),
+                    Btn::Secondary => s.bg(theme::surface_strong()),
+                })
+                .active(move |s| match kind {
+                    Btn::Primary => s.bg(theme::brand(700)),
+                    Btn::Danger => s.bg(theme::destructive(2)),
+                    Btn::DangerQuiet => s.bg(theme::rose(400).opacity(0.2)),
+                    Btn::Ghost => s.bg(theme::surface_strong()),
+                    Btn::Secondary => s.bg(theme::surface_vivid()),
                 })
                 .on_click(on_click)
         })

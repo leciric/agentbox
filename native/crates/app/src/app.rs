@@ -923,6 +923,7 @@ impl AppView {
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.panel.track(&self.fleet);
         bench::mark("first-render");
         controls::set_viewport(window.viewport_size());
         self.focus_tour(window, cx);

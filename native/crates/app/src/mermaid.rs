@@ -20,10 +20,17 @@ type Rendered = Result<Arc<Image>, String>;
 static CACHE: Mutex<Option<HashMap<String, Rendered>>> = Mutex::new(None);
 
 pub fn render_svg(src: &str) -> Result<String, String> {
-    // The dark preset, on the card's own colour (theme::raised).
-    let mut theme = mermaid_rs_renderer::Theme::dark();
-    theme.background = "#1a1a1f".into();
-    theme.edge_label_background = "#1a1a1f".into();
+    // The look's preset (modern on light, dark otherwise), on the card's own
+    // colour, in the app's face.
+    let mut theme = if theme::look() == theme::Look::Light {
+        mermaid_rs_renderer::Theme::modern()
+    } else {
+        mermaid_rs_renderer::Theme::dark()
+    };
+    let ground = theme::hex(theme::card());
+    theme.background = ground.clone();
+    theme.edge_label_background = ground;
+    theme.font_family = format!("{}, sans-serif", theme::SANS);
     let opts = mermaid_rs_renderer::RenderOptions {
         theme,
         ..Default::default()
@@ -34,7 +41,9 @@ pub fn render_svg(src: &str) -> Result<String, String> {
 fn rendered(src: &str) -> Rendered {
     let mut cache = CACHE.lock().unwrap();
     let cache = cache.get_or_insert_with(HashMap::new);
-    if let Some(r) = cache.get(src) {
+    // Each look draws its own: the key carries it.
+    let key = format!("{:?}\n{src}", theme::look());
+    if let Some(r) = cache.get(&key) {
         return r.clone();
     }
     let r =
@@ -42,7 +51,7 @@ fn rendered(src: &str) -> Rendered {
     if cache.len() > 256 {
         cache.clear();
     }
-    cache.insert(src.to_string(), r.clone());
+    cache.insert(key, r.clone());
     r
 }
 

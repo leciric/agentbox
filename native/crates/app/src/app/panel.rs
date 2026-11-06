@@ -152,6 +152,39 @@ pub struct Panel {
 }
 
 impl Panel {
+    /// track notes every agent that went from working to finished since the
+    /// last look; AppView calls it on every render, panel shown or not.
+    pub fn track(&self, fleet: &[FleetAgent]) {
+        let mut seen = self.seen.borrow_mut();
+        for a in fleet {
+            let st = st::agent_st(a, false, false);
+            let e = seen.entry(a.r#ref.clone()).or_insert((st, None));
+            if e.0 == St::Working && matches!(st, St::Review | St::Done) {
+                e.1 = Some(std::time::Instant::now());
+            }
+            e.0 = st;
+        }
+    }
+
+    /// finished is when `r` finished, if it was a moment ago.
+    pub fn finished(&self, r: &str) -> Option<std::time::Instant> {
+        self.seen
+            .borrow()
+            .get(r)
+            .and_then(|e| e.1)
+            .filter(|t| t.elapsed() < std::time::Duration::from_secs(3))
+    }
+
+    /// any_finished is the latest finish among the agents, if a moment ago.
+    pub fn any_finished(&self) -> Option<std::time::Instant> {
+        self.seen
+            .borrow()
+            .values()
+            .filter_map(|e| e.1)
+            .filter(|t| t.elapsed() < std::time::Duration::from_secs(3))
+            .max()
+    }
+
     pub fn new(cx: &mut Context<AppView>) -> Self {
         let poll = cx.spawn(async move |this, cx| {
             loop {
@@ -953,15 +986,7 @@ impl AppView {
                     .find(|(r, _)| r == &a.r#ref)
                     .map(|(_, q)| q.clone());
                 let st = st::agent_st(&a, question.is_some(), review.contains(&a.r#ref));
-                let finished = {
-                    let mut seen = self.panel.seen.borrow_mut();
-                    let e = seen.entry(a.r#ref.clone()).or_insert((st, None));
-                    if e.0 == St::Working && matches!(st, St::Review | St::Done) {
-                        e.1 = Some(std::time::Instant::now());
-                    }
-                    e.0 = st;
-                    e.1.filter(|t| t.elapsed() < std::time::Duration::from_secs(3))
-                };
+                let finished = self.panel.finished(&a.r#ref);
                 let (label, tone) = st::chat_label(&a);
                 let report = self.panel.reports.get(&a.r#ref);
                 let (reason, color) = if let Some(q) = question {

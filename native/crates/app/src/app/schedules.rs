@@ -1034,7 +1034,7 @@ impl AppView {
                     .child(controls::button(
                         SharedString::from(format!("schedule-delete-{}", s.id)),
                         t("schedules.delete"),
-                        Btn::Danger,
+                        Btn::DangerQuiet,
                         false,
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.schedules.deleting = Some(s4.clone());
