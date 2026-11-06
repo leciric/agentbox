@@ -121,6 +121,10 @@ if [ "$in_vm" -eq 1 ] || [ -d /var/lib/incus ]; then
 	row "daemon.log and logs" "$(( $(alloc "$vdata/daemon.log" || echo 0) + $(alloc "$vdata/logs" || echo 0) ))"
 	row "VM system disk used (/)" "$(df -B1 --output=used / | tail -1)" "fstrim.timer: $(systemctl is-enabled fstrim.timer 2>/dev/null || echo none)"
 	row "journald" "$(alloc /var/log/journal)"
+	for q in /sys/block/vd*/queue; do
+		dev=$(basename "$(dirname "$q")")
+		echo "  /dev/$dev: scheduler $(grep -o '\[[a-z-]*\]' "$q/scheduler"), discard_max_bytes $(cat "$q/discard_max_bytes"), write cache $(cat "$q/write_cache" 2>/dev/null)"
+	done
 	row "docker in the VM" "$(alloc /var/lib/docker)"
 	if command -v incus >/dev/null; then
 		echo "  last trims: $(journalctl -q -u fstrim.service -u agentbox-fstrim.service -n 3 --no-pager -o cat 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
@@ -133,6 +137,16 @@ if [ "$probe" -gt 0 ]; then
 	echo
 	echo "Probe: 4 KiB write + fdatasync in $dir for ${probe}s"
 	f=$(mktemp -p "$dir" .disk-report-probe.XXXXXX) || exit 1
+	io0=$(awk '/^full/ {sub("total=", "", $5); print $5}' /proc/pressure/io 2>/dev/null)
+	# Each agent's machine's disk use while the probe runs, from its cgroup: does
+	# its io.weight (25 against everything else's 100) hold?
+	stat_agents() {
+		for d in /sys/fs/cgroup/lxc.payload.*; do
+			[ -f "$d/io.stat" ] || continue
+			awk -v n="$(basename "$d" | sed 's/^lxc.payload.//')" '{for (i = 2; i <= NF; i++) {split($i, kv, "="); s[kv[1]] += kv[2]}} END {print n, s["rbytes"] + 0, s["wbytes"] + 0}' "$d/io.stat"
+		done
+	}
+	agents0=$(stat_agents)
 	trap 'rm -f "$f"' EXIT
 	if command -v python3 >/dev/null; then
 		python3 -I - "$f" "$probe" <<-'PY'
@@ -162,5 +176,14 @@ if [ "$probe" -gt 0 ]; then
 			echo $(( ($(date +%s%N) - s) / 1000 ))
 			sleep 0.05
 		done | sort -n | awk '{a[NR] = $1} END {printf "  n=%d  p50=%.1f ms  p95=%.1f ms  p99=%.1f ms  max=%.1f ms (dd, includes a fork)\n", NR, a[int(NR*.5)+1]/1000, a[int(NR*.95)+1]/1000, a[int(NR*.99)+1]/1000, a[NR]/1000}'
+	fi
+	if [ -n "$io0" ]; then
+		io1=$(awk '/^full/ {sub("total=", "", $5); print $5}' /proc/pressure/io)
+		echo "  this machine's io pressure (full) during the probe: $(awk -v a="$io0" -v b="$io1" -v s="$probe" 'BEGIN {printf "%.1f%%", (b - a) / (s * 10000)}')"
+	fi
+	if [ -n "$agents0" ]; then
+		echo "  agents' machines during the probe (MiB read / written, io.weight):"
+		join <(echo "$agents0" | sort) <(stat_agents | sort) | awk -v s="$probe" '{printf "    %-30s %8.0f / %8.0f\n", $1, ($4 - $2) / 1048576, ($5 - $3) / 1048576}' | sort -k4 -nr | head -15
+		for d in /sys/fs/cgroup/lxc.payload.*; do head -1 "$d/io.bfq.weight" 2>/dev/null || head -1 "$d/io.weight" 2>/dev/null; done | sort | uniq -c | sed 's/^/    weights: /'
 	fi
 fi
