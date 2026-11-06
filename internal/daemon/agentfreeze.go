@@ -51,7 +51,7 @@ type machineCgroups interface {
 	Running(instance string) (running, frozen bool)
 	Own(instance string) error
 	Freeze(instance string, on bool) error
-	Reclaim(instance string) error
+	Reclaim(ctx context.Context, instance string) error
 	Memory(instance string) int64
 }
 
@@ -64,8 +64,10 @@ func (agentMachineCgroups) Own(instance string) error { return agent.OwnMachineF
 func (agentMachineCgroups) Freeze(instance string, on bool) error {
 	return agent.FreezeMachine(instance, on)
 }
-func (agentMachineCgroups) Reclaim(instance string) error { return agent.ReclaimMachine(instance) }
-func (agentMachineCgroups) Memory(instance string) int64  { return agent.MachineMemory(instance) }
+func (agentMachineCgroups) Reclaim(ctx context.Context, instance string) error {
+	return agent.ReclaimMachine(ctx, instance)
+}
+func (agentMachineCgroups) Memory(instance string) int64 { return agent.MachineMemory(instance) }
 
 // fleetState is the fleet and what the daemon keeps beside it, under mu,
 // which may be taken under heavyRuns.mu but never the other way round.
@@ -379,7 +381,11 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 			continue // nowhere to push it out to
 		}
 		go func(c change) {
-			if err := s.machineCgroups.Reclaim(c.instance); err != nil {
+			ctx := context.WithoutCancel(ctx)
+			if !s.mayReclaim(ctx, c.instance) {
+				return
+			}
+			if err := s.machineCgroups.Reclaim(s.background(), c.instance); err != nil {
 				s.logf("memory: pushing %s's memory out: %v", c.ref, err)
 			}
 		}(c)

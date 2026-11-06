@@ -182,6 +182,10 @@ type stoppedJudge struct {
 	prErr   error
 	repo    gitrepo.Repo
 	repoErr error
+	// fresh reads each worktree again, for the check right before removing
+	// (freshStopped); otherwise a stopped worktree's kept measurement is
+	// taken (changesFor).
+	fresh bool
 }
 
 // newStoppedJudge reads p's pull requests for agents, its agents with a
@@ -216,7 +220,11 @@ func (j *stoppedJudge) facts(ctx context.Context, st agent.Status) (stoppedFacts
 	if _, err := os.Stat(st.Worktree); err != nil {
 		return stoppedFacts{}, fmt.Errorf("its worktree can't be read: %w", err)
 	}
-	changes, err := measureChanges(st.Agent)
+	measure := changesFor
+	if j.fresh {
+		measure = freshChanges
+	}
+	changes, err := measure(st)
 	if err != nil {
 		return stoppedFacts{}, fmt.Errorf("its changes can't be read: %w", err)
 	}
@@ -401,7 +409,9 @@ func (s *Server) freshStopped(ctx context.Context, m *agent.Manager, ref string)
 	if found == nil {
 		return agent.Status{}, nil, errors.New("it is gone")
 	}
-	return *found, s.newStoppedJudge(p, branched), nil
+	j := s.newStoppedJudge(p, branched)
+	j.fresh = true
+	return *found, j, nil
 }
 
 // getStoppedMachines serves GET /v1/stopped-machines: ?project= narrows it to

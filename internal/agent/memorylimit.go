@@ -308,33 +308,15 @@ func freezeRun(root, instance, key string, on bool, write func(path, value strin
 
 // ReclaimRun asks the kernel to push a paused run's memory out to swap (and
 // drop its page cache), so a paused run doesn't hold the VM's RAM. Without
-// swap only the cache goes. The kernel reclaims what it can and says when it
-// fell short, which isn't an error here.
-func ReclaimRun(instance, key string) error {
-	return reclaimRun(cgroupRoot, instance, key, writeCgroup)
+// swap only the cache goes. It is bounded (reclaimCgroup): the kernel
+// falling short isn't an error here.
+func ReclaimRun(ctx context.Context, instance, key string) error {
+	return reclaimRun(ctx, cgroupRoot, instance, key, writeReclaim)
 }
 
-func reclaimRun(root, instance, key string, write func(path, value string) error) error {
-	return reclaimDir(runCgroup(root, instance, key), write)
-}
-
-// reclaimDir asks the kernel to push out what the cgroup at dir holds.
-func reclaimDir(dir string, write func(path, value string) error) error {
-	b, err := os.ReadFile(filepath.Join(dir, "memory.current"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	current, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
-	if err != nil || current <= 0 {
-		return err
-	}
-	if err := write(filepath.Join(dir, "memory.reclaim"), strconv.FormatInt(current, 10)); err != nil && !errors.Is(err, errReclaimShort) {
-		return err
-	}
-	return nil
+func reclaimRun(ctx context.Context, root, instance, key string, write reclaimWriter) error {
+	_, _, err := reclaimCgroup(ctx, runCgroup(root, instance, key), write)
+	return err
 }
 
 // writeKernfs writes a cgroup file with plain blocking system calls. Not
@@ -483,8 +465,9 @@ func machineFrozen(root, instance string) bool {
 
 // ReclaimMachine pushes a frozen machine's memory out to swap, as ReclaimRun
 // does a run's.
-func ReclaimMachine(instance string) error {
-	return reclaimDir(agentCgroup(cgroupRoot, instance), writeCgroup)
+func ReclaimMachine(ctx context.Context, instance string) error {
+	_, _, err := reclaimCgroup(ctx, agentCgroup(cgroupRoot, instance), writeReclaim)
+	return err
 }
 
 // MachineMemory is what an agent's machine uses, without its caches; 0 when

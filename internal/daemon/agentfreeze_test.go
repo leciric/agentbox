@@ -43,7 +43,7 @@ func (f *fakeMachineCgroups) Freeze(instance string, on bool) error {
 	}
 	return nil
 }
-func (f *fakeMachineCgroups) Reclaim(instance string) error {
+func (f *fakeMachineCgroups) Reclaim(_ context.Context, instance string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reclaimed = append(f.reclaimed, instance)
