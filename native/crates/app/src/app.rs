@@ -119,6 +119,9 @@ pub struct AppView {
     /// The Settings page is open in the main area.
     settings: bool,
     settings_page: settings::SettingsPage,
+    /// The lead's panel shows the project's settings, at this section
+    /// (settings/panel.rs), over what it showed.
+    panel_settings: Option<&'static str>,
     /// The Work page, while it's open in the main area.
     work: Option<Entity<work::WorkView>>,
     /// The Office (crate::office), made the first time it's opened and kept,
@@ -215,6 +218,7 @@ impl AppView {
             side: sidebar::Sidebar::new(window, cx),
             new_task: None,
             settings: false,
+            panel_settings: None,
             settings_page: settings::SettingsPage::new(window, cx),
             work: None,
             office: None,
@@ -500,6 +504,11 @@ impl AppView {
                                         if place == "pulls" {
                                             this.pulls.tab = pulls::RailTab::Pulls;
                                             this.load_pulls(false, cx);
+                                        }
+                                        // project:<name>:settings[:<section>]
+                                        if let Some(rest) = place.strip_prefix("settings") {
+                                            let section = rest.trim_start_matches(':');
+                                            this.open_project_settings(section, window, cx);
                                         }
                                     }
                                     // home:status|memory, Home's tabs.

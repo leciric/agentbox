@@ -17,6 +17,7 @@ pub(super) mod first_run;
 pub(super) mod kit;
 mod memory;
 mod notify;
+pub(super) mod panel;
 mod phone;
 mod project;
 mod sent;
@@ -116,6 +117,10 @@ pub struct SettingsPage {
     scroll: ScrollHandle,
     /// The section list's, for its scrollbar.
     nav_scroll: ScrollHandle,
+    /// The right-hand panel's project settings: their scroller, and whether
+    /// General's Advanced is open (panel.rs).
+    panel_scroll: ScrollHandle,
+    panel_advanced: bool,
     watching_claude_code: bool,
     _sub: Subscription,
     _field_subs: Vec<Subscription>,
@@ -209,6 +214,8 @@ impl SettingsPage {
             skill_draft: cx.new(|cx| gpui_component::input::TextareaState::new(window, cx)),
             scroll: ScrollHandle::new(),
             nav_scroll: ScrollHandle::new(),
+            panel_scroll: ScrollHandle::new(),
+            panel_advanced: false,
             watching_claude_code: false,
             _sub: sub,
             _field_subs: field_subs,
@@ -226,6 +233,7 @@ pub(super) struct PaletteSetting {
 }
 
 /// Entry is one setting, as the search sees it (lib/settingsSearch.ts).
+#[derive(Clone)]
 struct Entry {
     id: &'static str,
     label: String,

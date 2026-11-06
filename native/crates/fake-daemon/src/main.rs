@@ -574,6 +574,83 @@ fn fake_jobs() -> Vec<Job> {
     ]
 }
 
+/// fake_tokens is a token report: what each chat spent, and its buckets.
+fn fake_tokens(project: &str) -> TokenReport {
+    let at = |ago: u64| {
+        humantime::format_rfc3339_seconds(crate::clock() - Duration::from_secs(ago)).to_string()
+    };
+    let chats = [
+        ("lead", "claude", "", 412_000, 18_500, 3_100_000, 240_000, 4.12),
+        ("agent-01", "claude", TITLES[0], 286_000, 41_200, 2_400_000, 310_000, 3.38),
+        ("agent-02", "codex", TITLES[1], 158_000, 22_900, 940_000, 0, 1.06),
+    ];
+    let agents: Vec<AgentTokens> = chats
+        .iter()
+        .enumerate()
+        .map(|(i, (agent, ai, title, input, output, read, write, cost))| {
+            let total = input + output + read + write;
+            AgentTokens {
+                project: project.to_string(),
+                agent: agent.to_string(),
+                r#ref: format!("{project}/{agent}"),
+                ai: ai.to_string(),
+                title: title.to_string(),
+                exists: true,
+                turns: 40 - 12 * i as i64,
+                max_context: 182_000 - 40_000 * i as i64,
+                last_at: at(600 + 900 * i as u64),
+                input: *input,
+                output: *output,
+                cache_read: *read,
+                cache_write: *write,
+                total,
+                cost_usd: *cost,
+                models: vec![ModelTokens {
+                    model: if *ai == "codex" { "gpt-5.1-codex" } else { "claude-opus-4-1" }.into(),
+                    input: *input,
+                    output: *output,
+                    cache_read: *read,
+                    cache_write: *write,
+                    total,
+                    cost_usd: *cost,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }
+        })
+        .collect();
+    let sum = |f: fn(&AgentTokens) -> i64| agents.iter().map(f).sum::<i64>();
+    let buckets = (0..10u64)
+        .map(|b| {
+            let w = [3, 5, 2, 8, 6, 9, 4, 7, 10, 5][b as usize];
+            TokenBucket {
+                start: at(1800 * (10 - b)),
+                input: 8_000 * w,
+                output: 900 * w,
+                cache_read: 60_000 * w,
+                cache_write: 4_000 * w,
+                total: 72_900 * w,
+                cost_usd: 0.09 * w as f64,
+                ..Default::default()
+            }
+        })
+        .collect();
+    TokenReport {
+        since: Some(at(5 * 3600)),
+        until: at(0),
+        input: sum(|a| a.input),
+        output: sum(|a| a.output),
+        cache_read: sum(|a| a.cache_read),
+        cache_write: sum(|a| a.cache_write),
+        total: sum(|a| a.total),
+        cost_usd: agents.iter().map(|a| a.cost_usd).sum(),
+        agents,
+        buckets,
+        bucket_seconds: 1800,
+        ..Default::default()
+    }
+}
+
 fn json<T: serde::Serialize>(status: StatusCode, v: &T) -> Response<Body> {
     Response::builder()
         .status(status)
@@ -721,6 +798,15 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                     ..Default::default()
                 },
             )
+        }
+        // What the project's chats spent (TokensPanel, Settings → Tokens):
+        // the lead and two agents, in half-hour buckets up to the fixtures'
+        // now.
+        (&Method::GET, ["v1", "tokens"]) if fake.opts.upstream.is_none() => {
+            json(StatusCode::OK, &fake_tokens(&fake.opts.project))
+        }
+        (&Method::GET, ["v1", "tokens", "turns"]) if fake.opts.upstream.is_none() => {
+            json(StatusCode::OK, &Vec::<TokenTurn>::new())
         }
         (&Method::GET, ["v1", "projects"]) if fake.opts.upstream.is_none() => {
             let p = Project {

@@ -397,8 +397,6 @@ pub fn select_at(
         .find(|c| c.value.as_ref() == current)
         .map(|c| c.label.clone())
         .unwrap_or_else(|| current.to_string());
-    let current = SharedString::from(current.to_string());
-    let choices = Rc::new(choices);
     // Its own width, not its column's, as segmented's.
     let button = Button::new(SharedString::from(format!("select-{id}")))
         .outline()
@@ -407,7 +405,148 @@ pub fn select_at(
         .max_w(px(280.))
         .label(format!("{label}  ▾"))
         .disabled(disabled)
-        .dropdown_menu_with_anchor(anchor, move |menu, _, _| {
+        .dropdown_menu_with_anchor(anchor, select_menu(choices, current, on_pick));
+    h_flex().child(button).into_any_element()
+}
+
+/// Trigger is Electron's selectTrigger as a dropdown's trigger: its border
+/// goes brand while the menu is open.
+#[derive(IntoElement)]
+pub struct Trigger {
+    base: Stateful<Div>,
+    open: bool,
+}
+
+impl Styled for Trigger {
+    fn style(&mut self) -> &mut StyleRefinement {
+        self.base.style()
+    }
+}
+
+impl InteractiveElement for Trigger {
+    fn interactivity(&mut self) -> &mut Interactivity {
+        self.base.interactivity()
+    }
+}
+
+impl gpui_component::Selectable for Trigger {
+    fn selected(mut self, selected: bool) -> Self {
+        self.open = selected;
+        self
+    }
+    fn is_selected(&self) -> bool {
+        self.open
+    }
+}
+
+impl gpui_component::menu::DropdownMenu for Trigger {}
+
+impl RenderOnce for Trigger {
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        let open = self.open;
+        self.base
+            .when(open, |el| el.border_color(theme::brand(400).opacity(0.6)))
+    }
+}
+
+/// field_select is Settings' Select (ui/select.tsx): a full-width h-9
+/// trigger, rounded-lg in line-strong on the sunken ground, its choice in
+/// text-sm and ChevronsUpDown at its end, over the same menu as select's;
+/// `icon` goes before the choice (the project's model picker's Sparkles).
+pub fn field_select(
+    id: &str,
+    choices: Vec<Choice>,
+    current: &str,
+    disabled: bool,
+    on_pick: Pick<str>,
+    anchor: Anchor,
+    icon: Option<(&'static str, Hsla)>,
+) -> AnyElement {
+    let label = choices
+        .iter()
+        .find(|c| c.value.as_ref() == current)
+        .map(|c| c.label.clone())
+        .unwrap_or_else(|| current.to_string());
+    let base = h_flex()
+        .id(SharedString::from(format!("select-{id}")))
+        .w_full()
+        .h_9()
+        .gap_2()
+        .px_3()
+        .rounded_lg()
+        .border_1()
+        .border_color(theme::line_strong())
+        .bg(theme::sunken())
+        .text_size(theme::text::BODY)
+        .line_height(px(20.))
+        .text_color(theme::primary())
+        .when(disabled, |el| el.opacity(0.5))
+        .when(!disabled, |el| {
+            el.cursor_pointer().hover(|s| s.border_color(theme::line_vivid()))
+        })
+        .when_some(icon, |el, (name, color)| {
+            el.child(
+                div()
+                    .flex_none()
+                    .text_color(color)
+                    .child(crate::icons::ic(name).size(px(16.))),
+            )
+        })
+        .child(div().flex_1().min_w_0().truncate().child(label))
+        .child(
+            div()
+                .flex_none()
+                .text_color(theme::subtle())
+                .child(crate::icons::ic("chevrons-up-down").size(px(14.))),
+        );
+    let trigger = Trigger { base, open: false };
+    if disabled {
+        return div().w_full().child(trigger).into_any_element();
+    }
+    div()
+        .w_full()
+        .child(trigger.dropdown_menu_with_anchor(anchor, select_menu(choices, current, on_pick)))
+        .into_any_element()
+}
+
+/// settings_select is field_select hung from its top right, as select is.
+pub fn settings_select(
+    id: &str,
+    choices: Vec<Choice>,
+    current: &str,
+    disabled: bool,
+    on_pick: Pick<str>,
+) -> AnyElement {
+    field_select(id, choices, current, disabled, on_pick, Anchor::TopRight, None)
+}
+
+/// settings_select_at is field_select hung from another corner.
+pub fn settings_select_at(
+    id: &str,
+    choices: Vec<Choice>,
+    current: &str,
+    disabled: bool,
+    on_pick: Pick<str>,
+    anchor: Anchor,
+) -> AnyElement {
+    field_select(id, choices, current, disabled, on_pick, anchor, None)
+}
+
+/// select_menu is a select's menu: every choice, grouped, the current one
+/// checked, each with what it means under it.
+fn select_menu(
+    choices: Vec<Choice>,
+    current: &str,
+    on_pick: Pick<str>,
+) -> impl Fn(
+    gpui_component::menu::PopupMenu,
+    &mut Window,
+    &mut Context<gpui_component::menu::PopupMenu>,
+) -> gpui_component::menu::PopupMenu
++ 'static {
+    let current = SharedString::from(current.to_string());
+    let choices = Rc::new(choices);
+    move |menu, _, _| {
             let mut menu = menu
                 .min_w(px(240.))
                 .max_w(px(380.))
@@ -459,8 +598,7 @@ pub fn select_at(
                 );
             }
             menu
-        });
-    h_flex().child(button).into_any_element()
+    }
 }
 
 /// stepper is a number within bounds, moved by a step: − value +.
@@ -653,18 +791,22 @@ impl Row {
                 v_flex()
                     .gap_3()
                     .child(
-                        h_flex()
-                            .items_start()
-                            .gap_6()
+                        div()
+                            .flex()
+                            .when(NARROW_ROWS.with(|n| n.get()), |el| el.flex_col().gap_3())
+                            .when(!NARROW_ROWS.with(|n| n.get()), |el| {
+                                el.flex_row().items_start().gap_6()
+                            })
                             .child(words)
                             // The control's column: w-64, its control at
                             // the right, so a group's controls line up.
                             .children(self.control.map(|c| {
+                                let narrow = NARROW_ROWS.with(|n| n.get());
                                 h_flex()
                                     .flex_none()
-                                    .w(px(256.))
-                                    .justify_end()
+                                    .min_w_0()
                                     .items_center()
+                                    .when(!narrow, |el| el.w(px(256.)).justify_end())
                                     .child(c)
                             })),
                     )
@@ -672,6 +814,21 @@ impl Row {
             )
             .into_any_element()
     }
+}
+
+thread_local! {
+    /// Whether the Rows drawn now are in a column narrower than SettingRow's
+    /// @lg (512px), where the control goes under the words.
+    static NARROW_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// narrow_rows draws `f`'s Rows stacked, as SettingRow is in a column under
+/// 512px wide (the right-hand panel's project settings).
+pub fn narrow_rows<R>(f: impl FnOnce() -> R) -> R {
+    let was = NARROW_ROWS.with(|n| n.replace(true));
+    let out = f();
+    NARROW_ROWS.with(|n| n.set(was));
+    out
 }
 
 thread_local! {

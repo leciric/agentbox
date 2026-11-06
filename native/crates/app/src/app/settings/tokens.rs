@@ -16,7 +16,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, note_in, segmented};
+use super::super::controls::{Btn, button, note_in};
 use super::defaults::time_ago;
 use super::kit::enc;
 use super::kit::note;
@@ -178,17 +178,41 @@ fn kind_label(kind: &str) -> String {
     }
 }
 
-fn card_box(title: String, description: String) -> Div {
-    super::kit::panel(v_flex())
+/// card_head is Card's header (ui/card.tsx): items-center gap-3, a size-7
+/// icon box on the surface ringed in line, the title text-sm semibold and
+/// what it holds text-xs subtle, an action at the end.
+fn card_head(
+    icon: &'static str,
+    title: String,
+    description: String,
+    action: Option<AnyElement>,
+) -> Div {
+    h_flex()
         .gap_3()
-        .px_5()
         .pt_4()
-        .pb_5()
+        .pb_1()
+        .child(
+            div()
+                .flex_none()
+                .size_7()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_lg()
+                .bg(theme::surface())
+                .border_1()
+                .border_color(theme::line())
+                .text_color(theme::muted())
+                .child(crate::icons::ic(icon).size(px(16.))),
+        )
         .child(
             v_flex()
+                .min_w_0()
+                .flex_1()
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(theme::text::BODY)
+                        .line_height(px(20.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme::primary())
                         .child(title),
@@ -196,18 +220,33 @@ fn card_box(title: String, description: String) -> Div {
                 .when(!description.is_empty(), |el| {
                     el.child(
                         div()
-                            .text_xs()
+                            .text_size(theme::text::CAPTION)
+                            .line_height(px(16.))
                             .text_color(theme::subtle())
                             .child(description),
                     )
                 }),
         )
+        .children(action)
 }
 
+/// card_box is Card: its header, then its body (px-5 pt-3 pb-5).
+fn card_box(icon: &'static str, title: String, description: String) -> Div {
+    super::kit::panel(v_flex())
+        .gap_3()
+        .px_5()
+        .pb_5()
+        .child(card_head(icon, title, description, None))
+}
+
+/// stat is Stat: rounded-xl line-faint on surface-faint, p-3; its label
+/// text-caption uppercase subtle, its value text-xl semibold, its hint two
+/// lines at most of text-caption leading-snug faint.
 fn stat(label: String, value: String, hint: String) -> AnyElement {
     v_flex()
         .flex_1()
-        .min_w(px(120.))
+        .flex_basis(px(0.))
+        .min_w_0()
         .p_3()
         .rounded_xl()
         .border_1()
@@ -216,14 +255,16 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
         .child(
             div()
                 .text_size(theme::text::CAPTION)
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme::muted())
-                .child(label),
+                .line_height(px(18.))
+                .text_color(theme::subtle())
+                .child(label.to_uppercase()),
         )
         .child(
             div()
                 .mt_1()
+                .whitespace_nowrap()
                 .text_size(theme::text::DISPLAY)
+                .line_height(px(28.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::title())
                 .child(value),
@@ -232,7 +273,10 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
             el.child(
                 div()
                     .mt_0p5()
-                    .text_xs()
+                    .text_size(theme::text::CAPTION)
+                    .line_height(px(16.5))
+                    .line_clamp(2)
+                    .text_ellipsis()
                     .text_color(theme::faint())
                     .child(hint),
             )
@@ -250,7 +294,8 @@ fn bar(fraction: f64, color: Hsla, h: f32) -> Div {
         .child(
             div()
                 .h_full()
-                .w(relative(fraction.clamp(0.02, 1.) as f32))
+                // Below zero: nothing to show at all.
+                .w(relative(if fraction < 0. { 0. } else { fraction.clamp(0.02, 1.) } as f32))
                 .rounded_full()
                 .bg(color),
         )
@@ -373,15 +418,37 @@ impl AppView {
                 .ok();
             }
         });
-        let tabs = segmented(
-            "tokens-period",
-            PERIODS
-                .iter()
-                .map(|p| (SharedString::from(*p), t(&format!("vm.tokens.period.{p}"))))
-                .collect(),
-            Some(period),
-            false,
-            pick,
+        // TabsList: gap-0.5 rounded-xl border-line bg-surface-faint p-1; each
+        // TabsTrigger h-8 rounded-lg px-3 text-ui medium, the open one on
+        // surface-strong.
+        let tabs = h_flex().child(
+            h_flex()
+                .gap(px(2.))
+                .p_1()
+                .rounded_xl()
+                .border_1()
+                .border_color(theme::line())
+                .bg(theme::surface_faint())
+                .children(PERIODS.iter().map(|p| {
+                    let on = *p == period;
+                    let pick = pick.clone();
+                    let p: &'static str = p;
+                    h_flex()
+                        .id(SharedString::from(format!("tokens-period-{p}")))
+                        .h_8()
+                        .px_3()
+                        .rounded_lg()
+                        .text_size(theme::text::UI)
+                        .font_weight(FontWeight::MEDIUM)
+                        .when(on, |el| el.bg(theme::surface_strong()).text_color(theme::title()))
+                        .when(!on, |el| {
+                            el.text_color(theme::muted())
+                                .cursor_pointer()
+                                .hover(|s| s.text_color(theme::primary()))
+                                .on_click(move |_, window, cx| pick(p, window, cx))
+                        })
+                        .child(t(&format!("vm.tokens.period.{p}")))
+                })),
         );
         let body: AnyElement = match &tk.report {
             _ if tk.project != project => super::super::panel::loading("tokens"),
@@ -429,8 +496,8 @@ impl AppView {
                     div()
                         .flex_1()
                         .min_w(px(256.))
-                        .text_xs()
-                        .line_height(rems(1.5))
+                        .text_size(theme::text::CAPTION)
+                        .line_height(relative(1.625))
                         .text_color(theme::subtle())
                         .child(t("vm.tokens.intro")),
                 ),
@@ -496,7 +563,8 @@ impl AppView {
                                 None => t("vm.tokens.resetSince"),
                             })),
                     )
-                    .child(bar(used.unwrap_or(0.), color, 6.))
+                    // Reset since: an empty bar, not the 2% a reading gets.
+                    .child(bar(used.unwrap_or(-1.), color, 6.))
                     .child(div().text_color(theme::faint()).child(match used {
                         None => tv(
                             "vm.tokens.resetNoChat",
@@ -538,6 +606,7 @@ impl AppView {
         });
         Some(
             card_box(
+                "gauge",
                 t("vm.tokens.claudeLimits"),
                 t("vm.tokens.claudeLimitsDescription"),
             )
@@ -548,8 +617,9 @@ impl AppView {
 
     fn token_headline(&self, r: &TokenReport) -> AnyElement {
         let fullest = r.agents.iter().max_by_key(|a| a.max_context);
+        // grid-cols-2 md:grid-cols-5: five abreast in a window 768 wide.
         h_flex()
-            .flex_wrap()
+            .items_stretch()
             .gap_3()
             .child(stat(
                 t("vm.tokens.tokens"),
@@ -621,29 +691,12 @@ impl AppView {
                 cx.notify();
             }),
         );
-        let head = h_flex()
-            .items_start()
-            .gap_2()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_0p5()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::primary())
-                            .child(t("vm.tokens.overTime")),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme::subtle())
-                            .child(step_words(step)),
-                    ),
-            )
-            .child(toggle);
+        let head = card_head(
+            "chart-column",
+            t("vm.tokens.overTime"),
+            step_words(step),
+            Some(toggle),
+        );
         if as_table {
             let cell = |text: String, w: f32, right: bool, strong: bool| {
                 div()
@@ -701,7 +754,6 @@ impl AppView {
             return super::kit::panel(v_flex())
                 .gap_3()
                 .px_5()
-                .pt_4()
                 .pb_5()
                 .child(head)
                 .child(
@@ -774,49 +826,77 @@ impl AppView {
                         .hover(|s| s.opacity(0.8)),
                 )
         });
+        // axisTokens: under a thousand, the number as JavaScript writes it
+        // (0.5 of an empty chart's 1).
         let axis = |f: f64| {
-            human_tokens((peak as f64 * f) as i64)
+            let v = peak as f64 * f;
+            if v < 1000. {
+                return format!("{v}");
+            }
+            human_tokens(v as i64)
                 .replace(".0K", "K")
                 .replace(".0M", "M")
         };
         super::kit::panel(v_flex())
             .gap_3()
             .px_5()
-            .pt_4()
             .pb_5()
             .child(head)
+            // h-40: a faint line at 0, ½ and the top, each with its figure
+            // in a w-10 column centred on it, and the columns in what's
+            // right of left-12.
             .child(
-                h_flex()
+                div()
+                    .relative()
                     .h(px(160.))
-                    .gap_2()
-                    .child(
-                        v_flex()
-                            .w(px(40.))
-                            .h_full()
-                            .justify_between()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .children(
-                                [axis(1.), axis(0.5), axis(0.)]
-                                    .map(|l| div().text_right().child(l)),
-                            ),
-                    )
+                    .children([0., 0.5, 1.].map(|f: f64| {
+                        let y = 160. * (1. - f as f32);
+                        div()
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .top(px(y - 9.))
+                            .h(px(18.))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left(px(48.))
+                                    .right_0()
+                                    .top(px(8.))
+                                    .h(px(1.))
+                                    .bg(theme::line_faint()),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .left_0()
+                                    .w(px(40.))
+                                    .text_right()
+                                    .text_size(theme::text::CAPTION)
+                                    .line_height(px(18.))
+                                    .text_color(theme::faint())
+                                    .child(axis(f)),
+                            )
+                    }))
                     .child(
                         h_flex()
-                            .flex_1()
-                            .h_full()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left(px(48.))
+                            .right_0()
                             .items_end()
                             .gap(px(2.))
-                            .border_b_1()
-                            .border_color(theme::line_faint())
                             .children(columns),
                     ),
             )
             .child(
                 h_flex()
                     .ml(px(48.))
+                    .mt(px(-6.))
                     .justify_between()
-                    .text_xs()
+                    .text_size(theme::text::CAPTION)
+                    .line_height(px(18.))
                     .text_color(theme::faint())
                     .children(labelled.into_iter().map(|s| {
                         slot_label(s, step)
@@ -962,7 +1042,7 @@ impl AppView {
                 )
                 .when(open, |el| el.child(self.agent_detail(a)))
         });
-        card_box(t("vm.tokens.byAgent"), t("vm.tokens.byAgentDescription"))
+        card_box("users", t("vm.tokens.byAgent"), t("vm.tokens.byAgentDescription"))
             .child(
                 v_flex()
                     .rounded_xl()

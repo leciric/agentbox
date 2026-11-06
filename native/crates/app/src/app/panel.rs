@@ -1053,6 +1053,19 @@ impl AppView {
     /// render_panel_body is the panel at a width: its header and its view.
     pub(super) fn render_panel_body(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
         let whose = self.panel_whose();
+        if matches!(whose, Whose::Lead) && self.panel_settings.is_some() {
+            let (header, body) = self.render_project_settings(cx);
+            return v_flex()
+                .w(px(width))
+                .flex_none()
+                .h_full()
+                .bg(theme::sunken())
+                .border_l_1()
+                .border_color(theme::line())
+                .child(header)
+                .child(div().flex_1().min_h_0().child(body))
+                .into_any_element();
+        }
         let header = match &whose {
             Whose::Lead => self.lead_header(cx),
             Whose::List => self.list_header(cx),
@@ -1099,10 +1112,9 @@ impl AppView {
         self.header_row()
             .child(self.render_rail_switch(self.fleet.len(), cx))
             .child(div().flex_1())
-            .when(self.pulls.tab == RailTab::Agents, |el| {
-                el.child(self.new_agent_button(cx))
-                    .child(self.fold_button(cx))
-            })
+            .when(self.pulls.tab == RailTab::Agents, |el| el.child(self.new_agent_button(cx)))
+            .child(self.project_buttons(cx))
+            .when(self.pulls.tab == RailTab::Agents, |el| el.child(self.fold_button(cx)))
             .into_any_element()
     }
 

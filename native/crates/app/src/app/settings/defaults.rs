@@ -23,7 +23,8 @@ use gpui_component::input::Input;
 use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, Choice, Row, button, labeled, note_in, select, select_at};
+use super::super::controls::{Btn, Choice, Row, button, labeled, note_in, settings_select as select,
+    settings_select_at as select_at};
 use super::kit::note;
 use super::{Entry, Group, entry, group};
 use crate::theme;

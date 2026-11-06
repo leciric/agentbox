@@ -264,6 +264,31 @@ impl AppView {
     }
 
     /// input_small is one of the page's fields, at a field's height.
+    /// input_field is Electron's Input: h-9 rounded-lg in line-strong on the
+    /// sunken ground, px-3, text-sm.
+    pub(super) fn input_field(&self, name: &str) -> AnyElement {
+        match self.settings_page.fields.get(name) {
+            Some(i) => h_flex()
+                .h_9()
+                .px_3()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme::line_strong())
+                .bg(theme::sunken())
+                .text_size(theme::text::BODY)
+                .child(
+                    div().flex_1().min_w_0().child(
+                        Input::new(i)
+                            .appearance(false)
+                            .with_size(gpui_component::Size::Size(px(14. / 0.875)))
+                            .px_0(),
+                    ),
+                )
+                .into_any_element(),
+            None => div().into_any_element(),
+        }
+    }
+
     pub(super) fn input_small(&self, name: &str) -> AnyElement {
         match self.settings_page.fields.get(name) {
             Some(i) => Input::new(i).small().into_any_element(),

@@ -22,7 +22,8 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, Choice, Row, button, labeled, note_in, select, toggle};
+use super::super::controls::{Btn, Choice, Row, button, labeled, note_in, settings_select as select,
+    toggle};
 use super::defaults::{ai_label, format_tokens, time_ago};
 use super::kit::{ask, card, enc, link, mono, plain, title};
 use super::kit::{badge, note};
@@ -820,6 +821,10 @@ impl AppView {
     /// open_project_name is the project whose name and prefix fields are
     /// shown: the open section's.
     pub(super) fn open_project_name(&self) -> Option<String> {
+        // Or the lead's, whose panel shows its settings.
+        if !self.settings && self.panel_settings.is_some() {
+            return self.project.clone();
+        }
         self.settings_page
             .open
             .strip_prefix("project:")
@@ -1097,21 +1102,29 @@ impl AppView {
                 let open = self.open_project_name().as_deref() == Some(n.as_str());
                 if open {
                     let (a, b) = (n.clone(), n.clone());
+                    let draft = self.field_value("project-name", cx);
+                    let changed = draft.trim() != label_of(&p);
                     row.body.push(
                         h_flex()
+                            .flex_wrap()
                             .gap_2()
-                            .child(div().w(px(280.)).child(self.input_small("project-name")))
-                            .child(button(
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .max_w(px(384.))
+                                    .child(self.input_field("project-name")),
+                            )
+                            .when(changed, |el| el.child(button(
                                 "project-name-save",
                                 t("common.save"),
-                                Btn::Secondary,
-                                busy || self.field_value("project-name", cx).is_empty()
-                                    || self.field_value("project-name", cx) == label_of(&p),
+                                Btn::Primary,
+                                busy || draft.trim().is_empty(),
                                 cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.save_project_name(a.clone(), cx)
                                 }),
-                            ))
-                            .child(link(
+                            )))
+                            .when(changed, |el| el.child(link(
                                 "project-name-cancel",
                                 t("common.cancel"),
                                 cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -1122,7 +1135,7 @@ impl AppView {
                                         i.update(cx, |i, cx| i.set_value(label_of(&p), window, cx));
                                     }
                                 }),
-                            ))
+                            )))
                             .into_any_element(),
                     );
                 } else {
@@ -1241,7 +1254,9 @@ impl AppView {
                     ch.group = c.group.clone();
                     ch
                 }));
-                row.control = Some(select(
+                // AgentModelPicker: under the words, full width, Sparkles
+                // before the choice.
+                row.body.push(super::super::controls::field_select(
                     &format!("p-model-{n}"),
                     choices,
                     &p.agent_model,
@@ -1267,6 +1282,8 @@ impl AppView {
                         },
                         cx,
                     ),
+                    Anchor::TopLeft,
+                    Some(("sparkles", theme::brand(300))),
                 ));
                 row
             }
