@@ -773,7 +773,10 @@ pub fn initial_bounds(cx: &App) -> WindowBounds {
     // left (native/scripts/parity.sh, which compares it with Electron's).
     if let Some((w, h)) = std::env::var("AGENTBOX_NATIVE_SIZE")
         .ok()
-        .and_then(|s| s.split_once('x').map(|(w, h)| (w.parse::<f32>(), h.parse::<f32>())))
+        .and_then(|s| {
+            s.split_once('x')
+                .map(|(w, h)| (w.parse::<f32>(), h.parse::<f32>()))
+        })
         .and_then(|(w, h)| Some((w.ok()?, h.ok()?)))
     {
         return WindowBounds::Windowed(Bounds::new(point(px(0.), px(0.)), size(px(w), px(h))));

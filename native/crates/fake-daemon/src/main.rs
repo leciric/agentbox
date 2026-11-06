@@ -534,10 +534,8 @@ fn rand_id() -> u64 {
 /// fake_jobs are what the Jobs page lists.
 fn fake_jobs() -> Vec<Job> {
     let at = |mins: u64| {
-        humantime::format_rfc3339_seconds(
-            crate::clock() - Duration::from_secs(mins * 60),
-        )
-        .to_string()
+        humantime::format_rfc3339_seconds(crate::clock() - Duration::from_secs(mins * 60))
+            .to_string()
     };
     vec![
         Job {

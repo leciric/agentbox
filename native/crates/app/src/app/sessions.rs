@@ -1322,13 +1322,17 @@ impl AppView {
                         .gap_1p5()
                         .overflow_hidden()
                         .when(agents.is_empty(), |el| {
-                            el.child(div().truncate().text_size(theme::text::CAPTION).text_color(theme::faint()).child(
-                                if output.is_some() {
-                                    t("sessions.header.none")
-                                } else {
-                                    t("common.loading")
-                                },
-                            ))
+                            el.child(
+                                div()
+                                    .truncate()
+                                    .text_size(theme::text::CAPTION)
+                                    .text_color(theme::faint())
+                                    .child(if output.is_some() {
+                                        t("sessions.header.none")
+                                    } else {
+                                        t("common.loading")
+                                    }),
+                            )
                         })
                         .children(agents.iter().map(|a| {
                             let name = if a.title.is_empty() {

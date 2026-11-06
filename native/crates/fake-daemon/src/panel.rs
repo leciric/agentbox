@@ -40,13 +40,11 @@ fn state() -> &'static Mutex<State> {
 }
 
 fn ago(mins: u64) -> String {
-    humantime::format_rfc3339_millis(crate::clock() - Duration::from_secs(mins * 60))
-        .to_string()
+    humantime::format_rfc3339_millis(crate::clock() - Duration::from_secs(mins * 60)).to_string()
 }
 
 fn ahead(mins: u64) -> String {
-    humantime::format_rfc3339_millis(crate::clock() + Duration::from_secs(mins * 60))
-        .to_string()
+    humantime::format_rfc3339_millis(crate::clock() + Duration::from_secs(mins * 60)).to_string()
 }
 
 fn seed(s: &mut State, project: &str) {

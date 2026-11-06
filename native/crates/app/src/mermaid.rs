@@ -62,8 +62,13 @@ fn rendered(src: &str) -> Rendered {
 /// header h-8 with the language at its left over a faint rule; the code at
 /// 0.78rem, line height 1.6, in 0.7rem 0.9rem of padding, in Shiki's colours.
 pub fn code_block(lang: &str, text: &str) -> AnyElement {
-    let lines: Vec<String> = text.trim_end_matches('\n').lines().map(str::to_string).collect();
-    let runs = crate::highlight::lang_of_fence(lang).map(|l| crate::highlight::line_runs(l, &lines));
+    let lines: Vec<String> = text
+        .trim_end_matches('\n')
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let runs =
+        crate::highlight::lang_of_fence(lang).map(|l| crate::highlight::line_runs(l, &lines));
     div()
         .w_full()
         .min_w_0()
@@ -85,13 +90,13 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
                 .border_color(theme::line_faint())
                 .text_size(theme::text::CAPTION)
                 .text_color(theme::subtle())
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .font_family(theme::mono())
-                        .child(if lang.is_empty() { "text".to_string() } else { lang.to_string() }),
-                ),
+                .child(div().min_w_0().truncate().font_family(theme::mono()).child(
+                    if lang.is_empty() {
+                        "text".to_string()
+                    } else {
+                        lang.to_string()
+                    },
+                )),
         )
         .child(
             div()
@@ -106,9 +111,10 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
                 .text_color(crate::highlight::code_fg())
                 .children(lines.into_iter().enumerate().map(|(i, l)| {
                     let l = if l.is_empty() { " ".to_string() } else { l };
-                    div()
-                        .whitespace_nowrap()
-                        .child(crate::highlight::styled(l, runs.as_ref().and_then(|r| r.get(i))))
+                    div().whitespace_nowrap().child(crate::highlight::styled(
+                        l,
+                        runs.as_ref().and_then(|r| r.get(i)),
+                    ))
                 })),
         )
         .into_any_element()

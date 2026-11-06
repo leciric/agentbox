@@ -162,7 +162,9 @@ impl AppView {
                     .child("AgentBox"),
             )
             // Electron says nothing while connected; native marks a lost daemon.
-            .when(!self.connected, |el| el.child(div().ml_1().size_2().rounded_full().bg(theme::error())))
+            .when(!self.connected, |el| {
+                el.child(div().ml_1().size_2().rounded_full().bg(theme::error()))
+            })
             .child(div().flex_1())
             .child(
                 div()
@@ -171,9 +173,18 @@ impl AppView {
                     .child(crate::spot::spot("help")),
             )
             .child(
-                glyph_button("add-project", "folder-plus", 16., 6., t("shell.home.addProject")).on_click(cx.listener(
-                    |this, _: &ClickEvent, window, cx| this.open_add_project(window, cx),
-                )),
+                glyph_button(
+                    "add-project",
+                    "folder-plus",
+                    16.,
+                    6.,
+                    t("shell.home.addProject"),
+                )
+                .on_click(
+                    cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.open_add_project(window, cx)
+                    }),
+                ),
             )
             .into_any_element()
     }
@@ -489,11 +500,18 @@ impl AppView {
             .child(div().flex_1())
             .when(new_section, |el| {
                 el.child(
-                    glyph_button("new-section", "folder-tree", 14., 4., t("shell.sidebar.newSection")).on_click(
-                        cx.listener(|this, _: &ClickEvent, window, cx| {
+                    glyph_button(
+                        "new-section",
+                        "folder-tree",
+                        14.,
+                        4.,
+                        t("shell.sidebar.newSection"),
+                    )
+                    .on_click(cx.listener(
+                        |this, _: &ClickEvent, window, cx| {
                             this.open_section_name(None, None, window, cx)
-                        }),
-                    ),
+                        },
+                    )),
                 )
             })
             // Dropped on the Projects heading, a project leaves its section.
@@ -675,7 +693,14 @@ impl AppView {
                 .text_size(px(size * 0.5))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme::secondary())
-                .child(label_of(p).chars().next().unwrap_or('?').to_uppercase().to_string()),
+                .child(
+                    label_of(p)
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string(),
+                ),
         }
         .into_any_element()
     }
@@ -1268,7 +1293,11 @@ impl AppView {
                 .justify_center()
                 .rounded_lg()
                 .cursor_pointer()
-                .text_color(if on { theme::brand(300) } else { theme::subtle() })
+                .text_color(if on {
+                    theme::brand(300)
+                } else {
+                    theme::subtle()
+                })
                 .when(on, |el| el.bg(theme::surface_raised()))
                 .hover(|el| el.bg(theme::surface()))
                 .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
@@ -1326,13 +1355,19 @@ impl AppView {
         // Installed: the button restarts into the new version.
         if let Some(Phase::Ready { relaunch, .. }) = &self.side.app_update {
             let relaunch = relaunch.clone();
-            return glyph_button("update-restart", "circle-arrow-up", 16., 8., t("native.update.restart"))
-                .rounded_lg()
-                .text_color(theme::running())
-                .on_click(move |_, _, cx| {
-                    restart_into(&relaunch, cx);
-                })
-                .into_any_element();
+            return glyph_button(
+                "update-restart",
+                "circle-arrow-up",
+                16.,
+                8.,
+                t("native.update.restart"),
+            )
+            .rounded_lg()
+            .text_color(theme::running())
+            .on_click(move |_, _, cx| {
+                restart_into(&relaunch, cx);
+            })
+            .into_any_element();
         }
         let offer = self.side.update.as_ref().and_then(|u| {
             u.available
@@ -1353,14 +1388,24 @@ impl AppView {
                     update_hint(&self.side.app_support, &offer.version)
                 )
             };
-            return glyph_button("update-offer", if updating { "loader-circle" } else { "circle-arrow-up" }, 16., 8., tip)
-                .rounded_lg()
-                .text_color(theme::running())
-                .when(updating, |el| el.opacity(0.6).cursor_default())
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.start_app_update(offer.url.clone(), cx)
-                }))
-                .into_any_element();
+            return glyph_button(
+                "update-offer",
+                if updating {
+                    "loader-circle"
+                } else {
+                    "circle-arrow-up"
+                },
+                16.,
+                8.,
+                tip,
+            )
+            .rounded_lg()
+            .text_color(theme::running())
+            .when(updating, |el| el.opacity(0.6).cursor_default())
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.start_app_update(offer.url.clone(), cx)
+            }))
+            .into_any_element();
         }
         let label = if self.side.checking {
             t("v2.update.checking")

@@ -275,7 +275,11 @@ impl AppView {
             .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_search(window, cx)))
             .child(crate::icons::ic("search").size(px(14.)))
-            .child(div().text_size(theme::text::CAPTION).child(t("common.search")))
+            .child(
+                div()
+                    .text_size(theme::text::CAPTION)
+                    .child(t("common.search")),
+            )
             .child(
                 div()
                     .px(px(6.))

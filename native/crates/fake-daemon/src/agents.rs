@@ -613,13 +613,10 @@ pub async fn route(
             let body = body_of(req).await;
             let asked: SnapshotRequest = serde_json::from_slice(&body).unwrap_or_default();
             let name = if asked.name.is_empty() {
-                format!(
-                    "snap-{}",
-                    humantime::format_rfc3339_seconds(crate::clock())
-                )
-                .replace([':', 'T'], "-")
-                .trim_end_matches('Z')
-                .to_string()
+                format!("snap-{}", humantime::format_rfc3339_seconds(crate::clock()))
+                    .replace([':', 'T'], "-")
+                    .trim_end_matches('Z')
+                    .to_string()
             } else {
                 asked.name
             };

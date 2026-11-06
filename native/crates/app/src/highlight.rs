@@ -68,7 +68,9 @@ fn palette(name: &str) -> Option<u32> {
         "keyword" | "preproc" | "operator" => pick(0xff7b72, 0xcf222e, 0xff79c6),
         "number" | "boolean" | "constant" | "variable.special" | "attribute" | "property"
         | "string.escape" => pick(0x79c0ff, 0x0550ae, 0xbd93f9),
-        "string" | "string.regex" | "text.literal" | "link_uri" => pick(0xa5d6ff, 0x0a3069, 0xf1fa8c),
+        "string" | "string.regex" | "text.literal" | "link_uri" => {
+            pick(0xa5d6ff, 0x0a3069, 0xf1fa8c)
+        }
         "comment" | "comment.doc" => pick(0x8b949e, 0x6e7781, 0x6272a4),
         "function" => pick(0xd2a8ff, 0x8250df, 0x50fa7b),
         "type" => pick(0xffa657, 0x953800, 0x8be9fd),

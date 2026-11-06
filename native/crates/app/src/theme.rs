@@ -940,7 +940,12 @@ pub fn balanced_width(window: &gpui::Window, text: &str, size: Pixels, max: Pixe
         underline: None,
         strikethrough: None,
     };
-    let w = f32::from(window.text_system().layout_line(text, size, &[run], None).width);
+    let w = f32::from(
+        window
+            .text_system()
+            .layout_line(text, size, &[run], None)
+            .width,
+    );
     let max_f = f32::from(max);
     if w <= max_f {
         return max;
@@ -953,7 +958,10 @@ pub fn balanced_width(window: &gpui::Window, text: &str, size: Pixels, max: Pixe
 /// (styles.css: font-feature-settings "cv11", "ss01"): the single-storey a
 /// and the open digits.
 pub fn sans_features() -> gpui::FontFeatures {
-    gpui::FontFeatures(std::sync::Arc::new(vec![("cv11".into(), 1), ("ss01".into(), 1)]))
+    gpui::FontFeatures(std::sync::Arc::new(vec![
+        ("cv11".into(), 1),
+        ("ss01".into(), 1),
+    ]))
 }
 pub const MONO_FACE: &str = "JetBrains Mono";
 

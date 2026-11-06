@@ -300,7 +300,7 @@ impl Composer {
                 input,
                 attachments: Vec::new(),
                 menu_ix: 0,
-            width: 896.,
+                width: 896.,
                 dismissed: None,
                 files: None,
                 projects: None,
@@ -1055,15 +1055,35 @@ impl ChatView {
                 .gap_1()
                 .rounded(gpui_component::button::ButtonRounded::Size(px(999.)))
                 .text_size(px(12.))
-                .text_color(if current.is_some() { theme::brand(200) } else { theme::subtle() })
+                .text_color(if current.is_some() {
+                    theme::brand(200)
+                } else {
+                    theme::subtle()
+                })
                 .when(current.is_some(), |b| b.bg(theme::brand(500).opacity(0.15)))
                 .child(
                     h_flex()
                         .min_w_0()
                         .gap_1()
-                        .child(div().flex_none().text_color(theme::faint()).child(t("chat.target.to")))
-                        .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(label.clone()))
-                        .child(div().flex_none().opacity(0.7).child(crate::icons::ic("chevron-down").size(px(12.)))),
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(theme::faint())
+                                .child(t("chat.target.to")),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(label.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .opacity(0.7)
+                                .child(crate::icons::ic("chevron-down").size(px(12.))),
+                        ),
                 )
                 .tooltip(tv("chat.target.label", &[("target", (&label).into())]))
                 .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
@@ -1249,11 +1269,17 @@ impl ChatView {
         } else if self.items.is_empty() && !self.older {
             // Composer.tsx: the lead's own words in a project's chat, Home's
             // and an agent's the plain ones.
-            t(if self.is_lead() && !self.agent.starts_with(&format!("{}/", agentbox_api::HOME_PROJECT)) {
-                "chat.composer.placeholderLead"
-            } else {
-                "chat.composer.placeholderEmpty"
-            })
+            t(
+                if self.is_lead()
+                    && !self
+                        .agent
+                        .starts_with(&format!("{}/", agentbox_api::HOME_PROJECT))
+                {
+                    "chat.composer.placeholderLead"
+                } else {
+                    "chat.composer.placeholderEmpty"
+                },
+            )
         } else {
             t("chat.composer.placeholder")
         }
@@ -1262,14 +1288,22 @@ impl ChatView {
     fn option_button(&self, o: &ChatOption, label: String, cx: &mut Context<Self>) -> AnyElement {
         let view = cx.entity().downgrade();
         let (id, value, choices) = (o.id.clone(), o.value.clone(), o.choices.clone());
-        let icon = if o.category == "thought_level" || o.id.contains("effort") { Some("brain") } else { None };
+        let icon = if o.category == "thought_level" || o.id.contains("effort") {
+            Some("brain")
+        } else {
+            None
+        };
         option_chip(Button::new(SharedString::from(format!("opt-{}", o.id))))
             .child(
                 h_flex()
                     .gap(px(6.))
                     .children(icon.map(|i| crate::icons::ic(i).size(px(16.))))
                     .child(div().max_w(px(160.)).truncate().child(label))
-                    .child(div().text_color(theme::faint()).child(crate::icons::ic("chevron-down").size(px(14.)))),
+                    .child(
+                        div()
+                            .text_color(theme::faint())
+                            .child(crate::icons::ic("chevron-down").size(px(14.))),
+                    ),
             )
             .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                 let mut menu = menu.max_h(px(420.)).scrollable(true);
@@ -1378,7 +1412,11 @@ impl ChatView {
         let chip_label = h_flex()
             .gap(px(6.))
             .child(crate::icons::tool_mark(&tool, px(16.), theme::muted()))
-            .child(div().min_w_0().truncate().child(if shown_parts.is_empty() { tool_name.clone() } else { shown_parts.join(" · ") }))
+            .child(div().min_w_0().truncate().child(if shown_parts.is_empty() {
+                tool_name.clone()
+            } else {
+                shown_parts.join(" · ")
+            }))
             .when(!nothing, |el| {
                 el.child(
                     div()
@@ -2276,184 +2314,201 @@ impl ChatView {
             .focus_handle(cx)
             .contains_focused(window, cx);
         let width_view = view.downgrade();
-        div().flex_none().w_full().px_6().pt(px(28.)).pb_5().child(v_flex()
+        div()
+            .flex_none()
             .w_full()
-            .max_w(px(896.))
-            .mx_auto()
-            .relative()
-            // Its width, for SetupChip's fold (a container query in Electron).
-            .child(
-                canvas(
-                    move |bounds, _, cx| {
-                        let w = f32::from(bounds.size.width);
-                        width_view
-                            .update(cx, |this, cx| {
-                                if (this.composer.width - w).abs() > 0.5 {
-                                    this.composer.width = w;
-                                    cx.notify();
-                                }
-                            })
-                            .ok();
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .left_0()
-                .right_0()
-                .h_0(),
-            )
-            .children(tasks_list)
-            .children(menu_el)
-            .children(above)
+            .px_6()
+            .pt(px(28.))
+            .pb_5()
             .child(
                 v_flex()
-                    .id("composer")
-                    .rounded(px(22.))
-                    .border_1()
-                    .border_color(if focused {
-                        theme::line_vivid()
-                    } else {
-                        theme::line_strong()
-                    })
-                    .bg(theme::composer())
-                    .shadow(theme::shadow_composer(focused))
-                    // While a menu is open, its keys are its own.
-                    .capture_action(cx.listener(move |this, _: &MoveDown, _, cx| {
-                        if menu_len > 0 {
-                            this.composer.menu_ix = (this.composer.menu_ix + 1) % menu_len;
-                            cx.stop_propagation();
-                            cx.notify();
-                        }
-                    }))
-                    .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| {
-                        if menu_len > 0 {
-                            this.composer.menu_ix =
-                                (this.composer.menu_ix + menu_len - 1) % menu_len;
-                            cx.stop_propagation();
-                            cx.notify();
-                        } else if this.text(cx).is_empty()
-                            && let Some(last) = this.last_mine()
-                        {
-                            // Up in an empty composer brings your last message back.
-                            let at = last.len();
-                            this.composer.input.update(cx, |s, cx| {
-                                s.set_value(last, window, cx);
-                                s.set_selected_range(at..at, cx);
-                            });
-                            cx.stop_propagation();
-                        }
-                    }))
-                    .capture_action(cx.listener(move |this, a: &Enter, window, cx| {
-                        if !a.shift && !menu_for_enter.is_empty() {
-                            let ix = this.composer.menu_ix.min(menu_for_enter.len() - 1);
-                            this.pick(menu_for_enter[ix].clone(), window, cx);
-                            cx.stop_propagation();
-                        }
-                    }))
-                    .capture_action(cx.listener(move |this, _: &Escape, _, cx| {
-                        if menu_len > 0 {
-                            this.composer.dismissed = Some(token.clone());
-                            cx.stop_propagation();
-                            cx.notify();
-                        } else if this.composer.target.is_some() && this.text(cx).is_empty() {
-                            // Esc in an empty composer points it back at the lead.
-                            this.composer.target = None;
-                            cx.stop_propagation();
-                            cx.notify();
-                        }
-                    }))
-                    .children(attachments)
+                    .w_full()
+                    .max_w(px(896.))
+                    .mx_auto()
+                    .relative()
+                    // Its width, for SetupChip's fold (a container query in Electron).
                     .child(
-                        div()
-                            .px_2()
-                            .pb_0p5()
-                            .pt_3()
-                            .text_sm()
-                            .line_height(relative(1.625))
-                            .child(input),
+                        canvas(
+                            move |bounds, _, cx| {
+                                let w = f32::from(bounds.size.width);
+                                width_view
+                                    .update(cx, |this, cx| {
+                                        if (this.composer.width - w).abs() > 0.5 {
+                                            this.composer.width = w;
+                                            cx.notify();
+                                        }
+                                    })
+                                    .ok();
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .h_0(),
                     )
+                    .children(tasks_list)
+                    .children(menu_el)
+                    .children(above)
                     .child(
-                        h_flex()
-                            .px_2()
-                            .pb_2()
-                            .gap_1()
-                            .children(target)
+                        v_flex()
+                            .id("composer")
+                            .rounded(px(22.))
+                            .border_1()
+                            .border_color(if focused {
+                                theme::line_vivid()
+                            } else {
+                                theme::line_strong()
+                            })
+                            .bg(theme::composer())
+                            .shadow(theme::shadow_composer(focused))
+                            // While a menu is open, its keys are its own.
+                            .capture_action(cx.listener(move |this, _: &MoveDown, _, cx| {
+                                if menu_len > 0 {
+                                    this.composer.menu_ix = (this.composer.menu_ix + 1) % menu_len;
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                }
+                            }))
+                            .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| {
+                                if menu_len > 0 {
+                                    this.composer.menu_ix =
+                                        (this.composer.menu_ix + menu_len - 1) % menu_len;
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                } else if this.text(cx).is_empty()
+                                    && let Some(last) = this.last_mine()
+                                {
+                                    // Up in an empty composer brings your last message back.
+                                    let at = last.len();
+                                    this.composer.input.update(cx, |s, cx| {
+                                        s.set_value(last, window, cx);
+                                        s.set_selected_range(at..at, cx);
+                                    });
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .capture_action(cx.listener(move |this, a: &Enter, window, cx| {
+                                if !a.shift && !menu_for_enter.is_empty() {
+                                    let ix = this.composer.menu_ix.min(menu_for_enter.len() - 1);
+                                    this.pick(menu_for_enter[ix].clone(), window, cx);
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .capture_action(cx.listener(move |this, _: &Escape, _, cx| {
+                                if menu_len > 0 {
+                                    this.composer.dismissed = Some(token.clone());
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                } else if this.composer.target.is_some() && this.text(cx).is_empty()
+                                {
+                                    // Esc in an empty composer points it back at the lead.
+                                    this.composer.target = None;
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                }
+                            }))
+                            .children(attachments)
                             .child(
                                 div()
-                                    .id("attach")
-                                    .flex_none()
-                                    .size_8()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded_full()
-                                    .cursor_pointer()
-                                    .text_color(theme::subtle())
-                                    .hover(|el| {
-                                        el.bg(theme::surface_raised()).text_color(theme::primary())
-                                    })
-                                    .child(crate::icons::ic("paperclip").size(px(16.)))
-                                    .tooltip(|w, cx| {
-                                        gpui_component::tooltip::Tooltip::new(t(
-                                            "chat.composer.attachTip",
-                                        ))
-                                        .build(w, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.pick_files(cx)
-                                    })),
+                                    .px_2()
+                                    .pb_0p5()
+                                    .pt_3()
+                                    .text_sm()
+                                    .line_height(relative(1.625))
+                                    .child(input),
                             )
-                            .child(div().flex_1().min_w_0().child(self.render_options(cx)))
-                            .children(tasks_chip)
-                            .when(working, |el| {
-                                el.child(super::btn(
-                                    "stop-turn",
-                                    t("chat.composer.stopTurn"),
-                                    false,
-                                    false,
-                                    cx.listener(|this, _: &ClickEvent, _, cx| this.stop(cx)),
-                                ))
-                            })
-                            .child({
-                                let label: SharedString = if working {
-                                    tv(
-                                        "chat.composer.sendWhileWorking",
-                                        &[("tool", super::tool_label(&self.session.tool).into())],
+                            .child(
+                                h_flex()
+                                    .px_2()
+                                    .pb_2()
+                                    .gap_1()
+                                    .children(target)
+                                    .child(
+                                        div()
+                                            .id("attach")
+                                            .flex_none()
+                                            .size_8()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_full()
+                                            .cursor_pointer()
+                                            .text_color(theme::subtle())
+                                            .hover(|el| {
+                                                el.bg(theme::surface_raised())
+                                                    .text_color(theme::primary())
+                                            })
+                                            .child(crate::icons::ic("paperclip").size(px(16.)))
+                                            .tooltip(|w, cx| {
+                                                gpui_component::tooltip::Tooltip::new(t(
+                                                    "chat.composer.attachTip",
+                                                ))
+                                                .build(w, cx)
+                                            })
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| this.pick_files(cx),
+                                            )),
                                     )
-                                    .into()
-                                } else {
-                                    t("chat.composer.send").into()
-                                };
-                                // Electron's round send: an arrow on the brand,
-                                // its words in the tooltip.
-                                // The send button: size-8, brand-500, at 30% while there's nothing to send.
-                                div()
-                                    .id("send")
-                                    .flex_none()
-                                    .size_8()
-                                    .rounded_full()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .bg(theme::brand(500))
-                                    .text_color(theme::on_brand())
-                                    .when(!can_send, |el| el.opacity(0.3))
-                                    .when(can_send, |el| {
-                                        el.cursor_pointer()
-                                            .hover(|el| el.bg(theme::brand(600)))
-                                            .active(|el| el.bg(theme::brand(700)))
+                                    .child(div().flex_1().min_w_0().child(self.render_options(cx)))
+                                    .children(tasks_chip)
+                                    .when(working, |el| {
+                                        el.child(super::btn(
+                                            "stop-turn",
+                                            t("chat.composer.stopTurn"),
+                                            false,
+                                            false,
+                                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                this.stop(cx)
+                                            }),
+                                        ))
                                     })
-                                    .tooltip(move |w, cx| {
-                                        gpui_component::tooltip::Tooltip::new(label.clone())
-                                            .build(w, cx)
-                                    })
-                                    .child(crate::icons::ic("arrow-up").size(px(16.)))
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.submit(window, cx)
-                                    }))
-                            }),
+                                    .child({
+                                        let label: SharedString = if working {
+                                            tv(
+                                                "chat.composer.sendWhileWorking",
+                                                &[(
+                                                    "tool",
+                                                    super::tool_label(&self.session.tool).into(),
+                                                )],
+                                            )
+                                            .into()
+                                        } else {
+                                            t("chat.composer.send").into()
+                                        };
+                                        // Electron's round send: an arrow on the brand,
+                                        // its words in the tooltip.
+                                        // The send button: size-8, brand-500, at 30% while there's nothing to send.
+                                        div()
+                                            .id("send")
+                                            .flex_none()
+                                            .size_8()
+                                            .rounded_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .bg(theme::brand(500))
+                                            .text_color(theme::on_brand())
+                                            .when(!can_send, |el| el.opacity(0.3))
+                                            .when(can_send, |el| {
+                                                el.cursor_pointer()
+                                                    .hover(|el| el.bg(theme::brand(600)))
+                                                    .active(|el| el.bg(theme::brand(700)))
+                                            })
+                                            .tooltip(move |w, cx| {
+                                                gpui_component::tooltip::Tooltip::new(label.clone())
+                                                    .build(w, cx)
+                                            })
+                                            .child(crate::icons::ic("arrow-up").size(px(16.)))
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, window, cx| {
+                                                    this.submit(window, cx)
+                                                },
+                                            ))
+                                    }),
+                            ),
                     ),
-            ))
+            )
             .into_any_element()
     }
 }

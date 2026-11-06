@@ -840,11 +840,18 @@ impl ChatView {
                 tv("chat.hero.title", &[("project", project.into())]),
                 tv(
                     "chat.hero.project",
-                    &[("project", project.into()), ("branch", t("chat.hero.itsBranch").into())],
+                    &[
+                        ("project", project.into()),
+                        ("branch", t("chat.hero.itsBranch").into()),
+                    ],
                 ),
             )
         };
-        let tool = if self.session.tool.is_empty() { "claude" } else { self.session.tool.as_str() };
+        let tool = if self.session.tool.is_empty() {
+            "claude"
+        } else {
+            self.session.tool.as_str()
+        };
         Some(
             div()
                 .absolute()

@@ -749,12 +749,16 @@ impl AppView {
             return None;
         }
         Some(
-            review_chip("review-all", tv("v2.review.all", &[("count", n.into())]), t("v2.review.allHint"))
-                .ml(px(6.))
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.open_work(String::new(), "review".into(), window, cx)
-                }))
-                .into_any_element(),
+            review_chip(
+                "review-all",
+                tv("v2.review.all", &[("count", n.into())]),
+                t("v2.review.allHint"),
+            )
+            .ml(px(6.))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.open_work(String::new(), "review".into(), window, cx)
+            }))
+            .into_any_element(),
         )
     }
 
@@ -881,13 +885,25 @@ impl AppView {
         // ProjectLead (components/v2/SidebarV2.tsx), class for class.
         let mut counts: Vec<(String, Hsla, bool)> = Vec::new();
         if c.asks > 0 {
-            counts.push((tv("v2.count.needs", &[("count", c.asks.into())]), theme::amber(300), true));
+            counts.push((
+                tv("v2.count.needs", &[("count", c.asks.into())]),
+                theme::amber(300),
+                true,
+            ));
         }
         if c.failed > 0 {
-            counts.push((tv("v2.count.error", &[("count", c.failed.into())]), theme::rose(300), false));
+            counts.push((
+                tv("v2.count.error", &[("count", c.failed.into())]),
+                theme::rose(300),
+                false,
+            ));
         }
         if c.working > 0 {
-            counts.push((tv("v2.count.working", &[("count", c.working.into())]), theme::subtle(), false));
+            counts.push((
+                tv("v2.count.working", &[("count", c.working.into())]),
+                theme::subtle(),
+                false,
+            ));
         }
         let working = c.working > 0 || s_working;
         let when = activity.and_then(|a| a.last_activity.as_deref()).map(ago);
@@ -991,7 +1007,11 @@ impl AppView {
                                 .rounded_full()
                                 .border_2()
                                 .border_color(theme::rail())
-                                .bg(if needs > 0 { theme::amber(400) } else { theme::brand(400) }),
+                                .bg(if needs > 0 {
+                                    theme::amber(400)
+                                } else {
+                                    theme::brand(400)
+                                }),
                         )
                     }),
             )
@@ -1057,7 +1077,12 @@ impl AppView {
                                     .on_click(cx.listener(
                                         move |this, _: &ClickEvent, window, cx| {
                                             cx.stop_propagation();
-                                            this.open_work(project.clone(), "review".into(), window, cx)
+                                            this.open_work(
+                                                project.clone(),
+                                                "review".into(),
+                                                window,
+                                                cx,
+                                            )
                                         },
                                     )),
                                 )
@@ -1093,7 +1118,11 @@ impl AppView {
 
 /// review_chip is Electron's "N to review" pill (ReviewCount's button, the
 /// Projects heading's Review N): rounded-full, border-line-strong, 12px medium.
-pub(super) fn review_chip(id: impl Into<SharedString>, label: String, tip: String) -> Stateful<Div> {
+pub(super) fn review_chip(
+    id: impl Into<SharedString>,
+    label: String,
+    tip: String,
+) -> Stateful<Div> {
     let tip: SharedString = tip.into();
     div()
         .id(ElementId::Name(id.into()))

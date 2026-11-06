@@ -504,7 +504,8 @@ impl AppView {
                                     }
                                     // home:status|memory, Home's tabs.
                                     Some(("home", tab)) => {
-                                        this.sessions.home_tab = if tab == "status" { 1 } else { 2 };
+                                        this.sessions.home_tab =
+                                            if tab == "status" { 1 } else { 2 };
                                     }
                                     _ if v == "media" => {
                                         this.open_foot_page(foot::FootPage::Media, window, cx)
@@ -797,7 +798,12 @@ impl AppView {
                 .flex_1()
                 .min_h_0()
                 .child(self.render_home_header(cx))
-                .child(div().flex_1().min_h_0().child(self.render_rail(cx).size_full()))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .child(self.render_rail(cx).size_full()),
+                )
                 .into_any_element();
         }
         if home && self.sessions.home_tab == 2 {
@@ -841,7 +847,9 @@ impl AppView {
                                 theme::line()
                             })
                             .overflow_hidden()
-                            .when(!no_session, |el| el.children(self.render_session_header(cx)))
+                            .when(!no_session, |el| {
+                                el.children(self.render_session_header(cx))
+                            })
                             .child(content),
                     ),
             )
@@ -1264,73 +1272,88 @@ impl Render for AppView {
                             .min_h_0()
                             .min_w_0()
                             .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .when(!self.connected && self.conn.answered, |el| {
-                        el.child(self.render_offline_notice())
-                    })
-                    .when(
-                        !self.settings
-                            && self.work.is_none()
-                            && self.side.page.is_none()
-                            && self.chat.is_some()
-                            && !full_page,
-                        |el| {
-                            el.children(self.render_agent_header(cx))
-                                .children(self.render_past_header(cx))
-                                .children(self.render_machine_bar(cx))
-                                .when(!lead_view, |el| {
-                                    el.children(self.render_session_tabs(cx))
-                                        .when(!no_session, |el| {
-                                            el.children(self.render_session_header(cx))
-                                        })
-                                })
-                        },
-                    )
-                    .child(self.lead_frame(lead_view, no_session,
-                        div().flex_1().min_h_0().child(match &self.chat {
-                            _ if self.cut_off() => self.render_unreachable(cx),
-                            _ if self.first_run_open() => self.render_first_run(cx),
-                            _ if self.settings => self.render_settings(cx),
-                            _ if self.work.is_some() => self.render_work(cx),
-                            _ if self.side.page.is_some() => self.render_foot_page(cx),
-                            Some(_) if lead_view && self.sessions.history => {
-                                self.render_history(cx)
-                            }
-                            Some(_) if no_session => self.render_no_session(cx),
-                            Some(_)
-                                if self.open != "lead"
-                                    && self.agent.page == Some(agent::Page::Snapshots) =>
-                            {
-                                self.render_snapshots(cx)
-                            }
-                            Some(_)
-                                if self.open != "lead"
-                                    && self.agent.page == Some(agent::Page::Settings) =>
-                            {
-                                self.render_agent_settings(cx)
-                            }
-                            Some(chat) => chat.clone().into_any_element(),
-                            None => div()
-                                .size_full()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_color(theme::faint())
-                                .when(self.projects.is_empty(), |el| {
-                                    el.child(t("shell.sidebar.addFirst"))
-                                })
-                                .into_any_element(),
-                        }),
-                    cx)),
-            
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full()
+                                    .when(!self.connected && self.conn.answered, |el| {
+                                        el.child(self.render_offline_notice())
+                                    })
+                                    .when(
+                                        !self.settings
+                                            && self.work.is_none()
+                                            && self.side.page.is_none()
+                                            && self.chat.is_some()
+                                            && !full_page,
+                                        |el| {
+                                            el.children(self.render_agent_header(cx))
+                                                .children(self.render_past_header(cx))
+                                                .children(self.render_machine_bar(cx))
+                                                .when(!lead_view, |el| {
+                                                    el.children(self.render_session_tabs(cx)).when(
+                                                        !no_session,
+                                                        |el| {
+                                                            el.children(
+                                                                self.render_session_header(cx),
+                                                            )
+                                                        },
+                                                    )
+                                                })
+                                        },
+                                    )
+                                    .child(
+                                        self.lead_frame(
+                                            lead_view,
+                                            no_session,
+                                            div().flex_1().min_h_0().child(match &self.chat {
+                                                _ if self.cut_off() => self.render_unreachable(cx),
+                                                _ if self.first_run_open() => {
+                                                    self.render_first_run(cx)
+                                                }
+                                                _ if self.settings => self.render_settings(cx),
+                                                _ if self.work.is_some() => self.render_work(cx),
+                                                _ if self.side.page.is_some() => {
+                                                    self.render_foot_page(cx)
+                                                }
+                                                Some(_) if lead_view && self.sessions.history => {
+                                                    self.render_history(cx)
+                                                }
+                                                Some(_) if no_session => self.render_no_session(cx),
+                                                Some(_)
+                                                    if self.open != "lead"
+                                                        && self.agent.page
+                                                            == Some(agent::Page::Snapshots) =>
+                                                {
+                                                    self.render_snapshots(cx)
+                                                }
+                                                Some(_)
+                                                    if self.open != "lead"
+                                                        && self.agent.page
+                                                            == Some(agent::Page::Settings) =>
+                                                {
+                                                    self.render_agent_settings(cx)
+                                                }
+                                                Some(chat) => chat.clone().into_any_element(),
+                                                None => div()
+                                                    .size_full()
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .text_color(theme::faint())
+                                                    .when(self.projects.is_empty(), |el| {
+                                                        el.child(t("shell.sidebar.addFirst"))
+                                                    })
+                                                    .into_any_element(),
+                                            }),
+                                            cx,
+                                        ),
+                                    ),
                             )
                             // Home has no panel (its agents are its Status tab).
-                            .when(!full_page && !self.is_home() && self.project.is_some(), |el| {
-                                el.child(self.render_panel(cx))
-                            }),
+                            .when(
+                                !full_page && !self.is_home() && self.project.is_some(),
+                                |el| el.child(self.render_panel(cx)),
+                            ),
                     ),
             )
             // Last, so it draws over the rest.
