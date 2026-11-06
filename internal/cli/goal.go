@@ -105,10 +105,9 @@ func printGoal(w io.Writer, g api.AgentGoal) {
 		_, _ = fmt.Fprintf(w, "Last: %s\n", g.LastUnmet)
 	}
 	for _, c := range g.Checks {
-		mark := "  "
+		mark := "· "
 		switch {
 		case c.Met == nil:
-			mark = "· "
 		case *c.Met:
 			mark = "✓ "
 		default:
