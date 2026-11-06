@@ -451,7 +451,32 @@ func (v *VM) Start(ctx context.Context) error {
 		return err
 	}
 	_, _ = fmt.Fprintf(v.Log, "==> Starting AgentBox's VM (%s)\n", v.Name)
-	return v.limaLog(ctx, "start", "--tty=false", v.Name)
+	argv := belowDesktop([]string{v.Limactl, "start", "--tty=false", v.Name})
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Stdout, cmd.Stderr = v.Log, v.Log
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("limactl start: %w", err)
+	}
+	return nil
+}
+
+// niceBin and limaNice are how Lima's VM is started below the desktop:
+// limactl start leaves its host agent behind, which runs krunkit or QEMU,
+// and each inherits the nice level it started with, so the VM's vCPUs get
+// the CPU after the user's own programs when both want it (as a Cloud
+// Hypervisor VM's supervisor does, chv/priority_linux.go). vz's VM runs in
+// Apple's own XPC service, which no nice reaches.
+var (
+	niceBin  = "/usr/bin/nice"
+	limaNice = "10"
+)
+
+// belowDesktop is argv run through nice, when there's one.
+func belowDesktop(argv []string) []string {
+	if _, err := os.Stat(niceBin); err != nil {
+		return argv
+	}
+	return append([]string{niceBin, "-n", limaNice}, argv...)
 }
 
 // Stop stops the VM, and with it the daemon and every agent. With agents set,

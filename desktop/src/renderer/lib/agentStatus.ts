@@ -144,6 +144,7 @@ const memoryWhys: Record<string, MessageKey> = {
   churning: 'agent.status.memoryWhy.churning',
   low: 'agent.status.memoryWhy.low',
   easing: 'agent.status.memoryWhy.easing',
+  host: 'agent.status.memoryWhy.host',
 };
 
 // memoryWhy is what holds an agent's commands now, a sentence; '' from a

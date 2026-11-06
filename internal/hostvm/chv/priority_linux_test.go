@@ -78,3 +78,59 @@ func TestUnitSafe(t *testing.T) {
 		t.Errorf("unitSafe = %q", got)
 	}
 }
+
+func TestActiveScheduler(t *testing.T) {
+	for in, want := range map[string]string{
+		"[none] mq-deadline kyber bfq": "none",
+		"mq-deadline kyber [bfq] none": "bfq",
+		"none":                         "none",
+	} {
+		if got := activeScheduler(in); got != want {
+			t.Errorf("activeScheduler(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The disk's scheduler is found by the file's device, on the disk itself or,
+// for a partition, the disk above it; "none" is a gap.
+func TestDiskScheduler(t *testing.T) {
+	file := t.TempDir() + "/root.raw"
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var st unix.Stat_t
+	if err := unix.Stat(file, &st); err != nil {
+		t.Fatal(err)
+	}
+	saved := sysRoot
+	t.Cleanup(func() { sysRoot = saved })
+	sysRoot = t.TempDir()
+	if got := diskScheduler(file); got != "" {
+		t.Fatalf("nothing in /sys: %q", got)
+	}
+	// /sys/dev/block/M:m links to the partition, whose disk holds the queue.
+	disk := sysRoot + "/devices/nvme0n1"
+	if err := os.MkdirAll(disk+"/nvme0n1p2", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(disk+"/queue", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(disk+"/queue/scheduler", []byte("[none] mq-deadline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sysRoot+"/dev/block", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dev := strconv.Itoa(int(unix.Major(st.Dev))) + ":" + strconv.Itoa(int(unix.Minor(st.Dev)))
+	if err := os.Symlink(disk+"/nvme0n1p2", sysRoot+"/dev/block/"+dev); err != nil {
+		t.Fatal(err)
+	}
+	if got := diskScheduler(file); got != "none" {
+		t.Fatalf("partition of an NVMe disk: %q", got)
+	}
+	gaps := strings.Join(priorityGaps(file), "\n")
+	if !strings.Contains(gaps, "scheduler is none") {
+		t.Fatalf("gaps %q lack the scheduler", gaps)
+	}
+}

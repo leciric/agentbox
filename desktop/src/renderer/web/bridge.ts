@@ -266,6 +266,7 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     sections: () => Promise.resolve([]),
     windowError: () => {},
     onAppError: () => () => {},
+    onMainLag: () => () => {},
     openLogs: unavailable('web.bridge.openLogs'),
     send: async (req) => {
       if (errorReportsSent >= maxErrorReportsPerRun) return 'capped';

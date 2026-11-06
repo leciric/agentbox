@@ -2692,7 +2692,7 @@ export function installDevBridge(): void {
       const policy = renderPolicy(network).replace(/; sandbox [^;]*$/, '');
       return URL.createObjectURL(new Blob([injectHead(html, `<meta http-equiv="Content-Security-Policy" content="${policy}">`)], { type: 'text/html' }));
     },
-    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
+    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, onMainLag: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
     pickDirectory: async () => null,
     pickFile: async () => null,
     pickSaveFile: async () => null,

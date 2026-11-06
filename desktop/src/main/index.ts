@@ -59,6 +59,7 @@ import './vmpower';
 import { keepAwake } from './keepawake';
 import { watchHostPower } from './hostpower';
 import { AppTray } from './tray';
+import { watchLoopLag } from './looplag';
 import type { TrayTarget } from './traymodel';
 
 guardStdio();
@@ -69,6 +70,13 @@ guardStdio();
 const appLog = new AppLog(app.getPath('logs'));
 captureConsole(appLog);
 process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
+process.on('exit', () => appLog.flushSync());
+// A stall of this process stalls every window: logged, and sent with the
+// window's own timing to the daemon's diagnostics (looplag.ts).
+watchLoopLag((lag) => {
+  appLog.write('LAG', `the main process's event loop stalled ${lag.maxMs} ms (p99 ${lag.p99Ms} ms) in ${lag.windowMs / 1000} s`);
+  send('app:mainLag', lag);
+});
 registerMediaScheme();
 registerBrowserKeys();
 registerBrowserCookies(ipcMain);

@@ -103,6 +103,10 @@ func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
 	if failed := lowerPriority(); len(failed) > 0 {
 		s.logf("running the VM at the desktop's priority, as lowering it failed: %s", strings.Join(failed, "; "))
 	}
+	// What of that doesn't hold here, said once, for a desktop that stalls.
+	for _, gap := range priorityGaps(l.RootDisk()) {
+		s.logf("priority: %s", gap)
+	}
 	return s.run(ctx)
 }
 
@@ -208,6 +212,7 @@ func (s *supervisor) run(ctx context.Context) error {
 	defer func() { stopLoops(); <-lanDone }()
 	go s.memoryLoop(loops)
 	go s.busyLoop(loops)
+	go s.hostLoadLoop(loops)
 	go s.diskLoop(loops)
 	if m, ok := s.m.(*chMachine); ok {
 		go s.gpuLoop(loops, m)

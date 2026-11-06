@@ -250,6 +250,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		sample = pressure.Sample{}
 	}
 	now := time.Now()
+	sample.HostBusy = s.hostLoad.busy(now)
 	s.watchPSI(now, sample.PSI)
 	gone := h.g.Expire(now, func(r *pressure.Run) bool {
 		if r.Placed {
@@ -518,6 +519,8 @@ func reasonWords(why pressure.Reason, s pressure.Sample, tr pressure.Trend) stri
 		return fmt.Sprintf("the VM is nearly out of memory (%s, swap full)", avail)
 	case pressure.Easing:
 		return "the VM's memory has eased, and commands paused for it resume first, one at a time"
+	case pressure.HostBusy:
+		return "the user's computer is busy, and their own programs come first"
 	}
 	return ""
 }
@@ -661,6 +664,9 @@ func (s *Server) getPressure(w http.ResponseWriter, r *http.Request) error {
 	h.mu.Lock()
 	psi := h.g.Last()
 	out := api.PressureStatus{Some: psi.Some.Avg10, Full: psi.Full.Avg10, Why: string(h.g.Why()), Runs: []api.HeavyRun{}}
+	if load, ok := s.hostLoad.current(time.Now()); ok {
+		out.Host = &load
+	}
 	for _, run := range h.g.Running() {
 		st, since := "running", run.Started
 		if run.Paused {

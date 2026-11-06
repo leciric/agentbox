@@ -329,3 +329,18 @@ func TestProfile(t *testing.T) {
 		}
 	}
 }
+
+func TestBelowDesktop(t *testing.T) {
+	saved := niceBin
+	t.Cleanup(func() { niceBin = saved })
+	niceBin = filepath.Join(t.TempDir(), "nice")
+	if got := belowDesktop([]string{"limactl", "start"}); strings.Join(got, " ") != "limactl start" {
+		t.Errorf("without nice: %q", got)
+	}
+	if err := os.WriteFile(niceBin, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := belowDesktop([]string{"limactl", "start"}); strings.Join(got, " ") != niceBin+" -n 10 limactl start" {
+		t.Errorf("with nice: %q", got)
+	}
+}

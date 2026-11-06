@@ -621,6 +621,7 @@ export interface PressureStatus {
   full: number;
   why?: string;
   runs: HeavyRun[];
+  host?: HostLoad;
 }
 
 export interface HeavyRun {
@@ -630,6 +631,21 @@ export interface HeavyRun {
   state: string;
   since: string;
   placed?: boolean;
+}
+
+export interface HostLoad {
+  os: string;
+  memory: number;
+  cpu: number;
+  io: number;
+  cpuShare: number;
+  level?: string;
+  memoryTotal?: number;
+  available?: number;
+  busy: boolean;
+  why?: string;
+  reclaim?: boolean;
+  at: string;
 }
 
 export interface Job {
