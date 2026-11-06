@@ -135,8 +135,10 @@ version = "0.0.0"
 dependencies = [
  "agentbox-api",
  "agentbox-i18n",
+ "agentbox-office",
  "alacritty_terminal",
  "anyhow",
+ "async-channel",
  "base64 0.22.1",
  "chrono",
  "cpal",
@@ -165,6 +167,28 @@ dependencies = [
  "webkit2gtk",
  "wry",
  "zbus",
+]
+
+[[package]]
+name = "agentbox-office"
+version = "0.0.0"
+dependencies = [
+ "agentbox-api",
+ "anyhow",
+ "async-channel",
+ "bytemuck",
+ "fancy-regex",
+ "glam",
+ "gltf",
+ "gpui-pre",
+ "gpui-pre-platform",
+ "image",
+ "png 0.17.16",
+ "pollster",
+ "resvg 0.46.0",
+ "serde",
+ "serde_json",
+ "wgpu",
 ]
 
 [[package]]
@@ -2596,6 +2620,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.30.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19fc433e8437a212d1b6f1e68c7824af3aed907da60afa994e7f542d18d12aa9"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
 name = "glib"
 version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2699,6 +2732,42 @@ dependencies = [
  "slotmap",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "gltf"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3ce1918195723ce6ac74e80542c5a96a40c2b26162c1957a5cd70799b8cacf7"
+dependencies = [
+ "byteorder",
+ "gltf-json",
+ "lazy_static",
+ "serde_json",
+]
+
+[[package]]
+name = "gltf-derive"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14070e711538afba5d6c807edb74bcb84e5dbb9211a3bf5dea0dfab5b24f4c51"
+dependencies = [
+ "inflections",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "gltf-json"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6176f9d60a7eab0a877e8e96548605dedbde9190a7ae1e80bbcc1c9af03ab14"
+dependencies = [
+ "gltf-derive",
+ "serde",
+ "serde_derive",
+ "serde_json",
 ]
 
 [[package]]
@@ -4046,6 +4115,12 @@ dependencies = [
  "serde",
  "serde_core",
 ]
+
+[[package]]
+name = "inflections"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a257582fdcde896fd96463bf2d40eefea0580021c0712a0e2b028b60b47a837a"
 
 [[package]]
 name = "inotify"

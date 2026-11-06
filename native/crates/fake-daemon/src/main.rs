@@ -48,6 +48,9 @@ struct Opts {
     media: PathBuf,
     /// The checkout the agents' worktrees show (agents.rs).
     worktree: PathBuf,
+    /// More projects, each with a few agents that only stand there (no
+    /// chats): --neighbours storefront:4,quill:2, for the Office's campus.
+    neighbours: Vec<(String, usize)>,
 }
 
 /// A chat: its last event's seq, its session and its items.
@@ -304,6 +307,45 @@ impl Fake {
                 .cloned();
         }
         fleet
+    }
+
+    /// neighbours are the other projects' agents (--neighbours): in every
+    /// state a desk shows, and on every AI tool.
+    fn neighbours(&self) -> Vec<FleetAgent> {
+        const AIS: [&str; 5] = ["claude", "codex", "gemini", "opencode", "cursor"];
+        let mut out = Vec::new();
+        for (pi, (project, n)) in self.opts.neighbours.iter().enumerate() {
+            for i in 0..*n {
+                let k = i + pi * 3;
+                let name = format!("agent-{}", i + 1);
+                let (state, chat, outcome) = match k % 5 {
+                    0 => ("running", "running", ""),
+                    1 => ("running", "ready", "asking"),
+                    2 => ("running", "ready", ""),
+                    3 => ("stopped", "", ""),
+                    _ => ("running", "running", ""),
+                };
+                out.push(FleetAgent {
+                    r#ref: format!("{project}/{name}"),
+                    project: project.clone(),
+                    name,
+                    title: TITLES[(k + 5) % TITLES.len()].into(),
+                    ai: AIS[k % AIS.len()].into(),
+                    branch: format!("agentbox/{project}-{}", i + 1),
+                    state: state.into(),
+                    chat: chat.into(),
+                    outcome: outcome.into(),
+                    interface: "chat".into(),
+                    created_at: now(),
+                    ..Default::default()
+                });
+            }
+        }
+        out
+    }
+
+    fn neighbour(&self, project: &str) -> bool {
+        self.opts.neighbours.iter().any(|(p, _)| p == project)
     }
 
     fn is_fake(&self, project: &str) -> bool {
@@ -614,13 +656,24 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
     };
     let res = match (&method, parts.as_slice()) {
         (&Method::GET, ["v1", "events"]) => events(fake.clone()).await,
+        // On its own, it's the daemon too: up, and set up with defaults.
+        (&Method::GET, ["v1", "version"]) if fake.opts.upstream.is_none() => {
+            json(StatusCode::OK, &serde_json::json!({ "version": "fake", "api": 1 }))
+        }
+        (&Method::GET, ["v1", "settings"]) if fake.opts.upstream.is_none() => {
+            json(StatusCode::OK, &serde_json::json!({}))
+        }
         (&Method::GET, ["v1", "projects"]) if fake.opts.upstream.is_none() => {
             let p = Project {
                 name: fake.opts.project.clone(),
                 display_name: fake.opts.project.clone(),
                 ..Default::default()
             };
-            json(StatusCode::OK, &vec![p])
+            let mut all = vec![p];
+            for (name, _) in &fake.opts.neighbours {
+                all.push(Project { name: name.clone(), display_name: name.clone(), ..Default::default() });
+            }
+            json(StatusCode::OK, &all)
         }
         // An open question from an agent, for the sidebar's "needs you".
         (&Method::GET, ["v1", "projects", p, "questions"]) if fake.is_fake(p) => json(
@@ -1041,7 +1094,15 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 .unwrap()
         }
         // Every agent, as GET /v1/agents lists them (a FleetAgent is an Agent and more).
-        (&Method::GET, ["v1", "agents"]) => json(StatusCode::OK, &fake.fleet_with_pulls()),
+        (&Method::GET, ["v1", "agents"]) => {
+            let mut all = fake.fleet_with_pulls();
+            all.extend(fake.neighbours());
+            json(StatusCode::OK, &all)
+        }
+        (&Method::GET, ["v1", "projects", p, "fleet"]) if fake.neighbour(p) => {
+            let agents = fake.neighbours().into_iter().filter(|a| a.project == *p).collect();
+            json(StatusCode::OK, &Fleet { project: p.to_string(), agents, ..Default::default() })
+        }
         (&Method::GET, ["v1", "projects", p, "fleet"]) if fake.is_fake(p) => {
             let fleet = Fleet {
                 project: p.to_string(),
@@ -1519,6 +1580,7 @@ fn parse() -> Opts {
             .unwrap_or_default()
             .join("abx/fake-media"),
         worktree: std::env::current_dir().unwrap_or_default(),
+        neighbours: Vec::new(),
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -1532,6 +1594,15 @@ fn parse() -> Opts {
             "--rate" => o.rate = v().parse().unwrap(),
             "--media" => o.media = v().into(),
             "--worktree" => o.worktree = v().into(),
+            "--neighbours" => {
+                o.neighbours = v()
+                    .split(',')
+                    .filter_map(|p| {
+                        let (name, n) = p.split_once(':')?;
+                        Some((name.to_string(), n.parse().ok()?))
+                    })
+                    .collect()
+            }
             _ => panic!("unknown flag {a}"),
         }
     }

@@ -86,6 +86,8 @@ gpui_kit_assets::icon_assets!(
         ArrowRight,
         ArrowUp,
         ArrowUpRight,
+        // The Office's row (#668's Armchair).
+        Armchair,
         Ban,
         Bell,
         Bot,
@@ -249,6 +251,7 @@ pub fn lucide(g: &str) -> Option<&str> {
         "🔒" => "lock",
         "⎇" => "git-branch",
         "⌂" => "house",
+        "🪑" => "armchair",
         "⊕" => "plus",
         "⊞" => "folder-plus",
         "☷" => "layout-grid",
@@ -324,8 +327,8 @@ mod tests {
     const GLYPHS: &[&str] = &[
         "✕", "✓", "▾", "▸", "‹", "«", "»", "⚠", "↻", "▶", "⏸", "↗", "↙", "✎", "⚙", "⋯", "←", "→",
         "↑", "↓", "⏰", "▣", "▤", "◫", "≡", "◍", "▯", "⇆", "❐", "⌛", "◷", "⚡", "🔒", "⎇", "⌂",
-        "⊕", "⊞", "☷", "⇪", "✦", "◌", "⏻", "⏏", "⌖", "☾", "☰", "★", "📌", "🕘", "⬚", "◨", "↳", "◆",
-        "◎", "◉", "⌾",
+        "🪑", "⊕", "⊞", "☷", "⇪", "✦", "◌", "⏻", "⏏", "⌖", "☾", "☰", "★", "📌", "🕘", "⬚", "◨",
+        "↳", "◆", "◎", "◉", "⌾",
     ];
 
     /// Every icon the app names is built in: a missing one draws nothing.

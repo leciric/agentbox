@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/agentbox-api", "crates/app", "crates/fake-daemon", "crates/i18n"]
+members = ["crates/agentbox-api", "crates/app", "crates/fake-daemon", "crates/i18n", "crates/office"]
 
 [workspace.package]
 edition = "2024"

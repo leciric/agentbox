@@ -46,6 +46,9 @@ raw-window-handle = "0.6"
 alacritty_terminal = "0.26"
 vnc-rs = "0.6"
 agentbox-i18n.workspace = true
+# The Office (#668), drawn natively: crates/office.
+agentbox-office = { path = "../office" }
+async-channel = "2"
 # Updating the app in place (update.rs): the release's files over HTTPS, and
 # their SHA256 against the release's SHA256SUMS.
 sha2 = "0.10"
