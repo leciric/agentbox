@@ -970,6 +970,18 @@ impl Render for AppView {
                 this.open_chat("lead".into(), window, cx)
             });
         }
+        // The Office covers the window: nothing beneath it is drawn, so the
+        // app's own motion (a working agent's pulse) costs nothing meanwhile.
+        if let Some(office) = self.render_office() {
+            return div()
+                .id("app")
+                .relative()
+                .size_full()
+                .bg(theme::ink())
+                .child(office)
+                .child(self.toasts.clone())
+                .into_any_element();
+        }
         let overlay = self.render_new_task(cx);
         let full_page = self.cut_off() || self.first_run_open();
         let lead_view = self.open == "lead"
@@ -1116,7 +1128,6 @@ impl Render for AppView {
                     self.render_panel(cx)
                 })
             })
-            .children(self.render_office())
             // Last, so it draws over the rest.
             .children(self.render_drawer(cx))
             .children(overlay)
@@ -1134,6 +1145,7 @@ impl Render for AppView {
             .children(self.render_search(cx))
             .child(self.toasts.clone())
             .child(crate::webview::pages_end())
+            .into_any_element()
     }
 }
 
