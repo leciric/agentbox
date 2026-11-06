@@ -21,7 +21,10 @@
 //! `<version>` has no leading `v` (0.17.0, 0.17.0-nightly.20261030.156) and
 //! `<arch>` is Node's (`x64`, `arm64`), as the Electron app's files have. The
 //! Mac archive holds one `*.app` at its top whose `Contents/MacOS/` has a
-//! binary of the running one's name. Until a release has these, the update
+//! binary of the running one's name. The nightly packages them
+//! (scripts/native-package.sh) beside its user-facing files: the AppImage is
+//! the Linux install that updates itself, the bare binary is the tarball's,
+//! and a .deb install (under /usr) opens the release page instead. Until a release has these, the update
 //! fails with "has no build for this machine" and offers the release page.
 //!
 //! # Putting it in place
@@ -750,6 +753,64 @@ mod tests {
                     size: 3,
                 })
                 .collect(),
+        }
+    }
+
+    /// The nightly's native jobs package the files the update asks for
+    /// (scripts/native-package.sh), under the names asset_name gives them.
+    #[test]
+    fn release_files_match_the_packaging() {
+        let script = include_str!("../../../../scripts/native-package.sh");
+        let flow = include_str!("../../../../.github/workflows/nightly.yml");
+        let v = "0.18.0-nightly.1";
+        // The script builds each from $version, with Node's arch.
+        for (kind, os, arch, line) in [
+            (
+                Kind::Binary,
+                "linux",
+                "x64",
+                "\"$out/agentbox-native-$version-linux-$node\"",
+            ),
+            (
+                Kind::AppImage,
+                "linux",
+                "x64",
+                "\"$out/agentbox-native-$version-linux-$node.AppImage\"",
+            ),
+            (
+                Kind::Binary,
+                "windows",
+                "x64",
+                "\"$out/agentbox-native-$version-windows-x64.exe\"",
+            ),
+            (
+                Kind::MacApp,
+                "macos",
+                "arm64",
+                "\"$out/agentbox-native-$version-mac-$arch.app.tar.gz\"",
+            ),
+        ] {
+            assert!(script.contains(line), "native-package.sh lacks {line}");
+            let want = asset_name(kind, v, os, arch);
+            let built = line
+                .trim_matches('"')
+                .trim_start_matches("$out/")
+                .replace("$version", v)
+                .replace("$node", arch)
+                .replace("$arch", arch);
+            assert_eq!(built, want);
+        }
+        // SHA256SUMS is taken over agentbox-*, which these start with, and the
+        // Mac's bundle is not left to SHA256SUMS-mac (the publish job drops it).
+        assert!(flow.contains("sha256sum AgentBox-* agentbox-* >SHA256SUMS"));
+        assert!(asset_name(Kind::Binary, v, "linux", "x64").starts_with("agentbox-"));
+        // Not the Electron app's, install.sh's or the download button's.
+        for n in [
+            asset_name(Kind::Binary, v, "linux", "x64"),
+            asset_name(Kind::Binary, v, "windows", "x64"),
+            asset_name(Kind::MacApp, v, "macos", "arm64"),
+        ] {
+            assert!(!n.starts_with("AgentBox-"), "{n}");
         }
     }
 

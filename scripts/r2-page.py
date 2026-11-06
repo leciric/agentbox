@@ -51,9 +51,14 @@ THEME = (
 KINDS = [
     (r"^AgentBox-Native-experimental-.*\.tar\.gz$", "native", "Linux", ".tar.gz archive, x86_64", None),
     (r"^AgentBox-Native-experimental-.*\.deb$", "native", "Ubuntu 24.04", ".deb package", None),
+    (r"^AgentBox-Native-experimental-.*\.pacman$", "native", "Arch Linux", ".pacman package, install with pacman -U", None),
     (r"^AgentBox-Native-experimental-.*\.zip$", "native", "Windows", ".zip of the .exe, x64", None),
     (r"^AgentBox-Native-experimental-.*-mac-arm64\.dmg$", "native", "macOS", ".dmg disk image, Apple Silicon", None),
     (r"^AgentBox-Native-experimental-", None, None, None, None),
+    # The native app's own update downloads these (update.rs, asset_name):
+    # its AppImage listed, so that it isn't taken for the Electron app's.
+    (r"^agentbox-native-.*\.AppImage$", "native", "Linux", "AppImage, x86_64; updates itself", None),
+    (r"^agentbox-native-", None, None, None, None),
     (r"\.AppImage$", "linux", "AppImage", "Any distribution; updates itself", "linux"),
     (r"\.deb$", "linux", "Debian and Ubuntu", ".deb package", None),
     (r"\.pacman$", "linux", "Arch Linux", ".pacman package", None),
