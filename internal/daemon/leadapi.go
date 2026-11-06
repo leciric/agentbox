@@ -172,6 +172,8 @@ func (s *Server) leadRoutes(project, session string) http.Handler {
 	mux.HandleFunc("GET /v1/project/agents/{agent}/chat", withProject(s.leadAgentChat))
 	mux.HandleFunc("GET /v1/project/archived-agents", withProject(s.listArchived))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/chat/messages", withProject(s.leadTellAgent))
+	mux.HandleFunc("PUT /v1/project/agents/{agent}/goal", withProject(s.putGoal(s.leadAgent, true)))
+	mux.HandleFunc("DELETE /v1/project/agents/{agent}/goal", withProject(s.deleteGoal(s.leadAgent)))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/diff", withProject(s.leadAgentDiff))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/run", withProject(s.leadRunInAgent))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/checkpoints", withProject(s.listCheckpoints))

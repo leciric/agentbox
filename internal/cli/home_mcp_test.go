@@ -56,6 +56,24 @@ func TestHomeTools(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(api.Memory{ID: "m10", Title: remembered.Title, Global: true})
 	})
+	var created api.CreateAgentRequest
+	var goals []string
+	mux.HandleFunc("POST /v1/agents", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&created)
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(api.Job{ID: "j1"})
+	})
+	mux.HandleFunc("PUT /v1/agents/{project}/{agent}/goal", func(w http.ResponseWriter, r *http.Request) {
+		var spec api.GoalSpec
+		_ = json.NewDecoder(r.Body).Decode(&spec)
+		goals = append(goals, r.PathValue("project")+"/"+r.PathValue("agent")+": "+spec.Objective)
+		_ = json.NewEncoder(w).Encode(api.GoalResult{Goal: api.AgentGoal{Objective: spec.Objective, Status: api.GoalActive,
+			Source: api.GoalSourceAgentBox, Checks: spec.Checks, Budget: 10}, Told: "turn"})
+	})
+	mux.HandleFunc("DELETE /v1/agents/{project}/{agent}/goal", func(w http.ResponseWriter, r *http.Request) {
+		goals = append(goals, r.PathValue("project")+"/"+r.PathValue("agent")+": cleared")
+		_ = json.NewEncoder(w).Encode(api.GoalResult{Goal: api.AgentGoal{Status: api.GoalCleared}})
+	})
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
@@ -65,7 +83,7 @@ func TestHomeTools(t *testing.T) {
 		byName[tool.Name] = tool
 	}
 	for _, want := range []string{"list_projects", "list_agents", "read_agent", "create_agent", "tell_lead", "search_memory",
-		"remember", "resolve_memory", "add_project"} {
+		"remember", "resolve_memory", "add_project", "set_goal"} {
 		if tool, ok := byName[want]; !ok || tool.Description == "" {
 			t.Errorf("the Home chat has no %s tool, or it isn't described", want)
 		}
@@ -102,5 +120,24 @@ func TestHomeTools(t *testing.T) {
 	}
 	if _, err := byName["create_agent"].Run(json.RawMessage(`{"title":"x","task":"y"}`)); err == nil {
 		t.Error("create_agent made an agent without naming a project")
+	}
+
+	// Goals: at create, and on an agent that exists.
+	run("create_agent", `{"project":"pawly","title":"x","task":"y","goal":"CI is green","goal_checks":["ci_green","go test ./..."],"goal_budget":3}`)
+	if g := created.Goal; g == nil || g.Objective != "CI is green" || g.Budget != 3 || len(g.Checks) != 2 ||
+		g.Checks[0].Kind != api.GoalCheckCIGreen || g.Checks[1].Command != "go test ./..." {
+		t.Errorf("create_agent sent goal %+v", created.Goal)
+	}
+	if out := run("set_goal", `{"project":"pawly","agent":"agent-01","goal":"a PR is open","goal_checks":["pr_open"]}`); !strings.Contains(out, "working towards it now") || !strings.Contains(out, "a PR is open") {
+		t.Errorf("set_goal said %q", out)
+	}
+	if out := run("set_goal", `{"project":"pawly","agent":"agent-01","clear_goal":true}`); !strings.Contains(out, "Cleared") {
+		t.Errorf("set_goal clear said %q", out)
+	}
+	if got := strings.Join(goals, "; "); got != "pawly/agent-01: a PR is open; pawly/agent-01: cleared" {
+		t.Errorf("goals = %s", got)
+	}
+	if _, err := byName["set_goal"].Run(json.RawMessage(`{"project":"pawly","agent":"agent-01"}`)); err == nil {
+		t.Error("set_goal took neither a goal nor clear")
 	}
 }

@@ -151,10 +151,6 @@ type Manager struct {
 	// (idle.go). applies is false for a chat that never sleeps; after 0 is
 	// sleeping turned off for now. Off the conversation's lock.
 	IdleStop func(a state.Agent) (after time.Duration, applies bool)
-	// GoalsOn, when set, says whether agent goals are on (Settings →
-	// Experimental, goal.go). Called under the conversation's lock: it must
-	// answer from memory.
-	GoalsOn func() bool
 	// GoalOf is an agent's goal as the daemon keeps it, read once when its
 	// chat first needs it. Called under the conversation's lock.
 	GoalOf func(a state.Agent) (api.AgentGoal, bool)
@@ -2871,7 +2867,7 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		c.capture.WriteString(u.Text())
 		return
 	}
-	if snap, ok := u.Goal(); ok && !h.ad.replaying && !c.agent.IsLead() && c.m.goalsOn() {
+	if snap, ok := u.Goal(); ok && !h.ad.replaying && !c.agent.IsLead() {
 		c.toolGoal(snap)
 	}
 	if c.wakes(h.ad, u) {

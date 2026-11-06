@@ -1206,6 +1206,19 @@ func (c *Client) Agent(ctx context.Context, ref string) (Agent, error) {
 	return out, c.agentDo(ctx, http.MethodGet, ref, "", nil, &out)
 }
 
+// SetGoal sets or changes an existing agent's goal, from its
+// "<project>/<agent>" ref, and sends it to work towards it.
+func (c *Client) SetGoal(ctx context.Context, ref string, spec GoalSpec) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodPut, ref, "/goal", spec, &out)
+}
+
+// ClearGoal clears an agent's goal: AgentBox stops checking it.
+func (c *Client) ClearGoal(ctx context.Context, ref string) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodDelete, ref, "/goal", nil, &out)
+}
+
 func (c *Client) CreateAgent(ctx context.Context, req CreateAgentRequest) (Job, error) {
 	var out Job
 	return out, c.do(ctx, http.MethodPost, "/v1/agents", req, &out)

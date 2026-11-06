@@ -81,13 +81,10 @@ func TestGoalsWithClaudeCode(t *testing.T) {
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentGoals: ptr(true)}); err != nil {
-		t.Fatal(err)
-	}
 
 	// The goal AgentBox drives, through the code create_agent runs.
 	native := addAgent(t, d, repo, "hello-stack", "agent-01", "Three lines, checked by AgentBox")
-	spec, err := d.srv.checkGoal(&api.GoalSpec{
+	spec, err := checkGoal(&api.GoalSpec{
 		Objective: "lines.txt holds exactly three lines: one, two, three",
 		Checks:    []api.GoalCheck{{Kind: api.GoalCheckCommand, Command: `printf 'one\ntwo\nthree\n' | cmp -s - lines.txt`}},
 		Budget:    4,

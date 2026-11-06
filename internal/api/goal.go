@@ -2,17 +2,18 @@ package api
 
 import "time"
 
-// Agent goals are experimental (Settings.AgentGoals, off by default). A goal
-// is what an agent works towards across turns, and comes from one of two
-// places:
+// A goal is what an agent works towards across turns, and comes from one of
+// two places:
 //
 //   - the AI tool's own /goal (GoalSourceTool), typed in the agent's chat:
 //     Claude Code and Codex keep working until their own check says it is
 //     met, and AgentBox only shows what their ACP adapter reports of it;
-//   - create_agent's goal (GoalSourceAgentBox), with checks the daemon runs
-//     itself after each of the agent's turns: when one fails, the agent is
-//     sent back with what is missing, until they all pass or the budget of
-//     continuations runs out.
+//   - AgentBox (GoalSourceAgentBox): create_agent's goal, or one set later on
+//     a running agent (PUT /v1/agents/{project}/{agent}/goal, the lead's
+//     set_goal, `agentbox goal`), with checks the daemon runs itself after
+//     each of the agent's turns: when one fails, the agent is sent back with
+//     what is missing, until they all pass or the budget of continuations
+//     runs out.
 
 // Where a goal comes from (AgentGoal.Source).
 const (
@@ -42,13 +43,14 @@ const (
 )
 
 // DefaultGoalBudget is how many times an agent is sent back to its goal when
-// create_agent names no budget; MaxGoalBudget caps what it may name.
+// a goal names no budget; MaxGoalBudget caps what it may name.
 const (
 	DefaultGoalBudget = 10
 	MaxGoalBudget     = 50
 )
 
-// GoalSpec is the goal create_agent gives a new agent.
+// GoalSpec is a goal as AgentBox is given it: by create_agent for a new
+// agent, or set on one that exists (SetGoal).
 type GoalSpec struct {
 	// Objective is what done looks like, in words: what the agent is told it
 	// is working towards, and what each continuation reminds it of.
@@ -94,3 +96,19 @@ type AgentGoal struct {
 
 // Done says whether a goal no longer drives anything.
 func (g AgentGoal) Done() bool { return g.Status != GoalActive }
+
+// BudgetLeft is how many more times an AgentBox goal may send its agent back.
+func (g AgentGoal) BudgetLeft() int { return max(g.Budget-g.Continuations, 0) }
+
+// GoalResult is an existing agent's goal set, changed or cleared.
+type GoalResult struct {
+	// Goal is the agent's goal now: cleared after a clear.
+	Goal AgentGoal `json:"goal"`
+	// Told is how the agent heard of it: "aside" when it was working and
+	// reads it mid-turn, "turn" when it was idle and is now working towards
+	// it, "" when it wasn't sent back to work (a clear).
+	Told string `json:"told,omitempty"`
+	// Woke is "started" or "resumed" when its machine had to be started or
+	// unpaused to tell it.
+	Woke string `json:"woke,omitempty"`
+}

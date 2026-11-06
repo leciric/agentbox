@@ -287,6 +287,7 @@ func NewRootCmd() *cobra.Command {
 		newListCmd(a),
 		newPastCmd(a),
 		newTitleCmd(a),
+		newGoalCmd(a),
 		newChatCmd(a),
 		newFleetCmd(a),
 		newRetireCmd(a),
