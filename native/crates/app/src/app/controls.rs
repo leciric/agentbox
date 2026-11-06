@@ -38,9 +38,17 @@ pub fn toggle(
         .w(px(36.))
         .h(px(20.))
         .rounded_full()
-        .bg(if on { theme::brand(500) } else { theme::line_strong() })
+        .bg(if on {
+            theme::brand(500)
+        } else {
+            theme::line_strong()
+        })
         .border_1()
-        .border_color(if on { gpui::transparent_black() } else { theme::line_vivid() })
+        .border_color(if on {
+            gpui::transparent_black()
+        } else {
+            theme::line_vivid()
+        })
         .when(disabled, |el| el.opacity(0.45))
         .when(!disabled, |el| el.cursor_pointer().on_click(on_click))
         .child(
@@ -170,7 +178,9 @@ pub fn button(
                 .hover(move |s| match kind {
                     Btn::Primary => s.bg(theme::brand(600)),
                     Btn::Danger => s.bg(theme::destructive(1)),
-                    Btn::DangerQuiet => s.bg(theme::rose(400).opacity(0.1)).text_color(theme::rose(200)),
+                    Btn::DangerQuiet => s
+                        .bg(theme::rose(400).opacity(0.1))
+                        .text_color(theme::rose(200)),
                     Btn::Ghost => s.bg(theme::surface_raised()).text_color(theme::primary()),
                     Btn::Secondary => s.bg(theme::surface_strong()),
                 })
@@ -446,7 +456,7 @@ impl Row {
             .gap_1()
             .child(
                 div()
-                    .text_sm()
+                    .text_size(theme::text::UI)
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme::primary())
                     .child(self.label),
@@ -456,7 +466,7 @@ impl Row {
                     div()
                         .text_xs()
                         .line_height(rems(1.25))
-                        .text_color(theme::muted())
+                        .text_color(theme::subtle())
                         .child(self.description),
                 )
             })
@@ -504,7 +514,7 @@ impl Row {
                         .bottom_4()
                         .w(px(2.))
                         .rounded_r_full()
-                        .bg(theme::brand(500)),
+                        .bg(theme::brand(400)),
                 )
             })
             .child(
@@ -557,7 +567,7 @@ pub fn window_modal(
                 .justify_center()
                 .occlude()
                 .on_click(move |e, w, cx| on_backdrop(e, w, cx))
-                .child(
+                .child(crate::motion::pop_in(
                     div()
                         .id(SharedString::from(format!("{id}-card")))
                         .w(width)
@@ -565,16 +575,17 @@ pub fn window_modal(
                         .max_h(relative(0.88))
                         .flex()
                         .flex_col()
-                        .rounded_xl()
+                        .rounded(theme::radius::XXL)
                         .bg(theme::card())
                         .border_1()
-                        .border_color(theme::line())
-                        .shadow_lg()
+                        .border_color(theme::line_strong())
+                        .shadow(theme::shadow_modal())
                         .overflow_hidden()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(|_, _, cx| cx.stop_propagation())
                         .child(card),
-                ),
+                    SharedString::from(format!("{id}-card-in")),
+                )),
         ),
     )
     .with_priority(2)

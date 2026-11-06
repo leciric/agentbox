@@ -109,15 +109,18 @@ fn boundary(text: &str, n: usize) -> usize {
 mod tests {
     use super::*;
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn blocks_split_at_blank_lines_but_not_in_code() {
         let md = "One line.\n\nTwo\nlines.\n\n```\na\n\nb\n```\n\nEnd";
-        assert_eq!(split(md), vec!["One line.", "Two\nlines.", "```\na\n\nb\n```", "End"]);
+        assert_eq!(
+            split(md),
+            vec!["One line.", "Two\nlines.", "```\na\n\nb\n```", "End"]
+        );
         assert_eq!(split("partial wo"), vec!["partial wo"]);
         assert!(split("").is_empty());
     }
 
-    #[test]
+    #[::core::prelude::v1::test]
     fn a_cut_never_splits_a_character() {
         let s = "olá";
         assert_eq!(boundary(s, 3), 2, "inside á goes back to its start");

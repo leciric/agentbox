@@ -21,6 +21,7 @@ use super::AppView;
 use super::controls::{self, Btn, Choice};
 use super::settings::connectors::time_until;
 use super::settings::defaults::time_ago;
+use super::work::{Tone, tag};
 use crate::theme;
 use crate::toasts::{self, Kind, Toast};
 
@@ -771,8 +772,9 @@ impl AppView {
                     div()
                         .flex_1()
                         .min_w_0()
-                        .text_xs()
-                        .text_color(theme::muted())
+                        .text_size(theme::text::UI)
+                        .line_height(relative(1.625))
+                        .text_color(theme::subtle())
                         .child(t("schedules.description")),
                 )
                 .child(controls::button(
@@ -798,13 +800,23 @@ impl AppView {
                         .border_1()
                         .border_dashed()
                         .border_color(theme::line())
-                        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(
-                            crate::icons::lead("alarm-clock", t("schedules.empty.title")),
-                        ))
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .text_size(theme::text::BODY)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::primary())
+                                .child(
+                                    crate::icons::ic("alarm-clock")
+                                        .size_4()
+                                        .text_color(theme::brand(300)),
+                                )
+                                .child(t("schedules.empty.title")),
+                        )
                         .child(
                             div()
-                                .text_xs()
-                                .text_color(theme::muted())
+                                .text_size(theme::text::UI)
+                                .text_color(theme::subtle())
                                 .child(t("schedules.empty.body")),
                         )
                         .child(h_flex().flex_wrap().gap_2().children(
@@ -823,9 +835,15 @@ impl AppView {
                 );
             }
             Some(Ok(list)) => {
-                for sc in list {
-                    body = body.child(self.schedule_row(sc, cx));
-                }
+                body = body.child(v_flex().min_w_0().gap_2().children(
+                    list.iter().enumerate().map(|(i, sc)| {
+                        crate::motion::enter(
+                            div().min_w_0().child(self.schedule_row(sc, cx)),
+                            SharedString::from(format!("schedule-enter-{}", sc.id)),
+                            i,
+                        )
+                    }),
+                ));
             }
         }
         if !s.runs.is_empty() {
@@ -834,10 +852,10 @@ impl AppView {
                     .gap_2()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(theme::text::CAPTION)
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::faint())
-                            .child(t("schedules.history.recent").to_uppercase()),
+                            .text_color(theme::muted())
+                            .child(t("schedules.history.recent")),
                     )
                     .child(self.run_list(s.runs.iter().take(20).cloned().collect(), true, cx)),
             );
@@ -867,7 +885,7 @@ impl AppView {
         let open = self.schedules.open.as_deref() == Some(s.id.as_str());
         let running = self.schedules.running.as_deref() == Some(s.id.as_str());
         let target = if s.target == "agent" {
-            controls::badge(
+            tag(
                 format!(
                     "◎ {}",
                     t(if s.session == "reuse" {
@@ -876,14 +894,14 @@ impl AppView {
                         "schedules.target.agent"
                     })
                 ),
-                theme::accent(),
+                Tone::Brand,
             )
         } else {
-            controls::badge(format!("▭ {}", t("schedules.target.lead")), theme::muted())
+            tag(format!("▭ {}", t("schedules.target.lead")), Tone::Plain)
         };
         let next: AnyElement = if s.paused {
             div()
-                .text_color(theme::starting())
+                .text_color(theme::amber(200))
                 .child(t("schedules.paused"))
                 .into_any_element()
         } else if s.kind == "event" {
@@ -904,13 +922,14 @@ impl AppView {
         let id = s.id.clone();
         v_flex()
             .id(SharedString::from(format!("schedule-{}", s.id)))
+            .min_w_0()
             .px_3p5()
             .py_3()
             .rounded_xl()
             .border_1()
             .border_color(theme::line())
-            .bg(theme::surface_raised())
-            .when(s.paused, |el| el.opacity(0.75))
+            .bg(theme::surface())
+            .when(s.paused, |el| el.opacity(0.7))
             .child(
                 h_flex()
                     .items_start()
@@ -922,26 +941,29 @@ impl AppView {
                             .gap_0p5()
                             .child(
                                 h_flex()
+                                    .min_w_0()
                                     .flex_wrap()
                                     .gap_1p5()
                                     .child(
                                         div()
+                                            .min_w_0()
                                             .truncate()
-                                            .text_sm()
+                                            .text_size(theme::text::BODY)
                                             .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme::primary())
                                             .child(s.title.clone()),
                                     )
                                     .child(target)
                                     .when(!s.precheck.is_empty(), |el| {
-                                        el.child(controls::badge(
+                                        el.child(tag(
                                             format!("✓ {}", t("schedules.precheckBadge")),
-                                            theme::muted(),
+                                            Tone::Plain,
                                         ))
                                     })
                                     .when(s.created_by == "lead", |el| {
                                         el.child(
                                             div()
-                                                .text_xs()
+                                                .text_size(theme::text::CAPTION)
                                                 .text_color(theme::faint())
                                                 .child(t("schedules.byLead")),
                                         )
@@ -949,8 +971,8 @@ impl AppView {
                             )
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(theme::muted())
+                                    .text_size(theme::text::UI)
+                                    .text_color(theme::tertiary())
                                     .line_clamp(2)
                                     .child(s.task.clone()),
                             )
@@ -959,8 +981,8 @@ impl AppView {
                                     .flex_wrap()
                                     .gap_x_2()
                                     .mt_1()
-                                    .text_xs()
-                                    .text_color(theme::muted())
+                                    .text_size(theme::text::CAPTION)
+                                    .text_color(theme::subtle())
                                     .child(when_label(s))
                                     .child("·")
                                     .child(next)
@@ -968,7 +990,7 @@ impl AppView {
                                         let (label, bad) = outcome_label(&run);
                                         el.child("·").child(
                                             div()
-                                                .when(bad, |el| el.text_color(theme::error()))
+                                                .when(bad, |el| el.text_color(theme::rose(300)))
                                                 .child(label),
                                         )
                                     }),
@@ -988,6 +1010,7 @@ impl AppView {
                     .mt_2()
                     .gap_1()
                     .flex_wrap()
+                    .items_center()
                     .child(controls::button(
                         SharedString::from(format!("schedule-run-{}", s.id)),
                         format!(
@@ -1051,8 +1074,8 @@ impl AppView {
     fn run_list(&self, runs: Vec<ScheduleRun>, titled: bool, cx: &mut Context<Self>) -> AnyElement {
         if runs.is_empty() {
             return div()
-                .text_xs()
-                .text_color(theme::muted())
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::subtle())
                 .child(t("schedules.history.empty"))
                 .into_any_element();
         }
@@ -1076,26 +1099,29 @@ impl AppView {
                     .gap_y_1()
                     .px_2p5()
                     .py_1p5()
+                    .min_w_0()
+                    .items_center()
                     .rounded_lg()
-                    .bg(theme::ink())
-                    .text_xs()
-                    .text_color(theme::muted())
+                    .bg(theme::sunken())
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::tertiary())
                     .when(titled, |el| {
                         el.child(
                             div()
+                                .min_w_0()
                                 .truncate()
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::primary())
+                                .text_color(theme::secondary())
                                 .child(run.title.clone()),
                         )
                     })
                     .child(
                         div()
-                            .when(bad, |el| el.text_color(theme::error()))
+                            .when(bad, |el| el.text_color(theme::rose(300)))
                             .child(if bad { format!("⚠ {label}") } else { label }),
                     )
                     .when(run.trigger == "manual", |el| {
-                        el.child(controls::badge(t("schedules.run.manual"), theme::muted()))
+                        el.child(tag(t("schedules.run.manual"), Tone::Plain))
                     })
                     .when(run.late, |el| {
                         let mut l = t("schedules.run.late");
@@ -1105,21 +1131,22 @@ impl AppView {
                                 tv("schedules.run.missed", &[("count", run.missed.into())])
                             );
                         }
-                        el.child(controls::badge(l, theme::starting()))
+                        el.child(tag(l, Tone::Warning))
                     })
                     .when(!run.event.is_empty(), |el| {
                         el.child(
                             div()
-                                .truncate()
+                                .w_full()
+                                .min_w_0()
+                                .text_color(theme::subtle())
                                 .child(crate::icons::lead("zap", run.event.to_string())),
                         )
                     })
                     .child(div().flex_1())
                     .when_some(agent, |el, a| {
-                        el.child(controls::button(
+                        el.child(small_ghost(
                             SharedString::from(format!("run-open-{}", run.id)),
                             format!("◎ {a}"),
-                            Btn::Ghost,
                             false,
                             cx.listener(move |this, _: &ClickEvent, w, cx| {
                                 this.open_agent_ref(r.clone(), w, cx)
@@ -1127,10 +1154,9 @@ impl AppView {
                         ))
                     })
                     .when(rerun, |el| {
-                        el.child(controls::button(
+                        el.child(small_ghost(
                             SharedString::from(format!("run-rerun-{}", run.id)),
                             format!("↻ {}", t("schedules.rerun")),
-                            Btn::Ghost,
                             self.schedules.running.is_some(),
                             cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.run_schedule(sid.clone(), title.clone(), cx)
@@ -1169,10 +1195,10 @@ impl AppView {
         let s = &self.schedules;
         let field = |label: String, name: &str, hint: Option<String>| -> AnyElement {
             v_flex()
-                .gap_1()
+                .gap_1p5()
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(theme::text::CAPTION)
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(theme::muted())
                         .child(label),
@@ -1185,7 +1211,12 @@ impl AppView {
                     }
                 })
                 .when_some(hint, |el, h| {
-                    el.child(div().text_xs().text_color(theme::faint()).child(h))
+                    el.child(
+                        div()
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::subtle())
+                            .child(h),
+                    )
                 })
                 .into_any_element()
         };
@@ -1232,10 +1263,10 @@ impl AppView {
                 .gap_2()
                 .child(
                     v_flex()
-                        .gap_1()
+                        .gap_1p5()
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(theme::text::CAPTION)
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme::muted())
                                 .child(t("schedules.field.days")),
@@ -1245,17 +1276,25 @@ impl AppView {
                                 let on = f.days.contains(&d);
                                 div()
                                     .id(SharedString::from(format!("schedule-day-{d}")))
-                                    .px_2p5()
-                                    .py_1()
+                                    .h(px(32.))
+                                    .min_w(px(40.))
+                                    .px_2()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
                                     .rounded_md()
-                                    .text_xs()
+                                    .text_size(theme::text::CAPTION)
                                     .border_1()
-                                    .border_color(if on { theme::accent() } else { theme::line() })
                                     .when(on, |el| {
-                                        el.bg(theme::accent().opacity(0.2))
-                                            .text_color(theme::primary())
+                                        el.border_color(theme::brand(400).opacity(0.5))
+                                            .bg(theme::brand(500).opacity(0.15))
+                                            .text_color(theme::brand(200))
                                     })
-                                    .when(!on, |el| el.text_color(theme::muted()))
+                                    .when(!on, |el| {
+                                        el.border_color(theme::line())
+                                            .text_color(theme::subtle())
+                                            .hover(|s| s.text_color(theme::primary()))
+                                    })
                                     .cursor_pointer()
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         if let Some(f) = this.schedules.form.as_mut() {
@@ -1274,10 +1313,10 @@ impl AppView {
                 .child(field(t("schedules.field.time"), "time", None))
                 .into_any_element(),
             Mode::Every => v_flex()
-                .gap_1()
+                .gap_1p5()
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(theme::text::CAPTION)
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(theme::muted())
                         .child(t("schedules.field.every")),
@@ -1322,10 +1361,10 @@ impl AppView {
                 .gap_2()
                 .child(
                     v_flex()
-                        .gap_1()
+                        .gap_1p5()
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(theme::text::CAPTION)
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme::muted())
                                 .child(t("schedules.field.event")),
@@ -1353,17 +1392,17 @@ impl AppView {
                 })
                 .child(
                     div()
-                        .text_xs()
-                        .text_color(theme::faint())
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::subtle())
                         .child(t("schedules.field.eventHint")),
                 )
                 .into_any_element(),
         };
         let target = v_flex()
-            .gap_1()
+            .gap_1p5()
             .child(
                 div()
-                    .text_xs()
+                    .text_size(theme::text::CAPTION)
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme::muted())
                     .child(t("schedules.field.target")),
@@ -1387,10 +1426,10 @@ impl AppView {
             ));
         let session = (f.target == "agent").then(|| {
             v_flex()
-                .gap_1()
+                .gap_1p5()
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(theme::text::CAPTION)
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(theme::muted())
                         .child(t("schedules.field.session")),
@@ -1414,45 +1453,44 @@ impl AppView {
                 ))
                 .into_any_element()
         });
-        let templates = f.id.is_none().then(|| {
-            v_flex()
-                .gap_1()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::muted())
-                        .child(t("schedules.dialog.templates")),
-                )
-                .child(
-                    h_flex()
-                        .flex_wrap()
-                        .gap_1()
-                        .children(TEMPLATES.iter().enumerate().map(|(i, tpl)| {
+        let templates =
+            f.id.is_none().then(|| {
+                v_flex()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .text_size(theme::text::CAPTION)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::muted())
+                            .child(t("schedules.dialog.templates")),
+                    )
+                    .child(h_flex().flex_wrap().gap_1p5().children(
+                        TEMPLATES.iter().enumerate().map(|(i, tpl)| {
                             div()
                                 .id(SharedString::from(format!(
                                     "schedule-dialog-template-{}",
                                     tpl.id
                                 )))
-                                .px_2()
-                                .py_0p5()
+                                .px_2p5()
+                                .py_1()
                                 .rounded_full()
                                 .border_1()
                                 .border_color(theme::line())
-                                .text_xs()
-                                .text_color(theme::muted())
+                                .text_size(theme::text::CAPTION)
+                                .text_color(theme::secondary())
                                 .cursor_pointer()
                                 .hover(|s| {
-                                    s.bg(theme::surface_strong()).text_color(theme::primary())
+                                    s.border_color(theme::line_strong())
+                                        .bg(theme::surface_raised())
                                 })
                                 .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                                     this.open_schedule_dialog(None, Some(i), w, cx)
                                 }))
                                 .child(t(&format!("schedules.template.{}.title", tpl.id)))
-                        })),
-                )
-                .into_any_element()
-        });
+                        }),
+                    ))
+                    .into_any_element()
+            });
         let mut body: Vec<AnyElement> = Vec::new();
         body.extend(templates);
         body.push(field(t("schedules.field.title"), "title", None));
@@ -1463,10 +1501,10 @@ impl AppView {
         ));
         body.push(
             v_flex()
-                .gap_1()
+                .gap_2()
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(theme::text::CAPTION)
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(theme::muted())
                         .child(t("schedules.field.when")),
@@ -1517,7 +1555,7 @@ impl AppView {
                 .id("schedule-dialog-scroll")
                 .max_h(px(520.))
                 .overflow_y_scroll()
-                .child(v_flex().gap_3().pr_1().children(body))
+                .child(v_flex().gap_4().pr_1().children(body))
                 .into_any_element(),
         ];
         Some(super::agent::modal(
@@ -1540,6 +1578,35 @@ impl AppView {
             cx.listener(|this, _: &ClickEvent, _, cx| this.save_schedule(cx)),
         ))
     }
+}
+
+/// small_ghost is a run row's ghost Button squeezed to h-6 px-2 text-caption.
+fn small_ghost(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    disabled: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(24.))
+        .px_2()
+        .flex()
+        .items_center()
+        .rounded_lg()
+        .text_size(theme::text::CAPTION)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::muted())
+        .when(disabled, |el| el.opacity(0.45))
+        .when(!disabled, |el| {
+            el.cursor_pointer()
+                .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
+                .active(|s| s.bg(theme::surface_strong()))
+                .on_click(on_click)
+        })
+        .child(crate::icons::glyph(label))
+        .into_any_element()
 }
 
 #[cfg(test)]

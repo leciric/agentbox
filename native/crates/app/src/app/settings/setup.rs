@@ -23,7 +23,8 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, badge, button, note, note_in, toggle};
+use super::super::controls::{Btn, button, note_in, toggle};
+use super::kit::{badge, note};
 use super::kit::{card, enc, link, title};
 use super::{Entry, Group, entry, group};
 use crate::theme;
@@ -111,6 +112,24 @@ pub(super) fn step_mark(status: &str) -> AnyElement {
         .font_weight(FontWeight::BOLD)
         .text_color(color)
         .child(crate::icons::of(mark))
+        .into_any_element()
+}
+
+/// step_icon is Electron's StepIcon itself: a circled check, a dashed
+/// circle, a spinner or a warning, in the status's colour, at a size.
+fn step_icon(status: &str, size: f32) -> AnyElement {
+    let (icon, color) = match status {
+        "ok" => ("circle-check", theme::emerald(400)),
+        "optional" => ("square-dashed", theme::subtle()),
+        "checking" => ("loader-circle", theme::subtle()),
+        s if background(s) => ("loader-circle", theme::sky(400)),
+        _ => ("triangle-alert", theme::amber(300)),
+    };
+    div()
+        .flex_none()
+        .text_size(px(size))
+        .text_color(color)
+        .child(crate::icons::of(icon))
         .into_any_element()
 }
 
@@ -336,29 +355,39 @@ impl AppView {
         let lines = v.map(|v| v.lines.as_slice()).unwrap_or_default();
         let tail = &lines[lines.len().saturating_sub(14)..];
         v_flex()
-            .gap_1p5()
-            .child(h_flex().gap_2().child(badge(label, color)).child(
-                div().text_xs().text_color(theme::muted()).child(match job {
-                    Some(j) => format!("{} {}", j.kind, j.target),
-                    None => tv("shell.jobProgress.job", &[("id", id.into())]),
-                }),
-            ))
+            .gap_3()
+            .child(
+                h_flex().gap_2().child(badge(label, color)).child(
+                    div()
+                        .text_size(theme::text::BODY)
+                        .text_color(theme::tertiary())
+                        .child(match job {
+                            Some(j) => format!("{} {}", j.kind, j.target),
+                            None => tv("shell.jobProgress.job", &[("id", id.into())]),
+                        }),
+                ),
+            )
             .when_some(job.filter(|j| !j.error.is_empty()), |el, j| {
-                el.child(note_in(j.error.clone(), theme::error()))
+                el.child(note_in(j.error.clone(), theme::rose(300)))
             })
             .when(!tail.is_empty(), |el| {
                 el.child(
                     v_flex()
-                        .p_2()
-                        .rounded_md()
-                        .bg(theme::ink())
+                        .p(px(14.))
+                        .rounded_xl()
+                        .bg(theme::well())
                         .border_1()
                         .border_color(theme::line())
+                        .font_family(crate::theme::mono())
+                        .text_size(theme::text::CAPTION)
+                        .line_height(rems(1.6))
                         .children(tail.iter().map(|l| {
                             div()
-                                .font_family(crate::theme::mono())
-                                .text_xs()
-                                .text_color(theme::muted())
+                                .text_color(if l.starts_with("==>") {
+                                    theme::secondary()
+                                } else {
+                                    theme::subtle()
+                                })
                                 .child(l.clone())
                         })),
                 )
@@ -376,19 +405,22 @@ impl AppView {
         let text = command.to_string();
         h_flex()
             .gap_2()
-            .px_3()
-            .py_2()
-            .rounded_md()
-            .bg(theme::ink())
+            .pl(px(14.))
+            .pr_1p5()
+            .py_1p5()
+            .rounded_xl()
+            .bg(theme::well())
             .border_1()
-            .border_color(theme::line())
+            .border_color(theme::line_strong())
+            .font_family(crate::theme::mono())
+            .text_size(theme::text::UI)
+            .text_color(theme::secondary())
+            .child(div().flex_none().text_color(theme::faint()).child("$"))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .font_family(crate::theme::mono())
-                    .text_xs()
-                    .text_color(theme::primary())
+                    .truncate()
                     .child(command.to_string()),
             )
             .child(link(
@@ -472,7 +504,7 @@ impl AppView {
         let p = &self.settings_page.setup;
         let report = match &p.doctor {
             None => return note(t("doctor.checking")),
-            Some(Err(e)) => return note_in(e.clone(), theme::error()),
+            Some(Err(e)) => return note_in(e.clone(), theme::rose(300)),
             Some(Ok(r)) => r,
         };
         let list: Vec<_> = report
@@ -531,18 +563,29 @@ impl AppView {
                 let fail = c.status == DOCTOR_FAIL;
                 let id = c.id.clone();
                 card(SharedString::from(format!("doctor-{}", c.id)))
-                    .border_color(if fail {
-                        theme::error().opacity(0.3)
-                    } else {
-                        theme::starting().opacity(0.3)
-                    })
+                    .p_4()
+                    .when(fail, |el| el.border_color(theme::rose(400).opacity(0.2)))
                     .child(
                         h_flex()
-                            .gap_2()
-                            .child(step_mark(if fail { "missing" } else { "warn" }))
+                            .gap_3()
+                            .child(if fail {
+                                div()
+                                    .flex_none()
+                                    .text_size(px(20.))
+                                    .text_color(theme::rose(400))
+                                    .child(crate::icons::of("circle-x"))
+                                    .into_any_element()
+                            } else {
+                                step_icon("warn", 20.)
+                            })
                             .child(title(c.title.clone())),
                     )
-                    .child(note(c.message.clone()))
+                    .child(
+                        div()
+                            .text_size(theme::text::UI)
+                            .text_color(theme::muted())
+                            .child(c.message.clone()),
+                    )
                     .when(!c.job.is_empty(), |el| {
                         el.child(note(t("doctor.beingFixed")))
                     })
@@ -596,7 +639,7 @@ impl AppView {
     pub(super) fn checklist_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = &self.settings_page.setup;
         let Some(setup) = self.settings_page.accounts.setup.as_ref() else {
-            return note(t("common.loading"));
+            return super::super::panel::loading("checklist");
         };
         let steps: Vec<&SetupCheck> = setup
             .checks
@@ -619,10 +662,10 @@ impl AppView {
             .id("checklist")
             .gap_2()
             .when_some(p.error.clone(), |el, e| {
-                el.child(note_in(e, theme::error()))
+                el.child(note_in(e, theme::rose(300)))
             })
             .when_some(p.said.clone(), |el, s| {
-                el.child(note_in(s, theme::running()))
+                el.child(note_in(s, theme::emerald(300)))
             })
             .child(note(tv(
                 "settings.checklist.progress",
@@ -630,10 +673,11 @@ impl AppView {
             )))
             .child(
                 v_flex()
+                    .overflow_hidden()
                     .rounded_xl()
                     .border_1()
                     .border_color(theme::line())
-                    .bg(theme::card())
+                    .bg(theme::surface().opacity(0.4))
                     .children(steps.iter().enumerate().map(|(i, c)| {
                         let is_next = next.as_deref() == Some(c.id.as_str());
                         let after = waits_for(c);
@@ -648,8 +692,8 @@ impl AppView {
                             .id(SharedString::from(format!("setup-step-{}", c.id)))
                             .when(i > 0, |el| el.border_t_1().border_color(theme::line()))
                             .when(is_next, |el| {
-                                el.border_l_2()
-                                    .border_color(theme::starting())
+                                el.border_l(px(3.))
+                                    .border_color(theme::amber(400))
                                     .bg(theme::surface_raised())
                             })
                             .child(
@@ -661,7 +705,7 @@ impl AppView {
                                     .when(after.is_some(), |el| el.opacity(0.6))
                                     .when(has_body && !is_next, |el| {
                                         el.cursor_pointer()
-                                            .hover(|st| st.bg(theme::surface_raised()))
+                                            .hover(|st| st.bg(theme::surface()))
                                             .on_click(cx.listener(
                                                 move |this, _: &ClickEvent, _, cx| {
                                                     let u = &mut this.settings_page.setup.unfolded;
@@ -672,21 +716,26 @@ impl AppView {
                                                 },
                                             ))
                                     })
-                                    .child(step_mark(if after.is_some() {
-                                        "checking"
+                                    .child(if after.is_some() {
+                                        div()
+                                            .flex_none()
+                                            .text_size(px(16.))
+                                            .text_color(theme::subtle())
+                                            .child(crate::icons::of("square-dashed"))
+                                            .into_any_element()
                                     } else {
-                                        &c.status
-                                    }))
+                                        step_icon(&c.status, 16.)
+                                    })
                                     .child(
                                         div()
                                             .flex_1()
                                             .min_w_0()
                                             .truncate()
-                                            .text_sm()
+                                            .text_size(theme::text::UI)
                                             .text_color(if is_next {
-                                                theme::primary()
+                                                theme::title()
                                             } else {
-                                                theme::muted()
+                                                theme::secondary()
                                             })
                                             .when(is_next, |el| {
                                                 el.font_weight(FontWeight::SEMIBOLD)
@@ -702,10 +751,14 @@ impl AppView {
                                     )
                                     .map(|el| {
                                         if is_next {
-                                            el.child(badge(
-                                                t("settings.checklist.nextBadge"),
-                                                theme::starting(),
-                                            ))
+                                            el.child(
+                                                div()
+                                                    .flex_none()
+                                                    .text_size(theme::text::CAPTION)
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(theme::amber(300))
+                                                    .child(t("settings.checklist.nextBadge")),
+                                            )
                                         } else if let Some(a) = after {
                                             el.child(note(tv(
                                                 "settings.checklist.after",
@@ -718,9 +771,9 @@ impl AppView {
                                                     .truncate()
                                                     .text_xs()
                                                     .text_color(if usable(&c.status) {
-                                                        theme::running()
+                                                        theme::emerald(300).opacity(0.8)
                                                     } else {
-                                                        theme::faint()
+                                                        theme::subtle()
                                                     })
                                                     .child(c.detail.clone()),
                                             )
@@ -735,7 +788,7 @@ impl AppView {
                                         .gap_2()
                                         .px_4()
                                         .pb_3()
-                                        .pl(px(46.))
+                                        .pl(px(44.))
                                         .when(is_next && !c.detail.is_empty(), |el| {
                                             el.child(note(c.detail.clone()))
                                         })
@@ -830,7 +883,7 @@ impl AppView {
                                 .collect();
                             el.when(!words.is_empty(), |el| el.child(note(words.join(" · "))))
                                 .when(!im.error.is_empty(), |el| {
-                                    el.child(note_in(im.error.clone(), theme::error()))
+                                    el.child(note_in(im.error.clone(), theme::rose(300)))
                                 })
                         })
                         .children(self.image_downloads(cx))
@@ -856,31 +909,54 @@ impl AppView {
             .unwrap_or_default();
         let ok = c.status == "ok";
         card(SharedString::from(format!("setup-card-{}", e.id)))
+            .p_4()
             .child(
                 h_flex()
-                    .gap_3()
+                    .gap(px(14.))
                     .items_start()
-                    .child(step_mark(&c.status))
+                    .child(
+                        div()
+                            .flex_none()
+                            .mt_0p5()
+                            .size_7()
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .border_1()
+                            .border_color(theme::line())
+                            .bg(theme::surface())
+                            .child(step_icon(&c.status, 20.)),
+                    )
                     .child(
                         v_flex()
                             .flex_1()
                             .min_w_0()
-                            .gap_1()
+                            .gap_0p5()
                             .child(
                                 h_flex()
                                     .gap_2()
                                     .child(title(e.label.clone()))
                                     .children(step_badge(&c)),
                             )
-                            .child(note(e.description.clone()))
+                            .child(
+                                div()
+                                    .text_size(theme::text::UI)
+                                    .text_color(theme::muted())
+                                    .child(e.description.clone()),
+                            )
                             .when(!c.detail.is_empty(), |el| {
-                                el.child(note_in(
+                                el.child(div().mt_1().child(note_in(
                                     c.detail.clone(),
-                                    if ok { theme::running() } else { theme::faint() },
-                                ))
+                                    if ok {
+                                        theme::emerald(300).opacity(0.8)
+                                    } else {
+                                        theme::subtle()
+                                    },
+                                )))
                             })
                             .when(!c.fix.is_empty(), |el| {
-                                el.child(div().pt_2().child(self.command_box(&c.id, &c.fix, cx)))
+                                el.child(div().pt_3().child(self.command_box(&c.id, &c.fix, cx)))
                             }),
                     ),
             )
@@ -914,7 +990,7 @@ impl AppView {
                 if wanted && !installed && p.opencode_job.is_none() {
                     row.body.push(note_in(
                         t("defaults.newAgent.openCodeMissing"),
-                        theme::starting(),
+                        theme::amber(300),
                     ));
                 }
                 if let Some(j) = &p.opencode_job {

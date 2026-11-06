@@ -265,13 +265,15 @@ impl WorkView {
                 .count() as i64
         });
         h_flex()
+            .min_w_0()
             .flex_wrap()
+            .items_center()
             .p(px(2.))
             .gap(px(2.))
             .rounded_lg()
             .border_1()
             .border_color(theme::line())
-            .bg(theme::card())
+            .bg(theme::surface_faint())
             .children(FILTERS.iter().map(|(f, key)| {
                 let on = self.filter == *f;
                 let n = if *f == "review" && self.filter.is_empty() {
@@ -282,19 +284,18 @@ impl WorkView {
                 let f = f.to_string();
                 h_flex()
                     .id(SharedString::from(format!("work-filter-{f}")))
+                    .h(px(28.))
                     .gap_1p5()
                     .px_2p5()
-                    .py_1()
                     .rounded_md()
-                    .text_sm()
+                    .text_size(theme::text::UI)
+                    .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
                     .when(on, |el| {
-                        el.bg(theme::surface_strong())
-                            .text_color(theme::primary())
-                            .font_weight(FontWeight::MEDIUM)
+                        el.bg(theme::surface_strong()).text_color(theme::title())
                     })
                     .when(!on, |el| {
-                        el.text_color(theme::muted())
+                        el.text_color(theme::subtle())
                             .hover(|s| s.text_color(theme::primary()))
                     })
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -303,7 +304,7 @@ impl WorkView {
                     }))
                     .child(t(key))
                     .when_some(n, |el, n| {
-                        el.child(div().text_color(theme::faint()).child(n.to_string()))
+                        el.child(div().text_color(theme::subtle()).child(n.to_string()))
                     })
             }))
             .into_any_element()
@@ -324,19 +325,20 @@ impl WorkView {
         };
         let mut badges: Vec<AnyElement> = Vec::new();
         if status == "review" {
-            badges.push(controls::badge(t("work.toReview"), theme::accent()));
+            badges.push(tag(t("work.toReview"), Tone::Info));
         }
         match status.as_str() {
-            "needs" => badges.push(controls::badge(t("v2.st.needs"), theme::starting())),
-            "error" => badges.push(controls::badge(t("v2.st.error"), theme::error())),
-            "working" => badges.push(controls::badge(t("v2.st.working"), theme::muted())),
+            "needs" => badges.push(tag(t("v2.st.needs"), Tone::Warning)),
+            "error" => badges.push(tag(t("v2.st.error"), Tone::Danger)),
+            "working" => badges.push(tag(t("v2.st.working"), Tone::Plain)),
             _ => {}
         }
         if w.status == "reviewed" {
             badges.push(
                 div()
-                    .text_xs()
-                    .text_color(theme::faint())
+                    .flex_none()
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
                     .child(t(match i.verdict.as_str() {
                         "changes" => "work.verdict.changes",
                         "dismissed" => "work.verdict.dismissed",
@@ -353,7 +355,8 @@ impl WorkView {
         if self.project.is_empty() {
             meta.push(
                 div()
-                    .max_w(px(180.))
+                    .flex_none()
+                    .max_w(relative(0.4))
                     .truncate()
                     .child(self.project_label(&i.project))
                     .into_any_element(),
@@ -378,12 +381,12 @@ impl WorkView {
                     .child(tv("work.files", &[("count", c.files.into())]))
                     .child(
                         div()
-                            .text_color(theme::running())
+                            .text_color(theme::emerald(400))
                             .child(format!("+{}", c.insertions)),
                     )
                     .child(
                         div()
-                            .text_color(theme::error())
+                            .text_color(theme::rose(400))
                             .child(format!("−{}", c.deletions)),
                     )
                     .into_any_element(),
@@ -391,17 +394,29 @@ impl WorkView {
         }
         if w.screenshots > 0 {
             meta.push(
-                div()
+                h_flex()
                     .flex_none()
-                    .child(crate::icons::lead("image", w.screenshots.to_string()))
+                    .gap_1()
+                    .child(
+                        crate::icons::ic("images")
+                            .size_3p5()
+                            .text_color(theme::faint()),
+                    )
+                    .child(w.screenshots.to_string())
                     .into_any_element(),
             );
         }
         if w.recordings > 0 {
             meta.push(
-                div()
+                h_flex()
                     .flex_none()
-                    .child(crate::icons::lead("play", w.recordings.to_string()))
+                    .gap_1()
+                    .child(
+                        crate::icons::ic("film")
+                            .size_3p5()
+                            .text_color(theme::faint()),
+                    )
+                    .child(w.recordings.to_string())
                     .into_any_element(),
             );
         }
@@ -410,12 +425,13 @@ impl WorkView {
             .id(SharedString::from(format!("work-{}", i.r#ref)))
             .items_start()
             .gap_3()
+            .min_w_0()
             .px_4()
             .py_2p5()
             .border_b_1()
-            .border_color(theme::line().opacity(0.5))
+            .border_color(theme::line_faint())
             .cursor_pointer()
-            .hover(|el| el.bg(theme::surface_raised()))
+            .hover(|el| el.bg(theme::surface_faint()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open(open.clone(), cx)))
             .child(
                 div()
@@ -431,13 +447,15 @@ impl WorkView {
                     .gap_1()
                     .child(
                         h_flex()
+                            .min_w_0()
                             .flex_wrap()
-                            .gap_2()
+                            .gap_x_2()
+                            .gap_y_1()
                             .child(
                                 div()
                                     .min_w_0()
                                     .truncate()
-                                    .text_sm()
+                                    .text_size(theme::text::UI)
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme::primary())
                                     .when(i.title.is_empty(), |el| {
@@ -449,9 +467,9 @@ impl WorkView {
                                 el.child(
                                     div()
                                         .flex_none()
-                                        .text_xs()
+                                        .text_size(theme::text::CAPTION)
                                         .font_family(crate::theme::mono())
-                                        .text_color(theme::faint())
+                                        .text_color(theme::subtle())
                                         .child(i.agent.clone()),
                                 )
                             })
@@ -459,10 +477,12 @@ impl WorkView {
                     )
                     .child(
                         h_flex()
+                            .min_w_0()
                             .flex_wrap()
                             .gap_x_2p5()
-                            .text_xs()
-                            .text_color(theme::faint())
+                            .gap_y_1()
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::subtle())
                             .children(meta),
                     ),
             )
@@ -470,7 +490,8 @@ impl WorkView {
                 Some(pr) => pr_chip(pr),
                 None => div()
                     .flex_none()
-                    .text_xs()
+                    .mt_0p5()
+                    .text_size(theme::text::CAPTION)
                     .text_color(theme::faint())
                     .child(t("work.noPr"))
                     .into_any_element(),
@@ -479,9 +500,10 @@ impl WorkView {
                 div()
                     .flex_none()
                     .w(px(44.))
+                    .mt_0p5()
                     .text_right()
-                    .text_xs()
-                    .text_color(theme::faint())
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
                     .child(clock_time(&w.at)),
             )
             .into_any_element()
@@ -546,14 +568,14 @@ impl Render for WorkView {
                                         .gap_1()
                                         .child(
                                             div()
-                                                .text_2xl()
+                                                .text_size(theme::text::DISPLAY)
                                                 .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(theme::primary())
+                                                .text_color(theme::title())
                                                 .child(t("work.title")),
                                         )
                                         .child(
                                             div()
-                                                .text_sm()
+                                                .text_size(theme::text::BODY)
                                                 .text_color(theme::muted())
                                                 .child(t("work.description")),
                                         ),
@@ -562,16 +584,29 @@ impl Render for WorkView {
                                 .child(
                                     h_flex()
                                         .id("work-recap")
-                                        .h(px(34.))
+                                        .h(px(36.))
                                         .px_3()
                                         .gap_1p5()
-                                        .rounded_lg()
+                                        .rounded_xl()
                                         .border_1()
-                                        .border_color(theme::accent().opacity(0.35))
-                                        .bg(theme::accent().opacity(0.12))
+                                        .border_color(theme::brand(500).opacity(0.3))
+                                        .bg(gpui::linear_gradient(
+                                            180.,
+                                            gpui::linear_color_stop(
+                                                theme::brand(500).opacity(0.15),
+                                                0.,
+                                            ),
+                                            gpui::linear_color_stop(
+                                                theme::brand(600).opacity(0.1),
+                                                1.,
+                                            ),
+                                        ))
                                         .cursor_pointer()
-                                        .hover(|el| el.bg(theme::accent().opacity(0.2)))
-                                        .text_sm()
+                                        .hover(|el| {
+                                            el.border_color(theme::brand(400).opacity(0.5))
+                                                .bg(theme::brand(500).opacity(0.25))
+                                        })
+                                        .text_size(theme::text::UI)
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(theme::primary())
                                         .on_click(cx.listener(
@@ -580,9 +615,9 @@ impl Render for WorkView {
                                             },
                                         ))
                                         .child(
-                                            div()
-                                                .text_color(theme::accent())
-                                                .child(crate::icons::of("✦")),
+                                            crate::icons::ic("sparkles")
+                                                .size_3p5()
+                                                .text_color(theme::brand(400)),
                                         )
                                         .child(t("recap.open")),
                                 )
@@ -596,40 +631,75 @@ impl Render for WorkView {
                         )
                         .child(
                             h_flex()
+                                .min_w_0()
                                 .flex_wrap()
+                                .items_center()
                                 .gap_2()
                                 .child(self.render_filters(cx))
                                 .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w(px(220.))
-                                        .child(Input::new(&self.search).cleanable(true)),
+                                    div().flex_1().min_w(px(192.)).child(
+                                        Input::new(&self.search)
+                                            .prefix(
+                                                crate::icons::ic("search")
+                                                    .size_3p5()
+                                                    .text_color(theme::subtle()),
+                                            )
+                                            .cleanable(true),
+                                    ),
                                 )
                                 .when(self.loading && self.page.is_some(), |el| {
-                                    el.child(div().text_xs().text_color(theme::faint()).child("…"))
+                                    el.child(
+                                        div()
+                                            .text_size(theme::text::CAPTION)
+                                            .text_color(theme::subtle())
+                                            .child("…"),
+                                    )
                                 }),
                         )
                         .child(
                             v_flex()
-                                .rounded_xl()
+                                .min_w_0()
+                                .rounded(theme::radius::XXL)
                                 .border_1()
                                 .border_color(theme::line())
-                                .bg(theme::card())
+                                .bg(theme::linear_panel())
+                                .shadow(theme::shadow_card())
                                 .overflow_hidden()
                                 .map(|el| match (&self.error, &self.page) {
                                     (Some(e), _) => el.child(
                                         div()
                                             .p_4()
-                                            .text_sm()
-                                            .text_color(theme::error())
-                                            .child(e.clone()),
+                                            .child(controls::note_in(e.clone(), theme::rose(300))),
                                     ),
-                                    (None, None) => el.child(
-                                        div()
-                                            .p_4()
-                                            .text_sm()
-                                            .text_color(theme::faint())
-                                            .child(t("common.loading")),
+                                    (None, None) => el.children(
+                                        [0.33f32, 0.5, 0.25, 0.42, 0.3]
+                                            .into_iter()
+                                            .enumerate()
+                                            .map(|(n, width)| {
+                                                h_flex()
+                                                    .gap_3()
+                                                    .px_4()
+                                                    .py_3()
+                                                    .when(n > 0, |el| {
+                                                        el.border_t_1()
+                                                            .border_color(theme::line_faint())
+                                                    })
+                                                    .child(crate::motion::skeleton(
+                                                        ElementId::Name(
+                                                            format!("work-skel-a-{n}").into(),
+                                                        ),
+                                                        relative(width),
+                                                        px(14.),
+                                                    ))
+                                                    .child(div().flex_1())
+                                                    .child(crate::motion::skeleton(
+                                                        ElementId::Name(
+                                                            format!("work-skel-b-{n}").into(),
+                                                        ),
+                                                        px(56.),
+                                                        px(12.),
+                                                    ))
+                                            }),
                                     ),
                                     (None, Some(_)) if empty => el.child(
                                         v_flex()
@@ -637,8 +707,13 @@ impl Render for WorkView {
                                             .gap_2()
                                             .px_4()
                                             .py_8()
-                                            .text_sm()
-                                            .text_color(theme::faint())
+                                            .text_size(theme::text::UI)
+                                            .text_color(theme::subtle())
+                                            .child(
+                                                crate::icons::ic("briefcase")
+                                                    .size_5()
+                                                    .text_color(theme::faint()),
+                                            )
                                             .child(
                                                 if self.q.is_empty() && self.filter.is_empty() {
                                                     t("work.empty")
@@ -655,16 +730,23 @@ impl Render for WorkView {
                                                         .px_4()
                                                         .py_1p5()
                                                         .border_b_1()
-                                                        .border_color(theme::line().opacity(0.5))
-                                                        .bg(theme::surface_raised().opacity(0.4))
-                                                        .text_xs()
-                                                        .font_weight(FontWeight::SEMIBOLD)
-                                                        .text_color(theme::faint())
+                                                        .border_color(theme::line_faint())
+                                                        .bg(theme::surface_faint())
+                                                        .text_size(theme::text::CAPTION)
+                                                        .font_weight(FontWeight::MEDIUM)
+                                                        .text_color(theme::muted())
                                                         .child(day_label(&day)),
                                                 )
-                                                .children(
-                                                    list.iter().map(|w| self.render_row(w, cx)),
-                                                )
+                                                .children(list.iter().enumerate().map(|(n, w)| {
+                                                    crate::motion::enter(
+                                                        div().child(self.render_row(w, cx)),
+                                                        SharedString::from(format!(
+                                                            "work-in-{}",
+                                                            w.item.r#ref
+                                                        )),
+                                                        n,
+                                                    )
+                                                }))
                                         }))
                                     }
                                 }),
@@ -700,13 +782,71 @@ pub fn outcome_badge(outcome: &str) -> AnyElement {
     } else {
         outcome.to_string()
     };
-    let color = match outcome {
-        "done" => theme::running(),
-        "partial" | "blocked" => theme::starting(),
-        "failed" => theme::error(),
-        _ => theme::muted(),
+    let tone = match outcome {
+        "done" => Tone::Success,
+        "partial" | "blocked" => Tone::Warning,
+        "failed" => Tone::Danger,
+        _ => Tone::Plain,
     };
-    controls::badge(label, color)
+    tag(label, tone)
+}
+
+/// Tone is a Badge's variant (ui/badge.tsx).
+#[derive(Clone, Copy)]
+pub(super) enum Tone {
+    Plain,
+    Success,
+    Warning,
+    Danger,
+    Info,
+    Brand,
+}
+
+/// tag is Electron's Badge: a caption pill, its tone's tint, text and inset
+/// ring (bg-emerald-400/10 text-emerald-300 ring-emerald-400/25 and so on).
+pub(super) fn tag(text: impl Into<SharedString>, tone: Tone) -> AnyElement {
+    let (bg, fg, ring) = match tone {
+        Tone::Plain => (theme::surface(), theme::tertiary(), theme::line_strong()),
+        Tone::Success => (
+            theme::emerald(400).opacity(0.1),
+            theme::emerald(300),
+            theme::emerald(400).opacity(0.25),
+        ),
+        Tone::Warning => (
+            theme::amber(400).opacity(0.1),
+            theme::amber(200),
+            theme::amber(400).opacity(0.25),
+        ),
+        Tone::Danger => (
+            theme::rose(400).opacity(0.1),
+            theme::rose(300),
+            theme::rose(400).opacity(0.25),
+        ),
+        Tone::Info => (
+            theme::sky(400).opacity(0.1),
+            theme::sky(300),
+            theme::sky(400).opacity(0.25),
+        ),
+        Tone::Brand => (
+            theme::brand(500).opacity(0.15),
+            theme::brand(300),
+            theme::brand(400).opacity(0.3),
+        ),
+    };
+    h_flex()
+        .flex_none()
+        .gap_1p5()
+        .px_2()
+        .py(px(1.))
+        .rounded_full()
+        .border_1()
+        .border_color(ring)
+        .bg(bg)
+        .text_size(theme::text::CAPTION)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(fg)
+        .child(crate::icons::glyph(text.into()))
+        .into_any_element()
 }
 
 /// pr_chip is a pull request as a small pill (PrChip), its id by its number.

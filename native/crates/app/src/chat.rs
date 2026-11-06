@@ -18,8 +18,8 @@ mod composer;
 mod evidence;
 mod find;
 mod items;
-mod stream;
 pub mod rows;
+mod stream;
 
 pub use composer::{Composer, match_files, tokens};
 
@@ -698,7 +698,8 @@ impl ChatView {
                 None => self.items.push(item),
             }
         }
-        self.shown.retain(|id, _| self.items.iter().any(|i| &i.id == id && i.streaming));
+        self.shown
+            .retain(|id, _| self.items.iter().any(|i| &i.id == id && i.streaming));
         if let Some(app) = ev.append
             && let Some(ix) = self.items.iter().rposition(|i| i.id == app.id)
         {

@@ -7,20 +7,56 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 use std::rc::Rc;
 
-use super::super::controls::{Btn, button};
+use super::super::controls::{Btn, button, note_in};
 use crate::theme;
+
+/// panel is Electron's `.panel rounded-2xl`: its hairline edge and the
+/// gradient down it, on anything that's a panel of its own.
+pub(crate) fn panel<E: Styled>(el: E) -> E {
+    el.rounded(theme::radius::XXL)
+        .border_1()
+        .border_color(theme::line())
+        .bg(theme::linear_panel())
+}
 
 /// card is a panel of its own (Electron's Panel): a list's row, a form.
 pub(super) fn card(id: impl Into<ElementId>) -> Stateful<Div> {
-    v_flex()
-        .id(id)
-        .px_4()
-        .py_3()
-        .gap_2()
-        .rounded_xl()
-        .border_1()
-        .border_color(theme::line())
-        .bg(theme::card())
+    panel(v_flex().id(id).px_5().py_4().gap_2())
+}
+
+/// label is a group's name over what it holds (a table's column head too):
+/// sentence case, caption, medium, muted.
+pub(super) fn label(text: impl Into<SharedString>) -> Div {
+    div()
+        .text_size(theme::text::CAPTION)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::muted())
+        .child(text.into())
+}
+
+/// section_icon is the Lucide icon Electron's sectionIcons gives a section
+/// (SettingsView.tsx), or the nearest one built in (icons.rs) where its own
+/// isn't: Star for Essentials and FolderGit2 for a project's.
+pub(crate) fn section_icon(id: &str) -> &'static str {
+    match id {
+        "essentials" => "star",
+        "general" => "sliders-horizontal",
+        "models" => "sparkles",
+        "skills" => "wand-sparkles",
+        "connectors" => "plug",
+        "memory" => "brain",
+        "phone" => "smartphone",
+        "agents" => "bot",
+        "resources" => "cpu",
+        "accounts" => "key-round",
+        "setup" => "wrench",
+        "notifications" => "bell",
+        "transfer" => "arrow-left-right",
+        "diagnostics" => "activity",
+        "experimental" => "flask-conical",
+        "jobs" => "list-checks",
+        _ => "folder-git-2",
+    }
 }
 
 /// empty is EmptyState: a title and a line under it, in a card.
@@ -30,17 +66,18 @@ pub(super) fn empty(id: &str, title: String, body: String) -> AnyElement {
         .py_8()
         .child(
             div()
-                .text_sm()
+                .text_size(theme::text::BODY)
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::primary())
+                .text_color(theme::title())
                 .child(title),
         )
         .when(!body.is_empty(), |el| {
             el.child(
                 div()
-                    .max_w(px(420.))
+                    .max_w(px(448.))
                     .text_center()
-                    .text_xs()
+                    .text_size(theme::text::UI)
+                    .line_height(rems(1.4))
                     .text_color(theme::muted())
                     .child(body),
             )
@@ -67,19 +104,21 @@ pub(super) fn ask(
     let backdrop = no.clone();
     let card = v_flex()
         .id(SharedString::from(format!("ask-{id}")))
-        .gap_4()
+        .gap_5()
         .p_6()
+        .bg(theme::modal())
         .child(
             div()
-                .text_lg()
+                .text_size(theme::text::HEADING)
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::primary())
+                .text_color(theme::title())
                 .child(question),
         )
         .when(!description.is_empty(), |el| {
             el.child(
                 div()
-                    .text_sm()
+                    .text_size(theme::text::BODY)
+                    .line_height(rems(1.4))
                     .text_color(theme::muted())
                     .child(description),
             )
@@ -127,8 +166,8 @@ pub(super) fn check(
         .id(id)
         .gap_2()
         .items_start()
-        .text_sm()
-        .text_color(theme::primary())
+        .text_size(px(12.5))
+        .text_color(theme::secondary())
         .when(disabled, |el| el.opacity(0.5))
         .when(!disabled, |el| el.cursor_pointer().on_click(on_click))
         .child(
@@ -136,10 +175,18 @@ pub(super) fn check(
                 .flex_none()
                 .mt(px(2.))
                 .size(px(14.))
-                .rounded_sm()
+                .rounded(theme::radius::SM)
                 .border_1()
-                .border_color(if on { theme::accent() } else { theme::line() })
-                .bg(if on { theme::accent() } else { theme::ink() })
+                .border_color(if on {
+                    theme::brand(500)
+                } else {
+                    theme::line_vivid()
+                })
+                .bg(if on {
+                    theme::brand(500)
+                } else {
+                    theme::sunken()
+                })
                 .flex()
                 .items_center()
                 .justify_center()
@@ -160,11 +207,11 @@ pub(super) fn link(
     div()
         .id(id)
         .flex_none()
-        .text_xs()
+        .text_size(theme::text::CAPTION)
         .font_weight(FontWeight::MEDIUM)
-        .text_color(theme::accent())
+        .text_color(theme::brand(300))
         .cursor_pointer()
-        .hover(|s| s.underline())
+        .hover(|s| s.text_color(theme::brand(200)).underline())
         .on_click(on_click)
         .child(label.into())
         .into_any_element()
@@ -174,8 +221,8 @@ pub(super) fn link(
 pub(super) fn mono(text: impl Into<SharedString>) -> AnyElement {
     div()
         .font_family(crate::theme::mono())
-        .text_xs()
-        .text_color(theme::muted())
+        .text_size(theme::text::CAPTION)
+        .text_color(theme::tertiary())
         .child(text.into())
         .into_any_element()
 }
@@ -183,11 +230,58 @@ pub(super) fn mono(text: impl Into<SharedString>) -> AnyElement {
 /// title is a card's name.
 pub(super) fn title(text: impl Into<SharedString>) -> AnyElement {
     div()
-        .text_sm()
+        .text_size(theme::text::BODY)
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme::primary())
         .child(text.into())
         .into_any_element()
+}
+
+/// badge is Electron's Badge: a pill with a ring, its variant read from the
+/// colour a caller names (muted is the default one; the status colours and
+/// the accent are warning, danger, success and brand).
+pub(crate) fn badge(text: impl Into<SharedString>, color: Hsla) -> AnyElement {
+    let (fg, bg, ring) = if color == theme::muted() || color == theme::faint() {
+        (theme::tertiary(), theme::surface(), theme::line_strong())
+    } else if color == theme::starting() {
+        let a = theme::amber(400);
+        (theme::amber(200), a.opacity(0.1), a.opacity(0.25))
+    } else if color == theme::error() {
+        (
+            theme::rose(300),
+            theme::rose(400).opacity(0.1),
+            theme::rose(400).opacity(0.25),
+        )
+    } else if color == theme::running() {
+        let e = theme::emerald(400);
+        (theme::emerald(300), e.opacity(0.1), e.opacity(0.25))
+    } else if color == theme::accent() {
+        (
+            theme::brand(300),
+            theme::brand(500).opacity(0.15),
+            theme::brand(400).opacity(0.3),
+        )
+    } else {
+        (color, color.opacity(0.1), color.opacity(0.25))
+    };
+    div()
+        .flex_none()
+        .px_2()
+        .py_0p5()
+        .rounded_full()
+        .border_1()
+        .border_color(ring)
+        .bg(bg)
+        .text_size(theme::text::CAPTION)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(fg)
+        .child(text.into())
+        .into_any_element()
+}
+
+/// note is SettingNote's muted tone: a line under a setting, in subtle.
+pub(crate) fn note(text: impl Into<SharedString>) -> AnyElement {
+    note_in(text, theme::subtle())
 }
 
 /// local_date reads an RFC 3339 time as the user's own date and time

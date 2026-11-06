@@ -199,15 +199,21 @@ impl AppView {
             a.title.clone()
         };
         let nav = v_flex()
-            .w(px(180.))
+            .w(px(192.))
             .flex_none()
+            .h_full()
+            .px_3()
+            .py_4()
             .gap_0p5()
+            .border_r_1()
+            .border_color(theme::line_faint())
             .child(
                 div()
-                    .px_2()
-                    .pb_2()
-                    .text_xs()
-                    .text_color(theme::faint())
+                    .px_2p5()
+                    .pb_1()
+                    .text_size(theme::text::CAPTION)
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::muted())
                     .child(tv("agent.view.settingsOf", &[("name", (&name).into())])),
             )
             .children(SECTIONS.iter().map(|sec| {
@@ -222,24 +228,34 @@ impl AppView {
                 h_flex()
                     .id(SharedString::from(format!("agent-settings-{sec}")))
                     .gap_2()
-                    .px_2()
-                    .py_1p5()
-                    .rounded_md()
-                    .text_sm()
+                    .px_2p5()
+                    .py(px(7.))
+                    .rounded_lg()
+                    .text_size(theme::text::UI)
                     .when(on, |el| {
-                        el.bg(theme::surface_raised()).text_color(theme::primary())
+                        el.bg(theme::surface_raised()).text_color(theme::title())
                     })
                     .when(!on, |el| {
                         el.text_color(theme::muted())
                             .cursor_pointer()
-                            .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
+                            .hover(|s| s.bg(theme::surface()).text_color(theme::primary()))
                     })
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.agent_settings.section = sec;
                         this.load_agent_settings(cx);
                         cx.notify();
                     }))
-                    .child(div().w(px(16.)).child(crate::icons::of(glyph)))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(16.))
+                            .text_color(if on {
+                                theme::brand(300)
+                            } else {
+                                theme::subtle()
+                            })
+                            .child(crate::icons::of(glyph)),
+                    )
                     .child(t(&format!("agent.section.{sec}")))
             }));
         let body = match s.section {
@@ -269,7 +285,7 @@ impl AppView {
                     ))
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(theme::text::UI)
                             .text_color(theme::muted())
                             .child(t("agent.tab.settings")),
                     ),
@@ -279,14 +295,8 @@ impl AppView {
                     .flex_1()
                     .min_h_0()
                     .items_start()
-                    .mx_4()
-                    .mb_4()
-                    .p_4()
-                    .gap_6()
-                    .rounded_2xl()
-                    .border_1()
-                    .border_color(theme::line())
-                    .bg(theme::card())
+                    .border_t_1()
+                    .border_color(theme::line_faint())
                     .child(nav)
                     .child(
                         div()
@@ -295,6 +305,8 @@ impl AppView {
                             .min_w_0()
                             .h_full()
                             .overflow_y_scroll()
+                            .px_6()
+                            .py_5()
                             .child(body),
                     ),
             )
@@ -302,33 +314,43 @@ impl AppView {
     }
 
     fn settings_card(rows: Vec<(String, String, bool)>) -> Div {
-        v_flex()
-            .gap_2()
-            .p_5()
-            .rounded_xl()
-            .border_1()
-            .border_color(theme::line())
-            .bg(theme::surface_raised())
-            .children(rows.into_iter().map(|(label, value, mono)| {
-                h_flex()
-                    .gap_4()
-                    .text_sm()
-                    .child(
-                        div()
-                            .w(px(140.))
-                            .flex_none()
-                            .text_color(theme::muted())
-                            .child(label),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .flex_1()
-                            .truncate()
-                            .when(mono, |el| el.font_family(theme::mono()).text_xs())
-                            .child(value),
-                    )
-            }))
+        // Card and its Rows (ui/card.tsx): a label in subtle beside its
+        // value, a hairline between them.
+        super::settings::kit::panel(v_flex())
+            .px_5()
+            .py_3()
+            .children(
+                rows.into_iter()
+                    .enumerate()
+                    .map(|(i, (label, value, mono))| {
+                        h_flex()
+                            .min_h_9()
+                            .gap_4()
+                            .text_sm()
+                            .when(i > 0, |el| {
+                                el.border_t_1().border_color(theme::line_faint())
+                            })
+                            .child(
+                                div()
+                                    .w(px(112.))
+                                    .flex_none()
+                                    .text_size(theme::text::UI)
+                                    .text_color(theme::subtle())
+                                    .child(label),
+                            )
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .flex_1()
+                                    .truncate()
+                                    .text_color(theme::secondary())
+                                    .when(mono, |el| {
+                                        el.font_family(theme::mono()).text_size(theme::text::UI)
+                                    })
+                                    .child(value),
+                            )
+                    }),
+            )
     }
 
     fn settings_machine(&self, a: &FleetAgent) -> AnyElement {
@@ -340,14 +362,22 @@ impl AppView {
                 .min_w(px(120.))
                 .gap_0p5()
                 .p_3()
-                .rounded_lg()
+                .rounded_xl()
                 .border_1()
-                .border_color(theme::line())
-                .child(div().text_xs().text_color(theme::muted()).child(label))
+                .border_color(theme::line_faint())
+                .bg(theme::surface_faint())
                 .child(
                     div()
-                        .text_lg()
+                        .text_size(theme::text::CAPTION)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::muted())
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .text_size(theme::text::DISPLAY)
                         .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::title())
                         .child(value),
                 )
                 .child(div().text_xs().text_color(theme::faint()).child(hint))
@@ -458,10 +488,11 @@ impl AppView {
                             .rounded_xl()
                             .border_1()
                             .border_color(theme::line())
-                            .bg(theme::ink())
+                            .bg(theme::well())
                             .font_family(theme::mono())
                             .text_xs()
-                            .text_color(theme::muted())
+                            .line_height(rems(1.6))
+                            .text_color(theme::subtle())
                             .whitespace_normal()
                             .children(
                                 match &self.agent_settings.diff {
@@ -538,17 +569,20 @@ impl AppView {
                 .flex_wrap()
                 .gap_3()
                 .px_3()
-                .py_2()
-                .rounded_lg()
+                .py_2p5()
+                .rounded_xl()
                 .border_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
+                .bg(theme::surface_faint())
+                .hover(|st| st.border_color(theme::line_strong()))
                 .child(
                     div()
                         .font_family(theme::mono())
-                        .text_sm()
+                        .text_size(theme::text::UI)
+                        .text_color(theme::primary())
                         .child(format!("${}", sec.name)),
                 )
-                .child(controls::badge(
+                .child(super::settings::kit::badge(
                     t(if sec.scope == "project" {
                         "agent.secrets.scopeProject"
                     } else {
@@ -561,7 +595,7 @@ impl AppView {
                         .flex_1()
                         .min_w(px(80.))
                         .text_xs()
-                        .text_color(theme::faint())
+                        .text_color(theme::subtle())
                         .child(tv(
                             "agent.secrets.updated",
                             &[("when", time_ago(&sec.updated_at).into())],
@@ -587,24 +621,26 @@ impl AppView {
                 .into_any_element()
         };
         let card = |title: String, description: String, body: Vec<AnyElement>| {
-            v_flex()
+            super::settings::kit::panel(v_flex())
                 .gap_3()
-                .p_5()
-                .rounded_xl()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::surface_raised())
+                .px_5()
+                .pt_4()
+                .pb_5()
                 .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme::muted())
-                        .child(description),
+                    v_flex()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::primary())
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::subtle())
+                                .child(description),
+                        ),
                 )
                 .children(body)
         };
@@ -654,7 +690,7 @@ impl AppView {
         let mut own: Vec<AnyElement> = Vec::new();
         match &s.secrets {
             None => own.push(super::panel::loading("agent_settings")),
-            Some(Err(e)) => own.push(controls::note_in(e.clone(), theme::error())),
+            Some(Err(e)) => own.push(controls::note_in(e.clone(), theme::rose(300))),
             Some(Ok(_)) if mine.is_empty() => own.push(
                 div()
                     .text_xs()
@@ -676,7 +712,7 @@ impl AppView {
     fn settings_connectors(&self, cx: &mut Context<Self>) -> AnyElement {
         let list = match &self.agent_settings.connectors {
             None => return super::panel::loading("agent_settings"),
-            Some(Err(e)) => return controls::note_in(e.clone(), theme::error()),
+            Some(Err(e)) => return controls::note_in(e.clone(), theme::rose(300)),
             Some(Ok(l)) => l.clone(),
         };
         let (project, mine): (Vec<Connector>, Vec<Connector>) =
@@ -690,9 +726,11 @@ impl AppView {
                 .gap_3()
                 .px_3()
                 .py_2p5()
-                .rounded_lg()
+                .rounded_xl()
                 .border_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
+                .bg(theme::surface_faint())
+                .hover(|st| st.border_color(theme::line_strong()))
                 .child(div().size(px(7.)).rounded_full().bg(color))
                 .child(
                     v_flex()
@@ -700,8 +738,9 @@ impl AppView {
                         .min_w_0()
                         .child(
                             div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
+                                .font_family(theme::mono())
+                                .text_size(theme::text::UI)
+                                .text_color(theme::primary())
                                 .child(c.name.clone()),
                         )
                         .child(
@@ -709,7 +748,7 @@ impl AppView {
                                 .truncate()
                                 .text_xs()
                                 .font_family(theme::mono())
-                                .text_color(theme::faint())
+                                .text_color(theme::subtle())
                                 .child(c.url.clone()),
                         ),
                 )
@@ -759,24 +798,26 @@ impl AppView {
                 .into_any_element()
         };
         let card = |title: String, description: String, rows: Vec<AnyElement>| {
-            v_flex()
+            super::settings::kit::panel(v_flex())
                 .gap_3()
-                .p_5()
-                .rounded_xl()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::surface_raised())
+                .px_5()
+                .pt_4()
+                .pb_5()
                 .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme::muted())
-                        .child(description),
+                    v_flex()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::primary())
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::subtle())
+                                .child(description),
+                        ),
                 )
                 .children(rows)
         };

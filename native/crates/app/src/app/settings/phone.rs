@@ -18,7 +18,8 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, labeled, note, note_in, toggle};
+use super::super::controls::{Btn, button, labeled, note_in, toggle};
+use super::kit::note;
 use super::kit::{ask, enc, link, local_date, local_date_time, mono, plain};
 use super::{Entry, Group, entry, group};
 use crate::theme;
@@ -337,13 +338,13 @@ impl AppView {
                     cx,
                 );
                 if let Some(Err(err)) = &p.lan {
-                    row.body.push(note_in(err.clone(), theme::error()));
+                    row.body.push(note_in(err.clone(), theme::rose(300)));
                 }
                 if let Some(err) = &p.error {
-                    row.body.push(note_in(err.clone(), theme::error()));
+                    row.body.push(note_in(err.clone(), theme::rose(300)));
                 }
                 if let Some(s) = &p.said {
-                    row.body.push(note_in(s.clone(), theme::running()));
+                    row.body.push(note_in(s.clone(), theme::emerald(300)));
                 }
                 row.control = Some(match st {
                     Some(s) if s.enabled => toggle(
@@ -376,7 +377,7 @@ impl AppView {
                 }
                 if let Some(s) = st.filter(|s| s.enabled) {
                     row.body
-                        .push(note_in(t("defaults.phone.plainHttp"), theme::starting()));
+                        .push(note_in(t("defaults.phone.plainHttp"), theme::amber(300)));
                     if !s.tunnel.enabled {
                         row.body.push(note(t("defaults.phone.httpsOnly")));
                     }
@@ -412,7 +413,7 @@ impl AppView {
                         ));
                     }
                     if s.listening && !s.warning.is_empty() {
-                        row.body.push(note_in(s.warning.clone(), theme::starting()));
+                        row.body.push(note_in(s.warning.clone(), theme::amber(300)));
                     }
                     if s.web_version.is_empty() {
                         row.body.push(note(t("defaults.phone.gettingPage")));
@@ -489,7 +490,7 @@ impl AppView {
                 };
                 if on {
                     row.body.push(if tailnet.is_empty() {
-                        note_in(t("defaults.phone.tunnelWarning"), theme::starting())
+                        note_in(t("defaults.phone.tunnelWarning"), theme::amber(300))
                     } else {
                         note(t("defaults.phone.tailnetNote"))
                     });
@@ -564,11 +565,15 @@ impl AppView {
                                     .rounded_xl()
                                     .border_1()
                                     .border_color(if picked {
-                                        theme::accent().opacity(0.6)
+                                        theme::brand(500).opacity(0.6)
                                     } else {
                                         theme::line()
                                     })
-                                    .when(picked, |el| el.bg(theme::accent().opacity(0.08)))
+                                    .bg(if picked {
+                                        theme::brand(500).opacity(0.1)
+                                    } else {
+                                        theme::surface_faint()
+                                    })
                                     .when(no_hub || p.busy, |el| el.opacity(0.6))
                                     .when(!no_hub && !p.busy && !picked, |el| {
                                         el.cursor_pointer()
@@ -593,12 +598,18 @@ impl AppView {
                                     })
                                     .child(
                                         div()
-                                            .text_sm()
+                                            .text_size(theme::text::UI)
                                             .font_weight(FontWeight::MEDIUM)
-                                            .text_color(theme::primary())
+                                            .text_color(theme::title())
                                             .child(t(&format!("defaults.phone.mode.{m}"))),
                                     )
-                                    .child(div().text_xs().text_color(theme::muted()).child(hint))
+                                    .child(
+                                        div()
+                                            .min_w_0()
+                                            .text_size(theme::text::CAPTION)
+                                            .text_color(theme::muted())
+                                            .child(hint),
+                                    )
                             }))
                             .into_any_element(),
                     );
@@ -720,13 +731,13 @@ impl AppView {
         let copy = url.clone();
         h_flex()
             .id("phone-pairing")
-            .gap_5()
+            .gap_4()
             .items_start()
-            .p_4()
-            .rounded_xl()
+            .p_5()
+            .rounded(theme::radius::XXL)
             .border_1()
             .border_color(theme::line())
-            .bg(theme::ink())
+            .bg(theme::surface_faint())
             .child(
                 div()
                     .when(expired, |el| el.opacity(0.2))
@@ -739,7 +750,7 @@ impl AppView {
                     .gap_2()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(theme::text::UI)
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme::primary())
                             .child(t("defaults.phone.scan")),
@@ -829,12 +840,19 @@ impl AppView {
                 h_flex()
                     .gap_3()
                     .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(16.))
+                            .text_color(theme::subtle())
+                            .child(crate::icons::of("smartphone")),
+                    )
+                    .child(
                         v_flex()
                             .flex_1()
                             .min_w_0()
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(theme::text::UI)
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme::primary())
                                     .truncate()
@@ -863,9 +881,10 @@ impl AppView {
             )
             .child(
                 h_flex()
+                    .pl_7()
                     .flex_wrap()
                     .gap_1p5()
-                    .child(note(t("defaults.phone.mayLabel")))
+                    .child(div().mr_1().child(note(t("defaults.phone.mayLabel"))))
                     .children(SCOPES.iter().map(|s| {
                         let s = *s;
                         let on = has(s);
@@ -876,17 +895,21 @@ impl AppView {
                             .py_0p5()
                             .rounded_full()
                             .border_1()
-                            .text_xs()
+                            .text_size(theme::text::CAPTION)
                             .border_color(if on {
-                                theme::accent().opacity(0.5)
+                                theme::brand(400).opacity(0.5)
                             } else {
                                 theme::line()
                             })
                             .when(on, |el| {
-                                el.bg(theme::accent().opacity(0.15))
+                                el.bg(theme::brand(500).opacity(0.15))
                                     .text_color(theme::primary())
                             })
-                            .when(!on, |el| el.text_color(theme::faint()).line_through())
+                            .when(!on, |el| {
+                                el.text_color(theme::subtle())
+                                    .line_through()
+                                    .hover(|st| st.text_color(theme::secondary()))
+                            })
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 let mut next: Vec<String> =
@@ -901,6 +924,7 @@ impl AppView {
             )
             .child(
                 h_flex()
+                    .pl_7()
                     .gap_3()
                     .items_start()
                     .child(
@@ -909,7 +933,7 @@ impl AppView {
                             .min_w_0()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(theme::text::CAPTION)
                                     .text_color(theme::primary())
                                     .child(t("defaults.phone.mergeLabel")),
                             )
@@ -959,7 +983,7 @@ impl AppView {
                     }),
                 ))
             })
-            .child(link(
+            .child(div().pl_7().child(link(
                 SharedString::from(format!("phone-audit-{}", ph.id)),
                 if audit_open {
                     t("defaults.phone.hideAudit")
@@ -972,49 +996,63 @@ impl AppView {
                     }
                     cx.notify();
                 }),
-            ))
+            )))
             .when_some(p.audits.get(&ph.id), |el, a| {
-                el.child(match a {
-                    Err(e) => note_in(e.clone(), theme::error()),
-                    Ok(a) if a.entries.is_empty() => note(t("defaults.phone.auditEmpty")),
-                    Ok(a) => v_flex()
-                        .gap_0p5()
-                        .p_1p5()
-                        .rounded_lg()
-                        .border_1()
-                        .border_color(theme::line())
-                        .children(a.entries.iter().map(|x| {
-                            let (word, color) = match x.result.as_str() {
-                                "ok" => (t("defaults.phone.auditOk"), theme::running()),
-                                "refused" => (t("defaults.phone.auditRefused"), theme::error()),
-                                _ => (t("defaults.phone.auditFailed"), theme::starting()),
-                            };
-                            h_flex()
-                                .gap_2()
-                                .text_xs()
-                                .child(div().w(px(64.)).text_color(color).child(word))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .truncate()
-                                        .child(mono(x.route.clone())),
-                                )
-                                .child(div().text_color(theme::faint()).child(
-                                    if x.scope.is_empty() {
-                                        t("defaults.phone.auditNever")
-                                    } else {
-                                        x.scope.clone()
-                                    },
-                                ))
-                                .child(
-                                    div()
-                                        .text_color(theme::faint())
-                                        .child(local_date_time(&x.at)),
-                                )
-                        }))
-                        .into_any_element(),
-                })
+                el.child(
+                    div().pl_7().child(match a {
+                        Err(e) => note_in(e.clone(), theme::rose(300)),
+                        Ok(a) if a.entries.is_empty() => note(t("defaults.phone.auditEmpty")),
+                        Ok(a) => v_flex()
+                            .gap_0p5()
+                            .p_1p5()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(theme::line())
+                            .bg(theme::surface_faint())
+                            .children(a.entries.iter().map(|x| {
+                                let (word, color) = match x.result.as_str() {
+                                    "ok" => (t("defaults.phone.auditOk"), theme::emerald(300)),
+                                    "refused" => {
+                                        (t("defaults.phone.auditRefused"), theme::rose(300))
+                                    }
+                                    _ => (t("defaults.phone.auditFailed"), theme::amber(300)),
+                                };
+                                h_flex()
+                                    .gap_2()
+                                    .px_1()
+                                    .py_0p5()
+                                    .text_size(theme::text::CAPTION)
+                                    .child(
+                                        div()
+                                            .w(px(56.))
+                                            .flex_none()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(color)
+                                            .child(word),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .truncate()
+                                            .child(mono(x.route.clone())),
+                                    )
+                                    .child(div().text_color(theme::faint()).child(
+                                        if x.scope.is_empty() {
+                                            t("defaults.phone.auditNever")
+                                        } else {
+                                            x.scope.clone()
+                                        },
+                                    ))
+                                    .child(
+                                        div()
+                                            .text_color(theme::faint())
+                                            .child(local_date_time(&x.at)),
+                                    )
+                            }))
+                            .into_any_element(),
+                    }),
+                )
             })
             .into_any_element()
     }

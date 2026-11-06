@@ -25,8 +25,9 @@ use gpui_component::input::Input;
 use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, badge, button, labeled, note, note_in};
+use super::super::controls::{Btn, button, labeled, note_in};
 use super::defaults::ai_label;
+use super::kit::{badge, note};
 use super::{Entry, Group, group};
 use crate::theme;
 
@@ -1062,11 +1063,12 @@ impl AppView {
     pub(super) fn account_card(&self, e: &Entry, cx: &mut Context<Self>) -> AnyElement {
         let (status, required, detail) = self.step(e.id);
         let ok = status == "ok";
+        // StepIcon: a circled check, a dashed circle, a spinner, a warning.
         let (mark, color) = match status.as_str() {
-            "ok" => ("✓", theme::running()),
-            "optional" => ("○", theme::faint()),
-            "checking" => ("…", theme::faint()),
-            _ => ("!", theme::starting()),
+            "ok" => ("circle-check", theme::emerald(400)),
+            "optional" => ("square-dashed", theme::subtle()),
+            "checking" => ("loader-circle", theme::subtle()),
+            _ => ("triangle-alert", theme::amber(300)),
         };
         let warn = theme::starting();
         let step_badge = match status.as_str() {
@@ -1082,30 +1084,31 @@ impl AppView {
         v_flex()
             .id(SharedString::from(format!("account-card-{}", e.id)))
             .p_4()
-            .rounded_xl()
+            .rounded(theme::radius::XXL)
             .border_1()
             .border_color(if !ok && required && status != "checking" {
-                warn.opacity(0.3)
+                theme::amber(400).opacity(0.15)
             } else {
                 theme::line()
             })
-            .bg(theme::card())
+            .bg(theme::linear_panel())
             .child(
                 h_flex()
                     .items_start()
-                    .gap_3()
+                    .gap(px(14.))
                     .child(
                         div()
                             .flex_none()
-                            .w(px(20.))
-                            .h(px(20.))
+                            .mt_0p5()
+                            .size_7()
                             .rounded_full()
                             .flex()
                             .items_center()
                             .justify_center()
-                            .bg(color.opacity(0.15))
-                            .text_xs()
-                            .font_weight(FontWeight::BOLD)
+                            .border_1()
+                            .border_color(theme::line())
+                            .bg(theme::surface())
+                            .text_size(px(20.))
                             .text_color(color)
                             .child(crate::icons::of(mark)),
                     )
@@ -1113,32 +1116,41 @@ impl AppView {
                         v_flex()
                             .flex_1()
                             .min_w_0()
-                            .gap_1()
+                            .gap_0p5()
                             .child(
                                 h_flex()
                                     .gap_2()
                                     .child(
                                         div()
-                                            .text_sm()
+                                            .text_size(theme::text::BODY)
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(theme::primary())
                                             .child(e.label.clone()),
                                     )
                                     .children(step_badge),
                             )
-                            .child(note(e.description.clone()))
+                            .child(
+                                div()
+                                    .text_size(theme::text::UI)
+                                    .text_color(theme::muted())
+                                    .child(e.description.clone()),
+                            )
                             .when(!detail.is_empty(), |el| {
-                                el.child(note_in(
+                                el.child(div().mt_1().child(note_in(
                                     detail.clone(),
-                                    if ok { theme::running() } else { theme::faint() },
-                                ))
+                                    if ok {
+                                        theme::emerald(300).opacity(0.8)
+                                    } else {
+                                        theme::subtle()
+                                    },
+                                )))
                             })
                             .child(v_flex().pt_3().gap_3().children(body))
                             .when_some(acc.said.get(e.id), |el, said| {
-                                el.child(note_in(said.clone(), theme::running()))
+                                el.child(note_in(said.clone(), theme::emerald(300)))
                             })
                             .when_some(acc.errors.get(e.id), |el, err| {
-                                el.child(note_in(err.clone(), theme::error()))
+                                el.child(note_in(err.clone(), theme::rose(300)))
                             }),
                     ),
             )
@@ -1338,11 +1350,8 @@ impl AppView {
         }
         let renaming = self.settings_page.accounts.renaming.clone();
         v_flex()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme::line())
-            .bg(theme::ink())
-            .children(lines.into_iter().enumerate().map(|(i, l)| {
+            .gap_1p5()
+            .children(lines.into_iter().map(|l| {
                 let this_one = renaming
                     .as_ref()
                     .is_some_and(|(c, n, p)| *c == card && *n == l.name && *p == l.provider);
@@ -1353,20 +1362,31 @@ impl AppView {
                 h_flex()
                     .id(SharedString::from(format!("account-{key}")))
                     .gap_2()
-                    .px_3()
-                    .py_2()
-                    .when(i > 0, |el| el.border_t_1().border_color(theme::line()))
+                    .pl_3()
+                    .pr_1p5()
+                    .py_1p5()
+                    .rounded_xl()
+                    .border_1()
+                    .border_color(theme::line())
+                    .bg(theme::surface_faint())
                     .child(
                         h_flex()
                             .flex_1()
                             .min_w_0()
                             .flex_wrap()
                             .gap_2()
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(14.))
+                                    .text_color(theme::subtle())
+                                    .child(crate::icons::of("key-round")),
+                            )
                             .when(!l.provider.is_empty(), |el| {
                                 el.child(
                                     div()
-                                        .text_xs()
-                                        .text_color(theme::faint())
+                                        .text_size(theme::text::CAPTION)
+                                        .text_color(theme::subtle())
                                         .child(l.provider.clone()),
                                 )
                             })
@@ -1395,9 +1415,11 @@ impl AppView {
                                 } else {
                                     el.child(
                                         div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(theme::primary())
+                                            .min_w_0()
+                                            .truncate()
+                                            .font_family(theme::mono())
+                                            .text_size(theme::text::UI)
+                                            .text_color(theme::secondary())
                                             .child(l.name.clone()),
                                     )
                                 }
@@ -1405,8 +1427,10 @@ impl AppView {
                             .when(!l.about.is_empty(), |el| {
                                 el.child(
                                     div()
-                                        .text_xs()
-                                        .text_color(theme::muted())
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_size(theme::text::CAPTION)
+                                        .text_color(theme::subtle())
                                         .child(l.about.clone()),
                                 )
                             })
@@ -1535,13 +1559,12 @@ impl AppView {
             let failed = st.as_ref().is_some_and(|s| s.status == "failed");
             col = col.child(
                 v_flex()
-                    .gap_2()
-                    .px_3()
-                    .py_2p5()
-                    .rounded_lg()
+                    .gap_3()
+                    .p(px(14.))
+                    .rounded_xl()
                     .border_1()
                     .border_color(theme::line())
-                    .bg(theme::ink())
+                    .bg(theme::surface_faint())
                     .child(
                         h_flex()
                             .flex_wrap()
@@ -1566,7 +1589,7 @@ impl AppView {
                     )
                     .when(failed, |el| {
                         el.when_some(st.as_ref().map(|s| s.error.clone()), |el, e| {
-                            el.child(note_in(e, theme::error()))
+                            el.child(note_in(e, theme::rose(300)))
                         })
                     })
                     .when_some(code_url.filter(|_| running), |el, code_url| {
@@ -1678,13 +1701,12 @@ impl AppView {
             let uri = s.verification_uri.clone();
             col = col.child(
                 v_flex()
-                    .gap_2()
-                    .px_3()
-                    .py_2p5()
-                    .rounded_lg()
+                    .gap_3()
+                    .p(px(14.))
+                    .rounded_xl()
                     .border_1()
                     .border_color(theme::line())
-                    .bg(theme::ink())
+                    .bg(theme::surface_faint())
                     .when(running && !code.is_empty(), |el| {
                         let (c2, u2) = (code.clone(), uri.clone());
                         el.child(note(t("settings.githubLogin.enterCode")))
@@ -1695,13 +1717,13 @@ impl AppView {
                                     .child(
                                         div()
                                             .px_3()
-                                            .py_1()
-                                            .rounded_md()
+                                            .py_1p5()
+                                            .rounded_lg()
                                             .border_1()
-                                            .border_color(theme::line())
-                                            .bg(theme::surface_raised())
+                                            .border_color(theme::line_strong())
+                                            .bg(theme::well())
                                             .font_family(crate::theme::mono())
-                                            .text_lg()
+                                            .text_size(px(24.))
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(theme::primary())
                                             .child(code.clone()),
@@ -1955,7 +1977,7 @@ impl AppView {
                     } else {
                         e
                     },
-                    theme::error(),
+                    theme::rose(300),
                 ))
             })
             .into_any_element()
@@ -1966,14 +1988,14 @@ fn signed_in_line(on: bool, yes: String, no: String) -> AnyElement {
     h_flex()
         .gap_2()
         .child(div().size(px(8.)).rounded_full().bg(if on {
-            theme::running()
+            theme::emerald(400)
         } else {
             theme::faint()
         }))
         .child(
             div()
-                .text_sm()
-                .text_color(theme::primary())
+                .text_size(theme::text::UI)
+                .text_color(theme::secondary())
                 .child(if on { yes } else { no }),
         )
         .into_any_element()
@@ -1984,21 +2006,18 @@ fn command_box(id: &str, command: String, _cx: &mut Context<AppView>) -> AnyElem
     let copy = command.clone();
     h_flex()
         .gap_2()
-        .px_3()
+        .pl(px(14.))
+        .pr_1p5()
         .py_1p5()
-        .rounded_lg()
+        .rounded_xl()
         .border_1()
-        .border_color(theme::line())
-        .bg(theme::ink())
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .font_family(crate::theme::mono())
-                .text_xs()
-                .text_color(theme::primary())
-                .child(command),
-        )
+        .border_color(theme::line_strong())
+        .bg(theme::well())
+        .font_family(crate::theme::mono())
+        .text_size(theme::text::UI)
+        .text_color(theme::secondary())
+        .child(div().flex_none().text_color(theme::faint()).child("$"))
+        .child(div().flex_1().min_w_0().truncate().child(command))
         .child(button(
             SharedString::from(format!("{id}-command-copy")),
             t("common.copy"),

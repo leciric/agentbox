@@ -21,9 +21,10 @@ use gpui_component::text::TextView;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, badge, button, note, note_in, segmented, toggle};
+use super::super::controls::{Btn, button, note_in, segmented, toggle};
 use super::defaults::time_ago;
-use super::kit::{ask, card, check, empty, enc, link, mono, title};
+use super::kit::{ask, card, check, empty, enc, label, link, mono, title};
+use super::kit::{badge, note};
 use super::{Entry, Group, group};
 use crate::theme;
 
@@ -283,14 +284,16 @@ fn tile(name: &str, dim: bool) -> AnyElement {
     let h = hue(name);
     div()
         .flex_none()
-        .size(px(36.))
-        .rounded_lg()
+        .size_10()
+        .rounded_xl()
         .flex()
         .items_center()
         .justify_center()
+        .border_1()
+        .border_color(theme::hashed(h).1.opacity(0.35))
         .bg(theme::hashed(h).0)
         .text_color(theme::hashed(h).1)
-        .text_sm()
+        .text_size(theme::text::UI)
         .font_weight(FontWeight::SEMIBOLD)
         .when(dim, |el| el.opacity(0.45))
         .child(if letters.is_empty() {
@@ -713,10 +716,10 @@ impl AppView {
             .id(SharedString::from(format!("skills-{scope}")))
             .gap_3()
             .when_some(s.error.get(scope), |el, e| {
-                el.child(note_in(e.clone(), theme::error()))
+                el.child(note_in(e.clone(), theme::rose(300)))
             })
             .when_some(s.said.get(scope), |el, m| {
-                el.child(note_in(m.clone(), theme::running()))
+                el.child(note_in(m.clone(), theme::emerald(300)))
             })
             .child(body)
             .children(dialog)
@@ -826,7 +829,7 @@ impl AppView {
             .gap_3()
             .child(head)
             .when(all.is_none() && !s.error.contains_key(scope), |el| {
-                el.child(note(t("common.loading")))
+                el.child(super::super::panel::loading(&format!("skills-{scope}")))
             })
             .when(!list.is_empty(), |el| {
                 el.child(
@@ -847,15 +850,43 @@ impl AppView {
             })
             .when(all.is_some_and(|l| l.is_empty()), |el| {
                 el.child(
-                    card("skills-empty")
+                    v_flex()
+                        .id("skills-empty")
                         .items_center()
-                        .py_8()
-                        .child(title(t("skills.empty.title")))
+                        .gap_3()
+                        .px_6()
+                        .py(px(56.))
+                        .rounded(px(24.))
+                        .border_1()
+                        .border_color(theme::line_strong())
                         .child(
                             div()
-                                .max_w(px(420.))
+                                .mb_1()
+                                .size(px(56.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(theme::radius::XXL)
+                                .border_1()
+                                .border_color(theme::line_strong())
+                                .bg(theme::overlay())
+                                .text_size(px(24.))
+                                .text_color(theme::brand(300))
+                                .child(crate::icons::of("file-text")),
+                        )
+                        .child(
+                            div()
+                                .text_size(theme::text::HEADING)
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::title())
+                                .child(t("skills.empty.title")),
+                        )
+                        .child(
+                            div()
+                                .max_w(px(448.))
                                 .text_center()
-                                .text_xs()
+                                .text_size(theme::text::UI)
+                                .line_height(rems(1.4))
                                 .text_color(theme::muted())
                                 .child(t("skills.empty.body")),
                         )
@@ -905,8 +936,23 @@ impl AppView {
             ));
         }
         card(SharedString::from(format!("skill-{scope}-{}", k.name)))
+            .p_4()
+            .gap_3()
+            .border_color(if on {
+                theme::line()
+            } else {
+                theme::line_faint()
+            })
+            .bg(if on {
+                theme::surface()
+            } else {
+                theme::surface().opacity(0.6)
+            })
             .cursor_pointer()
-            .hover(|st| st.bg(theme::surface_raised()))
+            .hover(|st| {
+                st.border_color(theme::line_strong())
+                    .shadow(theme::shadow_card())
+            })
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.open_skill(open_scope.clone(), open_name.clone(), cx)
             }))
@@ -930,15 +976,16 @@ impl AppView {
                             )
                             .child(
                                 div()
-                                    .text_sm()
-                                    .text_color(theme::muted())
+                                    .text_size(theme::text::UI)
+                                    .line_height(rems(1.4))
+                                    .text_color(if on { theme::muted() } else { theme::subtle() })
                                     .line_clamp(2)
                                     .child(k.description.clone()),
                             )
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(theme::faint())
+                                    .text_size(theme::text::CAPTION)
+                                    .text_color(theme::subtle())
                                     .child(facts.join(" · ")),
                             ),
                     )
@@ -987,7 +1034,7 @@ impl AppView {
             return v_flex()
                 .gap_3()
                 .child(self.back_to_skills(cx))
-                .child(note(t("common.loading")))
+                .child(super::super::panel::loading("skill"))
                 .into_any_element();
         };
         let file = d
@@ -1017,17 +1064,14 @@ impl AppView {
                     .gap_4()
                     .child(
                         card("skill-when")
+                            .child(label(t("skills.whenToUse")))
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(theme::faint())
-                                    .child(t("skills.whenToUse")),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
+                                    .text_size(theme::text::BODY)
+                                    .line_height(rems(1.5))
+                                    .when(description.is_empty(), |el| el.italic())
                                     .text_color(if description.is_empty() {
-                                        theme::error()
+                                        theme::rose(300)
                                     } else {
                                         theme::primary()
                                     })
@@ -1041,17 +1085,26 @@ impl AppView {
                                 el.child(h_flex().flex_wrap().gap_1p5().children(
                                     rest.into_iter().map(|(k, v)| {
                                         h_flex()
+                                            .max_w_full()
                                             .gap_1p5()
                                             .px_2()
-                                            .py_0p5()
-                                            .rounded_md()
+                                            .py_1()
+                                            .rounded_lg()
                                             .border_1()
-                                            .border_color(theme::line())
-                                            .child(mono(k))
+                                            .border_color(theme::line_faint())
+                                            .bg(theme::sunken())
+                                            .text_size(theme::text::CAPTION)
                                             .child(
                                                 div()
-                                                    .text_xs()
-                                                    .text_color(theme::primary())
+                                                    .font_family(theme::mono())
+                                                    .text_color(theme::faint())
+                                                    .child(k),
+                                            )
+                                            .child(
+                                                div()
+                                                    .min_w_0()
+                                                    .truncate()
+                                                    .text_color(theme::tertiary())
                                                     .child(v),
                                             )
                                     }),
@@ -1065,15 +1118,17 @@ impl AppView {
                     .into_any_element()
             }
             Some(f) => div()
-                .p_3()
-                .rounded_lg()
-                .bg(theme::ink())
+                .px_5()
+                .py_4()
+                .rounded_xl()
+                .bg(theme::sunken())
                 .font_family(crate::theme::mono())
-                .text_xs()
+                .text_size(theme::text::UI)
+                .line_height(rems(1.6))
                 .text_color(theme::primary())
                 .child(f.content.clone())
                 .into_any_element(),
-            None => note(t("common.loading")),
+            None => super::super::panel::loading("skill-file"),
         };
         v_flex()
             .gap_3()
@@ -1107,29 +1162,41 @@ impl AppView {
                             .child(
                                 h_flex()
                                     .gap_2()
-                                    .child(div().text_xs().text_color(theme::muted()).child(
-                                        if scope.is_empty() {
-                                            t("skills.agentboxWide")
-                                        } else {
-                                            t("skills.inThisProject")
-                                        },
-                                    ))
-                                    .child(toggle(
-                                        "skill-open-toggle",
-                                        on,
-                                        s.busy || summary.is_none(),
-                                        cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                            if let Some(k) = &tog_skill {
-                                                this.toggle_skill(
-                                                    tog_scope.clone(),
-                                                    k,
-                                                    !on,
-                                                    window,
-                                                    cx,
-                                                )
-                                            }
-                                        }),
-                                    ))
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .px_3()
+                                            .py_1p5()
+                                            .rounded_xl()
+                                            .border_1()
+                                            .border_color(theme::line())
+                                            .bg(theme::sunken())
+                                            .text_size(theme::text::UI)
+                                            .text_color(theme::muted())
+                                            .child(if scope.is_empty() {
+                                                t("skills.agentboxWide")
+                                            } else {
+                                                t("skills.inThisProject")
+                                            })
+                                            .child(toggle(
+                                                "skill-open-toggle",
+                                                on,
+                                                s.busy || summary.is_none(),
+                                                cx.listener(
+                                                    move |this, _: &ClickEvent, window, cx| {
+                                                        if let Some(k) = &tog_skill {
+                                                            this.toggle_skill(
+                                                                tog_scope.clone(),
+                                                                k,
+                                                                !on,
+                                                                window,
+                                                                cx,
+                                                            )
+                                                        }
+                                                    },
+                                                ),
+                                            )),
+                                    )
                                     .child(button(
                                         "skill-edit",
                                         t("skills.edit"),
@@ -1360,7 +1427,7 @@ impl AppView {
                     })
                     .when_some(waiting, |el, w| el.child(note(w)))
                     .when_some(s.scan.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                        el.child(note_in(e.clone(), theme::error()))
+                        el.child(note_in(e.clone(), theme::rose(300)))
                     })
                     .when(matches!(&s.scan, Some(Ok(l)) if l.is_empty()), |el| {
                         el.child(empty(
@@ -1426,7 +1493,7 @@ impl AppView {
                             .when(!c.problem.is_empty(), |el| {
                                 el.child(note_in(
                                     tv("skills.cantImport", &[("why", (&c.problem).into())]),
-                                    theme::starting(),
+                                    theme::amber(300),
                                 ))
                             });
                         check(

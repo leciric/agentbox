@@ -25,13 +25,14 @@ use gpui_component::{h_flex, v_flex};
 
 use super::controls::{self, Btn};
 use super::merge;
-use super::work::{outcome_badge, pr_chip};
+use super::pulls::{Tone, pill};
+use super::work::pr_chip;
 use crate::diff::DiffView;
 use crate::media::{self, Shown};
 use crate::toasts::{self, Kind, Toast};
 #[cfg(feature = "video")]
 use crate::video::VideoPlayer;
-use crate::{prefs, theme};
+use crate::{motion, prefs, theme};
 
 pub enum ReviewEvent {
     Close,
@@ -1093,37 +1094,79 @@ impl ReviewView {
     }
 }
 
-/// hint is a key beside a button's label.
+/// hint is a key beside a button's label (Electron's Kbd).
 fn hint(k: &str) -> AnyElement {
     div()
         .flex_none()
-        .px_1()
-        .rounded_sm()
+        .px_1p5()
+        .rounded_md()
         .border_1()
-        .border_color(theme::line())
-        .text_xs()
-        .text_color(theme::faint())
+        .border_color(theme::line_strong())
+        .bg(theme::surface_raised())
+        .font_family(crate::theme::mono())
+        .text_size(theme::text::CAPTION)
+        .font_weight(FontWeight::NORMAL)
+        .text_color(theme::tertiary())
         .child(k.to_string())
         .into_any_element()
 }
 
-/// tab is one of the panes under the header, underlined when it's on screen.
-fn tab(id: &str, on: bool, children: Vec<AnyElement>) -> Stateful<Div> {
+/// hint_on_brand is a key on the brand's fill, Merge's: light on it.
+fn hint_on_brand(k: &str) -> AnyElement {
+    div()
+        .flex_none()
+        .px_1p5()
+        .rounded_md()
+        .border_1()
+        .border_color(theme::on_brand().opacity(0.3))
+        .bg(theme::on_brand().opacity(0.15))
+        .font_family(crate::theme::mono())
+        .text_size(theme::text::CAPTION)
+        .font_weight(FontWeight::NORMAL)
+        .text_color(theme::on_brand())
+        .child(k.to_string())
+        .into_any_element()
+}
+
+/// outcome_pill is what came of the work, as its report says (OutcomeBadge).
+fn outcome_pill(outcome: &str) -> AnyElement {
+    let key = format!("work.outcome.{outcome}");
+    let label = if agentbox_i18n::has(&key) {
+        t(&key)
+    } else {
+        outcome.to_string()
+    };
+    let tone = match outcome {
+        "done" => Tone::Success,
+        "partial" | "blocked" => Tone::Warning,
+        "failed" => Tone::Danger,
+        _ => Tone::Default,
+    };
+    pill(label, tone, None).into_any_element()
+}
+
+/// tab is one of the panes under the header (PaneTab): the one on screen
+/// title-bright over a hairline of the brand, laid on the row's own line.
+fn tab(id: &str, icon: &str, on: bool, children: Vec<AnyElement>) -> Stateful<Div> {
     h_flex()
         .id(SharedString::from(format!("review-tab-{id}")))
+        .flex_none()
         .h_10()
+        .mb(px(-1.))
         .gap_1p5()
-        .text_sm()
+        .text_size(theme::text::UI)
         .font_weight(FontWeight::MEDIUM)
+        .whitespace_nowrap()
         .cursor_pointer()
         .border_b_1()
         .border_color(if on {
-            theme::accent()
+            theme::brand(400)
         } else {
             transparent_black()
         })
-        .text_color(if on { theme::primary() } else { theme::faint() })
-        .hover(|s| s.text_color(theme::primary()))
+        .text_color(if on { theme::title() } else { theme::subtle() })
+        .when(!on, |el| el.hover(|s| s.text_color(theme::primary())))
+        .child(crate::icons::ic(icon).size(px(14.)))
         .children(children)
 }
 
@@ -1145,20 +1188,24 @@ impl ReviewView {
         let can_back = !self.trail.is_empty();
         let next = self.next();
         v_flex()
-            .px_5()
+            .relative()
+            .pl_5()
+            .pr(px(56.))
             .pt_4()
             .pb_3()
             .gap_1p5()
             .child(
                 h_flex()
                     .gap_3()
+                    .child(crate::icons::ai_icon(&i.ai, px(20.), theme::secondary()))
                     .child(
                         div()
                             .min_w_0()
                             .truncate()
-                            .text_xl()
+                            .text_size(theme::text::DISPLAY)
+                            .line_height(relative(1.375))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::primary())
+                            .text_color(theme::title())
                             .when(i.title.is_empty(), |el| {
                                 el.font_family(crate::theme::mono())
                             })
@@ -1170,7 +1217,7 @@ impl ReviewView {
                             .as_deref()
                             .map(super::settings::defaults::time_ago)
                             .unwrap_or_default();
-                        el.child(controls::badge(
+                        el.child(pill(
                             tv(
                                 match i.verdict.as_str() {
                                     "changes" => "review.verdict.changes",
@@ -1180,10 +1227,11 @@ impl ReviewView {
                                 &[("when", when.into())],
                             ),
                             match i.verdict.as_str() {
-                                "changes" => theme::starting(),
-                                "dismissed" => theme::muted(),
-                                _ => theme::running(),
+                                "changes" => Tone::Warning,
+                                "dismissed" => Tone::Default,
+                                _ => Tone::Success,
                             },
+                            None,
                         ))
                     })
                     .child(div().flex_1())
@@ -1197,9 +1245,9 @@ impl ReviewView {
                         ))
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(theme::text::CAPTION)
                                 .font_family(crate::theme::mono())
-                                .text_color(theme::faint())
+                                .text_color(theme::subtle())
                                 .child(tv(
                                     "review.position",
                                     &[("n", n.into()), ("count", count.into())],
@@ -1230,32 +1278,64 @@ impl ReviewView {
                             }),
                         ))
                     })
-                    .child(controls::button(
-                        "review-close",
-                        "✕",
-                        Btn::Ghost,
-                        false,
-                        cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ReviewEvent::Close)),
-                    )),
+                    // The dialog's own close, in its corner (DialogContent's).
+                    .child(
+                        div()
+                            .id("review-close")
+                            .absolute()
+                            .top_4()
+                            .right_4()
+                            .p_1()
+                            .rounded_md()
+                            .text_color(theme::subtle())
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
+                            .on_click(
+                                cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ReviewEvent::Close)),
+                            )
+                            .child(crate::icons::ic("x").size(px(16.))),
+                    ),
             )
             // Where its pull request stands, and why Merge waits if it does.
             .child(
                 h_flex()
-                    .gap_2()
-                    .text_xs()
-                    .text_color(theme::muted())
+                    .flex_wrap()
+                    .pl_8()
+                    .gap_x_2()
+                    .gap_y_1()
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
+                    // Why Merge waits comes first, the finding (Readiness).
+                    .when_some(self.merge_block().filter(|_| self.awaiting()), |el, why| {
+                        el.child(
+                            h_flex()
+                                .flex_none()
+                                .gap_1p5()
+                                .text_size(theme::text::BODY)
+                                .text_color(theme::primary())
+                                .child(
+                                    div()
+                                        .text_color(theme::rose(400))
+                                        .child(crate::icons::ic("circle-x").size(px(16.))),
+                                )
+                                .child(why),
+                        )
+                    })
                     .when_some(self.pr(), |el, pr| el.child(pr_chip(pr)))
                     .when(!i.branch.is_empty(), |el| {
                         el.child(
-                            div()
+                            h_flex()
                                 .min_w_0()
-                                .truncate()
+                                .gap_1()
                                 .font_family(crate::theme::mono())
-                                .child(crate::icons::lead("git-branch", i.branch.to_string())),
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_color(theme::faint())
+                                        .child(crate::icons::ic("git-branch").size(px(12.))),
+                                )
+                                .child(div().min_w_0().truncate().child(i.branch.to_string())),
                         )
-                    })
-                    .when_some(self.merge_block().filter(|_| self.awaiting()), |el, why| {
-                        el.child(div().text_color(theme::faint()).child(why))
                     }),
             )
             .when(self.pane() != Pane::Details, |el| {
@@ -1263,11 +1343,12 @@ impl ReviewView {
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_sm()
+                        .pl_8()
+                        .text_size(theme::text::UI)
                         .text_color(if summary.is_empty() {
-                            theme::faint()
+                            theme::subtle()
                         } else {
-                            theme::muted()
+                            theme::secondary()
                         })
                         .child(if summary.is_empty() {
                             t("review.noSummary")
@@ -1284,18 +1365,21 @@ impl ReviewView {
         let i = &self.item.item;
         let count = self.gallery.len();
         h_flex()
-            .px_5()
+            .pl(px(52.))
+            .pr_5()
             .gap_5()
             .border_b_1()
             .border_color(theme::line())
             .child(
                 tab(
                     "proof",
+                    "images",
                     pane == Pane::Proof,
                     vec![
                         div().child(t("review.media")).into_any_element(),
                         div()
-                            .text_color(theme::faint())
+                            .font_family(crate::theme::mono())
+                            .text_color(theme::subtle())
                             .when(count > 0, |el| el.child(count.to_string()))
                             .into_any_element(),
                     ],
@@ -1307,12 +1391,13 @@ impl ReviewView {
             .child(
                 tab(
                     "diff",
+                    "file-diff",
                     pane == Pane::Diff,
                     vec![
                         div().child(t("review.diff")).into_any_element(),
                         div()
                             .font_family(crate::theme::mono())
-                            .text_color(theme::faint())
+                            .text_color(theme::subtle())
                             .when_some(i.changes.as_ref().filter(|c| c.files > 0), |el, c| {
                                 el.child(format!("+{} −{}", c.insertions, c.deletions))
                             })
@@ -1325,6 +1410,7 @@ impl ReviewView {
             .child(
                 tab(
                     "details",
+                    "info",
                     pane == Pane::Details,
                     vec![
                         div().child(t("review.details")).into_any_element(),
@@ -1361,7 +1447,7 @@ impl ReviewView {
                 .gap_1p5()
                 .border_b_1()
                 .border_color(theme::line())
-                .bg(theme::surface_raised().opacity(0.3))
+                .bg(theme::surface_faint())
                 .child(
                     h_flex()
                         .items_start()
@@ -1369,19 +1455,20 @@ impl ReviewView {
                         .child(
                             div()
                                 .flex_none()
-                                .text_xs()
+                                .mt(px(2.))
+                                .text_size(theme::text::CAPTION)
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme::muted())
                                 .child(t("review.report")),
                         )
-                        .child(outcome_badge(&r.status))
+                        .child(outcome_pill(&r.status))
                         .child(
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .text_sm()
-                                .text_color(theme::muted())
-                                .when(!open, |el| el.truncate())
+                                .text_size(theme::text::UI)
+                                .text_color(theme::secondary())
+                                .when(!open, |el| el.line_clamp(2))
                                 .child(r.summary.clone()),
                         )
                         .child(
@@ -1389,10 +1476,11 @@ impl ReviewView {
                                 .id("review-report-toggle")
                                 .flex_none()
                                 .px_1p5()
+                                .py_0p5()
                                 .rounded_md()
-                                .text_xs()
+                                .text_size(theme::text::CAPTION)
                                 .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::faint())
+                                .text_color(theme::subtle())
                                 .cursor_pointer()
                                 .hover(|s| {
                                     s.bg(theme::surface_strong()).text_color(theme::primary())
@@ -1417,17 +1505,19 @@ impl ReviewView {
                     el.child(
                         v_flex()
                             .pl(px(72.))
-                            .gap_0p5()
-                            .text_xs()
+                            .gap_1()
+                            .text_size(theme::text::CAPTION)
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::starting())
+                                    .text_color(theme::amber(400))
                                     .child(t("review.remaining")),
                             )
-                            .children(remaining.into_iter().map(|r| {
-                                div().text_color(theme::muted()).child(format!("•  {r}"))
-                            })),
+                            .child(v_flex().gap_0p5().children(remaining.into_iter().map(|r| {
+                                div()
+                                    .text_color(theme::secondary())
+                                    .child(format!("•  {r}"))
+                            }))),
                     )
                 })
                 .into_any_element(),
@@ -1443,13 +1533,13 @@ impl ReviewView {
                 .into_any_element(),
             (None, Some(e)) => div()
                 .p_4()
-                .text_sm()
-                .text_color(theme::error())
+                .text_size(theme::text::UI)
+                .text_color(theme::rose(300))
                 .child(e.clone())
                 .into_any_element(),
             _ => div()
-                .text_sm()
-                .text_color(theme::faint())
+                .text_size(theme::text::UI)
+                .text_color(theme::subtle())
                 .child(t("common.loading"))
                 .into_any_element(),
         }
@@ -1464,8 +1554,8 @@ impl ReviewView {
         if let Some(e) = self.failed.get(&m.id) {
             return div()
                 .p_4()
-                .text_sm()
-                .text_color(theme::error())
+                .text_size(theme::text::UI)
+                .text_color(theme::rose(300))
                 .child(e.clone())
                 .into_any_element();
         }
@@ -1479,10 +1569,12 @@ impl ReviewView {
             .flex()
             .items_center()
             .justify_center()
-            .rounded_lg()
+            .rounded_xl()
+            .border_1()
+            .border_color(theme::line_strong())
             .bg(theme::pitch())
-            .text_sm()
-            .text_color(theme::faint())
+            .text_size(theme::text::UI)
+            .text_color(theme::subtle())
             .child(text)
             .into_any_element()
     }
@@ -1491,6 +1583,7 @@ impl ReviewView {
         let Some(shown) = self.gallery.get(self.at) else {
             return div().into_any_element();
         };
+        // The stage's frame: the picture on black in a ringed card (Still).
         let frame = |el: AnyElement| {
             div()
                 .flex_1()
@@ -1499,15 +1592,18 @@ impl ReviewView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded_lg()
-                .bg(theme::ink())
+                .rounded_xl()
+                .border_1()
+                .border_color(theme::line_strong())
+                .bg(theme::pitch())
                 .overflow_hidden()
                 .child(el)
         };
         let label = |s: String| {
             div()
                 .flex_none()
-                .text_xs()
+                .mb_1()
+                .text_size(theme::text::CAPTION)
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::muted())
                 .child(s)
@@ -1538,30 +1634,33 @@ impl ReviewView {
                 .child(
                     v_flex()
                         .id("review-chapters")
-                        .w(px(240.))
                         .flex_none()
                         .h_full()
                         .overflow_y_scroll()
-                        .gap_1()
+                        .w(px(260.))
+                        .gap_0p5()
                         .child(label(t("review.checked")))
                         .when(take.chapters.is_empty(), |el| {
                             el.child(
                                 div()
-                                    .text_xs()
-                                    .text_color(theme::faint())
+                                    .text_size(theme::text::CAPTION)
+                                    .line_height(relative(1.6))
+                                    .text_color(theme::subtle())
                                     .child(t("review.noChapters")),
                             )
                         })
                         .children(take.chapters.iter().enumerate().map(|(n, c)| {
                             let at = c.at;
                             let id = take.media.id.clone();
-                            v_flex()
+                            h_flex()
                                 .id(SharedString::from(format!("chapter-{n}")))
-                                .px_2()
-                                .py_1p5()
-                                .rounded_md()
+                                .items_start()
+                                .gap_2p5()
+                                .px_2p5()
+                                .py_2()
+                                .rounded_r_lg()
                                 .cursor_pointer()
-                                .hover(|s| s.bg(theme::surface_strong()))
+                                .hover(|s| s.bg(theme::surface_raised()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     #[cfg(feature = "video")]
                                     if let Some(p) = this.players.get(&id) {
@@ -1570,23 +1669,49 @@ impl ReviewView {
                                     let _ = (this, &id, at, &cx);
                                 }))
                                 .child(
-                                    h_flex()
-                                        .gap_2()
-                                        .text_sm()
-                                        .text_color(theme::primary())
-                                        .child(
-                                            div()
-                                                .flex_none()
-                                                .font_family(crate::theme::mono())
-                                                .text_xs()
-                                                .text_color(theme::faint())
-                                                .child(clock(at)),
-                                        )
-                                        .child(div().min_w_0().child(c.title.clone())),
+                                    div()
+                                        .flex_none()
+                                        .mt(px(2.))
+                                        .text_color(theme::faint())
+                                        .child(crate::icons::ic("check").size(px(14.))),
                                 )
-                                .when_some(c.detail.clone(), |el, d| {
-                                    el.child(div().text_xs().text_color(theme::muted()).child(d))
-                                })
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .child(
+                                            h_flex()
+                                                .items_baseline()
+                                                .gap_2()
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .text_size(theme::text::UI)
+                                                        .text_color(theme::primary())
+                                                        .child(c.title.clone()),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .flex_none()
+                                                        .font_family(crate::theme::mono())
+                                                        .text_size(theme::text::CAPTION)
+                                                        .text_color(theme::subtle())
+                                                        .child(clock(at)),
+                                                ),
+                                        )
+                                        .when_some(c.detail.clone(), |el, d| {
+                                            el.child(
+                                                div()
+                                                    .mt(px(2.))
+                                                    .line_clamp(3)
+                                                    .text_size(theme::text::CAPTION)
+                                                    .line_height(relative(1.375))
+                                                    .text_color(theme::subtle())
+                                                    .child(d),
+                                            )
+                                        }),
+                                )
                         })),
                 )
                 .into_any_element(),
@@ -1694,6 +1819,7 @@ impl ReviewView {
     /// side, one over the other with a divider to drag, or flipped; the
     /// pixels that changed highlighted over the after.
     fn render_pair(&self, p: &media::Pair, cx: &mut Context<Self>) -> AnyElement {
+        // The stage's frame: the picture on black in a ringed card (Still).
         let frame = |el: AnyElement| {
             div()
                 .flex_1()
@@ -1702,33 +1828,56 @@ impl ReviewView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded_lg()
-                .bg(theme::ink())
+                .rounded_xl()
+                .border_1()
+                .border_color(theme::line_strong())
+                .bg(theme::pitch())
                 .overflow_hidden()
                 .child(el)
         };
         let label = |s: String| {
             div()
                 .flex_none()
-                .text_xs()
+                .mb_1()
+                .text_size(theme::text::CAPTION)
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::muted())
                 .child(s)
         };
-        let me = cx.entity().downgrade();
-        let modes = controls::segmented(
-            "review-compare",
-            vec![
-                ("side".into(), t("review.compare.side")),
-                ("slider".into(), t("review.compare.slider")),
-                ("flip".into(), t("review.compare.flip")),
-            ],
-            Some(self.compare.name()),
-            false,
-            std::rc::Rc::new(move |v: &str, _, cx| {
-                let c = Compare::from(v);
-                me.update(cx, |this, cx| this.set_compare(c, this.highlight, cx))
-                    .ok();
+        // The mode in use is underlined, as the review marks what's picked
+        // (ReviewCompare's modes).
+        let underlined = |id: SharedString, on: bool| {
+            h_flex()
+                .id(id)
+                .h_7()
+                .gap_1p5()
+                .font_weight(FontWeight::MEDIUM)
+                .cursor_pointer()
+                .border_b_1()
+                .border_color(if on {
+                    theme::brand(400)
+                } else {
+                    transparent_black()
+                })
+                .text_color(if on { theme::title() } else { theme::subtle() })
+                .when(!on, |el| el.hover(|s| s.text_color(theme::primary())))
+        };
+        let modes = h_flex().gap_4().children(
+            [
+                (Compare::Side, "review.compare.side"),
+                (Compare::Slider, "review.compare.slider"),
+                (Compare::Flip, "review.compare.flip"),
+            ]
+            .into_iter()
+            .map(|(c, key)| {
+                underlined(
+                    SharedString::from(format!("review-compare-{}", c.name())),
+                    self.compare.name() == c.name(),
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.set_compare(c, this.highlight, cx)
+                }))
+                .child(t(key))
             }),
         );
         let key = format!("{}|{}", p.before.id, p.after.id);
@@ -1807,9 +1956,11 @@ impl ReviewView {
                     .flex_1()
                     .min_h_0()
                     .relative()
-                    .rounded_lg()
+                    .rounded_xl()
+                    .border_1()
+                    .border_color(theme::line_strong())
                     .overflow_hidden()
-                    .bg(theme::ink())
+                    .bg(theme::pitch())
                     .cursor_col_resize()
                     .child({
                         let me = cx.entity().downgrade();
@@ -1853,15 +2004,43 @@ impl ReviewView {
                                     .child(self.fitted(&p.before, size, None)),
                             ),
                     )
+                    // The divider, ringed so it reads on any picture, and
+                    // its knob at its middle (Divider).
                     .child(
                         div()
                             .absolute()
                             .top_0()
                             .h_full()
                             .left(relative(frac))
+                            .ml(px(-1.))
                             .w(px(2.))
                             .bg(theme::on_media())
-                            .shadow_md(),
+                            .shadow(vec![BoxShadow {
+                                color: theme::media_shade(0.4),
+                                offset: point(px(0.), px(0.)),
+                                blur_radius: px(0.),
+                                spread_radius: px(1.),
+                                inset: false,
+                            }]),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top(relative(0.5))
+                            .left(relative(frac))
+                            .mt(px(-14.))
+                            .ml(px(-14.))
+                            .size(px(28.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_full()
+                            .border_1()
+                            .border_color(theme::media_shade(0.3))
+                            .bg(theme::on_media())
+                            .shadow_md()
+                            .text_color(theme::pitch())
+                            .child(crate::icons::ic("arrow-left-right").size(px(14.))),
                     )
                     .child(
                         div()
@@ -1869,9 +2048,11 @@ impl ReviewView {
                             .top_2()
                             .left_2()
                             .px_1p5()
-                            .rounded_sm()
-                            .bg(theme::media_shade(0.6))
-                            .text_xs()
+                            .py_0p5()
+                            .rounded_md()
+                            .bg(theme::media_shade(0.75))
+                            .text_size(theme::text::CAPTION)
+                            .font_weight(FontWeight::MEDIUM)
                             .text_color(theme::on_media())
                             .child(t("review.compare.before")),
                     )
@@ -1881,9 +2062,11 @@ impl ReviewView {
                             .top_2()
                             .right_2()
                             .px_1p5()
-                            .rounded_sm()
-                            .bg(theme::media_shade(0.6))
-                            .text_xs()
+                            .py_0p5()
+                            .rounded_md()
+                            .bg(theme::media_shade(0.75))
+                            .text_size(theme::text::CAPTION)
+                            .font_weight(FontWeight::MEDIUM)
                             .text_color(theme::on_media())
                             .child(t("review.compare.after")),
                     )
@@ -1939,26 +2122,30 @@ impl ReviewView {
             .child(
                 h_flex()
                     .flex_wrap()
-                    .gap_2()
-                    .child(label(t("review.compare.modes")))
+                    .gap_x_3()
+                    .gap_y_2()
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::secondary())
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::muted())
+                            .child(t("review.compare.modes")),
+                    )
                     .child(modes)
                     .child(hint("Q"))
                     .child(
-                        div()
-                            .id("review-highlight")
-                            .px_2()
-                            .py_0p5()
-                            .rounded_md()
-                            .text_xs()
-                            .font_weight(FontWeight::MEDIUM)
-                            .cursor_pointer()
+                        underlined("review-highlight".into(), on)
+                            .child(crate::icons::ic("highlighter").size(px(14.)))
+                            // On, its mark is the colour the changed pixels
+                            // are painted in: the key to them.
                             .when(on, |el| {
-                                el.bg(theme::tint(theme::dracula_hue(theme::dracula::PINK), 0.2))
-                                    .text_color(theme::primary())
-                            })
-                            .when(!on, |el| {
-                                el.text_color(theme::muted())
-                                    .hover(|s| s.bg(theme::surface_strong()))
+                                el.child(
+                                    div()
+                                        .size(px(8.))
+                                        .rounded_full()
+                                        .bg(theme::dracula_hue(theme::dracula::PINK)),
+                                )
                             })
                             .tooltip(|w, cx| {
                                 gpui_component::tooltip::Tooltip::new(t(
@@ -1977,16 +2164,15 @@ impl ReviewView {
                             div()
                                 .min_w_0()
                                 .truncate()
-                                .text_xs()
-                                .text_color(theme::muted())
+                                .text_color(theme::subtle())
                                 .child(n),
                         )
                     })
                     .child(div().flex_1())
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(theme::faint())
+                            .min_w_0()
+                            .text_color(theme::subtle())
                             .truncate()
                             .child(tv(hint_key, &[("mod", "Ctrl".into())])),
                     ),
@@ -2004,14 +2190,21 @@ impl ReviewView {
             .get(self.at)
             .map(Shown::name)
             .unwrap_or_default();
+        let kind_of = |s: &Shown| match s {
+            Shown::Pair(_) => "arrow-left-right",
+            Shown::Recording(_) => "film",
+            Shown::Screenshot(_) => "image",
+            Shown::Page(_) => "globe",
+        };
+        let kind_now = self.gallery.get(self.at).map(kind_of);
         v_flex()
             .flex_none()
             .gap_2()
             .child(
                 h_flex()
                     .gap_2()
-                    .text_xs()
-                    .text_color(theme::muted())
+                    .text_size(theme::text::UI)
+                    .text_color(theme::secondary())
                     .child(controls::button(
                         "proof-prev",
                         "←",
@@ -2019,10 +2212,17 @@ impl ReviewView {
                         n < 2,
                         cx.listener(|this, _: &ClickEvent, _, cx| this.step(-1, cx)),
                     ))
-                    .child(div().font_family(crate::theme::mono()).child(tv(
-                        "review.position",
-                        &[("n", (self.at + 1).into()), ("count", n.into())],
-                    )))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_family(crate::theme::mono())
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::subtle())
+                            .child(tv(
+                                "review.position",
+                                &[("n", (self.at + 1).into()), ("count", n.into())],
+                            )),
+                    )
                     .child(controls::button(
                         "proof-next",
                         "→",
@@ -2030,13 +2230,15 @@ impl ReviewView {
                         n < 2,
                         cx.listener(|this, _: &ClickEvent, _, cx| this.step(1, cx)),
                     ))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_color(theme::primary())
-                            .child(name),
-                    )
+                    .when_some(kind_now, |el, k| {
+                        el.child(
+                            div()
+                                .flex_none()
+                                .text_color(theme::subtle())
+                                .child(crate::icons::ic(k).size(px(14.))),
+                        )
+                    })
+                    .child(div().min_w_0().truncate().child(name))
                     .child(div().flex_1())
                     .children(self.zoom_controls(cx)),
             )
@@ -2045,70 +2247,88 @@ impl ReviewView {
                     .id("proof-strip")
                     .gap_2()
                     .overflow_x_scroll()
+                    .gap_2()
+                    .p_0p5()
+                    .pb_1()
                     .children(self.gallery.iter().enumerate().map(|(ix, s)| {
                         let on = ix == self.at;
-                        let kind = match s {
-                            Shown::Pair(_) => "arrow-left-right",
-                            Shown::Recording(_) => "film",
-                            Shown::Screenshot(_) => "image",
-                            Shown::Page(_) => "globe",
-                        };
+                        let kind = kind_of(s);
                         let thumb = s.thumb().and_then(|m| self.files.get(&m.id)).cloned();
+                        // A card (ReviewProof's shots): its picture on black,
+                        // its kind and name under it, the one on stage ringed
+                        // brighter over a hairline of the brand.
                         v_flex()
                             .id(SharedString::from(format!("proof-{ix}")))
+                            .relative()
                             .flex_none()
-                            .w(px(132.))
-                            .gap_1()
-                            .p_1()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .border_b_2()
-                            .border_color(if on {
-                                theme::accent()
+                            .w(px(if matches!(s, Shown::Pair(_)) {
+                                240.
                             } else {
-                                transparent_black()
+                                144.
+                            }))
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(if on {
+                                theme::line_heavy()
+                            } else {
+                                theme::line()
                             })
-                            .hover(|el| el.bg(theme::surface_strong()))
+                            .bg(theme::surface())
+                            .overflow_hidden()
+                            .cursor_pointer()
+                            .hover(|el| el.border_color(theme::line_heavy()))
                             .on_click(
                                 cx.listener(move |this, _: &ClickEvent, _, cx| this.pick(ix, cx)),
                             )
                             .child(
                                 div()
-                                    .relative()
                                     .w_full()
-                                    .h(px(70.))
-                                    .rounded_sm()
+                                    .h(px(88.))
                                     .overflow_hidden()
-                                    .bg(theme::pitch())
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .text_color(theme::faint())
                                     .map(|el| match thumb {
                                         Some(p) => el
+                                            .bg(theme::pitch())
                                             .child(img(p).size_full().object_fit(ObjectFit::Cover)),
-                                        None => el.child(crate::icons::of(kind)),
+                                        None => el
+                                            .bg(theme::surface_faint())
+                                            .text_color(theme::subtle())
+                                            .child(crate::icons::ic(kind).size(px(24.))),
+                                    }),
+                            )
+                            .child(
+                                h_flex()
+                                    .h_7()
+                                    .min_w_0()
+                                    .gap_1p5()
+                                    .px_2()
+                                    .text_size(theme::text::CAPTION)
+                                    .text_color(if on {
+                                        theme::title()
+                                    } else {
+                                        theme::secondary()
                                     })
                                     .child(
                                         div()
-                                            .absolute()
-                                            .bottom_1()
-                                            .left_1()
-                                            .px_1()
-                                            .rounded_sm()
-                                            .bg(theme::media_shade(0.6))
-                                            .text_xs()
-                                            .text_color(theme::on_media())
-                                            .child(crate::icons::of(kind)),
-                                    ),
+                                            .flex_none()
+                                            .text_color(theme::subtle())
+                                            .child(crate::icons::ic(kind).size(px(12.))),
+                                    )
+                                    .child(div().min_w_0().truncate().child(s.name())),
                             )
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_xs()
-                                    .text_color(if on { theme::primary() } else { theme::faint() })
-                                    .child(s.name()),
-                            )
+                            .when(on, |el| {
+                                el.child(
+                                    div()
+                                        .absolute()
+                                        .bottom_0()
+                                        .left_2()
+                                        .right_2()
+                                        .h(px(1.))
+                                        .bg(theme::brand(400)),
+                                )
+                            })
                     })),
             )
             .into_any_element()
@@ -2130,11 +2350,12 @@ impl ReviewView {
             out.push(
                 div()
                     .id("zoom-fit")
+                    .flex_none()
                     .px_1p5()
                     .rounded_md()
                     .font_family(crate::theme::mono())
-                    .text_xs()
-                    .text_color(theme::muted())
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
                     .cursor_pointer()
                     .hover(|s| s.text_color(theme::primary()))
                     .tooltip(|w, cx| {
@@ -2211,18 +2432,25 @@ impl ReviewView {
             .on_scroll(cx.listener(Self::on_wheel))
             .child(
                 h_flex()
+                    .flex_wrap()
                     .px_4()
                     .py_3()
                     .gap_2()
-                    .text_sm()
-                    .text_color(theme::on_media())
-                    .child(div().font_family(crate::theme::mono()).text_xs().child(tv(
-                        "review.position",
-                        &[
-                            ("n", (self.at + 1).into()),
-                            ("count", self.gallery.len().into()),
-                        ],
-                    )))
+                    .text_size(theme::text::UI)
+                    .text_color(theme::on_media().opacity(0.85))
+                    .child(
+                        div()
+                            .font_family(crate::theme::mono())
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::on_media().opacity(0.5))
+                            .child(tv(
+                                "review.position",
+                                &[
+                                    ("n", (self.at + 1).into()),
+                                    ("count", self.gallery.len().into()),
+                                ],
+                            )),
+                    )
                     .child(div().min_w_0().truncate().child(name))
                     .child(div().flex_1())
                     .children(self.zoom_controls(cx)),
@@ -2232,8 +2460,9 @@ impl ReviewView {
                 div()
                     .px_4()
                     .py_2()
+                    .truncate()
                     .text_center()
-                    .text_xs()
+                    .text_size(theme::text::CAPTION)
                     .text_color(theme::on_media().opacity(0.4))
                     .child(tv("review.zoom.hint", &[("mod", "Ctrl".into())])),
             )
@@ -2261,35 +2490,55 @@ impl ReviewView {
         match &self.media {
             None => div()
                 .p_6()
-                .text_sm()
-                .text_color(theme::faint())
+                .text_size(theme::text::UI)
+                .text_color(theme::subtle())
                 .child(t("common.loading"))
                 .into_any_element(),
             Some(Err(e)) => div()
-                .p_6()
-                .text_sm()
-                .text_color(theme::error())
-                .child(e.clone())
+                .p_5()
+                .child(super::pulls::notice(e.clone(), theme::error()))
                 .into_any_element(),
-            Some(Ok(_)) if self.gallery.is_empty() => v_flex()
-                .p_6()
-                .gap_1()
-                .child(
-                    div()
-                        .text_color(theme::primary())
-                        .child(t("review.noProof")),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme::muted())
-                        .child(t("review.noProofBody")),
-                )
+            // Nothing to show: a quiet card saying so (ReviewProof's empty).
+            Some(Ok(_)) if self.gallery.is_empty() => div()
+                .p_5()
+                .child(motion::enter(
+                    v_flex()
+                        .items_center()
+                        .gap_2()
+                        .px_6()
+                        .py(px(56.))
+                        .rounded_xl()
+                        .border_1()
+                        .border_color(theme::line())
+                        .bg(theme::surface_faint())
+                        .child(
+                            div()
+                                .text_color(theme::faint())
+                                .child(crate::icons::ic("image").size(px(32.))),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::secondary())
+                                .child(t("review.noProof")),
+                        )
+                        .child(
+                            div()
+                                .max_w(px(384.))
+                                .text_center()
+                                .text_xs()
+                                .text_color(theme::subtle())
+                                .child(t("review.noProofBody")),
+                        ),
+                    "review-no-proof",
+                    0,
+                ))
                 .into_any_element(),
             Some(Ok(_)) => v_flex()
                 .size_full()
-                .p_4()
-                .gap_3()
+                .p_5()
+                .gap_4()
                 .child(
                     v_flex()
                         .id("review-stage")
@@ -2308,15 +2557,16 @@ impl ReviewView {
         match &self.diff {
             None => div()
                 .p_6()
-                .text_sm()
-                .text_color(theme::faint())
+                .text_size(theme::text::UI)
+                .text_color(theme::subtle())
                 .child(t("common.loading"))
                 .into_any_element(),
             Some(Err(e)) => div()
                 .p_5()
-                .text_sm()
-                .text_color(theme::error())
-                .child(tv("review.diffUnavailable", &[("error", e.into())]))
+                .child(super::pulls::notice(
+                    tv("review.diffUnavailable", &[("error", e.into())]),
+                    theme::error(),
+                ))
                 .into_any_element(),
             Some(Ok(view)) => div().size_full().child(view.clone()).into_any_element(),
         }
@@ -2331,21 +2581,21 @@ impl ReviewView {
             .child(
                 v_flex()
                     .w_full()
-                    .max_w(px(900.))
+                    .max_w(px(896.))
                     .mx_auto()
                     .p_5()
                     .gap_6()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(theme::text::UI)
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::muted())
+                            .text_color(theme::secondary())
                             .child(i.project.clone()),
                     )
                     .when(!self.item.task.is_empty(), |el| {
                         el.child(
                             div()
-                                .text_sm()
+                                .text_size(theme::text::UI)
                                 .text_color(theme::muted())
                                 .child(format!("“{}”", self.item.task)),
                         )
@@ -2355,20 +2605,21 @@ impl ReviewView {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(theme::text::CAPTION)
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme::muted())
                                     .child(t("review.summary")),
                             )
                             .child(if i.summary.is_empty() {
                                 div()
-                                    .text_sm()
-                                    .text_color(theme::faint())
+                                    .text_size(theme::text::UI)
+                                    .text_color(theme::subtle())
                                     .child(t("review.noSummary"))
                                     .into_any_element()
                             } else {
                                 div()
-                                    .text_sm()
+                                    .text_size(theme::text::UI)
+                                    .text_color(theme::primary())
                                     .child(TextView::markdown(
                                         SharedString::from(format!("review-summary-{}", i.r#ref)),
                                         i.summary.clone(),
@@ -2380,11 +2631,20 @@ impl ReviewView {
                         el.child(
                             h_flex()
                                 .gap_2()
-                                .p_3()
+                                .px_4()
+                                .py_2()
                                 .rounded_xl()
                                 .border_1()
                                 .border_color(theme::line())
-                                .text_sm()
+                                .text_size(theme::text::UI)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::primary())
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_color(theme::subtle())
+                                        .child(crate::icons::ic("git-pull-request").size(px(14.))),
+                                )
                                 .child(div().flex_1().min_w_0().truncate().child(pr.title.clone()))
                                 .child(pr_chip(pr)),
                         )
@@ -2401,12 +2661,17 @@ impl ReviewView {
             .gap_2()
             .rounded_xl()
             .border_1()
-            .border_color(theme::line())
-            .bg(theme::ink())
-            .child(div().text_xs().text_color(theme::muted()).child(tv(
-                "review.changesTo",
-                &[("agent", (&self.item.item.agent).into())],
-            )))
+            .border_color(theme::line_strong())
+            .bg(theme::well())
+            .child(
+                div()
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::muted())
+                    .child(tv(
+                        "review.changesTo",
+                        &[("agent", (&self.item.item.agent).into())],
+                    )),
+            )
             .children(self.notes_list.clone())
             .child(Textarea::new(&self.changes))
             .child(
@@ -2474,10 +2739,18 @@ impl ReviewView {
                 .py_2()
                 .border_t_1()
                 .border_color(theme::line())
-                .text_xs()
-                .text_color(color)
-                .child(crate::icons::of(if failed { "⚠" } else { "◷" }))
-                .child(div().flex_1().min_w_0().truncate().child(text))
+                .text_size(theme::text::CAPTION)
+                .child(div().flex_none().text_color(color).child(
+                    crate::icons::ic(if failed { "triangle-alert" } else { "clock" }).size(px(14.)),
+                ))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(theme::secondary())
+                        .child(text),
+                )
                 .child(controls::button(
                     "review-green-cancel",
                     t(if failed {
@@ -2511,6 +2784,27 @@ impl ReviewView {
         } else {
             block.clone().map(|b| (b, theme::muted()))
         };
+        // Request changes and Mark reviewed: Electron's secondary Button,
+        // its icon, its label and its key.
+        let secondary = |id: &'static str, icon: &'static str| {
+            h_flex()
+                .id(id)
+                .flex_none()
+                .h(px(32.))
+                .px_3()
+                .gap_2()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme::line())
+                .bg(theme::surface_raised())
+                .text_size(theme::text::UI)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::primary())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::surface_strong()))
+                .active(|s| s.bg(theme::surface_vivid()))
+                .child(crate::icons::ic(icon).size(px(14.)))
+        };
         h_flex()
             .flex_wrap()
             .gap_2()
@@ -2518,6 +2812,7 @@ impl ReviewView {
             .py_2p5()
             .border_t_1()
             .border_color(theme::line())
+            .bg(theme::modal())
             .map(|el| {
                 if !self.awaiting() {
                     let key = if self.item.past {
@@ -2529,23 +2824,17 @@ impl ReviewView {
                     } else {
                         "review.lookOnly.working"
                     };
-                    return el
-                        .child(div().flex_1())
-                        .child(div().text_xs().text_color(theme::faint()).child(t(key)));
+                    return el.child(div().flex_1()).child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::subtle())
+                            .child(t(key)),
+                    );
                 }
                 el.child(
-                    h_flex()
-                        .id("review-changes")
-                        .gap_2()
-                        .px_3()
-                        .py(px(5.))
-                        .rounded_md()
-                        .bg(theme::surface_raised())
-                        .border_1()
-                        .border_color(theme::line())
-                        .text_sm()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::surface_strong()))
+                    secondary("review-changes", "message-square")
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.open_changes(window, cx)
                         }))
@@ -2553,21 +2842,10 @@ impl ReviewView {
                         .child(hint("C")),
                 )
                 .child(
-                    h_flex()
-                        .id("review-done")
-                        .gap_2()
-                        .px_3()
-                        .py(px(5.))
-                        .rounded_md()
-                        .bg(theme::surface_raised())
-                        .border_1()
-                        .border_color(theme::line())
-                        .text_sm()
-                        .when(self.busy, |el| el.opacity(0.5))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::surface_strong()))
+                    secondary("review-done", "check")
+                        .when(self.busy, |el| el.opacity(0.45))
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.mark_reviewed(cx)))
-                        .child(format!("✓ {}", t("review.markReviewed")))
+                        .child(t("review.markReviewed"))
                         .child(hint("R")),
                 )
                 .child(
@@ -2576,7 +2854,7 @@ impl ReviewView {
                         .min_w_0()
                         .truncate()
                         .text_right()
-                        .text_xs()
+                        .text_size(theme::text::CAPTION)
                         .when_some(note, |el, (s, c)| el.text_color(c).child(s)),
                 )
                 .when(
@@ -2597,7 +2875,7 @@ impl ReviewView {
                         Some(pr) => tv("review.mergeNumber", &[("number", pr.number.into())]),
                         None => t("review.noPullRequest"),
                     },
-                    block.is_none().then(|| hint("M")),
+                    block.is_none().then(|| hint_on_brand("M")),
                     &self.method(),
                     &self.methods(),
                     block.is_some() || self.busy,
@@ -2628,7 +2906,6 @@ impl Render for ReviewView {
             .track_focus(&self.focus)
             .absolute()
             .inset_0()
-            .bg(theme::media_shade(0.6))
             .flex()
             .items_center()
             .justify_center()
@@ -2637,16 +2914,23 @@ impl Render for ReviewView {
                 MouseButton::Left,
                 cx.listener(|_, _, _, cx| cx.emit(ReviewEvent::Close)),
             )
-            .child(
+            // The scrim fades in under the review, which pops in over it.
+            .child(motion::scrim_in(
+                div().absolute().inset_0().bg(theme::scrim()),
+                "review-scrim",
+            ))
+            .child(motion::pop_in(
                 v_flex()
                     .id("review-card")
                     .w(relative(0.94))
                     .max_w(px(1400.))
                     .h(relative(0.94))
-                    .rounded_xl()
-                    .bg(theme::card())
+                    .max_h(px(1040.))
+                    .rounded(theme::radius::XXL)
+                    .bg(theme::modal())
                     .border_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_strong())
+                    .shadow(theme::shadow_modal())
                     .overflow_hidden()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(self.render_header(cx))
@@ -2659,7 +2943,8 @@ impl Render for ReviewView {
                     .when(self.expanded && pane == Pane::Proof, |el| {
                         el.relative().child(self.render_expanded(cx))
                     }),
-            )
+                "review-card-in",
+            ))
     }
 }
 

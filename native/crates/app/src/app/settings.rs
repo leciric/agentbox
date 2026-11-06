@@ -37,8 +37,9 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
-use super::controls::{Btn, Row, button, note, segmented, toggle};
+use super::controls::{Btn, Row, button, segmented, toggle};
 use crate::{prefs, theme};
+use kit::note;
 
 const ESSENTIALS: &str = "essentials";
 
@@ -977,15 +978,27 @@ impl AppView {
                             .gap_4()
                             .when_some(self.error.clone(), |el, e| {
                                 el.child(
-                                    div()
-                                        .px_4()
-                                        .py_2()
-                                        .rounded_lg()
+                                    h_flex()
+                                        .mb_1()
+                                        .items_start()
+                                        .gap_2p5()
+                                        .px(px(14.))
+                                        .py_2p5()
+                                        .rounded_xl()
                                         .border_1()
-                                        .border_color(theme::error())
-                                        .text_sm()
-                                        .text_color(theme::error())
-                                        .child(e),
+                                        .border_color(theme::rose(400).opacity(0.25))
+                                        .bg(theme::rose(400).opacity(0.08))
+                                        .text_size(theme::text::UI)
+                                        .text_color(theme::rose(100))
+                                        .child(
+                                            div()
+                                                .flex_none()
+                                                .mt(px(1.))
+                                                .text_size(px(16.))
+                                                .text_color(theme::rose(300))
+                                                .child(crate::icons::of("circle-alert")),
+                                        )
+                                        .child(div().min_w_0().flex_1().child(e)),
                                 )
                             })
                             .child(main),
@@ -1039,22 +1052,38 @@ impl AppView {
             let n = if searching { hits(&s.id) } else { 0 };
             let look = if searching { 0 } else { attention(&s.id) };
             let id = s.id.clone();
+            let icon = if s.project {
+                "folder-git-2"
+            } else {
+                kit::section_icon(&s.id)
+            };
             h_flex()
                 .id(SharedString::from(format!("settings-nav-{}", s.id)))
                 .gap_2()
                 .px_2p5()
                 .py(px(7.))
                 .rounded_lg()
-                .text_sm()
+                .text_size(theme::text::UI)
                 .cursor_pointer()
                 .when(active, |el| {
-                    el.bg(theme::surface_raised()).text_color(theme::primary())
+                    el.bg(theme::surface_raised()).text_color(theme::title())
                 })
                 .when(!active, |el| {
                     el.text_color(theme::muted())
-                        .hover(|st| st.bg(theme::card()).text_color(theme::primary()))
+                        .hover(|st| st.bg(theme::surface()).text_color(theme::primary()))
                 })
                 .when(searching && n == 0, |el| el.opacity(0.4))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(16.))
+                        .text_color(if active {
+                            theme::brand(300)
+                        } else {
+                            theme::subtle()
+                        })
+                        .child(crate::icons::of(icon)),
+                )
                 .child(div().flex_1().min_w_0().truncate().child(s.title.clone()))
                 .when(n > 0, |el| {
                     el.child(
@@ -1062,8 +1091,8 @@ impl AppView {
                             .px_1p5()
                             .rounded_full()
                             .bg(theme::surface_raised())
-                            .text_xs()
-                            .text_color(theme::muted())
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::tertiary())
                             .child(n.to_string()),
                     )
                 })
@@ -1073,10 +1102,10 @@ impl AppView {
                             .id(SharedString::from(format!("settings-look-{}", s.id)))
                             .px_1p5()
                             .rounded_full()
-                            .bg(theme::starting().opacity(0.15))
-                            .text_xs()
+                            .bg(theme::amber(400).opacity(0.15))
+                            .text_size(theme::text::CAPTION)
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::starting())
+                            .text_color(theme::amber(300))
                             .tooltip(move |w, cx| {
                                 gpui_component::tooltip::Tooltip::new(tv(
                                     "settings.page.toLookAt",
@@ -1114,17 +1143,23 @@ impl AppView {
                 .px_2p5()
                 .py(px(7.))
                 .rounded_lg()
-                .text_sm()
+                .text_size(theme::text::UI)
                 .text_color(theme::muted())
                 .when(!searching, |el| {
                     el.cursor_pointer()
-                        .hover(|st| st.bg(theme::card()).text_color(theme::primary()))
+                        .hover(|st| st.bg(theme::surface()).text_color(theme::primary()))
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.settings_page.advanced = !this.settings_page.advanced;
                             cx.notify();
                         }))
                 })
-                .child(crate::icons::of(if show_advanced { "▾" } else { "▸" }))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(16.))
+                        .text_color(theme::subtle())
+                        .child(crate::icons::of(if show_advanced { "▾" } else { "▸" })),
+                )
                 .child(t("settings.page.advanced"))
                 .into_any_element(),
         );
@@ -1156,7 +1191,7 @@ impl AppView {
             .border_r_1()
             .border_color(theme::line())
             .px_3()
-            .pt_6()
+            .pt(px(28.))
             .pb_6()
             .gap_3()
             .child(
@@ -1167,29 +1202,25 @@ impl AppView {
                     .px_2()
                     .py_1()
                     .rounded_lg()
-                    .text_sm()
+                    .text_size(theme::text::UI)
                     .text_color(theme::muted())
                     .cursor_pointer()
-                    .hover(|st| st.bg(theme::card()).text_color(theme::primary()))
+                    .hover(|st| st.bg(theme::surface()).text_color(theme::primary()))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_settings(cx)))
-                    .child(format!("← {}", t("common.back")))
                     .child(
                         div()
-                            .px_1()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(theme::line())
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .child("Esc"),
-                    ),
+                            .text_size(px(16.))
+                            .child(crate::icons::of("arrow-left")),
+                    )
+                    .child(t("common.back"))
+                    .child(theme::kbd("Esc")),
             )
             .child(
                 div()
                     .px_2()
-                    .text_xl()
+                    .text_size(theme::text::DISPLAY)
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::primary())
+                    .text_color(theme::title())
                     .child(t("common.settings")),
             )
             .child(
@@ -1203,12 +1234,13 @@ impl AppView {
                                 .w_auto()
                                 .gap_1p5()
                                 .px_2()
-                                .text_xs()
+                                .rounded_md()
+                                .text_size(theme::text::CAPTION)
                                 .cursor_pointer()
                                 .text_color(if changed_on {
-                                    theme::accent()
+                                    theme::brand(300)
                                 } else {
-                                    theme::faint()
+                                    theme::subtle()
                                 })
                                 .hover(|st| st.text_color(theme::primary()))
                                 .child(
@@ -1216,7 +1248,7 @@ impl AppView {
                                         .w(px(2.))
                                         .h(px(10.))
                                         .rounded_full()
-                                        .bg(theme::brand(500)),
+                                        .bg(theme::brand(400)),
                                 )
                                 .child(tv(
                                     "settings.page.changedFromDefault",
@@ -1247,48 +1279,72 @@ impl AppView {
     /// render_section draws one section: its title and what it holds, then
     /// its groups, or a line saying this app hasn't these settings yet.
     fn render_section(&self, s: &Section, cx: &mut Context<Self>) -> AnyElement {
+        let icon = if s.project {
+            "folder-git-2"
+        } else {
+            kit::section_icon(&s.id)
+        };
         v_flex()
             .gap_8()
             .child(
-                v_flex()
-                    .gap_1()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_baseline()
-                            .when(s.project, |el| {
-                                el.child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(theme::faint())
-                                        .child(t("settings.page.project")),
-                                )
-                            })
-                            .child(
-                                div()
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::primary())
-                                    .child(s.title.clone()),
-                            ),
-                    )
+                h_flex()
+                    .items_start()
+                    .gap_3()
                     .child(
                         div()
-                            .text_sm()
-                            .text_color(theme::muted())
-                            .child(s.description.clone()),
+                            .flex_none()
+                            .mt_0p5()
+                            .size_9()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_xl()
+                            .border_1()
+                            .border_color(theme::line_strong())
+                            .bg(theme::overlay())
+                            .text_size(px(18.))
+                            .text_color(theme::brand(300))
+                            .child(crate::icons::of(icon)),
+                    )
+                    .child(
+                        v_flex()
+                            .min_w_0()
+                            .gap_0p5()
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_baseline()
+                                    .when(s.project, |el| {
+                                        el.child(
+                                            div()
+                                                .text_size(theme::text::HEADING)
+                                                .text_color(theme::subtle())
+                                                .child(t("settings.page.project")),
+                                        )
+                                    })
+                                    .child(
+                                        div()
+                                            .text_size(theme::text::HEADING)
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(theme::title())
+                                            .child(s.title.clone()),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_size(theme::text::UI)
+                                    .line_height(rems(1.4))
+                                    .text_color(theme::muted())
+                                    .child(s.description.clone()),
+                            ),
                     ),
             )
             .when(s.later, |el| {
                 el.child(
-                    div()
+                    kit::panel(div())
                         .px_5()
                         .py_4()
-                        .rounded_xl()
-                        .border_1()
-                        .border_color(theme::line())
-                        .bg(theme::card())
-                        .text_sm()
+                        .text_size(theme::text::UI)
                         .text_color(theme::muted())
                         .child(t("native.settings.later")),
                 )
@@ -1300,8 +1356,9 @@ impl AppView {
                 el.child(
                     div()
                         .px_1()
-                        .text_xs()
-                        .text_color(theme::faint())
+                        .text_size(theme::text::CAPTION)
+                        .line_height(rems(1.4))
+                        .text_color(theme::subtle())
                         .child(format!("💡 {}", t("settings.models.tip"))),
                 )
             })
@@ -1311,7 +1368,7 @@ impl AppView {
                         div()
                             .w_full()
                             .text_center()
-                            .text_xs()
+                            .text_size(theme::text::CAPTION)
                             .text_color(theme::faint())
                             .child(format!(
                                 "AgentBox {} · {}",
@@ -1330,7 +1387,7 @@ impl AppView {
             .gap_0p5()
             .child(
                 div()
-                    .text_sm()
+                    .text_size(theme::text::UI)
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::primary())
                     .child(g.title.clone()),
@@ -1338,8 +1395,9 @@ impl AppView {
             .when(!g.description.is_empty(), |el| {
                 el.child(
                     div()
-                        .text_xs()
-                        .text_color(theme::muted())
+                        .text_size(theme::text::CAPTION)
+                        .line_height(rems(1.4))
+                        .text_color(theme::subtle())
                         .child(g.description.clone()),
                 )
             });
@@ -1355,7 +1413,9 @@ impl AppView {
         for (i, e) in g.entries.iter().enumerate() {
             rows.push(
                 div()
-                    .when(i > 0, |el| el.border_t_1().border_color(theme::line()))
+                    .when(i > 0, |el| {
+                        el.border_t_1().border_color(theme::line_faint())
+                    })
                     .child(self.render_entry(e, cx))
                     .into_any_element(),
             );
@@ -1364,14 +1424,7 @@ impl AppView {
             .id(SharedString::from(format!("settings-group-{}", g.id)))
             .gap_2p5()
             .child(heading)
-            .child(
-                v_flex()
-                    .rounded_xl()
-                    .border_1()
-                    .border_color(theme::line())
-                    .bg(theme::card())
-                    .children(rows),
-            )
+            .child(kit::panel(v_flex()).children(rows))
             .into_any_element()
     }
 
@@ -1385,104 +1438,131 @@ impl AppView {
             .child(
                 h_flex()
                     .id("settings-advanced")
+                    .w_auto()
                     .gap_1p5()
                     .px_1()
-                    .text_sm()
-                    .text_color(theme::muted())
+                    .rounded_md()
+                    .text_size(theme::text::UI)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::primary())
                     .cursor_pointer()
-                    .hover(|st| st.text_color(theme::primary()))
+                    .hover(|st| st.text_color(theme::title()))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.settings_page.advanced = !this.settings_page.advanced;
                         cx.notify();
                     }))
-                    .child(crate::icons::of(if open { "▾" } else { "▸" }))
-                    .child(tv(
-                        "settings.page.advancedSections",
-                        &[("count", total.into()), ("sections", sections.len().into())],
-                    )),
+                    .child(
+                        div()
+                            .text_size(px(16.))
+                            .text_color(theme::subtle())
+                            .child(crate::icons::of(if open { "▾" } else { "▸" })),
+                    )
+                    .child(t("settings.page.advanced"))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(theme::subtle())
+                            .child(format!(
+                                "· {}",
+                                tv(
+                                    "settings.page.advancedSections",
+                                    &[("count", total.into()), ("sections", sections.len().into())],
+                                )
+                            )),
+                    ),
             )
             .when(open, |el| {
-                el.child(
-                    v_flex()
-                        .rounded_xl()
-                        .border_1()
-                        .border_color(theme::line())
-                        .bg(theme::card())
-                        .children(sections.iter().enumerate().map(|(i, s)| {
-                            let id = s.id.clone();
-                            let (n, changed) = (s.count(), s.changed());
-                            h_flex()
-                                .id(SharedString::from(format!("settings-adv-{}", s.id)))
-                                .gap_3()
-                                .px_5()
-                                .py_3()
-                                .when(i > 0, |el| el.border_t_1().border_color(theme::line()))
-                                .cursor_pointer()
-                                .hover(|st| st.bg(theme::surface_raised()))
-                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                    this.open_settings_section(id.clone(), window, cx)
-                                }))
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .child(
-                                            h_flex()
-                                                .gap_2()
-                                                .when(s.project, |el| {
-                                                    el.child(
-                                                        div()
-                                                            .text_xs()
-                                                            .text_color(theme::faint())
-                                                            .child(t("settings.page.project")),
-                                                    )
-                                                })
-                                                .child(
+                el.child(kit::panel(v_flex()).overflow_hidden().children(
+                    sections.iter().enumerate().map(|(i, s)| {
+                        let id = s.id.clone();
+                        let (n, changed) = (s.count(), s.changed());
+                        let icon = if s.project {
+                            "folder-git-2"
+                        } else {
+                            kit::section_icon(&s.id)
+                        };
+                        h_flex()
+                            .id(SharedString::from(format!("settings-adv-{}", s.id)))
+                            .gap_3()
+                            .px_5()
+                            .py_3()
+                            .when(i > 0, |el| {
+                                el.border_t_1().border_color(theme::line_faint())
+                            })
+                            .cursor_pointer()
+                            .hover(|st| st.bg(theme::surface()))
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                this.open_settings_section(id.clone(), window, cx)
+                            }))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(16.))
+                                    .text_color(theme::subtle())
+                                    .child(crate::icons::of(icon)),
+                            )
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .items_baseline()
+                                            .when(s.project, |el| {
+                                                el.child(
                                                     div()
-                                                        .text_sm()
-                                                        .font_weight(FontWeight::MEDIUM)
-                                                        .text_color(theme::primary())
-                                                        .truncate()
-                                                        .child(s.title.clone()),
-                                                ),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(theme::faint())
-                                                .truncate()
-                                                .child(s.description.clone()),
-                                        ),
-                                )
-                                .when(n > 0, |el| {
-                                    el.child(
-                                        div()
-                                            .flex_none()
-                                            .text_xs()
-                                            .text_color(theme::faint())
-                                            .child(if changed > 0 {
-                                                tv(
-                                                    "settings.page.advancedCountChanged",
-                                                    &[
-                                                        ("count", n.into()),
-                                                        ("changed", changed.into()),
-                                                    ],
+                                                        .flex_none()
+                                                        .text_size(theme::text::CAPTION)
+                                                        .text_color(theme::subtle())
+                                                        .child(t("settings.page.project")),
                                                 )
-                                            } else {
-                                                tv(
-                                                    "settings.page.advancedCount",
-                                                    &[("count", n.into())],
-                                                )
-                                            }),
+                                            })
+                                            .child(
+                                                div()
+                                                    .text_size(theme::text::UI)
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .text_color(theme::primary())
+                                                    .truncate()
+                                                    .child(s.title.clone()),
+                                            ),
                                     )
-                                })
-                                .child(
+                                    .child(
+                                        div()
+                                            .text_size(theme::text::CAPTION)
+                                            .text_color(theme::subtle())
+                                            .truncate()
+                                            .child(s.description.clone()),
+                                    ),
+                            )
+                            .when(n > 0, |el| {
+                                el.child(
                                     div()
-                                        .text_color(theme::faint())
-                                        .child(crate::icons::of("›")),
+                                        .flex_none()
+                                        .text_size(px(11.5))
+                                        .text_color(theme::subtle())
+                                        .child(if changed > 0 {
+                                            tv(
+                                                "settings.page.advancedCountChanged",
+                                                &[("count", n.into()), ("changed", changed.into())],
+                                            )
+                                        } else {
+                                            tv(
+                                                "settings.page.advancedCount",
+                                                &[("count", n.into())],
+                                            )
+                                        }),
                                 )
-                        })),
-                )
+                            })
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(16.))
+                                    .text_color(theme::subtle())
+                                    .child(crate::icons::of("›")),
+                            )
+                    }),
+                ))
             })
             .into_any_element()
     }
@@ -1491,33 +1571,66 @@ impl AppView {
     /// its section and group.
     fn render_found(&self, found: &[Section], query: &str, cx: &mut Context<Self>) -> AnyElement {
         if found.is_empty() {
-            return div()
-                .text_sm()
-                .text_color(theme::muted())
-                .child(tv(
-                    "settings.page.noMatch",
-                    &[("query", query.trim().into())],
-                ))
+            return v_flex()
+                .items_center()
+                .gap_2()
+                .py_16()
+                .child(
+                    div()
+                        .text_size(px(24.))
+                        .text_color(theme::subtle())
+                        .child(crate::icons::of("search")),
+                )
+                .child(
+                    div()
+                        .text_size(theme::text::BODY)
+                        .text_color(theme::secondary())
+                        .child(tv(
+                            "settings.page.noMatch",
+                            &[("query", query.trim().into())],
+                        )),
+                )
                 .into_any_element();
         }
         let total: usize = found.iter().map(Section::count).sum();
         v_flex()
-            .gap_8()
+            .gap_10()
             .child(
                 div()
-                    .text_sm()
-                    .text_color(theme::muted())
+                    .px_1()
+                    .text_size(theme::text::UI)
+                    .text_color(theme::subtle())
                     .child(tv("settings.page.found", &[("count", total.into())])),
             )
             .children(found.iter().map(|s| {
+                let icon = if s.project {
+                    "folder-git-2"
+                } else {
+                    kit::section_icon(&s.id)
+                };
                 v_flex()
-                    .gap_4()
+                    .gap_5()
                     .child(
-                        div()
-                            .text_base()
+                        h_flex()
+                            .gap_2()
+                            .text_size(theme::text::HEADING)
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::primary())
-                            .child(s.title.clone()),
+                            .text_color(theme::title())
+                            .child(
+                                div()
+                                    .text_size(px(16.))
+                                    .text_color(theme::brand(300))
+                                    .child(crate::icons::of(icon)),
+                            )
+                            .when(s.project, |el| {
+                                el.child(
+                                    div()
+                                        .font_weight(FontWeight::NORMAL)
+                                        .text_color(theme::subtle())
+                                        .child(t("settings.page.project")),
+                                )
+                            })
+                            .child(div().min_w_0().truncate().child(s.title.clone())),
                     )
                     .children(s.groups.iter().map(|g| self.render_group(g, cx)))
             }))
@@ -1947,7 +2060,7 @@ impl AppView {
                             .collect();
                         v_flex()
                             .gap_1()
-                            .child(div().text_xs().text_color(theme::muted()).child(t(label)))
+                            .child(kit::label(t(label)))
                             .child(segmented(
                                 id,
                                 options,

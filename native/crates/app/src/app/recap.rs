@@ -249,37 +249,33 @@ impl RecapView {
             .map(|(_, i)| i.clone());
         let (w, h) = super::recap_card::size(o.square);
         let max_w = if o.square { 544. } else { 896. };
-        v_flex()
-            .mt_6()
-            .p_5()
+        panel()
             .gap_4()
-            .rounded_xl()
-            .border_1()
-            .border_color(theme::line())
-            .bg(theme::card())
             .child(
                 h_flex()
                     .flex_wrap()
+                    .items_center()
                     .gap_3()
                     .child(
                         v_flex()
                             .min_w_0()
+                            .gap_0p5()
                             .child(
                                 h_flex()
                                     .gap_1p5()
-                                    .text_base()
+                                    .text_size(theme::text::HEADING)
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::primary())
+                                    .text_color(theme::title())
                                     .child(
-                                        div()
-                                            .text_color(theme::accent())
-                                            .child(crate::icons::ic("sparkles")),
+                                        crate::icons::ic("sparkles")
+                                            .size_4()
+                                            .text_color(theme::brand(400)),
                                     )
                                     .child(t("recap.share.title")),
                             )
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(theme::text::UI)
                                     .text_color(theme::muted())
                                     .child(t("recap.share.description")),
                             ),
@@ -306,8 +302,10 @@ impl RecapView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .text_sm()
-                            .text_color(theme::primary())
+                            .px_2()
+                            .py_1()
+                            .text_size(theme::text::UI)
+                            .text_color(theme::secondary())
                             .child(controls::toggle(
                                 "recap-names",
                                 o.names,
@@ -330,10 +328,10 @@ impl RecapView {
                     .flex()
                     .justify_center()
                     .p_4()
-                    .rounded_2xl()
+                    .rounded(theme::radius::XXL)
                     .border_1()
                     .border_color(theme::line())
-                    .bg(theme::ink())
+                    .bg(theme::surface())
                     .child(
                         div()
                             .w_full()
@@ -341,7 +339,8 @@ impl RecapView {
                             .aspect_ratio(w as f32 / h as f32)
                             .rounded_xl()
                             .overflow_hidden()
-                            .bg(theme::surface_raised())
+                            .bg(theme::surface_strong())
+                            .shadow(theme::shadow_modal())
                             .when_some(card, |el, c| {
                                 el.child(img(c).size_full().object_fit(ObjectFit::Contain))
                             }),
@@ -350,13 +349,14 @@ impl RecapView {
             .child(
                 h_flex()
                     .flex_wrap()
+                    .items_center()
                     .gap_2()
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_xs()
-                            .text_color(theme::faint())
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::subtle())
                             .child(if o.names {
                                 t("recap.share.namesOn")
                             } else {
@@ -409,29 +409,58 @@ impl RecapView {
     }
 }
 
-fn stat(label: String, value: String, sub: String) -> AnyElement {
+/// panel is Electron's Panel: the `.panel` ground, rounded-2xl, p-5.
+fn panel() -> Div {
+    v_flex()
+        .min_w_0()
+        .p_5()
+        .rounded(theme::radius::XXL)
+        .border_1()
+        .border_color(theme::line())
+        .bg(theme::linear_panel())
+        .shadow(theme::shadow_card())
+}
+
+/// stat is one of the hero's tiles (RecapView Stat): an icon and a label, the
+/// number, and what it's made of under it.
+fn stat(icon: &str, label: String, value: String, sub: impl IntoElement) -> AnyElement {
     v_flex()
         .flex_1()
         .min_w(px(150.))
-        .gap_1()
-        .p_3()
-        .rounded_lg()
+        .px_3p5()
+        .py_3()
+        .rounded(theme::radius::XXL)
         .border_1()
         .border_color(theme::line())
-        .bg(theme::surface_raised())
-        .child(div().text_xs().text_color(theme::muted()).child(label))
+        .bg(theme::surface())
+        .child(
+            h_flex()
+                .gap_1p5()
+                .min_w_0()
+                .text_size(theme::text::CAPTION)
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme::muted())
+                .child(
+                    crate::icons::ic(icon)
+                        .size_3p5()
+                        .flex_none()
+                        .text_color(theme::brand(400)),
+                )
+                .child(div().min_w_0().truncate().child(label)),
+        )
         .child(
             div()
-                .text_xl()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::primary())
+                .mt_1()
+                .text_size(theme::text::DISPLAY)
+                .font_weight(FontWeight::BOLD)
+                .text_color(theme::title())
                 .truncate()
                 .child(value),
         )
         .child(
             div()
-                .text_xs()
-                .text_color(theme::faint())
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::subtle())
                 .truncate()
                 .child(sub),
         )
@@ -440,20 +469,31 @@ fn stat(label: String, value: String, sub: String) -> AnyElement {
 
 fn heading(text: String) -> Div {
     div()
-        .text_sm()
+        .text_size(theme::text::UI)
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme::primary())
+        .text_color(theme::title())
         .child(text)
 }
 
 impl RecapView {
     fn body(&self, r: &Recap) -> AnyElement {
         if r.work_seconds == 0 && r.agents == 0 && r.tokens == 0 {
-            return div()
-                .py_8()
-                .text_sm()
-                .text_color(theme::muted())
-                .child(t("recap.empty"))
+            return panel()
+                .items_center()
+                .gap_2()
+                .px_6()
+                .py_16()
+                .child(
+                    crate::icons::ic("moon")
+                        .size_6()
+                        .text_color(theme::brand(400)),
+                )
+                .child(
+                    div()
+                        .text_size(theme::text::BODY)
+                        .text_color(theme::muted())
+                        .child(t("recap.empty")),
+                )
                 .into_any_element();
         }
         let share = if r.work_seconds > 0 {
@@ -471,6 +511,7 @@ impl RecapView {
             .unwrap_or(0)
             .max(1);
         let most_hour = r.hours.iter().copied().max().unwrap_or(0).max(1);
+        let most_tokens = r.models.iter().map(|m| m.tokens).max().unwrap_or(0).max(1);
         let peak = r
             .hours
             .iter()
@@ -478,63 +519,94 @@ impl RecapView {
             .filter(|(_, s)| **s > 0)
             .max_by_key(|(_, s)| **s)
             .map(|(h, _)| format!("{h:02}:00"));
-        let days =
-            r.days.iter().map(|d| {
-                let tip = tv(
-                    "recap.dayTip",
-                    &[
-                        ("work", duration(d.work_seconds).into()),
-                        ("away", duration(d.away_seconds).into()),
-                        ("count", d.agents.into()),
-                    ],
-                );
-                let name = NaiveDate::parse_from_str(&d.date, "%Y-%m-%d")
-                    .map(|n| crate::dates::weekday(n.weekday().num_days_from_sunday(), false))
-                    .unwrap_or_default();
-                let with_you = (d.work_seconds - d.away_seconds).max(0) as f32 / most_day as f32;
-                let away = d.away_seconds as f32 / most_day as f32;
-                v_flex()
-                    .id(SharedString::from(format!("recap-day-{}", d.date)))
-                    .flex_1()
-                    .items_center()
-                    .gap_1()
-                    .tooltip(move |w, cx| {
-                        gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
-                    })
-                    .child(div().text_xs().text_color(theme::faint()).child(
-                        if d.work_seconds > 0 {
+        let today = r.days.len().saturating_sub(1);
+        let days = r.days.iter().enumerate().map(|(i, d)| {
+            let tip = tv(
+                "recap.dayTip",
+                &[
+                    ("work", duration(d.work_seconds).into()),
+                    ("away", duration(d.away_seconds).into()),
+                    ("count", d.agents.into()),
+                ],
+            );
+            let name = NaiveDate::parse_from_str(&d.date, "%Y-%m-%d")
+                .map(|n| crate::dates::weekday(n.weekday().num_days_from_sunday(), false))
+                .unwrap_or_default();
+            let with_you = (d.work_seconds - d.away_seconds).max(0) as f32;
+            let away = d.away_seconds as f32;
+            let tall = (d.work_seconds as f32 / most_day as f32).max(0.);
+            v_flex()
+                .id(SharedString::from(format!("recap-day-{}", d.date)))
+                .flex_1()
+                .h_full()
+                .items_center()
+                .justify_end()
+                .gap_1p5()
+                .tooltip(move |w, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
+                })
+                .child(
+                    div()
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::subtle())
+                        .child(if d.work_seconds > 0 {
                             duration(d.work_seconds)
                         } else {
                             String::new()
-                        },
-                    ))
-                    .child(
-                        v_flex()
-                            .w(px(28.))
-                            .h(px(110.))
-                            .justify_end()
-                            .child(
+                        }),
+                )
+                .child(
+                    v_flex()
+                        .w_full()
+                        .max_w(px(44.))
+                        .h(px(118. * tall))
+                        .min_h(px(4.))
+                        .gap(px(2.))
+                        .overflow_hidden()
+                        .rounded_t(theme::radius::MD)
+                        .rounded_b(px(2.))
+                        .when(d.work_seconds == 0, |el| {
+                            el.child(div().h_1().bg(theme::surface_strong()))
+                        })
+                        .when(with_you > 0., |el| {
+                            el.child(
                                 div()
                                     .w_full()
-                                    .h(relative(away))
-                                    .rounded_t_sm()
+                                    .flex_1()
+                                    .flex_basis(relative(with_you / (with_you + away)))
+                                    .bg(theme::brand(300)),
+                            )
+                        })
+                        .when(away > 0., |el| {
+                            el.child(
+                                div()
+                                    .w_full()
+                                    .flex_1()
+                                    .flex_basis(relative(away / (with_you + away)))
                                     .bg(theme::brand(500)),
                             )
-                            .child(
-                                div()
-                                    .w_full()
-                                    .h(relative(with_you))
-                                    .bg(theme::accent().opacity(0.4)),
-                            ),
-                    )
-                    .child(div().text_xs().text_color(theme::muted()).child(name))
-            });
+                        }),
+                )
+                .child(
+                    div()
+                        .text_size(theme::text::CAPTION)
+                        .map(|el| {
+                            if i == today {
+                                el.font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme::primary())
+                            } else {
+                                el.text_color(theme::muted())
+                            }
+                        })
+                        .child(name),
+                )
+        });
         let hours = r.hours.iter().enumerate().map(|(h, s)| {
             div()
                 .id(("recap-hour", h))
                 .flex_1()
                 .h(px(28.))
-                .rounded_sm()
+                .rounded(theme::radius::SM)
                 .bg(theme::brand(500))
                 .opacity(if *s > 0 {
                     0.18 + 0.82 * *s as f32 / most_hour as f32
@@ -542,37 +614,73 @@ impl RecapView {
                     0.06
                 })
         });
-        v_flex()
-            .gap_5()
+        let lines = h_flex()
+            .gap_1()
+            .child(
+                div()
+                    .text_color(theme::emerald(300))
+                    .child(format!("+{}", compact(r.insertions))),
+            )
+            .child(
+                div()
+                    .text_color(theme::rose(300))
+                    .child(format!("−{}", compact(r.deletions))),
+            );
+        let hero = v_flex()
+            .relative()
+            .overflow_hidden()
+            .gap_6()
+            .p_6()
+            .rounded(px(24.))
+            .border_1()
+            .border_color(theme::line())
+            .bg(gpui::linear_gradient(
+                135.,
+                gpui::linear_color_stop(theme::brand(500).opacity(0.16), 0.),
+                gpui::linear_color_stop(theme::brand(700).opacity(0.04), 1.),
+            ))
+            .shadow(theme::glow(theme::brand(500), 0.6))
             .child(
                 v_flex()
-                    .gap_1()
+                    .min_w_0()
                     .child(
                         h_flex()
-                            .items_end()
-                            .gap_2()
+                            .flex_wrap()
+                            .items_baseline()
+                            .gap_x_3()
                             .child(
                                 div()
-                                    .text_3xl()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(theme::primary())
+                                    .text_size(px(64.))
+                                    .line_height(relative(1.))
+                                    .font_weight(FontWeight::EXTRA_BOLD)
+                                    .text_color(theme::title())
                                     .child(duration(r.work_seconds)),
                             )
                             .child(
                                 div()
-                                    .text_color(theme::muted())
+                                    .text_size(theme::text::HEADING)
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme::primary())
                                     .child(t("recap.card.agentWork")),
                             ),
                     )
                     .child(
-                        div()
+                        h_flex()
                             .id("recap-away")
-                            .text_sm()
-                            .text_color(theme::accent())
+                            .mt_2()
+                            .gap_2()
+                            .text_size(theme::text::HEADING)
+                            .text_color(theme::brand(300))
                             .tooltip(|w, cx| {
                                 gpui_component::tooltip::Tooltip::new(t("recap.awayHint"))
                                     .build(w, cx)
                             })
+                            .child(
+                                crate::icons::ic("moon")
+                                    .size_4()
+                                    .flex_none()
+                                    .text_color(theme::amber(200)),
+                            )
                             .child(tv(
                                 "recap.awayYou",
                                 &[
@@ -580,33 +688,93 @@ impl RecapView {
                                     ("share", share.into()),
                                 ],
                             )),
-                    ),
+                    )
+                    .when(r.cost_usd > 0., |el| {
+                        el.child(
+                            h_flex()
+                                .mt_5()
+                                .flex_wrap()
+                                .items_baseline()
+                                .gap_x_2p5()
+                                .gap_y_1()
+                                .child(
+                                    div()
+                                        .text_size(px(36.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .text_color(theme::title())
+                                        .child(cost(r.cost_usd)),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(theme::text::HEADING)
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(theme::primary())
+                                        .child(t("recap.spent")),
+                                )
+                                .when(r.estimated_usd > 0., |el| {
+                                    el.child(
+                                        div()
+                                            .px_2()
+                                            .py_0p5()
+                                            .rounded_full()
+                                            .border_1()
+                                            .border_color(theme::amber(200).opacity(0.3))
+                                            .bg(theme::amber(200).opacity(0.1))
+                                            .text_size(theme::text::CAPTION)
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(theme::amber(200))
+                                            .child(if r.estimated_usd >= r.cost_usd * 0.9999 {
+                                                t("recap.spendEstimated")
+                                            } else {
+                                                t("recap.spendPartly")
+                                            }),
+                                    )
+                                }),
+                        )
+                    })
+                    .when(r.unpriced_tokens > 0, |el| {
+                        el.child(
+                            div()
+                                .mt_1()
+                                .text_size(theme::text::UI)
+                                .text_color(theme::subtle())
+                                .child(tv(
+                                    "recap.unpriced",
+                                    &[("tokens", compact(r.unpriced_tokens).into())],
+                                )),
+                        )
+                    }),
             )
             .child(
                 h_flex()
                     .flex_wrap()
-                    .gap_3()
+                    .gap_2p5()
                     .child(stat(
+                        "bot",
                         t("recap.agents"),
                         compact(r.agents),
                         tv("recap.projects", &[("count", r.projects.into())]),
                     ))
                     .child(stat(
+                        "git-pull-request",
                         t("recap.prs"),
                         compact(r.prs_opened),
                         tv("recap.merged", &[("count", r.prs_merged.into())]),
                     ))
                     .child(stat(
+                        "file-diff",
                         t("recap.lines"),
                         compact(r.insertions + r.deletions),
-                        format!("+{} −{}", compact(r.insertions), compact(r.deletions)),
+                        lines,
                     ))
                     .child(stat(
+                        "zap",
                         t("recap.streak"),
                         tv("recap.days", &[("count", r.streak.into())]),
                         tv("recap.best", &[("count", r.best_streak.into())]),
                     ))
                     .child(stat(
+                        "clock",
                         t("recap.longest"),
                         longest.map_or("—".into(), |l| duration(l.work_seconds)),
                         longest.map_or(String::new(), |l| {
@@ -618,6 +786,7 @@ impl RecapView {
                         }),
                     ))
                     .child(stat(
+                        "git-merge",
                         t("recap.busiest"),
                         busiest.map_or("—".into(), |b| b.project.clone()),
                         busiest.map_or(String::new(), |b| {
@@ -630,71 +799,81 @@ impl RecapView {
                             )
                         }),
                     )),
-            )
+            );
+        let activity = panel()
             .child(
-                v_flex()
-                    .gap_2()
+                h_flex()
+                    .mb_3()
+                    .flex_wrap()
+                    .gap_x_4()
+                    .gap_y_1()
+                    .child(heading(t("recap.eachDay")))
+                    .child(div().flex_1())
                     .child(
                         h_flex()
                             .gap_3()
-                            .child(heading(t("recap.eachDay")))
-                            .child(div().flex_1())
-                            .child(legend(theme::accent(), t("recap.whileAway")))
-                            .child(legend(theme::accent().opacity(0.4), t("recap.withYou"))),
-                    )
-                    .child(h_flex().gap_2().items_end().children(days)),
+                            .child(legend(theme::brand(500), t("recap.whileAway")))
+                            .child(legend(theme::brand(300), t("recap.withYou"))),
+                    ),
             )
+            .child(h_flex().h(px(176.)).gap_2().items_end().children(days))
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(
-                        h_flex()
-                            .child(heading(t("recap.byHour")))
-                            .child(div().flex_1())
-                            .when_some(peak, |el, p| {
-                                el.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme::muted())
-                                        .child(tv("recap.peak", &[("hour", p.into())])),
-                                )
-                            }),
-                    )
-                    .child(h_flex().gap(px(3.)).children(hours)),
-            )
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(
-                        h_flex()
-                            .child(heading(t("recap.models")))
-                            .child(div().flex_1())
-                            .child(div().text_xs().text_color(theme::muted()).child(tv(
-                                "recap.tokens",
-                                &[("tokens", compact(r.tokens).into())],
-                            ))),
-                    )
-                    .when(r.models.is_empty(), |el| {
+                h_flex()
+                    .mt_6()
+                    .mb_2()
+                    .gap_3()
+                    .child(heading(t("recap.byHour")))
+                    .child(div().flex_1())
+                    .when_some(peak, |el, p| {
                         el.child(
                             div()
-                                .text_sm()
-                                .text_color(theme::faint())
-                                .child(t("recap.noTokens")),
+                                .text_size(theme::text::CAPTION)
+                                .text_color(theme::muted())
+                                .child(tv("recap.peak", &[("hour", p.into())])),
                         )
-                    })
-                    .children(r.models.iter().map(|m| {
+                    }),
+            )
+            .child(h_flex().gap(px(3.)).children(hours));
+        let models = panel()
+            .child(
+                h_flex()
+                    .mb_3()
+                    .gap_3()
+                    .child(heading(t("recap.models")))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::muted())
+                            .child(tv("recap.tokens", &[("tokens", compact(r.tokens).into())])),
+                    ),
+            )
+            .when(r.models.is_empty(), |el| {
+                el.child(
+                    div()
+                        .text_size(theme::text::UI)
+                        .text_color(theme::subtle())
+                        .child(t("recap.noTokens")),
+                )
+            })
+            .child(v_flex().gap_3().children(r.models.iter().map(|m| {
+                let width = (m.tokens as f32 / most_tokens as f32).max(0.02);
+                v_flex()
+                    .min_w_0()
+                    .child(
                         h_flex()
                             .gap_2()
-                            .text_sm()
+                            .justify_between()
+                            .text_size(theme::text::UI)
                             .child(
                                 div()
-                                    .flex_1()
                                     .min_w_0()
                                     .truncate()
+                                    .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme::primary())
                                     .child(model_label(&m.model)),
                             )
-                            .child(div().text_color(theme::muted()).child(format!(
+                            .child(div().flex_none().text_color(theme::muted()).child(format!(
                                 "{} · {}",
                                 compact(m.tokens),
                                 if m.cost_usd > 0. {
@@ -702,55 +881,52 @@ impl RecapView {
                                 } else {
                                     "—".into()
                                 }
-                            )))
-                    }))
-                    .when(r.cost_usd > 0., |el| {
-                        el.child(
-                            h_flex()
-                                .gap_2()
-                                .items_end()
-                                .child(
-                                    div()
-                                        .text_xl()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(theme::primary())
-                                        .child(cost(r.cost_usd)),
-                                )
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(theme::muted())
-                                        .child(t("recap.spent")),
-                                )
-                                .when(r.estimated_usd > 0., |el| {
-                                    el.child(controls::badge(
-                                        if r.estimated_usd >= r.cost_usd * 0.9999 {
-                                            t("recap.spendEstimated")
-                                        } else {
-                                            t("recap.spendPartly")
-                                        },
-                                        theme::starting(),
-                                    ))
-                                }),
-                        )
-                    })
-                    .when(r.unpriced_tokens > 0, |el| {
-                        el.child(div().text_xs().text_color(theme::faint()).child(tv(
-                            "recap.unpriced",
-                            &[("tokens", compact(r.unpriced_tokens).into())],
-                        )))
-                    }),
-            )
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .mt_1p5()
+                            .h(px(6.))
+                            .rounded_full()
+                            .bg(theme::surface_strong())
+                            .child(div().h_full().w(relative(width)).rounded_full().bg(
+                                gpui::linear_gradient(
+                                    90.,
+                                    gpui::linear_color_stop(theme::brand(600), 0.),
+                                    gpui::linear_color_stop(theme::brand(400), 1.),
+                                ),
+                            )),
+                    )
+            })));
+        v_flex()
+            .gap_4()
+            .child(crate::motion::enter(div().child(hero), "recap-hero-in", 0))
+            .child(crate::motion::enter(
+                h_flex()
+                    .flex_wrap()
+                    .items_start()
+                    .gap_4()
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex_basis(px(380.))
+                            .min_w_0()
+                            .child(activity),
+                    )
+                    .child(div().flex_1().flex_basis(px(300.)).min_w_0().child(models)),
+                "recap-panels-in",
+                1,
+            ))
             .into_any_element()
     }
 }
 
 fn legend(color: Hsla, label: String) -> AnyElement {
     h_flex()
-        .gap_1()
-        .text_xs()
+        .gap_1p5()
+        .text_size(theme::text::CAPTION)
         .text_color(theme::muted())
-        .child(div().size_2().rounded_sm().bg(color))
+        .child(div().size_2().rounded(px(2.)).bg(color))
         .child(label)
         .into_any_element()
 }
@@ -780,24 +956,28 @@ impl Render for RecapView {
                 MouseButton::Left,
                 cx.listener(|_, _, _, cx| cx.emit(RecapEvent::Close)),
             )
-            .child(
+            .child(crate::motion::pop_in(
                 v_flex()
                     .id("recap-card")
-                    .w(px(820.))
+                    .w(px(960.))
                     .max_w(relative(0.94))
                     .max_h(relative(0.92))
                     .overflow_y_scroll()
                     .gap_4()
-                    .p_6()
-                    .rounded_xl()
-                    .bg(theme::card())
+                    .px_8()
+                    .py_7()
+                    .rounded(theme::radius::XXL)
+                    .bg(theme::modal())
                     .border_1()
-                    .border_color(theme::line())
+                    .border_color(theme::line_strong())
+                    .shadow(theme::shadow_modal())
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
                         h_flex()
-                            .gap_2()
-                            .items_start()
+                            .flex_wrap()
+                            .gap_3()
+                            .items_end()
+                            .mb_2()
                             .child(
                                 v_flex()
                                     .flex_1()
@@ -805,33 +985,51 @@ impl Render for RecapView {
                                     .gap_1()
                                     .child(
                                         div()
-                                            .text_2xl()
+                                            .text_size(theme::text::DISPLAY)
                                             .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(theme::primary())
+                                            .text_color(theme::title())
                                             .child(t("recap.title")),
                                     )
                                     .child(
                                         div()
-                                            .text_sm()
+                                            .text_size(theme::text::BODY)
                                             .text_color(theme::muted())
                                             .child(t("recap.description")),
                                     ),
                             )
-                            .child(controls::button(
-                                "recap-prev",
-                                "‹",
-                                Btn::Ghost,
-                                false,
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.go(1, cx)),
-                            ))
-                            .child(div().pt_1().text_sm().text_color(theme::primary()).child(range))
-                            .child(controls::button(
-                                "recap-next",
-                                "›",
-                                Btn::Ghost,
-                                self.weeks == 0,
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.go(-1, cx)),
-                            ))
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .p_1()
+                                    .rounded_xl()
+                                    .border_1()
+                                    .border_color(theme::line())
+                                    .bg(theme::surface_raised())
+                                    .child(controls::button(
+                                        "recap-prev",
+                                        "‹",
+                                        Btn::Ghost,
+                                        false,
+                                        cx.listener(|this, _: &ClickEvent, _, cx| this.go(1, cx)),
+                                    ))
+                                    .child(
+                                        div()
+                                            .min_w(px(144.))
+                                            .px_1()
+                                            .text_center()
+                                            .text_size(theme::text::UI)
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme::secondary())
+                                            .child(if range.is_empty() { "…".to_string() } else { range }),
+                                    )
+                                    .child(controls::button(
+                                        "recap-next",
+                                        "›",
+                                        Btn::Ghost,
+                                        self.weeks == 0,
+                                        cx.listener(|this, _: &ClickEvent, _, cx| this.go(-1, cx)),
+                                    )),
+                            )
                             .child(controls::button(
                                 "recap-close",
                                 "✕",
@@ -841,23 +1039,33 @@ impl Render for RecapView {
                             )),
                     )
                     .child(match &self.recap {
-                        None => div()
-                            .py_8()
-                            .text_sm()
-                            .text_color(theme::faint())
-                            .child(t("common.loading"))
+                        None => v_flex()
+                            .gap_4()
+                            .child(
+                                div()
+                                    .rounded(px(24.))
+                                    .overflow_hidden()
+                                    .child(crate::motion::skeleton("recap-skel-hero", relative(1.), px(192.))),
+                            )
+                            .child(
+                                div()
+                                    .rounded(theme::radius::XXL)
+                                    .overflow_hidden()
+                                    .child(crate::motion::skeleton("recap-skel-days", relative(1.), px(288.))),
+                            )
                             .into_any_element(),
-                        Some(Err(e)) => div()
-                            .text_sm()
-                            .text_color(theme::error())
-                            .child(e.clone())
-                            .into_any_element(),
+                        Some(Err(e)) => controls::note_in(e.clone(), theme::rose(300)),
                         Some(Ok(r)) => self.body(r),
                     })
                     .when(matches!(&self.recap, Some(Ok(r)) if r.work_seconds > 0 || r.agents > 0 || r.tokens > 0), |el| {
-                        el.child(self.render_share(cx))
+                        el.child(crate::motion::enter(
+                            div().child(self.render_share(cx)),
+                            "recap-share-in",
+                            2,
+                        ))
                     }),
-            )
+                "recap-card-pop",
+            ))
     , "idrecap-in")
     }
 }

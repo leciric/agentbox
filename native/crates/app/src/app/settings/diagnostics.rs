@@ -16,8 +16,9 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, note, note_in, segmented};
+use super::super::controls::{Btn, button, note_in, segmented};
 use super::defaults::{human_bytes, time_ago};
+use super::kit::note;
 use super::kit::{card, link};
 use super::{Entry, Group, group};
 use crate::theme;
@@ -160,24 +161,38 @@ fn stat(label: String, value: String, color: Option<Hsla>) -> AnyElement {
         .px_4()
         .py_3()
         .gap_0p5()
-        .child(div().text_xs().text_color(theme::faint()).child(label))
         .child(
             div()
-                .text_lg()
+                .truncate()
+                .text_size(theme::text::CAPTION)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::muted())
+                .child(label),
+        )
+        .child(
+            div()
+                .mt_0p5()
+                .truncate()
+                .font_family(theme::mono())
+                .text_size(theme::text::HEADING)
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color.unwrap_or_else(theme::primary))
+                .text_color(color.unwrap_or_else(theme::title))
                 .child(value),
         )
         .into_any_element()
 }
 
 fn stats_panel(stats: Vec<AnyElement>) -> AnyElement {
-    h_flex()
-        .flex_wrap()
-        .rounded_xl()
-        .border_1()
-        .border_color(theme::line())
-        .bg(theme::card())
+    let stats = stats.into_iter().enumerate().map(|(i, s)| {
+        div()
+            .flex_1()
+            .min_w(px(120.))
+            .when(i > 0, |el| {
+                el.border_l_1().border_color(theme::line_faint())
+            })
+            .child(s)
+    });
+    super::kit::panel(h_flex().flex_wrap().overflow_hidden())
         .children(stats)
         .into_any_element()
 }
@@ -187,15 +202,15 @@ fn heading(title: String, description: String) -> AnyElement {
         .gap_0p5()
         .child(
             div()
-                .text_sm()
+                .text_size(theme::text::UI)
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::primary())
+                .text_color(theme::title())
                 .child(title),
         )
         .when(!description.is_empty(), |el| {
             el.child(
                 div()
-                    .text_xs()
+                    .text_size(theme::text::CAPTION)
                     .text_color(theme::muted())
                     .child(description),
             )
@@ -221,38 +236,40 @@ fn table(
         let el = div()
             .text_xs()
             .text_color(color)
-            .when(bold, |el| el.font_weight(FontWeight::MEDIUM))
-            .when(numeric.contains(&i), |el| el.text_right());
+            .when(bold, |el| el.font_family(theme::mono()))
+            .when(numeric.contains(&i), |el| {
+                el.text_right().font_family(theme::mono())
+            });
         match width(i) {
             None => el.flex_1().min_w_0().child(text),
             Some(w) => el.w(w).flex_none().child(text),
         }
     };
-    v_flex()
-        .id(SharedString::from(format!("diag-table-{id}")))
-        .rounded_xl()
-        .border_1()
-        .border_color(theme::line())
-        .bg(theme::card())
+    super::kit::panel(v_flex().id(SharedString::from(format!("diag-table-{id}"))))
+        .overflow_hidden()
         .child(
             h_flex()
                 .gap_2()
-                .px_3()
-                .py_1p5()
+                .px_4()
+                .py_2()
                 .border_b_1()
-                .border_color(theme::line())
+                .border_color(theme::line_faint())
+                .font_weight(FontWeight::MEDIUM)
                 .children(
                     headers
                         .into_iter()
                         .enumerate()
-                        .map(|(i, h)| cell(i, h, theme::faint(), false)),
+                        .map(|(i, h)| cell(i, h, theme::muted(), false)),
                 ),
         )
-        .children(rows.into_iter().map(|r| {
+        .children(rows.into_iter().enumerate().map(|(n, r)| {
             h_flex()
                 .gap_2()
-                .px_3()
-                .py_1()
+                .px_4()
+                .py_2()
+                .when(n > 0, |el| {
+                    el.border_t_1().border_color(theme::line_faint())
+                })
                 .items_start()
                 .children(r.into_iter().enumerate().map(|(i, (text, color))| {
                     cell(i, text, color.unwrap_or_else(theme::primary), i == 0)
@@ -262,14 +279,10 @@ fn table(
 }
 
 fn empty_line(text: String) -> AnyElement {
-    div()
+    super::kit::panel(div())
         .px_4()
-        .py_3()
-        .rounded_xl()
-        .border_1()
-        .border_color(theme::line())
-        .bg(theme::card())
-        .text_xs()
+        .py_4()
+        .text_size(theme::text::CAPTION)
         .text_color(theme::muted())
         .child(text)
         .into_any_element()
@@ -292,8 +305,8 @@ fn chart(
         .child(
             h_flex()
                 .justify_between()
-                .text_xs()
-                .text_color(theme::faint())
+                .text_size(theme::text::CAPTION)
+                .text_color(theme::subtle())
                 .child(label)
                 .child(tv(
                     "diagnostics.resources.peak",
@@ -307,7 +320,7 @@ fn chart(
                 .gap(px(1.))
                 .items_end()
                 .rounded_md()
-                .bg(theme::ink())
+                .bg(theme::sunken())
                 .children(data.iter().map(|b| {
                     let h = |v: f64| relative(((v / max).clamp(0., 1.) as f32).max(0.03));
                     div()
@@ -472,7 +485,7 @@ impl AppView {
                     )),
             )
             .when_some(d.spans.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                el.child(note_in(e.clone(), theme::error()))
+                el.child(note_in(e.clone(), theme::rose(300)))
             })
             .when(spans.is_some_and(|s| s.dropped > 0), |el| {
                 el.child(note_in(
@@ -480,11 +493,11 @@ impl AppView {
                         "diagnostics.dropped",
                         &[("count", spans.map_or(0, |s| s.dropped).into())],
                     ),
-                    theme::starting(),
+                    theme::amber(300),
                 ))
             })
             .when_some(d.copied.clone(), |el, c| {
-                el.child(note_in(c, theme::running()))
+                el.child(note_in(c, theme::emerald(300)))
             })
             .child(stats_panel(vec![
                 stat(
@@ -653,15 +666,18 @@ impl AppView {
             h_flex()
                 .id(SharedString::from(format!("diag-{id}-{i}")))
                 .gap_2()
-                .px_3()
-                .py_1()
+                .px_4()
+                .py_2()
+                .when(i > 0, |el| {
+                    el.border_t_1().border_color(theme::line_faint())
+                })
                 .items_start()
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
+                        .font_family(theme::mono())
                         .text_xs()
-                        .font_weight(FontWeight::MEDIUM)
                         .text_color(theme::primary())
                         .child(name),
                 )
@@ -671,7 +687,7 @@ impl AppView {
                         .flex_none()
                         .text_xs()
                         .text_color(if errors {
-                            theme::error()
+                            theme::rose(300).opacity(0.9)
                         } else {
                             theme::muted()
                         })
@@ -687,8 +703,9 @@ impl AppView {
                         .w(px(84.))
                         .flex_none()
                         .text_right()
+                        .font_family(theme::mono())
                         .text_xs()
-                        .text_color(theme::primary())
+                        .text_color(theme::muted())
                         .child(format_ms(s.duration_ms)),
                 )
                 .child(
@@ -696,7 +713,7 @@ impl AppView {
                         .w(px(84.))
                         .flex_none()
                         .text_xs()
-                        .text_color(theme::faint())
+                        .text_color(theme::subtle())
                         .child(time_ago(&s.start)),
                 )
                 .child(link(
@@ -718,20 +735,18 @@ impl AppView {
         v_flex()
             .gap_1()
             .child(
-                v_flex()
-                    .rounded_xl()
-                    .border_1()
-                    .border_color(theme::line())
-                    .bg(theme::card())
+                super::kit::panel(v_flex())
+                    .overflow_hidden()
                     .child(
                         h_flex()
                             .gap_2()
-                            .px_3()
-                            .py_1p5()
+                            .px_4()
+                            .py_2()
                             .border_b_1()
-                            .border_color(theme::line())
+                            .border_color(theme::line_faint())
                             .text_xs()
-                            .text_color(theme::faint())
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::muted())
                             .children(headers.iter().enumerate().map(|(i, h)| {
                                 let text = t(&format!("diagnostics.col.{h}"));
                                 match i {
@@ -789,7 +804,7 @@ impl AppView {
             .gap_2()
             .child(heading(t("diagnostics.pkgcache.title"), description))
             .when_some(d.cache.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                el.child(note_in(e.clone(), theme::error()))
+                el.child(note_in(e.clone(), theme::rose(300)))
             })
             .child(if parts.is_empty() {
                 empty_line(if d.cache.is_none() {
@@ -847,10 +862,10 @@ impl AppView {
                 t("diagnostics.files.description"),
             ))
             .when_some(d.files.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                el.child(note_in(e.clone(), theme::error()))
+                el.child(note_in(e.clone(), theme::rose(300)))
             })
             .when(f.is_some_and(|f| f.waiting), |el| {
-                el.child(note_in(t("diagnostics.files.waiting"), theme::starting()))
+                el.child(note_in(t("diagnostics.files.waiting"), theme::amber(300)))
             })
             .child(stats_panel(vec![
                 stat(
@@ -942,14 +957,14 @@ impl AppView {
                         .gap_3()
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(theme::text::UI)
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme::primary())
                                 .when(mono, |el| el.font_family(crate::theme::mono()).text_xs())
                                 .child(name),
                         )
                         .when_some(last, |el, (c, m)| {
-                            el.child(div().text_xs().text_color(theme::faint()).child(tv(
+                            el.child(div().text_xs().text_color(theme::subtle()).child(tv(
                                 "diagnostics.resources.now",
                                 &[
                                     ("cpu", format!("{}%", c.round()).as_str().into()),
@@ -1031,21 +1046,26 @@ impl AppView {
                 None => empty_line(t("common.loading")),
                 Some(Ok(_)) if rows.is_empty() => card("diag-resources-empty")
                     .items_center()
+                    .gap_1()
+                    .py_5()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(theme::text::UI)
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::primary())
+                            .text_color(theme::title())
                             .child(t("diagnostics.resources.empty")),
                     )
                     .child(note(t("diagnostics.resources.emptyHint")))
                     .into_any_element(),
-                Some(Ok(_)) => v_flex()
-                    .rounded_xl()
-                    .border_1()
-                    .border_color(theme::line())
-                    .bg(theme::card())
-                    .children(rows)
+                Some(Ok(_)) => super::kit::panel(v_flex())
+                    .overflow_hidden()
+                    .children(rows.into_iter().enumerate().map(|(i, r)| {
+                        div()
+                            .when(i > 0, |el| {
+                                el.border_t_1().border_color(theme::line_faint())
+                            })
+                            .child(r)
+                    }))
                     .into_any_element(),
             })
             .into_any_element()

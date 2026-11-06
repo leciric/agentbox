@@ -10,7 +10,8 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, note, note_in};
+use super::super::controls::{Btn, button, note_in};
+use super::kit::{badge, note};
 use crate::theme;
 
 /// The flag `agentbox image build` takes for an optional download.
@@ -66,16 +67,17 @@ impl AppView {
             .map(|d| d.mb)
             .sum();
         let open = self.settings_page.sent.downloads;
-        let rows = image.downloads.iter().map(|d| {
+        let rows = image.downloads.iter().enumerate().map(|(i, d)| {
             let on = wanted(image, &d.option);
             h_flex()
                 .items_start()
                 .gap_2()
                 .px_3()
                 .py_1p5()
-                .border_t_1()
-                .border_color(theme::line())
-                .text_xs()
+                .when(i > 0, |el| {
+                    el.border_t_1().border_color(theme::line_faint())
+                })
+                .text_size(theme::text::UI)
                 .child(
                     h_flex()
                         .w(px(190.))
@@ -83,19 +85,19 @@ impl AppView {
                         .gap_1p5()
                         .child(
                             div()
-                                .text_color(if on { theme::primary() } else { theme::faint() })
+                                .text_color(if on {
+                                    theme::secondary()
+                                } else {
+                                    theme::faint()
+                                })
                                 .when(!on, |el| el.line_through())
                                 .child(d.name.clone()),
                         )
                         .when(!d.option.is_empty(), |el| {
-                            el.child(
-                                div()
-                                    .px_1()
-                                    .rounded_sm()
-                                    .bg(theme::accent().opacity(if on { 0.2 } else { 0.08 }))
-                                    .text_color(theme::muted())
-                                    .child(t("shell.imageDownloads.optional")),
-                            )
+                            el.child(badge(
+                                t("shell.imageDownloads.optional"),
+                                if on { theme::accent() } else { theme::muted() },
+                            ))
                         }),
                 )
                 .child(
@@ -106,7 +108,7 @@ impl AppView {
                         .text_color(if on { theme::muted() } else { theme::faint() })
                         .child(size(d.mb)),
                 )
-                .child(div().flex_1().min_w_0().text_color(theme::faint()).child(
+                .child(div().flex_1().min_w_0().text_color(theme::subtle()).child(
                     if !d.option.is_empty() && !on {
                         format!(
                             "{} {}",
@@ -144,7 +146,7 @@ impl AppView {
                 .when(open, |el| {
                     el.child(
                         v_flex()
-                            .rounded_lg()
+                            .rounded_xl()
                             .border_1()
                             .border_color(theme::line())
                             .overflow_hidden()
@@ -156,25 +158,25 @@ impl AppView {
                                     .py_1p5()
                                     .border_t_1()
                                     .border_color(theme::line())
-                                    .bg(theme::surface_raised())
-                                    .text_xs()
+                                    .bg(theme::surface_faint())
+                                    .text_size(theme::text::UI)
                                     .child(
                                         div()
                                             .w(px(190.))
-                                            .text_color(theme::muted())
+                                            .text_color(theme::tertiary())
                                             .child(t("shell.imageDownloads.total")),
                                     )
                                     .child(
                                         div()
                                             .w(px(64.))
                                             .text_right()
-                                            .text_color(theme::muted())
+                                            .text_color(theme::tertiary())
                                             .child(size(total)),
                                     )
                                     .child(
                                         div()
                                             .flex_1()
-                                            .text_color(theme::faint())
+                                            .text_color(theme::subtle())
                                             .child(format!("{}.", image.hint)),
                                     ),
                             ),
@@ -216,26 +218,28 @@ impl AppView {
                     div()
                         .font_family(theme::mono())
                         .text_xs()
-                        .text_color(theme::muted())
+                        .text_color(theme::secondary())
                         .child(title),
                 )
                 .child(
                     div()
-                        .p_2()
-                        .rounded_md()
+                        .px_3()
+                        .py_2()
+                        .rounded(theme::radius::SM)
                         .border_1()
                         .border_color(theme::line())
-                        .bg(theme::ink())
+                        .bg(theme::sunken())
                         .font_family(theme::mono())
-                        .text_xs()
-                        .text_color(theme::muted())
+                        .text_size(theme::text::CAPTION)
+                        .line_height(rems(1.6))
+                        .text_color(theme::secondary())
                         .child(body.to_string()),
                 )
                 .children(extra.map(note))
         };
         let body: Vec<AnyElement> = match pending {
-            None => vec![note(t("common.loading"))],
-            Some(Err(e)) => vec![note_in(e.clone(), theme::error())],
+            None => vec![super::super::panel::loading("sent")],
+            Some(Err(e)) => vec![note_in(e.clone(), theme::rose(300))],
             Some(Ok(p)) if !p.on => vec![note(t("settings.usageStats.sentOff"))],
             Some(Ok(p))
                 if p.usage.is_empty()
@@ -309,23 +313,25 @@ impl AppView {
                             .w(px(672.))
                             .max_w(relative(0.92))
                             .max_h(relative(0.85))
-                            .gap_3()
-                            .p_5()
-                            .rounded_xl()
-                            .bg(theme::card())
+                            .gap_5()
+                            .p_6()
+                            .rounded(theme::radius::XXL)
+                            .bg(theme::modal())
                             .border_1()
-                            .border_color(theme::line())
-                            .shadow_lg()
+                            .border_color(theme::line_strong())
+                            .shadow(theme::shadow_modal())
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .child(
                                 div()
-                                    .text_lg()
+                                    .text_size(theme::text::HEADING)
                                     .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(theme::title())
                                     .child(t("settings.usageStats.sentTitle")),
                             )
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(theme::text::BODY)
+                                    .line_height(rems(1.5))
                                     .text_color(theme::muted())
                                     .child(t("settings.usageStats.sentDescription")),
                             )

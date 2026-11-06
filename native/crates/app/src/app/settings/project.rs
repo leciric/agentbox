@@ -22,11 +22,10 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{
-    Btn, Choice, Row, badge, button, labeled, note, note_in, select, toggle,
-};
+use super::super::controls::{Btn, Choice, Row, button, labeled, note_in, select, toggle};
 use super::defaults::{ai_label, format_tokens, time_ago};
 use super::kit::{ask, card, enc, link, mono, plain, title};
+use super::kit::{badge, note};
 use super::{Entry, Group};
 use crate::theme;
 
@@ -1129,17 +1128,17 @@ impl AppView {
                 } else {
                     row.control = Some(
                         div()
-                            .text_sm()
-                            .text_color(theme::primary())
+                            .text_size(theme::text::UI)
+                            .text_color(theme::secondary())
                             .child(label_of(&p))
                             .into_any_element(),
                     );
                 }
                 if let Some(m) = pp.said.get(&n) {
-                    row.body.push(note_in(m.clone(), theme::running()));
+                    row.body.push(note_in(m.clone(), theme::emerald(300)));
                 }
                 if let Some(m) = pp.errors.get(&n) {
-                    row.body.push(note_in(m.clone(), theme::error()));
+                    row.body.push(note_in(m.clone(), theme::rose(300)));
                 }
                 row
             }
@@ -1576,17 +1575,17 @@ impl AppView {
                                 .py_0p5()
                                 .rounded_full()
                                 .border_1()
-                                .text_xs()
+                                .text_size(theme::text::CAPTION)
                                 .border_color(if on {
-                                    theme::accent().opacity(0.5)
+                                    theme::brand(400).opacity(0.5)
                                 } else {
                                     theme::line()
                                 })
                                 .when(on, |el| {
-                                    el.bg(theme::accent().opacity(0.15))
+                                    el.bg(theme::brand(500).opacity(0.15))
                                         .text_color(theme::primary())
                                 })
-                                .when(!on, |el| el.text_color(theme::faint()).line_through())
+                                .when(!on, |el| el.text_color(theme::subtle()).line_through())
                                 .when(!locked && !busy, |el| {
                                     el.cursor_pointer().on_click(cx.listener(
                                         move |this, _: &ClickEvent, _, cx| {
@@ -1636,7 +1635,7 @@ impl AppView {
                             "project.accounts.notAllowed",
                             &[("account", (&effective).into())],
                         ),
-                        theme::starting(),
+                        theme::amber(300),
                     ));
                 }
                 row
@@ -1797,7 +1796,7 @@ impl AppView {
                 let mut row = self.more_row(e, None, cx);
                 match pp.credentials.get(&n) {
                     None => row.body.push(note(t("common.loading"))),
-                    Some(Err(err)) => row.body.push(note_in(err.clone(), theme::error())),
+                    Some(Err(err)) => row.body.push(note_in(err.clone(), theme::rose(300))),
                     Some(Ok(list)) if list.is_empty() => {
                         row.body.push(note(t("project.accounts.runningOnNone")))
                     }
@@ -2324,10 +2323,10 @@ impl AppView {
             .id(SharedString::from(format!("secrets-{project}")))
             .gap_3()
             .when_some(pp.errors.get(project), |el, e| {
-                el.child(note_in(e.clone(), theme::error()))
+                el.child(note_in(e.clone(), theme::rose(300)))
             })
             .when_some(pp.said.get(project), |el, s| {
-                el.child(note_in(s.clone(), theme::running()))
+                el.child(note_in(s.clone(), theme::emerald(300)))
             })
             .when(open, |el| {
                 el.child(
@@ -2376,8 +2375,8 @@ impl AppView {
                 )
             })
             .child(match list {
-                None => note(t("common.loading")),
-                Some(Err(e)) => note_in(e.clone(), theme::error()),
+                None => super::super::panel::loading("secrets"),
+                Some(Err(e)) => note_in(e.clone(), theme::rose(300)),
                 Some(Ok(l)) if l.is_empty() => note(t("agent.secrets.none")),
                 Some(Ok(l)) => v_flex()
                     .gap_2()
@@ -2415,10 +2414,11 @@ impl AppView {
             .gap_2()
             .px_3()
             .py_2p5()
-            .rounded_lg()
+            .rounded_xl()
             .border_1()
-            .border_color(theme::line())
-            .bg(theme::card())
+            .border_color(theme::line_faint())
+            .bg(theme::surface_faint())
+            .hover(|st| st.border_color(theme::line_strong()))
             .child(
                 h_flex()
                     .flex_wrap()
@@ -2426,7 +2426,7 @@ impl AppView {
                     .child(
                         div()
                             .font_family(crate::theme::mono())
-                            .text_sm()
+                            .text_size(theme::text::UI)
                             .text_color(theme::primary())
                             .child(format!("${}", s.name)),
                     )
