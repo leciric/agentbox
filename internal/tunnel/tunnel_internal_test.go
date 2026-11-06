@@ -214,17 +214,24 @@ func TestAQuickTunnelIsRunningOnlyOnceItsNameResolves(t *testing.T) {
 	defer tun.Stop()
 	// Connected, but not in DNS yet: a phone opening it would be told the
 	// name doesn't exist, and keep that answer a while.
-	time.Sleep(300 * time.Millisecond)
+	var host string
+	for deadline := time.Now().Add(10 * time.Second); host == ""; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the name was never looked up")
+		}
+		mu.Lock()
+		host = asked
+		mu.Unlock()
+	}
+	if host != "quiet-river-1234.trycloudflare.com" {
+		t.Fatalf("resolved %q", host)
+	}
 	if st := tun.Status(); st.State != StateStarting || st.URL != "" {
 		t.Fatalf("before its name resolves: %+v", st)
 	}
 	mu.Lock()
 	inDNS = true
-	host := asked
 	mu.Unlock()
-	if host != "quiet-river-1234.trycloudflare.com" {
-		t.Fatalf("resolved %q", host)
-	}
 	st := waitFor(t, tun, func(s Status) bool { return s.State == StateRunning })
 	if st.URL != "https://quiet-river-1234.trycloudflare.com/" {
 		t.Fatalf("URL %q", st.URL)

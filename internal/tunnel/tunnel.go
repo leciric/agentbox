@@ -82,11 +82,15 @@ func authoritativeResolve(ctx context.Context, host string) error {
 	if len(ns) == 0 {
 		return fmt.Errorf("%s has no nameservers", zone)
 	}
-	r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-		var d net.Dialer
-		return d.DialContext(ctx, network, net.JoinHostPort(ns[0].Host, "53"))
-	}}
-	_, err = r.LookupHost(ctx, host)
+	for _, server := range ns {
+		r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, network, net.JoinHostPort(server.Host, "53"))
+		}}
+		if _, err = r.LookupHost(ctx, host); err == nil {
+			return nil
+		}
+	}
 	return err
 }
 
