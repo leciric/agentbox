@@ -172,6 +172,8 @@ impl AppView {
             .flex_none()
             .h_8()
             .px_3()
+            // Chromium puts the line's half pixel above it.
+            .pt(px(1.))
             .gap(px(6.))
             .border_b_1()
             .border_color(theme::line_faint())
@@ -209,10 +211,11 @@ impl AppView {
                     .flex_none()
                     .gap_2()
                     .px_2p5()
-                    .py(px(6.))
+                    .pt(px(7.))
+                    .pb(px(6.))
                     .rounded_lg()
                     .text_size(theme::text::UI)
-                    .line_height(px(20.))
+                    .line_height(px(19.))
                     .cursor_pointer()
                     .when(on, |el| el.bg(theme::surface_raised()).text_color(theme::title()))
                     .when(!on, |el| {

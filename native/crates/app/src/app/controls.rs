@@ -766,6 +766,9 @@ pub struct Row {
     pub modified: bool,
     pub control: Option<AnyElement>,
     pub body: Vec<AnyElement>,
+    /// code is a part of the description set as `<code>`: mono, tertiary
+    /// (the project's id in its Name's).
+    pub code: Option<String>,
 }
 
 impl Row {
@@ -780,6 +783,7 @@ impl Row {
             modified: false,
             control: None,
             body: Vec::new(),
+            code: None,
         }
     }
 
@@ -827,7 +831,40 @@ impl Row {
                         }),
                     )
                 }
-                None => words.child(self.description.clone()),
+                None => match self
+                    .code
+                    .as_ref()
+                    .and_then(|c| self.description.find(c.as_str()).map(|at| (at, c.len())))
+                {
+                    Some((at, len)) => {
+                        let run = |len: usize, mono: bool| TextRun {
+                            len,
+                            font: if mono {
+                                gpui::font(theme::MONO)
+                            } else {
+                                Font {
+                                    features: theme::sans_features(),
+                                    ..gpui::font(theme::SANS)
+                                }
+                            },
+                            color: if mono { theme::tertiary() } else { theme::subtle() },
+                            background_color: None,
+                            underline: None,
+                            strikethrough: None,
+                        };
+                        let total = self.description.len();
+                        let runs = vec![
+                            run(at, false),
+                            run(len, true),
+                            run(total - at - len, false),
+                        ]
+                        .into_iter()
+                        .filter(|r| r.len > 0)
+                        .collect();
+                        words.child(StyledText::new(self.description.clone()).with_runs(runs))
+                    }
+                    None => words.child(self.description.clone()),
+                },
             }
         });
         let words = v_flex()

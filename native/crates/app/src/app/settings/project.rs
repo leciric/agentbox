@@ -1099,6 +1099,7 @@ impl AppView {
         let row: Row = match e.id {
             "p-name" => {
                 let mut row = self.more_row(e, None, cx);
+                row.code = Some(n.clone());
                 let open = self.open_project_name().as_deref() == Some(n.as_str());
                 if open {
                     let (a, b) = (n.clone(), n.clone());
