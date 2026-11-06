@@ -253,6 +253,11 @@
 //                           agents with no snapshots, pages, emulator, media or Hatch pages; busy,
 //                           every agent with all four
 //   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
+//   ?app=office             the Office (components/office), with Storefront's and
+//                           Quill's agents too (dev/office.ts); &office=1 with
+//                           any ?app= puts it, and them, in the sidebar
+//   &fleet=typical          with the Office, six of the fixture project's agents
+//                           rather than all: a team of the usual size
 //   &tour=welcome           with ?app=, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
@@ -373,6 +378,8 @@ import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { seedIssues } from './issues';
+import { setUiOffice } from '../lib/uiOffice';
+import { seedOffice, stubProjectChats } from './office';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -759,6 +766,8 @@ if (tabsScenario === 'idle') queryClient.setQueryData(['pages', PROJECT], { conn
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
 if (appView === 'issues') seedIssues(queryClient);
+// &office=1: the Office in the sidebar (lib/uiOffice.ts); ?app=office opens it.
+setUiOffice(params.get('office') === '1' || appView === 'office');
 // No tour plays over a scenario unless &tour= asks for one.
 {
   const tour = params.get('tour');
@@ -768,6 +777,21 @@ if (appView === 'issues') seedIssues(queryClient);
 if (appView) {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  // ?app=office: more projects' agents, at their desks (dev/office.ts).
+  if (appView === 'office' || params.get('office') === '1') seedOffice(queryClient, { typical: params.get('fleet') === 'typical' });
+  // ?app=office&walk=<ref>: once the Office is up, walk to that desk (or a
+  // project's lead, project/lead), and with &then=room step back to its
+  // room's view, or with &then=e open it: screenshots without clicking through.
+  const walk = params.get('walk');
+  if (walk)
+    (window as unknown as { officeHook?: (s: { walkTo(ref: string): void; overview(): void }) => void }).officeHook = (office) => {
+      setTimeout(() => office.walkTo(walk), 1500);
+      if (params.get('then') === 'room') setTimeout(() => office.overview(), 7000);
+      // &then=e: and open what you walked to, as E does.
+      if (params.get('then') === 'e') setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' })), 6500);
+    };
+  // The other projects' chats, empty rather than failing.
+  stubProjectChats();
   // &ios=…, after seedV2's projects: the project is an iOS one.
   if (iosScenario) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, ios: true } : p)));
   setGroupIdle(params.get('groupidle') === '1');
@@ -1681,6 +1705,7 @@ if (phoneMode === 'frame') {
     : appView === 'recap' ? { kind: 'recap' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
+    : appView === 'office' ? { kind: 'office' }
     : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
   createRoot(document.getElementById('root')!).render(

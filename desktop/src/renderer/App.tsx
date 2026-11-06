@@ -82,6 +82,7 @@ import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
 import { WorkPage } from "./components/WorkView";
 import { RecapView } from "./components/RecapView";
 import type { WorkFilter } from "./lib/work";
+import { OfficeView } from "./components/office/OfficeView";
 
 export type View =
   | { kind: "home" }
@@ -89,8 +90,9 @@ export type View =
   | { kind: "jobs" }
   | { kind: "media" }
   | { kind: "settings" }
-  | { kind: "project"; project: string; tab?: ProjectPlaceName }
-  | { kind: "agent"; ref: string; tab?: AgentPlaceName }
+  // from: "office" when opened from the Office, whose way back is to it.
+  | { kind: "project"; project: string; tab?: ProjectPlaceName; from?: "office" }
+  | { kind: "agent"; ref: string; tab?: AgentPlaceName; from?: "office" }
   // Everything agents did, live and past, of every project or project's,
   // opened on filter (components/WorkView).
   | { kind: "work"; project?: string; filter?: WorkFilter }
@@ -99,13 +101,16 @@ export type View =
   // A past agent (ref), read in its chat.
   | { kind: "pastAgents"; ref: string }
   // A group of agents given one task, side by side (components/groups).
-  | { kind: "group"; id: string };
+  | { kind: "group"; id: string }
+  // The Office (lib/uiOffice.ts): a 3D room with a desk for every agent.
+  | { kind: "office" };
 
 // initial is the view the app opens on: Home, except in the dev preview
 // (dev/preview.tsx's ?app=), which opens it where a scenario points.
 export function App({ initial }: { initial?: View } = {}) {
   const t = useT();
   const [view, setView] = useState<View>(initial ?? { kind: "home" });
+  const beforeOffice = useRef<View>({ kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   // "clone" opens the dialog on its Clone from link tab.
   const [addingProject, setAddingProject] = useState<boolean | "clone">(false);
@@ -215,6 +220,9 @@ export function App({ initial }: { initial?: View } = {}) {
 
   const select = (next: View) => {
     setSettingsLink(undefined);
+    // The Office covers the window; its Back returns to where you were.
+    // (Coming back to it from a page it opened keeps where you were before.)
+    if (next.kind === "office" && view.kind !== "office" && !("from" in view && view.from === "office")) beforeOffice.current = view;
     // An agent's page has no tabs: the ones that were become the right
     // panel's, targeted at the agent, and the page stays on its chat.
     const kind = next.kind === "agent" && next.tab ? agentPanelKind[next.tab as string] : undefined;
@@ -377,7 +385,12 @@ export function App({ initial }: { initial?: View } = {}) {
         if (cycleRegion(event.shiftKey)) event.preventDefault();
       } else if (viewRef.current.kind === "agent" && isBackToLeadShortcut(event, onMac)) {
         event.preventDefault();
-        selectRef.current({ kind: "project", project: viewRef.current.ref.split("/")[0] });
+        const v = viewRef.current;
+        selectRef.current(v.from === "office" ? { kind: "office" } : { kind: "project", project: v.ref.split("/")[0] });
+      } else if (viewRef.current.kind === "project" && viewRef.current.from === "office" && isBackToLeadShortcut(event, onMac)) {
+        // A lead's chat opened from the Office goes back to it, too.
+        event.preventDefault();
+        selectRef.current({ kind: "office" });
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -717,6 +730,7 @@ export function App({ initial }: { initial?: View } = {}) {
                   />
                 )}
                 {view.kind === "jobs" && <JobsView />}
+                {view.kind === "office" && <OfficeView onSelect={select} onBack={() => select(beforeOffice.current.kind === "office" ? { kind: "home" } : beforeOffice.current)} />}
                 {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
                 {view.kind === "media" && <MediaView heading onSelect={select} />}
                 {view.kind === "work" && <WorkPage project={view.project} filter={view.filter} onSelect={select} />}

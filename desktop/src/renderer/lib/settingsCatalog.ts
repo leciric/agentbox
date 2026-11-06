@@ -41,6 +41,7 @@ export const catalog: CatalogSetting[] = [
   { section: 'general', group: 'settings.group.appearance.title', id: 'language', label: 'common.language', keywords: 'settings.languageKeywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'tray', label: 'settings.entry.tray.label', keywords: 'settings.entry.tray.keywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'group-idle', label: 'settings.entry.group-idle.label', keywords: 'settings.entry.group-idle.keywords' },
+  { section: 'general', group: 'settings.group.appearance.title', id: 'office', label: 'settings.entry.office.label', keywords: 'settings.entry.office.keywords' },
   { section: 'general', group: 'settings.group.appearance.title', id: 'environment', label: 'settings.entry.environment.label', keywords: 'settings.entry.environment.keywords' },
   { section: 'general', group: 'settings.group.working.title', id: 'reviewing', label: 'settings.entry.reviewing.label', keywords: 'settings.entry.reviewing.keywords' },
   { section: 'general', group: 'settings.group.working.title', id: 'topbar-detailed', label: 'settings.entry.topbar-detailed.label', keywords: 'settings.entry.topbar-detailed.keywords' },
