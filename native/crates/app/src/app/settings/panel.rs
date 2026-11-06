@@ -102,36 +102,50 @@ impl AppView {
     /// project_buttons are the lead's panel's Work and Settings, beside its
     /// ⋯ (ProjectButtons): Settings pressed while the panel shows them, and
     /// clicked again, back to what it showed.
-    pub(in crate::app) fn project_buttons(&self, cx: &mut Context<Self>) -> AnyElement {
-        let on = self.panel_settings.is_some();
+    pub(in crate::app) fn project_buttons(
+        &self,
+        gap: Pixels,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let [work, settings] = self.project_button_items(cx);
         h_flex()
             .flex_none()
-            .gap_1()
-            .child(
-                ghost_icon("panel-open-work", "briefcase", t("work.open"), false).on_click(
-                    cx.listener(|this, _: &ClickEvent, window, cx| {
-                        let p = this.project.clone().unwrap_or_default();
-                        this.open_work(p, String::new(), window, cx)
-                    }),
-                ),
-            )
-            .child(
-                ghost_icon(
-                    "panel-project-settings",
-                    "settings",
-                    t("v2.sidebar.projectSettings"),
-                    on,
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    if on {
-                        this.panel_settings = None;
-                        cx.notify();
-                    } else {
-                        this.open_project_settings("general", window, cx);
-                    }
-                })),
-            )
+            .gap(gap)
+            .child(work)
+            .child(settings)
             .into_any_element()
+    }
+
+    /// project_button_items are project_buttons unwrapped, for a header
+    /// that lays them out as its own children. Like Chromium's buttons in
+    /// a row too narrow, they shrink, down to their icon.
+    pub(in crate::app) fn project_button_items(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> [Stateful<Div>; 2] {
+        let on = self.panel_settings.is_some();
+        [
+            ghost_icon("panel-open-work", "briefcase", t("work.open"), false).on_click(
+                cx.listener(|this, _: &ClickEvent, window, cx| {
+                    let p = this.project.clone().unwrap_or_default();
+                    this.open_work(p, String::new(), window, cx)
+                }),
+            ),
+            ghost_icon(
+                "panel-project-settings",
+                "settings",
+                t("v2.sidebar.projectSettings"),
+                on,
+            )
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                if on {
+                    this.panel_settings = None;
+                    cx.notify();
+                } else {
+                    this.open_project_settings("general", window, cx);
+                }
+            })),
+        ]
     }
 
     /// render_project_settings is the panel's header and body while it shows
@@ -160,7 +174,7 @@ impl AppView {
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| close(this, cx))),
             )
             .child(div().flex_1())
-            .child(self.project_buttons(cx))
+            .child(self.project_buttons(px(4.), cx))
             .child(
                 ghost_icon("panel-close", "x", t("panel.back"), false)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| close(this, cx))),

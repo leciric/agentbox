@@ -420,7 +420,12 @@ pub async fn route(
                     title: a.title.clone(),
                     state: a.state.clone(),
                     cpu: if a.busy {
-                        85. + (rand_id() % 60) as f64
+                        // Still, a fixed load, so two apps read the same.
+                        85. + if crate::still() {
+                            5. + i as f64 * 4.
+                        } else {
+                            (rand_id() % 60) as f64
+                        }
                     } else {
                         2.5 + i as f64
                     },

@@ -2519,128 +2519,137 @@ impl AppView {
         ))
     }
 
-    /// render_rail_switch is the rail's tabs beside a project's chat:
-    /// Agents, with how many, and Pull requests, with how many are open and
-    /// how many of its agents are ready to review.
+    /// render_rail_switch is the lead's panel's tabs (LeadSwitch): Agents,
+    /// with how many; Pull requests (when the project has them on), with how
+    /// many are open and how many of its agents are ready to review; Issues,
+    /// Files, Evidence and Schedules. Only the lit one is named.
     pub(super) fn render_rail_switch(&self, agents: usize, cx: &mut Context<Self>) -> AnyElement {
         let (open, ready) = self.pull_counts();
         let tab = self.pulls.tab;
-        let count = |n: usize, lit: bool| {
+        let pulls_tab = self
+            .projects
+            .iter()
+            .find(|p| Some(&p.name) == self.project.as_ref())
+            .is_some_and(|p| p.pull_requests);
+        // The counts' pill: rounded-full bg-surface-strong px-1.5 10.5px subtle.
+        let count = |n: String| {
             div()
+                .flex_none()
                 .px_1p5()
                 .rounded_full()
-                .text_xs()
-                .bg(if lit {
-                    theme::accent().opacity(0.18)
-                } else {
-                    theme::surface_strong()
-                })
-                .text_color(if lit { theme::accent() } else { theme::muted() })
-                .child(n.to_string())
+                .bg(theme::surface_strong())
+                .text_size(px(10.5))
+                .line_height(px(15.75))
+                .text_color(theme::subtle())
+                .child(n)
         };
-        let item = |id: &'static str, label: String, on: bool, to: RailTab| {
-            h_flex()
-                .id(id)
-                .gap_1p5()
-                .px_2p5()
-                .h(px(28.))
-                .rounded_md()
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .when(on, |el| {
-                    el.bg(theme::surface_raised()).text_color(theme::primary())
-                })
-                .when(!on, |el| {
-                    el.text_color(theme::muted())
-                        .cursor_pointer()
-                        .hover(|s| s.text_color(theme::primary()))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.pulls.tab = to;
-                            if to == RailTab::Pulls {
-                                this.load_pulls(false, cx);
-                            }
-                            this.panel_sync(window, cx);
-                            cx.notify();
-                        }))
-                })
-                .child(label)
-        };
-        let mut tip = vec![t("panel.view.pulls")];
+        let tabs: Vec<(&'static str, RailTab, &'static str, &'static str)> = [
+            (
+                "rail-tab-agents",
+                RailTab::Agents,
+                "panel.lead.agents",
+                "users",
+            ),
+            (
+                "rail-tab-pulls",
+                RailTab::Pulls,
+                "panel.view.pulls",
+                "git-pull-request",
+            ),
+            (
+                "rail-tab-issues",
+                RailTab::Issues,
+                "panel.view.issues",
+                "circle-dot",
+            ),
+            (
+                "rail-tab-files",
+                RailTab::Files,
+                "panel.view.files",
+                "folder-tree",
+            ),
+            (
+                "rail-tab-evidence",
+                RailTab::Evidence,
+                "panel.view.evidence",
+                "images",
+            ),
+            (
+                "rail-tab-schedules",
+                RailTab::Schedules,
+                "panel.view.schedules",
+                "alarm-clock",
+            ),
+        ]
+        .into_iter()
+        .filter(|(_, to, _, _)| *to != RailTab::Pulls || pulls_tab || tab == RailTab::Pulls)
+        .collect();
+        let mut pull_tip = vec![t("panel.view.pulls")];
         if open > 0 {
-            tip.push(tv("v2.header.openPulls", &[("count", open.into())]));
+            pull_tip.push(tv("v2.header.openPulls", &[("count", open.into())]));
         }
         if ready > 0 {
-            tip.push(tv("v2.header.readyPulls", &[("count", ready.into())]));
+            pull_tip.push(tv("v2.header.readyPulls", &[("count", ready.into())]));
         }
-        let tip: SharedString = tip.join(" · ").into();
-        h_flex()
-            .p(px(2.))
-            .rounded_lg()
-            .border_1()
-            .border_color(theme::line())
-            .bg(theme::ink())
-            .child(
-                item(
-                    "rail-tab-agents",
-                    if tab == RailTab::Agents {
-                        t("panel.lead.agents")
-                    } else {
-                        "◎".into()
-                    },
-                    tab == RailTab::Agents,
-                    RailTab::Agents,
-                )
-                .when(tab != RailTab::Agents, |el| {
-                    let tip: SharedString = t("panel.lead.agents").into();
-                    el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                })
-                .when(agents > 0, |el| el.child(count(agents, false))),
-            )
-            .child(
-                item(
-                    "rail-tab-pulls",
-                    if tab == RailTab::Pulls {
-                        t("panel.view.pulls")
-                    } else {
-                        "⇄".into()
-                    },
-                    tab == RailTab::Pulls,
-                    RailTab::Pulls,
-                )
-                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                // Unlit, how many are ready says enough: how many are open is in its tooltip.
-                .when(open > 0 && (tab == RailTab::Pulls || ready == 0), |el| {
-                    el.child(count(open, false))
-                })
-                .when(ready > 0, |el| el.child(count(ready, true))),
-            )
-            .children(
-                [
-                    ("rail-tab-issues", RailTab::Issues, "panel.view.issues", "◉"),
-                    ("rail-tab-files", RailTab::Files, "panel.view.files", "▤"),
-                    (
-                        "rail-tab-evidence",
-                        RailTab::Evidence,
-                        "panel.view.evidence",
-                        "◫",
-                    ),
-                    (
-                        "rail-tab-schedules",
-                        RailTab::Schedules,
-                        "panel.view.schedules",
-                        "⏰",
-                    ),
-                ]
-                .into_iter()
-                .map(|(id, to, key, glyph)| {
-                    // Only the lit one is named; the others by their mark (LeadSwitch).
-                    let on = tab == to;
-                    let tip: SharedString = t(key).into();
-                    item(id, if on { t(key) } else { glyph.to_string() }, on, to).when(!on, |el| {
+        let pull_tip = pull_tip.join(" · ");
+        super::panel::switch_box()
+            .min_w_0()
+            .flex_shrink(1.)
+            .children(tabs.into_iter().map(|(id, to, key, icon)| {
+                let on = tab == to;
+                let tip: SharedString = if to == RailTab::Pulls {
+                    pull_tip.clone().into()
+                } else {
+                    t(key).into()
+                };
+                super::panel::switch_item(id, icon, on)
+                    .when(on, |el| el.min_w_0().px_2p5())
+                    .when(!on, |el| {
+                        el.flex_none().px_2().on_click(cx.listener(
+                            move |this, _: &ClickEvent, window, cx| {
+                                this.pulls.tab = to;
+                                if to == RailTab::Pulls {
+                                    this.load_pulls(false, cx);
+                                }
+                                this.panel_sync(window, cx);
+                                cx.notify();
+                            },
+                        ))
+                    })
+                    .when(!on || to == RailTab::Pulls, |el| {
                         el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
                     })
-                }),
-            )
+                    .when(on, |el| el.child(div().min_w_0().truncate().child(t(key))))
+                    .when(to == RailTab::Agents && agents > 0, |el| {
+                        el.child(count(agents.to_string()))
+                    })
+                    .when(
+                        to == RailTab::Pulls && open > 0 && (on || ready == 0),
+                        |el| el.child(count(open.to_string())),
+                    )
+                    .when(to == RailTab::Pulls && ready > 0, |el| {
+                        el.child(
+                            div()
+                                .flex_none()
+                                .px_1p5()
+                                .rounded_full()
+                                .bg(theme::brand(500).opacity(0.15))
+                                .text_size(px(10.5))
+                                .line_height(px(15.75))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(if theme::look() == theme::Look::Light {
+                                    theme::brand(600)
+                                } else {
+                                    theme::brand(300)
+                                })
+                                .child(if on {
+                                    tv("v2.header.ready", &[("count", ready.into())])
+                                } else {
+                                    ready.to_string()
+                                }),
+                        )
+                    })
+            }))
             .into_any_element()
     }
 

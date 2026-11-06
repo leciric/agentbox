@@ -72,7 +72,6 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
     div()
         .w_full()
         .min_w_0()
-        .my(rems(0.65))
         .rounded(px(12.))
         .overflow_hidden()
         .border_1()
@@ -123,88 +122,103 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
 /// with_mermaid makes a TextView draw ```mermaid fences as diagrams, and
 /// ```html preview fences as pages in a webview (webview.rs).
 pub fn with_mermaid(view: TextView) -> TextView {
-    view.markdown_block_parser(|node, _| match node {
-        markdown::mdast::Node::Code(code) if code.lang.as_deref() == Some(NODE) => Some(
-            MarkdownNode::new(NODE, ())
-                .text(code.value.clone())
-                .markdown(code.value.clone()),
-        ),
-        markdown::mdast::Node::Code(code) if is_preview(code) => Some(
-            MarkdownNode::new(HTML, ())
-                .text(code.value.clone())
-                .markdown(code.value.clone()),
-        ),
-        markdown::mdast::Node::Code(code) => Some(
-            MarkdownNode::new(CODE, code.lang.clone().unwrap_or_default())
-                .text(code.value.clone())
-                .markdown(code.value.clone()),
-        ),
-        _ => None,
-    })
-    .markdown_block_renderer(CODE, |node, _, _| {
-        let lang = node.data::<String>().cloned().unwrap_or_default();
-        code_block(&lang, node.as_text())
-    })
-    .markdown_block_renderer(NODE, |node, _, _| {
-        let src = node.as_text().to_string();
-        let block = div()
-            .my_2()
-            .p_3()
-            .rounded_lg()
-            .bg(theme::card())
-            .border_1()
-            .border_color(theme::line());
-        match rendered(&src) {
-            Ok(image) => block.child(img(image).max_w_full()).into_any_element(),
-            Err(_) => block
-                .text_xs()
-                .font_family(crate::theme::mono())
-                .text_color(theme::muted())
-                .child(src)
-                .into_any_element(),
-        }
-    })
-    .markdown_block_renderer(HTML, |node, window, _| {
-        use std::hash::{Hash as _, Hasher as _};
-        let src = node.as_text().to_string();
-        let card = div()
-            .my_2()
-            .rounded_lg()
-            .overflow_hidden()
-            .border_1()
-            .border_color(theme::line())
-            .bg(theme::card());
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        src.hash(&mut h);
-        let id = format!("html-{:x}", h.finish());
-        // Wayland (or no child webviews): the page as a picture, drawn offscreen.
-        #[cfg(target_os = "linux")]
-        if crate::snapshot::wanted(window) && !crate::snapshot::failed(&id) {
-            return card
-                .child(crate::snapshot::html_snapshot(id, src))
-                .into_any_element();
-        }
-        #[cfg(not(target_os = "linux"))]
-        let _ = window;
-        if !crate::webview::available() {
-            // No webview here (no GTK, or the page failed): its source instead.
-            return card
-                .child(
-                    div()
-                        .pb_2()
-                        .text_color(theme::faint())
-                        .child(agentbox_i18n::t("native.preview.source")),
-                )
+    // .chat-markdown: blocks 0.65rem apart; inline code in a ring
+    // (:not(pre) > code: border line-strong, rounded 0.375rem, bg surface,
+    // padding 0.08rem 0.35rem, 0.8em, secondary).
+    view.style(gpui_component::text::TextViewStyle::default().paragraph_gap(rems(0.65)))
+        .inline_code_style(
+            StyleRefinement::default()
+                .border_1()
+                .border_color(theme::line_strong())
+                .rounded(px(6.))
+                .bg(theme::surface())
+                .px(rems(0.35))
+                .py(rems(0.08))
+                .text_size(px(11.2))
+                .text_color(theme::secondary()),
+        )
+        .markdown_block_parser(|node, _| match node {
+            markdown::mdast::Node::Code(code) if code.lang.as_deref() == Some(NODE) => Some(
+                MarkdownNode::new(NODE, ())
+                    .text(code.value.clone())
+                    .markdown(code.value.clone()),
+            ),
+            markdown::mdast::Node::Code(code) if is_preview(code) => Some(
+                MarkdownNode::new(HTML, ())
+                    .text(code.value.clone())
+                    .markdown(code.value.clone()),
+            ),
+            markdown::mdast::Node::Code(code) => Some(
+                MarkdownNode::new(CODE, code.lang.clone().unwrap_or_default())
+                    .text(code.value.clone())
+                    .markdown(code.value.clone()),
+            ),
+            _ => None,
+        })
+        .markdown_block_renderer(CODE, |node, _, _| {
+            let lang = node.data::<String>().cloned().unwrap_or_default();
+            code_block(&lang, node.as_text())
+        })
+        .markdown_block_renderer(NODE, |node, _, _| {
+            let src = node.as_text().to_string();
+            let block = div()
+                .my_2()
                 .p_3()
-                .text_xs()
-                .font_family(crate::theme::mono())
-                .text_color(theme::muted())
-                .child(src)
-                .into_any_element();
-        }
-        card.child(crate::webview::html_preview(id, src, px(260.)))
-            .into_any_element()
-    })
+                .rounded_lg()
+                .bg(theme::card())
+                .border_1()
+                .border_color(theme::line());
+            match rendered(&src) {
+                Ok(image) => block.child(img(image).max_w_full()).into_any_element(),
+                Err(_) => block
+                    .text_xs()
+                    .font_family(crate::theme::mono())
+                    .text_color(theme::muted())
+                    .child(src)
+                    .into_any_element(),
+            }
+        })
+        .markdown_block_renderer(HTML, |node, window, _| {
+            use std::hash::{Hash as _, Hasher as _};
+            let src = node.as_text().to_string();
+            let card = div()
+                .my_2()
+                .rounded_lg()
+                .overflow_hidden()
+                .border_1()
+                .border_color(theme::line())
+                .bg(theme::card());
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            src.hash(&mut h);
+            let id = format!("html-{:x}", h.finish());
+            // Wayland (or no child webviews): the page as a picture, drawn offscreen.
+            #[cfg(target_os = "linux")]
+            if crate::snapshot::wanted(window) && !crate::snapshot::failed(&id) {
+                return card
+                    .child(crate::snapshot::html_snapshot(id, src))
+                    .into_any_element();
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = window;
+            if !crate::webview::available() {
+                // No webview here (no GTK, or the page failed): its source instead.
+                return card
+                    .child(
+                        div()
+                            .pb_2()
+                            .text_color(theme::faint())
+                            .child(agentbox_i18n::t("native.preview.source")),
+                    )
+                    .p_3()
+                    .text_xs()
+                    .font_family(crate::theme::mono())
+                    .text_color(theme::muted())
+                    .child(src)
+                    .into_any_element();
+            }
+            card.child(crate::webview::html_preview(id, src, px(260.)))
+                .into_any_element()
+        })
 }
 
 /// is_preview is a ```html preview fence: a page to show, not code.

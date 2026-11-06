@@ -554,6 +554,22 @@ pub fn composer() -> Hsla {
     c(worn().composer)
 }
 /// stage frames another machine's screen, and stays dark in every look.
+/// term_background and term_foreground are the terminal's ground and ink
+/// (--ab-term-background, --ab-term-foreground).
+pub fn term_background() -> Hsla {
+    c(match look() {
+        Look::Dark => 0x0a0a0fff,
+        Look::Light => 0xfbfbfdff,
+        Look::Dracula => 0x282a36ff,
+    })
+}
+pub fn term_foreground() -> Hsla {
+    c(match look() {
+        Look::Dark => 0xe4e4e7ff,
+        Look::Light => 0x27272aff,
+        Look::Dracula => 0xf8f8f2ff,
+    })
+}
 pub fn stage() -> Hsla {
     c(worn().stage)
 }

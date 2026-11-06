@@ -247,10 +247,14 @@ impl ChatView {
                     .pt_1()
                     .border_b_1()
                     .border_color(theme::line())
+                    // Timeline's working: h-6 px-1 text-sm text-subtle.
                     .child(
                         h_flex()
+                            .h_6()
+                            .px_1()
                             .text_sm()
-                            .text_color(theme::faint())
+                            .line_height(px(20.))
+                            .text_color(theme::subtle())
                             .child(tv(
                                 "chat.timeline.working",
                                 &[("elapsed", elapsed(since).into())],
@@ -266,12 +270,26 @@ impl ChatView {
             }
             Row::Thinking => {
                 let starting = self.session.state == "starting";
+                // Timeline's thinking: min-h-7 gap-1.5 px-0.5 pb-2, a Brain
+                // in a size-6 box, the words in chat-shine's subtle.
                 h_flex()
+                    .min_h_7()
                     .pb_2()
+                    .px_0p5()
                     .gap_1p5()
                     .text_sm()
-                    .text_color(theme::muted())
-                    .child(icon("✳", theme::faint()))
+                    .line_height(px(20.))
+                    .text_color(theme::subtle())
+                    .child(
+                        div()
+                            .flex_none()
+                            .size_6()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(theme::subtle())
+                            .child(crate::icons::ic("brain").size(px(16.))),
+                    )
                     .child(if starting {
                         if self.session.detail.is_empty() {
                             tv(

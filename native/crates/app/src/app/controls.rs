@@ -191,54 +191,14 @@ pub fn scrollbar(handle: &ScrollHandle, gutter: bool) -> AnyElement {
         |_, _, _| (),
         move |_, _, window, _| {
             let vp = handle.bounds();
-            let max = handle.max_offset().y;
-            let overflow = max > px(0.5);
-            if overflow != gutter {
-                window.refresh();
-            }
-            if !overflow || vp.size.height < px(40.) {
-                return;
-            }
-            let color = theme::line_vivid();
-            let hovered = vp.contains(&window.mouse_position());
-            // Chromium brightens the arrows of the scroller the pointer is in.
-            let arrow = if hovered {
-                gpui::white().opacity(0.75)
-            } else {
-                color
-            };
             let x = vp.right() - SCROLLBAR;
-            let top = vp.top();
-            let bottom = vp.bottom();
-            let row = |window: &mut Window, y: Pixels, from: f32, w: f32, c: Hsla| {
-                window.paint_quad(fill(
-                    Bounds::new(point(x + px(from), y), size(px(w), px(1.))),
-                    c,
-                ));
-            };
-            let scrolled = -handle.offset().y;
-            let up = if scrolled > px(0.5) { arrow } else { color };
-            let down = if scrolled < max - px(0.5) {
-                arrow
-            } else {
-                color
-            };
-            // Each arrow is three rows, 2, 4 and 6 wide, its point outward.
-            for i in 0..3 {
-                let i = i as f32;
-                row(window, top + px(4. + i), 4. - i, 2. + 2. * i, up);
-                row(window, bottom - px(7. - i), 2. + i, 6. - 2. * i, down);
-            }
-            let track = vp.size.height - px(24.);
-            let content = vp.size.height + max;
-            let len = (track * (vp.size.height / content)).round().max(px(18.));
-            let at = ((scrolled / max).clamp(0., 1.) * (track - len)).round();
-            window.paint_quad(
-                fill(
-                    Bounds::new(point(x + px(2.), top + px(12.) + at), size(px(6.), len)),
-                    color,
-                )
-                .corner_radii(px(3.)),
+            paint_scrollbar(
+                vp,
+                x,
+                handle.max_offset().y,
+                -handle.offset().y,
+                gutter,
+                window,
             );
         },
     )
@@ -247,6 +207,87 @@ pub fn scrollbar(handle: &ScrollHandle, gutter: bool) -> AnyElement {
     .left_0()
     .size_full()
     .into_any_element()
+}
+
+/// list_scrollbar is `scrollbar` for a list: drawn in the SCROLLBAR gutter
+/// to the right of the list (its parent pads it by that much while `gutter`).
+pub fn list_scrollbar(list: &ListState, gutter: bool) -> AnyElement {
+    let list = list.clone();
+    canvas(
+        |_, _, _| (),
+        move |_, _, window, _| {
+            let vp = list.viewport_bounds();
+            let max = list.max_offset_for_scrollbar().y;
+            let scrolled = -list.scroll_px_offset_for_scrollbar().y;
+            paint_scrollbar(vp, vp.right(), max, scrolled, gutter, window);
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+    .into_any_element()
+}
+
+/// list_overflows is whether a list scrolls, so lays out with the gutter.
+pub fn list_overflows(list: &ListState) -> bool {
+    list.max_offset_for_scrollbar().y > px(0.5)
+}
+
+fn paint_scrollbar(
+    vp: Bounds<Pixels>,
+    x: Pixels,
+    max: Pixels,
+    scrolled: Pixels,
+    gutter: bool,
+    window: &mut Window,
+) {
+    let overflow = max > px(0.5);
+    if overflow != gutter {
+        window.refresh();
+    }
+    if !overflow || vp.size.height < px(40.) {
+        return;
+    }
+    let color = theme::line_vivid();
+    let hovered = vp.contains(&window.mouse_position());
+    // Chromium brightens the arrows of the scroller the pointer is in.
+    let arrow = if hovered {
+        gpui::white().opacity(0.75)
+    } else {
+        color
+    };
+    let top = vp.top();
+    let bottom = vp.bottom();
+    let row = |window: &mut Window, y: Pixels, from: f32, w: f32, c: Hsla| {
+        window.paint_quad(fill(
+            Bounds::new(point(x + px(from), y), size(px(w), px(1.))),
+            c,
+        ));
+    };
+    let up = if scrolled > px(0.5) { arrow } else { color };
+    let down = if scrolled < max - px(0.5) {
+        arrow
+    } else {
+        color
+    };
+    // Each arrow is three rows, 2, 4 and 6 wide, its point outward.
+    for i in 0..3 {
+        let i = i as f32;
+        row(window, top + px(4. + i), 4. - i, 2. + 2. * i, up);
+        row(window, bottom - px(7. - i), 2. + i, 6. - 2. * i, down);
+    }
+    let track = vp.size.height - px(24.);
+    let content = vp.size.height + max;
+    let len = (track * (vp.size.height / content)).round().max(px(18.));
+    let at = ((scrolled / max).clamp(0., 1.) * (track - len)).round();
+    window.paint_quad(
+        fill(
+            Bounds::new(point(x + px(2.), top + px(12.) + at), size(px(6.), len)),
+            color,
+        )
+        .corner_radii(px(3.)),
+    );
 }
 
 /// Btn is how loud a button is: the one thing to do, one of several, or

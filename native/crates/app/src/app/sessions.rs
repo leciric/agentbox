@@ -1411,7 +1411,15 @@ impl AppView {
                         .text_size(theme::text::CAPTION)
                         .text_color(theme::muted())
                         .icon(crate::icons::ic("alarm-clock").size(px(14.)))
-                        .label(t("sessions.snooze.label"))
+                        // SnoozeMenu's ghost sm Button: 12px medium, muted.
+                        .child(
+                            div()
+                                .text_size(theme::text::CAPTION)
+                                .line_height(px(16.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::muted())
+                                .child(t("sessions.snooze.label")),
+                        )
                         .tooltip(t("sessions.snooze.hint"))
                         .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                             let mut menu = menu.label(t("sessions.snooze.until"));

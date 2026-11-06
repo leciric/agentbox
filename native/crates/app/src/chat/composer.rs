@@ -1671,6 +1671,64 @@ impl ChatView {
             .text_sm()
     }
 
+    /// render_review is a project lead's "N agents ready to review" over its
+    /// composer (ReviewV2's ReviewCount banner: the dock, mx-3 rounded-t-xl
+    /// border-line-strong bg-composer, px-3 py-1.5 text-ui).
+    fn render_review(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let count = self.review_count;
+        if count == 0 || !self.is_lead() {
+            return None;
+        }
+        Some(
+            h_flex()
+                .mx_3()
+                .gap_2()
+                .px_3()
+                .py(px(6.))
+                .rounded_t_xl()
+                .border_1()
+                .border_b_0()
+                .border_color(theme::line_strong())
+                .bg(theme::composer())
+                .text_size(theme::text::UI)
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(6.))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(theme::secondary()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(theme::secondary())
+                        .child(tv("v2.review.readyBanner", &[("count", count.into())])),
+                )
+                .child(
+                    h_flex()
+                        .id("review-banner-open")
+                        .flex_none()
+                        .gap_1()
+                        .px_2()
+                        .py(px(2.))
+                        .rounded_md()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::title())
+                        .cursor_pointer()
+                        .hover(|el| el.bg(theme::surface_strong()))
+                        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                            cx.emit(ChatAction::ReviewProject)
+                        }))
+                        .child(t("v2.review.review"))
+                        .child(crate::icons::ic("arrow-right").size(px(14.))),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// render_above is what waits on the composer, attached to its top.
     fn render_above(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let view = cx.entity();
@@ -2138,6 +2196,7 @@ impl ChatView {
         let working = self.working() || self.session.turn_started_at.is_some();
         let view = cx.entity();
         let above = self.render_above(cx);
+        let review = self.render_review(cx);
         if self.is_lead() && !self.composer.asked_mentions && self.loaded {
             self.load_mentions(cx);
         }
@@ -2349,6 +2408,7 @@ impl ChatView {
                     )
                     .children(tasks_list)
                     .children(menu_el)
+                    .children(review)
                     .children(above)
                     .child(
                         v_flex()

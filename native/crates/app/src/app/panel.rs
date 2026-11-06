@@ -133,6 +133,9 @@ pub struct Panel {
     host_memory: i64,
     /// Each agent's last report: when, and what it said.
     reports: HashMap<String, (String, String)>,
+    /// What each stopped machine of the project holds on disk, by ref
+    /// (useRailAgents' stoppedMachines).
+    disk: HashMap<String, i64>,
     past: Vec<ArchivedAgent>,
     /// Whose media is read ("p/agent-01", or "p/lead" for the project's).
     media_for: String,
@@ -210,6 +213,7 @@ impl Panel {
             peeking: HashSet::new(),
             host_memory: 0,
             reports: HashMap::new(),
+            disk: HashMap::new(),
             past: Vec::new(),
             media_for: String::new(),
             media: None,
@@ -295,6 +299,44 @@ impl Panel {
         items.sort_by_key(|m| -media::ms(&m.created_at));
         items
     }
+}
+
+/// switch_box is the frame of the panel's switches (LeadSwitch, ViewSwitch):
+/// rounded-lg border-line bg-surface-faint p-0.5.
+pub(super) fn switch_box() -> Div {
+    h_flex()
+        .flex_none()
+        .p(px(2.))
+        .rounded_lg()
+        .border_1()
+        .border_color(theme::line())
+        .bg(theme::surface_faint())
+}
+
+/// switch_item is one of a switch's buttons: h-7 gap-1.5 rounded-md 11.5px
+/// medium, its icon 14px; lit, bg-surface-raised text-title shadow-sm, else
+/// text-subtle, text-title on hover. The caller sets its width.
+pub(super) fn switch_item(id: &'static str, icon: &str, on: bool) -> Stateful<Div> {
+    h_flex()
+        .id(id)
+        .relative()
+        .h(px(28.))
+        .gap_1p5()
+        .rounded_md()
+        .text_size(px(11.5))
+        .line_height(px(17.25))
+        .font_weight(FontWeight::MEDIUM)
+        .when(on, |el| {
+            el.bg(theme::surface_raised())
+                .text_color(theme::title())
+                .shadow_xs()
+        })
+        .when(!on, |el| {
+            el.text_color(theme::subtle())
+                .cursor_pointer()
+                .hover(|s| s.text_color(theme::title()))
+        })
+        .child(crate::icons::ic(icon).size(px(14.)).flex_none())
 }
 
 fn is_capture(m: &MediaItem) -> bool {
@@ -553,7 +595,27 @@ impl AppView {
             return;
         };
         let client = self.client.clone();
+        let stopped = self
+            .fleet
+            .iter()
+            .any(|a| a.project == project && a.state == "stopped");
         cx.spawn(async move |this, cx| {
+            let disk = if stopped {
+                client
+                    .get::<agentbox_api::StoppedMachines>(&format!(
+                        "/v1/stopped-machines?project={project}"
+                    ))
+                    .await
+                    .map(|m| {
+                        m.machines
+                            .into_iter()
+                            .filter_map(|m| Some((m.r#ref, m.machine?)))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                HashMap::new()
+            };
             let events = client
                 .get::<Vec<AgentEvent>>(&format!("/v1/projects/{project}/agent-events"))
                 .await
@@ -577,6 +639,7 @@ impl AppView {
                 }
                 this.panel.reports = reports;
                 this.panel.past = past;
+                this.panel.disk = disk;
                 cx.notify();
             })
             .ok();
@@ -1097,28 +1160,35 @@ impl AppView {
             .into_any_element()
     }
 
+    /// header_row is the panel's header (RightPanel's: h-11 border-b
+    /// border-line-faint bg-rail pl-2 pr-1.5, gap-1.5 while the switch's
+    /// lit view is named, which it always is here).
     fn header_row(&self) -> Div {
         h_flex()
             .flex_none()
             .h(px(44.))
             .pl_2()
             .pr_1p5()
-            .gap_1()
+            .gap_1p5()
+            .overflow_hidden()
             .border_b_1()
-            .border_color(theme::line())
+            .border_color(theme::line_faint())
+            .bg(theme::rail())
     }
 
     fn lead_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        // A row too narrow for them all squeezes the switch and the buttons
+        // alike, by their widths, as Chromium shrinks flex items.
+        let agents = self.pulls.tab == RailTab::Agents;
+        let [work, settings] = self.project_button_items(cx);
+        let shrink = |el: Stateful<Div>| el.flex_shrink(1.).into_any_element();
         self.header_row()
             .child(self.render_rail_switch(self.fleet.len(), cx))
-            .child(div().flex_1())
-            .when(self.pulls.tab == RailTab::Agents, |el| {
-                el.child(self.new_agent_button(cx))
-            })
-            .child(self.project_buttons(cx))
-            .when(self.pulls.tab == RailTab::Agents, |el| {
-                el.child(self.fold_button(cx))
-            })
+            .child(div().flex_1().min_w_0())
+            .when(agents, |el| el.child(shrink(self.new_agent_button(cx))))
+            .child(shrink(work))
+            .child(shrink(settings))
+            .when(agents, |el| el.child(shrink(self.fold_button(cx))))
             .into_any_element()
     }
 
@@ -1144,7 +1214,7 @@ impl AppView {
             .into_any_element()
     }
 
-    fn new_agent_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn new_agent_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let project = self
             .projects
             .iter()
@@ -1159,17 +1229,15 @@ impl AppView {
             .unwrap_or_default();
         icon_button(
             "panel-new-agent",
-            "+",
+            "plus",
             tv("agent.rail.newAgentIn", &[("project", (&project).into())]),
         )
         .on_click(cx.listener(|this, _: &ClickEvent, w, cx| this.open_new_task(w, cx)))
-        .into_any_element()
     }
 
-    fn fold_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn fold_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         icon_button("panel-fold", "»", t("panel.list.fold"))
             .on_click(cx.listener(|this, _: &ClickEvent, w, cx| this.toggle_panel(w, cx)))
-            .into_any_element()
     }
 
     /// render_panel_button is the chat header's button that folds the panel
@@ -1335,29 +1403,61 @@ impl AppView {
             let folds = g == St::Done;
             let open =
                 !folds || self.panel.idle_open || mine.iter().any(|r| r.agent.name == active);
+            let disk: i64 = if folds {
+                mine.iter()
+                    .filter_map(|r| self.panel.disk.get(&r.agent.r#ref))
+                    .sum()
+            } else {
+                0
+            };
+            // The group's head: h-7 px-2 gap-1.5 12px muted (a button when it folds).
             let head = h_flex()
                 .id(SharedString::from(format!("list-group-{g:?}")))
+                .w_full()
+                .min_w_0()
                 .h(px(28.))
                 .px_2()
                 .gap_1p5()
                 .rounded_md()
-                .text_xs()
+                .text_size(px(12.))
                 .text_color(theme::muted())
                 .when(folds, |el| {
                     el.cursor_pointer()
-                        .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
+                        .hover(|s| s.bg(theme::surface()).text_color(theme::primary()))
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.panel.idle_open = !this.panel.idle_open;
                             cx.notify();
                         }))
-                        .child(crate::icons::of(if open { "▾" } else { "▸" }))
+                        .child(
+                            crate::icons::ic(if open {
+                                "chevron-down"
+                            } else {
+                                "chevron-right"
+                            })
+                            .size(px(14.)),
+                        )
                 })
-                .child(g.group_label())
+                .child(div().min_w_0().truncate().child(g.group_label()))
                 .child(
                     div()
                         .text_color(theme::faint())
                         .child(mine.len().to_string()),
-                );
+                )
+                // What the stopped ones hold on disk, at the row's end.
+                .when(disk > 0, |el| {
+                    let tip: SharedString = t("agent.rail.stoppedTip").into();
+                    el.child(
+                        h_flex()
+                            .id("list-disk")
+                            .ml_auto()
+                            .flex_none()
+                            .gap_1()
+                            .text_color(theme::faint())
+                            .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
+                            .child(crate::icons::ic("hard-drive").size(px(12.)))
+                            .child(crate::files::human_bytes(disk)),
+                    )
+                });
             groups.push(
                 v_flex()
                     .pt_1p5()
@@ -1417,15 +1517,15 @@ impl AppView {
                         .py_1p5()
                         .gap_1p5()
                         .rounded_lg()
-                        .text_xs()
-                        .text_color(theme::muted())
+                        .text_size(px(12.))
+                        .text_color(theme::subtle())
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
+                        .hover(|s| s.bg(theme::surface()).text_color(theme::primary()))
                         .on_click(cx.listener(|this, _: &ClickEvent, w, cx| {
                             let p = this.project.clone().unwrap_or_default();
                             this.open_work(p, String::new(), w, cx)
                         }))
-                        .child(crate::icons::of("▤"))
+                        .child(crate::icons::ic("archive").size(px(14.)))
                         .child(t("pastAgents.title"))
                         .child(div().text_color(theme::faint()).child(format!(
                             "· {}",
@@ -1514,9 +1614,21 @@ impl AppView {
             .collect();
         let (tip_app, tip_ref) = (cx.entity().downgrade(), a.r#ref.clone());
         let name = a.name.clone();
+        let disk = self.panel.disk.get(&a.r#ref).copied();
+        // Its model, from its session (AgentLine reads every row's chat).
+        let model = match self.panel.peeked.get(&a.r#ref) {
+            Some(s) => model_name(s),
+            None => {
+                let r = a.r#ref.clone();
+                let me = cx.entity();
+                cx.defer(move |cx| me.update(cx, |this, cx| this.peek_session(r, cx)));
+                None
+            }
+        };
         let menu = self.agent_menu(a, false, cx);
         h_flex()
             .id(SharedString::from(format!("list-{}", a.r#ref)))
+            .group("list-row")
             .w_full()
             .min_w_0()
             .items_start()
@@ -1562,16 +1674,20 @@ impl AppView {
                         })
                         .build(w, cx)
                     })
-                    .child(monitor(
-                        &a.r#ref,
+                    .pt_0p5()
+                    .child(agent_monitor(
                         &a.ai,
-                        r.st,
-                        a.state == "running",
-                        None,
-                        false,
-                        r.finished,
+                        if !a.hold.is_empty() && a.state != "running" && a.state != "paused" {
+                            // On hold, its machine stopped: its screen is off.
+                            Screen::Idle
+                        } else {
+                            screen_of(r.st)
+                        },
                     )),
             )
+            // AgentLine's lines: the title row (leading-[18px]), why it's
+            // where it is (12px, leading-4, in its state's tone), then what it
+            // runs on and has made (mt-1, 11px, leading-4, faint).
             .child(
                 v_flex()
                     .min_w_0()
@@ -1580,20 +1696,23 @@ impl AppView {
                         h_flex()
                             .min_w_0()
                             .gap_1p5()
+                            .line_height(px(18.))
                             .child(
                                 div()
                                     .min_w_0()
                                     .flex_1()
                                     .truncate()
-                                    .text_sm()
+                                    .text_size(px(13.))
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(if active || r.st != St::Done {
-                                        theme::primary()
+                                    .text_color(if active {
+                                        theme::title()
+                                    } else if r.st == St::Done {
+                                        theme::subtle()
                                     } else {
-                                        theme::muted()
+                                        theme::primary()
                                     })
                                     .when(a.title.is_empty(), |el| {
-                                        el.font_family(theme::mono()).text_xs()
+                                        el.font_family(theme::mono()).text_size(px(12.))
                                     })
                                     .child(title),
                             )
@@ -1601,7 +1720,7 @@ impl AppView {
                                 el.child(
                                     div()
                                         .flex_none()
-                                        .text_xs()
+                                        .text_size(px(12.))
                                         .text_color(theme::faint())
                                         .child(format!("#{n}")),
                                 )
@@ -1610,7 +1729,7 @@ impl AppView {
                                 el.child(
                                     div()
                                         .flex_none()
-                                        .text_xs()
+                                        .text_size(px(12.))
                                         .text_color(theme::faint())
                                         .child(super::sidebar::ago(w)),
                                 )
@@ -1620,22 +1739,33 @@ impl AppView {
                         h_flex()
                             .min_w_0()
                             .gap_1()
-                            .text_xs()
+                            .text_size(px(12.))
+                            .line_height(px(16.))
                             .text_color(r.color)
-                            .when(r.approval, |el| el.child(crate::icons::of("⚠")))
+                            .when(matches!(r.st, St::Needs | St::Error), |el| {
+                                el.font_weight(FontWeight::MEDIUM)
+                            })
+                            .when(r.approval, |el| {
+                                el.child(crate::icons::ic("shield-alert").size(px(12.)))
+                            })
                             .child(div().min_w_0().truncate().child(r.reason.clone())),
                     )
                     .when(
                         a.pr.as_ref().is_some_and(|p| p.number > 0)
                             || usage.is_some()
-                            || changes.is_some(),
+                            || changes.is_some()
+                            || disk.is_some()
+                            || model.is_some(),
                         |el| {
                             el.child(
                                 h_flex()
                                     .mt_1()
                                     .min_w_0()
                                     .gap_1p5()
-                                    .text_xs()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_size(px(11.))
+                                    .line_height(px(16.))
                                     .text_color(theme::faint())
                                     .when_some(a.pr.as_ref().filter(|p| p.number > 0), |el, pr| {
                                         el.child(pulls::pr_chip(
@@ -1654,33 +1784,67 @@ impl AppView {
                                         el.child(
                                             div()
                                                 .flex_none()
-                                                .px(px(if heavy { 4. } else { 0. }))
                                                 .rounded_sm()
                                                 .font_family(theme::mono())
                                                 .when(heavy, |el| {
-                                                    el.bg(theme::starting().opacity(0.15))
-                                                        .text_color(theme::starting())
+                                                    el.px_1()
+                                                        .bg(theme::amber(400).opacity(0.15))
+                                                        .font_weight(FontWeight::MEDIUM)
+                                                        .text_color(theme::amber(300))
                                                 })
-                                                .when(!heavy, |el| el.text_color(theme::muted()))
+                                                .when(!heavy, |el| {
+                                                    el.text_color(theme::secondary())
+                                                })
                                                 .child(parts.join(" · ")),
+                                        )
+                                    })
+                                    .when_some(disk, |el, d| {
+                                        el.child(
+                                            div()
+                                                .flex_none()
+                                                .font_family(theme::mono())
+                                                .text_color(theme::secondary())
+                                                .child(crate::files::human_bytes(d)),
                                         )
                                     })
                                     .when_some(changes, |el, c| {
                                         el.child(
-                                            h_flex()
-                                                .gap_1()
-                                                .child(
-                                                    div()
-                                                        .text_color(theme::running())
-                                                        .child(format!("+{}", c.insertions)),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_color(theme::error())
-                                                        .child(format!("−{}", c.deletions)),
-                                                ),
+                                            div().min_w_0().truncate().child(
+                                                StyledText::new(format!(
+                                                    "+{} −{}",
+                                                    c.insertions, c.deletions
+                                                ))
+                                                .with_highlights({
+                                                    let plus = format!("+{}", c.insertions).len();
+                                                    let all = plus
+                                                        + 1
+                                                        + format!("−{}", c.deletions).len();
+                                                    vec![
+                                                        (
+                                                            0..plus,
+                                                            HighlightStyle {
+                                                                color: Some(
+                                                                    theme::emerald(300)
+                                                                        .opacity(0.8),
+                                                                ),
+                                                                ..Default::default()
+                                                            },
+                                                        ),
+                                                        (
+                                                            plus + 1..all,
+                                                            HighlightStyle {
+                                                                color: Some(
+                                                                    theme::rose(300).opacity(0.8),
+                                                                ),
+                                                                ..Default::default()
+                                                            },
+                                                        ),
+                                                    ]
+                                                }),
+                                            ),
                                         )
-                                    }),
+                                    })
+                                    .when_some(model, |el, m| el.child(div().flex_none().child(m))),
                             )
                         },
                     ),
@@ -2937,6 +3101,220 @@ fn monitor(
         .into_any_element()
 }
 
+/// Screen is what an agent's monitor shows (shared/monitor.ts MonitorScreen).
+#[derive(Clone, Copy, PartialEq)]
+enum Screen {
+    Working,
+    Needs,
+    Error,
+    Review,
+    Idle,
+}
+
+fn screen_of(st: St) -> Screen {
+    match st {
+        St::Needs => Screen::Needs,
+        St::Error => Screen::Error,
+        St::Review => Screen::Review,
+        St::Working => Screen::Working,
+        St::Done => Screen::Idle,
+    }
+}
+
+/// mix is CSS's color-mix in srgb: `a` at `amount`, the rest `b`.
+fn mix(a: Hsla, b: Hsla, amount: f32) -> Hsla {
+    let (a, b) = (a.to_rgb(), b.to_rgb());
+    let m = |x: f32, y: f32| x * amount + y * (1. - amount);
+    Rgba {
+        r: m(a.r, b.r),
+        g: m(a.g, b.g),
+        b: m(a.b, b.b),
+        a: 1.,
+    }
+    .into()
+}
+
+/// agent_monitor is the monitor a row of the list leads with (AgentMonitor,
+/// not tiny): a w-28 screen on a stand acting out the agent's state, still
+/// (the motion is Electron's CSS; here each screen holds its still).
+fn agent_monitor(ai: &str, screen: Screen) -> AnyElement {
+    let mark = |size: f32, opacity: f32, grey: bool| {
+        div()
+            .flex_none()
+            .opacity(opacity)
+            .child(crate::icons::tool_mark_grey(
+                ai,
+                px(size),
+                theme::brand(300),
+                grey,
+            ))
+    };
+    let glyph = |name: &'static str, color: Hsla| crate::icons::bold(name, 3., px(20.), color);
+    let content: AnyElement = match screen {
+        Screen::Working => h_flex()
+            .size_full()
+            .gap_2()
+            .px_2p5()
+            .py_2()
+            .child(mark(24., 1., false))
+            .child(
+                // Lines of light: four bars over the one that types.
+                div()
+                    .relative()
+                    .min_w_0()
+                    .flex_1()
+                    .h_full()
+                    .overflow_hidden()
+                    .child(
+                        v_flex()
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .bottom(px(11.))
+                            .gap(px(4.))
+                            .children([0.78, 0.52, 0.90, 0.64].map(|w| {
+                                div()
+                                    .h(px(3.))
+                                    .w(relative(w))
+                                    .rounded_full()
+                                    .bg(theme::brand(400).opacity(0.45))
+                            })),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .bottom(px(3.))
+                            .h(px(3.))
+                            .w(relative(0.7))
+                            .rounded_full()
+                            .bg(theme::brand(300).opacity(0.8)),
+                    ),
+            )
+            .into_any_element(),
+        Screen::Error => h_flex()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .gap_1p5()
+            .child(mark(20., 0.6, false))
+            .child(glyph("x", theme::rose(300)))
+            .into_any_element(),
+        Screen::Review => h_flex()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .gap_1p5()
+            .child(mark(20., 0.7, false))
+            .child(glyph("check", theme::emerald(300)))
+            .into_any_element(),
+        Screen::Needs | Screen::Idle => h_flex()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .child(if screen == Screen::Idle {
+                mark(28., 0.4, true)
+            } else {
+                mark(28., 1., false)
+            })
+            .into_any_element(),
+    };
+    let border = match screen {
+        Screen::Needs => theme::amber(400).opacity(0.7),
+        Screen::Error => theme::rose(400).opacity(0.6),
+        Screen::Review => theme::emerald(400).opacity(0.45),
+        _ => theme::line_strong(),
+    };
+    let ground = match screen {
+        Screen::Error => theme::rose(400).opacity(0.25),
+        Screen::Review => theme::emerald(400).opacity(0.1),
+        Screen::Idle => mix(theme::term_background(), theme::term_foreground(), 0.86),
+        _ => theme::term_background(),
+    };
+    // The inner screen is 16:9 of the frame's inside (112 − 2 − 6).
+    let inner_w = 112. - 2. - 6.;
+    v_flex()
+        .flex_none()
+        .w(px(112.))
+        .items_center()
+        .child(
+            div()
+                .relative()
+                .w_full()
+                .p(px(3.))
+                .rounded_md()
+                .border_1()
+                .border_color(border)
+                .bg(theme::surface_strong())
+                .when(screen == Screen::Needs, |el| {
+                    el.shadow(vec![BoxShadow {
+                        color: theme::amber(400).opacity(0.55),
+                        offset: point(px(0.), px(0.)),
+                        blur_radius: px(12.),
+                        spread_radius: px(1.),
+                        inset: false,
+                    }])
+                })
+                .when(screen == Screen::Working || screen == Screen::Idle, |el| {
+                    el.group_hover("list-row", |s| {
+                        s.border_color(theme::brand(500).opacity(0.6))
+                    })
+                })
+                .child(
+                    div()
+                        .relative()
+                        .w_full()
+                        .h(px(inner_w * 9. / 16.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .overflow_hidden()
+                        .rounded(px(3.))
+                        .bg(ground)
+                        .text_color(theme::term_foreground())
+                        .when(screen == Screen::Idle, |el| el.opacity(0.7))
+                        .child(content)
+                        .when(screen == Screen::Idle, |el| {
+                            el.child(
+                                div()
+                                    .absolute()
+                                    .right_2()
+                                    .top_1()
+                                    .text_size(px(13.))
+                                    .line_height(px(13.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(theme::muted())
+                                    .child("z"),
+                            )
+                        }),
+                )
+                .when(screen == Screen::Needs, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .right(px(-6.))
+                            .top(px(-8.))
+                            .size_5()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_full()
+                            .border_1()
+                            .border_color(theme::amber(400).opacity(0.7))
+                            .bg(theme::sunken())
+                            .text_size(px(12.))
+                            .line_height(px(12.))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(theme::amber(300))
+                            .child("?"),
+                    )
+                }),
+        )
+        .child(div().h(px(5.)).w_4().bg(theme::ghost()))
+        .child(div().h(px(3.)).w_10().rounded_full().bg(theme::ghost()))
+        .into_any_element()
+}
+
 fn count_pill(n: usize) -> AnyElement {
     div()
         .px_1p5()
@@ -2964,23 +3342,47 @@ pub(super) fn note(text: String) -> AnyElement {
 }
 
 pub(super) fn icon_button(id: &'static str, glyph: &'static str, tip: String) -> Stateful<Div> {
+    // Button size icon-sm, ghost: size-8 rounded-lg, a 15px icon, muted.
     let tip: SharedString = tip.into();
     div()
         .id(id)
         .flex_none()
-        .px_1p5()
-        .py_0p5()
-        .rounded_md()
-        .text_sm()
+        .size_8()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_lg()
         .text_color(theme::muted())
         .cursor_pointer()
-        .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
+        .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-        .child(crate::icons::of(glyph))
+        .child(match crate::icons::lucide(glyph) {
+            Some(name) => crate::icons::ic(name).size(px(15.)).into_any_element(),
+            None => div().text_sm().child(glyph).into_any_element(),
+        })
 }
 
 /// peek_lines are what an agent's session adds to its row's tooltip: its
 /// model and how full its context is.
+fn model_name(s: &agentbox_api::ChatSession) -> Option<String> {
+    let m = s
+        .options
+        .iter()
+        .find(|o| o.category == "model" && o.r#type == "select")?;
+    Some(
+        m.choices
+            .iter()
+            .find(|c| c.value == m.value)
+            .map(|c| {
+                c.name
+                    .trim_end_matches(" (recommended)")
+                    .trim_end_matches(" (Recommended)")
+                    .to_string()
+            })
+            .unwrap_or_else(|| m.value.clone()),
+    )
+}
+
 fn peek_lines(s: &agentbox_api::ChatSession) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(m) = s

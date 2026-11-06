@@ -693,6 +693,24 @@ impl AppView {
         }
     }
 
+    /// sync_chat_review hands a project's lead chat how many of its agents
+    /// wait for review: the banner above its composer (ReviewCount's banner
+    /// in ProjectChatPanel). Home's chat has none.
+    fn sync_chat_review(&mut self, cx: &mut Context<Self>) {
+        let n = match (&self.project, self.open.as_str()) {
+            (Some(p), "lead") if !self.is_home() => self.to_review(p),
+            _ => 0,
+        };
+        if let Some(chat) = &self.chat
+            && chat.read(cx).review_count != n
+        {
+            chat.update(cx, |c, cx| {
+                c.review_count = n;
+                cx.notify();
+            });
+        }
+    }
+
     /// open_agent_ref opens an agent's chat, in its own project.
     fn open_agent_ref(&mut self, r#ref: String, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(past) = r#ref.strip_prefix("past:") {
@@ -748,6 +766,11 @@ impl AppView {
             }
             ChatAction::OpenAgent(r) => self.open_agent_ref(r, window, cx),
             ChatAction::OpenProject(p) => self.select_project(p, window, cx),
+            ChatAction::ReviewProject => {
+                if let Some(p) = self.project.clone() {
+                    self.open_work(p, "review".into(), window, cx)
+                }
+            }
             ChatAction::ForkSession(item) => self.fork_session(item, window, cx),
             ChatAction::NewSession { text } => self.session_with_message(text, window, cx),
             ChatAction::ContinuePast => {
@@ -1155,6 +1178,7 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.panel.track(&self.fleet);
+        self.sync_chat_review(cx);
         self.presence_check(window, cx);
         bench::mark("first-render");
         controls::set_viewport(window.viewport_size());

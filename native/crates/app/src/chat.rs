@@ -86,6 +86,8 @@ pub enum ChatAction {
     Merge(String, i64),
     ReopenClosed,
     DeleteClosed,
+    /// The review banner's Review: the project's Work on what waits.
+    ReviewProject,
 }
 
 /// The picture shown over everything, zoomed.
@@ -148,6 +150,9 @@ pub struct ChatView {
     pub agent_name: String,
     /// The agent's machine is stopped or paused: a message wakes it.
     pub asleep: Option<String>,
+    /// A project's lead: how many of its agents wait for review, the banner
+    /// over its composer (ReviewCount's banner).
+    pub review_count: usize,
     /// A past agent's chat: read-only, Continue and Delete where the
     /// composer was (ChatTab's readOnly).
     pub past: bool,
@@ -255,6 +260,7 @@ impl ChatView {
             agent,
             agent_name: String::new(),
             asleep: None,
+            review_count: 0,
             past: false,
             closed: false,
             evidence: Default::default(),
@@ -999,6 +1005,7 @@ impl Render for ChatView {
         let view = cx.entity();
         let working = self.working();
         let zoom = self.render_zoom(window, cx);
+        let gutter = crate::app::controls::list_overflows(&self.list);
         v_flex()
             .id("chat")
             .key_context("Chat")
@@ -1032,12 +1039,20 @@ impl Render for ChatView {
                     .flex_1()
                     .min_h_0()
                     .child(crate::webview::begin())
+                    // ChatTab's chat-scroller: Chromium's thin scrollbar takes
+                    // its gutter off the right while the chat overflows.
                     .child(
-                        list(self.list.clone(), move |ix, _window, cx| {
-                            view.read(cx).render_row(ix, view.clone())
-                        })
-                        .size_full(),
+                        div()
+                            .size_full()
+                            .when(gutter, |el| el.pr(crate::app::controls::SCROLLBAR))
+                            .child(
+                                list(self.list.clone(), move |ix, _window, cx| {
+                                    view.read(cx).render_row(ix, view.clone())
+                                })
+                                .size_full(),
+                            ),
                     )
+                    .child(crate::app::controls::list_scrollbar(&self.list, gutter))
                     .child(crate::webview::end())
                     .when(self.loading_older, |el| {
                         el.child(

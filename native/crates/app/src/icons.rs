@@ -65,6 +65,36 @@ fn picture(ai: &str, color: Hsla) -> Arc<Image> {
     })
 }
 
+/// bold is a Lucide check or x drawn with a heavier stroke than the
+/// built-in icons' 2 (lucide-react's strokeWidth), in a colour.
+pub fn bold(name: &str, stroke: f32, size: Pixels, color: Hsla) -> AnyElement {
+    let path = match name {
+        "check" => r#"<path d="M20 6 9 17l-5-5"/>"#,
+        _ => r#"<path d="M18 6 6 18"/><path d="m6 6 12 12"/>"#,
+    };
+    let rgba = color.to_rgb();
+    let hex = (((rgba.r * 255.) as u32) << 16)
+        | (((rgba.g * 255.) as u32) << 8)
+        | ((rgba.b * 255.) as u32);
+    let key = (format!("bold:{name}:{stroke}"), hex);
+    let image = CACHE.with(|c| {
+        c.borrow_mut()
+            .entry(key)
+            .or_insert_with(|| {
+                let svg = format!(
+                    r##"<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#{hex:06x}" stroke-width="{stroke}" stroke-linecap="round" stroke-linejoin="round">{path}</svg>"##
+                );
+                Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()))
+            })
+            .clone()
+    });
+    img(image)
+        .flex_none()
+        .size(size)
+        .opacity(rgba.a)
+        .into_any_element()
+}
+
 /// ai_icon is an AI tool's icon ("" being Claude Code, as the app takes it).
 pub fn ai_icon(ai: &str, size: Pixels, color: Hsla) -> AnyElement {
     let ai = if ai.is_empty() { "claude" } else { ai };
@@ -98,6 +128,12 @@ fn character(ai: &str) -> Option<String> {
 /// tool_mark is Electron's ToolMark: a tool's character where it has one,
 /// else its icon in `color`.
 pub fn tool_mark(ai: &str, size: Pixels, color: Hsla) -> AnyElement {
+    tool_mark_grey(ai, size, color, false)
+}
+
+/// tool_mark_grey is tool_mark, its character in grey when `grey` (CSS's
+/// grayscale, as an idle monitor's).
+pub fn tool_mark_grey(ai: &str, size: Pixels, color: Hsla, grey: bool) -> AnyElement {
     let ai = if ai.is_empty() { "claude" } else { ai };
     let light = crate::theme::look() == crate::theme::Look::Light;
     let key = (format!("char:{ai}:{light}"), 0);
@@ -112,7 +148,11 @@ pub fn tool_mark(ai: &str, size: Pixels, color: Hsla) -> AnyElement {
     }) else {
         return ai_icon(ai, size, color);
     };
-    img(image).flex_none().size(size).into_any_element()
+    img(image)
+        .flex_none()
+        .size(size)
+        .grayscale(grey)
+        .into_any_element()
 }
 
 gpui_kit_assets::icon_assets!(
@@ -129,6 +169,7 @@ gpui_kit_assets::icon_assets!(
         ArrowUpRight,
         // The Office's row (#668's Armchair).
         Armchair,
+        Archive,
         Ban,
         Bell,
         Bot,
@@ -182,6 +223,7 @@ gpui_kit_assets::icon_assets!(
         GitPullRequest,
         Gauge,
         Globe,
+        HardDrive,
         Highlighter,
         RotateCcwClock,
         Hourglass,
@@ -222,6 +264,7 @@ gpui_kit_assets::icon_assets!(
         Search,
         Settings,
         Share2,
+        ShieldAlert,
         SlidersHorizontal,
         Smartphone,
         Sparkles,
