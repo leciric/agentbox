@@ -8,6 +8,7 @@ import { isLocal, requestOptions } from './connection';
 import { canUseIncus, vmInitDone } from './hostsetup';
 import { socketPath } from './paths';
 import { staleSocketRetry } from './staleSocket';
+import { DaemonTimeoutError, idleTimeout, timedOut } from './requesttimeout';
 import { progressStep, startFailure } from './startfailure';
 import { t } from '../shared/i18n/index.ts';
 import { NotListeningError, onWindows, relayRefused, startRelay } from './relay';
@@ -55,6 +56,9 @@ export function request(method: string, path: string, body?: unknown, retried = 
         });
       });
     });
+    // Never left waiting for good (requesttimeout.ts).
+    const idle = idleTimeout(method);
+    req.setTimeout(idle, () => req.destroy(new DaemonTimeoutError(method, path, idle)));
     req.on('error', (err) => {
       // A pooled socket the far end closed while idle: once more, on a new one.
       if (!retried && staleSocketRetry(method, err, req.reusedSocket)) resolve(request(method, path, body, true));
@@ -67,6 +71,7 @@ export function request(method: string, path: string, body?: unknown, retried = 
 // unreachable is the answer to a request that never reached a daemon: the
 // error's message, as the daemon's own refusals give theirs.
 export function unreachable(err: unknown): ApiResponse {
+  if (err instanceof DaemonTimeoutError) return timedOut(err);
   const error = err instanceof Error ? err.message : String(err);
   return { status: 503, body: JSON.stringify({ error, code: 'daemon_unreachable' }), contentType: 'application/json' };
 }

@@ -1,3 +1,4 @@
+import { startPresence, usePresence } from "./lib/presence";
 import { useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -110,6 +111,10 @@ export type View =
 export function App({ initial }: { initial?: View } = {}) {
   const t = useT();
   const [view, setView] = useState<View>(initial ?? { kind: "home" });
+  // This window's presence lease (lib/presence.ts): the project or agent on
+  // screen, so the daemon's housekeeping backs off for the rest.
+  useEffect(() => startPresence(), []);
+  usePresence(presenceOf(view));
   const beforeOffice = useRef<View>({ kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   // "clone" opens the dialog on its Clone from link tab.
@@ -863,4 +868,17 @@ export function App({ initial }: { initial?: View } = {}) {
     </div>
   );
   return <ReviewV2 onSelect={select}>{shell}</ReviewV2>;
+}
+
+// presenceOf is what a view shows, for the presence lease.
+function presenceOf(view: View): { project: string; agent?: string } | undefined {
+  switch (view.kind) {
+    case "project":
+      return { project: view.project };
+    case "agent":
+      return { project: view.ref.split("/")[0], agent: view.ref };
+    case "work":
+      return view.project ? { project: view.project } : undefined;
+  }
+  return undefined;
 }

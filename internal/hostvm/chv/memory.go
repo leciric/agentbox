@@ -247,6 +247,11 @@ func (s memSample) hostShort() bool {
 	return s.HostTotal > 0 && (s.HostPressure > memHostPressure || s.HostAvailable < HostReserve(s.HostTotal))
 }
 
+// hostStalling reports whether the host stalls on memory (its PSI).
+func (s memSample) hostStalling() bool {
+	return s.HostTotal > 0 && s.HostPressure > memHostPressure
+}
+
 // belowReserve reports whether the host has less than its reserve available.
 func (s memSample) belowReserve() bool {
 	return s.HostTotal > 0 && s.HostAvailable < HostReserve(s.HostTotal)
@@ -479,10 +484,21 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 		want = max(ceiling, min(want, st.Requested))
 		reason = fmt.Sprintf("this machine has %s available and keeps %s for itself", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)))
 	}
+	// Nor does it grow at all while the host itself stalls on memory: what
+	// the VM would be given, the desktop would have to page out for. The
+	// agents may stall a while; the user's computer doesn't.
+	if s.hostStalling() && want > st.Requested {
+		want = st.Requested
+		reason = fmt.Sprintf("this machine stalled on memory %.0f%% of the last 10s", s.HostPressure)
+	}
 	shrinkMin, shrinkAfter := memShrinkMin, memShrinkAfter
-	if s.belowReserve() {
+	switch {
+	case s.belowReserve():
 		shrinkMin, shrinkAfter = memGranule, memShrinkAfterHost
 		reason += fmt.Sprintf(", and this machine has %s available of the %s it keeps", gib(s.HostAvailable), gib(HostReserve(s.HostTotal)))
+	case s.hostStalling():
+		shrinkMin, shrinkAfter = memGranule, memShrinkAfterHost
+		reason += fmt.Sprintf(", and this machine stalled on memory %.0f%% of the last 10s", s.HostPressure)
 	}
 	var d memDecision
 	switch {

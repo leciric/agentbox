@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert } from 'lucide-react';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { BusyMarks } from './BusyMarks';
 import { useConnection } from '../lib/events';
 import type { MachineState } from '../lib/firstRun';
 import { useMachineRun } from '../lib/machineRun';
@@ -174,6 +175,7 @@ export function TopBar({
         <ImageBuildChip onSelect={onSelect} />
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
+        <BusyMarks />
         {!making && <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />}
         {/* No inbox: what needs you is where it's answered, the lead chat's
             cards and the sidebar's rows, and review is the sidebar's. In its

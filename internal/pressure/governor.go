@@ -139,6 +139,8 @@ const (
 	Low Reason = "low"
 	// Easing: it eased; paused runs resume first, one at a time.
 	Easing Reason = "easing"
+	// HostBusy: the user's computer is loaded (Sample.HostBusy).
+	HostBusy Reason = "host"
 )
 
 // floor is the memory the VM keeps available, in bytes.
@@ -454,7 +456,7 @@ func (g *Governor) Step(now time.Time, s Sample) Actions {
 	g.trend = tr
 	room, why := p.Judge(s.Mem, tr)
 	high := psi.Full.Avg10 >= p.Freeze
-	calm := psi.Full.Avg10 < p.Calm && psi.Some.Avg10 < p.Admit && p.roomy(s.Mem, tr)
+	calm := psi.Full.Avg10 < p.Calm && psi.Some.Avg10 < p.Admit && p.roomy(s.Mem, tr) && !s.HostBusy
 	if !high {
 		g.highSince = time.Time{}
 	} else if g.highSince.IsZero() {
@@ -471,6 +473,8 @@ func (g *Governor) Step(now time.Time, s Sample) Actions {
 		g.why = why
 	case stalling:
 		g.why = Stalling
+	case s.HostBusy && (len(g.waiting) > 0 || g.paused() > 0):
+		g.why = HostBusy
 	default:
 		g.why = ""
 	}
@@ -510,7 +514,7 @@ func (g *Governor) Step(now time.Time, s Sample) Actions {
 				break
 			}
 		}
-	case paused == 0 && len(g.waiting) > 0 && psi.Some.Avg10 < p.Admit && room == Room && now.Sub(g.admitted) >= p.AdmitStep:
+	case paused == 0 && len(g.waiting) > 0 && psi.Some.Avg10 < p.Admit && room == Room && !s.HostBusy && now.Sub(g.admitted) >= p.AdmitStep:
 		// Calm enough: the first waiter starts. Not while any run is paused,
 		// which resumes first.
 		out.Start = append(out.Start, g.start(now))

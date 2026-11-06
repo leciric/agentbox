@@ -7,6 +7,7 @@ import type * as D from './diagnostics.ts';
 import { errorMessage } from './utils.ts';
 import { t } from '../../shared/i18n/index.ts';
 import { ensureVMRunning } from './vm.ts';
+import { begin as beginRequest } from './daemonBusy.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -23,12 +24,17 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   let res: ApiResponse;
   // Each round trip is a span of the app's own (appTiming.ts).
   const started = performance.now();
+  // And counts toward the top bar's busy mark (daemonBusy.ts), but for the
+  // timing's own posts.
+  const done = path.startsWith(clientSpansPath) ? () => {} : beginRequest();
   try {
     res = await window.agentbox.request(method, path, body);
   } catch (err) {
+    done();
     recordRequest(method, path, started, 0, errorMessage(err));
     throw new ApiError(errorMessage(err), 0);
   }
+  done(res.status === 504 && res.body.includes('"daemon_timeout"'));
   recordRequest(method, path, started, res.status);
   if (res.status >= 400) {
     let message = res.body.trim();
@@ -717,6 +723,12 @@ export const api = {
   exportMedia: (ref: string) => call<T.ExportResult>('POST', `${agent(ref)}/media/export`, {}),
 
   usage: () => call<T.Usage>('GET', '/v1/usage?interval=500ms'),
+  // Presence (lib/presence.ts): this window's lease on what it shows, and an
+  // agent's live resources, sampled while a lease asks for them.
+  renewPresence: (req: T.PresenceRequest) => call<T.PresenceResponse>('PUT', '/v1/presence', req),
+  endPresence: (client: string) => call<void>('DELETE', `/v1/presence/${encodeURIComponent(client)}`),
+  agentResources: (ref: string) => call<T.AgentResourceHistory>('GET', `${agent(ref)}/resources`),
+  pressure: () => call<T.PressureStatus>('GET', '/v1/pressure'),
   // Settings → Diagnostics: spans and stalls since a stretch back from now
   // ("30m"), resource samples over a window ("1h"), and the app's own spans.
   diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),

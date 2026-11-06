@@ -2507,6 +2507,17 @@ const usageStatsPending: T.UsageStatsPending = {
 export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
+      // ?busy=host: this computer busy, as its front end reports it;
+      // ?busy=daemon: the daemon answers nothing for a minute, as one stuck
+      // behind a loaded VM (components/BusyMarks.tsx).
+      const busy = new URLSearchParams(location.search).get('busy') ?? '';
+      if (busy.includes('daemon') && path === '/v1/pressure') await new Promise((r) => setTimeout(r, 60_000));
+      if (method === 'GET' && path === '/v1/pressure') {
+        const host: T.HostLoad | undefined = busy.includes('host')
+          ? { os: 'linux', memory: 2, cpu: 12, io: 63, cpuShare: -1, busy: true, why: 'io', at: new Date().toISOString() }
+          : undefined;
+        return { status: 200, body: JSON.stringify({ some: 0, full: 0, runs: [], host }), contentType: 'application/json' };
+      }
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
       if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
@@ -2708,7 +2719,7 @@ export function installDevBridge(): void {
       const policy = renderPolicy(network).replace(/; sandbox [^;]*$/, '');
       return URL.createObjectURL(new Blob([injectHead(html, `<meta http-equiv="Content-Security-Policy" content="${policy}">`)], { type: 'text/html' }));
     },
-    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
+    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, onMainLag: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
     pickDirectory: async () => null,
     pickFile: async () => null,
     pickSaveFile: async () => null,
@@ -2721,6 +2732,8 @@ export function installDevBridge(): void {
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
+    hostPower: async () => ({ onBattery: false }),
+    onHostPower: () => () => {},
     keepAwake: async () => {},
     tray: { settings: async () => ({ keepRunning: false }), set: async (next: { keepRunning?: boolean }) => ({ keepRunning: false, ...next }), reviewing: () => {}, onOpen: () => () => {} },
     onNotificationClick: () => () => {},

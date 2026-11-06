@@ -89,6 +89,10 @@ func (m Mem) SwapUsed() float64 {
 type Sample struct {
 	PSI
 	Mem Mem
+	// HostBusy says the user's computer, outside the VM, is loaded
+	// (internal/hostload): no run starts or resumes while it is, so the
+	// desktop comes first. Nothing is paused for it: what's running goes on.
+	HostBusy bool
 }
 
 // String says what the sample saw, for a log line.

@@ -621,6 +621,7 @@ export interface PressureStatus {
   full: number;
   why?: string;
   runs: HeavyRun[];
+  host?: HostLoad;
 }
 
 export interface HeavyRun {
@@ -630,6 +631,21 @@ export interface HeavyRun {
   state: string;
   since: string;
   placed?: boolean;
+}
+
+export interface HostLoad {
+  os: string;
+  memory: number;
+  cpu: number;
+  io: number;
+  cpuShare: number;
+  level?: string;
+  memoryTotal?: number;
+  available?: number;
+  busy: boolean;
+  why?: string;
+  reclaim?: boolean;
+  at: string;
 }
 
 export interface Job {
@@ -3895,6 +3911,68 @@ export interface DiagnosticsResources {
   agents: AgentResources[];
 }
 
+export interface PresenceRequest {
+  client: string;
+  kind?: string;
+  visible: boolean;
+  views: PresenceView[];
+  power?: HostPower;
+}
+
+export interface PresenceView {
+  project: string;
+  agent?: string;
+  resources?: boolean;
+}
+
+export interface HostPower {
+  onBattery: boolean;
+  thermal?: string;
+}
+
+export interface PresenceResponse {
+  ttlSeconds: number;
+  idle: boolean;
+}
+
+export interface PresenceState {
+  leases: PresenceLease[];
+  idle: boolean;
+  power: HostPower;
+  sampling: string[];
+}
+
+export interface PresenceLease {
+  client: string;
+  kind?: string;
+  visible: boolean;
+  views: PresenceView[];
+  power?: HostPower;
+  expires: string;
+}
+
+export interface AgentResourcePoint {
+  at: string;
+  cpu: number;
+  memory: number;
+  swap: number;
+  diskRead: number;
+  diskWrite: number;
+}
+
+export interface AgentResourceHistory {
+  ref: string;
+  intervalSeconds: number;
+  windowSeconds: number;
+  sampling: boolean;
+  points: AgentResourcePoint[];
+}
+
+export interface AgentResourcesEvent {
+  ref: string;
+  point: AgentResourcePoint;
+}
+
 export interface PackageCachePart {
   name: string;
   bytes: number;
@@ -3977,6 +4055,7 @@ export const EventJob = "job";
 export const EventJobLog = "job.log";
 export const EventAgent = "agent";
 export const EventUsage = "usage";
+export const EventAgentResources = "agent-resources";
 export const EventProject = "project";
 export const EventMedia = "media";
 export const EventNotification = "notification";

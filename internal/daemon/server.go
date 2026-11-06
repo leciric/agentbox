@@ -137,6 +137,8 @@ type Server struct {
 	pullFiles    pullFiles     // the files of the pull requests the app opened, for their diffs
 	pullDetails  pullDetails   // the pull requests the app opened, for a moment (pulldetail.go)
 	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
+	presence     *viewLeases   // what the clients are looking at (presence.go)
+	agentSamples *agentSampler // watched agents' live resources (agentresources.go)
 	issues       issuesCache   // projects' open GitHub issues (issues.go)
 	issuePickup  *issuePicker  // wakes the loop that picks labelled issues up (issues.go)
 	// prTell sends an agent a message from the pull request watch, waking it
@@ -399,6 +401,8 @@ type Server struct {
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
 	heavy *heavyRuns
+	// hostLoad is the user's computer's last load report (hostload.go).
+	hostLoad hostLoad
 	// memoryShort (memoryjobs.go) is whether the machines are told memory
 	// is short, so their builds and tests run fewer jobs.
 	memoryShort *memoryShort
@@ -484,6 +488,8 @@ func New(cfg Config) (*Server, error) {
 		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),
+		presence:         newViewLeases(),
+		agentSamples:     newAgentSampler(),
 		issuePickup:      newIssuePicker(),
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
@@ -662,6 +668,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	}()
 	s.firstSweeps.Add(4)
 	loops.Go(func() { s.watch(ctx) })
+	loops.Go(func() { s.sampleAgentResources(ctx) })
 	loops.Go(func() { s.sweepMedia(ctx) })
 	loops.Go(func() { s.emptyWorktreeTrash(ctx) })
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
@@ -1080,9 +1087,13 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
 
 	h("GET /v1/pressure", s.getPressure)
+	h("PUT /v1/host/load", s.putHostLoad)
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
 	h("GET /v1/diagnostics/resources", s.diagnosticsResources)
+	h("GET /v1/presence", s.getPresence)
+	h("PUT /v1/presence", s.renewPresence)
+	h("DELETE /v1/presence/{client}", s.endPresence)
 	h("GET /v1/diagnostics/package-cache", s.diagnosticsPackageCache)
 	h("GET /v1/diagnostics/files", s.diagnosticsFiles)
 	h("POST /v1/diagnostics/client-spans", s.clientSpans)
@@ -1117,6 +1128,7 @@ func (s *Server) routes() http.Handler {
 	}
 	h("GET /v1/agents/{project}/{agent}/diff", s.diff)
 	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
+	h("GET /v1/agents/{project}/{agent}/resources", s.agentResources)
 	h("GET /v1/stopped-machines", s.getStoppedMachines)
 	h("POST /v1/stopped-machines/remove", s.postRemoveStopped)
 	h("GET /v1/agents/{project}/{agent}/credential", s.agentCredential)

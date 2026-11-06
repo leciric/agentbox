@@ -657,3 +657,33 @@ func TestMemPolicyGivesBackToTheHost(t *testing.T) {
 		}
 	}
 }
+
+// While the host itself stalls on memory, the VM doesn't grow, even with
+// plenty available on the host and its own agents asking, and gives back
+// within memShrinkAfterHost.
+func TestMemPolicyHostStallStopsGrowth(t *testing.T) {
+	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
+	now := time.Now()
+	x := sample(3*GiB, 8*GiB, 8, 0)
+	x.Resident = 8 * GiB
+	x.HostTotal, x.HostAvailable, x.HostPressure = 32*GiB, 20*GiB, 25
+	st := memState{Requested: 8 * GiB}
+	if d := p.decide(&st, x, now); d.Target != 0 {
+		t.Fatalf("host stalling: %+v, want no grow", d)
+	}
+	// Calm again: it grows as it would have.
+	x.HostPressure = 0
+	if d := p.decide(&st, x, now); d.Target != 11*GiB {
+		t.Fatalf("host calm: %+v, want 11 GiB", d)
+	}
+	// Stalling with more than it needs: it gives back soon.
+	st = memState{Requested: 16 * GiB}
+	x = sample(GiB, 16*GiB, 0, 0)
+	x.Resident = 16 * GiB
+	x.HostTotal, x.HostAvailable, x.HostPressure = 32*GiB, 12*GiB, 25
+	p.decide(&st, x, now)
+	d := p.decide(&st, x, now.Add(memShrinkAfterHost))
+	if !d.Shrink || d.Target >= 16*GiB || !strings.Contains(d.Reason, "stalled on memory") {
+		t.Fatalf("host stalling, VM holding more than it needs: %+v", d)
+	}
+}

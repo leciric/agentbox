@@ -22,7 +22,7 @@ var tsTypes = []any{
 	ProjectLayout{}, SectionProjects{}, SidebarLayout{}, Notes{}, NotesRequest{}, Settings{}, AgentPick{}, ToolAutoUpdate{}, UpdateSettingsRequest{}, Agent{}, WorktreeFiles{}, FileEntry{}, FileList{}, FileStatus{}, FileContent{}, SQLiteTable{}, SQLiteQuery{}, FilesChange{}, ArchivedAgent{}, DeleteArchivedRequest{}, DeleteArchivedResult{}, ContinueArchivedRequest{}, CreateAgentRequest{}, ForkRequest{}, UpdateAgentRequest{},
 	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Checkpoint{}, RollbackRequest{}, RollbackResult{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
 	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
-	MemoryHold{}, PressureStatus{}, HeavyRun{},
+	MemoryHold{}, PressureStatus{}, HeavyRun{}, HostLoad{},
 	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskTrim{}, DiskUsage{}, AgentDisk{}, StoppedMachine{}, StoppedMachines{}, RemoveStoppedRequest{}, RemoveStoppedResult{}, ToolCredential{}, DiskGuard{}, DiskGuardDisk{},
 	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, HostMemory{}, CPUUsageAgent{}, CPUUsage{}, TerminalTail{}, TerminalTails{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
 	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, UpdateRelease{}, ReleaseAsset{}, IncusStatus{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
@@ -61,14 +61,14 @@ var tsTypes = []any{
 	SearchResults{}, SearchGroup{}, SearchHit{},
 	Artifact{}, Artifacts{}, ArtifactPreview{}, PublishRenderRequest{}, PublishRenderResult{},
 	FanOutRequest{}, FanOutVariant{}, FanOutResult{}, Group{}, GroupMember{}, KeepRequest{}, RecommendRequest{}, GroupChange{},
-	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, PackageCachePart{}, DiagnosticsPackageCache{}, ClientSpansRequest{},
+	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, PresenceRequest{}, PresenceView{}, HostPower{}, PresenceResponse{}, PresenceState{}, PresenceLease{}, AgentResourcePoint{}, AgentResourceHistory{}, AgentResourcesEvent{}, PackageCachePart{}, DiagnosticsPackageCache{}, ClientSpansRequest{},
 	ShareReport{}, FileCount{}, DiagnosticsFiles{},
 	DoctorCheck{}, DoctorReport{}, DoctorFixRequest{}, DoctorFix{}, DoctorFixResult{}, DoctorHomeRequest{}, DoctorHomeResult{},
 }
 
 var tsConstants = [][2]string{
 	{"JobRunning", JobRunning}, {"JobSucceeded", JobSucceeded}, {"JobFailed", JobFailed}, {"JobCancelled", JobCancelled},
-	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventNotification", EventNotification}, {"EventNotificationsSeen", EventNotificationsSeen}, {"NotifyQuestion", NotifyQuestion}, {"NotifyMedia", NotifyMedia}, {"EventPulls", EventPulls}, {"EventRemoteAgents", EventRemoteAgents}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap}, {"EventFiles", EventFiles},
+	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventAgentResources", EventAgentResources}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventNotification", EventNotification}, {"EventNotificationsSeen", EventNotificationsSeen}, {"NotifyQuestion", NotifyQuestion}, {"NotifyMedia", NotifyMedia}, {"EventPulls", EventPulls}, {"EventRemoteAgents", EventRemoteAgents}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap}, {"EventFiles", EventFiles},
 	{"PushFinished", PushFinished}, {"PushNeedsYou", PushNeedsYou}, {"PushPRReady", PushPRReady}, {"PushCIFailed", PushCIFailed},
 	{"FileModified", FileModified}, {"FileAdded", FileAdded}, {"FileDeleted", FileDeleted}, {"FileUntracked", FileUntracked},
 	{"DoctorOK", DoctorOK}, {"DoctorWarn", DoctorWarn}, {"DoctorFail", DoctorFail}, {"DoctorAILogin", DoctorAILogin},

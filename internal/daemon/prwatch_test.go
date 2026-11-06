@@ -438,6 +438,10 @@ func TestPRWatchPacesItself(t *testing.T) {
 	head := commitOn(t, agents["agent-01"], "reminders.txt")
 	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 	d.srv.prWatch.now = func() time.Time { return now }
+	// Someone looks at the project throughout: the pace while nobody does is
+	// TestPRWatchBacksOffWhileNobodyLooks'.
+	d.srv.presence.ttl = 24 * time.Hour
+	d.srv.presence.renew(api.PresenceRequest{Client: "desktop", Views: []api.PresenceView{{Project: "hello-stack"}}})
 	wait := func() time.Duration {
 		d.srv.prWatch.mu.Lock()
 		defer d.srv.prWatch.mu.Unlock()

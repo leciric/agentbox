@@ -1245,6 +1245,44 @@ type PressureStatus struct {
 	// Runs are the heavy commands running, oldest first, then those
 	// waiting, in the order they start.
 	Runs []HeavyRun `json:"runs"`
+	// Host is the last report of the user's computer's own load
+	// (internal/hostload), when one came within HostLoadTTL.
+	Host *HostLoad `json:"host,omitempty"`
+}
+
+// HostLoadTTL is how long the daemon goes by a HostLoad: a front end reports
+// every couple of seconds, and one that stops (the app closed, on a Mac or
+// Windows) holds nothing back.
+const HostLoadTTL = 15 * time.Second
+
+// HostLoad is how loaded the computer AgentBox's VM runs on is, as its front
+// end reads it, PUT /v1/host/load. While Busy, heavy commands wait to start
+// and paused ones stay paused (Why "host"), so the user's own programs come
+// first.
+type HostLoad struct {
+	OS string `json:"os"` // "linux", "darwin" or "windows"
+	// Memory, CPU and IO are the host's PSI some avg10, in percent (Linux);
+	// -1 where there's none.
+	Memory float64 `json:"memory"`
+	CPU    float64 `json:"cpu"`
+	IO     float64 `json:"io"`
+	// CPUShare is the share of all cores busy, in percent (Windows); -1
+	// elsewhere.
+	CPUShare float64 `json:"cpuShare"`
+	// Level is a Mac's memory pressure level: normal, warn or critical.
+	Level       string `json:"level,omitempty"`
+	MemoryTotal int64  `json:"memoryTotal,omitempty"`
+	Available   int64  `json:"available,omitempty"`
+	// Busy says the host is loaded enough that the VM should hold back.
+	Busy bool `json:"busy"`
+	// Why is what is over its threshold now: "memory", "cpu" or "io"; ""
+	// while a busy host is calming down.
+	Why string `json:"why,omitempty"`
+	// Reclaim asks the daemon to drop the VM's caches so their memory goes
+	// back to the host: set by front ends that don't size the VM's memory
+	// themselves (Lima, WSL), while the host is short of memory.
+	Reclaim bool      `json:"reclaim,omitempty"`
+	At      time.Time `json:"at"`
 }
 
 // HeavyRun is one heavy command of an agent's.

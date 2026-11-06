@@ -1531,3 +1531,8 @@ func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) e
 	_, err = io.Copy(w, resp.Body)
 	return err
 }
+
+// PutHostLoad reports the user's computer's load (internal/hostload).
+func (c *Client) PutHostLoad(ctx context.Context, load HostLoad) error {
+	return c.do(ctx, http.MethodPut, "/v1/host/load", load, nil)
+}
