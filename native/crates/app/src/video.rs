@@ -413,12 +413,20 @@ fn clock(secs: f64) -> String {
 /// first_frame is a recording's first picture, `width` wide, for its
 /// thumbnail (BGRA, as GPUI draws it).
 pub fn first_frame(path: &std::path::Path, width: u32) -> Result<image::RgbaImage> {
+    frame_at(path, width, 0.)
+}
+
+/// frame_at is a recording's picture at `at` seconds (or its last before
+/// that), `width` wide: the Media cards' still, taken at 0.5 s as Electron's
+/// (lib/videoStills.ts).
+pub fn frame_at(path: &std::path::Path, width: u32, at: f64) -> Result<image::RgbaImage> {
     let mut input = ff::format::input(path)?;
     let stream = input
         .streams()
         .best(ff::media::Type::Video)
         .ok_or_else(|| anyhow!("no video in {}", path.display()))?;
     let index = stream.index();
+    let base = f64::from(stream.time_base());
     let mut decoder = ff::codec::context::Context::from_parameters(stream.parameters())?
         .decoder()
         .video()?;
@@ -434,13 +442,41 @@ pub fn first_frame(path: &std::path::Path, width: u32) -> Result<image::RgbaImag
         height,
         ff::software::scaling::Flags::BILINEAR,
     )?;
+    // A recording that doesn't say its colours (ours: libx264 from RGB, no
+    // tags) is read as BT.709, as Chromium reads it, so the still has the
+    // Electron card's colours; swscale's own default is BT.601.
+    if matches!(
+        decoder.color_space(),
+        ff::color::Space::Unspecified | ff::color::Space::BT709
+    ) {
+        // SWS_CS_ITU709 = 1, SWS_CS_DEFAULT = 5; limited range in.
+        unsafe {
+            let bt709 = ff::ffi::sws_getCoefficients(1);
+            let rgb = ff::ffi::sws_getCoefficients(5);
+            ff::ffi::sws_setColorspaceDetails(
+                scaler.as_mut_ptr(),
+                bt709,
+                0,
+                rgb,
+                1,
+                0,
+                1 << 16,
+                1 << 16,
+            );
+        }
+    }
+
     let mut frame = ff::frame::Video::empty();
     for (s, packet) in input.packets() {
         if s.index() != index {
             continue;
         }
         decoder.send_packet(&packet)?;
-        if decoder.receive_frame(&mut frame).is_ok() {
+        while decoder.receive_frame(&mut frame).is_ok() {
+            let pts = frame.timestamp().or(frame.pts()).unwrap_or(0) as f64 * base;
+            if pts + 1e-3 < at {
+                continue;
+            }
             let mut bgra = ff::frame::Video::empty();
             scaler.run(&frame, &mut bgra)?;
             let stride = bgra.stride(0);

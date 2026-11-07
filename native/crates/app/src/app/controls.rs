@@ -959,6 +959,19 @@ thread_local! {
     /// The window's size as it was last drawn, for overlays drawn from deep
     /// in a page.
     static VIEWPORT: std::cell::Cell<Size<Pixels>> = const { std::cell::Cell::new(Size { width: px(0.), height: px(0.) }) };
+    /// The window's scale factor, as it was last drawn.
+    static SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.) };
+}
+
+/// scale is the window's device pixels per logical one, as last drawn: what
+/// a picture resized ahead of drawing is made at.
+pub fn scale() -> f32 {
+    SCALE.with(|s| s.get())
+}
+
+/// set_scale records the window's scale factor, each frame.
+pub fn set_scale(scale: f32) {
+    SCALE.with(|s| s.set(scale));
 }
 
 /// viewport is the window's size as it was last drawn.

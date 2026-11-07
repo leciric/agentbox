@@ -62,7 +62,8 @@ def main(argv):
     rest = argv[4:]
     while rest:
         if rest[0] == "--mask":
-            masks.append(tuple(int(v) for v in rest[1].split(",")))
+            box, _, size = rest[1].partition("@")
+            masks.append((tuple(int(v) for v in box.split(",")), size))
             rest = rest[2:]
         else:
             print(f"unknown argument {rest[0]}", file=sys.stderr)
@@ -73,6 +74,9 @@ def main(argv):
         h, w = min(a.shape[0], b.shape[0]), min(a.shape[1], b.shape[1])
         print(f"size differs: electron {a.shape[1]}x{a.shape[0]}, native {b.shape[1]}x{b.shape[0]}", file=sys.stderr)
         a, b = a[:h, :w], b[:h, :w]
+    # A mask "x,y,w,h@WxH" is only for a window of that size.
+    here = f"{a.shape[1]}x{a.shape[0]}"
+    masks = [m for m, size in masks if not size or size == here]
     score, match, keep = compare(a, b, masks)
     diff = (a * 0.35 + 255 * 0.65 * 0.15).astype(np.uint8)
     diff[~match & keep] = (255, 40, 40)

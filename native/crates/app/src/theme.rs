@@ -996,6 +996,14 @@ pub fn balanced_width(window: &gpui::Window, text: &str, size: Pixels, max: Pixe
 pub fn sans_features() -> gpui::FontFeatures {
     gpui::FontFeatures(std::sync::Arc::new(vec![("ss01".into(), 1)]))
 }
+/// tabular_features is sans_features with Tailwind's `tabular-nums`
+/// (tnum): figures of one width, for counts and clocks.
+pub fn tabular_features() -> gpui::FontFeatures {
+    gpui::FontFeatures(std::sync::Arc::new(vec![
+        ("ss01".into(), 1),
+        ("tnum".into(), 1),
+    ]))
+}
 pub const MONO_FACE: &str = "JetBrains Mono";
 
 static FONTS: &[&[u8]] = &[

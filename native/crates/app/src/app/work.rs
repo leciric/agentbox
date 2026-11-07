@@ -304,7 +304,12 @@ impl WorkView {
                     }))
                     .child(t(key))
                     .when_some(n, |el, n| {
-                        el.child(div().text_color(theme::subtle()).child(n.to_string()))
+                        el.child(
+                            div()
+                                .text_color(theme::subtle())
+                                .font_features(theme::tabular_features())
+                                .child(n.to_string()),
+                        )
                     })
             }))
             .into_any_element()
@@ -500,6 +505,7 @@ impl WorkView {
                     .mt_0p5()
                     .whitespace_nowrap()
                     .text_right()
+                    .font_features(theme::tabular_features())
                     .text_size(theme::text::CAPTION)
                     .text_color(theme::subtle())
                     .child(clock_time(&w.at)),

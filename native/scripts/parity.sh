@@ -88,7 +88,13 @@ for s in json.load(open(sys.argv[1])):
         if "type" in a: acts.append("type " + json.dumps(a["type"]))
         if "wheel" in a: acts.append(f"mousemove {a['wheel'][0]} {a['wheel'][1]} click --repeat {a['wheel'][2]} --delay 10 5")
         acts.append(f"sleep {a.get('wait', 700) / 1000}")
-    masks = " ".join("--mask " + ",".join(map(str, m)) for m in s.get("masks", []))
+    # masks: [[x,y,w,h]...] at every size, or {"1440x900": [...]} by size.
+    ms = s.get("masks", [])
+    if isinstance(ms, dict):
+        ms = [(m, size) for size, l in ms.items() for m in l]
+    else:
+        ms = [(m, "") for m in ms]
+    masks = " ".join("--mask " + ",".join(map(str, m)) + (f"@{size}" if size else "") for m, size in ms)
     print("\x1f".join([s["id"], " ".join(s.get("sizes", [])), env, ";".join(acts), str(s.get("wait", 1500) / 1000), masks]))
 EOF
 }

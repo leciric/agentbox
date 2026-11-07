@@ -357,6 +357,8 @@ impl Review {
             .iter()
             .flat_map(|f| {
                 self.media(project, f.agent).into_iter().map(|mut m| {
+                    // As GET /v1/media gives them: project/agent.
+                    m.agent = format!("{project}/{}", f.agent);
                     m.agent_name = f.agent.into();
                     m
                 })
