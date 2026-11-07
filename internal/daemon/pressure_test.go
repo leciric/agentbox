@@ -511,10 +511,74 @@ func TestAgentBeingMadeGetsItsMemoryLimit(t *testing.T) {
 		limits[instance] = limit
 		return nil
 	}
+	caps := map[string]agent.Caps{}
+	p.srv.vmSwap = func() int64 { return 8 << 30 }
+	p.srv.setCaps = func(instance string, c agent.Caps) error {
+		mu.Lock()
+		defer mu.Unlock()
+		caps[instance] = c
+		return nil
+	}
 	p.srv.watchMemory(ctx)
 	mu.Lock()
 	defer mu.Unlock()
 	if got, want := limits[making.Instance], agent.MemoryLimit(16<<30, 0); got != want {
 		t.Errorf("memory.max of the agent being made = %d, want %d (all: %v)", got, want, limits)
+	}
+	// Its swap, CPU weight and task count from the same moment: a fork bomb
+	// or a build in its setup is as bounded as one in a Ready agent.
+	want := agent.Caps{SwapMax: agent.SwapLimit(8<<30, 0), CPUWeight: agent.AgentCPUWeight, PidsMax: agent.AgentPidsMax}
+	if got := caps[making.Instance]; got != want {
+		t.Errorf("caps of the agent being made = %+v, want %+v", got, want)
+	}
+}
+
+// TestAgentCapsFollowTheShareAndTheVMsSwap: an agent's memory.swap.max is
+// the share it has of the VM's memory, of the VM's swap, and follows both.
+func TestAgentCapsFollowTheShareAndTheVMsSwap(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var swap int64 = 9 << 30
+	caps := map[string]agent.Caps{}
+	p := newPressureTest(t, func(s *Server) {
+		s.vmMemory = func() int64 { return 18 << 30 }
+		s.vmSwap = func() int64 { mu.Lock(); defer mu.Unlock(); return swap }
+		s.setCaps = func(instance string, c agent.Caps) error {
+			mu.Lock()
+			defer mu.Unlock()
+			caps[instance] = c
+			return nil
+		}
+	})
+	ctx := context.Background()
+	got := func() agent.Caps { mu.Lock(); defer mu.Unlock(); return caps[p.instance] }
+
+	p.srv.watchMemory(ctx)
+	if c := got(); c.SwapMax != 9<<30/100*50 || c.CPUWeight != agent.AgentCPUWeight || c.PidsMax != agent.AgentPidsMax {
+		t.Errorf("caps = %+v, want half of 9 GiB of swap, weight %d, %d tasks", c, agent.AgentCPUWeight, agent.AgentPidsMax)
+	}
+	share := 30
+	if _, err := p.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentMemoryShare: &share}); err != nil {
+		t.Fatal(err)
+	}
+	p.srv.watchMemory(ctx)
+	if c := got(); c.SwapMax != 9<<30/100*30 {
+		t.Errorf("after a 30%% share: swap.max = %d MiB", c.SwapMax>>20)
+	}
+	// `agentbox vm swap on` adds a swapfile: the limit grows with it.
+	mu.Lock()
+	swap = 25 << 30
+	mu.Unlock()
+	p.srv.watchMemory(ctx)
+	if c := got(); c.SwapMax != 25<<30/100*30 {
+		t.Errorf("with more swap: swap.max = %d MiB", c.SwapMax>>20)
+	}
+	// Swap that can't be read leaves the limit as it is.
+	mu.Lock()
+	swap = -1
+	mu.Unlock()
+	p.srv.watchMemory(ctx)
+	if c := got(); c.SwapMax != 0 || c.PidsMax != agent.AgentPidsMax {
+		t.Errorf("unreadable swap: caps = %+v, want swap untouched", c)
 	}
 }

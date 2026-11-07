@@ -422,6 +422,8 @@ type Server struct {
 	vmMemory       func() int64
 	setMemoryLimit func(instance string, limit int64) error
 	setIOWeight    func(instance string, weight int) error
+	vmSwap         func() int64 // the VM's swap in bytes, -1 unknown
+	setCaps        func(instance string, caps agent.Caps) error
 	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
 	oomVictim      func(instance string) (agent.OOMVictim, bool)
 	oomSeen        map[string]agent.MemoryCounts
@@ -514,6 +516,8 @@ func New(cfg Config) (*Server, error) {
 		vmMemory:         agent.HostMemory,
 		setMemoryLimit:   agent.SetMemoryLimit,
 		setIOWeight:      agent.SetIOWeight,
+		vmSwap:           agent.VMSwap,
+		setCaps:          agent.SetCaps,
 		memoryEvents:     agent.MemoryEvents,
 		oomVictim:        agent.LastOOMVictim,
 		oomSeen:          map[string]agent.MemoryCounts{},

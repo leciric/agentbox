@@ -697,7 +697,7 @@ func (s *Server) getPressure(w http.ResponseWriter, r *http.Request) error {
 }
 
 // watchMemory keeps every running agent's memory.max where the VM's size
-// puts it, and tells an agent at once when a process of its was killed for
+// puts it, with its io.weight and its other caps (agent.Caps), and tells an agent at once when a process of its was killed for
 // it.
 func (s *Server) watchMemory(ctx context.Context) {
 	agents, err := s.store.Agents(ctx, "")
@@ -706,7 +706,9 @@ func (s *Server) watchMemory(ctx context.Context) {
 	}
 	s.syncFleet(ctx, agents)
 	s.countRunning(agents)
-	limit := agent.MemoryLimit(s.vmMemory(), s.agentMemoryShare(ctx))
+	share := s.agentMemoryShare(ctx)
+	limit := agent.MemoryLimit(s.vmMemory(), share)
+	caps := agent.AgentCaps(s.vmSwap(), share)
 	for _, a := range agents {
 		if a.IsLead() || a.Instance == "" {
 			continue
@@ -723,6 +725,11 @@ func (s *Server) watchMemory(ctx context.Context) {
 		}
 		if err := s.setIOWeight(a.Instance, agent.AgentIOWeight); err != nil {
 			s.logOnce("io.weight "+a.Instance, fmt.Sprintf("io.weight: %s: %v", a.Ref(), err))
+		}
+		// Its swap, CPU weight and task count, at the same moment
+		// (agent/caps.go).
+		if err := s.setCaps(a.Instance, caps); err != nil {
+			s.logOnce("caps "+a.Instance, fmt.Sprintf("swap, cpu and pids caps: %s: %v", a.Ref(), err))
 		}
 		if a.Status != state.AgentReady {
 			continue
