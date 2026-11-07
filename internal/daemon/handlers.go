@@ -1461,6 +1461,14 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		switch action {
 		case "start":
+			if s.bootWaits() {
+				// Its boot waits its turn for memory, On hold, for as long
+				// as that takes: not in the request, which the app gives up
+				// on after minutes, and which left it On hold for good when
+				// it did, with nothing to start it.
+				s.wakeAside(ctx, m, a, "a start request")
+				break
+			}
 			if err = s.startMachine(ctx, m, a, "a start request"); err != nil {
 				s.recordErr(errStartFailed, a.AI, err, agentNames(a)...)
 			}

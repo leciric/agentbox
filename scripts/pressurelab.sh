@@ -9,6 +9,9 @@
 #   LAB_AGENTS=12 LAB_DURATION=5m scripts/pressurelab.sh
 #   LAB_GATE=none scripts/pressurelab.sh         # as non-Claude agents run
 #   LAB_JOBS=1 LAB_IO_MAX=40                     # one job per build; hold back over 40% IO PSI
+#   LAB_MIX=memhog=1,cpuhog=1,forkbomb=1,go=1 LAB_AGENTS=4 scripts/pressurelab.sh
+#                                                # the caps' run: swap, a CPU hog, a fork bomb
+#   LAB_DAEMON_REF=main scripts/pressurelab.sh   # the daemon from another commit: a "before"
 #   scripts/pressurelab.sh --restart             # restart the lab's daemon first
 #   scripts/pressurelab.sh --down                # stop the lab's daemon
 #
@@ -31,7 +34,13 @@ export AGENTBOX_FRONT_END=host
 as_lab() { sudo -u "$LAB_USER" -H env AGENTBOX_FRONT_END=host bash -lc "$*"; }
 step() { printf '==> %s\n' "$*"; }
 
-stop_daemon() { sudo pkill -u "$LAB_USER" -x agentbox-lab 2>/dev/null || true; sleep 1; }
+# Waits for it to go: one still stopping would be taken for one running.
+stop_daemon() {
+  sudo pkill -u "$LAB_USER" -x agentbox-lab 2>/dev/null || return 0
+  for _ in $(seq 30); do pgrep -u "$LAB_USER" -x agentbox-lab >/dev/null || return 0; sleep 1; done
+  sudo pkill -KILL -u "$LAB_USER" -x agentbox-lab 2>/dev/null || true
+  sleep 1
+}
 if [[ ${1:-} == --restart ]]; then
   stop_daemon
   shift
@@ -52,10 +61,15 @@ trim_subids() {
   # A container's own uid map often ends near 1e9: a subordinate range past it
   # makes newuidmap fail with EPERM when a nested container starts.
   local top
-  top=$(awk '{ e = $2 + $3; if (e > m) m = e } END { print m }' /proc/self/uid_map)
+  # The ids that exist here are the map's first column (inside), not its
+  # second (the parent's).
+  top=$(awk '{ e = $1 + $3; if (e > m) m = e } END { print m }' /proc/self/uid_map)
   for f in /etc/subuid /etc/subgid; do
     sudo awk -F: -v top="$top" '!($2 + $3 > top)' "$f" | sudo tee "$f.lab" >/dev/null
-    grep -q '^root:' "$f.lab" || echo "root:100000:65536" | sudo tee -a "$f.lab" >/dev/null
+    # Root needs a range of a container's size (Incus maps 65536 ids at
+    # least), not just the one id a nested agent's setup gives it.
+    awk -F: '$1 == "root" && $3 >= 65536 { ok = 1 } END { exit !ok }' "$f.lab" ||
+      echo "root:1000000:$(( top - 1000000 < 1000000000 ? top - 1000000 : 1000000000 ))" | sudo tee -a "$f.lab" >/dev/null
     if ! sudo cmp -s "$f" "$f.lab"; then
       sudo mv "$f.lab" "$f"
       sudo systemctl restart incus
@@ -96,8 +110,18 @@ if ! id "$LAB_USER" >/dev/null 2>&1; then
   echo "$LAB_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/$LAB_USER" >/dev/null
 fi
 
-step "Building agentbox from $(git rev-parse --short HEAD)"
-go build -o bin/agentbox ./cmd/agentbox
+# LAB_DAEMON_REF runs the lab's daemon built from another commit (a "before"
+# run), with this checkout's lab.
+if [[ -n ${LAB_DAEMON_REF:-} ]]; then
+  step "Building agentbox from $LAB_DAEMON_REF"
+  src=$(mktemp -d "$HOME/pressurelab-ref.XXXX")
+  git worktree add -q --detach "$src" "$LAB_DAEMON_REF"
+  (cd "$src" && go build -o "$OLDPWD/bin/agentbox" ./cmd/agentbox)
+  git worktree remove --force "$src"
+else
+  step "Building agentbox from $(git rev-parse --short HEAD)"
+  go build -o bin/agentbox ./cmd/agentbox
+fi
 if ! sudo cmp -s bin/agentbox "$bin"; then
   sudo install -m755 bin/agentbox "$bin"
   sudo ln -sf "$bin" /usr/local/bin/agentbox-lab
@@ -120,7 +144,8 @@ if ! pgrep -u "$LAB_USER" -x agentbox-lab >/dev/null; then
   # daemon's own protection are set up. A daemon on a machine of its own
   # (host mode) does none of that, and its gate can't pause anything.
   as_lab "cd ~ && AGENTBOX_HOST_OS=${LAB_HOST_OS:-linux} setsid nohup $bin daemon >> ~/daemon.out 2>&1 < /dev/null &"
-  for _ in $(seq 30); do sudo test -S "$socket" && break; sleep 1; done
+  # Until it answers: a daemon stopped above leaves its socket file behind.
+  for _ in $(seq 60); do sudo curl -sf --unix-socket "$socket" http://agentbox/v1/projects >/dev/null && break; sleep 1; done
 fi
 
 if ! as_lab "agentbox-lab auth claude list 2>/dev/null | grep -q default"; then
@@ -130,10 +155,19 @@ if ! as_lab "agentbox-lab auth claude list 2>/dev/null | grep -q default"; then
   as_lab "echo sk-ant-oat01-loadlab-placeholder-not-a-token | agentbox-lab auth claude --token-stdin" >/dev/null
 fi
 
-if ! sudo incus info agentbox-base >/dev/null 2>&1; then
+# A daemon that has none starts building it by itself as it starts: the lab
+# waits for that build rather than failing on a second one.
+image_job() { as_lab "agentbox-lab jobs 2>/dev/null" | awk '$2 == "image-build" && $4 == "running" { print $1; exit }'; }
+for _ in $(seq 3); do
+  sudo incus info agentbox-base >/dev/null 2>&1 && break
   step "Building the base image (minutes)"
-  as_lab "agentbox-lab image build" | tail -3
-fi
+  if job=$(image_job) && [[ -n $job ]]; then
+    as_lab "agentbox-lab jobs $job" | tail -3 || true
+  else
+    as_lab "agentbox-lab image build" | tail -3 || true
+  fi
+done
+sudo incus info agentbox-base >/dev/null 2>&1 || { echo "no base image" >&2; exit 1; }
 
 repo=$labhome/loadlab-repo
 if ! sudo test -d "$repo/.git"; then

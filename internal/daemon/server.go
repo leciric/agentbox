@@ -412,6 +412,8 @@ type Server struct {
 	// view (viewing.go) is the agent the app shows.
 	view           viewingState
 	machineCgroups machineCgroups
+	// fleetChatBusy is chat.Manager.Busy for syncFleet, or a test's.
+	fleetChatBusy  func(state.Agent) bool
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
@@ -420,14 +422,19 @@ type Server struct {
 	vmMemory       func() int64
 	setMemoryLimit func(instance string, limit int64) error
 	setIOWeight    func(instance string, weight int) error
+	vmSwap         func() int64 // the VM's swap in bytes, -1 unknown
+	setCaps        func(instance string, caps agent.Caps) error
+	thrash         func(instance string) (agent.ThrashSample, bool)
+	killLargest    func(instance string) (agent.OOMVictim, error)
+	thrashing      map[string]thrashState // by instance: watchMemory's
 	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
 	oomVictim      func(instance string) (agent.OOMVictim, bool)
 	oomSeen        map[string]agent.MemoryCounts
 	oomAt          map[string]time.Time // when the watch last saw a machine's kills rise
 	loggedOnce     map[string]string
-	// wakeMu makes one start of a stopped machine for a message at a time
-	// (wake.go).
-	wakeMu sync.Mutex
+	// wakes makes one start of each stopped machine for a message at a time
+	// (wake.go, wakeLock).
+	wakes keyedMutex
 	// waking, under mu, are the agents whose machines start aside for a
 	// message, waiting for memory to boot (wakeAside).
 	waking map[string]bool
@@ -512,6 +519,11 @@ func New(cfg Config) (*Server, error) {
 		vmMemory:         agent.HostMemory,
 		setMemoryLimit:   agent.SetMemoryLimit,
 		setIOWeight:      agent.SetIOWeight,
+		vmSwap:           agent.VMSwap,
+		setCaps:          agent.SetCaps,
+		thrash:           agent.Thrash,
+		killLargest:      agent.KillLargest,
+		thrashing:        map[string]thrashState{},
 		memoryEvents:     agent.MemoryEvents,
 		oomVictim:        agent.LastOOMVictim,
 		oomSeen:          map[string]agent.MemoryCounts{},

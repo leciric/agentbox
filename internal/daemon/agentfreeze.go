@@ -239,6 +239,14 @@ func (s *Server) startAllHeavy() {
 	}
 }
 
+// isChatBusy is whether a's chat runs a turn.
+func (s *Server) isChatBusy(a state.Agent) bool {
+	if s.fleetChatBusy != nil {
+		return s.fleetChatBusy(a)
+	}
+	return s.chat.Busy(a)
+}
+
 // syncFleet tells the fleet which machines run and which of them work, on
 // the memory watch's loop: it may wait on SQLite. agents are every agent.
 func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
@@ -271,6 +279,11 @@ func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
 		if err := s.machineCgroups.Own(a.Instance); err != nil {
 			s.logOnce("freezer "+a.Instance, "memory: "+a.Ref()+": taking its freezer: "+err.Error())
 		}
+		// Before the fleet's lock: Busy takes the chat's, which a chat
+		// storing its items holds while the database is slow, and the
+		// pressure loop (fleetOn, stepFleet) can't freeze anything while
+		// this holds fl.mu.
+		busy[a.Ref()] = busy[a.Ref()] || s.isChatBusy(a)
 		all = append(all, seen{a, running, frozen, s.machineCgroups.Memory(a.Instance)})
 	}
 	fl := s.frozen
@@ -290,7 +303,7 @@ func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
 		ms = append(ms, pressure.Machine{
 			Agent:      ref,
 			Since:      x.a.CreatedAt,
-			Working:    busy[ref] || s.chat.Busy(x.a),
+			Working:    busy[ref],
 			Heavy:      heavy[ref],
 			Memory:     x.memory,
 			Frozen:     x.froze,

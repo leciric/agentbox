@@ -8,6 +8,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/pressure"
 	"agentbox/internal/state"
+	"agentbox/internal/testutil"
 )
 
 // With pausing whole agents off, as it is by default, a machine still boots
@@ -96,4 +97,74 @@ func mustAgent(t *testing.T, f *fleetTest, a state.Agent) state.Agent {
 func roomyMem() pressure.Mem {
 	const gib = 1 << 30
 	return pressure.Mem{Total: 16 * gib, Cap: 16 * gib, Available: 12 * gib, SwapTotal: 4 * gib, SwapFree: 4 * gib}
+}
+
+// A start request whose boot must wait for memory answers at once, the agent
+// On hold, rather than waiting in the request for as long as the memory
+// takes: the app gives up on a request after minutes.
+func TestStartRequestDoesNotWaitForMemory(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, false)
+	ctx := context.Background()
+	f.setAvailable(2, 4)
+	f.step(t)
+	waiter := state.Agent{
+		Project: "hello-stack", Name: "agent-03", Instance: "ab-hello-stack-agent-03", AI: "none",
+		Branch: "agentbox/agent-03", Worktree: "/worktrees/agent-03", Status: state.AgentReady, CreatedAt: time.Now().Add(2 * time.Minute),
+	}
+	if err := f.srv.store.AddAgent(ctx, waiter); err != nil {
+		t.Fatal(err)
+	}
+	// Its machine stopped, beside agent-01's running one.
+	script := `#!/bin/sh
+case "$1" in
+  list) echo '[{"name": "ab-hello-stack-agent-01", "status": "Running"}, {"name": "ab-hello-stack-agent-03", "status": "Stopped"}]' ;;
+  query) echo '{}' ;;
+esac`
+	testutil.WriteExecutable(t, f.srv.cfg.Incus.Bin, []byte(script)) // the daemon forks meanwhile: not os.WriteFile
+	if !f.srv.bootWaits() {
+		t.Fatal("with 2 GiB available a boot should wait")
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if _, err := f.client.AgentAction(reqCtx, waiter.Ref(), "start"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		if t.Failed() {
+			t.Log(f.log.String())
+		}
+	}()
+	waitFor(t, "the boot to wait On hold", func() bool {
+		return mustAgent(t, f, waiter).Hold == state.HoldMemory
+	})
+}
+
+// A boot whose wait is given up on (its request cancelled) takes the agent
+// off hold: nothing would ever boot it from there, and it would show as
+// waiting for good.
+func TestCancelledBootLeavesNoHold(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, false)
+	ctx := context.Background()
+	f.setAvailable(2, 4)
+	f.step(t)
+	waiter := state.Agent{
+		Project: "hello-stack", Name: "agent-03", Instance: "ab-hello-stack-agent-03", AI: "none",
+		Branch: "agentbox/agent-03", Worktree: "/worktrees/agent-03", Status: state.AgentReady, CreatedAt: time.Now().Add(2 * time.Minute),
+	}
+	if err := f.srv.store.AddAgent(ctx, waiter); err != nil {
+		t.Fatal(err)
+	}
+	waitCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- f.srv.admitBoot(waitCtx, waiter) }()
+	waitFor(t, "the boot to wait On hold", func() bool { return mustAgent(t, f, waiter).Hold == state.HoldMemory })
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("a cancelled wait booted")
+	}
+	if a := mustAgent(t, f, waiter); a.Hold != "" {
+		t.Errorf("still On hold (%q) after its wait was given up", a.Hold)
+	}
 }

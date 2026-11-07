@@ -110,6 +110,9 @@ func (m *Manager) Background(ref string) []string {
 	if c == nil {
 		return nil
 	}
+	if l, ok := c.listingNow(); ok {
+		return slices.Clone(l.background)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Clone(c.session.Background)
