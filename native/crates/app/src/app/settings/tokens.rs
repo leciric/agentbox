@@ -191,9 +191,11 @@ fn card_head(
         .gap_3()
         .pt_4()
         .pb_1()
+        // Card's header: the icon's size-7 box isn't shrink-0, so a long
+        // description squeezes it, as Chromium's flexbox does (taffy's
+        // is the same algorithm).
         .child(
             div()
-                .flex_none()
                 .size_7()
                 .flex()
                 .items_center()
@@ -203,12 +205,11 @@ fn card_head(
                 .border_1()
                 .border_color(theme::line())
                 .text_color(theme::muted())
-                .child(crate::icons::ic(icon).size(px(16.))),
+                .child(crate::icons::ic(icon).size(px(16.)).flex_none()),
         )
         .child(
             v_flex()
                 .min_w_0()
-                .flex_1()
                 .child(
                     div()
                         .text_size(theme::text::BODY)
@@ -227,7 +228,7 @@ fn card_head(
                     )
                 }),
         )
-        .children(action)
+        .children(action.map(|a| h_flex().flex_none().ml_auto().gap_1().child(a)))
 }
 
 /// card_box is Card: its header, then its body (px-5 pt-3 pb-5).
@@ -252,12 +253,16 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
         .border_1()
         .border_color(theme::line_faint())
         .bg(theme::surface_faint())
+        // Stat's label: text-caption uppercase tracking-wider (0.05em).
         .child(
-            div()
-                .text_size(theme::text::CAPTION)
-                .line_height(px(18.))
-                .text_color(theme::subtle())
-                .child(label.to_uppercase()),
+            theme::tracked_words(
+                &label.to_uppercase(),
+                theme::text::CAPTION,
+                FontWeight::NORMAL,
+                0.6,
+                px(18.),
+            )
+            .text_color(theme::subtle()),
         )
         .child(
             div()

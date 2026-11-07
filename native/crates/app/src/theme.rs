@@ -1026,6 +1026,87 @@ fn fit_with(
         .child(text)
 }
 
+/// tracked is one line of Inter with CSS letter-spacing (Tailwind's
+/// tracking-*), `spacing` px after each character, which GPUI's text has
+/// no setting for: each glyph is painted where Chromium puts it, kerning
+/// kept. The box is the line's width, to the nearest pixel, and
+/// `line_height` tall; the colour is the text colour around it.
+pub fn tracked(
+    text: impl Into<SharedString>,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    spacing: f32,
+    line_height: Pixels,
+) -> gpui::AnyElement {
+    use gpui::{IntoElement as _, Styled as _, point};
+    let text: SharedString = text.into();
+    let n = text.chars().count() as f32;
+    let w = measure(&text, size, weight, false, false).map(|w| (w + spacing * n).round());
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, cx| {
+            let style = window.text_style();
+            let mut font = gpui::font(SANS);
+            font.features = sans_features();
+            font.weight = weight;
+            let run = |len: usize| gpui::TextRun {
+                len,
+                font: font.clone(),
+                color: style.color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let ts = window.text_system().clone();
+            let full = ts.shape_line(text.clone(), size, &[run(text.len())], None);
+            for (i, (ix, ch)) in text.char_indices().enumerate() {
+                if ch == ' ' {
+                    continue;
+                }
+                let x = full.x_for_index(ix) + px(spacing * i as f32);
+                let glyph: SharedString = ch.to_string().into();
+                let line = ts.shape_line(glyph.clone(), size, &[run(glyph.len())], None);
+                let _ = line.paint(
+                    bounds.origin + point(x, px(0.)),
+                    line_height,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                );
+            }
+        },
+    )
+    .flex_none()
+    .h(line_height)
+    .when_some(w, |el, w| el.w(px(w)))
+    .into_any_element()
+}
+
+/// tracked_words is [tracked] text that wraps between words as a browser
+/// wraps it (never inside one: a word wider than the line runs over).
+pub fn tracked_words(
+    text: &str,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    spacing: f32,
+    line_height: Pixels,
+) -> gpui::Div {
+    use gpui::{ParentElement as _, Styled as _};
+    let space =
+        measure(" ", size, weight, false, false).unwrap_or(f32::from(size) * 0.28) + spacing;
+    gpui::div()
+        .flex()
+        .flex_wrap()
+        .min_w_0()
+        .gap_x(px(space))
+        .children(
+            text.split(' ')
+                .filter(|w| !w.is_empty())
+                .map(|w| tracked(w.to_string(), size, weight, spacing, line_height)),
+        )
+}
+
 /// fit_width is the whole-pixel width [fit] gives `text`, once the app's
 /// root has rendered.
 pub fn fit_width(text: &str, size: Pixels, weight: gpui::FontWeight, mono: bool) -> Option<f32> {
