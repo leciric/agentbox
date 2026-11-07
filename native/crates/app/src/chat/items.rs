@@ -506,12 +506,19 @@ impl ChatView {
             Row::Assistant { ix, .. } | Row::Subagent { ix, .. } => self.found(&self.items[*ix].id),
             _ => false,
         };
+        // ChatTab's column: mx-auto w-full max-w-4xl px-6.
         let row = div()
             .w_full()
-            .px_6()
-            .when(ix == 0, |el| el.pt_4())
             .when(found, |el| el.bg(theme::starting().opacity(0.08)))
-            .child(body);
+            .child(
+                div()
+                    .mx_auto()
+                    .w_full()
+                    .max_w(px(896.))
+                    .px_6()
+                    .when(ix == 0, |el| el.pt_4())
+                    .child(body),
+            );
         match self.entering.get(&r.key) {
             Some(t) if t.elapsed() < std::time::Duration::from_millis(800) => {
                 crate::motion::enter(row, SharedString::from(format!("arrive-{}", r.key)), 0)
