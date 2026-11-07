@@ -757,44 +757,40 @@ func (s *Server) watchMemory(ctx context.Context) {
 	}
 }
 
-// thrashFor is how long an agent thrashes at its own limit before its
-// largest process is killed (agent/thrash.go): three looks in a row, so a
-// moment's stall at a build's peak isn't one. In the load lab every second
-// of it was the VM's disk reading 200 MB/s and the daemon's requests
-// waiting seconds on it.
+// thrashFor is how long an agent stays spent — its memory and swap — and
+// stalled before its largest process is killed (agent/thrash.go): three
+// looks, so a build's moment at its peak isn't thrashing. In the load lab
+// every second of it was the VM's disk reading 200 MB/s and the daemon's
+// requests waiting seconds on it.
 const thrashFor = 6 * time.Second
 
-// thrashState is what watchThrash knows of one machine: its last
-// ThrashSample, and since when it has been thrashing (zero when it isn't).
+// thrashState is what watchThrash knows of one machine: the look it was
+// first seen spent at, zero when it isn't.
 type thrashState struct {
-	last  agent.ThrashSample
-	since time.Time
+	since agent.ThrashSample
 }
 
 // watchThrash kills the largest process of an agent that has been thrashing
-// at its own memory.max for thrashFor, and tells it, as the kernel's OOM
-// killer would have, sooner.
+// at its own limit for thrashFor, and tells it, as the kernel's OOM killer
+// would have, sooner.
 func (s *Server) watchThrash(ctx context.Context, a state.Agent, limit int64) {
 	now, ok := s.thrash(a.Instance)
 	s.mu.Lock()
-	st, known := s.thrashing[a.Instance]
 	if !ok {
 		delete(s.thrashing, a.Instance)
 		s.mu.Unlock()
 		return
 	}
-	// Up against its own limit since the last look, and stalled for it.
-	hit := known && now.Thrashing(st.last)
-	st.last = now
+	st := s.thrashing[a.Instance]
 	switch {
-	case !hit:
-		st.since = time.Time{}
-	case st.since.IsZero():
-		st.since = time.Now()
+	case !now.Spent:
+		st.since = agent.ThrashSample{}
+	case st.since.At.IsZero():
+		st.since = now
 	}
-	kill := hit && time.Since(st.since) >= thrashFor
+	kill := now.Spent && now.At.Sub(st.since.At) >= thrashFor && now.StalledShare(st.since) >= agent.ThrashShare
 	if kill {
-		st.since = time.Time{}
+		st.since = agent.ThrashSample{}
 	}
 	s.thrashing[a.Instance] = st
 	s.mu.Unlock()
@@ -807,10 +803,10 @@ func (s *Server) watchThrash(ctx context.Context, a state.Agent, limit int64) {
 		return
 	}
 	s.countOOMKills(1)
-	text := fmt.Sprintf("`%s` (pid %d, using %s) was killed for memory: your machine spent %s at its limit of %s, "+
-		"swapping and reading its programs back from the disk more than running them. "+
+	text := fmt.Sprintf("`%s` (pid %d, using %s) was killed for memory: your machine had used all its memory (%s) and swap for %s, "+
+		"and was reading its programs back from the disk more than running them. "+
 		"Run fewer packages or workers at once (go test -p 2 ./..., vitest --maxWorkers=2, make -j2, one test file at a time) and try again.",
-		v.Name, v.PID, agent.HumanBytes(v.RSS), thrashFor, agent.HumanBytes(limit))
+		v.Name, v.PID, agent.HumanBytes(v.RSS), agent.HumanBytes(limit), thrashFor)
 	s.logf("memory: %s: %s", a.Ref(), text)
 	go func() {
 		ctx := context.WithoutCancel(ctx)

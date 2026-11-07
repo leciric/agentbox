@@ -381,16 +381,16 @@ func TestOOMKillTold(t *testing.T) {
 	}
 }
 
-// TestThrashingAgentLosesItsLargestProcess: an agent stalled on memory while
-// it keeps reaching its own memory.max for thrashFor loses the process the
-// OOM killer would have picked, and is told; one stalled with its limit not
-// reached (the VM short) or reaching it without stalling keeps everything.
+// TestThrashingAgentLosesItsLargestProcess: an agent that has spent its
+// memory and swap, stalled on it, for thrashFor loses the process holding
+// the most memory, and is told; one spent but hardly stalled (a build that
+// fits, just), or stalled but not spent (the VM short), keeps everything.
 func TestThrashingAgentLosesItsLargestProcess(t *testing.T) {
 	t.Parallel()
 	p := newPressureTest(t)
 	ctx := context.Background()
 	var mu sync.Mutex
-	sample := agent.ThrashSample{At: time.Unix(1000, 0), AtLimit: 100}
+	sample := agent.ThrashSample{At: time.Unix(1000, 0)}
 	var killed []string
 	p.srv.vmMemory = func() int64 { return 16 << 30 }
 	p.srv.thrash = func(string) (agent.ThrashSample, bool) {
@@ -405,47 +405,37 @@ func TestThrashingAgentLosesItsLargestProcess(t *testing.T) {
 		return agent.OOMVictim{Name: "node", PID: 777, RSS: 7 << 30}, nil
 	}
 	// Two seconds between looks, full percent of them stalled.
-	step := func(full float64, hits int64) {
+	step := func(full float64, spent bool) {
 		mu.Lock()
 		sample.At = sample.At.Add(2 * time.Second)
 		sample.Stalled += time.Duration(full / 100 * float64(2*time.Second))
-		sample.AtLimit += hits
+		sample.Spent = spent
 		mu.Unlock()
 		p.srv.watchMemory(ctx)
 	}
-	// As if it had been at it for thrashFor already.
-	backdate := func() {
-		p.srv.mu.Lock()
-		st := p.srv.thrashing[p.instance]
-		if !st.since.IsZero() {
-			st.since = st.since.Add(-thrashFor)
-		}
-		p.srv.thrashing[p.instance] = st
-		p.srv.mu.Unlock()
-	}
 	kills := func() int { mu.Lock(); defer mu.Unlock(); return len(killed) }
 
-	step(80, 0) // the first look: nothing to compare with
-	step(80, 0) // stalled, but not at its own limit: the VM is short
-	backdate()
-	step(80, 0)
-	step(10, 50) // at its limit, hardly stalled: a build that fits, just
-	backdate()
-	step(10, 50)
-	if kills() != 0 {
-		t.Fatalf("killed %v without thrashing at its own limit", killed)
+	for range 5 {
+		step(90, false) // stalled, not spent: the VM is short
 	}
-	step(80, 50) // thrashing from now
-	step(80, 50) // not yet thrashFor
+	for range 5 {
+		step(10, true) // spent, hardly stalled
+	}
+	if kills() != 0 {
+		t.Fatalf("killed %v without thrashing", killed)
+	}
+	step(100, false)
+	step(30, true) // spent from here, stalled from 20% to 100%
+	step(100, true)
+	step(20, true)
 	if kills() != 0 {
 		t.Fatalf("killed %v before thrashFor", killed)
 	}
-	backdate()
-	step(80, 50)
+	step(25, true)
 	if kills() != 1 || killed[0] != p.instance {
 		t.Fatalf("killed %v after thrashFor, want %s once", killed, p.instance)
 	}
-	step(80, 50) // the count starts again
+	step(80, true) // the count starts again
 	if kills() != 1 {
 		t.Errorf("killed %v again at once", killed)
 	}

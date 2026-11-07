@@ -25,36 +25,41 @@ import (
 // reading 64 GiB, before the kernel killed it; the daemon's requests took up
 // to 9 seconds meanwhile, waiting on the same disk.
 //
-// So, as systemd-oomd does with memory pressure: an agent whose machine's
-// tasks were all stalled on memory (memory.pressure's full) for at least
-// ThrashShare of the time between two looks, while it kept reaching its own
-// memory.max (memory.events.local's max count going up, so it is its own
-// limit it is up against, not the VM running short), look after look for a
-// few seconds, gets the process holding the most memory in it killed
-// (internal/daemon/pressure.go). The stall is measured between looks from
-// the cumulative total, not avg10, which takes five seconds of a full stall
-// to reach 40%.
+// So, as systemd-oomd does with memory pressure: an agent that has spent
+// everything it may have — its memory.max in RAM and its memory.swap.max in
+// swap — and stays so look after look, its tasks stalled on memory for at
+// least ThrashShare of that time (memory.pressure's full), gets the process
+// holding the most memory in it killed (internal/daemon/pressure.go): what
+// the kernel would do if its code had nowhere to be read back from. The
+// stall is measured between looks from the cumulative total, not avg10,
+// which lags by seconds; and it is a share of the whole span, because a
+// single-threaded process thrashing runs between its faults: in the load
+// lab its stall swung from 20% to 100% from one two-second look to the next,
+// while the disk was saturated throughout.
 
-// ThrashShare is the share of the time, between two looks, an agent at its
-// own limit spends with every task stalled on memory from which it is
-// thrashing. A build just short of memory stalls now and then; at half the
-// time its tasks wait on the disk more than they run.
-const ThrashShare = 0.5
+// ThrashShare is the least share of the time an agent that has spent its
+// memory and swap spends with every task stalled on memory to be thrashing.
+// A build that fits just stalls now and then, and hasn't filled its swap.
+const ThrashShare = 0.2
 
 // ThrashSample is one look at whether an agent's machine is thrashing at its
 // own limit.
 type ThrashSample struct {
 	At      time.Time     // when it was read
 	Stalled time.Duration // memory.pressure's full total: all its tasks stalled on memory, ever
-	AtLimit int64         // memory.events.local's max: times it reached its own memory.max
+	// Spent is a machine at its memory.max with its swap full: at its
+	// memory.swap.max, or none to be had.
+	Spent bool
 }
 
-// Thrashing says whether a machine spent ThrashShare or more of the time
-// since prev with every task stalled on memory, while reaching its own
-// memory.max.
-func (s ThrashSample) Thrashing(prev ThrashSample) bool {
-	span := s.At.Sub(prev.At)
-	return span > 0 && s.AtLimit > prev.AtLimit && float64(s.Stalled-prev.Stalled) >= ThrashShare*float64(span)
+// StalledShare is the share of the time since an earlier sample a machine
+// spent with every task stalled on memory; 0 when no time passed.
+func (s ThrashSample) StalledShare(since ThrashSample) float64 {
+	span := s.At.Sub(since.At)
+	if span <= 0 {
+		return 0
+	}
+	return float64(s.Stalled-since.Stalled) / float64(span)
 }
 
 // Thrash reads an agent's machine's ThrashSample; ok is false when its cgroup
@@ -85,9 +90,27 @@ func thrash(dir string, now time.Time) (ThrashSample, bool) {
 	if !found {
 		return out, false
 	}
-	if b, err := os.ReadFile(filepath.Join(dir, "memory.events.local")); err == nil {
-		out.AtLimit = eventCount(b, "max")
+	read := func(f string) string { return strings.TrimSpace(readString(filepath.Join(dir, f))) }
+	limit, err1 := strconv.ParseInt(read("memory.max"), 10, 64)
+	current, err2 := strconv.ParseInt(read("memory.current"), 10, 64)
+	if err1 != nil || err2 != nil {
+		return out, true // no limit: never spent
 	}
+	atLimit := current >= limit-max(limit/100, 16<<20)
+	swapped, _ := strconv.ParseInt(read("memory.swap.current"), 10, 64)
+	var swapFull bool
+	switch swapMax := read("memory.swap.max"); swapMax {
+	case "max":
+		// Set to none only when the VM has no swap (SwapLimit): full when
+		// it has nothing in it.
+		swapFull = swapped == 0
+	case "":
+		swapFull = true // no swap accounting: it can't be told apart
+	default:
+		n, err := strconv.ParseInt(swapMax, 10, 64)
+		swapFull = err == nil && swapped >= n-n/20
+	}
+	out.Spent = atLimit && swapFull
 	return out, true
 }
 
