@@ -24,6 +24,9 @@ pub enum FootPage {
     Jobs,
 }
 
+/// A card's picture as made: its width and height, and the image.
+type Thumb = (u32, u32, std::sync::Arc<RenderImage>);
+
 /// What the pages read.
 #[derive(Default)]
 pub struct Foot {
@@ -58,7 +61,7 @@ pub struct Foot {
     /// The cards' pictures, resized ahead for the card they fill (as
     /// Chromium filters a picture it shrinks), by media id, with the size
     /// each was made at; and those being made.
-    thumbs: std::cell::RefCell<HashMap<String, (u32, u32, std::sync::Arc<RenderImage>)>>,
+    thumbs: std::cell::RefCell<HashMap<String, Thumb>>,
     making: std::cell::RefCell<std::collections::HashSet<(String, u32, u32)>>,
 }
 
@@ -1084,7 +1087,7 @@ impl AppView {
                 .filter(|(_, a)| complete || oldest.as_ref().is_none_or(|o| a.updated_at >= *o))
                 .map(|(p, a)| Entry::Page(p, a)),
         );
-        entries.sort_by(|a, b| media::ms(b.at()).cmp(&media::ms(a.at())));
+        entries.sort_by_key(|e| std::cmp::Reverse(media::ms(e.at())));
 
         let counts = f.counts.clone().unwrap_or_default();
         let total = counts.total + scope_pages.len() as i64;

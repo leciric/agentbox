@@ -822,11 +822,10 @@ impl AppView {
                                 Some(rgb(0x71717a))
                             } else if kind == "edit" && l.starts_with('+') {
                                 Some(rgb(0x6ee7b7))
-                            } else if kind == "edit" && l.starts_with('-') {
-                                Some(rgb(0xfda4af))
-                            } else if kind == "test"
-                                && (l.contains("FAIL")
-                                    || l.contains("failed") && !l.contains(" 0 failed"))
+                            } else if (kind == "edit" && l.starts_with('-'))
+                                || (kind == "test"
+                                    && (l.contains("FAIL")
+                                        || l.contains("failed") && !l.contains(" 0 failed")))
                             {
                                 Some(rgb(0xfda4af))
                             } else if kind == "test"

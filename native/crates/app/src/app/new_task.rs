@@ -70,7 +70,7 @@ impl AppView {
                 out.push((p.name.clone(), label, at));
             }
         }
-        out.sort_by(|a, b| b.2.cmp(&a.2));
+        out.sort_by_key(|o| std::cmp::Reverse(o.2));
         let mut out: Vec<(String, String)> = out.into_iter().map(|(n, l, _)| (n, l)).collect();
         let home = t("v2.newTask.home");
         if matches("", &home) {
