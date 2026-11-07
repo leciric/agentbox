@@ -679,9 +679,72 @@ func loadSteps(kind string) [][3]string {
 			{"npm install", `cd ~/loadlab/js && rm -rf node_modules && npm install --no-audit --no-fund --loglevel=error`, ""},
 			{"vitest", `cd ~/loadlab/js && $H npx vitest run --reporter=dot ${J:+--maxWorkers=$J --minWorkers=1}`, "1"},
 		}
+	case "memhog":
+		return [][3]string{{"memory hog", loadMemHog, ""}}
+	case "cpuhog":
+		return [][3]string{{"cpu hog", `for i in $(seq 16); do timeout 60 sh -c 'while :; do :; done' & done; wait`, ""}}
+	case "forkbomb":
+		return [][3]string{{"fork bomb", loadForkBomb, "root"}}
 	}
 	return nil
 }
+
+// loadMemHog fills its machine's memory.max and a GiB more with pages that
+// compress about as well as a build's (a quarter random), then keeps
+// touching every one of them for a minute: past memory.max, each touch is a
+// page swapped back in and another out. Without memory.swap.max the GiB goes
+// to the VM's swap and the machine thrashes; with it, the hog is killed.
+const loadMemHog = `exec node -e '
+const fs = require("fs"), c = require("crypto");
+const m = fs.readFileSync("/sys/fs/cgroup/memory.max", "utf8").trim();
+const want = (m === "max" ? 4 << 30 : +m) + (1 << 30), chunk = 64 << 20, bufs = [];
+for (let n = 0; n < want; n += chunk) {
+  const b = Buffer.allocUnsafe(chunk);
+  for (let o = 0; o < chunk; o += 4096) { c.randomFillSync(b, o, 1024); b.fill(o & 255, o + 1024, o + 4096); }
+  bufs.push(b);
+}
+const end = Date.now() + 60000;
+while (Date.now() < end) for (const b of bufs) for (let o = 0; o < chunk; o += 4096) b[o + 2000]++;
+'`
+
+// killForkBomb kills what is left of loadForkBomb in an agent's machine.
+func killForkBomb(t *testing.T, a *loadAgent) {
+	if a.Kind != "forkbomb" {
+		return
+	}
+	dir := filepath.Join(agentCgroup(cgroupRoot, a.Instance), "loadlab-bomb")
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.kill"), []byte("1"), 0o644); err != nil {
+		return // none left
+	}
+	for range 60 {
+		if os.Remove(dir) == nil {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Errorf("%s: its fork bomb's cgroup is still there a minute after it was killed", a.Name)
+}
+
+// loadForkBomb runs the classic fork bomb, as root in its machine, in a
+// cgroup of its own there, which it kills after 30 seconds, and prints the
+// most tasks it reached. That cgroup's pids.max is the lab's own safety net,
+// so a run without the agents' pids.max can't take a shared VM down:
+// LAB_BOMB_CAP (10000), or 256 under the machine's own pids.max when it has
+// one, as this script needs a few tasks of its own to watch the bomb and
+// kill it. Past that it forks nothing: it reads files with builtins and
+// waits with read -t.
+const loadForkBomb = `cg=/sys/fs/cgroup/loadlab-bomb
+read -r own < /sys/fs/cgroup/pids.max
+cap=${LAB_BOMB_CAP:-10000}
+[ "$own" != max ] && [ $((own - 256)) -lt $cap ] && cap=$((own - 256))
+mkdir -p $cg && echo $cap > $cg/pids.max
+sh -c 'echo $$ > "$1/cgroup.procs" && exec bash -c ":(){ :|:& };:"' _ $cg 2>/dev/null &
+exec 3<> <(:)
+peak=0; for i in $(seq 30); do read -t 1 -u 3; read -r n < $cg/pids.current; [ "$n" -gt "$peak" ] && peak=$n; done
+echo 1 > $cg/cgroup.kill
+for i in $(seq 30); do read -r n < $cg/pids.current; [ "$n" = 0 ] && break; read -t 1 -u 3; done
+rmdir $cg
+echo "fork bomb reached $peak tasks (its cap $cap, machine pids.max $own)"`
 
 // ---- the run ----
 
@@ -1139,6 +1202,9 @@ func runLoad(t *testing.T, ctx context.Context, c labAPI, agents []*loadAgent, c
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// A fork bomb the run's end cut off outlives its script (timeout
+			// kills the script, not the bomb): killed from outside.
+			defer killForkBomb(t, a)
 			// Staggered over the first 20 seconds, as agents never all start
 			// at the same instant.
 			select {
@@ -1163,7 +1229,14 @@ func runLoad(t *testing.T, ctx context.Context, c labAPI, agents []*loadAgent, c
 					}
 					script := fmt.Sprintf("export WT=%q H=%q J=%q; timeout -k 10 %d bash -c %s", a.Worktree, h, j, secs, shellQuote(st[1]))
 					start := time.Now()
-					out, err := inAgent(context.WithoutCancel(runCtx), a, "", script).CombinedOutput()
+					who := a
+					if st[2] == "root" {
+						who = &loadAgent{Agent: a.Agent, Kind: a.Kind}
+					}
+					out, err := inAgent(context.WithoutCancel(runCtx), who, "", script).CombinedOutput()
+					if a.Kind == "forkbomb" {
+						t.Logf("%s: %s", a.Name, lastLines(string(out), 1))
+					}
 					d := time.Since(start)
 					code := 0
 					var exit *exec.ExitError
@@ -1207,6 +1280,14 @@ func runLoad(t *testing.T, ctx context.Context, c labAPI, agents []*loadAgent, c
 
 	// What it left.
 	r.API = map[string]latency{"agents_list": list.latency(), "chat_send": chat.latency(), "event_lag": lag.latency()}
+	// Each machine's caps (agent/caps.go) and the most it reached under them.
+	for _, a := range agents {
+		dir := agentCgroup(cgroupRoot, a.Instance)
+		read := func(f string) string { return strings.TrimSpace(readString(filepath.Join(dir, f))) }
+		t.Logf("%s (%s): memory.max %s swap.max %s swap.peak %s cpu.weight %s pids.max %s pids.peak %s",
+			a.Name, a.Kind, read("memory.max"), read("memory.swap.max"), read("memory.swap.peak"),
+			read("cpu.weight"), read("pids.max"), read("pids.peak"))
+	}
 	r.Desktop.Fsync, r.Desktop.TimerLate = fsync.latency(), late.latency()
 	r.Desktop.RunDelayPeak, r.Desktop.RunDelayMean = peakMean(runDelay)
 	r.Desktop.VM = vmPSI.peak()
