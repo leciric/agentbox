@@ -498,6 +498,56 @@ impl RenderOnce for Trigger {
     }
 }
 
+/// chip_select is SearchModal's Pick: a filter's menu as a chip, its icon
+/// and what it's set to, brand while set to anything but its first.
+pub fn chip_select(
+    id: &str,
+    icon: &'static str,
+    choices: Vec<Choice>,
+    current: &str,
+    on_pick: Pick<str>,
+    anchor: Anchor,
+) -> AnyElement {
+    let label = choices
+        .iter()
+        .find(|c| c.value.as_ref() == current)
+        .or(choices.first())
+        .map(|c| c.label.clone())
+        .unwrap_or_default();
+    let on = !current.is_empty();
+    let base = h_flex()
+        .id(SharedString::from(format!("chip-select-{id}")))
+        .flex_none()
+        .max_w(px(208.))
+        .items_center()
+        .gap_1p5()
+        .rounded_full()
+        .border_1()
+        .px_2p5()
+        .py_1()
+        .text_size(theme::text::CAPTION)
+        .cursor_pointer()
+        .map(|el| {
+            if on {
+                el.border_color(theme::brand(400).opacity(0.4))
+                    .bg(theme::brand(400).opacity(0.15))
+                    .text_color(theme::brand(200))
+            } else {
+                el.border_color(theme::line())
+                    .text_color(theme::muted())
+                    .hover(|s| {
+                        s.border_color(theme::line_strong())
+                            .text_color(theme::title())
+                    })
+            }
+        })
+        .child(crate::icons::ic(icon).size_3p5().flex_none())
+        .child(div().min_w_0().truncate().child(label));
+    Trigger { base, open: false }
+        .dropdown_menu_with_anchor(anchor, select_menu(choices, current, on_pick))
+        .into_any_element()
+}
+
 /// field_select is Settings' Select (ui/select.tsx): a full-width h-9
 /// trigger, rounded-lg in line-strong on the sunken ground, its choice in
 /// text-sm and ChevronsUpDown at its end, over the same menu as select's;
