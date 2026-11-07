@@ -431,6 +431,21 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 			if err := c.do(ctx, http.MethodPost, "/v1/agents/"+have[i].Project+"/"+have[i].Name+"/start", nil, &have[i]); err != nil {
 				t.Fatalf("starting %s: %v", name, err)
 			}
+			// A start that must wait for memory answers at once and boots
+			// aside: the work needs its machine running.
+			for deadline := time.Now().Add(15 * time.Minute); have[i].State != "running"; {
+				if time.Now().After(deadline) {
+					t.Fatalf("%s is still %s after 15 minutes", name, have[i].State)
+				}
+				time.Sleep(2 * time.Second)
+				var now []api.Agent
+				if err := c.do(ctx, http.MethodGet, "/v1/agents?project="+url.QueryEscape(cfg.project), nil, &now); err != nil {
+					t.Fatal(err)
+				}
+				if j := slices.IndexFunc(now, func(a api.Agent) bool { return a.Name == have[i].Name }); j >= 0 {
+					have[i] = now[j]
+				}
+			}
 		}
 		out = append(out, &loadAgent{Agent: have[i], Kind: cfg.mix[len(out)]})
 	}

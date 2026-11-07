@@ -181,6 +181,7 @@ func killExec(control <-chan *websocket.Conn) {
 	case conn := <-control:
 		_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 		_ = conn.WriteJSON(api.InstanceExecControl{Command: "signal", Signal: 9}) // SIGKILL, in the machine
+		_ = conn.Close()
 	default:
 	}
 }

@@ -2,13 +2,13 @@ package daemon
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/pressure"
 	"agentbox/internal/state"
+	"agentbox/internal/testutil"
 )
 
 // With pausing whole agents off, as it is by default, a machine still boots
@@ -121,9 +121,7 @@ case "$1" in
   list) echo '[{"name": "ab-hello-stack-agent-01", "status": "Running"}, {"name": "ab-hello-stack-agent-03", "status": "Stopped"}]' ;;
   query) echo '{}' ;;
 esac`
-	if err := os.WriteFile(f.srv.cfg.Incus.Bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteExecutable(t, f.srv.cfg.Incus.Bin, []byte(script)) // the daemon forks meanwhile: not os.WriteFile
 	if !f.srv.bootWaits() {
 		t.Fatal("with 2 GiB available a boot should wait")
 	}
