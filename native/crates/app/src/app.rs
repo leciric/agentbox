@@ -680,6 +680,9 @@ impl AppView {
         self._chat_sub = Some(cx.subscribe_in(&chat, window, Self::on_chat_action));
         self.chat = Some(chat);
         self.sync_chat_agent(cx);
+        if self.open != "lead" {
+            self.open_agent_panel(format!("{project}/{}", self.open), cx);
+        }
         self.panel_sync(window, cx);
         cx.notify();
     }
@@ -716,6 +719,55 @@ impl AppView {
                 cx.notify();
             });
         }
+    }
+
+    /// open_agent_panel picks the view an agent's chat opens its panel on
+    /// (lib/rightPanel.ts openAgentChat): its Desktop while it uses it (in
+    /// the last two minutes, lib/pip.ts usingDesktop), else the view it
+    /// showed last unless that was the Desktop, else its Timeline.
+    fn open_agent_panel(&mut self, r: String, cx: &mut Context<Self>) {
+        let shown = self.panel.views.get(&r).copied();
+        let off = match shown {
+            Some(v) if v != panel::PView::Desktop => v,
+            _ => panel::PView::Timeline,
+        };
+        self.panel.views.insert(r.clone(), off);
+        let running = self
+            .fleet
+            .iter()
+            .any(|a| a.r#ref == r && a.state == "running");
+        let Some(project) = r.split('/').next().map(str::to_string).filter(|_| running) else {
+            return;
+        };
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let uses = client
+                .get::<Vec<agentbox_api::DesktopUse>>(&format!("/v1/projects/{project}/desktops"))
+                .await
+                .unwrap_or_default();
+            let now = std::time::SystemTime::now();
+            let using = uses.iter().any(|u| {
+                u.r#ref == r
+                    && humantime::parse_rfc3339_weak(
+                        u.used_at
+                            .split('.')
+                            .next()
+                            .unwrap_or(&u.used_at)
+                            .trim_end_matches('Z'),
+                    )
+                    .ok()
+                    .and_then(|at| now.duration_since(at).ok())
+                    .is_some_and(|d| d.as_secs() < 120)
+            });
+            if using {
+                this.update(cx, |this, cx| {
+                    this.panel.views.insert(r, panel::PView::Desktop);
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
     }
 
     /// pulls_gone gives the lead's panel back to its agents when it shows

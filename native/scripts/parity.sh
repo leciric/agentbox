@@ -24,6 +24,11 @@
 # reduced motion and no caret.
 set -euo pipefail
 
+# One run at a time: a second waits for the first rather than kill its
+# displays (each run clears leftovers of a stopped one).
+exec 9>"${TMPDIR:-/tmp}/parity.lock"
+flock 9
+
 here=$(cd "$(dirname "$0")" && pwd)
 native=$(dirname "$here")
 root=$(dirname "$native")

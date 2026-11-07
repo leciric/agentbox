@@ -123,7 +123,7 @@ pub struct Panel {
     seen: std::cell::RefCell<HashMap<String, (St, Option<std::time::Instant>)>>,
     pub folded: bool,
     pub list_beside: bool,
-    views: HashMap<String, PView>,
+    pub(super) views: HashMap<String, PView>,
     idle_open: bool,
     usage: HashMap<String, (Option<f64>, Option<i64>)>,
     /// Each agent's chat session as one read on hovering its row: its
