@@ -711,6 +711,23 @@ impl AppView {
         }
     }
 
+    /// pulls_gone gives the lead's panel back to its agents when it shows
+    /// pull requests the project turned off, or a link opened (RightPanel's
+    /// pullsGone): once the projects are read.
+    fn pulls_gone(&mut self) {
+        if self.pulls.tab != pulls::RailTab::Pulls {
+            return;
+        }
+        let Some(p) = self.project.as_ref() else {
+            return;
+        };
+        if let Some(p) = self.projects.iter().find(|x| &x.name == p)
+            && !p.pull_requests
+        {
+            self.pulls.tab = pulls::RailTab::Agents;
+        }
+    }
+
     /// open_agent_ref opens an agent's chat, in its own project.
     fn open_agent_ref(&mut self, r#ref: String, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(past) = r#ref.strip_prefix("past:") {
@@ -1179,6 +1196,7 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.panel.track(&self.fleet);
         self.sync_chat_review(cx);
+        self.pulls_gone();
         self.presence_check(window, cx);
         bench::mark("first-render");
         controls::set_viewport(window.viewport_size());

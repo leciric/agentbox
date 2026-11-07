@@ -2582,7 +2582,7 @@ impl AppView {
             ),
         ]
         .into_iter()
-        .filter(|(_, to, _, _)| *to != RailTab::Pulls || pulls_tab || tab == RailTab::Pulls)
+        .filter(|(_, to, _, _)| *to != RailTab::Pulls || pulls_tab)
         .collect();
         let mut pull_tip = vec![t("panel.view.pulls")];
         if open > 0 {
