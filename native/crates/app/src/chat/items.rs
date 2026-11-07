@@ -27,9 +27,10 @@ pub fn local_time(time: &str) -> String {
         .unwrap_or_default()
 }
 
+/// glyph is an entry's Lucide icon (Work.tsx iconOf and toolIcons).
 fn glyph(it: &ChatItem) -> &'static str {
     if it.kind == "thought" {
-        return "✳";
+        return "brain";
     }
     if let Some(p) = &it.permission {
         let allowed = p
@@ -37,33 +38,37 @@ fn glyph(it: &ChatItem) -> &'static str {
             .iter()
             .find(|o| o.id == p.outcome)
             .is_some_and(|o| o.kind.starts_with("allow"));
-        return if allowed { "✓" } else { "✕" };
+        return if allowed { "shield-check" } else { "shield-x" };
     }
-    let Some(tool) = &it.tool else { return "•" };
+    let Some(tool) = &it.tool else {
+        return "wrench";
+    };
     if tool.status == "failed" {
-        return "!";
+        return "circle-alert";
     }
     match tool.kind.as_str() {
-        "read" => "◉",
-        "edit" => "✎",
-        "delete" => "✕",
-        "move" => "⇄",
-        "search" => "◎",
-        "execute" => "›",
-        "think" => "✳",
-        "fetch" => "↓",
-        _ => "⚙",
+        "read" => "eye",
+        "edit" => "square-pen",
+        "delete" => "trash",
+        "move" => "arrow-right-left",
+        "search" => "search",
+        "execute" => "square-terminal",
+        "think" => "brain",
+        "fetch" => "globe",
+        _ => "wrench",
     }
 }
 
+/// icon is a work row's icon: a 16px Lucide icon in a size-6 box.
 fn icon(g: &'static str, color: Hsla) -> Div {
     div()
         .flex_none()
-        .w(px(20.))
+        .size_6()
         .flex()
+        .items_center()
         .justify_center()
         .text_color(color)
-        .child(crate::icons::of(g))
+        .child(crate::icons::ic(crate::icons::lucide(g).unwrap_or("wrench")).size(px(16.)))
 }
 
 fn chevron(open: bool) -> Div {
@@ -71,7 +76,14 @@ fn chevron(open: bool) -> Div {
         .flex_none()
         .text_xs()
         .text_color(theme::faint())
-        .child(crate::icons::of(if open { "▾" } else { "▸" }))
+        .child(
+            crate::icons::ic(if open {
+                "chevron-down"
+            } else {
+                "chevron-right"
+            })
+            .size(px(12.)),
+        )
 }
 
 fn card(tint: Hsla) -> Div {
@@ -804,7 +816,8 @@ impl ChatView {
                 .text_sm()
                 .hover(|el| el.bg(theme::card()))
                 .on_click(move |_, _, cx| v.update(cx, |this, cx| this.toggle(&k, cx)))
-                .child(icon(g, theme::faint()))
+                .line_height(relative(1.625))
+                .child(icon(g, theme::subtle()))
                 .child(
                     div()
                         .min_w_0()
@@ -812,7 +825,7 @@ impl ChatView {
                         .text_color(if shine {
                             theme::primary()
                         } else {
-                            theme::faint()
+                            theme::subtle()
                         })
                         .child(label),
                 )
@@ -1650,7 +1663,7 @@ impl ChatView {
                     )
                 })
                 .when(waiting, |el| {
-                    el.child(self.permission_buttons(&it.id, path.clone(), p, view))
+                    el.child(self.permission_buttons(&it.id, path.clone(), p, view, false))
                 })
                 .when(!waiting, |el| {
                     el.child(
@@ -1664,60 +1677,189 @@ impl ChatView {
             .into_any_element()
     }
 
-    /// permission_buttons answer a permission request, one button for each
-    /// of its options (PermissionActions).
+    /// permission_buttons answer a permission request (PermissionActions):
+    /// Deny, then Allow, the usual answer, with "Always allow …" and the
+    /// tool's other ways in a menu on its chevron. A plan's approval approves
+    /// on the mode chosen beside Plan. With `keys`, the Y and N it answers to
+    /// show on the buttons.
     pub(super) fn permission_buttons(
         &self,
         item: &str,
         path: String,
         p: &ChatPermission,
         view: &Entity<Self>,
+        keys: bool,
     ) -> AnyElement {
         let sending = self.answering.contains(item);
+        let planned = (!p.plan_approve.is_empty())
+            .then(|| p.options.iter().find(|o| o.id == p.plan_approve))
+            .flatten();
+        let approve = planned.or_else(|| p.options.iter().find(|o| o.kind == "allow_once"));
+        let always = if planned.is_some() {
+            None
+        } else {
+            p.options.iter().find(|o| o.kind == "allow_always")
+        };
+        let others: Vec<_> = match planned {
+            Some(pl) => p
+                .options
+                .iter()
+                .filter(|o| o.kind.starts_with("allow") && o.id != pl.id)
+                .cloned()
+                .collect(),
+            None => Vec::new(),
+        };
+        let deny = p
+            .options
+            .iter()
+            .find(|o| o.kind == "reject_once")
+            .or_else(|| p.options.iter().find(|o| o.kind.starts_with("reject")));
+        let approve_text = match planned {
+            None => t("chat.permission.allow"),
+            Some(pl) if pl.mode_kind == "full_access" => t("chat.plan.approveBypass"),
+            Some(_) => t("chat.plan.approve"),
+        };
+        let deny_text = if planned.is_some() {
+            t("chat.plan.keepPlanning")
+        } else {
+            t("chat.permission.deny")
+        };
+        let agent = self.agent_name.clone();
+        let action = self
+            .items
+            .iter()
+            .rev()
+            .find_map(|i| {
+                i.tool
+                    .as_ref()
+                    .filter(|tl| !p.call_id.is_empty() && tl.call_id == p.call_id)
+                    .map(|tl| tl.kind.clone())
+            })
+            .unwrap_or_default();
+        let answer = |option: String| {
+            let (v, item, path) = (view.clone(), item.to_string(), path.clone());
+            move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                v.update(cx, |this, cx| {
+                    this.answer(path.clone(), item.clone(), option.clone(), cx)
+                })
+            }
+        };
+        let split = always.is_some() || !others.is_empty();
         h_flex()
-            .gap_2()
+            .mt(px(10.))
             .flex_wrap()
-            .children(p.options.iter().map(|o| {
-                let key = match o.kind.as_str() {
-                    "allow_once" => Some("chat.permission.allow"),
-                    "allow_always" => Some("chat.permission.alwaysAllow"),
-                    "reject_once" => Some("chat.permission.deny"),
-                    "reject_always" => Some("chat.permission.alwaysDeny"),
-                    _ => None,
-                };
-                let label = match key {
-                    Some(k) if o.mode_kind.is_empty() => t(k),
-                    _ => o.name.clone(),
-                };
-                let (v, item, option, path) =
-                    (view.clone(), item.to_string(), o.id.clone(), path.clone());
-                let primary = o.kind == "allow_once";
-                div()
-                    .id(SharedString::from(format!("perm-{item}-{}", o.id)))
-                    .px_3()
-                    .py_1()
-                    .rounded_md()
-                    .text_sm()
-                    .bg(if primary {
-                        theme::accent()
-                    } else {
-                        theme::surface_strong()
-                    })
-                    .text_color(if primary {
-                        theme::on_brand()
-                    } else {
-                        theme::primary()
-                    })
-                    .when(sending, |el| el.opacity(0.5))
-                    .when(!sending, |el| {
-                        el.cursor_pointer().on_click(move |_, _, cx| {
-                            v.update(cx, |this, cx| {
-                                this.answer(path.clone(), item.clone(), option.clone(), cx)
-                            })
+            .justify_end()
+            .gap_1p5()
+            .when_some(deny, |el, d| {
+                el.child(
+                    h_flex()
+                        .id(SharedString::from(format!("perm-{item}-{}", d.id)))
+                        .h_7()
+                        .gap_1p5()
+                        .px(px(10.))
+                        .rounded_lg()
+                        .text_size(theme::text::UI)
+                        .text_color(theme::rose(200).opacity(0.9))
+                        .when(sending, |el| el.opacity(0.5))
+                        .when(!sending, |el| {
+                            el.cursor_pointer()
+                                .hover(|el| el.bg(theme::rose(400).opacity(0.1)))
+                                .on_click(answer(d.id.clone()))
                         })
-                    })
-                    .child(label)
-            }))
+                        .child(deny_text)
+                        .when(keys, |el| el.child(theme::key_cap("N"))),
+                )
+            })
+            .when_some(approve, |el, a| {
+                let menu = split.then(|| {
+                    let (always, others) = (always.cloned(), others.clone());
+                    let (agent, action) = (agent.clone(), action.clone());
+                    let (v, item, path) = (view.clone(), item.to_string(), path.clone());
+                    Button::new(SharedString::from(format!("perm-{item}-more")))
+                        .ghost()
+                        .compact()
+                        .h_7()
+                        .px_1p5()
+                        .rounded(gpui_component::button::ButtonRounded::None)
+                        .text_color(theme::on_bright())
+                        .icon(crate::icons::ic("chevron-down").size(px(14.)))
+                        .tooltip(t("chat.permission.moreChoices"))
+                        .dropdown_menu_with_anchor(Anchor::TopRight, move |mut menu, _, _| {
+                            menu = menu.min_w(px(224.));
+                            let pick = |option: String| {
+                                let (v, item, path) = (v.clone(), item.clone(), path.clone());
+                                move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                                    v.update(cx, |this, cx| {
+                                        this.answer(path.clone(), item.clone(), option.clone(), cx)
+                                    })
+                                }
+                            };
+                            if let Some(al) = &always {
+                                menu = menu.item(
+                                    PopupMenuItem::new(tv(
+                                        "chat.permission.alwaysFor",
+                                        &[("action", (&action).into()), ("agent", (&agent).into())],
+                                    ))
+                                    .icon(crate::icons::ic("check"))
+                                    .on_click(pick(al.id.clone())),
+                                );
+                            }
+                            for o in &others {
+                                menu = menu.item(
+                                    PopupMenuItem::new(o.name.clone())
+                                        .icon(crate::icons::ic("check"))
+                                        .on_click(pick(o.id.clone())),
+                                );
+                            }
+                            menu
+                        })
+                });
+                el.child(
+                    h_flex()
+                        .items_stretch()
+                        .child(
+                            h_flex()
+                                .id(SharedString::from(format!("perm-{item}-{}", a.id)))
+                                .h_7()
+                                .gap_1p5()
+                                .px_3()
+                                .map(|el| {
+                                    if split {
+                                        el.rounded_l_lg()
+                                    } else {
+                                        el.rounded_lg()
+                                    }
+                                })
+                                .bg(theme::amber(300))
+                                .text_size(theme::text::UI)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::on_bright())
+                                .when(sending, |el| el.opacity(0.6))
+                                .when(!sending, |el| {
+                                    el.cursor_pointer()
+                                        .hover(|el| el.bg(theme::amber(200)))
+                                        .on_click(answer(a.id.clone()))
+                                })
+                                .child(if sending {
+                                    t("chat.permission.sending")
+                                } else {
+                                    approve_text
+                                })
+                                .when(keys && !sending, |el| el.child(theme::key_cap("Y"))),
+                        )
+                        .children(menu.map(|m| {
+                            div()
+                                .flex()
+                                .rounded_r_lg()
+                                .overflow_hidden()
+                                .border_l_1()
+                                .border_color(black().opacity(0.2))
+                                .bg(theme::amber(300))
+                                .when(sending, |el| el.opacity(0.6))
+                                .child(m)
+                        })),
+                )
+            })
             .into_any_element()
     }
 

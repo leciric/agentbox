@@ -1287,14 +1287,19 @@ impl ChatView {
         }
     }
 
-    fn option_button(&self, o: &ChatOption, label: String, cx: &mut Context<Self>) -> AnyElement {
+    /// option_button is OptionMenu: `fold` is the composer's width under
+    /// which its label folds to its icon (its @max-[…]/composer:hidden).
+    fn option_button(
+        &self,
+        o: &ChatOption,
+        label: String,
+        fold: Option<f32>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let folded = icon_of(o).is_some() && fold.is_some_and(|f| self.composer.width < f);
         let view = cx.entity().downgrade();
         let (id, value, choices) = (o.id.clone(), o.value.clone(), o.choices.clone());
-        let icon = if o.category == "thought_level" || o.id.contains("effort") {
-            Some("brain")
-        } else {
-            None
-        };
+        let icon = icon_of(o);
         option_chip(Button::new(SharedString::from(format!("opt-{}", o.id))))
             .child(
                 // The Button's label sets its own size: text-ui here.
@@ -1303,7 +1308,9 @@ impl ChatView {
                     .text_size(theme::text::UI)
                     .line_height(px(19.5))
                     .children(icon.map(|i| crate::icons::ic(i).size(px(16.))))
-                    .child(div().max_w(px(160.)).truncate().child(label))
+                    .when(!folded, |el| {
+                        el.child(div().max_w(px(160.)).truncate().child(label))
+                    })
                     .child(
                         div()
                             .text_color(theme::faint())
@@ -1567,7 +1574,7 @@ impl ChatView {
             } else {
                 name_of(e)
             };
-            row = row.child(self.option_button(e, label, cx));
+            row = row.child(self.option_button(e, label, Some(576.), cx));
         }
         let plan = opts
             .iter()
@@ -1609,7 +1616,7 @@ impl ChatView {
         if let Some(m) = find("mode")
             && (plan.is_none() || m.choices.len() > 1)
         {
-            row = row.child(self.option_button(m, name_of(m), cx));
+            row = row.child(self.option_button(m, name_of(m), Some(672.), cx));
         }
         let others: Vec<&ChatOption> = opts
             .iter()
@@ -1622,7 +1629,7 @@ impl ChatView {
             })
             .collect();
         for o in others {
-            row = row.child(self.option_button(o, format!("{}: {}", o.name, name_of(o)), cx));
+            row = row.child(self.option_button(o, format!("{}: {}", o.name, name_of(o)), None, cx));
         }
         if self.session.state == "starting"
             && !opts
@@ -1637,45 +1644,79 @@ impl ChatView {
                     .child(t("chat.options.loading")),
             );
         }
-        if self.session.context_size > 0 && self.session.context_used > 0 {
-            let pct = (self.session.context_used * 100 / self.session.context_size).min(100);
-            let tip = tv(
-                "chat.context.used",
-                &[
-                    ("used", tokens(self.session.context_used).into()),
-                    ("total", tokens(self.session.context_size).into()),
-                ],
-            );
-            row = row.child(
-                div()
-                    .id("context-meter")
-                    .px_1p5()
-                    .text_xs()
-                    .text_color(if pct >= 80 {
-                        theme::starting()
-                    } else {
-                        theme::faint()
-                    })
-                    .child(format!("{pct}%"))
-                    .tooltip(move |w, cx| {
-                        gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
-                    }),
-            );
-        }
         row.into_any_element()
     }
 
+    /// banner is Attached: a card on the composer's top edge, 20px in from
+    /// each side, its foot tucked 16px under the composer (-mb-4), in a tone:
+    /// amber for what asks, rose for what failed, neutral otherwise.
     fn banner(tint: Hsla) -> Div {
+        let (border, bg) = if tint == theme::starting() {
+            (
+                theme::amber(300).opacity(0.25),
+                theme::attached_warning().opacity(0.9),
+            )
+        } else if tint == theme::error() {
+            (
+                theme::rose(400).opacity(0.25),
+                theme::attached_danger().opacity(0.9),
+            )
+        } else {
+            (theme::line_strong(), theme::attached_neutral().opacity(0.9))
+        };
         v_flex()
-            .gap_1()
-            .px_3()
-            .py_2()
-            .rounded_t_xl()
+            .mx(px(20.))
+            .mb(px(-16.))
+            .px(px(14.))
+            .pt(px(10.))
+            .pb_6()
+            .rounded_t(px(16.))
             .border_1()
             .border_b_0()
-            .border_color(tint.opacity(0.3))
-            .bg(tint.opacity(0.07))
-            .text_sm()
+            .border_color(border)
+            .bg(bg)
+            .text_size(theme::text::UI)
+    }
+
+    /// context_meter is ContextMeter: a ring of how full the context window
+    /// is, once it's a fifth full, amber past 85%.
+    fn context_meter(&self) -> Option<AnyElement> {
+        let s = &self.session;
+        if s.context_size <= 0 {
+            return None;
+        }
+        let fraction = (s.context_used as f64 / s.context_size as f64).min(1.);
+        if fraction < 0.2 {
+            return None;
+        }
+        let tip = tv(
+            "chat.context.used",
+            &[
+                ("used", tokens(s.context_used).into()),
+                ("total", tokens(s.context_size).into()),
+            ],
+        );
+        let arc = if fraction > 0.85 {
+            theme::amber(400)
+        } else {
+            theme::brand(400)
+        };
+        Some(
+            div()
+                .id("context-meter")
+                .flex_none()
+                .size_7()
+                .flex()
+                .items_center()
+                .justify_center()
+                .tooltip(move |w, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
+                })
+                .child(
+                    img(ring_image(fraction.max(0.02), theme::surface_strong(), arc)).size(px(18.)),
+                )
+                .into_any_element(),
+        )
     }
 
     /// render_review is a project lead's "N agents ready to review" over its
@@ -1794,6 +1835,8 @@ impl ChatView {
             let detail = if approval {
                 p.detail.clone()
             } else {
+                // The tool call's command or first file; the request's own
+                // detail only for an approval (PermissionBanner).
                 tool.as_ref()
                     .map(|t| {
                         if t.command.is_empty() {
@@ -1802,7 +1845,7 @@ impl ChatView {
                             t.command.clone()
                         }
                     })
-                    .unwrap_or_else(|| p.detail.clone())
+                    .unwrap_or_default()
             };
             let diffs = if p.diffs.is_empty() {
                 tool.as_ref().map(|t| t.diffs.clone()).unwrap_or_default()
@@ -1836,44 +1879,69 @@ impl ChatView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .text_xs()
-                            .child(div().text_color(theme::starting()).child("!"))
+                            .text_size(px(12.))
+                            .line_height(px(18.))
+                            .child(
+                                crate::icons::ic("shield-alert")
+                                    .size(px(14.))
+                                    .text_color(theme::amber(300)),
+                            )
                             .child(
                                 div()
-                                    .flex_1()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::primary())
+                                    .text_color(theme::amber(100))
                                     .child(heading),
                             )
                             .when(pending.len() > 1, |el| {
-                                el.child(div().text_color(theme::faint()).child(tv(
-                                    "chat.permission.oneOf",
-                                    &[("count", pending.len().into())],
-                                )))
+                                el.child(
+                                    div()
+                                        .ml_auto()
+                                        .text_color(theme::amber(200).opacity(0.6))
+                                        .child(tv(
+                                            "chat.permission.oneOf",
+                                            &[("count", pending.len().into())],
+                                        )),
+                                )
                             }),
                     )
-                    .child(div().text_color(theme::primary()).child(p.title.clone()))
-                    .when(!detail.is_empty() && !p.title.contains(&detail), |el| {
+                    .child(
+                        div()
+                            .mt_1()
+                            .text_size(theme::text::UI)
+                            .line_height(px(19.5))
+                            .text_color(theme::primary())
+                            .child(p.title.clone()),
+                    )
+                    .when(approval && !detail.is_empty(), |el| {
                         el.child(
                             div()
-                                .max_h(px(80.))
-                                .overflow_hidden()
-                                .text_xs()
-                                .font_family(theme::mono())
+                                .mt_0p5()
+                                .text_size(px(12.))
                                 .text_color(theme::muted())
                                 .child(detail.clone()),
                         )
                     })
+                    .when(
+                        !approval && !detail.is_empty() && !p.title.contains(&detail),
+                        |el| {
+                            el.child(
+                                div()
+                                    .mt_1()
+                                    .max_h(px(80.))
+                                    .overflow_hidden()
+                                    .text_size(px(12.))
+                                    .font_family(theme::mono())
+                                    .text_color(theme::muted())
+                                    .child(detail.clone()),
+                            )
+                        },
+                    )
                     .children(
                         diffs.iter().take(3).enumerate().map(|(i, d)| {
                             super::items::diff_block(format!("pd-{}-{i}", req.id), d)
                         }),
                     )
-                    .child(
-                        div()
-                            .pt_1()
-                            .child(self.permission_buttons(&req.id, path, &p, &view)),
-                    )
+                    .child(self.permission_buttons(&req.id, path, &p, &view, true))
                     .into_any_element(),
             );
         }
@@ -2030,75 +2098,139 @@ impl ChatView {
         None
     }
 
-    /// render_tasks is the plan's tasks, a chip that opens to the list (TasksBadge).
-    fn render_tasks(&self, cx: &mut Context<Self>) -> Option<(AnyElement, Option<AnyElement>)> {
+    /// render_tasks is TasksBadge: the plan on the composer's top edge, its
+    /// task under way, how many are done and a bar of each, opening to the list.
+    fn render_tasks(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let plan = self.items.iter().rev().find(|i| i.kind == "plan")?;
         if plan.plan.is_empty() {
             return None;
         }
         let done = plan.plan.iter().filter(|e| e.status == "completed").count();
         let all = plan.plan.len();
+        let finished = done == all;
+        let current = plan
+            .plan
+            .iter()
+            .find(|e| e.status == "in_progress")
+            .or_else(|| plan.plan.iter().find(|e| e.status == "pending"))
+            .map(|e| e.content.clone())
+            .unwrap_or_default();
         let open = self.composer.tasks_open;
-        let chip = div()
+        let head = h_flex()
             .id("tasks")
-            .px_2()
-            .py_0p5()
-            .rounded_md()
+            .w_full()
+            .gap_2()
+            .text_size(px(12.))
+            .line_height(px(18.))
             .cursor_pointer()
-            .text_xs()
-            .text_color(if done == all {
-                theme::running()
-            } else {
-                theme::muted()
-            })
-            .hover(|el| el.bg(theme::surface_strong()))
-            .child(if done == all {
-                format!("✓ {}", t("chat.tasks.allDone"))
-            } else {
-                format!("{} {done}/{all}", t("chat.tasks.label"))
-            })
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.composer.tasks_open = !this.composer.tasks_open;
                 cx.notify();
             }))
-            .into_any_element();
+            .child(
+                crate::icons::ic("list-todo")
+                    .size(px(14.))
+                    .text_color(theme::muted()),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(theme::subtle())
+                    .child(t("chat.tasks.label")),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .truncate()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::secondary())
+                    .child(if finished {
+                        t("chat.tasks.allDone")
+                    } else {
+                        current
+                    }),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(if finished {
+                        theme::emerald(400)
+                    } else {
+                        theme::subtle()
+                    })
+                    .child(format!("{done}/{all}")),
+            )
+            .child(
+                h_flex()
+                    .flex_none()
+                    .gap_0p5()
+                    .children(plan.plan.iter().take(10).map(|e| {
+                        div()
+                            .h(px(3.))
+                            .w(px(10.))
+                            .rounded_full()
+                            .bg(match e.status.as_str() {
+                                "completed" => theme::emerald(400),
+                                "in_progress" => theme::brand(400),
+                                _ => theme::ghost(),
+                            })
+                    })),
+            )
+            .child(
+                crate::icons::ic(if open { "chevron-up" } else { "chevron-down" })
+                    .size(px(14.))
+                    .text_color(theme::subtle()),
+            );
         let list = open.then(|| {
-            v_flex()
-                .gap_0p5()
-                .px_3()
-                .py_2()
-                .rounded_lg()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::card())
-                .text_sm()
-                .children(plan.plan.iter().map(|e| {
-                    let (mark, color) = match e.status.as_str() {
-                        "completed" => ("✓", theme::running()),
-                        "in_progress" => ("●", theme::starting()),
-                        _ => ("○", theme::faint()),
-                    };
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_color(color)
-                                .child(crate::icons::of(mark)),
-                        )
-                        .child(
-                            div()
-                                .text_color(if e.status == "completed" {
-                                    theme::muted()
-                                } else {
-                                    theme::primary()
-                                })
-                                .child(e.content.clone()),
-                        )
-                }))
-                .into_any_element()
+            v_flex().mt_2().gap_1().children(plan.plan.iter().map(|e| {
+                let (color, text) = match e.status.as_str() {
+                    "completed" => (theme::emerald(400), theme::subtle()),
+                    "in_progress" => (theme::brand(300), theme::primary()),
+                    _ => (theme::faint(), theme::muted()),
+                };
+                h_flex()
+                    .items_start()
+                    .gap_2()
+                    .text_size(theme::text::UI)
+                    .line_height(relative(1.625))
+                    .child(
+                        div()
+                            .flex_none()
+                            .mt(px(3.))
+                            .size(px(14.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(color)
+                            .map(|el| match e.status.as_str() {
+                                "completed" => el.child(crate::icons::ic("check").size(px(14.))),
+                                "in_progress" => {
+                                    el.child(div().size_1p5().rounded_full().bg(color))
+                                }
+                                _ => el.child(
+                                    div()
+                                        .size_1p5()
+                                        .rounded_full()
+                                        .border_1()
+                                        .border_color(color),
+                                ),
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_color(text)
+                            .when(e.status == "completed", |el| el.line_through())
+                            .child(e.content.clone()),
+                    )
+            }))
         });
-        Some((chip, list))
+        Some(
+            Self::banner(theme::muted())
+                .child(head)
+                .children(list)
+                .into_any_element(),
+        )
     }
 
     pub(super) fn render_composer(
@@ -2209,10 +2341,7 @@ impl ChatView {
         }
         let target = self.render_target(cx);
         let tasks = self.render_tasks(cx);
-        let (tasks_chip, tasks_list) = match tasks {
-            Some((c, l)) => (Some(c), l),
-            None => (None, None),
-        };
+        let meter = self.context_meter();
         let menu_el = (!menu.is_empty()).then(|| {
             let mention = !token.starts_with('/');
             v_flex()
@@ -2413,9 +2542,9 @@ impl ChatView {
                         .right_0()
                         .h_0(),
                     )
-                    .children(tasks_list)
                     .children(menu_el)
                     .children(review)
+                    .children(tasks)
                     .children(above)
                     .child(
                         v_flex()
@@ -2518,7 +2647,7 @@ impl ChatView {
                                             )),
                                     )
                                     .child(div().flex_1().min_w_0().child(self.render_options(cx)))
-                                    .children(tasks_chip)
+                                    .children(meter)
                                     .when(working, |el| {
                                         el.child(super::btn(
                                             "stop-turn",
@@ -2692,4 +2821,49 @@ mod tests {
             ["desktop/src/Composer.tsx"]
         );
     }
+}
+
+/// icon_of is an option's icon in its chip: effort's brain.
+fn icon_of(o: &ChatOption) -> Option<&'static str> {
+    (o.category == "thought_level" || o.id.contains("effort")).then_some("brain")
+}
+
+thread_local! {
+    static RINGS: std::cell::RefCell<std::collections::HashMap<(u32, u32, u32), Arc<Image>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// ring_image is ContextMeter's ring as the SVG Electron draws: r 7 in an
+/// 18 box, a 2px track and the filled share over it from the top, round-capped.
+fn ring_image(fraction: f64, track: Hsla, arc: Hsla) -> Arc<Image> {
+    let key = (
+        (fraction * 1000.).round() as u32,
+        rgb_key(track),
+        rgb_key(arc),
+    );
+    RINGS.with(|r| {
+        r.borrow_mut()
+            .entry(key)
+            .or_insert_with(|| {
+                let c = 2. * std::f64::consts::PI * 7.;
+                let svg = format!(
+                    r#"<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 18 18"><g transform="rotate(-90 9 9)"><circle cx="9" cy="9" r="7" fill="none" stroke="{}" stroke-opacity="{}" stroke-width="2"/><circle cx="9" cy="9" r="7" fill="none" stroke="{}" stroke-opacity="{}" stroke-width="2" stroke-linecap="round" stroke-dasharray="{c}" stroke-dashoffset="{}"/></g></svg>"#,
+                    theme::hex(track),
+                    track.a,
+                    theme::hex(arc),
+                    arc.a,
+                    c * (1. - fraction)
+                );
+                Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()))
+            })
+            .clone()
+    })
+}
+
+fn rgb_key(c: Hsla) -> u32 {
+    let r = c.to_rgb();
+    ((r.r * 255.) as u32) << 24
+        | ((r.g * 255.) as u32) << 16
+        | ((r.b * 255.) as u32) << 8
+        | (r.a * 255.) as u32
 }
