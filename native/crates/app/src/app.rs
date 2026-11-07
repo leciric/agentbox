@@ -1429,6 +1429,7 @@ impl Render for AppView {
             )
             // Last, so it draws over the rest.
             .children(self.render_drawer(cx))
+            .children(self.render_desktop_full(cx))
             .children(overlay)
             .children(self.review.clone())
             .children(self.render_pull(cx))

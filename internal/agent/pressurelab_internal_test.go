@@ -17,6 +17,7 @@ package agent
 // daemon's.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -147,7 +148,7 @@ func TestPressureLab(t *testing.T) {
 			if err := freezeRun(root, r.Agent, r.Key, true, writeCgroup); err != nil {
 				t.Fatal(err)
 			}
-			go func(instance, key string) { _ = reclaimRun(root, instance, key, writeCgroup) }(r.Agent, r.Key)
+			go func(instance, key string) { _ = reclaimRun(context.Background(), root, instance, key, writeReclaim) }(r.Agent, r.Key)
 		}
 		for _, r := range acts.Resume {
 			resumes++

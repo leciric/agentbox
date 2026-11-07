@@ -72,6 +72,11 @@ func (s *Server) reclaimIdleSoon(ctx context.Context) {
 	s.idle.mu.Unlock()
 	go func() {
 		ctx := context.WithoutCancel(ctx)
+		// It is idle reclaim's: off, as it is by default, nothing is
+		// pushed out. Before 2026-11-06 it ran whatever the setting said.
+		if on, _, _, err := s.store.IdleReclaim(ctx); err != nil || !on {
+			return
+		}
 		agents, err := s.store.Agents(ctx, "")
 		if err != nil {
 			return
@@ -90,7 +95,20 @@ func (s *Server) reclaimIdleSoon(ctx context.Context) {
 			if s.chatBusy(ref) || s.heavyHeld(ref) {
 				continue
 			}
-			before, after, err := s.idleCgroups.Reclaim(a.Instance)
+			// Pushed out lately: what it holds now is what it pages back in.
+			// Asked again every 30 seconds while builds wait, it was
+			// reclaimed over and over.
+			s.idle.mu.Lock()
+			last := s.idle.reclaimed[ref]
+			recent := time.Since(last) < idleReclaimAgain
+			if !recent {
+				s.idle.reclaimed[ref] = time.Now()
+			}
+			s.idle.mu.Unlock()
+			if recent || !s.mayReclaim(ctx, a.Instance) {
+				continue
+			}
+			before, after, err := s.idleCgroups.Reclaim(s.background(), a.Instance)
 			if err != nil {
 				continue
 			}
@@ -103,5 +121,9 @@ func (s *Server) reclaimIdleSoon(ctx context.Context) {
 	}()
 }
 
-// idleReclaimSoonEvery is the least time between two reclaimIdleSoon.
-const idleReclaimSoonEvery = 30 * time.Second
+// idleReclaimSoonEvery is the least time between two reclaimIdleSoon, and
+// idleReclaimAgain the least between two reclaims of one agent by it.
+const (
+	idleReclaimSoonEvery = 30 * time.Second
+	idleReclaimAgain     = 10 * time.Minute
+)

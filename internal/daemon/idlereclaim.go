@@ -46,7 +46,7 @@ const idleReclaimInterval = time.Minute
 type idleCgroups interface {
 	Freeze(instance string) (*agent.IdleFreeze, error)
 	Thaw(instance string, f *agent.IdleFreeze) error
-	Reclaim(instance string) (before, after int64, err error)
+	Reclaim(ctx context.Context, instance string) (before, after int64, err error)
 }
 
 type agentIdleCgroups struct{}
@@ -57,8 +57,8 @@ func (agentIdleCgroups) Freeze(instance string) (*agent.IdleFreeze, error) {
 func (agentIdleCgroups) Thaw(instance string, f *agent.IdleFreeze) error {
 	return agent.ThawIdle(instance, f)
 }
-func (agentIdleCgroups) Reclaim(instance string) (int64, int64, error) {
-	return agent.ReclaimIdle(instance)
+func (agentIdleCgroups) Reclaim(ctx context.Context, instance string) (int64, int64, error) {
+	return agent.ReclaimIdle(ctx, instance)
 }
 
 // idleState is idle reclaim's, under mu.
@@ -236,7 +236,10 @@ func (s *Server) stepIdleAgent(ctx context.Context, m *agent.Manager, st agent.S
 		s.idle.reclaimed[ref] = now
 		s.idle.mu.Unlock()
 		go func() {
-			before, after, err := s.idleCgroups.Reclaim(st.Instance)
+			if !s.mayReclaim(context.WithoutCancel(ctx), st.Instance) {
+				return
+			}
+			before, after, err := s.idleCgroups.Reclaim(s.background(), st.Instance)
 			if err != nil {
 				s.logf("idle reclaim: pushing %s's memory out: %v", ref, err)
 				return
@@ -271,7 +274,10 @@ func (s *Server) freezeIdle(ctx context.Context, a state.Agent, idleFor time.Dur
 	s.idle.mu.Unlock()
 	s.countIdleFreeze()
 	go func() {
-		before, after, err := s.idleCgroups.Reclaim(a.Instance)
+		if !s.mayReclaim(context.WithoutCancel(ctx), a.Instance) {
+			return
+		}
+		before, after, err := s.idleCgroups.Reclaim(s.background(), a.Instance)
 		if err != nil {
 			s.logf("idle reclaim: pushing %s's memory out: %v", a.Ref(), err)
 		}

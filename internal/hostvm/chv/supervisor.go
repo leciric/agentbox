@@ -554,12 +554,24 @@ func (s *supervisor) trim(ctx context.Context, d memDecision) {
 }
 
 // trimScript reclaims up to n bytes from the guest's root cgroup, which
-// takes inactive pages first, with swappiness=0 so it takes them from the
-// page cache rather than swapping, then compacts its free memory. Reclaiming
-// less than asked fails the write, which isn't an error here.
+// takes the coldest pages first (n is never more than its inactive file
+// pages, so that is mostly the page cache), then compacts its free memory.
+// Reclaiming less than asked fails the write, which isn't an error here.
+//
+// The write is bounded the way the daemon's are (agent/reclaim.go): skipped
+// while any other memory.reclaim writer runs in the guest, and tee killed by
+// timeout(1), as root, after trimWriteTimeout, so it can't outlive the ssh
+// session the way the writers found spinning on 2026-11-06 did. No
+// swappiness=0: on a guest with little cache left it made the kernel scan
+// and rescan the same few file pages, which the machines fault straight back
+// in, rather than fall short and stop.
 func trimScript(n int64) string {
-	return fmt.Sprintf("echo '%d swappiness=0' | sudo -n tee /sys/fs/cgroup/memory.reclaim >/dev/null 2>&1; echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null", n)
+	return fmt.Sprintf("pgrep -f '^tee /sys/fs/cgroup/.*memory[.]reclaim' >/dev/null || echo %d | sudo -n timeout --foreground -s KILL %d tee /sys/fs/cgroup/memory.reclaim >/dev/null 2>&1; echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null", n, int(trimWriteTimeout/time.Second))
 }
+
+// trimWriteTimeout is how long a trim's write to memory.reclaim may take
+// before it is killed: well inside the ssh's own 30 seconds.
+const trimWriteTimeout = 10 * time.Second
 
 // reclaimScript drops the guest's page cache and the kernel's reclaimable
 // caches (dentries, inodes), then compacts its free memory into whole blocks,

@@ -507,6 +507,18 @@ pub async fn route(
                 "stop" => "stopped",
                 _ => "paused",
             };
+            // The machine's desktop goes with it, and comes back a moment
+            // after it starts (Manager.EnsureBrowser).
+            match *action {
+                "stop" => crate::desktop::stop().await,
+                "start" => {
+                    tokio::spawn(async {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        crate::desktop::start().await;
+                    });
+                }
+                _ => {}
+            }
             match set_state(fake, &format!("{p}/{a}"), state) {
                 Some(agent) => json(StatusCode::OK, &agent),
                 None => not_found(&path),
@@ -712,24 +724,19 @@ pub async fn route(
                 },
             )
         }
-        // Its desktop: up, with a page open.
-        (&Method::GET, ["v1", "agents", p, a, "browser"])
-        | (&Method::POST, ["v1", "agents", p, a, "browser", "start"])
+        // Its desktop: this machine's VNC server (desktop.rs), up or not.
+        (&Method::GET, ["v1", "agents", p, a, "browser"]) if in_fleet(p, a) => {
+            json(StatusCode::OK, &crate::desktop::status().await)
+        }
+        (&Method::POST, ["v1", "agents", p, a, "browser", action @ ("start" | "stop")])
             if in_fleet(p, a) =>
         {
-            json(
-                StatusCode::OK,
-                &BrowserStatus {
-                    display: true,
-                    running: true,
-                    version: "Chromium 131".into(),
-                    pages: vec![BrowserPage {
-                        id: "1".into(),
-                        url: "http://localhost:5173/settings".into(),
-                        title: "AgentBox · Settings".into(),
-                    }],
-                },
-            )
+            if *action == "start" {
+                crate::desktop::start().await;
+            } else {
+                crate::desktop::stop().await;
+            }
+            json(StatusCode::OK, &crate::desktop::status().await)
         }
         (&Method::GET, ["v1", "agents", p, a, "media", "record"]) if in_fleet(p, a) => {
             let s = fake

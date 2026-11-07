@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -403,5 +405,94 @@ func TestStoppedAgentsAreNotRescanned(t *testing.T) {
 	write("four.txt")
 	if c := stopped(a); c.Files != 3 {
 		t.Fatalf("stopped again: %+v, want the last read", c)
+	}
+}
+
+// TestSweepsDontRescanStoppedWorktrees: on 2026-11-06 `git add --all` ran in
+// every stopped worktree of a project at once, from the cleanup pass (every
+// 5 minutes) and the stopped-machines pass, which measured each agent from
+// scratch every time. Now a stopped agent is measured once after it stops
+// and again only when it ran or its worktree moved; the check right before
+// removing still reads it now; and at most idleMeasureSlots are measured at
+// once. Not parallel: it swaps measureIdleWorktree.
+func TestSweepsDontRescanStoppedWorktrees(t *testing.T) {
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	base, _ := repo.ResolveCommit("main")
+	var sts []agent.Status
+	for i := range 6 {
+		name := fmt.Sprintf("agent-%02d", 50+i)
+		worktree := filepath.Join(t.TempDir(), name)
+		if err := repo.AddWorktree(worktree, "agentbox/"+name, base, "test"); err != nil {
+			t.Fatal(err)
+		}
+		sts = append(sts, agent.Status{Agent: state.Agent{Name: name, Worktree: worktree, BaseCommit: base}, State: "stopped", StartedAt: time.Now().Add(-time.Hour)})
+	}
+	var mu sync.Mutex
+	counts := map[string]int{}
+	inFlight, most := 0, 0
+	saved := measureIdleWorktree
+	t.Cleanup(func() { measureIdleWorktree = saved })
+	measureIdleWorktree = func(worktree, base string) (string, bool, error) {
+		mu.Lock()
+		counts[worktree]++
+		inFlight++
+		most = max(most, inFlight)
+		mu.Unlock()
+		time.Sleep(30 * time.Millisecond)
+		defer func() { mu.Lock(); inFlight--; mu.Unlock() }()
+		return saved(worktree, base)
+	}
+	sweep := func() {
+		var wg sync.WaitGroup
+		for _, st := range sts {
+			wg.Go(func() {
+				if _, err := changesFor(st); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+		wg.Wait()
+	}
+	count := func(st agent.Status) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return counts[st.Worktree]
+	}
+
+	for range 3 {
+		sweep()
+	}
+	for _, st := range sts {
+		if n := count(st); n != 1 {
+			t.Errorf("%s measured %d times over three sweeps, want once", st.Name, n)
+		}
+	}
+	if most > idleMeasureSlots {
+		t.Errorf("%d stopped worktrees measured at once, want at most %d", most, idleMeasureSlots)
+	}
+
+	// It started and stopped again since: measured once more.
+	sts[0].StartedAt = time.Now()
+	sweep()
+	if n := count(sts[0]); n != 2 {
+		t.Errorf("after it ran again: measured %d times, want 2", n)
+	}
+	// Seen running by a sweep, then stopped: once more.
+	running := sts[1]
+	running.State = "running"
+	if _, err := changesFor(running); err != nil {
+		t.Fatal(err)
+	}
+	sweep()
+	if n := count(sts[1]); n != 2 {
+		t.Errorf("after a sweep saw it running: measured %d times, want 2", n)
+	}
+	// Right before removing: read now.
+	if _, err := freshChanges(sts[2]); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(sts[2]); n != 2 {
+		t.Errorf("the check before removing: measured %d times, want 2", n)
 	}
 }
