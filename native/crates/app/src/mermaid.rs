@@ -149,6 +149,18 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
         .into_any_element()
 }
 
+/// HANG is how much wider than its column chat Markdown is laid out, its
+/// blocks drawn back inside it: a space at 14px. GPUI wraps a line once it
+/// and the space after it pass the width, where Chromium lets a line's
+/// trailing space hang past the edge, so a line Electron fits exactly
+/// would lose its last word here.
+pub const HANG: Pixels = px(4.);
+
+/// in_column is a custom block drawn back inside the column (see [HANG]).
+fn in_column(block: AnyElement) -> AnyElement {
+    div().w_full().pr(HANG).child(block).into_any_element()
+}
+
 /// with_mermaid makes a TextView draw ```mermaid fences as diagrams, and
 /// ```html preview fences as pages in a webview (webview.rs).
 pub fn with_mermaid(view: TextView) -> TextView {
@@ -197,7 +209,7 @@ pub fn with_mermaid(view: TextView) -> TextView {
         })
         .markdown_block_renderer(CODE, |node, _, _| {
             let lang = node.data::<String>().cloned().unwrap_or_default();
-            code_block(&lang, node.as_text())
+            in_column(code_block(&lang, node.as_text()))
         })
         .markdown_block_renderer(NODE, |node, _, _| {
             let src = node.as_text().to_string();
@@ -208,7 +220,7 @@ pub fn with_mermaid(view: TextView) -> TextView {
                 .bg(theme::card())
                 .border_1()
                 .border_color(theme::line());
-            match rendered(&src) {
+            in_column(match rendered(&src) {
                 Ok(image) => block.child(img(image).max_w_full()).into_any_element(),
                 Err(_) => block
                     .text_xs()
@@ -216,49 +228,53 @@ pub fn with_mermaid(view: TextView) -> TextView {
                     .text_color(theme::muted())
                     .child(src)
                     .into_any_element(),
-            }
+            })
         })
-        .markdown_block_renderer(HTML, |node, window, _| {
-            use std::hash::{Hash as _, Hasher as _};
-            let src = node.as_text().to_string();
-            let card = div()
-                .my_2()
-                .rounded_lg()
-                .overflow_hidden()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::card());
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            src.hash(&mut h);
-            let id = format!("html-{:x}", h.finish());
-            // Wayland (or no child webviews): the page as a picture, drawn offscreen.
-            #[cfg(target_os = "linux")]
-            if crate::snapshot::wanted(window) && !crate::snapshot::failed(&id) {
-                return card
-                    .child(crate::snapshot::html_snapshot(id, src))
-                    .into_any_element();
-            }
-            #[cfg(not(target_os = "linux"))]
-            let _ = window;
-            if !crate::webview::available() {
-                // No webview here (no GTK, or the page failed): its source instead.
-                return card
-                    .child(
-                        div()
-                            .pb_2()
-                            .text_color(theme::faint())
-                            .child(agentbox_i18n::t("native.preview.source")),
-                    )
-                    .p_3()
-                    .text_xs()
-                    .font_family(crate::theme::mono())
-                    .text_color(theme::muted())
-                    .child(src)
-                    .into_any_element();
-            }
-            card.child(crate::webview::html_preview(id, src, px(260.)))
-                .into_any_element()
-        })
+        .markdown_block_renderer(HTML, |node, window, _| in_column(html_block(node, window)))
+}
+
+/// html_block is a ```html preview fence's page: a webview, or a picture
+/// of it, or its source where neither can be.
+fn html_block(node: &MarkdownNode, window: &mut Window) -> AnyElement {
+    use std::hash::{Hash as _, Hasher as _};
+    let src = node.as_text().to_string();
+    let card = div()
+        .my_2()
+        .rounded_lg()
+        .overflow_hidden()
+        .border_1()
+        .border_color(theme::line())
+        .bg(theme::card());
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    src.hash(&mut h);
+    let id = format!("html-{:x}", h.finish());
+    // Wayland (or no child webviews): the page as a picture, drawn offscreen.
+    #[cfg(target_os = "linux")]
+    if crate::snapshot::wanted(window) && !crate::snapshot::failed(&id) {
+        return card
+            .child(crate::snapshot::html_snapshot(id, src))
+            .into_any_element();
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = window;
+    if !crate::webview::available() {
+        // No webview here (no GTK, or the page failed): its source instead.
+        return card
+            .child(
+                div()
+                    .pb_2()
+                    .text_color(theme::faint())
+                    .child(agentbox_i18n::t("native.preview.source")),
+            )
+            .p_3()
+            .text_xs()
+            .font_family(crate::theme::mono())
+            .text_color(theme::muted())
+            .child(src)
+            .into_any_element();
+    }
+    card.child(crate::webview::html_preview(id, src, px(260.)))
+        .into_any_element()
 }
 
 /// is_preview is a ```html preview fence: a page to show, not code.

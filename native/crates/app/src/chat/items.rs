@@ -831,7 +831,9 @@ impl ChatView {
             .text_color(theme::tertiary())
             // A reply streaming in since it started here eases in; one already
             // streaming when the chat loaded is drawn as it is.
-            .child(
+            // Laid out a space wider than the column, its blocks drawn back
+            // in (mermaid::HANG): lines wrap where Chromium wraps them.
+            .child(div().mr(-crate::mermaid::HANG).child(
                 if let Some(shown) = self.shown.get(&it.id).filter(|_| it.streaming) {
                     super::stream::reveal(&it.id, &it.text, shown.clone())
                 } else {
@@ -843,7 +845,7 @@ impl ChatView {
                     .text_color(theme::tertiary())
                     .into_any_element()
                 },
-            )
+            ))
             .when(last, |el| {
                 el.child(div().mt_1p5().child(self.meta(it, false)))
             });
