@@ -4,7 +4,10 @@
 # theme. The comments this script posted before are deleted first, so the
 # pull request shows only the latest run.
 #
-#   native/scripts/parity-comment.sh <pr-number>
+#   native/scripts/parity-comment.sh <pr-number> [scores-file]
+#
+# scores-file defaults to parity-out/scores.txt; a copy is read, so a run
+# that starts meanwhile doesn't change it underfoot.
 set -euo pipefail
 
 pr=$1
@@ -14,6 +17,7 @@ marker='<!-- parity-run -->'
 tmp=${TMPDIR:-/tmp}/parity-comment.$$
 mkdir -p "$tmp"
 trap 'rm -rf "$tmp"' EXIT
+cp "${2:-$out/scores.txt}" "$tmp/scores.txt"
 
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 for id in $(gh api "repos/$repo/issues/$pr/comments" --paginate -q ".[] | select(.body | contains(\"$marker\")) | .id"); do
@@ -21,9 +25,9 @@ for id in $(gh api "repos/$repo/issues/$pr/comments" --paginate -q ".[] | select
 done
 
 commit=$(git -C "$here" rev-parse --short HEAD)
-for theme in $(awk '{split($1, p, "-"); for (i in p) if (p[i] == "dark" || p[i] == "light") print p[i]}' "$out/scores.txt" | sort -u); do
-  pass=$(grep -c -- "-$theme-.* ok$" "$out/scores.txt" || true)
-  total=$(grep -c -- "-$theme-" "$out/scores.txt" || true)
+for theme in $(awk '{split($1, p, "-"); for (i in p) if (p[i] == "dark" || p[i] == "light") print p[i]}' "$tmp/scores.txt" | sort -u); do
+  pass=$(grep -c -- "-$theme-.* ok$" "$tmp/scores.txt" || true)
+  total=$(grep -c -- "-$theme-" "$tmp/scores.txt" || true)
   body=$tmp/$theme.md
   {
     echo "$marker"
@@ -39,7 +43,7 @@ for theme in $(awk '{split($1, p, "-"); for (i in p) if (p[i] == "dark" || p[i] 
     mark=$([ "$verdict" = ok ] && echo "✅" || echo "❌")
     printf '**%s** %s %s\n\n![%s](%s)\n\n' "$name" "$score" "$mark" "$name $score" "$jpg" >>"$body"
     args+=(--attach "$jpg#$name $score")
-  done < <(grep -- "-$theme-" "$out/scores.txt")
+  done < <(grep -- "-$theme-" "$tmp/scores.txt")
   gh pr comment "$pr" --body-file "$body" "${args[@]}" >/dev/null
   echo "posted $theme: $pass/$total"
 done
