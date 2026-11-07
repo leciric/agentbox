@@ -84,6 +84,8 @@ pub struct Sidebar {
     lines: HashMap<String, ChatLine>,
     /// Every project's agents ready to review (GET /v1/review).
     pub(super) review: Vec<ReviewItem>,
+    /// The shortcut sheet's scroll.
+    pub(super) keys_scroll: ScrollHandle,
     pub(super) search: Entity<InputState>,
     idle_open: bool,
     hidden_open: bool,
@@ -150,6 +152,7 @@ impl Sidebar {
             questions: HashMap::new(),
             lines: HashMap::new(),
             review: Vec::new(),
+            keys_scroll: ScrollHandle::new(),
             search,
             idle_open: false,
             hidden_open: crate::prefs::get_bool(HIDDEN_OPEN, false),

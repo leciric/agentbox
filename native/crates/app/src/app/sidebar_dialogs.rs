@@ -929,68 +929,7 @@ impl AppView {
                     }),
                 )
             }
-            Dialog::Keys => {
-                let groups: Vec<AnyElement> = SHEET
-                    .iter()
-                    .map(|(title, rows)| {
-                        v_flex()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .pb_1()
-                                    .text_xs()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::muted())
-                                    .child(t(title)),
-                            )
-                            .children(rows.iter().map(|(keys, label)| {
-                                h_flex()
-                                    .gap_3()
-                                    .text_sm()
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .text_color(theme::primary())
-                                            .child(t(label)),
-                                    )
-                                    .child(h_flex().gap_1().children(keys.iter().map(|k| {
-                                        div()
-                                            .min_w(px(24.))
-                                            .px_1p5()
-                                            .rounded_md()
-                                            .border_1()
-                                            .border_color(theme::line())
-                                            .bg(theme::surface_raised())
-                                            .text_xs()
-                                            .font_family(crate::theme::MONO)
-                                            .flex()
-                                            .justify_center()
-                                            .child(k.to_string())
-                                    })))
-                            }))
-                            .into_any_element()
-                    })
-                    .collect();
-                modal(
-                    "keys",
-                    t("keys.title"),
-                    Some(tv("keys.description", &[("keys", "Ctrl+/".into())])),
-                    vec![
-                        div()
-                            .id("keys-scroll")
-                            .max_h(px(520.))
-                            .overflow_y_scroll()
-                            .child(v_flex().gap_4().children(groups))
-                            .into_any_element(),
-                    ],
-                    cancel.clone(),
-                    t("common.close"),
-                    false,
-                    false,
-                    move |_, w, cx| cancel(w, cx),
-                )
-            }
+            Dialog::Keys => self.render_keys(cancel.clone(), cx),
         })
     }
 }
@@ -1011,6 +950,18 @@ const SHEET: &[(&str, &[Row])] = &[
             (&["Ctrl", "N"], "keys.newTask"),
             (&["Ctrl", ","], "keys.settings"),
             (&["Ctrl", "/"], "keys.sheet"),
+            (&["Alt", "←"], "keys.backToLead"),
+            (&["F6"], "keys.f6"),
+            (&["Shift", "F6"], "keys.f6back"),
+        ],
+    ),
+    (
+        "keys.group.palette",
+        &[
+            (&[">"], "keys.paletteCommands"),
+            (&["Tab"], "keys.paletteFilter"),
+            (&["Shift", "Enter"], "keys.paletteOther"),
+            (&["Esc"], "keys.paletteBack"),
         ],
     ),
     (
@@ -1029,12 +980,30 @@ const SHEET: &[(&str, &[Row])] = &[
         &[
             (&["Ctrl", "T"], "keys.sessionNew"),
             (&["Ctrl", "W"], "keys.sessionClose"),
+            (&["Ctrl", "Shift", "⌫"], "keys.sessionClose"),
             (&["Ctrl", "Tab"], "keys.sessionNext"),
             (&["Ctrl", "Shift", "Tab"], "keys.sessionPrevious"),
             (&["Ctrl", "1…9"], "keys.sessionJump"),
+            (&["Ctrl", "K"], "keys.sessionSearch"),
         ],
     ),
-    ("keys.group.panel", &[(&["Ctrl", "D"], "keys.panel")]),
+    (
+        "keys.group.target",
+        &[
+            (&["Ctrl", "."], "keys.targetNext"),
+            (&["Ctrl", "Shift", "."], "keys.targetPrevious"),
+            (&["Esc"], "keys.targetLead"),
+            (&["@agent"], "keys.targetMention"),
+        ],
+    ),
+    (
+        "keys.group.panel",
+        &[
+            (&["Ctrl", "D"], "keys.panel"),
+            (&["F", "D", "T", "B", "P", "M"], "keys.launcher"),
+            (&["Delete"], "keys.closeTab"),
+        ],
+    ),
     (
         "keys.group.review",
         &[
@@ -1047,6 +1016,240 @@ const SHEET: &[(&str, &[Row])] = &[
         ],
     ),
 ];
+
+impl AppView {
+    /// render_keys is v2/ShortcutSheet.tsx in ui/dialog.tsx's DialogContent
+    /// (max-w-2xl, p-6, gap-5, max-h-[88vh] scrolling, its X at top-4
+    /// right-4): the groups two by two, then TourButtons.
+    fn render_keys(&self, cancel: OnCancel, cx: &mut Context<Self>) -> AnyElement {
+        let vp = controls::viewport();
+        let scroll = &self.side.keys_scroll;
+        let gutter = scroll.max_offset().y > px(0.5);
+        let group = |(title, rows): &(&str, &[Row])| {
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .mb_2()
+                        .text_size(theme::text::CAPTION)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::muted())
+                        .child(t(title)),
+                )
+                .child(
+                    v_flex()
+                        .gap(px(6.))
+                        .children(rows.iter().map(|(keys, label)| {
+                            h_flex()
+                                .items_center()
+                                .justify_between()
+                                .gap_3()
+                                .text_size(theme::text::UI)
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        // gpui lays 19.5px lines at 19: a label of
+                                        // two is Chromium's 39 with this pixel.
+                                        .pb(px(1.))
+                                        .text_color(theme::secondary())
+                                        .child(t(label)),
+                                )
+                                .child(h_flex().flex_none().items_center().gap_1().children(
+                                    keys.iter().map(|k| {
+                                        div()
+                                            .min_w_6()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(theme::line_strong())
+                                            .bg(theme::surface_raised())
+                                            .px(px(6.))
+                                            .py(px(2.))
+                                            .text_center()
+                                            .font_family(theme::mono())
+                                            .text_size(theme::text::CAPTION)
+                                            .line_height(px(18.))
+                                            .text_color(theme::primary())
+                                            .child(k.to_string())
+                                    }),
+                                ))
+                        })),
+                )
+        };
+        // grid sm:grid-cols-2 gap-x-8 gap-y-5: a row of two, each as tall as
+        // its taller.
+        let grid = v_flex().gap_5().children(SHEET.chunks(2).map(|pair| {
+            h_flex()
+                .items_start()
+                .gap_8()
+                .children(pair.iter().map(group))
+                .when(pair.len() == 1, |el| el.child(div().flex_1()))
+        }));
+        // TourButtons: Take the tour, then What's new's tours. The native
+        // app has the welcome tour only, which each of them plays.
+        let tour_button = |id: usize, label: String, secondary: bool| {
+            let me = cx.entity().downgrade();
+            h_flex()
+                .id(("keys-tour", id))
+                .flex_none()
+                .h_8()
+                .px_3()
+                .gap_2()
+                .items_center()
+                .rounded_lg()
+                .text_size(theme::text::UI)
+                .font_weight(FontWeight::MEDIUM)
+                .cursor_pointer()
+                .map(|el| {
+                    if secondary {
+                        el.border_1()
+                            .border_color(theme::line())
+                            .bg(theme::surface_raised())
+                            .text_color(theme::primary())
+                            .hover(|s| s.bg(theme::surface_strong()))
+                            .child(crate::icons::ic("circle-question-mark").size_4())
+                    } else {
+                        el.text_color(theme::muted())
+                            .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
+                    }
+                })
+                .on_click(move |_, _, cx| {
+                    me.update(cx, |this, cx| {
+                        this.side.dialog = None;
+                        this.replay_tour(cx);
+                    })
+                    .ok();
+                })
+                .child(label)
+        };
+        const TOURS: [&str; 11] = [
+            "tour.v2.name",
+            "tour.reviewTour.name",
+            "tour.panelTour.name",
+            "tour.groupsTour.name",
+            "tour.crossTour.name",
+            "tour.placesTour.name",
+            "tour.switchTour.name",
+            "tour.compareTour.name",
+            "tour.pickTour.name",
+            "tour.schedulesTour.name",
+            "tour.diffNotes.name",
+        ];
+        let tours = h_flex()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .border_t_1()
+            .border_color(theme::line())
+            .pt_4()
+            .child(tour_button(0, t("tour.help.take"), true))
+            .child(
+                div()
+                    .ml_1()
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
+                    .child(format!("{}:", t("tour.whatsNew"))),
+            )
+            .children(
+                TOURS
+                    .iter()
+                    .enumerate()
+                    .map(|(i, k)| tour_button(i + 1, t(k), false)),
+            );
+        let back = cancel.clone();
+        crate::motion::scrim_in(
+            div()
+                .id("keys-backdrop")
+                .absolute()
+                .inset_0()
+                .bg(theme::scrim())
+                .flex()
+                .items_center()
+                .justify_center()
+                .occlude()
+                .on_mouse_down(MouseButton::Left, move |_, w, cx| back(w, cx))
+                .child(crate::motion::pop_in(
+                    v_flex()
+                        .id("keys-card")
+                        .relative()
+                        .w(vp.width - px(32.))
+                        .max_w(px(672.))
+                        .max_h(vp.height * 0.88)
+                        .overflow_hidden()
+                        .rounded(theme::radius::XXL)
+                        .border_1()
+                        .border_color(theme::line_strong())
+                        .bg(theme::modal())
+                        .shadow(vec![BoxShadow {
+                            color: theme::shadow_deep(),
+                            offset: point(px(0.), px(40.)),
+                            blur_radius: px(120.),
+                            spread_radius: px(-30.),
+                            inset: false,
+                        }])
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            div()
+                                .id("keys-scroll")
+                                .min_h_0()
+                                .overflow_y_scroll()
+                                .track_scroll(scroll)
+                                .p_6()
+                                .when(gutter, |el| el.pr(px(24.) + controls::SCROLLBAR))
+                                .child(
+                                    v_flex()
+                                        .gap_5()
+                                        .child(
+                                            v_flex()
+                                                .gap(px(6.))
+                                                .pr_8()
+                                                .child(
+                                                    div()
+                                                        .text_size(theme::text::HEADING)
+                                                        .line_height(px(24.))
+                                                        .font_weight(FontWeight::SEMIBOLD)
+                                                        .text_color(theme::title())
+                                                        .child(t("keys.title")),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_size(theme::text::BODY)
+                                                        .line_height(relative(1.625))
+                                                        .text_color(theme::muted())
+                                                        .child(tv(
+                                                            "keys.description",
+                                                            &[("keys", "Ctrl /".into())],
+                                                        )),
+                                                ),
+                                        )
+                                        .child(grid)
+                                        .child(tours),
+                                ),
+                        )
+                        .child(controls::scrollbar(scroll, gutter))
+                        .child(
+                            div()
+                                .id("keys-close")
+                                .absolute()
+                                .top_4()
+                                .right(px(16.) + if gutter { controls::SCROLLBAR } else { px(0.) })
+                                .p_1()
+                                .rounded_md()
+                                .cursor_pointer()
+                                .text_color(theme::subtle())
+                                .hover(|s| {
+                                    s.bg(theme::surface_raised()).text_color(theme::primary())
+                                })
+                                .on_click(move |_, w, cx| cancel(w, cx))
+                                .child(crate::icons::ic("x").size_4()),
+                        ),
+                    "keys-card-in",
+                )),
+            "keys-backdrop-in",
+        )
+        .into_any_element()
+    }
+}
 
 /// variants are what a fan-out's agent can run, as "ai|model" and its
 /// label (lib/groups.ts variants).
