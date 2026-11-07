@@ -62,8 +62,7 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 	}
 	// One wake at a time, so two messages to the same stopped agent don't
 	// both start its machine.
-	s.wakeMu.Lock()
-	defer s.wakeMu.Unlock()
+	defer s.wakes.lock(a.Ref())()
 	m := s.manager(s.cfg.Log)
 	inst, err := s.cfg.Incus.Instance(ctx, a.Instance)
 	if err != nil {
@@ -139,7 +138,7 @@ func (s *Server) wakeAside(ctx context.Context, m *agent.Manager, a state.Agent,
 			s.mu.Unlock()
 		}()
 		if err := s.startMachine(ctx, m, a, why); err != nil {
-			s.logf("%s: starting its machine for a message: %v", ref, err)
+			s.logf("%s: starting its machine for %s: %v", ref, why, err)
 			return
 		}
 		s.refreshAgents(ctx)

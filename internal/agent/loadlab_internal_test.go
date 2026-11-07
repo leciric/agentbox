@@ -428,8 +428,23 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 		}
 		if have[i].State != "running" {
 			waitIO(t, cfg.ioMax, "starting "+name)
-			if err := c.do(ctx, http.MethodPost, "/v1/agents/"+have[i].Project+"/"+name+"/start", nil, &have[i]); err != nil {
+			if err := c.do(ctx, http.MethodPost, "/v1/agents/"+have[i].Project+"/"+have[i].Name+"/start", nil, &have[i]); err != nil {
 				t.Fatalf("starting %s: %v", name, err)
+			}
+			// A start that must wait for memory answers at once and boots
+			// aside: the work needs its machine running.
+			for deadline := time.Now().Add(15 * time.Minute); have[i].State != "running"; {
+				if time.Now().After(deadline) {
+					t.Fatalf("%s is still %s after 15 minutes", name, have[i].State)
+				}
+				time.Sleep(2 * time.Second)
+				var now []api.Agent
+				if err := c.do(ctx, http.MethodGet, "/v1/agents?project="+url.QueryEscape(cfg.project), nil, &now); err != nil {
+					t.Fatal(err)
+				}
+				if j := slices.IndexFunc(now, func(a api.Agent) bool { return a.Name == have[i].Name }); j >= 0 {
+					have[i] = now[j]
+				}
 			}
 		}
 		out = append(out, &loadAgent{Agent: have[i], Kind: cfg.mix[len(out)]})
@@ -458,9 +473,16 @@ func waitIO(t *testing.T, limit float64, what string) {
 	}
 }
 
-// ioAvg10 is /proc/pressure/io's some avg10: the VM's, in a container too.
+// ioAvg10 is this machine's IO pressure, some avg10: its own cgroup's in a
+// container, where /proc/pressure/io is the whole VM's. Backing off on the
+// VM's froze the lab's Incus for as long as other agents' work kept the
+// shared disk busy (18 minutes on 2026-11-06), with nothing of the lab's
+// left to back off.
 func ioAvg10() float64 {
-	b, _ := os.ReadFile("/proc/pressure/io")
+	b, err := os.ReadFile("/sys/fs/cgroup/io.pressure")
+	if err != nil || len(b) == 0 {
+		b, _ = os.ReadFile("/proc/pressure/io")
+	}
 	for _, f := range strings.Fields(string(b)) {
 		if v, ok := strings.CutPrefix(f, "avg10="); ok {
 			n, _ := strconv.ParseFloat(v, 64)

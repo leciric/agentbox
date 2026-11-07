@@ -412,6 +412,8 @@ type Server struct {
 	// view (viewing.go) is the agent the app shows.
 	view           viewingState
 	machineCgroups machineCgroups
+	// fleetChatBusy is chat.Manager.Busy for syncFleet, or a test's.
+	fleetChatBusy  func(state.Agent) bool
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
@@ -425,9 +427,9 @@ type Server struct {
 	oomSeen        map[string]agent.MemoryCounts
 	oomAt          map[string]time.Time // when the watch last saw a machine's kills rise
 	loggedOnce     map[string]string
-	// wakeMu makes one start of a stopped machine for a message at a time
-	// (wake.go).
-	wakeMu sync.Mutex
+	// wakes makes one start of each stopped machine for a message at a time
+	// (wake.go, wakeLock).
+	wakes keyedMutex
 	// waking, under mu, are the agents whose machines start aside for a
 	// message, waiting for memory to boot (wakeAside).
 	waking map[string]bool

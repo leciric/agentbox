@@ -43,8 +43,16 @@ func (m *Manager) Progress(ref string) (p Progress, ok bool) {
 	if c == nil {
 		return Progress{}, false
 	}
+	if l, ok := c.listingNow(); ok {
+		return l.progress, l.running
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.progress()
+}
+
+// progress is Progress for a locked conversation.
+func (c *conversation) progress() (p Progress, ok bool) {
 	t := c.turn
 	if t == nil {
 		return Progress{}, false

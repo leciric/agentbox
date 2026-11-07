@@ -2154,6 +2154,20 @@ func (m *Manager) Exec(ctx context.Context, a state.Agent, command string, stdin
 }
 
 // Start boots a stopped agent (or resumes a paused one) and restores its tmux session.
+// startedMeanwhile tells whether a start that failed found the machine
+// started by something else between Start's look at it and its own start —
+// Incus's boot.autostart after a restart, a wake, another resume — which
+// Incus refuses with "The instance is already running". That machine is as
+// started as this one would have been: Start carries on with it.
+func (m *Manager) startedMeanwhile(ctx context.Context, a state.Agent) bool {
+	now, err := m.Incus.Instance(ctx, a.Instance)
+	if err != nil || now.Status != "Running" {
+		return false
+	}
+	m.logf("%s's machine was already running when it was started: carrying on with it", a.Ref())
+	return true
+}
+
 func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, error) {
 	inst, err := m.Incus.Instance(ctx, a.Instance)
 	if err != nil {
@@ -2186,7 +2200,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		m.buildOutputSources(ctx, a)
 		err := m.Incus.Start(ctx, a.Instance)
 		release()
-		if err != nil {
+		if err != nil && !m.startedMeanwhile(ctx, a) {
 			return inst, err
 		}
 		booted = true
