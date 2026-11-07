@@ -993,11 +993,57 @@ pub fn fit(
     weight: gpui::FontWeight,
     mono: bool,
 ) -> gpui::Div {
+    fit_with(text.into(), size, weight, mono, false)
+}
+
+/// fit_tabular is [fit] in Inter with tabular figures (Tailwind's
+/// tabular-nums).
+pub fn fit_tabular(
+    text: impl Into<SharedString>,
+    size: Pixels,
+    weight: gpui::FontWeight,
+) -> gpui::Div {
+    fit_with(text.into(), size, weight, false, true)
+}
+
+fn fit_with(
+    text: SharedString,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    mono: bool,
+    tabular: bool,
+) -> gpui::Div {
     use gpui::{ParentElement as _, Styled as _};
-    let text: SharedString = text.into();
+    let w = measure(&text, size, weight, mono, tabular);
+    gpui::div()
+        .flex_none()
+        .whitespace_nowrap()
+        .text_size(size)
+        .font_weight(weight)
+        .when(mono, |el| el.font_family(MONO))
+        .when(tabular, |el| el.font_features(tabular_features()))
+        .when_some(w, |el, w| el.w(px(w)))
+        .child(text)
+}
+
+/// fit_width is the whole-pixel width [fit] gives `text`, once the app's
+/// root has rendered.
+pub fn fit_width(text: &str, size: Pixels, weight: gpui::FontWeight, mono: bool) -> Option<f32> {
+    measure(text, size, weight, mono, false)
+}
+
+fn measure(
+    text: &str,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    mono: bool,
+    tabular: bool,
+) -> Option<f32> {
     let mut font = gpui::font(if mono { MONO } else { SANS });
     font.weight = weight;
-    if !mono {
+    if tabular {
+        font.features = tabular_features();
+    } else if !mono {
         font.features = sans_features();
     }
     let run = gpui::TextRun {
@@ -1008,21 +1054,11 @@ pub fn fit(
         underline: None,
         strikethrough: None,
     };
-    let w = TEXT.with(|t| {
+    TEXT.with(|t| {
         t.borrow()
             .as_ref()
-            .map(|ts| f32::from(ts.layout_line(&text, size, &[run], None).width))
-    });
-    let el = gpui::div()
-        .flex_none()
-        .whitespace_nowrap()
-        .text_size(size)
-        .font_weight(weight)
-        .when(mono, |el| el.font_family(MONO));
-    match w {
-        Some(w) => el.w(px(w.round())).child(text),
-        None => el.child(text),
-    }
+            .map(|ts| f32::from(ts.layout_line(text, size, &[run], None).width).round())
+    })
 }
 
 /// text_width is `text`'s width on one line, in Inter at `size`.
@@ -1190,6 +1226,25 @@ pub fn sync_widgets(cx: &mut App) {
 
 /// solid flattens a translucent ground onto the window, for widgets that
 /// paint without a backdrop to blend against.
+/// layered is translucent colours laid one over another on the window's
+/// ink, as one opaque colour: for a box that casts a shadow, which GPUI
+/// paints under the whole box and so shows through a translucent fill
+/// (a browser's box-shadow stays outside it).
+pub fn layered(colors: &[Hsla]) -> Hsla {
+    let mut base = ink().to_rgb();
+    for c in colors {
+        let top = c.to_rgb();
+        let m = |b: f32, t: f32| b + (t - b) * top.a;
+        base = gpui::Rgba {
+            r: m(base.r, top.r),
+            g: m(base.g, top.g),
+            b: m(base.b, top.b),
+            a: 1.,
+        };
+    }
+    base.into()
+}
+
 fn solid(color: Hsla) -> Hsla {
     let base = ink().to_rgb();
     let top = color.to_rgb();

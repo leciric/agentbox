@@ -344,9 +344,13 @@ pub(super) fn switch_item(id: &'static str, icon: &str, on: bool) -> Stateful<Di
         .line_height(px(17.25))
         .font_weight(FontWeight::MEDIUM)
         .when(on, |el| {
-            el.bg(theme::surface_raised())
-                .text_color(theme::title())
-                .shadow_xs()
+            el.bg(theme::layered(&[
+                theme::sunken(),
+                theme::surface_faint(),
+                theme::surface_raised(),
+            ]))
+            .text_color(theme::title())
+            .shadow_xs()
         })
         .when(!on, |el| {
             el.text_color(theme::subtle())
@@ -1471,7 +1475,11 @@ impl AppView {
                     // title with shadow-sm, the rest 28px icons in subtle.
                     .when(on, |el| {
                         el.px_2p5()
-                            .bg(theme::surface_raised())
+                            .bg(theme::layered(&[
+                                theme::sunken(),
+                                theme::surface_faint(),
+                                theme::surface_raised(),
+                            ]))
                             .text_color(theme::title())
                             // Tailwind v4's shadow-sm.
                             .shadow(vec![

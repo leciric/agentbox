@@ -102,6 +102,9 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
                 .border_b_1()
                 .border_color(theme::line_faint())
                 .text_size(theme::text::CAPTION)
+                // .chat-markdown's leading-relaxed, as a factor of 12px (the
+                // text view hands its blocks the body's 22.75px).
+                .line_height(relative(1.625))
                 .text_color(theme::subtle())
                 .child(div().min_w_0().truncate().font_family(theme::mono()).child(
                     if lang.is_empty() {
@@ -150,6 +153,9 @@ pub fn with_mermaid(view: TextView) -> TextView {
     // margin-top: .25rem }`), and the marker column to its 20px (ul
     // padding-left 1.25rem). The glyphs can't tell.
     view.text_size(px(14f32.next_up()))
+        // text-sm leading-relaxed, held to 22.75 so the hair over 14px
+        // doesn't push a paragraph of four lines past 91px.
+        .line_height(px(22.75))
         .font_family(theme::CHAT)
         .style(gpui_component::text::TextViewStyle::default().paragraph_gap(rems(0.65)))
         .inline_code_style(

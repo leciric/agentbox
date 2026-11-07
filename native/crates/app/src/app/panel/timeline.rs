@@ -579,66 +579,85 @@ impl AppView {
                 let from = p.from;
                 let failed = s.status == "failed";
                 let secs = (p.end - p.start) as f32 / 1000.;
+                // ring-1 is drawn outside the circle and not under it: a
+                // bordered box a pixel larger all round, with nothing behind
+                // its middle (GPUI paints a shadow under the whole box, which
+                // shows through the translucent surface).
                 let mark = div()
                     .flex_none()
-                    .size_7()
+                    .size(px(30.))
+                    .m(px(-1.))
                     .rounded_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .map(|el| {
-                        if on {
-                            el.bg(kind_tone(kind)).text_color(rgb(0x000000))
-                        } else {
-                            el.bg(theme::surface_raised())
-                                .shadow(ring(theme::line()))
-                                .text_color(if failed {
-                                    theme::rose(400)
-                                } else {
-                                    theme::subtle()
-                                })
-                        }
+                    .border_1()
+                    .border_color(if on {
+                        gpui::transparent_black()
+                    } else {
+                        theme::line()
                     })
-                    .child(crate::icons::ic(kind_icon(kind)).size(px(14.)));
+                    .child(
+                        div()
+                            .size_7()
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .map(|el| {
+                                if on {
+                                    el.bg(kind_tone(kind)).text_color(rgb(0x000000))
+                                } else {
+                                    el.bg(theme::surface_raised()).text_color(if failed {
+                                        theme::rose(400)
+                                    } else {
+                                        theme::subtle()
+                                    })
+                                }
+                            })
+                            .child(crate::icons::ic(kind_icon(kind)).size(px(14.))),
+                    );
                 let status = match s.status.as_str() {
                     "failed" => Some((t("timeline.failed"), theme::rose(400))),
                     "passed" => Some((t("timeline.passed"), theme::emerald(400))),
                     "running" => Some((t("timeline.running"), theme::emerald(400))),
                     _ => None,
                 };
+                // Timeline's Meta: spans gap-1.5, text-caption, each as wide
+                // as Chromium sets it.
+                let cap = theme::text::CAPTION;
+                let fit = |text: String| theme::fit(text, cap, FontWeight::NORMAL, false);
                 let meta = h_flex()
                     .min_w_0()
                     .gap_1p5()
-                    .text_size(px(12.))
+                    .text_size(cap)
                     .line_height(px(18.))
                     .text_color(theme::faint())
-                    .child(
-                        div()
-                            .text_color(kind_text(kind))
-                            .child(t(&format!("timeline.kind.{kind}"))),
-                    )
+                    .child(fit(t(&format!("timeline.kind.{kind}"))).text_color(kind_text(kind)))
                     .when(secs >= 1., |el| {
-                        el.child(format!("· {}", clock(secs as f64)))
+                        el.child(fit(format!("· {}", clock(secs as f64))))
                     })
                     .when(kind == "edit" && (s.added > 0 || s.removed > 0), |el| {
+                        // One span, "· +a −r", its numbers in their colours.
+                        let (add, del) = (format!("+{}", s.added), format!("−{}", s.removed));
+                        let text = format!("· {add} {del}");
+                        let a0 = "· ".len();
+                        let d0 = a0 + add.len() + 1;
+                        let w = theme::fit_width(&text, cap, FontWeight::NORMAL, false);
+                        let colour = |c: Hsla| HighlightStyle {
+                            color: Some(c),
+                            ..Default::default()
+                        };
                         el.child(
-                            h_flex()
-                                .child("· ")
-                                .child(
-                                    div()
-                                        .text_color(theme::emerald(400))
-                                        .child(format!("+{}", s.added)),
-                                )
-                                .child(" ")
-                                .child(
-                                    div()
-                                        .text_color(theme::rose(400))
-                                        .child(format!("−{}", s.removed)),
-                                ),
+                            div()
+                                .flex_none()
+                                .whitespace_nowrap()
+                                .when_some(w, |el, w| el.w(px(w)))
+                                .child(StyledText::new(text.clone()).with_highlights([
+                                    (a0..a0 + add.len(), colour(theme::emerald(400))),
+                                    (d0..text.len(), colour(theme::rose(400))),
+                                ])),
                         )
                     })
                     .when_some(status, |el, (text, color)| {
-                        el.child(div().text_color(color).child(format!("· {text}")))
+                        el.child(fit(format!("· {text}")).text_color(color))
                     });
                 let title = div()
                     .min_w_0()
@@ -664,8 +683,9 @@ impl AppView {
                     .gap(px(10.))
                     .pb_2()
                     // py-1, a 19.5px title, an 18px meta and pb-2: Chromium keeps
-                    // the half pixel, which adds up down the list.
-                    .min_h(px(53.5))
+                    // the half pixel, which adds up down the list, and GPUI's
+                    // layout takes whole ones: 54 and 53 in turn.
+                    .min_h(px(if i % 2 == 0 { 54. } else { 53. }))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.panel.tl_x = from;
@@ -693,11 +713,12 @@ impl AppView {
                             .when(on, |el| el.bg(theme::surface()))
                             .child(
                                 h_flex().items_baseline().gap_2().child(title).child(
-                                    div()
-                                        .flex_none()
-                                        .text_size(px(12.))
-                                        .text_color(theme::faint())
-                                        .child(clock_time(p.start)),
+                                    theme::fit_tabular(
+                                        clock_time(p.start),
+                                        theme::text::CAPTION,
+                                        FontWeight::NORMAL,
+                                    )
+                                    .text_color(theme::faint()),
                                 ),
                             )
                             .child(meta),

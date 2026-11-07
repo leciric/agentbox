@@ -981,8 +981,13 @@ impl AppView {
         let badge = h_flex()
             .id("agent-status")
             .gap_1()
-            .px_2()
-            .py_0p5()
+            // Badge: px-2 py-0.5, its ring inset (here a border inside the
+            // padding).
+            .px(px(7.))
+            .py(px(1.))
+            // Its button is a line box 26px tall, the badge on its baseline,
+            // 4px below the button's top.
+            .mt(px(4.))
             .rounded_full()
             .border_1()
             .border_color(ring)
@@ -1014,7 +1019,7 @@ impl AppView {
                     .rounded_full()
                     .bg(theme::state_color(&a.state)),
             )
-            .child(text)
+            .child(theme::fit(text, px(12.), FontWeight::MEDIUM, false))
             .child(
                 div()
                     .opacity(0.7)
@@ -1049,7 +1054,16 @@ impl AppView {
                         .size(px(12.))
                         .text_color(theme::subtle()),
                 )
-                .child(div().min_w_0().truncate().child(label))
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .when_some(
+                            theme::fit_width(&label, px(12.), FontWeight::NORMAL, true),
+                            |el, w| el.w(px(w.min(280. - 34.))),
+                        )
+                        .child(label),
+                )
         };
         let chip = match a.pr.as_ref().filter(|p| p.number > 0) {
             Some(pr) => {

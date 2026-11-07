@@ -1172,12 +1172,37 @@ impl Render for ChatView {
                             .size_full()
                             .when(gutter, |el| el.pr(crate::app::controls::SCROLLBAR))
                             // ChatTab's content pads its bottom by the composer's
-                            // height + 28, measured from the composer's box,
-                            // which starts a pixel above its first row here.
-                            .pb(px(1.))
+                            // height + 28, its offsetHeight, a whole pixel: the
+                            // lead's review banner is 36.5px tall there (36 here),
+                            // which rounds the room up.
+                            .when(self.review_count > 0 && self.is_lead(), |el| el.pb(px(1.)))
                             .child(
                                 list(self.list.clone(), move |ix, window, cx| {
-                                    view.read(cx).render_row(ix, view.clone(), window)
+                                    let el = view.read(cx).render_row(ix, view.clone(), window);
+                                    if std::env::var_os("PARITY_PROBE").is_some() {
+                                        div()
+                                            .relative()
+                                            .child(el)
+                                            .child(
+                                                canvas(
+                                                    move |b, _, _| {
+                                                        eprintln!(
+                                                            "probe row{ix} y={} h={}",
+                                                            f32::from(b.origin.y),
+                                                            f32::from(b.size.height)
+                                                        )
+                                                    },
+                                                    |_, _, _, _| {},
+                                                )
+                                                .absolute()
+                                                .top_0()
+                                                .left_0()
+                                                .size_full(),
+                                            )
+                                            .into_any_element()
+                                    } else {
+                                        el
+                                    }
                                 })
                                 .size_full(),
                             ),
