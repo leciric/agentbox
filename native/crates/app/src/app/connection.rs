@@ -61,7 +61,8 @@ pub(super) fn which(name: &str) -> Option<PathBuf> {
 
 /// agentbox_cli is the command-line tool to start the daemon with: on
 /// Windows the one the relay runs from (agentbox_api::relay::agentbox_bin,
-/// the Electron app's managed copy first), else the one on PATH.
+/// the Electron app's managed copy first), else the one on PATH or where the
+/// Electron app and the installers put it (find_cli).
 fn agentbox_cli() -> Option<PathBuf> {
     #[cfg(windows)]
     {
@@ -75,7 +76,87 @@ fn agentbox_cli() -> Option<PathBuf> {
             return Some(bin);
         }
     }
-    which("agentbox")
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    find_cli(
+        |k| std::env::var(k).ok(),
+        home.as_deref(),
+        |p| p.is_file(),
+        which("agentbox"),
+        login_shell_path,
+    )
+}
+
+/// find_cli looks for the CLI the way the Electron app does (desktop/src/main/
+/// cli.ts, internal/homehost/tools.go): AGENTBOX_BIN, its managed copy, the
+/// link in ~/.local/bin, Homebrew's and /usr/local's, then PATH, then the
+/// login shell's PATH. A Mac opens an app from Finder or the Dock with
+/// launchd's PATH (/usr/bin:/bin:...), which has none of them.
+fn find_cli(
+    env: impl Fn(&str) -> Option<String>,
+    home: Option<&std::path::Path>,
+    exists: impl Fn(&std::path::Path) -> bool,
+    on_path: Option<PathBuf>,
+    login_path: impl FnOnce() -> Option<String>,
+) -> Option<PathBuf> {
+    if let Some(b) = env("AGENTBOX_BIN").filter(|b| !b.is_empty()) {
+        return Some(b.into());
+    }
+    let mut known: Vec<PathBuf> = Vec::new();
+    if let Some(h) = home {
+        known.push(h.join(".local/share/agentbox/bin/agentbox"));
+        known.push(h.join(".local/bin/agentbox"));
+    }
+    known.push("/opt/homebrew/bin/agentbox".into());
+    known.push("/usr/local/bin/agentbox".into());
+    if let Some(p) = known.into_iter().find(|p| exists(p)) {
+        return Some(p);
+    }
+    on_path.or_else(|| {
+        let path = login_path()?;
+        std::env::split_paths(&path)
+            .map(|d| d.join("agentbox"))
+            .find(|p| exists(p))
+    })
+}
+
+/// login_shell_path is the PATH the user's login shell sets
+/// (loginShellPath in internal/homehost/tools.go): `$SHELL -ilc 'printf %s
+/// "$PATH"'`, given 5 seconds. Only unix has a login shell to ask.
+#[cfg(unix)]
+fn login_shell_path() -> Option<String> {
+    use std::io::Read as _;
+    use std::process::{Command, Stdio};
+    let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty())?;
+    let mut child = Command::new(shell)
+        .args(["-ilc", "printf %s \"$PATH\""])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut out = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        out.read_to_string(&mut s).ok().map(|_| s)
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(25)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    reader.join().ok().flatten().filter(|p| !p.is_empty())
+}
+
+#[cfg(not(unix))]
+fn login_shell_path() -> Option<String> {
+    None
 }
 
 /// last_line is progressStep: the last line said that isn't an error.
@@ -482,5 +563,79 @@ mod tests {
         assert!(vm_missing(&serde_json::json!({"exists": false})));
         assert!(vm_missing(&serde_json::json!({"state": "missing"})));
         assert!(!vm_missing(&serde_json::json!({"state": "running"})));
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::find_cli;
+    use std::path::{Path, PathBuf};
+
+    fn lookup(
+        env: &[(&str, &str)],
+        have: &[&str],
+        on_path: Option<&str>,
+        login: Option<&str>,
+    ) -> Option<PathBuf> {
+        find_cli(
+            |k| {
+                env.iter()
+                    .find(|(n, _)| *n == k)
+                    .map(|(_, v)| v.to_string())
+            },
+            Some(Path::new("/Users/me")),
+            |p| have.iter().any(|h| Path::new(h) == p),
+            on_path.map(PathBuf::from),
+            || login.map(String::from),
+        )
+    }
+
+    #[test]
+    fn cli_lookup_order() {
+        let all = [
+            "/usr/local/bin/agentbox",
+            "/opt/homebrew/bin/agentbox",
+            "/Users/me/.local/bin/agentbox",
+            "/Users/me/.local/share/agentbox/bin/agentbox",
+        ];
+        assert_eq!(
+            lookup(&[("AGENTBOX_BIN", "/x/ab")], &all, None, None),
+            Some("/x/ab".into())
+        );
+        assert_eq!(
+            lookup(&[], &all, Some("/p/agentbox"), None),
+            Some("/Users/me/.local/share/agentbox/bin/agentbox".into())
+        );
+        assert_eq!(
+            lookup(&[], &all[..3], None, None),
+            Some("/Users/me/.local/bin/agentbox".into())
+        );
+        assert_eq!(
+            lookup(&[], &all[..2], None, None),
+            Some("/opt/homebrew/bin/agentbox".into())
+        );
+        assert_eq!(
+            lookup(&[], &all[..1], None, None),
+            Some("/usr/local/bin/agentbox".into())
+        );
+    }
+
+    #[test]
+    fn cli_lookup_falls_back_to_path_then_login_shell() {
+        assert_eq!(
+            lookup(
+                &[("AGENTBOX_BIN", "")],
+                &[],
+                Some("/p/agentbox"),
+                Some("/l")
+            ),
+            Some("/p/agentbox".into())
+        );
+        assert_eq!(
+            lookup(&[], &["/opt/x/agentbox"], None, Some("/a:/opt/x")),
+            Some("/opt/x/agentbox".into())
+        );
+        assert_eq!(lookup(&[], &[], None, Some("/a:/b")), None);
+        assert_eq!(lookup(&[], &[], None, None), None);
     }
 }

@@ -21,6 +21,8 @@ pub fn take_clicks() -> Vec<String> {
 /// Windows' as the default response, so each goes where it points.
 pub fn show(id: String, title: String, body: String) {
     std::thread::spawn(move || {
+        #[cfg(target_os = "macos")]
+        set_mac_application();
         let mut n = notify_rust::Notification::new();
         n.appname("AgentBox").summary(&title).body(&body);
         #[cfg(target_os = "linux")]
@@ -53,6 +55,19 @@ pub fn show(id: String, title: String, body: String) {
                 }
                 Err(e) => eprintln!("notification: {e}"),
             }
+        }
+    });
+}
+
+/// set_mac_application tells notify-rust which app notifications come from,
+/// once, before the first one: left alone it asks Launch Services for
+/// "use_default" and macOS shows a "Where is use_default?" picker.
+#[cfg(target_os = "macos")]
+fn set_mac_application() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if let Err(e) = notify_rust::set_application("dev.agentbox.native") {
+            eprintln!("notification: {e}");
         }
     });
 }
