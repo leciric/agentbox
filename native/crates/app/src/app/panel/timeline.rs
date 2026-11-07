@@ -663,6 +663,9 @@ impl AppView {
                     .flex()
                     .gap(px(10.))
                     .pb_2()
+                    // py-1, a 19.5px title, an 18px meta and pb-2: Chromium keeps
+                    // the half pixel, which adds up down the list.
+                    .min_h(px(53.5))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.panel.tl_x = from;

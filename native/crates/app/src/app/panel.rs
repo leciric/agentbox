@@ -1458,7 +1458,7 @@ impl AppView {
             .rounded_lg()
             .border_1()
             .border_color(theme::line())
-            .bg(theme::ink())
+            .bg(theme::surface_faint())
             .children(shown.into_iter().map(|v| {
                 let on = v == view;
                 let r = r.to_string();
@@ -1467,15 +1467,34 @@ impl AppView {
                     .id(SharedString::from(format!("panel-view-{}", v.key())))
                     .h(px(28.))
                     .gap_1p5()
+                    // ViewSwitch: the lit one named on surface-raised in
+                    // title with shadow-sm, the rest 28px icons in subtle.
                     .when(on, |el| {
                         el.px_2p5()
                             .bg(theme::surface_raised())
-                            .text_color(theme::primary())
+                            .text_color(theme::title())
+                            // Tailwind v4's shadow-sm.
+                            .shadow(vec![
+                                BoxShadow {
+                                    color: black().opacity(0.1),
+                                    offset: point(px(0.), px(1.)),
+                                    blur_radius: px(3.),
+                                    spread_radius: px(0.),
+                                    inset: false,
+                                },
+                                BoxShadow {
+                                    color: black().opacity(0.1),
+                                    offset: point(px(0.), px(1.)),
+                                    blur_radius: px(2.),
+                                    spread_radius: px(-1.),
+                                    inset: false,
+                                },
+                            ])
                     })
                     .when(!on, |el| {
                         el.w(px(28.))
                             .justify_center()
-                            .text_color(theme::muted())
+                            .text_color(theme::subtle())
                             .cursor_pointer()
                             .hover(|s| s.text_color(theme::primary()))
                             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
@@ -1484,10 +1503,10 @@ impl AppView {
                             }))
                     })
                     .rounded_md()
-                    .text_xs()
+                    .text_size(px(11.5))
                     .font_weight(FontWeight::MEDIUM)
                     .relative()
-                    .child(crate::icons::of(v.glyph()))
+                    .child(crate::icons::ic(v.glyph()).size(px(14.)))
                     .when(on, |el| el.child(v.label()))
                     // Android, once its emulator has booted.
                     .when(v == PView::Android && booted, |el| {
@@ -1518,7 +1537,8 @@ impl AppView {
             .child(
                 div()
                     .id("panel-dot")
-                    .px_1()
+                    .px_1p5()
+                    .py_1()
                     .tooltip(move |w, cx| Tooltip::new(dot_tip.clone()).build(w, cx))
                     .child(
                         div()
