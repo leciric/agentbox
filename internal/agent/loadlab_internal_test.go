@@ -709,18 +709,24 @@ while (Date.now() < end) for (const b of bufs) for (let o = 0; o < chunk; o += 4
 
 // loadForkBomb runs the classic fork bomb, as root in its machine, in a
 // cgroup of its own there, which it kills after 30 seconds, and prints the
-// most tasks it reached. That cgroup's pids.max (LAB_BOMB_CAP, 10000) is the
-// lab's own safety net, so a run without the agents' pids.max can't take a
-// shared VM down: the bomb stops there either way, and with the agents' own
-// pids.max it stops at that, lower.
+// most tasks it reached. That cgroup's pids.max is the lab's own safety net,
+// so a run without the agents' pids.max can't take a shared VM down:
+// LAB_BOMB_CAP (10000), or 256 under the machine's own pids.max when it has
+// one, as this script needs a few tasks of its own to watch the bomb and
+// kill it. Past that it forks nothing: it reads files with builtins and
+// waits with read -t.
 const loadForkBomb = `cg=/sys/fs/cgroup/loadlab-bomb
-mkdir -p $cg && echo ${LAB_BOMB_CAP:-10000} > $cg/pids.max
-bash -c "echo \$\$ > $cg/cgroup.procs; exec bash -c ':(){ :|:& };:'" 2>/dev/null &
-peak=0; for i in $(seq 30); do sleep 1; n=$(cat $cg/pids.current); [ "$n" -gt "$peak" ] && peak=$n; done
+read -r own < /sys/fs/cgroup/pids.max
+cap=${LAB_BOMB_CAP:-10000}
+[ "$own" != max ] && [ $((own - 256)) -lt $cap ] && cap=$((own - 256))
+mkdir -p $cg && echo $cap > $cg/pids.max
+bash -c "echo \\$\\$ > $cg/cgroup.procs; exec bash -c ':(){ :|:& };:'" 2>/dev/null &
+exec 3<> <(:)
+peak=0; for i in $(seq 30); do read -t 1 -u 3; read -r n < $cg/pids.current; [ "$n" -gt "$peak" ] && peak=$n; done
 echo 1 > $cg/cgroup.kill
-for i in $(seq 30); do [ "$(cat $cg/pids.current)" = 0 ] && break; sleep 1; done
+for i in $(seq 30); do read -r n < $cg/pids.current; [ "$n" = 0 ] && break; read -t 1 -u 3; done
 rmdir $cg
-echo "fork bomb reached $peak tasks (machine pids.max $(cat /sys/fs/cgroup/pids.max))"`
+echo "fork bomb reached $peak tasks (its cap $cap, machine pids.max $own)"`
 
 // ---- the run ----
 

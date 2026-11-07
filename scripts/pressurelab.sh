@@ -139,7 +139,7 @@ if ! pgrep -u "$LAB_USER" -x agentbox-lab >/dev/null; then
   # (host mode) does none of that, and its gate can't pause anything.
   as_lab "cd ~ && AGENTBOX_HOST_OS=${LAB_HOST_OS:-linux} setsid nohup $bin daemon >> ~/daemon.out 2>&1 < /dev/null &"
   # Until it answers: a daemon stopped above leaves its socket file behind.
-  for _ in $(seq 60); do as_lab "agentbox-lab list >/dev/null 2>&1" && break; sleep 1; done
+  for _ in $(seq 60); do sudo curl -sf --unix-socket "$socket" http://agentbox/v1/projects >/dev/null && break; sleep 1; done
 fi
 
 if ! as_lab "agentbox-lab auth claude list 2>/dev/null | grep -q default"; then
