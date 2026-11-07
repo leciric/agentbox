@@ -67,8 +67,8 @@ import (
 // memory — stalling on it (its own PSI above memHostPressure) or with less
 // than its reserve (HostReserve) available — never on a timer while it isn't:
 // the guest reclaims up to memTrimMax of its inactive file pages, never past
-// the floor (memory.reclaim on its root cgroup, which takes the coldest first
-// and, with swappiness=0, never swaps), then compacts, and free page
+// the floor (memory.reclaim on its root cgroup, which takes the coldest first,
+// killed after trimWriteTimeout), then compacts, and free page
 // reporting returns it. At most every memTrimEvery. A shrink trims only the
 // cache beyond the floor too, rather than dropping all of it: the guest
 // migrates what's left out of the blocks it unplugs, into the floor the

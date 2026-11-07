@@ -480,6 +480,21 @@ func DiffBase(worktree, baseRef, fallback string, onto ...string) string {
 	return base
 }
 
+// MeasureWorktree is DiffWorktree's --stat against base and Dirty, for a
+// measurement in the background (a stopped agent's changes): every git it
+// runs is at the lowest CPU and I/O priority.
+func MeasureWorktree(worktree, base string) (stat string, dirty bool, err error) {
+	tree, err := worktreeTreeWith(worktree, lowOutput)
+	if err != nil {
+		return "", false, err
+	}
+	if stat, err = lowOutput(worktree, nil, "diff", "--stat", base, tree); err != nil {
+		return "", false, err
+	}
+	status, err := lowOutput(worktree, nil, "status", "--porcelain")
+	return stat, strings.TrimSpace(status) != "", err
+}
+
 // DiffWorktree diffs base against the worktree's current files, including
 // uncommitted and untracked ones, without touching the worktree's index.
 func DiffWorktree(worktree, base string, stat bool, paths ...string) (string, error) {
@@ -550,12 +565,27 @@ func run(dir string, args ...string) (string, error) {
 }
 
 func output(dir string, env []string, args ...string) (out string, err error) {
+	return outputAt(false, dir, env, args...)
+}
+
+// lowOutput is output for git run in the background: at the lowest CPU and
+// I/O priority, so a sweep over many worktrees waits for the disk behind
+// what anyone is waiting on.
+func lowOutput(dir string, env []string, args ...string) (string, error) {
+	return outputAt(true, dir, env, args...)
+}
+
+func outputAt(low bool, dir string, env []string, args ...string) (out string, err error) {
 	span := trace.Begin(gitSpan(args), "dir", dir)
 	defer func() { span.End(err) }()
 	if ferr := faultAt(dir); ferr != nil {
 		return "", &gitError{args: args, err: ferr}
 	}
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	name, argv := "git", append([]string{"-C", dir}, args...)
+	if low {
+		name, argv = lowPriority(name, argv)
+	}
+	cmd := exec.Command(name, argv...)
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
 	}

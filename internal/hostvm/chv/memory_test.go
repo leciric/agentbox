@@ -448,8 +448,18 @@ func TestPSISome(t *testing.T) {
 }
 
 func TestTrimScript(t *testing.T) {
-	if got := trimScript(2 * GiB); !strings.Contains(got, "echo '2147483648 swappiness=0' | sudo -n tee /sys/fs/cgroup/memory.reclaim") || !strings.Contains(got, "compact_memory") {
-		t.Errorf("trimScript = %q", got)
+	got := trimScript(2 * GiB)
+	for _, want := range []string{
+		"pgrep -f '^tee /sys/fs/cgroup/.*memory[.]reclaim' >/dev/null ||", // one writer at a time
+		"echo 2147483648 | sudo -n timeout --foreground -s KILL 10 tee /sys/fs/cgroup/memory.reclaim",
+		"compact_memory",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("trimScript = %q, want %q in it", got, want)
+		}
+	}
+	if strings.Contains(got, "swappiness") {
+		t.Errorf("trimScript = %q, still forces a swappiness", got)
 	}
 }
 

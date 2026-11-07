@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestMemoryLimitIsTheAgentsShareOfTheVM(t *testing.T) {
@@ -145,7 +147,7 @@ func TestFreezeReclaimAndPopulated(t *testing.T) {
 	if err := freezeRun(root, "m", "k", true, write); err != nil || len(wrote) != 0 {
 		t.Fatalf("freezing a run with no cgroup: %v, %v", wrote, err)
 	}
-	if err := reclaimRun(root, "m", "k", write); err != nil || len(wrote) != 0 {
+	if err := reclaimRun(t.Context(), root, "m", "k", func(_ context.Context, path, value string, _ time.Duration) error { return write(path, value) }); err != nil || len(wrote) != 0 {
 		t.Fatalf("reclaiming a run with no cgroup: %v, %v", wrote, err)
 	}
 	if runPopulated(root, "m", "k") {
@@ -158,13 +160,13 @@ func TestFreezeReclaimAndPopulated(t *testing.T) {
 	if err := freezeRun(root, "m", "k", true, write); err != nil {
 		t.Fatal(err)
 	}
-	if err := reclaimRun(root, "m", "k", func(path, value string) error {
+	if err := reclaimRun(t.Context(), root, "m", "k", func(_ context.Context, path, value string, _ time.Duration) error {
 		wrote = append(wrote, filepath.Base(path)+"="+value)
 		return errReclaimShort // the kernel got what it could
 	}); err != nil {
 		t.Fatalf("a short reclaim is an error: %v", err)
 	}
-	if len(wrote) != 2 || wrote[0] != "cgroup.freeze=1" || wrote[1] != "memory.reclaim=3221225472" {
+	if len(wrote) != 2 || wrote[0] != "cgroup.freeze=1" || wrote[1] != "memory.reclaim=134217728" { // one chunk, then it fell short
 		t.Errorf("wrote %v", wrote)
 	}
 	if !runPopulated(root, "m", "k") {

@@ -55,7 +55,7 @@ func (f *fakeRunCgroups) Freeze(instance, key string, on bool) error {
 	return nil
 }
 
-func (f *fakeRunCgroups) Reclaim(instance, key string) error {
+func (f *fakeRunCgroups) Reclaim(_ context.Context, instance, key string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reclaimed = append(f.reclaimed, runID(instance, key))
