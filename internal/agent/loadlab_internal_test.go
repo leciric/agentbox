@@ -720,7 +720,7 @@ read -r own < /sys/fs/cgroup/pids.max
 cap=${LAB_BOMB_CAP:-10000}
 [ "$own" != max ] && [ $((own - 256)) -lt $cap ] && cap=$((own - 256))
 mkdir -p $cg && echo $cap > $cg/pids.max
-bash -c "echo \\$\\$ > $cg/cgroup.procs; exec bash -c ':(){ :|:& };:'" 2>/dev/null &
+sh -c 'echo $$ > "$1/cgroup.procs" && exec bash -c ":(){ :|:& };:"' _ $cg 2>/dev/null &
 exec 3<> <(:)
 peak=0; for i in $(seq 30); do read -t 1 -u 3; read -r n < $cg/pids.current; [ "$n" -gt "$peak" ] && peak=$n; done
 echo 1 > $cg/cgroup.kill

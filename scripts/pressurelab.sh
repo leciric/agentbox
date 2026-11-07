@@ -34,7 +34,13 @@ export AGENTBOX_FRONT_END=host
 as_lab() { sudo -u "$LAB_USER" -H env AGENTBOX_FRONT_END=host bash -lc "$*"; }
 step() { printf '==> %s\n' "$*"; }
 
-stop_daemon() { sudo pkill -u "$LAB_USER" -x agentbox-lab 2>/dev/null || true; sleep 1; }
+# Waits for it to go: one still stopping would be taken for one running.
+stop_daemon() {
+  sudo pkill -u "$LAB_USER" -x agentbox-lab 2>/dev/null || return 0
+  for _ in $(seq 30); do pgrep -u "$LAB_USER" -x agentbox-lab >/dev/null || return 0; sleep 1; done
+  sudo pkill -KILL -u "$LAB_USER" -x agentbox-lab 2>/dev/null || true
+  sleep 1
+}
 if [[ ${1:-} == --restart ]]; then
   stop_daemon
   shift
