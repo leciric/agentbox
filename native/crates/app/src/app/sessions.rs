@@ -1925,118 +1925,169 @@ impl AppView {
             .get(&project)
             .cloned()
             .unwrap_or_default();
+        // SessionHistory: a header (px-8 pt-4 pb-3: Back to the chat, ghost
+        // sm, and the title), then the list in a box mx-6 mb-6 rounded-2xl:
+        // the hint (px-5 pt-3 pb-1), and the sessions (p-2 gap-px), each a
+        // button px-3 py-2.5 rounded-xl, gap-1: its topic, its meta, and
+        // the last line it said. A row opens the session to read.
+        let caption = theme::text::CAPTION;
         v_flex()
             .id("session-history")
             .size_full()
-            .overflow_y_scroll()
-            .px_8()
-            .py_6()
-            .gap_3()
             .child(
                 h_flex()
+                    .flex_none()
+                    .w_full()
+                    .px_8()
+                    .pt_4()
+                    .pb_3()
                     .gap_3()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::primary())
-                            .child(t("sessions.historyTitle")),
-                    )
                     .child(controls::button(
                         "history-back",
-                        t("sessions.backToChat"),
-                        Btn::Secondary,
+                        format!("← {}", t("sessions.backToChat")),
+                        Btn::Ghost,
                         false,
                         cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.sessions.history = false;
                             cx.notify();
                         }),
-                    )),
-            )
-            .child(controls::note(t("sessions.historyHint")))
-            .when(closed.is_empty(), |el| {
-                el.child(controls::note(t("sessions.historyEmpty")))
-            })
-            .children(closed.into_iter().map(|s| {
-                let (p1, id1) = (project.clone(), s.id.clone());
-                let id2 = s.id.clone();
-                let read = s.clone();
-                h_flex()
-                    .id(SharedString::from(format!("history-row-{}", s.id)))
-                    .cursor_pointer()
-                    .hover(|el| el.bg(theme::surface_strong()))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.read_closed(read.clone(), window, cx)
-                    }))
-                    .gap_3()
-                    .px_4()
-                    .py_3()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme::line())
-                    .bg(theme::card())
+                    ))
                     .child(
-                        v_flex()
+                        div()
                             .flex_1()
                             .min_w_0()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_sm()
-                                    .text_color(theme::primary())
-                                    .child(topic(&s)),
-                            )
-                            .child(
-                                div().text_xs().text_color(theme::faint()).child(
-                                    [
-                                        s.closed_at.as_deref().map(|c| {
+                            .truncate()
+                            .text_size(theme::text::HEADING)
+                            .line_height(px(24.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::title())
+                            .child(t("sessions.historyTitle")),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .id("session-history-list")
+                    .flex_1()
+                    .min_h_0()
+                    .mx_6()
+                    .mb_6()
+                    .rounded_2xl()
+                    .border_1()
+                    .border_color(theme::line())
+                    .overflow_y_scroll()
+                    .when(closed.is_empty(), |el| {
+                        el.child(
+                            div()
+                                .p_6()
+                                .text_size(caption)
+                                .text_color(theme::subtle())
+                                .child(t("sessions.historyEmpty")),
+                        )
+                    })
+                    .when(!closed.is_empty(), |el| {
+                        el.child(
+                            div()
+                                .px_5()
+                                .pt_3()
+                                .pb_1()
+                                .text_size(caption)
+                                .line_height(px(18.))
+                                .text_color(theme::subtle())
+                                .child(t("sessions.historyHint")),
+                        )
+                    })
+                    .child(
+                        v_flex()
+                            .p_2()
+                            .gap_px()
+                            .children(closed.into_iter().map(|s| {
+                                let read = s.clone();
+                                let when = |icon: Option<&'static str>, text: String| {
+                                    h_flex()
+                                        .gap_1()
+                                        .when_some(icon, |el, i| {
+                                            el.child(crate::icons::ic(i).size(px(12.)).flex_none())
+                                        })
+                                        .child(theme::fit(text, caption, FontWeight::NORMAL, false))
+                                };
+                                let meta = h_flex()
+                                    .flex_wrap()
+                                    .gap_x_3()
+                                    .gap_y_1()
+                                    .text_size(caption)
+                                    .line_height(px(18.))
+                                    .text_color(theme::subtle())
+                                    .child(when(
+                                        Some("calendar-days"),
+                                        tv(
+                                            "sessions.activeAgo",
+                                            &[("when", time_ago(&s.active_at).into())],
+                                        ),
+                                    ))
+                                    .when_some(s.closed_at.as_deref(), |el, c| {
+                                        let key = if s.settled {
+                                            "sessions.settledAgo"
+                                        } else {
+                                            "sessions.closedAgo"
+                                        };
+                                        el.child(when(
+                                            None,
+                                            tv(key, &[("when", time_ago(c).into())]),
+                                        ))
+                                    })
+                                    .when(s.agents > 0, |el| {
+                                        el.child(when(
+                                            Some("bot"),
                                             tv(
-                                                "sessions.closedAgo",
-                                                &[("when", time_ago(c).into())],
-                                            )
-                                        }),
-                                        (s.agents > 0).then(|| {
-                                            tv("sessions.agentCount", &[("count", s.agents.into())])
-                                        }),
-                                        s.last.as_ref().map(|l| {
-                                            l.text.lines().next().unwrap_or("").to_string()
-                                        }),
-                                    ]
-                                    .into_iter()
-                                    .flatten()
-                                    .collect::<Vec<_>>()
-                                    .join(" · "),
-                                ),
-                            ),
-                    )
-                    .child(controls::button(
-                        SharedString::from(format!("history-continue-{}", s.id)),
-                        t("sessions.continue"),
-                        Btn::Secondary,
-                        false,
-                        cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.new_session(
-                                NewLeadSessionRequest {
-                                    continue_from: id2.clone(),
-                                    ..Default::default()
-                                },
-                                None,
-                                window,
-                                cx,
-                            )
-                        }),
-                    ))
-                    .child(controls::button(
-                        SharedString::from(format!("history-reopen-{}", s.id)),
-                        t("sessions.reopen"),
-                        Btn::Primary,
-                        false,
-                        cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.reopen_session(p1.clone(), id1.clone(), window, cx)
-                        }),
-                    ))
-            }))
+                                                "sessions.agentCount",
+                                                &[("count", s.agents.into())],
+                                            ),
+                                        ))
+                                    });
+                                let last = s
+                                    .last
+                                    .as_ref()
+                                    .map(|l| l.text.clone())
+                                    .filter(|t| !t.is_empty());
+                                v_flex()
+                                    .id(SharedString::from(format!("history-row-{}", s.id)))
+                                    .w_full()
+                                    .min_w_0()
+                                    .gap_1()
+                                    .px_3()
+                                    .py_2p5()
+                                    .rounded_xl()
+                                    .cursor_pointer()
+                                    .hover(|el| el.bg(theme::surface_raised()))
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            this.read_closed(read.clone(), window, cx)
+                                        },
+                                    ))
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .text_size(theme::text::UI)
+                                            .line_height(px(19.5))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme::primary())
+                                            .child(topic(&s)),
+                                    )
+                                    .child(meta)
+                                    .when_some(last, |el, l| {
+                                        el.child(
+                                            div()
+                                                .min_w_0()
+                                                .line_clamp(2)
+                                                .text_size(caption)
+                                                .line_height(px(18.))
+                                                .text_color(theme::muted())
+                                                .child(l),
+                                        )
+                                    })
+                            })),
+                    ),
+            )
             .into_any_element()
     }
 

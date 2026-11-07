@@ -947,6 +947,7 @@ impl AppView {
                 )
                 .into_any_element();
         }
+        let history = !home && self.sessions.history;
         v_flex()
             .flex_1()
             .min_h_0()
@@ -956,12 +957,14 @@ impl AppView {
                     .flex_1()
                     .min_h_0()
                     .when(!home, |el| el.mx_6().mb_6())
-                    .children(self.render_session_tabs(cx))
+                    // The history takes the tabs' place too (ProjectChatPanel's
+                    // box(SessionHistory)).
+                    .when(!history, |el| el.children(self.render_session_tabs(cx)))
                     .child(
                         v_flex()
                             .flex_1()
                             .min_h_0()
-                            .mt(px(-1.))
+                            .when(!history, |el| el.mt(px(-1.)))
                             .rounded_2xl()
                             .border_1()
                             .border_color(if home {
@@ -970,7 +973,7 @@ impl AppView {
                                 theme::line()
                             })
                             .overflow_hidden()
-                            .when(!no_session, |el| {
+                            .when(!no_session && !history, |el| {
                                 el.children(self.render_session_header(cx))
                             })
                             .child(content),
