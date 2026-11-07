@@ -732,6 +732,8 @@ impl AppView {
                     return;
                 }
                 this.panel.media = Some(res);
+                let list = this.panel.items();
+                this.sync_media_list(&whose, list);
                 this.fetch_media_files(cx);
                 cx.notify();
             })
@@ -2657,7 +2659,7 @@ impl AppView {
                                         .child(t("panel.evidence.pagesReports")),
                                 )
                                 .children(reports.iter().map(|m| {
-                                    let id = m.id.clone();
+                                    let item = m.clone();
                                     let kind_key = format!("agent.media.noun.{}", m.kind);
                                     let kind = if agentbox_i18n::has(&kind_key) {
                                         tv(&kind_key, &[("count", 1usize.into())])
@@ -2672,10 +2674,21 @@ impl AppView {
                                         .rounded_lg()
                                         .cursor_pointer()
                                         .hover(|s| s.bg(theme::surface_strong()))
+                                        // Read in the app's media viewer, as the
+                                        // Media page opens them: a log or a file
+                                        // as text, a folder report's page framed,
+                                        // a picture as itself.
                                         .on_click(cx.listener(
-                                            move |this, _: &ClickEvent, _, cx| {
-                                                this.panel.viewer = Some(id.clone());
-                                                cx.notify();
+                                            move |this, _: &ClickEvent, window, cx| {
+                                                let list = this.panel.items();
+                                                let source = this.panel.media_for.clone();
+                                                this.open_media(
+                                                    item.clone(),
+                                                    list,
+                                                    source,
+                                                    window,
+                                                    cx,
+                                                );
                                             },
                                         ))
                                         .child(

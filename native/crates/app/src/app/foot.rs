@@ -49,6 +49,11 @@ type ViewerClick = Box<dyn Fn(&mut AppView, &mut Window, &mut Context<AppView>)>
 /// screenshot as itself, a recording in the player, a report or a note read.
 struct Viewing {
     item: MediaItem,
+    /// The list it was opened from, which the arrows step through: the
+    /// Media page's, or an agent's or project's (the panel's), and whose
+    /// that is: "" for the Media page, else the panel's (media_for).
+    list: Vec<MediaItem>,
+    source: String,
     path: Option<PathBuf>,
     text: Option<String>,
     error: Option<String>,
@@ -119,6 +124,8 @@ impl AppView {
                         }
                         f.media.extend(p.items);
                         f.next = p.next;
+                        let list = f.media.clone();
+                        this.sync_media_list("", list);
                         this.fetch_thumbs(cx);
                     }
                     Err(e) => toasts::error(cx, e.to_string()),
@@ -130,23 +137,31 @@ impl AppView {
         .detach();
     }
 
-    /// fetch_thumbs brings the screenshots' files to disk to draw them.
+    /// fetch_thumbs brings the pictures' files to disk to draw them: the
+    /// screenshots, and files that are images. One that couldn't be read is
+    /// asked for again the next time the page loads.
     fn fetch_thumbs(&mut self, cx: &mut Context<Self>) {
         for m in &self.side.foot.media {
-            if m.kind != "screenshot" || self.side.foot.files.contains_key(&m.id) {
+            if media::look(m) != media::Look::Picture || self.side.foot.files.contains_key(&m.id) {
                 continue;
             }
             self.side.foot.files.insert(m.id.clone(), PathBuf::new());
             let (client, item) = (self.client.clone(), m.clone());
             cx.spawn(async move |this, cx| {
                 let id = item.id.clone();
-                if let Ok(p) = media::fetch(client, item).await {
-                    this.update(cx, |this, cx| {
-                        this.side.foot.files.insert(id, p);
-                        cx.notify();
-                    })
-                    .ok();
-                }
+                let res = media::fetch(client, item).await;
+                this.update(cx, |this, cx| {
+                    match res {
+                        Ok(p) => {
+                            this.side.foot.files.insert(id, p);
+                        }
+                        Err(_) => {
+                            this.side.foot.files.remove(&id);
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
             })
             .detach();
         }
@@ -154,15 +169,19 @@ impl AppView {
 
     /// open_media shows an item in the viewer over the page; its file comes
     /// from the daemon's cache on disk.
-    fn open_media(&mut self, item: MediaItem, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn open_media(
+        &mut self,
+        item: MediaItem,
+        list: Vec<MediaItem>,
+        source: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let text = (!item.text.is_empty()).then(|| item.text.clone());
         // Its place among its agent's media, as the review groups them.
-        let same: Vec<MediaItem> = self
-            .side
-            .foot
-            .media
+        let same: Vec<MediaItem> = list
             .iter()
             .filter(|m| m.agent == item.agent)
             .cloned()
@@ -188,6 +207,8 @@ impl AppView {
         let pan = ScrollHandle::new();
         self.side.foot.viewing = Some(Viewing {
             item: item.clone(),
+            list,
+            source,
             path: None,
             text,
             error: None,
@@ -222,11 +243,17 @@ impl AppView {
         let marks: Vec<f64> = chapters.iter().map(|c| c.at).collect();
         cx.spawn(async move |this, cx| {
             let res = media::fetch(client, item.clone()).await;
-            // A report or a note is read as text.
+            // A log, a report, a file that isn't a picture and a note
+            // without its text are read as text (a folder report's page too,
+            // for where no webview can frame it), as the Electron viewer
+            // does; up to a megabyte of it.
+            let as_text = match media::look(&item) {
+                media::Look::Picture | media::Look::Video => false,
+                media::Look::Page(_) => !crate::webview::available(),
+                _ => true,
+            };
             let text = match &res {
-                Ok(p) if (item.kind == "report" || item.kind == "note") && item.text.is_empty() => {
-                    std::fs::read_to_string(p).ok()
-                }
+                Ok(p) if item.text.is_empty() && as_text => Some(read_text(p)),
                 _ => None,
             };
             this.update(cx, |this, cx| {
@@ -247,8 +274,10 @@ impl AppView {
                             }));
                         }
                         v.path = Some(p);
-                        if text.is_some() {
-                            v.text = text;
+                        match text {
+                            Some(Ok(t)) => v.text = Some(t),
+                            Some(Err(e)) => v.error = Some(e.to_string()),
+                            None => {}
                         }
                     }
                     Err(e) => v.error = Some(e.to_string()),
@@ -265,7 +294,7 @@ impl AppView {
         let Some(v) = &self.side.foot.viewing else {
             return;
         };
-        let list = &self.side.foot.media;
+        let (list, source) = (v.list.clone(), v.source.clone());
         let Some(i) = list.iter().position(|m| m.id == v.item.id) else {
             return;
         };
@@ -274,7 +303,7 @@ impl AppView {
             return;
         }
         let next = list[j as usize].clone();
-        self.open_media(next, window, cx);
+        self.open_media(next, list, source, window, cx);
     }
 
     /// seek_media goes to a chapter of the recording on view.
@@ -328,17 +357,34 @@ impl AppView {
             .into_any_element()
     }
 
-    fn close_media(&mut self, cx: &mut Context<Self>) {
+    /// sync_media_list gives the viewer the list it came from as it is now,
+    /// once that list (the Media page's, or the panel's for `source`) is read
+    /// again, so its arrows don't step to items gone or past new ones.
+    pub(super) fn sync_media_list(&mut self, source: &str, list: Vec<MediaItem>) {
+        if let Some(v) = self.side.foot.viewing.as_mut()
+            && v.source == source
+        {
+            v.list = list;
+        }
+    }
+
+    /// media_open says the media viewer is open, over what's shown.
+    pub(super) fn media_open(&self) -> bool {
+        self.side.foot.viewing.is_some()
+    }
+
+    pub(super) fn close_media(&mut self, cx: &mut Context<Self>) {
         self.side.foot.viewing = None;
         cx.notify();
     }
 
     /// render_viewer is the open item over the page, with its name, where
     /// it's from and when, the arrows to the next, and its own viewer.
-    fn render_media_viewer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn render_media_viewer(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let v = self.side.foot.viewing.as_ref()?;
         let m = &v.item;
-        let list = &self.side.foot.media;
+        let list = &v.list;
+        let look = media::look(m);
         let at = list.iter().position(|x| x.id == m.id);
         let first = at.is_none_or(|i| i == 0);
         let last = at.is_none_or(|i| i + 1 >= list.len());
@@ -389,7 +435,7 @@ impl AppView {
                 .text_color(theme::error())
                 .child(e.clone())
                 .into_any_element()
-        } else if m.kind == "screenshot" {
+        } else if look == media::Look::Picture {
             let picture = |p: &PathBuf| {
                 img(p.clone())
                     .size_full()
@@ -437,7 +483,22 @@ impl AppView {
                     .child(t("common.loading"))
                     .into_any_element(),
             }
-        } else if m.kind == "recording" {
+        } else if let (media::Look::Page(entry), true) = (look.clone(), crate::webview::available())
+        {
+            // A folder report (an HTML test report): its page, framed as
+            // the Electron viewer's iframe, reading the folder's files.
+            div()
+                .size_full()
+                .rounded_lg()
+                .overflow_hidden()
+                .bg(gpui::white())
+                .child(crate::webview::page(
+                    format!("media-page-{}", m.id),
+                    crate::webview::daemon_url(&media::page_path(m, &entry)),
+                    true,
+                ))
+                .into_any_element()
+        } else if look == media::Look::Video {
             // Its chapters beside it, each a jump in the recording.
             h_flex()
                 .size_full()
@@ -520,10 +581,23 @@ impl AppView {
                     .rounded_lg()
                     .bg(theme::card())
                     .text_sm()
-                    .child(gpui_component::text::TextView::markdown(
-                        SharedString::from(format!("media-text-{}", m.id)),
-                        text.clone(),
-                    ))
+                    .map(|el| {
+                        // A note or a Markdown report reads as prose; a log or
+                        // any other file as it is, in monospace (ViewerBody's <pre>).
+                        let prose = m.kind == "note"
+                            || (m.kind == "report" && m.file.to_ascii_lowercase().ends_with(".md"));
+                        if prose {
+                            el.child(gpui_component::text::TextView::markdown(
+                                SharedString::from(format!("media-text-{}", m.id)),
+                                text.clone(),
+                            ))
+                        } else {
+                            el.font_family(theme::mono())
+                                .text_xs()
+                                .text_color(theme::muted())
+                                .child(text.clone())
+                        }
+                    })
                     .into_any_element(),
                 None => div()
                     .text_color(theme::faint())
@@ -755,7 +829,6 @@ impl AppView {
                 .relative()
                 .size_full()
                 .child(self.render_media_page(cx))
-                .children(self.render_media_viewer(cx))
                 .into_any_element(),
         }
     }
@@ -792,8 +865,9 @@ impl AppView {
                 .cloned();
             let glyph = match m.kind.as_str() {
                 "recording" => "film",
-                "report" => "file-text",
+                "report" | "log" => "file-text",
                 "note" => "sticky-note",
+                "file" => "file",
                 _ => "image",
             };
             let who = if m.agent_title.is_empty() {
@@ -812,7 +886,8 @@ impl AppView {
                 .cursor_pointer()
                 .hover(|el| el.border_color(theme::muted()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.open_media(item.clone(), window, cx)
+                    let list = this.side.foot.media.clone();
+                    this.open_media(item.clone(), list, String::new(), window, cx)
                 }))
                 .child(
                     div()
@@ -1150,4 +1225,15 @@ fn duration(from: &str, to: Option<&str>) -> String {
     } else {
         format!("{}h {}m", s / 3600, (s % 3600) / 60)
     }
+}
+
+/// read_text is a file read as text for the viewer: up to a megabyte, as
+/// the Electron viewer reads (useMediaText), whatever its encoding.
+fn read_text(p: &std::path::Path) -> std::io::Result<String> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    std::fs::File::open(p)?
+        .take(1 << 20)
+        .read_to_end(&mut bytes)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }

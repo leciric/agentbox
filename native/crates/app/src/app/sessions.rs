@@ -477,6 +477,7 @@ impl AppView {
         cx: &mut Context<Self>,
     ) {
         self.sessions.choose(&project, &id);
+        self.close_media(cx);
         self.sessions.history = false;
         self.sessions.reading = None;
         if self.project.as_deref() != Some(project.as_str()) {

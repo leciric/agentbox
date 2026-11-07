@@ -165,6 +165,7 @@ impl AppView {
             || self.schedules.dialog_open()
             || self.settings
             || self.work.is_some()
+            || self.media_open()
             || self.office_open
             || self.first_run_open()
             || self.onboarding_open()
@@ -584,6 +585,7 @@ impl AppView {
     }
 
     fn select_project(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_media(cx);
         self.settings = false;
         self.work = None;
         self.side.page = None;
@@ -644,6 +646,11 @@ impl AppView {
             )
         };
         self.keep_draft(cx);
+        // The media viewer is over the chat that was shown, not another
+        // one; the lead's chat opened again (a session's state changed) keeps it.
+        if who != self.open {
+            self.close_media(cx);
+        }
         self.open = who;
         self.terminal = None;
         self.desktop = None;
@@ -1356,46 +1363,59 @@ impl Render for AppView {
                                         self.lead_frame(
                                             lead_view,
                                             no_session,
-                                            div().flex_1().min_h_0().child(match &self.chat {
-                                                _ if self.cut_off() => self.render_unreachable(cx),
-                                                _ if self.first_run_open() => {
-                                                    self.render_first_run(cx)
-                                                }
-                                                _ if self.settings => self.render_settings(cx),
-                                                _ if self.work.is_some() => self.render_work(cx),
-                                                _ if self.side.page.is_some() => {
-                                                    self.render_foot_page(cx)
-                                                }
-                                                Some(_) if lead_view && self.sessions.history => {
-                                                    self.render_history(cx)
-                                                }
-                                                Some(_) if no_session => self.render_no_session(cx),
-                                                Some(_)
-                                                    if self.open != "lead"
-                                                        && self.agent.page
-                                                            == Some(agent::Page::Snapshots) =>
-                                                {
-                                                    self.render_snapshots(cx)
-                                                }
-                                                Some(_)
-                                                    if self.open != "lead"
-                                                        && self.agent.page
-                                                            == Some(agent::Page::Settings) =>
-                                                {
-                                                    self.render_agent_settings(cx)
-                                                }
-                                                Some(chat) => chat.clone().into_any_element(),
-                                                None => div()
-                                                    .size_full()
-                                                    .flex()
-                                                    .items_center()
-                                                    .justify_center()
-                                                    .text_color(theme::faint())
-                                                    .when(self.projects.is_empty(), |el| {
-                                                        el.child(t("shell.sidebar.addFirst"))
-                                                    })
-                                                    .into_any_element(),
-                                            }),
+                                            div()
+                                                .relative()
+                                                .flex_1()
+                                                .min_h_0()
+                                                .child(match &self.chat {
+                                                    _ if self.cut_off() => {
+                                                        self.render_unreachable(cx)
+                                                    }
+                                                    _ if self.first_run_open() => {
+                                                        self.render_first_run(cx)
+                                                    }
+                                                    _ if self.settings => self.render_settings(cx),
+                                                    _ if self.work.is_some() => {
+                                                        self.render_work(cx)
+                                                    }
+                                                    _ if self.side.page.is_some() => {
+                                                        self.render_foot_page(cx)
+                                                    }
+                                                    Some(_)
+                                                        if lead_view && self.sessions.history =>
+                                                    {
+                                                        self.render_history(cx)
+                                                    }
+                                                    Some(_) if no_session => {
+                                                        self.render_no_session(cx)
+                                                    }
+                                                    Some(_)
+                                                        if self.open != "lead"
+                                                            && self.agent.page
+                                                                == Some(agent::Page::Snapshots) =>
+                                                    {
+                                                        self.render_snapshots(cx)
+                                                    }
+                                                    Some(_)
+                                                        if self.open != "lead"
+                                                            && self.agent.page
+                                                                == Some(agent::Page::Settings) =>
+                                                    {
+                                                        self.render_agent_settings(cx)
+                                                    }
+                                                    Some(chat) => chat.clone().into_any_element(),
+                                                    None => div()
+                                                        .size_full()
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .text_color(theme::faint())
+                                                        .when(self.projects.is_empty(), |el| {
+                                                            el.child(t("shell.sidebar.addFirst"))
+                                                        })
+                                                        .into_any_element(),
+                                                })
+                                                .children(self.render_media_viewer(cx)),
                                             cx,
                                         ),
                                     ),
