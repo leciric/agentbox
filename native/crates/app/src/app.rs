@@ -1069,7 +1069,6 @@ impl AppView {
     fn is_home(&self) -> bool {
         self.project.as_deref() == Some(agentbox_api::HOME_PROJECT)
     }
-
 }
 
 impl AppView {
