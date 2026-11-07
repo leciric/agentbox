@@ -1,9 +1,9 @@
 [
   { "id": "home", "view": { "kind": "homeChat" } },
   { "id": "home-status", "view": { "kind": "home" }, "native": { "AGENTBOX_NATIVE_VIEW": "home:status" } },
-  { "id": "home-memory", "view": { "kind": "homeChat" }, "actions": [{ "click": [1320, 100] }], "native": {} },
+  { "id": "home-memory", "view": { "kind": "homeChat" }, "wait": 3000, "actions": [{ "click": [1320, 100] }], "native": {} },
   { "id": "project-lead", "view": { "kind": "project", "project": "demo" }, "native": { "AGENTBOX_NATIVE_VIEW": "project:demo" } },
-  { "id": "project-sessions", "view": { "kind": "project", "project": "demo" }, "native": { "AGENTBOX_NATIVE_VIEW": "project:demo" }, "actions": [{ "click": [1012, 76] }] },
+  { "id": "project-sessions", "view": { "kind": "project", "project": "demo" }, "native": { "AGENTBOX_NATIVE_VIEW": "project:demo" }, "wait": 3000, "actions": [{ "click": [1012, 76] }] },
   { "id": "project-pulls", "view": { "kind": "project", "project": "demo", "tab": "pulls" }, "native": { "AGENTBOX_NATIVE_VIEW": "project:demo:pulls" } },
   { "id": "agent-chat", "view": { "kind": "agent", "ref": "demo/agent-01", "tab": "chat" }, "native": { "AGENTBOX_NATIVE_OPEN": "agent-01" } },
   { "id": "agent-idle", "view": { "kind": "agent", "ref": "demo/agent-02", "tab": "chat" }, "native": { "AGENTBOX_NATIVE_OPEN": "agent-02" } },
