@@ -13,7 +13,7 @@ use gpui::*;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem};
 use gpui_component::text::TextView;
-use gpui_component::{Sizable as _, h_flex, v_flex};
+use gpui_component::{h_flex, v_flex};
 
 use super::rows::{self, Row};
 use super::{ChatAction, ChatView};

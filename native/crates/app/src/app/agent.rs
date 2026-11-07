@@ -1128,17 +1128,35 @@ impl AppView {
                                     .text_color(theme::subtle()),
                             )
                         })
+                        // Button size="sm" variant="primary": its Play, then the action.
                         .when_some(primary, |el, action| {
                             let r = r.clone();
-                            el.child(controls::button(
-                                "agent-primary",
-                                format!("▶ {}", action.label()),
-                                Btn::Primary,
-                                self.agent.busy,
-                                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.run_action(r.clone(), action, cx)
-                                }),
-                            ))
+                            let busy = self.agent.busy;
+                            el.child(
+                                h_flex()
+                                    .id("agent-primary")
+                                    .flex_none()
+                                    .h_8()
+                                    .gap_2()
+                                    .px_3()
+                                    .rounded_lg()
+                                    .text_size(theme::text::UI)
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .bg(theme::brand(500))
+                                    .text_color(theme::on_brand())
+                                    .when(busy, |el| el.opacity(0.45))
+                                    .when(!busy, |el| {
+                                        el.cursor_pointer()
+                                            .hover(|el| el.bg(theme::brand(600)))
+                                            .on_click(cx.listener(
+                                                move |this, _: &ClickEvent, _, cx| {
+                                                    this.run_action(r.clone(), action, cx)
+                                                },
+                                            ))
+                                    })
+                                    .child(crate::icons::ic("play").size(px(16.)))
+                                    .child(action.label()),
+                            )
                         })
                         .child(new_chat)
                         .child(menu)

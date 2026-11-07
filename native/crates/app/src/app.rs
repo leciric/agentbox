@@ -1523,7 +1523,3 @@ impl Render for AppView {
     }
 }
 
-/// pr_chip_for is a pull request as a small pill, for views outside app/.
-pub(crate) fn pr_chip_for(pr: &agentbox_api::PullRequest) -> AnyElement {
-    work::pr_chip(pr)
-}
