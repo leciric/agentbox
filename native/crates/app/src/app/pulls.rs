@@ -2519,128 +2519,137 @@ impl AppView {
         ))
     }
 
-    /// render_rail_switch is the rail's tabs beside a project's chat:
-    /// Agents, with how many, and Pull requests, with how many are open and
-    /// how many of its agents are ready to review.
+    /// render_rail_switch is the lead's panel's tabs (LeadSwitch): Agents,
+    /// with how many; Pull requests (when the project has them on), with how
+    /// many are open and how many of its agents are ready to review; Issues,
+    /// Files, Evidence and Schedules. Only the lit one is named.
     pub(super) fn render_rail_switch(&self, agents: usize, cx: &mut Context<Self>) -> AnyElement {
         let (open, ready) = self.pull_counts();
         let tab = self.pulls.tab;
-        let count = |n: usize, lit: bool| {
+        let pulls_tab = self
+            .projects
+            .iter()
+            .find(|p| Some(&p.name) == self.project.as_ref())
+            .is_some_and(|p| p.pull_requests);
+        // The counts' pill: rounded-full bg-surface-strong px-1.5 10.5px subtle.
+        let count = |n: String| {
             div()
+                .flex_none()
                 .px_1p5()
                 .rounded_full()
-                .text_xs()
-                .bg(if lit {
-                    theme::accent().opacity(0.18)
-                } else {
-                    theme::surface_strong()
-                })
-                .text_color(if lit { theme::accent() } else { theme::muted() })
-                .child(n.to_string())
+                .bg(theme::surface_strong())
+                .text_size(px(10.5))
+                .line_height(px(15.75))
+                .text_color(theme::subtle())
+                .child(n)
         };
-        let item = |id: &'static str, label: String, on: bool, to: RailTab| {
-            h_flex()
-                .id(id)
-                .gap_1p5()
-                .px_2p5()
-                .h(px(28.))
-                .rounded_md()
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .when(on, |el| {
-                    el.bg(theme::surface_raised()).text_color(theme::primary())
-                })
-                .when(!on, |el| {
-                    el.text_color(theme::muted())
-                        .cursor_pointer()
-                        .hover(|s| s.text_color(theme::primary()))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.pulls.tab = to;
-                            if to == RailTab::Pulls {
-                                this.load_pulls(false, cx);
-                            }
-                            this.panel_sync(window, cx);
-                            cx.notify();
-                        }))
-                })
-                .child(label)
-        };
-        let mut tip = vec![t("panel.view.pulls")];
+        let tabs: Vec<(&'static str, RailTab, &'static str, &'static str)> = [
+            (
+                "rail-tab-agents",
+                RailTab::Agents,
+                "panel.lead.agents",
+                "users",
+            ),
+            (
+                "rail-tab-pulls",
+                RailTab::Pulls,
+                "panel.view.pulls",
+                "git-pull-request",
+            ),
+            (
+                "rail-tab-issues",
+                RailTab::Issues,
+                "panel.view.issues",
+                "circle-dot",
+            ),
+            (
+                "rail-tab-files",
+                RailTab::Files,
+                "panel.view.files",
+                "folder-tree",
+            ),
+            (
+                "rail-tab-evidence",
+                RailTab::Evidence,
+                "panel.view.evidence",
+                "images",
+            ),
+            (
+                "rail-tab-schedules",
+                RailTab::Schedules,
+                "panel.view.schedules",
+                "alarm-clock",
+            ),
+        ]
+        .into_iter()
+        .filter(|(_, to, _, _)| *to != RailTab::Pulls || pulls_tab)
+        .collect();
+        let mut pull_tip = vec![t("panel.view.pulls")];
         if open > 0 {
-            tip.push(tv("v2.header.openPulls", &[("count", open.into())]));
+            pull_tip.push(tv("v2.header.openPulls", &[("count", open.into())]));
         }
         if ready > 0 {
-            tip.push(tv("v2.header.readyPulls", &[("count", ready.into())]));
+            pull_tip.push(tv("v2.header.readyPulls", &[("count", ready.into())]));
         }
-        let tip: SharedString = tip.join(" · ").into();
-        h_flex()
-            .p(px(2.))
-            .rounded_lg()
-            .border_1()
-            .border_color(theme::line())
-            .bg(theme::ink())
-            .child(
-                item(
-                    "rail-tab-agents",
-                    if tab == RailTab::Agents {
-                        t("panel.lead.agents")
-                    } else {
-                        "◎".into()
-                    },
-                    tab == RailTab::Agents,
-                    RailTab::Agents,
-                )
-                .when(tab != RailTab::Agents, |el| {
-                    let tip: SharedString = t("panel.lead.agents").into();
-                    el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                })
-                .when(agents > 0, |el| el.child(count(agents, false))),
-            )
-            .child(
-                item(
-                    "rail-tab-pulls",
-                    if tab == RailTab::Pulls {
-                        t("panel.view.pulls")
-                    } else {
-                        "⇄".into()
-                    },
-                    tab == RailTab::Pulls,
-                    RailTab::Pulls,
-                )
-                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                // Unlit, how many are ready says enough: how many are open is in its tooltip.
-                .when(open > 0 && (tab == RailTab::Pulls || ready == 0), |el| {
-                    el.child(count(open, false))
-                })
-                .when(ready > 0, |el| el.child(count(ready, true))),
-            )
-            .children(
-                [
-                    ("rail-tab-issues", RailTab::Issues, "panel.view.issues", "◉"),
-                    ("rail-tab-files", RailTab::Files, "panel.view.files", "▤"),
-                    (
-                        "rail-tab-evidence",
-                        RailTab::Evidence,
-                        "panel.view.evidence",
-                        "◫",
-                    ),
-                    (
-                        "rail-tab-schedules",
-                        RailTab::Schedules,
-                        "panel.view.schedules",
-                        "⏰",
-                    ),
-                ]
-                .into_iter()
-                .map(|(id, to, key, glyph)| {
-                    // Only the lit one is named; the others by their mark (LeadSwitch).
-                    let on = tab == to;
-                    let tip: SharedString = t(key).into();
-                    item(id, if on { t(key) } else { glyph.to_string() }, on, to).when(!on, |el| {
+        let pull_tip = pull_tip.join(" · ");
+        super::panel::switch_box()
+            .min_w_0()
+            .flex_shrink(1.)
+            .children(tabs.into_iter().map(|(id, to, key, icon)| {
+                let on = tab == to;
+                let tip: SharedString = if to == RailTab::Pulls {
+                    pull_tip.clone().into()
+                } else {
+                    t(key).into()
+                };
+                super::panel::switch_item(id, icon, on)
+                    .when(on, |el| el.min_w_0().px_2p5())
+                    .when(!on, |el| {
+                        el.flex_none().px_2().on_click(cx.listener(
+                            move |this, _: &ClickEvent, window, cx| {
+                                this.pulls.tab = to;
+                                if to == RailTab::Pulls {
+                                    this.load_pulls(false, cx);
+                                }
+                                this.panel_sync(window, cx);
+                                cx.notify();
+                            },
+                        ))
+                    })
+                    .when(!on || to == RailTab::Pulls, |el| {
                         el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
                     })
-                }),
-            )
+                    .when(on, |el| el.child(div().min_w_0().truncate().child(t(key))))
+                    .when(to == RailTab::Agents && agents > 0, |el| {
+                        el.child(count(agents.to_string()))
+                    })
+                    .when(
+                        to == RailTab::Pulls && open > 0 && (on || ready == 0),
+                        |el| el.child(count(open.to_string())),
+                    )
+                    .when(to == RailTab::Pulls && ready > 0, |el| {
+                        el.child(
+                            div()
+                                .flex_none()
+                                .px_1p5()
+                                .rounded_full()
+                                .bg(theme::brand(500).opacity(0.15))
+                                .text_size(px(10.5))
+                                .line_height(px(15.75))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(if theme::look() == theme::Look::Light {
+                                    theme::brand(600)
+                                } else {
+                                    theme::brand(300)
+                                })
+                                .child(if on {
+                                    tv("v2.header.ready", &[("count", ready.into())])
+                                } else {
+                                    ready.to_string()
+                                }),
+                        )
+                    })
+            }))
             .into_any_element()
     }
 
@@ -2720,8 +2729,11 @@ impl AppView {
         let menu_project = name.clone();
         let menu = Button::new("project-menu")
             .ghost()
-            .small()
-            .icon(crate::icons::ic("ellipsis"))
+            .compact()
+            .size(px(32.))
+            .rounded(gpui_component::button::ButtonRounded::Size(px(8.)))
+            .text_color(theme::muted())
+            .icon(crate::icons::ic("ellipsis").size(px(15.)))
             .tooltip(menu_tip)
             .dropdown_menu_with_anchor(Anchor::TopRight, {
                 let view = cx.entity().downgrade();
@@ -2821,164 +2833,127 @@ impl AppView {
                     })
                 }
             });
-        let p_settings = name.clone();
-        Some(
-            h_flex()
-                .flex_none()
-                .h(px(44.))
-                .px_4()
-                .gap_2()
-                .bg(theme::card())
-                .border_b_1()
-                .border_color(theme::line())
-                .child(
-                    h_flex()
-                        .id("project-crumb")
-                        .gap_1p5()
-                        .px_1()
-                        .py_0p5()
-                        .rounded_md()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::surface_raised()))
-                        .tooltip(move |window, cx| Tooltip::new(root_tip.clone()).build(window, cx))
-                        .map(|el| {
-                            if lead {
-                                {
-                                    let copy = copy.clone();
-                                    el.on_click(move |e, w, cx| copy(e, w, cx))
-                                }
-                            } else {
-                                el.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                    this.open_chat("lead".into(), window, cx)
-                                }))
-                            }
-                        })
-                        .child(
-                            div()
-                                .flex_none()
-                                .size(px(20.))
-                                .rounded_md()
-                                .bg(theme::accent().opacity(0.25))
-                                .text_color(theme::primary())
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(initial),
-                        )
-                        .child(
-                            div()
-                                .max_w(px(256.))
-                                .truncate()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::primary())
-                                .child(display.clone()),
-                        ),
-                )
-                .child(
+        let _ = (status, working, counts, settings_tip);
+        let back_tip: SharedString = t("v2.header.backToLead").into();
+        let crumbs = h_flex()
+            .min_w_0()
+            .gap(px(6.))
+            // In an agent's chat, the way back to its lead's.
+            .when(!lead, |el| {
+                el.child(
                     div()
-                        .id("project-copy-path")
-                        .px_0p5()
-                        .text_xs()
-                        .text_color(if self.pulls.copied {
-                            theme::running()
-                        } else {
-                            theme::faint()
-                        })
-                        .cursor_pointer()
-                        .hover(|s| s.text_color(theme::primary()))
-                        .tooltip(move |window, cx| Tooltip::new(copy_tip.clone()).build(window, cx))
-                        .on_click(move |e, w, cx| copy(e, w, cx))
-                        .child(crate::icons::of(if self.pulls.copied {
-                            "✓"
-                        } else {
-                            "❐"
-                        })),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme::faint())
-                        .child(crate::icons::of("›")),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .max_w(px(200.))
-                        .truncate()
-                        .text_base()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if lead {
-                            theme::muted()
-                        } else {
-                            theme::primary()
-                        })
-                        .child(then),
-                )
-                .when(!status.is_empty(), |el| {
-                    el.child(
-                        div()
-                            .ml_2()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(if working {
-                                theme::starting()
-                            } else {
-                                theme::faint()
-                            })
-                            .child(status),
-                    )
-                })
-                .child(div().flex_1())
-                .child(self.render_top_chips(cx))
-                .when(!counts.is_empty(), |el| {
-                    el.child(
-                        div()
-                            .id("project-pulls-counts")
-                            .min_w_0()
-                            .truncate()
-                            .px_2()
-                            .py_0p5()
-                            .rounded_full()
-                            .border_1()
-                            .border_color(theme::line())
-                            .text_xs()
-                            .text_color(theme::muted())
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.pulls.tab = RailTab::Pulls;
-                                this.load_pulls(false, cx);
-                                cx.notify();
-                            }))
-                            .child(counts.join(" · ")),
-                    )
-                })
-                .child(
-                    div()
-                        .id("project-settings")
+                        .id("back-to-lead")
                         .flex_none()
-                        .px_1p5()
+                        .ml(px(-4.))
+                        .p_1()
                         .rounded_md()
-                        .text_sm()
                         .text_color(theme::muted())
                         .cursor_pointer()
                         .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
-                        .tooltip(move |window, cx| {
-                            Tooltip::new(settings_tip.clone()).build(window, cx)
-                        })
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.open_settings_at(format!("project:{p_settings}"), window, cx)
+                        .tooltip(move |w, cx| Tooltip::new(back_tip.clone()).build(w, cx))
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.open_chat("lead".into(), window, cx)
                         }))
-                        .child(crate::icons::of("⚙")),
+                        .child(crate::icons::ic("arrow-left").size(px(16.))),
                 )
-                .child(div().flex_none().child(menu))
-                .child(self.render_panel_button(cx))
-                .into_any_element(),
-        )
+            })
+            // ProjectCrumb (components/v2/ProjectHeader.tsx).
+            .child(
+                h_flex()
+                    .id("project-crumb")
+                    .min_w_0()
+                    .mx(px(-4.))
+                    .px_1()
+                    .py_0p5()
+                    .gap(px(6.))
+                    .rounded_md()
+                    .text_color(theme::primary())
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::surface_raised()))
+                    .tooltip(move |window, cx| Tooltip::new(root_tip.clone()).build(window, cx))
+                    .map(|el| {
+                        if lead {
+                            let copy = copy.clone();
+                            el.on_click(move |e, w, cx| copy(e, w, cx))
+                        } else {
+                            el.on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.open_chat("lead".into(), window, cx)
+                            }))
+                        }
+                    })
+                    .child(
+                        div()
+                            .flex_none()
+                            .size_5()
+                            .rounded_md()
+                            .bg(theme::surface_strong())
+                            .text_color(theme::secondary())
+                            .text_size(theme::text::CAPTION)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(initial),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(256.))
+                            .truncate()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(display.clone()),
+                    ),
+            )
+            // Its copy button, seen on hover; it holds its place meanwhile.
+            .child(
+                div()
+                    .id("project-copy")
+                    .flex_none()
+                    .p_0p5()
+                    .rounded(px(4.))
+                    .opacity(if self.pulls.copied { 1. } else { 0. })
+                    .text_color(if self.pulls.copied {
+                        theme::running()
+                    } else {
+                        theme::faint()
+                    })
+                    .cursor_pointer()
+                    .hover(|s| s.opacity(1.).text_color(theme::primary()))
+                    .tooltip(move |window, cx| Tooltip::new(copy_tip.clone()).build(window, cx))
+                    .on_click(move |e, w, cx| copy(e, w, cx))
+                    .child(
+                        crate::icons::ic(if self.pulls.copied { "check" } else { "copy" })
+                            .size(px(12.)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(theme::faint())
+                    .child(crate::icons::ic("chevron-right").size(px(14.))),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(theme::text::HEADING)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if lead {
+                        theme::secondary()
+                    } else {
+                        theme::title()
+                    })
+                    .child(then),
+            );
+        // TopEndSlot: the project's ⋯ (icon-sm) and the panel's button.
+        let end = h_flex()
+            .flex_none()
+            .gap_1()
+            .child(div().flex_none().child(menu))
+            .child(self.render_panel_button(cx));
+        // Only the lead's chat puts them in the top bar (ProjectView's
+        // InTopBar); an agent's header has its own.
+        let end = lead.then(|| end.into_any_element());
+        Some(self.top_bar_frame(crumbs.into_any_element(), end, cx))
     }
 }
 

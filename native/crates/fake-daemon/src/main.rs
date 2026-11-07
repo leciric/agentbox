@@ -99,8 +99,25 @@ fn chat_options() -> Vec<ChatOption> {
     ]
 }
 
+/// clock is the fixtures' now: the time, or with FAKE_STILL one instant two
+/// days before the fake started, so every "ago" and "for" reads the same in
+/// two clients a minute apart (days change slower than screenshots are taken).
+pub(crate) fn clock() -> std::time::SystemTime {
+    static START: std::sync::OnceLock<std::time::SystemTime> = std::sync::OnceLock::new();
+    if still() {
+        *START.get_or_init(|| std::time::SystemTime::now() - Duration::from_secs(2 * 86400))
+    } else {
+        std::time::SystemTime::now()
+    }
+}
+
+/// still says FAKE_STILL is set: fixtures that never change on their own.
+fn still() -> bool {
+    std::env::var_os("FAKE_STILL").is_some()
+}
+
 fn now() -> String {
-    humantime::format_rfc3339_millis(std::time::SystemTime::now()).to_string()
+    humantime::format_rfc3339_millis(crate::clock()).to_string()
 }
 
 const TITLES: &[&str] = &[
@@ -364,7 +381,7 @@ impl Fake {
                 kind: "user".into(),
                 text: "Now render the tool calls and the permission requests.".into(),
                 created_at: humantime::format_rfc3339_millis(
-                    std::time::SystemTime::now() - Duration::from_secs(40),
+                    crate::clock() - Duration::from_secs(40),
                 )
                 .to_string(),
                 updated_at: now(),
@@ -518,10 +535,8 @@ fn rand_id() -> u64 {
 /// fake_jobs are what the Jobs page lists.
 fn fake_jobs() -> Vec<Job> {
     let at = |mins: u64| {
-        humantime::format_rfc3339_seconds(
-            std::time::SystemTime::now() - Duration::from_secs(mins * 60),
-        )
-        .to_string()
+        humantime::format_rfc3339_seconds(crate::clock() - Duration::from_secs(mins * 60))
+            .to_string()
     };
     vec![
         Job {
@@ -558,6 +573,96 @@ fn fake_jobs() -> Vec<Job> {
             ..Default::default()
         },
     ]
+}
+
+/// fake_tokens is a token report: what each chat spent, and its buckets.
+fn fake_tokens(project: &str) -> TokenReport {
+    let at = |ago: u64| {
+        humantime::format_rfc3339_seconds(crate::clock() - Duration::from_secs(ago)).to_string()
+    };
+    let chats = [
+        (
+            "lead", "claude", "", 412_000, 18_500, 3_100_000, 240_000, 4.12,
+        ),
+        (
+            "agent-01", "claude", TITLES[0], 286_000, 41_200, 2_400_000, 310_000, 3.38,
+        ),
+        (
+            "agent-02", "codex", TITLES[1], 158_000, 22_900, 940_000, 0, 1.06,
+        ),
+    ];
+    let agents: Vec<AgentTokens> = chats
+        .iter()
+        .enumerate()
+        .map(
+            |(i, (agent, ai, title, input, output, read, write, cost))| {
+                let total = input + output + read + write;
+                AgentTokens {
+                    project: project.to_string(),
+                    agent: agent.to_string(),
+                    r#ref: format!("{project}/{agent}"),
+                    ai: ai.to_string(),
+                    title: title.to_string(),
+                    exists: true,
+                    turns: 40 - 12 * i as i64,
+                    max_context: 182_000 - 40_000 * i as i64,
+                    last_at: at(600 + 900 * i as u64),
+                    input: *input,
+                    output: *output,
+                    cache_read: *read,
+                    cache_write: *write,
+                    total,
+                    cost_usd: *cost,
+                    models: vec![ModelTokens {
+                        model: if *ai == "codex" {
+                            "gpt-5.1-codex"
+                        } else {
+                            "claude-opus-4-1"
+                        }
+                        .into(),
+                        input: *input,
+                        output: *output,
+                        cache_read: *read,
+                        cache_write: *write,
+                        total,
+                        cost_usd: *cost,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }
+            },
+        )
+        .collect();
+    let sum = |f: fn(&AgentTokens) -> i64| agents.iter().map(f).sum::<i64>();
+    let buckets = (0..10u64)
+        .map(|b| {
+            let w = [3, 5, 2, 8, 6, 9, 4, 7, 10, 5][b as usize];
+            TokenBucket {
+                start: at(1800 * (10 - b)),
+                input: 8_000 * w,
+                output: 900 * w,
+                cache_read: 60_000 * w,
+                cache_write: 4_000 * w,
+                total: 72_900 * w,
+                cost_usd: 0.09 * w as f64,
+                ..Default::default()
+            }
+        })
+        .collect();
+    TokenReport {
+        since: Some(at(5 * 3600)),
+        until: at(0),
+        input: sum(|a| a.input),
+        output: sum(|a| a.output),
+        cache_read: sum(|a| a.cache_read),
+        cache_write: sum(|a| a.cache_write),
+        total: sum(|a| a.total),
+        cost_usd: agents.iter().map(|a| a.cost_usd).sum(),
+        agents,
+        buckets,
+        bucket_seconds: 1800,
+        ..Default::default()
+    }
 }
 
 fn json<T: serde::Serialize>(status: StatusCode, v: &T) -> Response<Body> {
@@ -661,9 +766,77 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         (&Method::GET, ["v1", "version"]) if fake.opts.upstream.is_none() => {
             json(StatusCode::OK, &serde_json::json!({ "version": "fake", "api": 1 }))
         }
-        (&Method::GET, ["v1", "settings"]) if fake.opts.upstream.is_none() => {
-            json(StatusCode::OK, &serde_json::json!({}))
+        // FAKE_APPEARANCE=light|dark|dracula picks the theme both apps wear.
+        (&Method::GET, ["v1", "theme"]) if fake.opts.upstream.is_none() => {
+            let appearance = std::env::var("FAKE_APPEARANCE").unwrap_or_else(|_| "dark".into());
+            let mode = if appearance == "light" { "light" } else { "dark" };
+            json(
+                StatusCode::OK,
+                &Theme { appearance, mode: mode.into(), ..Default::default() },
+            )
         }
+        (&Method::GET, ["v1", "settings"]) if fake.opts.upstream.is_none() => {
+            // A fresh installation's, as the real daemon answered it
+            // (settings.go's currentSettings), past its first run.
+            let v: serde_json::Value =
+                serde_json::from_str(include_str!("../fixtures/settings.json")).unwrap();
+            json(StatusCode::OK, &v)
+        }
+        // Set up, as setup.go says when everything required is there, so
+        // that Settings opens on its tabs rather than a loading error.
+        (&Method::GET, ["v1", "setup"]) if fake.opts.upstream.is_none() => {
+            let c = |id: &str, title: &str, status: &str, required: bool, detail: &str| SetupCheck {
+                id: id.into(),
+                title: title.into(),
+                status: status.into(),
+                required,
+                detail: detail.into(),
+                ..Default::default()
+            };
+            json(
+                StatusCode::OK,
+                &SetupStatus {
+                    ready: true,
+                    checks: vec![
+                        c("incus", "Incus", "ok", true, "Incus 6.0"),
+                        c("host", "User mapping", "ok", true, ""),
+                        c("image", "Base image", "ok", true, "base-v42"),
+                        c("storage", "Storage pool", "ok", false, "btrfs or zfs: agents are created with an instant snapshot"),
+                        c("claude", "Claude Code login", "ok", false, ""),
+                        c("codex", "Codex login", "optional", false, "optional: agents can't run Codex yet"),
+                        c("opencode", "OpenCode login", "optional", false, ""),
+                        c("cursor", "Cursor sign-in", "optional", false, ""),
+                        c("gemini", "Gemini CLI sign-in", "optional", false, ""),
+                        c("preview", "Preview URLs", "ok", false, ""),
+                    ],
+                    ..Default::default()
+                },
+            )
+        }
+        // What the project's chats spent (TokensPanel, Settings → Tokens):
+        // the lead and two agents, in half-hour buckets up to the fixtures'
+        // now.
+        (&Method::GET, ["v1", "tokens"]) if fake.opts.upstream.is_none() => {
+            json(StatusCode::OK, &fake_tokens(&fake.opts.project))
+        }
+        (&Method::GET, ["v1", "tokens", "turns"]) if fake.opts.upstream.is_none() => {
+            json(StatusCode::OK, &Vec::<TokenTurn>::new())
+        }
+        // Signed in to Claude Code with one account, as the limits say; no
+        // other tool yet (auth.go's AuthStatus).
+        (&Method::GET, ["v1", "auth"]) if fake.opts.upstream.is_none() => json(
+            StatusCode::OK,
+            &AuthStatus {
+                claude: true,
+                claude_accounts: vec![ClaudeAccount {
+                    name: "default".into(),
+                    default: true,
+                    saved_at: now(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ),
         (&Method::GET, ["v1", "projects"]) if fake.opts.upstream.is_none() => {
             let p = Project {
                 name: fake.opts.project.clone(),
@@ -815,8 +988,53 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         }
         // Every project's media (the Media page), a page at a time.
         (&Method::GET, ["v1", "media"]) if query.contains_key("limit") => {
-            let items = fake.review.lock().unwrap().all_media(&fake.opts.project);
+            let all = fake.review.lock().unwrap().all_media(&fake.opts.project);
+            let items = all
+                .into_iter()
+                .filter(|m| media_in(m, &query, true))
+                .filter(|m| !query.contains_key("favorite") || m.favorite)
+                .filter(|m| !query.contains_key("unseen") || m.unseen)
+                .collect();
             json(StatusCode::OK, &MediaPage { items, next: String::new() })
+        }
+        // What the Media page's filters count (media_list.go mediaCounts):
+        // the scope's items, by kind, agent and project, and those the
+        // kind and search keep.
+        (&Method::GET, ["v1", "media", "counts"]) => {
+            let all = fake.review.lock().unwrap().all_media(&fake.opts.project);
+            let mut c = MediaCounts::default();
+            for m in all.iter().filter(|m| media_in(m, &query, false)) {
+                c.total += 1;
+                c.bytes += m.size;
+                *c.kinds.entry(m.kind.clone()).or_default() += 1;
+                c.favorites += m.favorite as i64;
+                c.unseen += m.unseen as i64;
+                if media_in(m, &query, true) {
+                    c.matching += 1;
+                    c.matching_bytes += m.size;
+                }
+                match c.agents.iter_mut().find(|a| a.agent == m.agent) {
+                    Some(a) => {
+                        a.count += 1;
+                        a.bytes += m.size;
+                    }
+                    None => c.agents.push(MediaAgentCount {
+                        agent: m.agent.clone(),
+                        name: m.agent_name.clone(),
+                        title: m.agent_title.clone(),
+                        gone: m.agent_gone,
+                        count: 1,
+                        bytes: m.size,
+                    }),
+                }
+            }
+            if c.total > 0 {
+                c.projects.push(MediaProjectCount {
+                    project: fake.opts.project.clone(),
+                    count: c.total,
+                });
+            }
+            json(StatusCode::OK, &c)
         }
         // The jobs the fake agents' creation and a snapshot ran (the Jobs page).
         (&Method::GET, ["v1", "jobs"]) => json(StatusCode::OK, &fake_jobs()),
@@ -1119,6 +1337,61 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         // raw RFB in WebSocket frames like internal/daemon/browser.go's vncView.
         (&Method::GET, ["v1", "agents", p, a, "browser", "view"]) if fake.is_fake(p) => {
             vnc_view(req, &format!("{p}/{a}")).await
+        }
+        // On its own, each lead has one session, main, ready.
+        (&Method::GET, ["v1", "projects", p, "sessions"]) if fake.opts.upstream.is_none() => json(
+            StatusCode::OK,
+            &vec![LeadSession {
+                project: p.to_string(),
+                id: "main".into(),
+                r#ref: format!("{p}/lead"),
+                topic: "Main".into(),
+                chat: CHAT_READY.into(),
+                status: "idle".into(),
+                created_at: now(),
+                active_at: now(),
+                ..Default::default()
+            }],
+        ),
+        (&Method::GET, ["v1", "projects", p, "lead"] | ["v1", "projects", p, "sessions", _, "lead"])
+            if fake.opts.upstream.is_none() =>
+        {
+            json(
+                StatusCode::OK,
+                &ProjectChat {
+                    project: p.to_string(),
+                    session: "main".into(),
+                    r#ref: format!("{p}/lead"),
+                    started: true,
+                    chat: CHAT_READY.into(),
+                    ..Default::default()
+                },
+            )
+        }
+        // On its own, the leads' chats too: Home's empty, a project's a
+        // short conversation (the same in every client that asks).
+        (&Method::GET, ["v1", "projects", p, "chat"] | ["v1", "projects", p, "sessions", _, "chat"])
+            if fake.opts.upstream.is_none() =>
+        {
+            let items = if *p == HOME_PROJECT {
+                Vec::new()
+            } else {
+                (0..4).map(|i| history_item("lead", i)).collect()
+            };
+            json(
+                StatusCode::OK,
+                &ChatThread {
+                    agent: format!("{p}/lead"),
+                    session: ChatSession {
+                        state: CHAT_READY.into(),
+                        tool: "claude".into(),
+                        options: chat_options(),
+                        ..Default::default()
+                    },
+                    items,
+                    ..Default::default()
+                },
+            )
         }
         (&Method::GET, ["v1", "agents", p, a, "chat"]) if fake.is_fake(p) => {
             // A page, as internal/daemon/chat.go reads one: limit= items
@@ -1619,9 +1892,13 @@ async fn main() -> Result<()> {
         opts.upstream
     );
     let fake = Fake::new(opts);
-    tokio::spawn(fake.clone().churn());
-    tokio::spawn(agents::touch(fake.clone()));
-    tokio::spawn(resources::sample(fake.clone()));
+    // FAKE_STILL=1 keeps the fixtures still: no agent starts or stops, no
+    // files change, for screenshots that must match (native/scripts/parity.sh).
+    if !still() {
+        tokio::spawn(fake.clone().churn());
+        tokio::spawn(agents::touch(fake.clone()));
+        tokio::spawn(resources::sample(fake.clone()));
+    }
     tokio::spawn(panel::serve_preview());
     loop {
         let (stream, _) = listener.accept().await?;
@@ -1646,3 +1923,20 @@ h1{font-size:26px;margin:0 0 6px}p{color:#55555f;line-height:1.5}.grid{display:g
 <div class="grid"><div class="card"><b>Before</b><div class="bar o"></div><p>1.8 s to first paint</p></div>
 <div class="card"><b>After</b><div class="bar n"></div><p>0.7 s to first paint</p></div></div>
 <p id="js">Scripts are off.</p><script>document.getElementById('js').textContent='Scripts run in the page, sandboxed.'</script></main></body></html>"#;
+
+/// media_in is whether GET /v1/media's ?project= and ?agent= keep an item,
+/// and with `narrow` its ?only= kind and ?q= words too.
+fn media_in(m: &MediaItem, query: &HashMap<String, String>, narrow: bool) -> bool {
+    let (project, name) = m.agent.split_once('/').unwrap_or(("", &m.agent));
+    let get = |k: &str| query.get(k).map(String::as_str).unwrap_or("");
+    (get("project").is_empty() || get("project") == project)
+        && (get("agent").is_empty() || get("agent") == name)
+        && (!narrow || get("only").is_empty() || get("only") == m.kind)
+        && (!narrow
+            || get("q").split_whitespace().all(|w| {
+                let w = w.to_lowercase();
+                m.name.to_lowercase().contains(&w)
+                    || m.file.to_lowercase().contains(&w)
+                    || m.text.to_lowercase().contains(&w)
+            }))
+}

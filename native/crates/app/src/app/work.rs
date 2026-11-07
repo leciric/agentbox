@@ -12,7 +12,7 @@ use agentbox_i18n::{t, tv};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use super::AppView;
 use super::controls::{self, Choice};
@@ -66,7 +66,8 @@ impl WorkView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder(t("work.search")));
+        // Its placeholder is drawn under it, in faint (render).
+        let search = cx.new(|cx| InputState::new(window, cx));
         let sub = cx.subscribe(&search, |this: &mut Self, s, ev: &InputEvent, cx| {
             if !matches!(ev, InputEvent::Change) {
                 return;
@@ -304,7 +305,12 @@ impl WorkView {
                     }))
                     .child(t(key))
                     .when_some(n, |el, n| {
-                        el.child(div().text_color(theme::subtle()).child(n.to_string()))
+                        el.child(
+                            div()
+                                .text_color(theme::subtle())
+                                .font_features(theme::tabular_features())
+                                .child(n.to_string()),
+                        )
                     })
             }))
             .into_any_element()
@@ -428,8 +434,6 @@ impl WorkView {
             .min_w_0()
             .px_4()
             .py_2p5()
-            .border_b_1()
-            .border_color(theme::line_faint())
             .cursor_pointer()
             .hover(|el| el.bg(theme::surface_faint()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open(open.clone(), cx)))
@@ -438,7 +442,7 @@ impl WorkView {
                     .flex_none()
                     .mt(px(2.))
                     .when(w.past, |el| el.opacity(0.6))
-                    .child(crate::icons::ai_icon(&i.ai, px(16.), theme::muted())),
+                    .child(crate::icons::ai_icon(&i.ai, px(16.), theme::primary())),
             )
             .child(
                 v_flex()
@@ -487,7 +491,12 @@ impl WorkView {
                     ),
             )
             .child(match i.pr.as_ref().filter(|p| p.number > 0) {
-                Some(pr) => pr_chip(pr),
+                // PrChip className="mt-0.5"
+                Some(pr) => div()
+                    .flex_none()
+                    .mt_0p5()
+                    .child(pr_chip(pr))
+                    .into_any_element(),
                 None => div()
                     .flex_none()
                     .mt_0p5()
@@ -499,9 +508,10 @@ impl WorkView {
             .child(
                 div()
                     .flex_none()
-                    .w(px(44.))
                     .mt_0p5()
+                    .whitespace_nowrap()
                     .text_right()
+                    .font_features(theme::tabular_features())
                     .text_size(theme::text::CAPTION)
                     .text_color(theme::subtle())
                     .child(clock_time(&w.at)),
@@ -551,7 +561,7 @@ impl Render for WorkView {
                 div().id("work-page").size_full().overflow_y_scroll().child(
                     v_flex()
                         .w_full()
-                        .max_w(px(1100.))
+                        .max_w(px(1152.)) // max-w-6xl
                         .mx_auto()
                         .px_8()
                         .py_7()
@@ -576,58 +586,67 @@ impl Render for WorkView {
                                         .child(
                                             div()
                                                 .text_size(theme::text::BODY)
+                                                .line_height(px(20.))
                                                 .text_color(theme::muted())
                                                 .child(t("work.description")),
                                         ),
                                 )
                                 .child(div().flex_1())
+                                // ml-auto flex items-center gap-2
                                 .child(
                                     h_flex()
-                                        .id("work-recap")
-                                        .h(px(36.))
-                                        .px_3()
-                                        .gap_1p5()
-                                        .rounded_xl()
-                                        .border_1()
-                                        .border_color(theme::brand(500).opacity(0.3))
-                                        .bg(gpui::linear_gradient(
-                                            180.,
-                                            gpui::linear_color_stop(
-                                                theme::brand(500).opacity(0.15),
-                                                0.,
-                                            ),
-                                            gpui::linear_color_stop(
-                                                theme::brand(600).opacity(0.1),
-                                                1.,
-                                            ),
-                                        ))
-                                        .cursor_pointer()
-                                        .hover(|el| {
-                                            el.border_color(theme::brand(400).opacity(0.5))
-                                                .bg(theme::brand(500).opacity(0.25))
-                                        })
-                                        .text_size(theme::text::UI)
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(theme::primary())
-                                        .on_click(cx.listener(
-                                            |this, _: &ClickEvent, window, cx| {
-                                                this.open_recap(window, cx)
-                                            },
-                                        ))
+                                        .gap_2()
                                         .child(
-                                            crate::icons::ic("sparkles")
-                                                .size_3p5()
-                                                .text_color(theme::brand(400)),
+                                            h_flex()
+                                                .id("work-recap")
+                                                .h(px(36.))
+                                                .px_3()
+                                                .gap_1p5()
+                                                .rounded_xl()
+                                                .border_1()
+                                                .border_color(theme::brand(500).opacity(0.3))
+                                                .bg(gpui::linear_gradient(
+                                                    180.,
+                                                    gpui::linear_color_stop(
+                                                        theme::brand(500).opacity(0.15),
+                                                        0.,
+                                                    ),
+                                                    gpui::linear_color_stop(
+                                                        theme::brand(600).opacity(0.1),
+                                                        1.,
+                                                    ),
+                                                ))
+                                                .cursor_pointer()
+                                                .hover(|el| {
+                                                    el.border_color(theme::brand(400).opacity(0.5))
+                                                        .bg(theme::brand(500).opacity(0.25))
+                                                })
+                                                .text_size(theme::text::UI)
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .text_color(theme::primary())
+                                                .on_click(cx.listener(
+                                                    |this, _: &ClickEvent, window, cx| {
+                                                        this.open_recap(window, cx)
+                                                    },
+                                                ))
+                                                .child(
+                                                    crate::icons::ic("sparkles")
+                                                        .size_3p5()
+                                                        .text_color(theme::brand(400)),
+                                                )
+                                                .child(t("recap.open")),
                                         )
-                                        .child(t("recap.open")),
-                                )
-                                .child(controls::select(
-                                    "work-project",
-                                    choices,
-                                    &self.project,
-                                    false,
-                                    pick,
-                                )),
+                                        // ProjectFilter: a Select, w-56.
+                                        .child(div().w(px(224.)).child(controls::field_select(
+                                            "work-project",
+                                            choices,
+                                            &self.project,
+                                            false,
+                                            pick,
+                                            Anchor::TopRight,
+                                            None,
+                                        ))),
+                                ),
                         )
                         .child(
                             h_flex()
@@ -637,15 +656,57 @@ impl Render for WorkView {
                                 .gap_2()
                                 .child(self.render_filters(cx))
                                 .child(
-                                    div().flex_1().min_w(px(192.)).child(
-                                        Input::new(&self.search)
-                                            .prefix(
-                                                crate::icons::ic("search")
-                                                    .size_3p5()
-                                                    .text_color(theme::subtle()),
-                                            )
-                                            .cleanable(true),
-                                    ),
+                                    // ui/input.tsx's Input, h-9 pl-8, the Search
+                                    // icon at left-3.
+                                    h_flex()
+                                        .flex_1()
+                                        .min_w(px(192.))
+                                        .h_9()
+                                        .pl(px(11.))
+                                        .pr_3()
+                                        .gap(px(7.))
+                                        .rounded_lg()
+                                        .border_1()
+                                        .border_color(theme::line_strong())
+                                        .bg(theme::sunken())
+                                        .text_size(theme::text::BODY)
+                                        .child(
+                                            crate::icons::ic("search")
+                                                .size_3p5()
+                                                .flex_none()
+                                                .text_color(theme::subtle()),
+                                        )
+                                        .child(
+                                            div()
+                                                .relative()
+                                                .flex_1()
+                                                .min_w_0()
+                                                // placeholder:text-faint
+                                                .when(
+                                                    self.search.read(cx).value().is_empty(),
+                                                    |el| {
+                                                        el.child(
+                                                            div()
+                                                                .absolute()
+                                                                .inset_0()
+                                                                .flex()
+                                                                .items_center()
+                                                                .truncate()
+                                                                .text_color(theme::faint())
+                                                                .child(t("work.search")),
+                                                        )
+                                                    },
+                                                )
+                                                .child(
+                                                    Input::new(&self.search)
+                                                        .appearance(false)
+                                                        .with_size(gpui_component::Size::Size(px(
+                                                            14. / 0.875,
+                                                        )))
+                                                        .px_0()
+                                                        .cleanable(true),
+                                                ),
+                                        ),
                                 )
                                 .when(self.loading && self.page.is_some(), |el| {
                                     el.child(
@@ -732,14 +793,22 @@ impl Render for WorkView {
                                                         .border_b_1()
                                                         .border_color(theme::line_faint())
                                                         .bg(theme::surface_faint())
+                                                        // text-caption font-semibold uppercase tracking-wide text-subtle
                                                         .text_size(theme::text::CAPTION)
-                                                        .font_weight(FontWeight::MEDIUM)
-                                                        .text_color(theme::muted())
-                                                        .child(day_label(&day)),
+                                                        .font_weight(FontWeight::SEMIBOLD)
+                                                        .text_color(theme::subtle())
+                                                        .child(day_label(&day).to_uppercase()),
                                                 )
                                                 .children(list.iter().enumerate().map(|(n, w)| {
                                                     crate::motion::enter(
-                                                        div().child(self.render_row(w, cx)),
+                                                        // ul divide-y: a line between rows only.
+                                                        div()
+                                                            .when(n > 0, |el| {
+                                                                el.border_t_1().border_color(
+                                                                    theme::line_faint(),
+                                                                )
+                                                            })
+                                                            .child(self.render_row(w, cx)),
                                                         SharedString::from(format!(
                                                             "work-in-{}",
                                                             w.item.r#ref
@@ -874,8 +943,15 @@ fn day_label(day: &str) -> String {
     }
 }
 
+/// clock_time is WorkView's clockTime, toLocaleTimeString's 2-digit hour
+/// and minute: 04:28 PM in English, 16:28 in Portuguese.
 fn clock_time(time: &str) -> String {
-    local(time).map_or_else(String::new, |t| t.format("%H:%M").to_string())
+    let fmt = if agentbox_i18n::language().starts_with("en") {
+        "%I:%M %p"
+    } else {
+        "%H:%M"
+    };
+    local(time).map_or_else(String::new, |t| t.format(fmt).to_string())
 }
 
 /// enc escapes a query value.

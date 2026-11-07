@@ -58,9 +58,6 @@ export const enUSNative = {
   'native.date.dayMonthYear': '{month} {day}, {year}',
   'native.date.at': '{date}, {time}',
   // The Office (#668), drawn natively (crates/office).
-  'native.settings.entry.office.label': 'Office (prototype)',
-  'native.settings.entry.office.keywords': 'office 3d room desks walk agents prototype experimental',
-  'native.settings.office.description': 'Add the Office to the sidebar: a 3D room with a desk for every agent, where you can walk about and watch them work.',
   'native.office.title': 'Office',
   'native.office.canvas': 'The Office: walk to a desk to see what its agent is doing',
   'native.office.loading': 'Setting up the office…',

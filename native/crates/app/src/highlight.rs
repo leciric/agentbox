@@ -13,8 +13,6 @@ use std::rc::Rc;
 use std::sync::LazyLock;
 
 use gpui::{AnyElement, HighlightStyle, IntoElement, StyledText};
-use gpui_component::highlighter::HighlightTheme;
-use gpui_component::input::HighlightStyleResolver as _;
 use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxSet};
 
 /// One line's coloured spans, by byte within the line.
@@ -45,12 +43,62 @@ pub fn lang_of(path: &str) -> Option<&'static str> {
     (found.name != "Plain Text").then_some(found.name.as_str())
 }
 
-fn theme() -> std::sync::Arc<HighlightTheme> {
-    if crate::theme::look() == crate::theme::Look::Light {
-        HighlightTheme::default_light()
-    } else {
-        HighlightTheme::default_dark()
-    }
+/// lang_of_fence is the syntax a fenced block's language names (go, rust,
+/// ts…), when syntect knows one.
+pub fn lang_of_fence(token: &str) -> Option<&'static str> {
+    let set = &*SYNTAXES;
+    let found = set
+        .find_syntax_by_token(token)
+        .or_else(|| set.find_syntax_by_extension(&token.to_lowercase()))?;
+    (found.name != "Plain Text").then_some(found.name.as_str())
+}
+
+/// The palettes Electron's Shiki themes paint with (lib/highlight.ts):
+/// github-dark-default, github-light-default and Dracula, by the semantic
+/// names below, as 0xRRGGBB.
+fn palette(name: &str) -> Option<u32> {
+    use crate::theme::Look;
+    let look = crate::theme::look();
+    let pick = |dark: u32, light: u32, dracula: u32| match look {
+        Look::Dark => dark,
+        Look::Light => light,
+        Look::Dracula => dracula,
+    };
+    Some(match name {
+        "keyword" | "preproc" | "operator" => pick(0xff7b72, 0xcf222e, 0xff79c6),
+        "number" | "boolean" | "constant" | "variable.special" | "attribute" | "property"
+        | "string.escape" => pick(0x79c0ff, 0x0550ae, 0xbd93f9),
+        "string" | "string.regex" | "text.literal" | "link_uri" => {
+            pick(0xa5d6ff, 0x0a3069, 0xf1fa8c)
+        }
+        "comment" | "comment.doc" => pick(0x8b949e, 0x6e7781, 0x6272a4),
+        "function" => pick(0xd2a8ff, 0x8250df, 0x50fa7b),
+        "type" => pick(0xffa657, 0x953800, 0x8be9fd),
+        "variable.parameter" => pick(0xffa657, 0x953800, 0xffb86c),
+        "tag" => pick(0x7ee787, 0x116329, 0xff79c6),
+        "title" => pick(0x1f6feb, 0x0550ae, 0xbd93f9),
+        _ => return None,
+    })
+}
+
+/// code_fg is the palette's plain text, for what no scope colours.
+pub fn code_fg() -> gpui::Hsla {
+    use crate::theme::Look;
+    gpui::rgb(match crate::theme::look() {
+        Look::Dark => 0xe6edf3,
+        Look::Light => 0x1f2328,
+        Look::Dracula => 0xf8f8f2,
+    })
+    .into()
+}
+
+fn style_of(name: &str) -> Option<HighlightStyle> {
+    let colour = palette(name)?;
+    Some(HighlightStyle {
+        color: Some(gpui::rgb(colour).into()),
+        font_style: (name == "comment" || name == "comment.doc").then_some(gpui::FontStyle::Normal),
+        ..Default::default()
+    })
 }
 
 /// line_runs colours the lines of one text in a syntax (lang_of's), each
@@ -86,43 +134,62 @@ fn colour(lang: &str, lines: &[String]) -> Vec<Runs> {
     let Some(syntax) = set.find_syntax_by_name(lang) else {
         return vec![Vec::new(); lines.len()];
     };
-    let theme = theme();
     let mut parser = ParseState::new(syntax);
     let mut scopes = ScopeStack::new();
     let mut names = HashMap::<Scope, Option<&'static str>>::new();
     let mut out = Vec::with_capacity(lines.len());
     for line in lines {
-        let mut runs: Runs = Vec::new();
-        let mut push = |range: Range<usize>, scopes: &ScopeStack| {
-            if range.is_empty() {
-                return;
-            }
-            // The innermost scope that names something wins.
-            let style = scopes
-                .scopes
-                .iter()
-                .rev()
-                .find_map(|s| *names.entry(*s).or_insert_with(|| semantic_name(*s)))
-                .and_then(|n| theme.style(n));
-            if let Some(style) = style {
-                match runs.last_mut() {
-                    Some((last, s)) if last.end == range.start && *s == style => {
-                        last.end = range.end
-                    }
-                    _ => runs.push((range, style)),
-                }
-            }
-        };
+        // The line's tokens with the scopes over each, then their colours.
+        let mut tokens: Vec<(Range<usize>, ScopeStack)> = Vec::new();
         let with_end = format!("{line}\n");
         if let Ok(ops) = parser.parse_line(&with_end, set) {
             let mut cursor = 0;
             for (at, op) in ops {
                 let at = at.min(line.len());
-                push(cursor..at, &scopes);
+                if at > cursor {
+                    tokens.push((cursor..at, scopes.clone()));
+                }
                 let _ = scopes.apply(&op);
                 cursor = at;
             }
-            push(cursor..line.len(), &scopes);
+            if line.len() > cursor {
+                tokens.push((cursor..line.len(), scopes.clone()));
+            }
+        }
+        let innermost = |i: usize| {
+            tokens
+                .get(i)
+                .and_then(|(_, s)| s.scopes.last())
+                .map(|s| s.build_string())
+                .unwrap_or_default()
+        };
+        let mut runs: Runs = Vec::new();
+        for (i, (range, stack)) in tokens.iter().enumerate() {
+            // Shiki's Go grammar takes the package of a qualified type
+            // (`http` in `http.Request`) as part of the type; syntect's
+            // calls it a variable.
+            let qualifier = innermost(i) == "variable.other.go"
+                && innermost(i + 1) == "punctuation.accessor.dot.go"
+                && innermost(i + 2) == "storage.type.go";
+            // The innermost scope that names something wins.
+            let style = if qualifier {
+                style_of("type")
+            } else {
+                stack
+                    .scopes
+                    .iter()
+                    .rev()
+                    .find_map(|s| *names.entry(*s).or_insert_with(|| semantic_name(*s)))
+                    .and_then(style_of)
+            };
+            if let Some(style) = style {
+                match runs.last_mut() {
+                    Some((last, s)) if last.end == range.start && *s == style => {
+                        last.end = range.end
+                    }
+                    _ => runs.push((range.clone(), style)),
+                }
+            }
         }
         out.push(runs);
     }
@@ -164,6 +231,14 @@ fn semantic_name(scope: Scope) -> Option<&'static str> {
             "boolean"
         } else if is("constant") || is("support.constant") || is("entity.name.constant") {
             "constant"
+        } else if scope == "storage.type.go" {
+            // syntect's Go names a named type (`Server`, `http.Request`)
+            // storage.type, Shiki's entity.name.type.
+            "type"
+        } else if is("support.type.builtin.go") {
+            // Shiki's Go grammar has `error`, `int` and `string` as
+            // storage.type, which the themes paint as keywords.
+            "keyword"
         } else if is("keyword.operator") {
             "operator"
         } else if is("keyword.control.import") || is("meta.preprocessor") {
@@ -223,6 +298,8 @@ fn semantic_name(scope: Scope) -> Option<&'static str> {
             || is("meta.mapping.key")
         {
             "property"
+        } else if is("variable.parameter") {
+            "variable.parameter"
         } else if is("variable") {
             "variable"
         } else if is("markup.bold") {
@@ -241,6 +318,61 @@ fn semantic_name(scope: Scope) -> Option<&'static str> {
             return None;
         },
     )
+}
+
+/// shifted is a code line drawn `dx` right and `dy` down of its box: Chromium
+/// sets text at fractional positions (a pre's 0.9rem of padding is 14.4px)
+/// where GPUI's layout takes whole pixels, and a glyph half a pixel over
+/// antialiases differently. `height` is the box's; the line is painted with
+/// `line_height`.
+pub fn shifted(
+    text: String,
+    runs: Option<&Runs>,
+    dx: gpui::Pixels,
+    dy: gpui::Pixels,
+    height: gpui::Pixels,
+    line_height: gpui::Pixels,
+) -> AnyElement {
+    use gpui::{Styled as _, point, px};
+    let runs = runs.cloned().unwrap_or_default();
+    let text: gpui::SharedString = text.into();
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, cx| {
+            let style = window.text_style();
+            let size = style.font_size.to_pixels(window.rem_size());
+            let mut out = Vec::new();
+            let mut at = 0;
+            for (range, h) in &runs {
+                let range = range.start.min(text.len())..range.end.min(text.len());
+                if range.start > at {
+                    out.push(style.to_run(range.start - at));
+                }
+                if range.end > range.start {
+                    out.push(style.clone().highlight(*h).to_run(range.end - range.start));
+                }
+                at = at.max(range.end);
+            }
+            if text.len() > at {
+                out.push(style.to_run(text.len() - at));
+            }
+            let line = window
+                .text_system()
+                .shape_line(text.clone(), size, &out, None);
+            let _ = line.paint(
+                bounds.origin + point(dx, dy),
+                line_height,
+                gpui::TextAlign::Left,
+                None,
+                window,
+                cx,
+            );
+        },
+    )
+    .w_full()
+    .h(height)
+    .min_w(px(0.))
+    .into_any_element()
 }
 
 /// styled is a line's text with its colours.

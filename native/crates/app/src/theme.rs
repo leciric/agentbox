@@ -16,6 +16,7 @@
 
 use std::sync::RwLock;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{App, BoxShadow, Hsla, Pixels, SharedString, Window, point, px, rgba};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -554,6 +555,22 @@ pub fn composer() -> Hsla {
     c(worn().composer)
 }
 /// stage frames another machine's screen, and stays dark in every look.
+/// term_background and term_foreground are the terminal's ground and ink
+/// (--ab-term-background, --ab-term-foreground).
+pub fn term_background() -> Hsla {
+    c(match look() {
+        Look::Dark => 0x0a0a0fff,
+        Look::Light => 0xfbfbfdff,
+        Look::Dracula => 0x282a36ff,
+    })
+}
+pub fn term_foreground() -> Hsla {
+    c(match look() {
+        Look::Dark => 0xe4e4e7ff,
+        Look::Light => 0x27272aff,
+        Look::Dracula => 0xf8f8f2ff,
+    })
+}
 pub fn stage() -> Hsla {
     c(worn().stage)
 }
@@ -817,6 +834,11 @@ pub fn shadow_drawer() -> Vec<BoxShadow> {
         inset: false,
     }]
 }
+/// shadow_deep is --ab-shadow-deep, what floats casts.
+pub fn shadow_deep() -> Hsla {
+    c(worn().shadow_deep)
+}
+
 /// shadow_modal is a dialog's: deep, so it reads above the scrim.
 pub fn shadow_modal() -> Vec<BoxShadow> {
     vec![BoxShadow {
@@ -850,6 +872,25 @@ pub fn kbd(keys: impl Into<SharedString>) -> gpui::Div {
         .font_family(MONO_FACE)
         .text_size(px(10.5))
         .text_color(subtle())
+        .child(keys.into())
+}
+
+/// key_cap is Electron's Kbd (ui/card.tsx): a key in mono caption, framed
+/// with a strong line on the raised surface.
+pub fn key_cap(keys: impl Into<SharedString>) -> gpui::Div {
+    use gpui::{ParentElement, Styled, div};
+    div()
+        .flex_none()
+        .px_1p5()
+        .py(px(1.))
+        .rounded(radius::MD)
+        .border_1()
+        .border_color(line_strong())
+        .bg(surface_raised())
+        .font_family(MONO_FACE)
+        .text_size(text::CAPTION)
+        .line_height(px(18.))
+        .text_color(tertiary())
         .child(keys.into())
 }
 
@@ -925,13 +966,260 @@ pub mod text {
 /// JetBrains Mono. Both are embedded (assets/fonts, Latin subsets, OFL) and
 /// registered by `init`, so every platform draws the same letters.
 pub const SANS: &str = "Inter";
+
+thread_local! {
+    /// The window's text system, for [fit] where a render has no window.
+    static TEXT: std::cell::RefCell<Option<std::rc::Rc<gpui::WindowTextSystem>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// keep_text_system remembers the window's text system for [fit]; the
+/// app's root render calls it.
+pub fn keep_text_system(window: &Window) {
+    TEXT.with(|t| {
+        if t.borrow().is_none() {
+            *t.borrow_mut() = Some(window.text_system().clone());
+        }
+    });
+}
+
+/// fit is a one-line text as wide as Chromium sets it, to the nearest
+/// pixel: GPUI rounds a text's measured width up to the next one, so a row
+/// of spans drifts right of Electron's by up to a pixel a span. In Inter
+/// (or JetBrains Mono, `mono`) at `size` and `weight`, nowrap.
+pub fn fit(
+    text: impl Into<SharedString>,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    mono: bool,
+) -> gpui::Div {
+    fit_with(text.into(), size, weight, mono, false)
+}
+
+/// fit_tabular is [fit] in Inter with tabular figures (Tailwind's
+/// tabular-nums).
+pub fn fit_tabular(
+    text: impl Into<SharedString>,
+    size: Pixels,
+    weight: gpui::FontWeight,
+) -> gpui::Div {
+    fit_with(text.into(), size, weight, false, true)
+}
+
+fn fit_with(
+    text: SharedString,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    mono: bool,
+    tabular: bool,
+) -> gpui::Div {
+    use gpui::{ParentElement as _, Styled as _};
+    let w = measure(&text, size, weight, mono, tabular);
+    gpui::div()
+        .flex_none()
+        .whitespace_nowrap()
+        .text_size(size)
+        .font_weight(weight)
+        .when(mono, |el| el.font_family(MONO))
+        .when(tabular, |el| el.font_features(tabular_features()))
+        .when_some(w, |el, w| el.w(px(w)))
+        .child(text)
+}
+
+/// tracked is one line of Inter with CSS letter-spacing (Tailwind's
+/// tracking-*), `spacing` px after each character, which GPUI's text has
+/// no setting for: each glyph is painted where Chromium puts it, kerning
+/// kept. The box is the line's width, to the nearest pixel, and
+/// `line_height` tall; the colour is the text colour around it.
+pub fn tracked(
+    text: impl Into<SharedString>,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    spacing: f32,
+    line_height: Pixels,
+) -> gpui::AnyElement {
+    use gpui::{IntoElement as _, Styled as _, point};
+    let text: SharedString = text.into();
+    let n = text.chars().count() as f32;
+    let w = measure(&text, size, weight, false, false).map(|w| (w + spacing * n).round());
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, cx| {
+            let style = window.text_style();
+            let mut font = gpui::font(SANS);
+            font.features = sans_features();
+            font.weight = weight;
+            let run = |len: usize| gpui::TextRun {
+                len,
+                font: font.clone(),
+                color: style.color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let ts = window.text_system().clone();
+            let full = ts.shape_line(text.clone(), size, &[run(text.len())], None);
+            for (i, (ix, ch)) in text.char_indices().enumerate() {
+                if ch == ' ' {
+                    continue;
+                }
+                let x = full.x_for_index(ix) + px(spacing * i as f32);
+                let glyph: SharedString = ch.to_string().into();
+                let line = ts.shape_line(glyph.clone(), size, &[run(glyph.len())], None);
+                let _ = line.paint(
+                    bounds.origin + point(x, px(0.)),
+                    line_height,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                );
+            }
+        },
+    )
+    .flex_none()
+    .h(line_height)
+    .when_some(w, |el, w| el.w(px(w)))
+    .into_any_element()
+}
+
+/// tracked_words is [tracked] text that wraps between words as a browser
+/// wraps it (never inside one: a word wider than the line runs over).
+pub fn tracked_words(
+    text: &str,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    spacing: f32,
+    line_height: Pixels,
+) -> gpui::Div {
+    use gpui::{ParentElement as _, Styled as _};
+    let space =
+        measure(" ", size, weight, false, false).unwrap_or(f32::from(size) * 0.28) + spacing;
+    gpui::div()
+        .flex()
+        .flex_wrap()
+        .min_w_0()
+        .gap_x(px(space))
+        .children(
+            text.split(' ')
+                .filter(|w| !w.is_empty())
+                .map(|w| tracked(w.to_string(), size, weight, spacing, line_height)),
+        )
+}
+
+/// fit_width is the whole-pixel width [fit] gives `text`, once the app's
+/// root has rendered.
+pub fn fit_width(text: &str, size: Pixels, weight: gpui::FontWeight, mono: bool) -> Option<f32> {
+    measure(text, size, weight, mono, false)
+}
+
+fn measure(
+    text: &str,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    mono: bool,
+    tabular: bool,
+) -> Option<f32> {
+    let mut font = gpui::font(if mono { MONO } else { SANS });
+    font.weight = weight;
+    if tabular {
+        font.features = tabular_features();
+    } else if !mono {
+        font.features = sans_features();
+    }
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    TEXT.with(|t| {
+        t.borrow()
+            .as_ref()
+            .map(|ts| f32::from(ts.layout_line(text, size, &[run], None).width).round())
+    })
+}
+
+/// text_width is `text`'s width on one line, in Inter at `size`.
+pub fn text_width(window: &gpui::Window, text: &str, size: Pixels) -> f32 {
+    let mut font = gpui::font(SANS);
+    font.features = sans_features();
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    f32::from(
+        window
+            .text_system()
+            .layout_line(text, size, &[run], None)
+            .width,
+    )
+}
+
+/// balanced_width is the width that splits `text` (Inter at `size`) into
+/// lines of about equal length within `max`, as CSS's text-wrap: balance
+/// (Tailwind's text-balance) does: `max` when it fits on one line.
+pub fn balanced_width(window: &gpui::Window, text: &str, size: Pixels, max: Pixels) -> Pixels {
+    let mut font = gpui::font(SANS);
+    font.features = sans_features();
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let w = f32::from(
+        window
+            .text_system()
+            .layout_line(text, size, &[run], None)
+            .width,
+    );
+    let max_f = f32::from(max);
+    if w <= max_f {
+        return max;
+    }
+    let lines = (w / max_f).ceil();
+    px((w / lines).ceil() + f32::from(size) * 0.5).min(max)
+}
+
+/// sans_features are the Inter alternates Electron's body turns on
+/// (styles.css: font-feature-settings "cv11", "ss01"), as they come out
+/// there: the open digits. Its Inter (@fontsource-variable/inter) draws the
+/// double-storey a whatever cv11 says, so the native app keeps it too.
+pub fn sans_features() -> gpui::FontFeatures {
+    gpui::FontFeatures(std::sync::Arc::new(vec![("ss01".into(), 1)]))
+}
+/// tabular_features is sans_features with Tailwind's `tabular-nums`
+/// (tnum): figures of one width, for counts and clocks.
+pub fn tabular_features() -> gpui::FontFeatures {
+    gpui::FontFeatures(std::sync::Arc::new(vec![
+        ("ss01".into(), 1),
+        ("tnum".into(), 1),
+    ]))
+}
 pub const MONO_FACE: &str = "JetBrains Mono";
+
+/// CHAT is Inter for chat Markdown: Inter's Regular, and its SemiBold
+/// registered as the family's Bold. gpui-base sets `**strong**` at 700,
+/// .chat-markdown's `strong` is 600 (assets/fonts/InterChat-*, renamed
+/// copies of Inter's).
+pub const CHAT: &str = "Inter Chat";
 
 static FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/Inter-Regular.ttf"),
     include_bytes!("../assets/fonts/Inter-Medium.ttf"),
     include_bytes!("../assets/fonts/Inter-SemiBold.ttf"),
     include_bytes!("../assets/fonts/Inter-Bold.ttf"),
+    include_bytes!("../assets/fonts/InterChat-Regular.ttf"),
+    include_bytes!("../assets/fonts/InterChat-Bold.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMono-Medium.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf"),
@@ -1019,6 +1307,25 @@ pub fn sync_widgets(cx: &mut App) {
 
 /// solid flattens a translucent ground onto the window, for widgets that
 /// paint without a backdrop to blend against.
+/// layered is translucent colours laid one over another on the window's
+/// ink, as one opaque colour: for a box that casts a shadow, which GPUI
+/// paints under the whole box and so shows through a translucent fill
+/// (a browser's box-shadow stays outside it).
+pub fn layered(colors: &[Hsla]) -> Hsla {
+    let mut base = ink().to_rgb();
+    for c in colors {
+        let top = c.to_rgb();
+        let m = |b: f32, t: f32| b + (t - b) * top.a;
+        base = gpui::Rgba {
+            r: m(base.r, top.r),
+            g: m(base.g, top.g),
+            b: m(base.b, top.b),
+            a: 1.,
+        };
+    }
+    base.into()
+}
+
 fn solid(color: Hsla) -> Hsla {
     let base = ink().to_rgb();
     let top = color.to_rgb();

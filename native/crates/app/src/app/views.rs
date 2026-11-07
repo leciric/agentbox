@@ -297,10 +297,15 @@ impl AppView {
         }
         let view = cx.entity().downgrade();
         let r = r.to_string();
+        // MoreViews: Button size="icon-sm" ghost, a 15px Plus.
         Button::new("panel-more-views")
             .ghost()
             .small()
-            .label("+")
+            .size_8()
+            .flex_none()
+            .rounded(gpui_component::button::ButtonRounded::Size(px(8.)))
+            .text_color(theme::muted())
+            .child(crate::icons::ic("plus").size(px(15.)))
             .tooltip(t("agent.view.openTab"))
             .dropdown_menu_with_anchor(Anchor::TopRight, move |mut menu, _, _| {
                 for v in hidden.iter().copied() {

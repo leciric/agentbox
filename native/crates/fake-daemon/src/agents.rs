@@ -79,7 +79,7 @@ fn sha(n: u64) -> String {
 }
 
 fn ago(d: Duration) -> String {
-    humantime::format_rfc3339_millis(std::time::SystemTime::now() - d).to_string()
+    humantime::format_rfc3339_millis(crate::clock() - d).to_string()
 }
 
 fn no_content() -> Response<Body> {
@@ -420,7 +420,12 @@ pub async fn route(
                     title: a.title.clone(),
                     state: a.state.clone(),
                     cpu: if a.busy {
-                        85. + (rand_id() % 60) as f64
+                        // Still, a fixed load, so two apps read the same.
+                        85. + if crate::still() {
+                            5. + i as f64 * 4.
+                        } else {
+                            (rand_id() % 60) as f64
+                        }
                     } else {
                         2.5 + i as f64
                     },
@@ -625,13 +630,10 @@ pub async fn route(
             let body = body_of(req).await;
             let asked: SnapshotRequest = serde_json::from_slice(&body).unwrap_or_default();
             let name = if asked.name.is_empty() {
-                format!(
-                    "snap-{}",
-                    humantime::format_rfc3339_seconds(std::time::SystemTime::now())
-                )
-                .replace([':', 'T'], "-")
-                .trim_end_matches('Z')
-                .to_string()
+                format!("snap-{}", humantime::format_rfc3339_seconds(crate::clock()))
+                    .replace([':', 'T'], "-")
+                    .trim_end_matches('Z')
+                    .to_string()
             } else {
                 asked.name
             };
@@ -781,7 +783,7 @@ pub async fn route(
             };
             let secs = started
                 .and_then(|s| humantime::parse_rfc3339_weak(s.trim_end_matches('Z')).ok())
-                .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
+                .and_then(|t| crate::clock().duration_since(t).ok())
                 .map_or(9., |d| d.as_secs_f64());
             let item = MediaItem {
                 id: format!(

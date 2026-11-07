@@ -19,6 +19,7 @@ pub(crate) mod agent_status;
 mod connection;
 pub(crate) mod controls;
 mod foot;
+mod home_status;
 mod issues;
 mod merge;
 mod new_agent;
@@ -49,16 +50,6 @@ mod work;
 use crate::chat::{ChatAction, ChatView};
 use crate::terminal::TerminalView;
 use crate::vnc::VncView;
-
-/// One agent in the rail.
-struct RailRow {
-    project: String,
-    name: String,
-    title: String,
-    state: String,
-    busy: bool,
-    pr: Option<agentbox_api::PullRequest>,
-}
 
 use crate::{bench, theme};
 use agentbox_i18n::t;
@@ -109,6 +100,8 @@ pub struct AppView {
     past: past::Past,
     /// The panel's Resources view of an agent (resources.rs).
     resources: resources::Resources,
+    /// Home's Status tab (HomeView).
+    home_status: home_status::HomeStatus,
     /// The window's presence lease (presence.rs).
     presence: presence::Presence,
     /// The panel's widths, and its drawer (width.rs).
@@ -119,6 +112,9 @@ pub struct AppView {
     /// The Settings page is open in the main area.
     settings: bool,
     settings_page: settings::SettingsPage,
+    /// The lead's panel shows the project's settings, at this section
+    /// (settings/panel.rs), over what it showed.
+    panel_settings: Option<&'static str>,
     /// The Work page, while it's open in the main area.
     work: Option<Entity<work::WorkView>>,
     /// The Office (crate::office), made the first time it's opened and kept,
@@ -211,11 +207,13 @@ impl AppView {
             agent_settings: agent_settings::AgentSettings::new(window, cx),
             past: past::Past::new(window, cx),
             resources: Default::default(),
+            home_status: Default::default(),
             presence: Default::default(),
             widths: width::Widths::load(),
             side: sidebar::Sidebar::new(window, cx),
             new_task: None,
             settings: false,
+            panel_settings: None,
             settings_page: settings::SettingsPage::new(window, cx),
             work: None,
             office: None,
@@ -490,6 +488,41 @@ impl AppView {
                             if let Ok(id) = std::env::var("AGENTBOX_NATIVE_SETTINGS") {
                                 this.open_settings_at(id, window, cx);
                             }
+                            // AGENTBOX_NATIVE_VIEW=project:<name>|media|jobs|work
+                            // opens that page at start (native/scripts/parity.sh).
+                            if let Ok(v) = std::env::var("AGENTBOX_NATIVE_VIEW") {
+                                match v.split_once(':') {
+                                    // project:<name>[:pulls]
+                                    Some(("project", p)) => {
+                                        let (p, place) = p.split_once(':').unwrap_or((p, ""));
+                                        this.select_project(p.to_string(), window, cx);
+                                        if place == "pulls" {
+                                            this.pulls.tab = pulls::RailTab::Pulls;
+                                            this.load_pulls(false, cx);
+                                        }
+                                        // project:<name>:settings[:<section>]
+                                        if let Some(rest) = place.strip_prefix("settings") {
+                                            let section = rest.trim_start_matches(':');
+                                            this.open_project_settings(section, window, cx);
+                                        }
+                                    }
+                                    // home:status|memory, Home's tabs.
+                                    Some(("home", tab)) => {
+                                        this.sessions.home_tab =
+                                            if tab == "status" { 1 } else { 2 };
+                                    }
+                                    _ if v == "media" => {
+                                        this.open_foot_page(foot::FootPage::Media, window, cx)
+                                    }
+                                    _ if v == "jobs" => {
+                                        this.open_foot_page(foot::FootPage::Jobs, window, cx)
+                                    }
+                                    _ if v == "work" => {
+                                        this.open_work(String::new(), String::new(), window, cx)
+                                    }
+                                    _ => {}
+                                }
+                            }
                             // AGENTBOX_NATIVE_OFFICE=1 opens the Office at start (checks, recordings).
                             if std::env::var_os("AGENTBOX_NATIVE_OFFICE").is_some() {
                                 this.open_office(window, cx);
@@ -547,6 +580,7 @@ impl AppView {
 
     fn select_project(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
         self.close_media(cx);
+        self.widths.nav = false;
         self.settings = false;
         self.work = None;
         self.side.page = None;
@@ -620,8 +654,9 @@ impl AppView {
         self.past.agent = None;
         self.agent.reset();
         let client = self.client.clone();
-        // Under the project's header, the chat draws no title of its own.
-        let header = self.is_home();
+        // Under the top bar (and Home's own header), the chat draws no
+        // title of its own, as Electron's.
+        let header = false;
         let name = if self.open == "lead" {
             String::new()
         } else {
@@ -640,6 +675,9 @@ impl AppView {
         self._chat_sub = Some(cx.subscribe_in(&chat, window, Self::on_chat_action));
         self.chat = Some(chat);
         self.sync_chat_agent(cx);
+        if self.open != "lead" {
+            self.open_agent_panel(format!("{project}/{}", self.open), cx);
+        }
         self.panel_sync(window, cx);
         cx.notify();
     }
@@ -657,6 +695,115 @@ impl AppView {
                 c.asleep = state;
                 cx.notify();
             });
+        }
+    }
+
+    /// sync_chat_review hands a project's lead chat how many of its agents
+    /// wait for review: the banner above its composer (ReviewCount's banner
+    /// in ProjectChatPanel). Home's chat has none.
+    fn sync_chat_review(&mut self, cx: &mut Context<Self>) {
+        let n = match (&self.project, self.open.as_str()) {
+            (Some(p), "lead") if !self.is_home() => self.to_review(p),
+            _ => 0,
+        };
+        if let Some(chat) = &self.chat
+            && chat.read(cx).review_count != n
+        {
+            chat.update(cx, |c, cx| {
+                c.review_count = n;
+                cx.notify();
+            });
+        }
+        // An agent's chat: its review card (AgentReviewCard), from its review
+        // item and its pull request (useAgentPr: the fleet's, else the item's).
+        let card = self.open_agent().map(|a| {
+            let item = self
+                .side
+                .review
+                .iter()
+                .find(|i| i.r#ref == a.r#ref)
+                .cloned();
+            let asked = !a.changes_requested.is_empty()
+                && matches!(a.chat.as_str(), "running" | "starting" | "waiting");
+            let pr =
+                a.pr.clone()
+                    .filter(|p| p.number > 0)
+                    .or_else(|| item.as_ref().and_then(|i| i.pr.clone()));
+            crate::chat::ReviewCard { item, asked, pr }
+        });
+        if let Some(chat) = &self.chat
+            && chat.read(cx).review_card != card
+        {
+            chat.update(cx, |c, cx| {
+                c.review_card = card;
+                cx.notify();
+            });
+        }
+    }
+
+    /// open_agent_panel picks the view an agent's chat opens its panel on
+    /// (lib/rightPanel.ts openAgentChat): its Desktop while it uses it (in
+    /// the last two minutes, lib/pip.ts usingDesktop), else the view it
+    /// showed last unless that was the Desktop, else its Timeline.
+    fn open_agent_panel(&mut self, r: String, cx: &mut Context<Self>) {
+        let shown = self.panel.views.get(&r).copied();
+        let off = match shown {
+            Some(v) if v != panel::PView::Desktop => v,
+            _ => panel::PView::Timeline,
+        };
+        self.panel.views.insert(r.clone(), off);
+        let running = self
+            .fleet
+            .iter()
+            .any(|a| a.r#ref == r && a.state == "running");
+        let Some(project) = r.split('/').next().map(str::to_string).filter(|_| running) else {
+            return;
+        };
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let uses = client
+                .get::<Vec<agentbox_api::DesktopUse>>(&format!("/v1/projects/{project}/desktops"))
+                .await
+                .unwrap_or_default();
+            let now = std::time::SystemTime::now();
+            let using = uses.iter().any(|u| {
+                u.r#ref == r
+                    && humantime::parse_rfc3339_weak(
+                        u.used_at
+                            .split('.')
+                            .next()
+                            .unwrap_or(&u.used_at)
+                            .trim_end_matches('Z'),
+                    )
+                    .ok()
+                    .and_then(|at| now.duration_since(at).ok())
+                    .is_some_and(|d| d.as_secs() < 120)
+            });
+            if using {
+                this.update(cx, |this, cx| {
+                    this.panel.views.insert(r, panel::PView::Desktop);
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// pulls_gone gives the lead's panel back to its agents when it shows
+    /// pull requests the project turned off, or a link opened (RightPanel's
+    /// pullsGone): once the projects are read.
+    fn pulls_gone(&mut self) {
+        if self.pulls.tab != pulls::RailTab::Pulls {
+            return;
+        }
+        let Some(p) = self.project.as_ref() else {
+            return;
+        };
+        if let Some(p) = self.projects.iter().find(|x| &x.name == p)
+            && !p.pull_requests
+        {
+            self.pulls.tab = pulls::RailTab::Agents;
         }
     }
 
@@ -715,6 +862,11 @@ impl AppView {
             }
             ChatAction::OpenAgent(r) => self.open_agent_ref(r, window, cx),
             ChatAction::OpenProject(p) => self.select_project(p, window, cx),
+            ChatAction::ReviewProject => {
+                if let Some(p) = self.project.clone() {
+                    self.open_work(p, "review".into(), window, cx)
+                }
+            }
             ChatAction::ForkSession(item) => self.fork_session(item, window, cx),
             ChatAction::NewSession { text } => self.session_with_message(text, window, cx),
             ChatAction::ContinuePast => {
@@ -753,183 +905,173 @@ impl AppView {
         }
     }
 
-    fn is_home(&self) -> bool {
-        self.project.as_deref() == Some(agentbox_api::HOME_PROJECT)
-    }
-
-    /// rail_rows are the agents the rail lists: the project's, or on Home
-    /// every project's.
-    fn rail_rows(&self) -> Vec<RailRow> {
-        if self.is_home() {
-            return self
-                .side
-                .agents
-                .iter()
-                .map(|a| RailRow {
-                    project: a.project.clone(),
-                    name: a.name.clone(),
-                    title: format!("{} · {}", a.project, a.title),
-                    state: a.state.clone(),
-                    busy: a.chat == "running",
-                    pr: None,
-                })
-                .collect();
+    /// lead_frame puts a lead's chat in Electron's frame (ProjectChatPanel's
+    /// SessionChatPanel): its session tabs over a rounded-2xl card holding
+    /// the session's header and the chat. A project's sits mx-6 mb-6 with a
+    /// border (ProjectView); Home's has none, under Home's own header and
+    /// tabs (HomeChatPanel). Anything else passes through.
+    fn lead_frame(
+        &self,
+        lead_view: bool,
+        no_session: bool,
+        content: Div,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if !lead_view {
+            return content.into_any_element();
         }
-        self.fleet
-            .iter()
-            .map(|a| RailRow {
-                project: a.project.clone(),
-                name: a.name.clone(),
-                title: a.title.clone(),
-                state: a.state.clone(),
-                busy: a.busy,
-                pr: a.pr.clone().filter(|p| p.number > 0),
-            })
-            .collect()
-    }
-
-    fn render_rail(&self, cx: &mut Context<Self>) -> Div {
-        let row = |id: String, selected: bool| {
-            h_flex()
-                .id(SharedString::from(id))
-                .mx_2()
-                .px_2()
-                .py_2()
-                .gap_2()
-                .rounded_md()
-                .cursor_pointer()
-                .when(selected, |el| el.bg(theme::surface_strong()))
-                .hover(|el| el.bg(theme::surface_raised()))
-        };
-        let lead = row("rail-lead".into(), self.open == "lead")
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.open_chat("lead".into(), window, cx)
-            }))
-            .child(div().size_2().rounded_full().bg(theme::brand(500)))
+        let home = self.is_home();
+        if home && self.sessions.home_tab == 1 {
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(self.render_home_header(cx))
+                .child(div().flex_1().min_h_0().child(self.render_home_status(cx)))
+                .into_any_element();
+        }
+        if home && self.sessions.home_tab == 2 {
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(self.render_home_header(cx))
+                .child(
+                    div()
+                        .mx_auto()
+                        .max_w(px(896.))
+                        .w_full()
+                        .px_8()
+                        .py_2()
+                        .text_size(theme::text::UI)
+                        .text_color(theme::muted())
+                        .child(t("chat.home.memoryIntro")),
+                )
+                .into_any_element();
+        }
+        let history = !home && self.sessions.history;
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .when(home, |el| el.child(self.render_home_header(cx)))
             .child(
                 v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .when(!home, |el| el.mx_6().mb_6())
+                    // The history takes the tabs' place too (ProjectChatPanel's
+                    // box(SessionHistory)).
+                    .when(!history, |el| el.children(self.render_session_tabs(cx)))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_h_0()
+                            .when(!history, |el| el.mt(px(-1.)))
+                            .rounded_2xl()
+                            .border_1()
+                            .border_color(if home {
+                                gpui::transparent_black()
+                            } else {
+                                theme::line()
+                            })
+                            .overflow_hidden()
+                            .when(!no_session && !history, |el| {
+                                el.children(self.render_session_header(cx))
+                            })
+                            .child(content),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// render_home_header is HomeChatPanel's head: Home and its subtitle,
+    /// and the Chat, Status and Memory tabs.
+    fn render_home_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let tab = |ix: u8, icon: &'static str, label: String, cx: &mut Context<Self>| {
+            let on = self.sessions.home_tab == ix;
+            h_flex()
+                .id(SharedString::from(format!("home-tab-{ix}")))
+                .flex_none()
+                .h_8()
+                .px_3()
+                .gap_2()
+                .rounded_lg()
+                .text_size(theme::text::UI)
+                .font_weight(FontWeight::MEDIUM)
+                .cursor_pointer()
+                .text_color(if on { theme::title() } else { theme::muted() })
+                .when(on, |el| el.bg(theme::surface_strong()))
+                .when(!on, |el| el.hover(|el| el.text_color(theme::primary())))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.sessions.home_tab = ix;
+                    cx.notify();
+                }))
+                .child(crate::icons::ic(icon).size(px(15.)))
+                .child(label)
+        };
+        h_flex()
+            .flex_none()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap_x_4()
+            .gap_y_3()
+            .px_8()
+            .pb_3()
+            .pt_5()
+            .child(
+                v_flex()
+                    .min_w_0()
                     .child(
                         div()
-                            .text_sm()
-                            .text_color(theme::primary())
-                            .child(t("v2.header.lead")),
+                            .text_size(theme::text::DISPLAY)
+                            .line_height(px(28.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::title())
+                            .child(t("shell.nav.home")),
                     )
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .child(t("v2.header.openLead")),
+                            .mt_0p5()
+                            .text_size(theme::text::UI)
+                            .text_color(theme::muted())
+                            .child(t("chat.home.subtitle")),
                     ),
-            );
-        let pulls_tab = !self.is_home() && self.pulls.tab == pulls::RailTab::Pulls;
-        let rail = v_flex()
-            .w(px(if pulls_tab { 400. } else { 300. }))
-            .flex_none()
-            .h_full()
-            .bg(theme::card())
-            .border_l_1()
-            .border_color(theme::line())
+            )
             .child(
                 h_flex()
-                    .h_12()
-                    .px_3()
-                    .when(!self.is_home(), |el| {
-                        el.child(self.render_rail_switch(self.rail_rows().len(), cx))
-                    })
-                    .when(self.is_home(), |el| {
-                        el.px_4()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme::primary())
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(t("shell.home.agents")),
-                            )
-                            .child(div().flex_1())
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme::faint())
-                                    .child(format!("{}", self.rail_rows().len())),
-                            )
-                    }),
-            );
-        if pulls_tab {
-            return rail.child(self.render_pulls_panel(cx));
-        }
-        rail.child(lead)
-            .child(div().mx_4().my_1().h(px(1.)).bg(theme::line()))
-            .children(self.rail_rows().into_iter().map(|a| {
-                let (name, project) = (a.name.clone(), a.project.clone());
-                let busy = a.busy;
-                let home = self.is_home();
-                row(
-                    format!("rail-{}-{}", a.project, a.name),
-                    self.open == a.name && !home,
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    // From Home, an agent opens in its own project.
-                    if this.is_home() {
-                        this.select_project(project.clone(), window, cx);
-                    }
-                    this.open_chat(name.clone(), window, cx)
-                }))
-                .child(
-                    div()
-                        .flex_none()
-                        .size_2()
-                        .rounded_full()
-                        .bg(theme::state_color(&a.state)),
-                )
-                .child(
-                    v_flex()
-                        .min_w_0()
-                        .flex_1()
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(theme::primary())
-                                        .child(a.name.clone()),
-                                )
-                                .when_some(a.pr.as_ref(), |el, pr| {
-                                    el.child(pulls::pr_chip(
-                                        SharedString::from(format!(
-                                            "rail-pr-{}-{}",
-                                            a.project, a.name
-                                        )),
-                                        pr,
-                                    ))
-                                })
-                                .when(busy, |el| {
-                                    el.child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme::starting())
-                                            .child(t("chat.subagent.working")),
-                                    )
-                                }),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(theme::muted())
-                                .truncate()
-                                .child(a.title.clone()),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(theme::faint())
-                                .child(state_label(&a.state)),
-                        ),
-                )
-            }))
-            .when_some(self.fleet_error.clone(), |el, e| {
-                el.child(div().p_4().text_xs().text_color(theme::error()).child(e))
-            })
+                    .min_w_0()
+                    .gap_3()
+                    .child(
+                        h_flex()
+                            .gap_0p5()
+                            .p_1()
+                            .rounded_xl()
+                            .border_1()
+                            .border_color(theme::line())
+                            .bg(theme::surface_faint())
+                            .child(tab(0, "messages-square", t("project.view.tab.chat"), cx))
+                            .child(tab(1, "activity", t("chat.home.tab.status"), cx))
+                            .child(tab(2, "brain", t("chat.home.tab.memory"), cx)),
+                    )
+                    .child(
+                        div()
+                            .id("home-menu")
+                            .flex_none()
+                            .size_8()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_lg()
+                            .text_color(theme::muted())
+                            .cursor_pointer()
+                            .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                            .child(crate::icons::ic("ellipsis").size(px(15.))),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn is_home(&self) -> bool {
+        self.project.as_deref() == Some(agentbox_api::HOME_PROJECT)
     }
 }
 
@@ -954,10 +1096,14 @@ impl AppView {
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        theme::keep_text_system(window);
         self.panel.track(&self.fleet);
+        self.sync_chat_review(cx);
+        self.pulls_gone();
         self.presence_check(window, cx);
         bench::mark("first-render");
         controls::set_viewport(window.viewport_size());
+        controls::set_scale(window.scale_factor());
         self.focus_tour(window, cx);
         // The tour's spotlight reads where its anchors were drawn last.
         crate::spot::measure(self.onboarding_touring());
@@ -1052,6 +1198,9 @@ impl Render for AppView {
             .bg(theme::ink())
             .text_color(theme::primary())
             .font_family(theme::SANS)
+            .font_features(theme::sans_features())
+            // Electron's line height (Tailwind's preflight: 1.5), not GPUI's φ.
+            .line_height(relative(1.5))
             .child(theme::window_washes(window))
             .child(crate::webview::pages_begin())
             .when(self.widths.dragging(), |el| {
@@ -1064,87 +1213,122 @@ impl Render for AppView {
                         cx.listener(|this, _: &MouseUpEvent, _, cx| this.drag_end(cx)),
                     )
             })
-            .child(self.render_sidebar(cx))
+            .when(self.sidebar_docked(), |el| {
+                el.child(self.render_sidebar(cx))
+            })
+            // TopBar over the page and the panel, as Electron's shell.
             .child(
                 v_flex()
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .when(!self.connected && self.conn.answered, |el| {
-                        el.child(self.render_offline_notice())
-                    })
-                    .when(
-                        !self.settings
-                            && self.work.is_none()
-                            && self.side.page.is_none()
-                            && self.chat.is_some()
-                            && !full_page,
-                        |el| {
-                            el.children(self.render_home_bar(cx))
-                                .children(self.render_project_header(cx))
-                                .children(self.render_agent_header(cx))
-                                .children(self.render_past_header(cx))
-                                .children(self.render_machine_bar(cx))
-                                .children(self.render_session_tabs(cx))
-                                .when(!no_session, |el| {
-                                    el.children(self.render_session_header(cx))
-                                })
-                        },
-                    )
+                    .child(self.render_top_bar(cx))
                     .child(
-                        // The media viewer goes over whatever is shown here:
-                        // it opens from the Media page, an agent's panel and
-                        // a chat's evidence alike.
-                        div()
-                            .relative()
+                        h_flex()
                             .flex_1()
                             .min_h_0()
-                            .child(match &self.chat {
-                                _ if self.cut_off() => self.render_unreachable(cx),
-                                _ if self.first_run_open() => self.render_first_run(cx),
-                                _ if self.settings => self.render_settings(cx),
-                                _ if self.work.is_some() => self.render_work(cx),
-                                _ if self.side.page.is_some() => self.render_foot_page(cx),
-                                Some(_) if lead_view && self.sessions.history => {
-                                    self.render_history(cx)
-                                }
-                                Some(_) if no_session => self.render_no_session(cx),
-                                Some(_)
-                                    if self.open != "lead"
-                                        && self.agent.page == Some(agent::Page::Snapshots) =>
-                                {
-                                    self.render_snapshots(cx)
-                                }
-                                Some(_)
-                                    if self.open != "lead"
-                                        && self.agent.page == Some(agent::Page::Settings) =>
-                                {
-                                    self.render_agent_settings(cx)
-                                }
-                                Some(chat) => chat.clone().into_any_element(),
-                                None => div()
-                                    .size_full()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(theme::faint())
-                                    .when(self.projects.is_empty(), |el| {
-                                        el.child(t("shell.sidebar.addFirst"))
+                            .min_w_0()
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full()
+                                    .when(!self.connected && self.conn.answered, |el| {
+                                        el.child(self.render_offline_notice())
                                     })
-                                    .into_any_element(),
-                            })
-                            .children(self.render_media_viewer(cx)),
+                                    .when(
+                                        !self.settings
+                                            && self.work.is_none()
+                                            && self.side.page.is_none()
+                                            && self.chat.is_some()
+                                            && !full_page,
+                                        |el| {
+                                            el.children(self.render_agent_header(cx))
+                                                .children(self.render_past_header(cx))
+                                                .children(self.render_machine_bar(cx))
+                                                .when(!lead_view, |el| {
+                                                    el.children(self.render_session_tabs(cx)).when(
+                                                        !no_session,
+                                                        |el| {
+                                                            el.children(
+                                                                self.render_session_header(cx),
+                                                            )
+                                                        },
+                                                    )
+                                                })
+                                        },
+                                    )
+                                    .child(
+                                        self.lead_frame(
+                                            lead_view,
+                                            no_session,
+                                            div()
+                                                .relative()
+                                                .flex_1()
+                                                .min_h_0()
+                                                .child(match &self.chat {
+                                                    _ if self.cut_off() => {
+                                                        self.render_unreachable(cx)
+                                                    }
+                                                    _ if self.first_run_open() => {
+                                                        self.render_first_run(cx)
+                                                    }
+                                                    _ if self.settings => self.render_settings(cx),
+                                                    _ if self.work.is_some() => {
+                                                        self.render_work(cx)
+                                                    }
+                                                    _ if self.side.page.is_some() => {
+                                                        self.render_foot_page(cx)
+                                                    }
+                                                    Some(_)
+                                                        if lead_view && self.sessions.history =>
+                                                    {
+                                                        self.render_history(cx)
+                                                    }
+                                                    Some(_) if no_session => {
+                                                        self.render_no_session(cx)
+                                                    }
+                                                    Some(_)
+                                                        if self.open != "lead"
+                                                            && self.agent.page
+                                                                == Some(agent::Page::Snapshots) =>
+                                                    {
+                                                        self.render_snapshots(cx)
+                                                    }
+                                                    Some(_)
+                                                        if self.open != "lead"
+                                                            && self.agent.page
+                                                                == Some(agent::Page::Settings) =>
+                                                    {
+                                                        self.render_agent_settings(cx)
+                                                    }
+                                                    Some(chat) => chat.clone().into_any_element(),
+                                                    None => div()
+                                                        .size_full()
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .text_color(theme::faint())
+                                                        .when(self.projects.is_empty(), |el| {
+                                                            el.child(t("shell.sidebar.addFirst"))
+                                                        })
+                                                        .into_any_element(),
+                                                })
+                                                .children(self.render_media_viewer(cx)),
+                                            cx,
+                                        ),
+                                    ),
+                            )
+                            // Home has no panel (its agents are its Status tab).
+                            .when(
+                                !full_page && !self.is_home() && self.project.is_some(),
+                                |el| el.child(self.render_panel(cx)),
+                            ),
                     ),
             )
-            .when(!full_page, |el| {
-                el.child(if self.is_home() || self.project.is_none() {
-                    self.render_rail(cx).into_any_element()
-                } else {
-                    self.render_panel(cx)
-                })
-            })
             // Last, so it draws over the rest.
             .children(self.render_drawer(cx))
+            .children(self.render_nav(cx))
             .children(self.render_desktop_full(cx))
             .children(overlay)
             .children(self.review.clone())
@@ -1163,9 +1347,4 @@ impl Render for AppView {
             .child(crate::webview::pages_end())
             .into_any_element()
     }
-}
-
-/// pr_chip_for is a pull request as a small pill, for views outside app/.
-pub(crate) fn pr_chip_for(pr: &agentbox_api::PullRequest) -> AnyElement {
-    work::pr_chip(pr)
 }

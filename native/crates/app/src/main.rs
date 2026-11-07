@@ -44,6 +44,19 @@ use gpui_component::Root;
 
 fn main() {
     bench::start();
+    // Text as light as Chromium's: GPUI's greyscale text defaults to gamma
+    // 1.8 with an enhanced contrast of 1, a touch heavier than Skia's
+    // (measured against the Electron app, native/scripts/parity.sh). A value
+    // the person set wins.
+    for (var, value) in [
+        ("ZED_FONTS_GAMMA", "1.2"),
+        ("ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST", "0.1"),
+    ] {
+        if std::env::var_os(var).is_none() {
+            // SAFETY: before any thread starts.
+            unsafe { std::env::set_var(var, value) };
+        }
+    }
     let mut socket = agentbox_api::client::default_socket();
     let mut play = None;
     let mut args = std::env::args().skip(1);
@@ -65,6 +78,10 @@ fn main() {
         .with_assets(icons::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
+            // Greyscale antialiasing, as Electron draws its text (Chromium
+            // on Linux, -webkit-font-smoothing: antialiased): no colour
+            // fringes, the same weight.
+            cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);
             theme::init(cx);
             motion::init(cx);
             webview::init(cx);

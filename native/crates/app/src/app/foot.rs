@@ -15,7 +15,7 @@ use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
 use super::controls::{self, Btn, Choice};
-use super::sidebar::ago;
+use super::settings::defaults::time_ago;
 use crate::{media, theme, toasts};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -23,6 +23,9 @@ pub enum FootPage {
     Media,
     Jobs,
 }
+
+/// A card's picture as made: its width and height, and the image.
+type Thumb = (u32, u32, std::sync::Arc<RenderImage>);
 
 /// What the pages read.
 #[derive(Default)]
@@ -40,6 +43,63 @@ pub struct Foot {
     log: String,
     /// The item open in the viewer, over the page.
     viewing: Option<Viewing>,
+    /// The Media page's kind chip ("" for everything, "page" for Hatch's
+    /// pages) and search (MediaView.tsx's filter.kind and query).
+    kind: String,
+    q: String,
+    search: Option<Entity<gpui_component::input::InputState>>,
+    _search: Option<Subscription>,
+    /// GET /v1/media/counts of what the filters keep, and of everything
+    /// (the project picker's).
+    counts: Option<agentbox_api::MediaCounts>,
+    everything: Option<agentbox_api::MediaCounts>,
+    /// Every project's live Hatch pages, with their project (usePagesOf('')).
+    pages: Vec<(String, agentbox_api::Artifact)>,
+    scroll: ScrollHandle,
+    /// The recordings' frames at 0.5 s (BGRA), by media id.
+    stills: HashMap<String, std::sync::Arc<image::RgbaImage>>,
+    /// The cards' pictures, resized ahead for the card they fill (as
+    /// Chromium filters a picture it shrinks), by media id, with the size
+    /// each was made at; and those being made.
+    thumbs: std::cell::RefCell<HashMap<String, Thumb>>,
+    making: std::cell::RefCell<std::collections::HashSet<(String, u32, u32)>>,
+}
+
+/// Picture is what a card's thumbnail is made from.
+#[derive(Clone)]
+enum Picture {
+    /// A file on disk (a screenshot), drawn object-cover object-top.
+    File(PathBuf),
+    /// A decoded frame (a recording's still), drawn object-cover.
+    Frame(std::sync::Arc<image::RgbaImage>),
+}
+
+/// fill is a picture resized to cover w×h device pixels and cut to it,
+/// from its top (a screenshot) or its middle (a still); BGRA, as GPUI
+/// draws a frame.
+fn fill(picture: Picture, w: u32, h: u32) -> Option<image::RgbaImage> {
+    let (src, top) = match picture {
+        Picture::File(p) => {
+            let mut img = image::load_from_memory(&std::fs::read(p).ok()?)
+                .ok()?
+                .to_rgba8();
+            for px in img.pixels_mut() {
+                px.0.swap(0, 2);
+            }
+            (img, true)
+        }
+        Picture::Frame(f) => ((*f).clone(), false),
+    };
+    let (sw, sh) = (src.width() as f32, src.height() as f32);
+    let k = (w as f32 / sw).max(h as f32 / sh);
+    let (nw, nh) = (
+        ((sw * k).round() as u32).max(w),
+        ((sh * k).round() as u32).max(h),
+    );
+    let big = image::imageops::resize(&src, nw, nh, image::imageops::FilterType::Triangle);
+    let x = (nw - w) / 2;
+    let y = if top { 0 } else { (nh - h) / 2 };
+    Some(image::imageops::crop_imm(&big, x, y, w, h).to_image())
 }
 
 /// ViewerClick is what a button over the viewer does.
@@ -82,14 +142,35 @@ impl AppView {
     pub(super) fn open_foot_page(
         &mut self,
         page: FootPage,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.settings = false;
         self.work = None;
         self.side.page = Some(page);
+        if page == FootPage::Media && self.side.foot.search.is_none() {
+            let search = cx.new(|cx| {
+                // Its placeholder is drawn under it (media_search), in faint.
+                gpui_component::input::InputState::new(window, cx)
+            });
+            let sub = cx.subscribe(
+                &search,
+                |this: &mut Self, s, ev: &gpui_component::input::InputEvent, cx| {
+                    if !matches!(ev, gpui_component::input::InputEvent::Change) {
+                        return;
+                    }
+                    this.side.foot.q = s.read(cx).value().trim().to_string();
+                    this.load_all_media(false, cx);
+                },
+            );
+            self.side.foot.search = Some(search);
+            self.side.foot._search = Some(sub);
+        }
         match page {
-            FootPage::Media => self.load_all_media(false, cx),
+            FootPage::Media => {
+                self.load_all_media(false, cx);
+                self.load_media_pages(cx);
+            }
             FootPage::Jobs => self.load_jobs(cx),
         }
         cx.notify();
@@ -107,8 +188,24 @@ impl AppView {
         if f.favorites {
             q.push("favorite=1".into());
         }
+        // The scope the counts are of: ?project= (media_list.go).
+        let mut scope = Vec::new();
+        if !f.project.is_empty() {
+            scope.push(format!("project={}", enc(&f.project)));
+        }
+        if !f.kind.is_empty() && f.kind != PAGE_KIND {
+            q.push(format!("only={}", f.kind));
+            scope.push(format!("only={}", f.kind));
+        }
+        if !f.q.is_empty() {
+            q.push(format!("q={}", enc(&f.q)));
+            scope.push(format!("q={}", enc(&f.q)));
+        }
         if more && !f.next.is_empty() {
             q.push(format!("cursor={}", f.next));
+        }
+        if !more {
+            self.load_media_counts(scope.join("&"), cx);
         }
         let path = format!("/v1/media?{}", q.join("&"));
         let client = self.client.clone();
@@ -137,12 +234,84 @@ impl AppView {
         .detach();
     }
 
+    /// load_media_counts reads the filters' counts, and everything's for
+    /// the project picker (useMediaCounts).
+    fn load_media_counts(&mut self, scope: String, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let counts = client
+                .get::<agentbox_api::MediaCounts>(&format!("/v1/media/counts?{scope}"))
+                .await
+                .ok();
+            let everything = client
+                .get::<agentbox_api::MediaCounts>("/v1/media/counts?")
+                .await
+                .ok();
+            this.update(cx, |this, cx| {
+                this.side.foot.counts = counts;
+                this.side.foot.everything = everything;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// load_media_pages reads every project's Hatch pages (usePagesOf('')):
+    /// the live ones, none for a project without Hatch.
+    fn load_media_pages(&mut self, cx: &mut Context<Self>) {
+        let names: Vec<String> = self
+            .projects
+            .iter()
+            .map(|p| p.name.clone())
+            .filter(|n| n != agentbox_api::HOME_PROJECT)
+            .collect();
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let mut pages = Vec::new();
+            for name in names {
+                let Ok(list) = client
+                    .get::<agentbox_api::Artifacts>(&format!(
+                        "/v1/projects/{}/artifacts",
+                        enc(&name)
+                    ))
+                    .await
+                else {
+                    continue;
+                };
+                if list.connector.is_empty() {
+                    continue;
+                }
+                let now = chrono::Utc::now().timestamp_millis();
+                pages.extend(
+                    list.artifacts
+                        .into_iter()
+                        .filter(|a| {
+                            !a.expired
+                                && (a.permanent
+                                    || a.expires_at.as_deref().is_none_or(|e| media::ms(e) > now))
+                        })
+                        .map(|a| (name.clone(), a)),
+                );
+            }
+            this.update(cx, |this, cx| {
+                this.side.foot.pages = pages;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// fetch_thumbs brings the pictures' files to disk to draw them: the
     /// screenshots, and files that are images. One that couldn't be read is
     /// asked for again the next time the page loads.
     fn fetch_thumbs(&mut self, cx: &mut Context<Self>) {
         for m in &self.side.foot.media {
-            if media::look(m) != media::Look::Picture || self.side.foot.files.contains_key(&m.id) {
+            let still = m.kind == "recording";
+            if (media::look(m) != media::Look::Picture && !still)
+                || self.side.foot.files.contains_key(&m.id)
+            {
                 continue;
             }
             self.side.foot.files.insert(m.id.clone(), PathBuf::new());
@@ -153,6 +322,9 @@ impl AppView {
                 this.update(cx, |this, cx| {
                     match res {
                         Ok(p) => {
+                            if still {
+                                this.make_still(id.clone(), p.clone(), cx);
+                            }
                             this.side.foot.files.insert(id, p);
                         }
                         Err(_) => {
@@ -166,6 +338,33 @@ impl AppView {
             .detach();
         }
     }
+
+    /// make_still draws a recording's frame at 0.5 s for its card, on a
+    /// thread (MediaParts.tsx VideoStill).
+    #[cfg(feature = "video")]
+    fn make_still(&mut self, id: String, path: PathBuf, cx: &mut Context<Self>) {
+        if self.side.foot.stills.contains_key(&id) {
+            return;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            // lib/videoStills.ts draws it 480 wide.
+            let _ = tx.send(crate::video::frame_at(&path, 480, 0.5).ok());
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Some(frame)) = rx.await {
+                this.update(cx, |this, cx| {
+                    this.side.foot.stills.insert(id, std::sync::Arc::new(frame));
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    #[cfg(not(feature = "video"))]
+    fn make_still(&mut self, _: String, _: PathBuf, _: &mut Context<Self>) {}
 
     /// open_media shows an item in the viewer over the page; its file comes
     /// from the daemon's cache on disk.
@@ -833,202 +1032,729 @@ impl AppView {
         }
     }
 
+    /// render_media_page is media/MediaView.tsx with `heading`, across every
+    /// project: its title, the project picker and search, the kind chips,
+    /// then the media and Hatch's pages by day in a grid of cards.
     fn render_media_page(&self, cx: &mut Context<Self>) -> AnyElement {
         let f = &self.side.foot;
-        let mut choices = vec![Choice::new("", t("shell.allMedia.allProjects"))];
-        choices.extend(
+        let with_media = f.kind != PAGE_KIND;
+        // pagesIn: the project's (or every one's), never under Favorites.
+        let scope_pages: Vec<&(String, agentbox_api::Artifact)> = f
+            .pages
+            .iter()
+            .filter(|(p, _)| f.project.is_empty() || *p == f.project)
+            .collect();
+        let shows_pages = (f.kind.is_empty() || f.kind == PAGE_KIND) && !f.favorites && !f.unseen;
+        let words: Vec<String> =
+            f.q.to_lowercase()
+                .split_whitespace()
+                .map(String::from)
+                .collect();
+        let mut pages: Vec<&(String, agentbox_api::Artifact)> = if shows_pages {
+            scope_pages
+                .iter()
+                .copied()
+                .filter(|(p, a)| {
+                    let hay = format!(
+                        "{} {} {}",
+                        a.title,
+                        a.agent.split('/').nth(1).unwrap_or(""),
+                        if f.project.is_empty() { p.as_str() } else { "" }
+                    )
+                    .to_lowercase();
+                    words.iter().all(|w| hay.contains(w.as_str()))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        pages.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+        let items: Vec<&MediaItem> = if with_media {
+            f.media
+                .iter()
+                .filter(|m| (!f.unseen || m.unseen) && (!f.favorites || m.favorite))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // interleave: a page older than the oldest item waits for the rest.
+        let complete = !with_media || f.next.is_empty();
+        let oldest = items.last().map(|m| m.created_at.clone());
+        let mut entries: Vec<Entry> = items.iter().map(|m| Entry::Item(m)).collect();
+        entries.extend(
+            pages
+                .iter()
+                .filter(|(_, a)| complete || oldest.as_ref().is_none_or(|o| a.updated_at >= *o))
+                .map(|(p, a)| Entry::Page(p, a)),
+        );
+        entries.sort_by_key(|e| std::cmp::Reverse(media::ms(e.at())));
+
+        let counts = f.counts.clone().unwrap_or_default();
+        let total = counts.total + scope_pages.len() as i64;
+        let filtered = !f.kind.is_empty() || f.unseen || f.favorites || !f.q.is_empty();
+        let project_name = |name: &str| {
             self.projects
                 .iter()
-                .map(|p| Choice::new(p.name.clone(), super::sidebar_actions::label_of(p))),
-        );
-        let view = cx.entity().downgrade();
-        let chip = |id: &'static str, label: String, on: bool| {
-            div()
-                .id(id)
-                .px_2p5()
-                .py_1()
-                .rounded_full()
-                .border_1()
-                .border_color(if on { theme::muted() } else { theme::line() })
-                .when(on, |el| el.bg(theme::surface_strong()))
-                .text_xs()
-                .text_color(if on { theme::primary() } else { theme::muted() })
-                .cursor_pointer()
-                .child(label)
+                .find(|p| p.name == name)
+                .map_or_else(|| name.to_string(), super::sidebar_actions::label_of)
         };
-        let cards = f.media.iter().map(|m| {
-            let item = m.clone();
-            let file = f
-                .files
-                .get(&m.id)
-                .filter(|p| !p.as_os_str().is_empty())
-                .cloned();
-            let glyph = match m.kind.as_str() {
-                "recording" => "film",
-                "report" | "log" => "file-text",
-                "note" => "sticky-note",
-                "file" => "file",
-                _ => "image",
-            };
-            let who = if m.agent_title.is_empty() {
-                m.agent_name.clone()
-            } else {
-                m.agent_title.clone()
-            };
-            v_flex()
-                .id(SharedString::from(format!("media-{}", m.id)))
-                .w(px(220.))
-                .rounded_lg()
-                .overflow_hidden()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::surface_raised())
-                .cursor_pointer()
-                .hover(|el| el.border_color(theme::muted()))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    let list = this.side.foot.media.clone();
-                    this.open_media(item.clone(), list, String::new(), window, cx)
-                }))
-                .child(
-                    div()
-                        .h(px(124.))
-                        .bg(theme::card())
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_2xl()
-                        .text_color(theme::faint())
-                        .map(|el| match file {
-                            Some(p) => el.child(img(p).size_full().object_fit(ObjectFit::Cover)),
-                            None => el.child(crate::icons::of(glyph)),
-                        }),
-                )
-                .child(
-                    v_flex()
-                        .p_2()
-                        .gap_0p5()
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_sm()
-                                        .text_color(theme::primary())
-                                        .child(media::readable(&m.name)),
-                                )
-                                .when(m.unseen, |el| {
-                                    el.child(controls::badge(
-                                        t("shell.allMedia.new"),
-                                        theme::accent(),
-                                    ))
-                                })
-                                .when(m.favorite, |el| el.child(crate::icons::of("★"))),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .truncate()
-                                .text_color(theme::faint())
-                                .child(format!("{who} · {}", ago(&m.created_at))),
-                        ),
-                )
+
+        // The project picker: every project's count, as the daemon has them.
+        let everything = f.everything.clone().unwrap_or_default();
+        let mut choices = vec![Choice::new(
+            "",
+            format!("{} ({})", t("shell.allMedia.allProjects"), everything.total),
+        )];
+        choices.extend(everything.projects.iter().map(|p| {
+            Choice::new(
+                p.project.clone(),
+                format!("{} ({})", project_name(&p.project), p.count),
+            )
+        }));
+        let view = cx.entity().downgrade();
+        let pick: controls::Pick<str> = Rc::new(move |v: &str, _, cx| {
+            let v = v.to_string();
+            view.update(cx, |this, cx| {
+                this.side.foot.project = v;
+                this.load_all_media(false, cx);
+            })
+            .ok();
         });
-        let empty = f.loaded && f.media.is_empty();
-        v_flex()
-            .id("media-page")
-            .size_full()
-            .overflow_y_scroll()
-            .p_6()
-            .gap_4()
+
+        // The kind chips: screenshots and recordings always, the rest when
+        // there are some.
+        let mut chips: Vec<AnyElement> = vec![
+            filter_chip(
+                "media-kind-all",
+                None,
+                t("project.media.everything"),
+                total,
+                f.kind.is_empty(),
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.side.foot.kind.clear();
+                this.load_all_media(false, cx);
+            }))
+            .into_any_element(),
+        ];
+        for (kind, icon) in KINDS {
+            let n = counts.kinds.get(*kind).copied().unwrap_or(0);
+            if !(*kind == "screenshot" || *kind == "recording" || n > 0 || f.kind == *kind) {
+                continue;
+            }
+            let k = kind.to_string();
+            chips.push(
+                filter_chip(
+                    SharedString::from(format!("media-kind-{kind}")),
+                    Some(Glyph::Icon(icon)),
+                    t(&format!("agent.media.kind.{kind}")),
+                    n,
+                    f.kind == *kind,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    let f = &mut this.side.foot;
+                    f.kind = if f.kind == k {
+                        String::new()
+                    } else {
+                        k.clone()
+                    };
+                    this.load_all_media(false, cx);
+                }))
+                .into_any_element(),
+            );
+        }
+        if !scope_pages.is_empty() || f.kind == PAGE_KIND {
+            chips.push(
+                filter_chip(
+                    "media-kind-page",
+                    Some(Glyph::Page),
+                    t("media.view.pages"),
+                    scope_pages.len() as i64,
+                    f.kind == PAGE_KIND,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    let f = &mut this.side.foot;
+                    f.kind = if f.kind == PAGE_KIND {
+                        String::new()
+                    } else {
+                        PAGE_KIND.into()
+                    };
+                    f.favorites = false;
+                    this.load_all_media(false, cx);
+                }))
+                .into_any_element(),
+            );
+        }
+        chips.push(
+            div()
+                .mx_1()
+                .h_4()
+                .w(px(1.))
+                .bg(theme::line())
+                .into_any_element(),
+        );
+        chips.push(
+            filter_chip(
+                "media-unseen",
+                Some(Glyph::Dot),
+                t("shell.allMedia.unseen"),
+                counts.unseen,
+                f.unseen,
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.side.foot.unseen = !this.side.foot.unseen;
+                this.load_all_media(false, cx);
+            }))
+            .into_any_element(),
+        );
+        chips.push(
+            filter_chip(
+                "media-fav",
+                Some(Glyph::Icon("star")),
+                t("shell.allMedia.favorites"),
+                counts.favorites,
+                f.favorites,
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                let f = &mut this.side.foot;
+                f.favorites = !f.favorites;
+                if f.kind == PAGE_KIND {
+                    f.kind.clear();
+                }
+                this.load_all_media(false, cx);
+            }))
+            .into_any_element(),
+        );
+        if counts.bytes > 0 {
+            chips.push(
+                div()
+                    .pl_1p5()
+                    .text_size(theme::text::CAPTION)
+                    .font_features(theme::tabular_features())
+                    .text_color(theme::subtle())
+                    .child(human_bytes(counts.bytes))
+                    .into_any_element(),
+            );
+        }
+
+        // The header: border-b border-line px-8 pt-6 pb-2.5, gap-2.
+        let header = v_flex()
+            .flex_none()
+            .gap_2()
+            .px_8()
+            .pt_6()
+            .pb_2p5()
+            .border_b_1()
+            .border_color(theme::line())
             .child(
                 v_flex()
-                    .gap_1()
                     .child(
                         div()
-                            .text_xl()
+                            .text_size(theme::text::DISPLAY)
+                            .line_height(px(30.))
                             .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::title())
                             .child(t("shell.nav.media")),
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .mt_0p5()
+                            .text_size(theme::text::UI)
+                            // 19.5 in Electron, which puts what's under it on
+                            // half pixels that its text rounds down onto.
+                            .line_height(px(20.))
                             .text_color(theme::muted())
                             .child(t("media.view.subtitle")),
                     ),
             )
             .child(
                 h_flex()
-                    .gap_2()
                     .flex_wrap()
-                    .child(div().w(px(220.)).child(controls::select_at(
+                    .gap_2()
+                    .child(div().w(px(224.)).child(controls::field_select(
                         "media-project",
                         choices,
                         &f.project,
                         false,
-                        Rc::new(move |v: &str, _, cx| {
-                            let v = v.to_string();
-                            view.update(cx, |this, cx| {
-                                this.side.foot.project = v;
-                                this.load_all_media(false, cx);
-                            })
-                            .ok();
-                        }),
+                        pick,
                         Anchor::TopLeft,
+                        None,
                     )))
+                    .when_some(f.search.as_ref().filter(|_| total > 0), |el, search| {
+                        el.child(media_search(
+                            search,
+                            f.q.is_empty() && search.read(cx).value().is_empty(),
+                        ))
+                    }),
+            )
+            .child(h_flex().flex_wrap().gap_1().children(chips));
+
+        // The body: overflow-y-auto p-4 md:px-8, the days gap-5.
+        let gutter = f.scroll.max_offset().y > px(0.5);
+        let main = controls::viewport().width
+            - px(if controls::viewport().width >= px(1024.) {
+                SIDEBAR
+            } else {
+                0.
+            });
+        let inner =
+            (main - px(64.) - if gutter { controls::SCROLLBAR } else { px(0.) }).max(px(240.));
+        // grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3
+        let cols = (((inner + px(12.)) / px(252.)).floor() as u16).max(1);
+        let col_w = (inner - px(12.) * (cols as f32 - 1.)) / cols as f32;
+        let now = chrono::Local::now().date_naive();
+        let mut days: Vec<(String, Vec<&Entry>)> = Vec::new();
+        for e in &entries {
+            let day = media_day(e.at(), now);
+            match days.last_mut() {
+                Some((d, list)) if *d == day => list.push(e),
+                _ => days.push((day, vec![e])),
+            }
+        }
+        let body: AnyElement =
+            if f.loaded && total == 0 && !filtered {
+                v_flex()
+                    .py_12()
+                    .items_center()
+                    .gap_2()
                     .child(
-                        chip("media-unseen", t("shell.allMedia.unseen"), f.unseen).on_click(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.side.foot.unseen = !this.side.foot.unseen;
-                                this.load_all_media(false, cx);
-                            }),
-                        ),
+                        crate::icons::ic("images")
+                            .size(px(24.))
+                            .text_color(theme::faint()),
                     )
                     .child(
-                        chip("media-fav", t("shell.allMedia.favorites"), f.favorites).on_click(
+                        div()
+                            .text_color(theme::primary())
+                            .child(t("project.media.emptyTitle")),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(420.))
+                            .text_sm()
+                            .text_center()
+                            .text_color(theme::muted())
+                            .child(t("shell.allMedia.emptyBody")),
+                    )
+                    .into_any_element()
+            } else if f.loaded && entries.is_empty() {
+                v_flex()
+                    .py_12()
+                    .items_center()
+                    .gap_2()
+                    .text_size(theme::text::UI)
+                    .text_color(theme::subtle())
+                    .child(t("agent.mediaTab.noMatch"))
+                    .into_any_element()
+            } else {
+                v_flex()
+                    .gap_5()
+                    .children(days.into_iter().map(|(day, list)| {
+                        let n = list.len();
+                        v_flex()
+                            .gap_2p5()
+                            .child(
+                                h_flex()
+                                    .items_baseline()
+                                    .gap_2()
+                                    .px_1()
+                                    .text_size(theme::text::UI)
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme::secondary())
+                                    .child(day)
+                                    .child(
+                                        div()
+                                            .text_size(theme::text::CAPTION)
+                                            .font_weight(FontWeight::NORMAL)
+                                            .text_color(theme::subtle())
+                                            .child(n.to_string()),
+                                    ),
+                            )
+                            .child(div().grid().grid_cols(cols).gap_3().children(
+                                list.into_iter().map(|e| match e {
+                                    Entry::Item(m) => self.media_card(m, col_w, &project_name, cx),
+                                    Entry::Page(p, a) => page_card(
+                                        p,
+                                        a,
+                                        col_w,
+                                        if f.project.is_empty() {
+                                            format!(
+                                                "{} · {}",
+                                                project_name(p),
+                                                self.agent_label(&a.agent)
+                                            )
+                                        } else {
+                                            self.agent_label(&a.agent)
+                                        },
+                                    ),
+                                }),
+                            ))
+                    }))
+                    .when(!f.next.is_empty(), |el| {
+                        el.child(h_flex().justify_center().child(controls::button(
+                            "media-more",
+                            t("common.more"),
+                            Btn::Ghost,
+                            false,
                             cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.side.foot.favorites = !this.side.foot.favorites;
-                                this.load_all_media(false, cx);
+                                this.load_all_media(true, cx)
                             }),
-                        ),
+                        )))
+                    })
+                    .into_any_element()
+            };
+        v_flex()
+            .size_full()
+            .child(header)
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        div()
+                            .id("media-page")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&f.scroll)
+                            .when(gutter, |el| el.pr(controls::SCROLLBAR))
+                            .child(div().px_8().py_4().child(body)),
+                    )
+                    .child(controls::scrollbar(&f.scroll, gutter)),
+            )
+            .into_any_element()
+    }
+
+    /// thumb_for is a card's picture made for its size, `w`×`h` logical
+    /// pixels: made on a thread the first time (or at a new size), the last
+    /// one made shown meanwhile.
+    fn thumb_for(
+        &self,
+        id: &str,
+        picture: Picture,
+        w: Pixels,
+        h: Pixels,
+        cx: &mut Context<Self>,
+    ) -> Option<std::sync::Arc<RenderImage>> {
+        let scale = controls::scale();
+        let (w, h) = (
+            (f32::from(w) * scale).round() as u32,
+            (f32::from(h) * scale).round() as u32,
+        );
+        let f = &self.side.foot;
+        let had = f.thumbs.borrow().get(id).cloned();
+        if let Some((tw, th, img)) = &had
+            && (*tw, *th) == (w, h)
+        {
+            return Some(img.clone());
+        }
+        let key = (id.to_string(), w, h);
+        if w > 0 && h > 0 && f.making.borrow_mut().insert(key.clone()) {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(fill(picture, w, h));
+            });
+            cx.spawn(async move |this, cx| {
+                let made = rx.await.ok().flatten();
+                this.update(cx, |this, cx| {
+                    let f = &mut this.side.foot;
+                    f.making.borrow_mut().remove(&key);
+                    if let Some(made) = made {
+                        let image =
+                            std::sync::Arc::new(RenderImage::new(vec![image::Frame::new(made)]));
+                        f.thumbs.borrow_mut().insert(key.0, (w, h, image));
+                        cx.notify();
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
+        had.map(|(_, _, img)| img)
+    }
+
+    /// agent_label is useAgentLabel: an agent by its title, else its name.
+    fn agent_label(&self, r#ref: &str) -> String {
+        let name = r#ref.split('/').nth(1).unwrap_or(r#ref);
+        self.fleet
+            .iter()
+            .find(|a| a.r#ref == r#ref)
+            .map(|a| a.title.clone())
+            .filter(|t| !t.is_empty())
+            // Or as its media name it, for an agent the fleet doesn't list.
+            .or_else(|| {
+                self.side
+                    .foot
+                    .media
+                    .iter()
+                    .find(|m| m.agent == r#ref && !m.agent_title.is_empty())
+                    .map(|m| m.agent_title.clone())
+            })
+            .unwrap_or_else(|| name.to_string())
+    }
+
+    /// media_card is MediaParts.tsx's MediaCard: its thumbnail under its
+    /// kind and whose it is, its name, who kept it, when and how big.
+    fn media_card(
+        &self,
+        m: &MediaItem,
+        width: Pixels,
+        project_name: &dyn Fn(&str) -> String,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let f = &self.side.foot;
+        let item = m.clone();
+        let file = f
+            .files
+            .get(&m.id)
+            .filter(|p| !p.as_os_str().is_empty())
+            .cloned();
+        // label: project · agent (MediaView.tsx), the agent's title too in
+        // one project.
+        let who = if !m.agent_title.is_empty() && !f.project.is_empty() {
+            format!("{} · {}", m.agent_name, m.agent_title)
+        } else {
+            m.agent_name.clone()
+        };
+        let label = if f.project.is_empty() {
+            format!(
+                "{} · {who}",
+                project_name(m.agent.split('/').next().unwrap_or(""))
+            )
+        } else {
+            who
+        };
+        let label = if m.agent_gone {
+            tv("project.media.agentRemoved", &[("label", label.into())])
+        } else {
+            label
+        };
+        let (icon, variant) = kind_of(&m.kind);
+        // aspect-[16/10] inside the card's 1px border.
+        let inner_w = width - px(2.);
+        let thumb_h = inner_w * 10. / 16.;
+        let light = theme::look() == theme::Look::Light;
+        let thumb = div()
+            .relative()
+            .w_full()
+            .h(thumb_h)
+            .overflow_hidden()
+            .bg(theme::well())
+            .child(match m.kind.as_str() {
+                "screenshot" => match file.filter(|p| is_image(p)) {
+                    Some(p) => {
+                        match self.thumb_for(&m.id, Picture::File(p.clone()), inner_w, thumb_h, cx)
+                        {
+                            Some(t) => img(t).size_full().into_any_element(),
+                            None => img(p)
+                                .size_full()
+                                .object_fit(ObjectFit::Cover)
+                                .into_any_element(),
+                        }
+                    }
+                    None => icon_tile("camera"),
+                },
+                "recording" => div()
+                    .size_full()
+                    .when_some(
+                        f.stills.get(&m.id).cloned().and_then(|still| {
+                            self.thumb_for(&m.id, Picture::Frame(still), inner_w, thumb_h, cx)
+                        }),
+                        |el, still| el.child(img(still).size_full()),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .size_10()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_full()
+                                    .bg(theme::media_shade(0.6))
+                                    .border_1()
+                                    .border_color(theme::line_heavy())
+                                    .child(
+                                        div().ml_0p5().child(
+                                            crate::icons::ic("play")
+                                                .size(px(16.))
+                                                .text_color(theme::on_media()),
+                                        ),
+                                    ),
+                            ),
+                    )
+                    .into_any_element(),
+                "note" => div()
+                    .size_full()
+                    .p_3()
+                    .pt_10()
+                    .bg(gpui::linear_gradient(
+                        135.,
+                        gpui::linear_color_stop(theme::amber(300).opacity(0.07), 0.),
+                        gpui::linear_color_stop(theme::amber(300).opacity(0.), 1.),
+                    ))
+                    .text_size(theme::text::UI)
+                    .line_height(relative(1.625))
+                    .text_color(theme::tertiary())
+                    .child(div().line_clamp(6).child(m.text.clone()))
+                    .into_any_element(),
+                "report" => v_flex()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .bg(gpui::linear_gradient(
+                        135.,
+                        gpui::linear_color_stop(theme::sky(400).opacity(0.08), 0.),
+                        gpui::linear_color_stop(theme::sky(400).opacity(0.), 1.),
+                    ))
+                    .child(
+                        crate::icons::ic("file-chart-column")
+                            .size(px(32.))
+                            .text_color(theme::sky(300).opacity(0.8)),
+                    )
+                    .into_any_element(),
+                _ => icon_tile(icon),
+            })
+            // The kind and whose, in one row along the top.
+            .child(
+                h_flex()
+                    .absolute()
+                    .top_2()
+                    .left_2()
+                    .right_2()
+                    .items_start()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        ui_badge(variant, Some(icon), noun(&m.kind))
+                            .bg(theme::media_shade(0.6))
+                            .when(light, |el| el.text_color(theme::on_media())),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .px(px(7.))
+                            .py(px(1.))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(theme::line_strong())
+                            .bg(theme::media_shade(0.7))
+                            .text_size(theme::text::CAPTION)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::on_media().opacity(0.9))
+                            .truncate()
+                            .child(label),
                     ),
             )
-            .when(empty, |el| {
+            .when(m.kind == "recording" && m.meta.duration > 0., |el| {
                 el.child(
-                    v_flex()
-                        .py_12()
+                    div()
+                        .absolute()
+                        .bottom_2()
+                        .right_2()
+                        .px_1p5()
+                        .py_0p5()
+                        .rounded(theme::radius::MD)
+                        .bg(theme::media_shade(0.7))
+                        .font_family(theme::MONO)
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::on_media())
+                        .child(clock(m.meta.duration)),
+                )
+            });
+        let source = if m.source == "agent" {
+            ("bot", t("agent.mediaTab.sourceAgent"))
+        } else {
+            ("user", t("agent.mediaTab.sourceYou"))
+        };
+        div()
+            .relative()
+            .child(
+                v_flex()
+                    .id(SharedString::from(format!("media-{}", m.id)))
+                    .w_full()
+                    .overflow_hidden()
+                    .rounded(theme::radius::XL)
+                    .border_1()
+                    .border_color(theme::line())
+                    .bg(theme::surface_faint())
+                    .cursor_pointer()
+                    .hover(|el| el.border_color(theme::line_vivid()).bg(theme::surface()))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        let list = this.side.foot.media.clone();
+                        this.open_media(item.clone(), list, String::new(), window, cx)
+                    }))
+                    .child(thumb)
+                    .child(
+                        v_flex()
+                            .px_3()
+                            .py_2p5()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(theme::text::UI)
+                                    // Electron's 19.5 lays the line under it on a half
+                                    // pixel, which its text then rounds up from.
+                                    .line_height(px(19.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme::primary())
+                                    .child(m.name.clone()),
+                            )
+                            .child(
+                                h_flex()
+                                    .mt_1()
+                                    .gap_1p5()
+                                    .text_size(theme::text::CAPTION)
+                                    .text_color(theme::subtle())
+                                    .child(crate::icons::ic(source.0).size(px(12.)))
+                                    .child(source.1)
+                                    .child("·")
+                                    .child(time_ago(&m.created_at))
+                                    .when(m.size > 0, |el| {
+                                        el.child("·").child(human_bytes(m.size))
+                                    }),
+                            ),
+                    ),
+            )
+            .when(m.favorite, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .bottom(px(6.))
+                        .right(px(6.))
+                        .size_7()
+                        .flex()
                         .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_color(theme::primary())
-                                .child(t("project.media.emptyTitle")),
-                        )
-                        .child(
-                            div()
-                                .max_w(px(420.))
-                                .text_sm()
-                                .text_center()
-                                .text_color(theme::muted())
-                                .child(t("shell.allMedia.emptyBody")),
-                        ),
+                        .justify_center()
+                        .text_color(theme::amber(400))
+                        .child(crate::icons::ic("star").size(px(16.))),
                 )
             })
-            .child(h_flex().flex_wrap().gap_3().children(cards))
-            .when(!f.next.is_empty(), |el| {
-                el.child(h_flex().child(controls::button(
-                    "media-more",
-                    t("common.more"),
-                    Btn::Secondary,
-                    false,
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.load_all_media(true, cx)),
-                )))
+            .when(m.unseen, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .top(px(-6.))
+                        .right(px(-6.))
+                        .px_1p5()
+                        .rounded_full()
+                        .bg(theme::brand(500))
+                        .text_size(theme::text::CAPTION)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(gpui::white())
+                        .child(t("shell.allMedia.new")),
+                )
             })
             .into_any_element()
     }
 
+    /// render_jobs is JobsView.tsx: the recent jobs beside the picked one's
+    /// log, two Cards in a 1fr / 1.1fr grid.
     fn render_jobs(&self, cx: &mut Context<Self>) -> AnyElement {
         let f = &self.side.foot;
         if f.loaded && f.jobs.is_empty() {
@@ -1056,141 +1782,138 @@ impl AppView {
             .job
             .as_ref()
             .and_then(|id| f.jobs.iter().find(|j| &j.id == id));
-        let card = |title: String| {
-            v_flex()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .rounded_xl()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::card())
-                .child(
-                    div()
-                        .px_4()
-                        .py_3()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-        };
+        // The rows: flex items-center gap-3 rounded-xl px-3 py-2.5 text-ui.
         let rows = f.jobs.iter().map(|j| {
             let id = j.id.clone();
             let on = f.job.as_deref() == Some(j.id.as_str());
             h_flex()
                 .id(SharedString::from(format!("job-{}", j.id)))
-                .mx_2()
                 .px_3()
-                .py_2()
+                .py_2p5()
                 .gap_3()
-                .rounded_lg()
-                .text_sm()
+                .rounded(theme::radius::XL)
+                .text_size(theme::text::UI)
                 .cursor_pointer()
-                .when(on, |el| el.bg(theme::surface_strong()))
-                .hover(|el| el.bg(theme::surface_raised()))
+                .when(on, |el| el.bg(theme::surface_raised()))
+                .hover(|el| el.bg(theme::surface()))
                 .on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_job(id.clone(), cx)),
                 )
                 .child(status_badge(&j.status))
-                .child(div().font_weight(FontWeight::MEDIUM).child(j.kind.clone()))
                 .child(
                     div()
-                        .flex_1()
+                        .flex_none()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::secondary())
+                        .child(j.kind.clone()),
+                )
+                .child(
+                    div()
                         .min_w_0()
                         .truncate()
-                        .text_color(theme::faint())
+                        .text_color(theme::subtle())
                         .child(j.target.clone()),
                 )
+                .child(div().flex_1())
                 .child(
                     div()
-                        .text_xs()
-                        .text_color(theme::faint())
-                        .child(ago(&j.created_at)),
+                        .flex_none()
+                        .text_size(px(12.))
+                        .line_height(px(16.))
+                        .text_color(theme::subtle())
+                        .child(time_ago(&j.created_at)),
                 )
                 .child(
                     div()
+                        .flex_none()
                         .w(px(56.))
                         .text_right()
-                        .text_xs()
+                        .text_size(theme::text::CAPTION)
                         .font_family(theme::MONO)
                         .text_color(theme::faint())
                         .child(duration(&j.created_at, j.finished_at.as_deref())),
                 )
         });
+        let action = current.map(|j| {
+            let id = j.id.clone();
+            if j.status == "running" {
+                controls::button(
+                    "job-cancel",
+                    t("shell.jobs.cancelRollback"),
+                    Btn::Secondary,
+                    false,
+                    cx.listener(move |this, _: &ClickEvent, _, cx| this.cancel_job(id.clone(), cx)),
+                )
+            } else {
+                status_badge(&j.status)
+            }
+        });
         h_flex()
             .size_full()
+            .overflow_hidden()
             .p_6()
             .gap_4()
-            .items_start()
+            .items_stretch()
             .child(
-                card(t("shell.jobs.recent")).h_full().child(
-                    div()
-                        .id("jobs-list")
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .pb_2()
-                        .child(v_flex().gap_0p5().children(rows)),
-                ),
+                card(Some("list-checks"), t("shell.jobs.recent"), None, None)
+                    .flex_grow(1.)
+                    .flex_basis(px(0.))
+                    .child(
+                        div()
+                            .id("jobs-list")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .px_2()
+                            .pt_3()
+                            .pb_2()
+                            .child(v_flex().gap_1().children(rows)),
+                    ),
             )
             .child(
-                card(match current {
-                    Some(j) => format!("{} {}", j.kind, j.target),
-                    None => t("shell.jobs.log"),
-                })
-                .h_full()
-                .when_some(current, |el, j| {
-                    let id = j.id.clone();
-                    el.child(
-                        h_flex()
-                            .px_4()
-                            .pb_2()
-                            .gap_2()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .child(tv(
-                                "shell.jobs.jobId",
-                                &[
-                                    ("id", (&j.id).into()),
-                                    (
-                                        "duration",
-                                        duration(&j.created_at, j.finished_at.as_deref()).into(),
-                                    ),
-                                ],
-                            ))
-                            .child(div().flex_1())
-                            .map(|el| {
-                                if j.status == "running" {
-                                    el.child(controls::button(
-                                        "job-cancel",
-                                        t("shell.jobs.cancelRollback"),
-                                        Btn::Secondary,
-                                        false,
-                                        cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                            this.cancel_job(id.clone(), cx)
-                                        }),
-                                    ))
-                                } else {
-                                    el.child(status_badge(&j.status))
-                                }
-                            }),
-                    )
-                })
+                card(
+                    None,
+                    match current {
+                        Some(j) => format!("{} {}", j.kind, j.target),
+                        None => t("shell.jobs.log"),
+                    },
+                    current.map(|j| {
+                        tv(
+                            "shell.jobs.jobId",
+                            &[
+                                ("id", (&j.id).into()),
+                                (
+                                    "duration",
+                                    duration(&j.created_at, j.finished_at.as_deref()).into(),
+                                ),
+                            ],
+                        )
+                    }),
+                    action,
+                )
+                .flex_basis(px(0.))
+                .flex_grow(1.1)
                 .child(
                     div()
                         .id("job-log")
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scroll()
-                        .px_4()
-                        .pb_4()
-                        .text_xs()
-                        .font_family(theme::MONO)
-                        .text_color(theme::muted())
-                        .child(if f.job.is_some() {
-                            f.log.clone()
-                        } else {
-                            t("shell.jobs.pick")
+                        .px_5()
+                        .pt_3()
+                        .pb_5()
+                        .map(|el| {
+                            if f.job.is_some() {
+                                el.text_xs()
+                                    .font_family(theme::MONO)
+                                    .text_color(theme::muted())
+                                    .child(f.log.clone())
+                            } else {
+                                el.text_size(px(14.))
+                                    .line_height(px(20.))
+                                    .text_color(theme::subtle())
+                                    .child(t("shell.jobs.pick"))
+                            }
                         }),
                 ),
             )
@@ -1198,17 +1921,530 @@ impl AppView {
     }
 }
 
-fn status_badge(status: &str) -> AnyElement {
-    let color = match status {
-        "succeeded" | "done" => theme::running(),
-        "failed" => theme::error(),
-        "running" | "queued" => theme::starting(),
-        _ => theme::muted(),
+/// PAGE_KIND is the chip of Hatch's pages (lib/mediaFilter.ts pageKind).
+const PAGE_KIND: &str = "page";
+/// The sidebar's width, which the Media grid is laid out beside.
+const SIDEBAR: f32 = 288.;
+
+/// KINDS is lib/media.ts's mediaKinds after "Everything": each kind and
+/// its icon.
+const KINDS: &[(&str, &str)] = &[
+    ("screenshot", "camera"),
+    ("recording", "video"),
+    ("report", "file-chart-column"),
+    ("log", "scroll-text"),
+    ("note", "sticky-note"),
+    ("file", "file"),
+];
+
+/// kind_of is a kind's icon and its badge's variant (MediaParts.tsx
+/// kindVariant).
+fn kind_of(kind: &str) -> (&'static str, Variant) {
+    let icon = KINDS
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map_or("file", |(_, i)| *i);
+    let variant = match kind {
+        "screenshot" => Variant::Brand,
+        "recording" => Variant::Danger,
+        "report" => Variant::Info,
+        "note" => Variant::Warning,
+        _ => Variant::Default,
     };
-    controls::badge(status.to_string(), color)
+    (icon, variant)
 }
 
-/// duration is how long a job took, or has taken: 42s, 3m 5s.
+/// noun is one of a kind (lib/media.ts noun(kind, 1)): "screenshot".
+fn noun(kind: &str) -> String {
+    let key = format!("agent.media.noun.{kind}");
+    if agentbox_i18n::has(&key) {
+        tv(&key, &[("count", 1i64.into())])
+    } else {
+        kind.to_string()
+    }
+}
+
+/// Entry is one card of the Media page: an item, or a project's page.
+enum Entry<'a> {
+    Item(&'a MediaItem),
+    Page(&'a str, &'a agentbox_api::Artifact),
+}
+
+impl Entry<'_> {
+    fn at(&self) -> &str {
+        match self {
+            Entry::Item(m) => &m.created_at,
+            Entry::Page(_, a) => &a.updated_at,
+        }
+    }
+}
+
+/// media_day is lib/notifications.ts dayLabel: Today, Yesterday, or the
+/// day written out ("Thursday, November 5").
+fn media_day(at: &str, today: chrono::NaiveDate) -> String {
+    use chrono::Datelike as _;
+    let Some(d) = crate::dates::local(at).map(|d| d.date_naive()) else {
+        return String::new();
+    };
+    match (today - d).num_days() {
+        0 => t("shell.notice.today"),
+        1 => t("shell.notice.yesterday"),
+        _ => format!(
+            "{}, {}",
+            crate::dates::weekday(d.weekday().num_days_from_sunday(), true),
+            crate::dates::date(d, false)
+        ),
+    }
+}
+
+/// Glyph is what goes before a FilterChip's word.
+enum Glyph {
+    Icon(&'static str),
+    /// PageIcon, the page with its corner folded.
+    Page,
+    /// The Unseen chip's brand dot.
+    Dot,
+}
+
+/// filter_chip is MediaParts.tsx's FilterChip: h-7 gap-1.5 rounded-lg
+/// px-2.5 text-ui, lit while it's on, its count in tabular figures.
+fn filter_chip(
+    id: impl Into<ElementId>,
+    glyph: Option<Glyph>,
+    label: String,
+    count: i64,
+    on: bool,
+) -> Stateful<Div> {
+    h_flex()
+        .id(id)
+        .flex_none()
+        .h_7()
+        .gap_1p5()
+        .px_2p5()
+        .rounded_lg()
+        .text_size(theme::text::UI)
+        .cursor_pointer()
+        .map(|el| {
+            if on {
+                el.bg(theme::surface_strong())
+                    .text_color(theme::title())
+                    .shadow(vec![BoxShadow {
+                        color: gpui::white().opacity(0.06),
+                        offset: point(px(0.), px(1.)),
+                        blur_radius: px(0.),
+                        spread_radius: px(0.),
+                        inset: true,
+                    }])
+            } else {
+                el.text_color(theme::muted())
+                    .hover(|s| s.bg(theme::surface()).text_color(theme::primary()))
+            }
+        })
+        .map(|el| match glyph {
+            Some(Glyph::Icon(i)) => el.child(crate::icons::ic(i).size(px(14.))),
+            Some(Glyph::Page) => el.child(page_icon(px(14.))),
+            Some(Glyph::Dot) => el.child(div().size_1p5().rounded_full().bg(theme::brand(400))),
+            None => el,
+        })
+        .child(label)
+        .child(
+            div()
+                .font_features(theme::tabular_features())
+                .text_color(theme::subtle())
+                .child(count.to_string()),
+        )
+}
+
+/// page_icon is PageThumb.tsx's PageIcon, in the text's colour.
+fn page_icon(size: Pixels) -> AnyElement {
+    const SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="black" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 1.75h5.25L12.5 5v8.25a1 1 0 0 1-1 1h-7.5a1 1 0 0 1-1-1V2.75a1 1 0 0 1 1-1Z"/><path d="M9 1.75V5.25h3.5M5.5 8.5h5M5.5 11h3.25"/></svg>"#;
+    svg_icon(SVG, size)
+}
+
+/// svg_icon draws an inline SVG as a mask in the current text colour, as
+/// the Lucide icons are drawn (gpui's svg()), from a file kept once made.
+fn svg_icon(src: &'static str, size: Pixels) -> AnyElement {
+    let path = media::cache_dir().join(format!("icon-{:x}.svg", fnv(src)));
+    if !path.exists() {
+        let _ = std::fs::create_dir_all(media::cache_dir());
+        let _ = std::fs::write(&path, src);
+    }
+    gpui::svg()
+        .external_path(path.to_string_lossy().to_string())
+        .flex_none()
+        .size(size)
+        .text_color(theme::subtle())
+        .into_any_element()
+}
+
+fn fnv(s: &str) -> u64 {
+    s.bytes().fold(0xcbf29ce484222325, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x100000001b3)
+    })
+}
+
+/// media_search is MediaParts.tsx's MediaSearch: w-64, h-7, Search at
+/// left-2.5, the words at pl-8, text-ui.
+fn media_search(search: &Entity<gpui_component::input::InputState>, empty: bool) -> AnyElement {
+    use gpui_component::Sizable as _;
+    h_flex()
+        .w(px(256.))
+        .min_w_0()
+        .h_7()
+        .pl(px(9.))
+        .pr_3()
+        .gap(px(9.))
+        .rounded_lg()
+        .border_1()
+        .border_color(theme::line_strong())
+        .bg(theme::sunken())
+        .text_size(theme::text::UI)
+        .child(
+            crate::icons::ic("search")
+                .size(px(14.))
+                .flex_none()
+                .text_color(theme::subtle()),
+        )
+        .child(
+            div()
+                .relative()
+                .flex_1()
+                .min_w_0()
+                // placeholder:text-faint, which gpui-component's own (muted) isn't.
+                .when(empty, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .text_color(theme::faint())
+                            .truncate()
+                            .child(t("agent.mediaTab.searchPlaceholder")),
+                    )
+                })
+                .child(
+                    gpui_component::input::Input::new(search)
+                        .appearance(false)
+                        .with_size(gpui_component::Size::Size(px(13. / 0.875)))
+                        .px_0()
+                        .cleanable(true),
+                ),
+        )
+        .into_any_element()
+}
+
+/// page_card is MediaView.tsx's PageCard: the page's first screen (its
+/// title tile here: the snapshot is the Electron main process's), its
+/// title, who published it and when. It opens in the browser.
+fn page_card(
+    project: &str,
+    page: &agentbox_api::Artifact,
+    width: Pixels,
+    label: String,
+) -> AnyElement {
+    let _ = project;
+    let url = page.url.clone();
+    let hue = tile_hue(&page.id);
+    v_flex()
+        .id(SharedString::from(format!("media-page-{}", page.id)))
+        .w_full()
+        .overflow_hidden()
+        .rounded(theme::radius::XL)
+        .border_1()
+        .border_color(theme::line())
+        .bg(theme::surface_faint())
+        .cursor_pointer()
+        .hover(|el| el.border_color(theme::line_vivid()).bg(theme::surface()))
+        .on_click(move |_, _, cx| cx.open_url(&url))
+        .child(
+            div()
+                .relative()
+                .w_full()
+                .h(width * 10. / 16.)
+                .overflow_hidden()
+                .border_b_1()
+                .border_color(theme::line())
+                .bg(gpui::linear_gradient(
+                    160.,
+                    gpui::linear_color_stop(hsl(hue, 0.7, 0.97), 0.),
+                    gpui::linear_color_stop(hsl((hue + 40.) % 360., 0.6, 0.93), 1.),
+                ))
+                .child(div().w_full().h(relative(0.14)).bg(hsl(hue, 0.65, 0.55)))
+                .child(
+                    div()
+                        .px(relative(0.08))
+                        .pt(relative(0.07))
+                        .line_clamp(2)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_size(px(20.))
+                        .line_height(relative(1.15))
+                        .text_color(hsl(hue, 0.45, 0.22))
+                        .child(page.title.clone()),
+                )
+                .child(
+                    div().absolute().top_2().left_2().child(
+                        h_flex()
+                            .gap_1p5()
+                            .px(px(7.))
+                            .py(px(1.))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(theme::sky(400).opacity(0.25))
+                            .bg(theme::media_shade(0.6))
+                            .text_size(theme::text::CAPTION)
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(if theme::look() == theme::Look::Light {
+                                theme::on_media()
+                            } else {
+                                theme::sky(300)
+                            })
+                            .child(page_icon(px(12.)))
+                            .child(t("media.view.page")),
+                    ),
+                ),
+        )
+        .child(
+            v_flex()
+                .gap_1()
+                .px_3()
+                .py_2p5()
+                .child(
+                    div()
+                        .truncate()
+                        .text_size(theme::text::UI)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::primary())
+                        .child(page.title.clone()),
+                )
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_1p5()
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::subtle())
+                        .child(div().min_w_0().truncate().child(label))
+                        .child("·")
+                        .child(
+                            div()
+                                .flex_none()
+                                .font_features(theme::tabular_features())
+                                .child(time_ago(&page.updated_at)),
+                        ),
+                ),
+        )
+        .into_any_element()
+}
+
+/// tile_hue is PageThumb.tsx's tileHue: a page's own hue from its id.
+fn tile_hue(id: &str) -> f32 {
+    let mut h: u32 = 0;
+    for c in id.encode_utf16() {
+        h = h.wrapping_mul(31).wrapping_add(c as u32);
+    }
+    (h % 360) as f32
+}
+
+fn hsl(h: f32, s: f32, l: f32) -> Hsla {
+    gpui::hsla(h / 360., s, l, 1.)
+}
+
+/// icon_tile is MediaParts.tsx's IconTile: the kind's icon, size-8, faint.
+fn icon_tile(icon: &str) -> AnyElement {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(theme::faint())
+        .child(crate::icons::ic(icon).size(px(32.)))
+        .into_any_element()
+}
+
+/// is_image is whether a screenshot's file is a picture the card draws.
+fn is_image(p: &std::path::Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ["png", "jpg", "jpeg", "gif", "webp"].contains(&e.to_lowercase().as_str()))
+}
+
+/// clock is lib/media.ts's: seconds as m:ss.
+fn clock(seconds: f64) -> String {
+    let s = seconds.max(0.).round() as i64;
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// human_bytes is utils.ts's humanBytes: 512 B, 152.0 KiB, 2.9 MiB.
+fn human_bytes(n: i64) -> String {
+    let units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let (mut n, mut i) = (n as f64, 0);
+    while n >= 1024. && i < units.len() - 1 {
+        n /= 1024.;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{n} {}", units[i])
+    } else {
+        format!("{n:.1} {}", units[i])
+    }
+}
+
+/// enc escapes a query value.
+fn enc(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// card is ui/card.tsx's Card: the `.panel` ground, rounded-2xl, a header
+/// (an icon in a ringed tile, the title, a description, an action) over
+/// the body the caller adds.
+fn card(
+    icon: Option<&'static str>,
+    title: String,
+    description: Option<String>,
+    action: Option<AnyElement>,
+) -> Stateful<Div> {
+    v_flex()
+        .id(SharedString::from(format!("card-{title}")))
+        .min_w_0()
+        .min_h_0()
+        .overflow_hidden()
+        .rounded(theme::radius::XXL)
+        .border_1()
+        .border_color(theme::line())
+        .bg(theme::linear_panel())
+        .shadow(theme::shadow_card())
+        .child(
+            h_flex()
+                .flex_none()
+                .gap_3()
+                .px_5()
+                .pt_4()
+                .pb_1()
+                .when_some(icon, |el, icon| {
+                    el.child(
+                        div()
+                            .flex_none()
+                            .size_7()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(theme::radius::LG)
+                            .bg(theme::surface())
+                            .border_1()
+                            .border_color(theme::line())
+                            .text_color(theme::muted())
+                            .child(crate::icons::ic(icon).size(px(16.))),
+                    )
+                })
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(14.))
+                                .line_height(px(20.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::primary())
+                                .child(title),
+                        )
+                        .when_some(description, |el, d| {
+                            el.child(
+                                div()
+                                    .text_size(px(12.))
+                                    .line_height(px(16.))
+                                    .text_color(theme::subtle())
+                                    .child(d),
+                            )
+                        }),
+                )
+                .when_some(action, |el, a| {
+                    el.child(div().flex_1()).child(h_flex().gap_1().child(a))
+                }),
+        )
+}
+
+/// Variant is ui/badge.tsx's: the pill's tint, text and ring.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Variant {
+    Default,
+    Success,
+    Warning,
+    Danger,
+    Info,
+    Brand,
+}
+
+/// ui_badge is ui/badge.tsx's Badge: inline-flex gap-1.5 rounded-full px-2
+/// py-0.5 text-caption font-medium ring-1 ring-inset, its svg size-3.
+pub(super) fn ui_badge(variant: Variant, icon: Option<&str>, text: impl Into<SharedString>) -> Div {
+    let (fg, bg, ring) = match variant {
+        Variant::Default => (theme::tertiary(), theme::surface(), theme::line_strong()),
+        Variant::Success => {
+            let e = theme::emerald(400);
+            (theme::emerald(300), e.opacity(0.1), e.opacity(0.25))
+        }
+        Variant::Warning => {
+            let a = theme::amber(400);
+            (theme::amber(200), a.opacity(0.1), a.opacity(0.25))
+        }
+        Variant::Danger => (
+            theme::rose(300),
+            theme::rose(400).opacity(0.1),
+            theme::rose(400).opacity(0.25),
+        ),
+        Variant::Info => {
+            let s = theme::sky(400);
+            (theme::sky(300), s.opacity(0.1), s.opacity(0.25))
+        }
+        Variant::Brand => (
+            theme::brand(300),
+            theme::brand(500).opacity(0.15),
+            theme::brand(400).opacity(0.3),
+        ),
+    };
+    // The ring is inset in Electron (it takes no room), a border here: the
+    // padding gives up its pixel.
+    h_flex()
+        .flex_none()
+        .gap_1p5()
+        .px(px(7.))
+        .py(px(1.))
+        .rounded_full()
+        .border_1()
+        .border_color(ring)
+        .bg(bg)
+        .text_size(theme::text::CAPTION)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(fg)
+        .when_some(icon, |el, i| el.child(crate::icons::ic(i).size(px(12.))))
+        .child(text.into())
+}
+
+/// status_badge is state.tsx's JobStatusBadge.
+pub(super) fn status_badge(status: &str) -> AnyElement {
+    let (variant, key) = match status {
+        "running" => (Variant::Info, Some("agent.state.running")),
+        "succeeded" => (Variant::Success, Some("agent.job.succeeded")),
+        "failed" => (Variant::Danger, Some("agent.job.failed")),
+        "cancelled" => (Variant::Warning, Some("agent.job.cancelled")),
+        _ => (Variant::Default, None),
+    };
+    ui_badge(
+        variant,
+        (status == "running").then_some("loader-circle"),
+        key.map_or_else(|| status.to_string(), t),
+    )
+    .into_any_element()
+}
+
+/// duration is utils.ts's: 4.2s under a minute, else 3m 5s.
 fn duration(from: &str, to: Option<&str>) -> String {
     let start = media::ms(from);
     let end = to
@@ -1217,13 +2453,15 @@ fn duration(from: &str, to: Option<&str>) -> String {
     if start == 0 || end < start {
         return String::new();
     }
-    let s = (end - start) / 1000;
-    if s < 60 {
-        format!("{s}s")
-    } else if s < 3600 {
-        format!("{}m {}s", s / 60, s % 60)
+    let ms = end - start;
+    if ms < 60_000 {
+        format!("{:.1}s", ms as f64 / 1000.)
     } else {
-        format!("{}h {}m", s / 3600, (s % 3600) / 60)
+        format!(
+            "{}m {}s",
+            ms / 60_000,
+            ((ms % 60_000) as f64 / 1000.).round() as i64
+        )
     }
 }
 

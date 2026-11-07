@@ -65,6 +65,8 @@ pub struct Failed {
 }
 
 pub struct Composer {
+    /// Its width as last drawn, for what folds in a narrow one.
+    pub width: f32,
     pub input: Entity<TextareaState>,
     pub attachments: Vec<Attachment>,
     menu_ix: usize,
@@ -298,6 +300,7 @@ impl Composer {
                 input,
                 attachments: Vec::new(),
                 menu_ix: 0,
+                width: 896.,
                 dismissed: None,
                 files: None,
                 projects: None,
@@ -1042,11 +1045,48 @@ impl ChatView {
         let view = cx.entity().downgrade();
         let current = shown;
         Some(
+            // TargetChip: h-8 max-w-44 rounded-full px-2.5, 12px, "To:" faint.
             Button::new("chat-target")
                 .ghost()
-                .xsmall()
-                .label(format!("{} {label} ▾", t("chat.target.to")))
-                .when(current.is_some(), |b| b.text_color(theme::accent()))
+                .compact()
+                .h_8()
+                .max_w(px(176.))
+                .px(px(10.))
+                .gap_1()
+                .rounded(gpui_component::button::ButtonRounded::Size(px(999.)))
+                .text_size(px(12.))
+                .text_color(if current.is_some() {
+                    theme::brand(200)
+                } else {
+                    theme::subtle()
+                })
+                .when(current.is_some(), |b| b.bg(theme::brand(500).opacity(0.15)))
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_1()
+                        .text_size(px(12.))
+                        .line_height(px(18.))
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(theme::faint())
+                                .child(t("chat.target.to")),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(label.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .opacity(0.7)
+                                .child(crate::icons::ic("chevron-down").size(px(12.))),
+                        ),
+                )
                 .tooltip(tv("chat.target.label", &[("target", (&label).into())]))
                 .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                     let pick = |to: Option<String>| {
@@ -1222,26 +1262,61 @@ impl ChatView {
             )
         } else if self.composer.held.is_some() {
             t("chat.composer.held")
-        } else if pending {
-            t("chat.composer.answerRequest")
         } else if let Some(to) = &self.composer.target {
             tv("chat.composer.placeholderTo", &[("name", to.into())])
+        } else if pending {
+            t("chat.composer.answerRequest")
         } else if self.session.turn_started_at.is_some() {
             tv("chat.composer.busy", &[("tool", tool.into())])
-        } else if self.items.is_empty() && !self.older && self.is_lead() {
-            t("chat.composer.placeholderLead")
+        } else if self.items.is_empty() && !self.older {
+            // Composer.tsx: the lead's own words in a project's chat, Home's
+            // and an agent's the plain ones.
+            t(
+                if self.is_lead()
+                    && !self
+                        .agent
+                        .starts_with(&format!("{}/", agentbox_api::HOME_PROJECT))
+                {
+                    "chat.composer.placeholderLead"
+                } else {
+                    "chat.composer.placeholderEmpty"
+                },
+            )
         } else {
             t("chat.composer.placeholder")
         }
     }
 
-    fn option_button(&self, o: &ChatOption, label: String, cx: &mut Context<Self>) -> AnyElement {
+    /// option_button is OptionMenu: `fold` is the composer's width under
+    /// which its label folds to its icon (its @max-[…]/composer:hidden).
+    fn option_button(
+        &self,
+        o: &ChatOption,
+        label: String,
+        fold: Option<f32>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let folded = icon_of(o).is_some() && fold.is_some_and(|f| self.composer.width < f);
         let view = cx.entity().downgrade();
         let (id, value, choices) = (o.id.clone(), o.value.clone(), o.choices.clone());
-        Button::new(SharedString::from(format!("opt-{}", o.id)))
-            .ghost()
-            .xsmall()
-            .label(format!("{label} ▾"))
+        let icon = icon_of(o);
+        option_chip(Button::new(SharedString::from(format!("opt-{}", o.id))))
+            .child(
+                // The Button's label sets its own size: text-ui here.
+                h_flex()
+                    .gap(px(6.))
+                    .text_size(theme::text::UI)
+                    .line_height(px(19.5))
+                    .children(icon.map(|i| crate::icons::ic(i).size(px(16.))))
+                    .when(!folded, |el| {
+                        el.child(div().max_w(px(160.)).truncate().child(label))
+                    })
+                    .child(
+                        div()
+                            .text_color(theme::faint())
+                            .child(crate::icons::ic("chevron-down").size(px(14.))),
+                    ),
+            )
             .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                 let mut menu = menu.max_h(px(420.)).scrollable(true);
                 let mut group = String::new();
@@ -1335,22 +1410,41 @@ impl ChatView {
             .collect();
         let sentence = parts.join(" · ");
         let nothing = runner.is_none() && model.is_none() && window_opt.is_none();
+        // SetupChip: the tool's mark, its name (hidden in a composer under
+        // 46rem, Electron's container query) and the model, a chevron.
+        let shown_parts: Vec<String> = [
+            (self.composer.width >= 736.).then(|| tool_name.clone()),
+            model_name.clone(),
+            size.clone(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|p| !p.is_empty())
+        .collect();
         let chip_label = h_flex()
-            .gap_1p5()
-            .child(crate::icons::ai_icon(&tool, px(14.), theme::muted()))
-            .child(sentence.clone())
+            .gap(px(6.))
+            .text_size(theme::text::UI)
+            .line_height(px(19.5))
+            .child(crate::icons::tool_mark(&tool, px(16.), theme::muted()))
+            .child(div().min_w_0().truncate().child(if shown_parts.is_empty() {
+                tool_name.clone()
+            } else {
+                shown_parts.join(" · ")
+            }))
             .when(!nothing, |el| {
                 el.child(
                     div()
                         .text_color(theme::faint())
-                        .child(crate::icons::of("▾")),
+                        .child(crate::icons::ic("chevron-down").size(px(14.))),
                 )
             });
         if nothing {
             row = row.child(
-                div()
+                h_flex()
+                    .h_7()
                     .px_2()
-                    .text_xs()
+                    .rounded_lg()
+                    .text_size(theme::text::UI)
                     .text_color(theme::muted())
                     .child(chip_label),
             );
@@ -1367,9 +1461,7 @@ impl ChatView {
                 format!("{tool_name} · {account}")
             };
             row = row.child(
-                Button::new("opt-setup")
-                    .ghost()
-                    .xsmall()
+                option_chip(Button::new("opt-setup"))
                     .child(chip_label)
                     .tooltip(tv("chat.setup.label", &[("setup", sentence.into())]))
                     .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, window, cx| {
@@ -1482,7 +1574,7 @@ impl ChatView {
             } else {
                 name_of(e)
             };
-            row = row.child(self.option_button(e, label, cx));
+            row = row.child(self.option_button(e, label, Some(576.), cx));
         }
         let plan = opts
             .iter()
@@ -1524,7 +1616,7 @@ impl ChatView {
         if let Some(m) = find("mode")
             && (plan.is_none() || m.choices.len() > 1)
         {
-            row = row.child(self.option_button(m, name_of(m), cx));
+            row = row.child(self.option_button(m, name_of(m), Some(672.), cx));
         }
         let others: Vec<&ChatOption> = opts
             .iter()
@@ -1537,7 +1629,7 @@ impl ChatView {
             })
             .collect();
         for o in others {
-            row = row.child(self.option_button(o, format!("{}: {}", o.name, name_of(o)), cx));
+            row = row.child(self.option_button(o, format!("{}: {}", o.name, name_of(o)), None, cx));
         }
         if self.session.state == "starting"
             && !opts
@@ -1552,62 +1644,363 @@ impl ChatView {
                     .child(t("chat.options.loading")),
             );
         }
-        if self.session.context_size > 0 && self.session.context_used > 0 {
-            let pct = (self.session.context_used * 100 / self.session.context_size).min(100);
-            let tip = tv(
-                "chat.context.used",
-                &[
-                    ("used", tokens(self.session.context_used).into()),
-                    ("total", tokens(self.session.context_size).into()),
-                ],
-            );
-            row = row.child(
-                div()
-                    .id("context-meter")
-                    .px_1p5()
-                    .text_xs()
-                    .text_color(if pct >= 80 {
-                        theme::starting()
-                    } else {
-                        theme::faint()
-                    })
-                    .child(format!("{pct}%"))
-                    .tooltip(move |w, cx| {
-                        gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
-                    }),
-            );
-        }
         row.into_any_element()
     }
 
+    /// banner is Attached: a card on the composer's top edge, 20px in from
+    /// each side, its foot tucked 16px under the composer (-mb-4), in a tone:
+    /// amber for what asks, rose for what failed, neutral otherwise.
     fn banner(tint: Hsla) -> Div {
+        let (border, bg) = if tint == theme::starting() {
+            (
+                theme::amber(300).opacity(0.25),
+                theme::attached_warning().opacity(0.9),
+            )
+        } else if tint == theme::error() {
+            (
+                theme::rose(400).opacity(0.25),
+                theme::attached_danger().opacity(0.9),
+            )
+        } else {
+            (theme::line_strong(), theme::attached_neutral().opacity(0.9))
+        };
         v_flex()
-            .gap_1()
-            .px_3()
-            .py_2()
-            .rounded_t_xl()
+            .mx(px(20.))
+            .mb(px(-16.))
+            .px(px(14.))
+            .pt(px(10.))
+            .pb_6()
+            .rounded_t(px(16.))
             .border_1()
             .border_b_0()
-            .border_color(tint.opacity(0.3))
-            .bg(tint.opacity(0.07))
-            .text_sm()
+            .border_color(border)
+            .bg(bg)
+            .text_size(theme::text::UI)
+    }
+
+    /// context_meter is ContextMeter: a ring of how full the context window
+    /// is, once it's a fifth full, amber past 85%.
+    fn context_meter(&self) -> Option<AnyElement> {
+        let s = &self.session;
+        if s.context_size <= 0 {
+            return None;
+        }
+        let fraction = (s.context_used as f64 / s.context_size as f64).min(1.);
+        if fraction < 0.2 {
+            return None;
+        }
+        let tip = tv(
+            "chat.context.used",
+            &[
+                ("used", tokens(s.context_used).into()),
+                ("total", tokens(s.context_size).into()),
+            ],
+        );
+        let arc = if fraction > 0.85 {
+            theme::amber(400)
+        } else {
+            theme::brand(400)
+        };
+        Some(
+            div()
+                .id("context-meter")
+                .flex_none()
+                .size_7()
+                .flex()
+                .items_center()
+                .justify_center()
+                .tooltip(move |w, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
+                })
+                .child(
+                    img(ring_image(fraction.max(0.02), theme::surface_strong(), arc)).size(px(18.)),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// render_review_card is AgentReviewCard: over a finished agent's
+    /// composer, what it made, its pull request and Review changes; while it
+    /// works on changes asked for, it says so; asleep, it carries Start.
+    fn render_review_card(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let card = self.review_card.as_ref()?;
+        if card.item.is_none() && !card.asked {
+            return None;
+        }
+        let wake = self.asleep.clone();
+        let count = |k: &str| self.media_kinds.get(k).copied().unwrap_or(0);
+        let made: Vec<(&str, String)> = [
+            ("images", "screenshot", "v2.card.screenshots"),
+            ("film", "recording", "v2.card.recordings"),
+            ("globe", "page", "v2.card.pages"),
+        ]
+        .into_iter()
+        .filter(|(_, k, _)| count(k) > 0)
+        .map(|(icon, k, key)| (icon, tv(key, &[("count", count(k).into())])))
+        .collect();
+        let title = if card.asked {
+            t("v2.card.requested")
+        } else if card.item.as_ref().is_some_and(|i| !i.verdict.is_empty()) {
+            t("v2.card.reviewed")
+        } else {
+            t("v2.card.ready")
+        };
+        let pr = card.pr.as_ref().map(|pr| {
+            let tone = if pr.state == "merged" {
+                theme::violet(300)
+            } else if pr.checks == "failing" || pr.conflict {
+                theme::rose(300)
+            } else {
+                theme::secondary()
+            };
+            let label = if pr.state == "merged" {
+                t("v2.card.prMerged")
+            } else if pr.state == "closed" {
+                t("v2.card.prClosed")
+            } else if pr.draft {
+                t("memory.pulls.draft")
+            } else if pr.conflict {
+                t("memory.pulls.conflicts")
+            } else if pr.checks == "failing" {
+                t("v2.card.checksFailing")
+            } else if pr.checks == "passing" {
+                t("v2.card.checksPass")
+            } else {
+                t("v2.card.prOpen")
+            };
+            let url = pr.url.clone();
+            h_flex()
+                .gap_1()
+                .text_color(tone)
+                .child(
+                    crate::icons::ic(if pr.state == "merged" {
+                        "git-merge"
+                    } else {
+                        "git-pull-request"
+                    })
+                    .size(px(14.)),
+                )
+                .child(
+                    div()
+                        .id("review-card-pr")
+                        // PrNumberLink: brand-300 when it links.
+                        .when(!pr.url.is_empty(), |el| el.text_color(theme::brand(300)))
+                        .cursor_pointer()
+                        .hover(|el| el.underline())
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                        .child(format!("#{}", pr.number)),
+                )
+                .child(label)
+        });
+        let item = card.item.clone();
+        Some(
+            h_flex()
+                .mx_3()
+                .flex_wrap()
+                .gap_x_3()
+                .gap_y(px(6.))
+                .px_3()
+                .py_2()
+                .rounded_t_xl()
+                .border_1()
+                .border_b_0()
+                .border_color(theme::line_strong())
+                .bg(theme::composer())
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_2()
+                        .child(
+                            crate::icons::ic(if card.asked {
+                                "loader-circle"
+                            } else {
+                                "circle-check"
+                            })
+                            .size(px(16.))
+                            .text_color(theme::subtle()),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(theme::text::UI)
+                                .line_height(px(19.5))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::title())
+                                .child(title),
+                        )
+                        .when_some(wake.clone(), |el, state| {
+                            el.child(
+                                h_flex()
+                                    .flex_none()
+                                    .gap_1()
+                                    .text_size(px(12.))
+                                    .text_color(theme::muted())
+                                    .child(crate::icons::ic("moon").size(px(14.)))
+                                    .child(tv("v2.card.asleep", &[("state", (&state).into())])),
+                            )
+                        }),
+                )
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .flex_1()
+                        .flex_wrap()
+                        .gap_x(px(10.))
+                        .gap_y_1()
+                        .text_size(px(12.))
+                        .line_height(px(18.))
+                        .text_color(theme::subtle())
+                        .children(made.into_iter().map(|(icon, text)| {
+                            h_flex()
+                                .gap_1()
+                                .child(
+                                    crate::icons::ic(icon)
+                                        .size(px(14.))
+                                        .text_color(theme::faint()),
+                                )
+                                .child(text)
+                        }))
+                        .children(pr),
+                )
+                .when(item.is_some() || wake.is_some(), |el| {
+                    el.child(
+                        h_flex()
+                            .ml_auto()
+                            .flex_none()
+                            .gap_2()
+                            .when_some(wake, |el, state| {
+                                el.child(super::btn(
+                                    "review-card-wake",
+                                    tv("chat.composer.wake", &[("state", (&state).into())]),
+                                    false,
+                                    false,
+                                    cx.listener(|_, _: &ClickEvent, _, cx| {
+                                        cx.emit(ChatAction::Wake)
+                                    }),
+                                ))
+                            })
+                            .when_some(item, |el, item| {
+                                let asked = card.asked;
+                                el.child(
+                                    h_flex()
+                                        .id("review-open")
+                                        .h_7()
+                                        .gap_2()
+                                        .px_3()
+                                        .rounded_lg()
+                                        .text_size(theme::text::UI)
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .cursor_pointer()
+                                        .map(|el| {
+                                            if asked {
+                                                el.border_1()
+                                                    .border_color(theme::line())
+                                                    .bg(theme::surface_raised())
+                                                    .text_color(theme::primary())
+                                                    .hover(|el| el.bg(theme::surface_strong()))
+                                            } else {
+                                                el.bg(theme::brand(500))
+                                                    .text_color(theme::on_brand())
+                                                    .hover(|el| el.bg(theme::brand(600)))
+                                            }
+                                        })
+                                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                            cx.emit(ChatAction::OpenReview(Box::new(item.clone())))
+                                        }))
+                                        .child(t("v2.card.review"))
+                                        .child(crate::icons::ic("arrow-right").size(px(16.))),
+                                )
+                            }),
+                    )
+                })
+                .into_any_element(),
+        )
+    }
+
+    /// render_review is a project lead's "N agents ready to review" over its
+    /// composer (ReviewV2's ReviewCount banner: the dock, mx-3 rounded-t-xl
+    /// border-line-strong bg-composer, px-3 py-1.5 text-ui).
+    fn render_review(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let count = self.review_count;
+        if count == 0 || !self.is_lead() {
+            return None;
+        }
+        Some(
+            h_flex()
+                .mx_3()
+                .gap_2()
+                .px_3()
+                .py(px(6.))
+                .rounded_t_xl()
+                .border_1()
+                .border_b_0()
+                .border_color(theme::line_strong())
+                .bg(theme::composer())
+                .text_size(theme::text::UI)
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(6.))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(theme::secondary()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(theme::secondary())
+                        .child(tv("v2.review.readyBanner", &[("count", count.into())])),
+                )
+                .child(
+                    h_flex()
+                        .id("review-banner-open")
+                        .flex_none()
+                        .gap_1()
+                        .px_2()
+                        .py(px(2.))
+                        .rounded_md()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::title())
+                        .cursor_pointer()
+                        .hover(|el| el.bg(theme::surface_strong()))
+                        .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                            cx.emit(ChatAction::ReviewProject)
+                        }))
+                        .child(t("v2.review.review"))
+                        .child(crate::icons::ic("arrow-right").size(px(14.))),
+                )
+                .into_any_element(),
+        )
     }
 
     /// render_above is what waits on the composer, attached to its top.
     fn render_above(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let view = cx.entity();
-        if let Some(state) = &self.asleep {
+        let carded = self
+            .review_card
+            .as_ref()
+            .is_some_and(|c| c.item.is_some() || c.asked);
+        if let Some(state) = self.asleep.as_ref().filter(|_| !carded) {
             return Some(
+                // Composer.tsx's asleep bar: a moon, the words in tertiary
+                // (leading-relaxed), and an h-6 brand Start with its Play.
                 Self::banner(theme::muted())
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(crate::icons::of("☾"))
+                            .child(
+                                crate::icons::ic("moon")
+                                    .size(px(14.))
+                                    .text_color(theme::muted()),
+                            )
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .text_color(theme::muted())
+                                    .line_height(relative(1.625))
+                                    .text_color(theme::tertiary())
                                     .child(tv(
                                         "chat.composer.asleep",
                                         &[
@@ -1616,13 +2009,26 @@ impl ChatView {
                                         ],
                                     )),
                             )
-                            .child(super::btn(
-                                "chat-wake",
-                                tv("chat.composer.wake", &[("state", state.into())]),
-                                true,
-                                false,
-                                cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatAction::Wake)),
-                            )),
+                            .child(
+                                h_flex()
+                                    .id("chat-wake")
+                                    .flex_none()
+                                    .h_6()
+                                    .gap_1()
+                                    .px(px(10.))
+                                    .rounded_md()
+                                    .bg(theme::brand(500).opacity(0.9))
+                                    .text_size(px(12.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(white())
+                                    .cursor_pointer()
+                                    .hover(|el| el.bg(theme::brand(500)))
+                                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                                        cx.emit(ChatAction::Wake)
+                                    }))
+                                    .child(crate::icons::ic("play").size(px(12.)))
+                                    .child(tv("chat.composer.wake", &[("state", state.into())])),
+                            ),
                     )
                     .into_any_element(),
             );
@@ -1651,6 +2057,8 @@ impl ChatView {
             let detail = if approval {
                 p.detail.clone()
             } else {
+                // The tool call's command or first file; the request's own
+                // detail only for an approval (PermissionBanner).
                 tool.as_ref()
                     .map(|t| {
                         if t.command.is_empty() {
@@ -1659,7 +2067,7 @@ impl ChatView {
                             t.command.clone()
                         }
                     })
-                    .unwrap_or_else(|| p.detail.clone())
+                    .unwrap_or_default()
             };
             let diffs = if p.diffs.is_empty() {
                 tool.as_ref().map(|t| t.diffs.clone()).unwrap_or_default()
@@ -1693,44 +2101,69 @@ impl ChatView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .text_xs()
-                            .child(div().text_color(theme::starting()).child("!"))
+                            .text_size(px(12.))
+                            .line_height(px(18.))
+                            .child(
+                                crate::icons::ic("shield-alert")
+                                    .size(px(14.))
+                                    .text_color(theme::amber(300)),
+                            )
                             .child(
                                 div()
-                                    .flex_1()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::primary())
+                                    .text_color(theme::amber(100))
                                     .child(heading),
                             )
                             .when(pending.len() > 1, |el| {
-                                el.child(div().text_color(theme::faint()).child(tv(
-                                    "chat.permission.oneOf",
-                                    &[("count", pending.len().into())],
-                                )))
+                                el.child(
+                                    div()
+                                        .ml_auto()
+                                        .text_color(theme::amber(200).opacity(0.6))
+                                        .child(tv(
+                                            "chat.permission.oneOf",
+                                            &[("count", pending.len().into())],
+                                        )),
+                                )
                             }),
                     )
-                    .child(div().text_color(theme::primary()).child(p.title.clone()))
-                    .when(!detail.is_empty() && !p.title.contains(&detail), |el| {
+                    .child(
+                        div()
+                            .mt_1()
+                            .text_size(theme::text::UI)
+                            .line_height(px(19.5))
+                            .text_color(theme::primary())
+                            .child(p.title.clone()),
+                    )
+                    .when(approval && !detail.is_empty(), |el| {
                         el.child(
                             div()
-                                .max_h(px(80.))
-                                .overflow_hidden()
-                                .text_xs()
-                                .font_family(theme::mono())
+                                .mt_0p5()
+                                .text_size(px(12.))
                                 .text_color(theme::muted())
                                 .child(detail.clone()),
                         )
                     })
+                    .when(
+                        !approval && !detail.is_empty() && !p.title.contains(&detail),
+                        |el| {
+                            el.child(
+                                div()
+                                    .mt_1()
+                                    .max_h(px(80.))
+                                    .overflow_hidden()
+                                    .text_size(px(12.))
+                                    .font_family(theme::mono())
+                                    .text_color(theme::muted())
+                                    .child(detail.clone()),
+                            )
+                        },
+                    )
                     .children(
                         diffs.iter().take(3).enumerate().map(|(i, d)| {
                             super::items::diff_block(format!("pd-{}-{i}", req.id), d)
                         }),
                     )
-                    .child(
-                        div()
-                            .pt_1()
-                            .child(self.permission_buttons(&req.id, path, &p, &view)),
-                    )
+                    .child(self.permission_buttons(&req.id, path, &p, &view, true))
                     .into_any_element(),
             );
         }
@@ -1887,75 +2320,139 @@ impl ChatView {
         None
     }
 
-    /// render_tasks is the plan's tasks, a chip that opens to the list (TasksBadge).
-    fn render_tasks(&self, cx: &mut Context<Self>) -> Option<(AnyElement, Option<AnyElement>)> {
+    /// render_tasks is TasksBadge: the plan on the composer's top edge, its
+    /// task under way, how many are done and a bar of each, opening to the list.
+    fn render_tasks(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let plan = self.items.iter().rev().find(|i| i.kind == "plan")?;
         if plan.plan.is_empty() {
             return None;
         }
         let done = plan.plan.iter().filter(|e| e.status == "completed").count();
         let all = plan.plan.len();
+        let finished = done == all;
+        let current = plan
+            .plan
+            .iter()
+            .find(|e| e.status == "in_progress")
+            .or_else(|| plan.plan.iter().find(|e| e.status == "pending"))
+            .map(|e| e.content.clone())
+            .unwrap_or_default();
         let open = self.composer.tasks_open;
-        let chip = div()
+        let head = h_flex()
             .id("tasks")
-            .px_2()
-            .py_0p5()
-            .rounded_md()
+            .w_full()
+            .gap_2()
+            .text_size(px(12.))
+            .line_height(px(18.))
             .cursor_pointer()
-            .text_xs()
-            .text_color(if done == all {
-                theme::running()
-            } else {
-                theme::muted()
-            })
-            .hover(|el| el.bg(theme::surface_strong()))
-            .child(if done == all {
-                format!("✓ {}", t("chat.tasks.allDone"))
-            } else {
-                format!("{} {done}/{all}", t("chat.tasks.label"))
-            })
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.composer.tasks_open = !this.composer.tasks_open;
                 cx.notify();
             }))
-            .into_any_element();
+            .child(
+                crate::icons::ic("list-todo")
+                    .size(px(14.))
+                    .text_color(theme::muted()),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(theme::subtle())
+                    .child(t("chat.tasks.label")),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .truncate()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::secondary())
+                    .child(if finished {
+                        t("chat.tasks.allDone")
+                    } else {
+                        current
+                    }),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(if finished {
+                        theme::emerald(400)
+                    } else {
+                        theme::subtle()
+                    })
+                    .child(format!("{done}/{all}")),
+            )
+            .child(
+                h_flex()
+                    .flex_none()
+                    .gap_0p5()
+                    .children(plan.plan.iter().take(10).map(|e| {
+                        div()
+                            .h(px(3.))
+                            .w(px(10.))
+                            .rounded_full()
+                            .bg(match e.status.as_str() {
+                                "completed" => theme::emerald(400),
+                                "in_progress" => theme::brand(400),
+                                _ => theme::ghost(),
+                            })
+                    })),
+            )
+            .child(
+                crate::icons::ic(if open { "chevron-up" } else { "chevron-down" })
+                    .size(px(14.))
+                    .text_color(theme::subtle()),
+            );
         let list = open.then(|| {
-            v_flex()
-                .gap_0p5()
-                .px_3()
-                .py_2()
-                .rounded_lg()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::card())
-                .text_sm()
-                .children(plan.plan.iter().map(|e| {
-                    let (mark, color) = match e.status.as_str() {
-                        "completed" => ("✓", theme::running()),
-                        "in_progress" => ("●", theme::starting()),
-                        _ => ("○", theme::faint()),
-                    };
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_color(color)
-                                .child(crate::icons::of(mark)),
-                        )
-                        .child(
-                            div()
-                                .text_color(if e.status == "completed" {
-                                    theme::muted()
-                                } else {
-                                    theme::primary()
-                                })
-                                .child(e.content.clone()),
-                        )
-                }))
-                .into_any_element()
+            v_flex().mt_2().gap_1().children(plan.plan.iter().map(|e| {
+                let (color, text) = match e.status.as_str() {
+                    "completed" => (theme::emerald(400), theme::subtle()),
+                    "in_progress" => (theme::brand(300), theme::primary()),
+                    _ => (theme::faint(), theme::muted()),
+                };
+                h_flex()
+                    .items_start()
+                    .gap_2()
+                    .text_size(theme::text::UI)
+                    .line_height(relative(1.625))
+                    .child(
+                        div()
+                            .flex_none()
+                            .mt(px(3.))
+                            .size(px(14.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(color)
+                            .map(|el| match e.status.as_str() {
+                                "completed" => el.child(crate::icons::ic("check").size(px(14.))),
+                                "in_progress" => {
+                                    el.child(div().size_1p5().rounded_full().bg(color))
+                                }
+                                _ => el.child(
+                                    div()
+                                        .size_1p5()
+                                        .rounded_full()
+                                        .border_1()
+                                        .border_color(color),
+                                ),
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_color(text)
+                            .when(e.status == "completed", |el| el.line_through())
+                            .child(e.content.clone()),
+                    )
+            }))
         });
-        Some((chip, list))
+        Some(
+            Self::banner(theme::muted())
+                .child(head)
+                .children(list)
+                .into_any_element(),
+        )
     }
 
     pub(super) fn render_composer(
@@ -2060,15 +2557,15 @@ impl ChatView {
         let working = self.working() || self.session.turn_started_at.is_some();
         let view = cx.entity();
         let above = self.render_above(cx);
+        let review = self
+            .render_review(cx)
+            .or_else(|| self.render_review_card(cx));
         if self.is_lead() && !self.composer.asked_mentions && self.loaded {
             self.load_mentions(cx);
         }
         let target = self.render_target(cx);
         let tasks = self.render_tasks(cx);
-        let (tasks_chip, tasks_list) = match tasks {
-            Some((c, l)) => (Some(c), l),
-            None => (None, None),
-        };
+        let meter = self.context_meter();
         let menu_el = (!menu.is_empty()).then(|| {
             let mention = !token.starts_with('/');
             v_flex()
@@ -2212,8 +2709,12 @@ impl ChatView {
         });
         let session = self.session.clone();
         let paste_view = view.downgrade();
+        // Composer.tsx's textarea: 14px, leading-relaxed, no padding of its
+        // own (Size::Size(16) is 14px text and 2px/8px of the input's).
         let input = Textarea::new(&self.composer.input)
             .appearance(false)
+            .with_size(gpui_component::Size::Size(px(16.)))
+            .line_height(px(22.75))
             .on_paste(move |item, _, cx| {
                 paste_view
                     .update(cx, |this, cx| {
@@ -2231,165 +2732,217 @@ impl ChatView {
             .read(cx)
             .focus_handle(cx)
             .contains_focused(window, cx);
-        v_flex()
+        let width_view = view.downgrade();
+        div()
             .flex_none()
-            .px_4()
-            .pt_2()
-            .pb_3()
-            .children(tasks_list)
-            .children(menu_el)
-            .children(above)
+            .w_full()
+            .px_6()
+            .pt(px(28.))
+            .pb_5()
             .child(
                 v_flex()
-                    .id("composer")
-                    .rounded(px(22.))
-                    .border_1()
-                    .border_color(if focused {
-                        theme::line_vivid()
-                    } else {
-                        theme::line_strong()
-                    })
-                    .bg(theme::composer())
-                    .shadow(theme::shadow_composer(focused))
-                    .px_3p5()
-                    .pt_2p5()
-                    .pb_2()
-                    // While a menu is open, its keys are its own.
-                    .capture_action(cx.listener(move |this, _: &MoveDown, _, cx| {
-                        if menu_len > 0 {
-                            this.composer.menu_ix = (this.composer.menu_ix + 1) % menu_len;
-                            cx.stop_propagation();
-                            cx.notify();
-                        }
-                    }))
-                    .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| {
-                        if menu_len > 0 {
-                            this.composer.menu_ix =
-                                (this.composer.menu_ix + menu_len - 1) % menu_len;
-                            cx.stop_propagation();
-                            cx.notify();
-                        } else if this.text(cx).is_empty()
-                            && let Some(last) = this.last_mine()
-                        {
-                            // Up in an empty composer brings your last message back.
-                            let at = last.len();
-                            this.composer.input.update(cx, |s, cx| {
-                                s.set_value(last, window, cx);
-                                s.set_selected_range(at..at, cx);
-                            });
-                            cx.stop_propagation();
-                        }
-                    }))
-                    .capture_action(cx.listener(move |this, a: &Enter, window, cx| {
-                        if !a.shift && !menu_for_enter.is_empty() {
-                            let ix = this.composer.menu_ix.min(menu_for_enter.len() - 1);
-                            this.pick(menu_for_enter[ix].clone(), window, cx);
-                            cx.stop_propagation();
-                        }
-                    }))
-                    .capture_action(cx.listener(move |this, _: &Escape, _, cx| {
-                        if menu_len > 0 {
-                            this.composer.dismissed = Some(token.clone());
-                            cx.stop_propagation();
-                            cx.notify();
-                        } else if this.composer.target.is_some() && this.text(cx).is_empty() {
-                            // Esc in an empty composer points it back at the lead.
-                            this.composer.target = None;
-                            cx.stop_propagation();
-                            cx.notify();
-                        }
-                    }))
-                    .children(attachments)
-                    .child(div().text_sm().child(input))
+                    .w_full()
+                    .max_w(px(896.))
+                    .mx_auto()
+                    .relative()
+                    // Its width, for SetupChip's fold (a container query in Electron).
                     .child(
-                        h_flex()
-                            .pt_1()
-                            .gap_1()
+                        canvas(
+                            move |bounds, _, cx| {
+                                let w = f32::from(bounds.size.width);
+                                width_view
+                                    .update(cx, |this, cx| {
+                                        if (this.composer.width - w).abs() > 0.5 {
+                                            this.composer.width = w;
+                                            cx.notify();
+                                        }
+                                    })
+                                    .ok();
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .h_0(),
+                    )
+                    .children(menu_el)
+                    .children(review)
+                    .children(tasks)
+                    .children(above)
+                    .child(
+                        v_flex()
+                            .id("composer")
+                            .rounded(px(22.))
+                            .border_1()
+                            .border_color(if focused {
+                                theme::line_vivid()
+                            } else {
+                                theme::line_strong()
+                            })
+                            .bg(theme::composer())
+                            .shadow(theme::shadow_composer(focused))
+                            // While a menu is open, its keys are its own.
+                            .capture_action(cx.listener(move |this, _: &MoveDown, _, cx| {
+                                if menu_len > 0 {
+                                    this.composer.menu_ix = (this.composer.menu_ix + 1) % menu_len;
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                }
+                            }))
+                            .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| {
+                                if menu_len > 0 {
+                                    this.composer.menu_ix =
+                                        (this.composer.menu_ix + menu_len - 1) % menu_len;
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                } else if this.text(cx).is_empty()
+                                    && let Some(last) = this.last_mine()
+                                {
+                                    // Up in an empty composer brings your last message back.
+                                    let at = last.len();
+                                    this.composer.input.update(cx, |s, cx| {
+                                        s.set_value(last, window, cx);
+                                        s.set_selected_range(at..at, cx);
+                                    });
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .capture_action(cx.listener(move |this, a: &Enter, window, cx| {
+                                if !a.shift && !menu_for_enter.is_empty() {
+                                    let ix = this.composer.menu_ix.min(menu_for_enter.len() - 1);
+                                    this.pick(menu_for_enter[ix].clone(), window, cx);
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .capture_action(cx.listener(move |this, _: &Escape, _, cx| {
+                                if menu_len > 0 {
+                                    this.composer.dismissed = Some(token.clone());
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                } else if this.composer.target.is_some() && this.text(cx).is_empty()
+                                {
+                                    // Esc in an empty composer points it back at the lead.
+                                    this.composer.target = None;
+                                    cx.stop_propagation();
+                                    cx.notify();
+                                }
+                            }))
+                            .children(attachments)
                             .child(
                                 div()
-                                    .id("attach")
-                                    .size_7()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded_md()
-                                    .cursor_pointer()
-                                    .text_color(theme::muted())
-                                    .hover(|el| {
-                                        el.bg(theme::surface_strong()).text_color(theme::primary())
-                                    })
-                                    .child("+")
-                                    .tooltip(|w, cx| {
-                                        gpui_component::tooltip::Tooltip::new(t(
-                                            "chat.composer.attachTip",
-                                        ))
-                                        .build(w, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.pick_files(cx)
-                                    })),
+                                    .px_2()
+                                    .pb(px(4.))
+                                    .pt(px(11.))
+                                    .text_sm()
+                                    .line_height(relative(1.625))
+                                    .child(input),
                             )
-                            .children(target)
-                            .child(div().flex_1().min_w_0().child(self.render_options(cx)))
-                            .children(tasks_chip)
-                            .when(working, |el| {
-                                el.child(super::btn(
-                                    "stop-turn",
-                                    t("chat.composer.stopTurn"),
-                                    false,
-                                    false,
-                                    cx.listener(|this, _: &ClickEvent, _, cx| this.stop(cx)),
-                                ))
-                            })
-                            .child({
-                                let label: SharedString = if working {
-                                    tv(
-                                        "chat.composer.sendWhileWorking",
-                                        &[("tool", super::tool_label(&self.session.tool).into())],
+                            .child(
+                                h_flex()
+                                    .px_2()
+                                    .pb_2()
+                                    .gap_1()
+                                    .children(target)
+                                    .child(
+                                        div()
+                                            .id("attach")
+                                            .flex_none()
+                                            .size_8()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_full()
+                                            .cursor_pointer()
+                                            .text_color(theme::subtle())
+                                            .hover(|el| {
+                                                el.bg(theme::surface_raised())
+                                                    .text_color(theme::primary())
+                                            })
+                                            .child(crate::icons::ic("paperclip").size(px(16.)))
+                                            .tooltip(|w, cx| {
+                                                gpui_component::tooltip::Tooltip::new(t(
+                                                    "chat.composer.attachTip",
+                                                ))
+                                                .build(w, cx)
+                                            })
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| this.pick_files(cx),
+                                            )),
                                     )
-                                    .into()
-                                } else {
-                                    t("chat.composer.send").into()
-                                };
-                                // Electron's round send: an arrow on the brand,
-                                // its words in the tooltip.
-                                div()
-                                    .id("send")
-                                    .flex_none()
-                                    .size(px(30.))
-                                    .rounded_full()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .bg(if can_send {
-                                        theme::brand(500)
-                                    } else {
-                                        theme::surface_strong()
+                                    .child(div().flex_1().min_w_0().child(self.render_options(cx)))
+                                    .children(meter)
+                                    .when(working, |el| {
+                                        el.child(super::btn(
+                                            "stop-turn",
+                                            t("chat.composer.stopTurn"),
+                                            false,
+                                            false,
+                                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                this.stop(cx)
+                                            }),
+                                        ))
                                     })
-                                    .text_color(if can_send {
-                                        theme::on_brand()
-                                    } else {
-                                        theme::faint()
-                                    })
-                                    .when(can_send, |el| {
-                                        el.cursor_pointer()
-                                            .shadow(theme::glow(theme::brand(500), 0.6))
-                                            .hover(|el| el.bg(theme::brand(600)))
-                                            .active(|el| el.bg(theme::brand(700)))
-                                    })
-                                    .tooltip(move |w, cx| {
-                                        gpui_component::tooltip::Tooltip::new(label.clone())
-                                            .build(w, cx)
-                                    })
-                                    .child(crate::icons::ic("arrow-up").size(px(16.)))
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.submit(window, cx)
-                                    }))
-                            }),
+                                    .child({
+                                        let label: SharedString = if working {
+                                            tv(
+                                                "chat.composer.sendWhileWorking",
+                                                &[(
+                                                    "tool",
+                                                    super::tool_label(&self.session.tool).into(),
+                                                )],
+                                            )
+                                            .into()
+                                        } else {
+                                            t("chat.composer.send").into()
+                                        };
+                                        // Electron's round send: an arrow on the brand,
+                                        // its words in the tooltip.
+                                        // The send button: size-8, brand-500, at 30% while there's nothing to send.
+                                        div()
+                                            .id("send")
+                                            .flex_none()
+                                            .size_8()
+                                            .rounded_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .bg(theme::brand(500))
+                                            .text_color(theme::on_brand())
+                                            .when(!can_send, |el| el.opacity(0.3))
+                                            .when(can_send, |el| {
+                                                el.cursor_pointer()
+                                                    .hover(|el| el.bg(theme::brand(600)))
+                                                    .active(|el| el.bg(theme::brand(700)))
+                                            })
+                                            .tooltip(move |w, cx| {
+                                                gpui_component::tooltip::Tooltip::new(label.clone())
+                                                    .build(w, cx)
+                                            })
+                                            .child(crate::icons::ic("arrow-up").size(px(16.)))
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, window, cx| {
+                                                    this.submit(window, cx)
+                                                },
+                                            ))
+                                    }),
+                            ),
                     ),
             )
             .into_any_element()
     }
+}
+
+/// option_chip is a composer option's trigger as Electron's OptionMenu:
+/// h-7, px-2, rounded-lg, text-ui, text-muted.
+fn option_chip(b: Button) -> Button {
+    b.ghost()
+        .compact()
+        .h_7()
+        .px_2()
+        .rounded(gpui_component::button::ButtonRounded::Size(px(8.)))
+        .text_size(theme::text::UI)
+        .text_color(theme::muted())
 }
 
 pub fn tokens(n: i64) -> String {
@@ -2492,4 +3045,58 @@ mod tests {
             ["desktop/src/Composer.tsx"]
         );
     }
+}
+
+/// icon_of is an option's icon in its chip: effort's brain.
+fn icon_of(o: &ChatOption) -> Option<&'static str> {
+    (o.category == "thought_level" || o.id.contains("effort")).then_some("brain")
+}
+
+thread_local! {
+    static RINGS: std::cell::RefCell<std::collections::HashMap<(u32, u32, u32), Arc<Image>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// ring_image is ContextMeter's ring as the SVG Electron draws: r 7 in an
+/// 18 box, a 2px track and the filled share over it from the top, round-capped.
+fn ring_image(fraction: f64, track: Hsla, arc: Hsla) -> Arc<Image> {
+    let key = (
+        (fraction * 1000.).round() as u32,
+        rgb_key(track),
+        rgb_key(arc),
+    );
+    RINGS.with(|r| {
+        r.borrow_mut()
+            .entry(key)
+            .or_insert_with(|| {
+                let c = 2. * std::f64::consts::PI * 7.;
+                let svg = format!(
+                    r#"<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 18 18"><g transform="rotate(-90 9 9)"><circle cx="9" cy="9" r="7" fill="none" stroke="{}" stroke-opacity="{}" stroke-width="2"/><circle cx="9" cy="9" r="7" fill="none" stroke="{}" stroke-opacity="{}" stroke-width="2" stroke-linecap="round" stroke-dasharray="{c}" stroke-dashoffset="{}"/></g></svg>"#,
+                    theme::hex(track),
+                    track.a,
+                    theme::hex(arc),
+                    arc.a,
+                    c * (1. - fraction)
+                );
+                Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()))
+            })
+            .clone()
+    })
+}
+
+fn rgb_key(c: Hsla) -> u32 {
+    let r = c.to_rgb();
+    ((r.r * 255.) as u32) << 24
+        | ((r.g * 255.) as u32) << 16
+        | ((r.b * 255.) as u32) << 8
+        | (r.a * 255.) as u32
+}
+
+/// ReviewCard is what a finished agent's review card shows (AgentReviewCard):
+/// its review item, whether changes asked for are under way, its PR.
+#[derive(Clone, PartialEq, Default)]
+pub struct ReviewCard {
+    pub item: Option<agentbox_api::ReviewItem>,
+    pub asked: bool,
+    pub pr: Option<agentbox_api::PullRequest>,
 }

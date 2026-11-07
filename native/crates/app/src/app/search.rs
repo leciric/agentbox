@@ -26,7 +26,7 @@ use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
 use super::agent_status::{Action, lifecycle_actions};
-use super::controls::{Choice, select_at};
+use super::controls::Choice;
 use crate::{theme, toasts};
 
 /// The palette's own chips, beside the daemon's kinds.
@@ -88,6 +88,8 @@ pub struct Palette {
     open_when_answered: bool,
     error: Option<String>,
     preview: Option<(String, Preview)>,
+    /// The list's scroll, for its thin scrollbar.
+    scroll: ScrollHandle,
     _sub: Subscription,
     _task: Option<Task<()>>,
     _preview: Option<Task<()>>,
@@ -229,6 +231,94 @@ fn a_message(kind: &str, hit: &SearchHit) -> bool {
     kind == SEARCH_CHATS || (kind == SEARCH_SESSIONS && !hit.item.is_empty())
 }
 
+/// cmd_icon is a command's Lucide icon (paletteCommands.tsx).
+fn cmd_icon(c: &Cmd) -> &'static str {
+    if c.setting {
+        return "sliders-horizontal";
+    }
+    match c.id.as_str() {
+        "new-agent" => "plus",
+        "new-task" => "list-todo",
+        "add-project" => "folder-plus",
+        "fan-out" => "users",
+        "record" => "circle",
+        "record-stop" => "circle-stop",
+        "screenshot" => "camera",
+        "android-start" | "android-stop" | "agent-android" | "connect-phone" => "smartphone",
+        "agent-start" | "agent-resume" => "play",
+        "agent-stop" => "square",
+        "agent-pause" => "pause",
+        "agent-chat" | "project-chat" => "message-square",
+        "agent-terminal" => "square-terminal",
+        "agent-desktop" => "monitor",
+        "agent-media" | "project-media" | "all-media" => "images",
+        "agent-snapshots" | "project-past" => "rotate-ccw-clock",
+        "agent-settings" => "sliders-horizontal",
+        "agent-secrets" | "project-secrets" => "key-round",
+        "project-pulls" => "git-pull-request",
+        "project-settings" | "settings" => "settings",
+        "project-repository" => "git-branch",
+        "project-notes" => "notebook-pen",
+        "project-memory" => "brain",
+        "project-tokens" => "coins",
+        "project-connectors" | "add-connector" => "plug",
+        "project-skills" | "add-skill" => "wand-sparkles",
+        "schedule" => "calendar-clock",
+        "nesting" => "layers",
+        "home" => "house",
+        "jobs" => "briefcase",
+        "past-agents" => "bot",
+        "shortcuts" => "keyboard",
+        "dnd-off" => "bell-ring",
+        "dnd-on" => "bell-off",
+        "report-problem" => "bug",
+        "diagnostics" => "stethoscope",
+        _ => "sparkles",
+    }
+}
+
+/// kind_icon is a found kind's icon (SearchModal's kinds), or a chip's.
+fn kind_icon(kind: &str) -> &'static str {
+    match kind {
+        ACTIONS => "zap",
+        SETTINGS => "sliders-horizontal",
+        "projects" => "folder-git-2",
+        "sessions" => "messages-square",
+        "agents" => "bot",
+        "chats" => "message-square",
+        "memories" => "brain",
+        "events" => "rotate-ccw-clock",
+        "reports" => "file-text",
+        "media" => "image",
+        "skills" => "wand-sparkles",
+        "connectors" => "plug",
+        "notes" => "notebook-pen",
+        "pulls" => "git-pull-request",
+        _ => "search",
+    }
+}
+
+/// kbd is SearchModal's key: rounded, in line, font-mono.
+fn kbd(k: &str) -> Div {
+    div()
+        .flex_none()
+        .px_1()
+        .rounded(px(4.))
+        .border_1()
+        .border_color(theme::line())
+        .font_family(theme::mono())
+        .child(k.to_string())
+}
+
+/// tracked is text set apart by `gap` between its letters (a CSS
+/// letter-spacing gpui's text hasn't), each letter its own run.
+fn tracked(text: &str, gap: f32) -> Div {
+    h_flex().children(
+        text.chars()
+            .map(move |c| div().mr(px(gap)).child(c.to_string())),
+    )
+}
+
 fn kind_label(kind: &str) -> String {
     let key = format!("search.group.{kind}");
     if agentbox_i18n::has(&key) {
@@ -293,6 +383,7 @@ impl AppView {
             open_when_answered: false,
             error: None,
             preview: None,
+            scroll: ScrollHandle::new(),
             _sub: sub,
             _task: None,
             _preview: None,
@@ -1296,10 +1387,12 @@ impl AppView {
 
     // ——— Drawing it ———
 
+    #[allow(clippy::too_many_arguments)]
     fn chip(
         &self,
         id: String,
         on: bool,
+        icon: Option<&'static str>,
         label: String,
         count: String,
         cx: &mut Context<Self>,
@@ -1332,6 +1425,7 @@ impl AppView {
                 click(this, cx);
                 cx.notify();
             }))
+            .when_some(icon, |el, i| el.child(crate::icons::ic(i).size_3p5()))
             .child(label)
             .when(!count.is_empty(), |el| {
                 el.child(div().opacity(0.7).child(count))
@@ -1350,7 +1444,8 @@ impl AppView {
             } else {
                 k.clone()
             };
-            chips.push(self.chip(id, on, label, count, cx, move |this, cx| {
+            let icon = (!k.is_empty()).then(|| kind_icon(&k));
+            chips.push(self.chip(id, on, icon, label, count, cx, move |this, cx| {
                 let next = if on && !k.is_empty() {
                     String::new()
                 } else {
@@ -1363,6 +1458,7 @@ impl AppView {
         let past = self.chip(
             "archived".into(),
             archived,
+            Some("archive"),
             t("search.includePast"),
             String::new(),
             cx,
@@ -1381,11 +1477,11 @@ impl AppView {
         );
         projects.push(Choice::new(HOME_PROJECT, t("shell.nav.home")));
         let v1 = view.clone();
-        let project = select_at(
+        let project = super::controls::chip_select(
             "search-project",
+            "folder-git-2",
             projects,
             &p.project,
-            false,
             std::rc::Rc::new(move |v: &str, _, cx| {
                 let v = v.to_string();
                 v1.update(cx, |this, cx| {
@@ -1399,8 +1495,9 @@ impl AppView {
             }),
             gpui::Anchor::TopRight,
         );
-        let since = select_at(
+        let since = super::controls::chip_select(
             "search-since",
+            "calendar-days",
             vec![
                 Choice::new("", t("search.since.any")),
                 Choice::new("day", t("search.since.day")),
@@ -1408,7 +1505,6 @@ impl AppView {
                 Choice::new("month", t("search.since.month")),
             ],
             &p.since,
-            false,
             std::rc::Rc::new(move |v: &str, _, cx| {
                 let v = v.to_string();
                 view.update(cx, |this, cx| {
@@ -1434,11 +1530,13 @@ impl AppView {
             .children(chips)
             .child(div().flex_1())
             .child(past)
-            .child(div().w(px(150.)).child(project))
-            .child(div().w(px(150.)).child(since))
+            .child(project)
+            .child(since)
             .into_any_element()
     }
 
+    /// command_row is SearchModal's CommandRow: its icon, its title, where
+    /// it lives or whom it's for, and its keys.
     fn command_row(
         &self,
         ix: usize,
@@ -1447,10 +1545,30 @@ impl AppView {
         query: &str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let whom = self.for_whom(c);
+        let whom = c.needs.map(|n| match n {
+            Needs::Agent => self.current_agent().map_or_else(
+                || t("palette.asksAgent"),
+                |r| {
+                    let (p, a) = r.split_once('/').unwrap_or((&r, ""));
+                    self.agent_title(p, a)
+                },
+            ),
+            Needs::Project => self
+                .current_project()
+                .map_or_else(|| t("palette.asksProject"), |p| self.label_of(&p)),
+        });
+        let right = if c.place.is_empty() {
+            whom
+        } else {
+            Some(c.place.clone())
+        };
         h_flex()
             .id(SharedString::from(format!("cmd-{ix}")))
-            .mx_2()
+            .w_full()
+            // py-2 round a 19.5px line: Chromium's rows are 35.5px, which
+            // gpui lays out whole, so they take 36 and 35 by turns.
+            .h(px(if ix.is_multiple_of(2) { 36. } else { 35. }))
+            .items_center()
             .px_3()
             .py_2()
             .gap_3()
@@ -1469,38 +1587,25 @@ impl AppView {
                 cx.notify();
             }))
             .child(
-                div()
+                crate::icons::ic(cmd_icon(c))
+                    .size_4()
                     .flex_none()
-                    .text_size(theme::text::BODY)
                     .text_color(if on {
                         theme::brand(300)
                     } else {
                         theme::subtle()
-                    })
-                    .child(crate::icons::of(if c.setting { "⚙" } else { "⚡" })),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .text_size(theme::text::UI)
-                            .truncate()
-                            .text_color(theme::primary())
-                            .child(marked(&c.title, query)),
-                    )
-                    .when_some(whom.filter(|_| on), |el, w| {
-                        el.child(
-                            div()
-                                .text_size(theme::text::CAPTION)
-                                .truncate()
-                                .text_color(theme::subtle())
-                                .child(w),
-                        )
                     }),
             )
-            .when(!c.place.is_empty(), |el| {
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(theme::text::UI)
+                    .text_color(theme::primary())
+                    .child(marked(&c.title, query)),
+            )
+            .when_some(right, |el, w| {
                 el.child(
                     div()
                         .flex_none()
@@ -1508,21 +1613,17 @@ impl AppView {
                         .truncate()
                         .text_size(theme::text::CAPTION)
                         .text_color(theme::subtle())
-                        .child(c.place.clone()),
+                        .child(w),
                 )
             })
-            .when(!c.keys.is_empty(), |el| {
+            .when(!c.setting && !c.keys.is_empty(), |el| {
                 el.child(
-                    div()
+                    h_flex()
                         .flex_none()
-                        .px_1()
-                        .rounded_sm()
-                        .border_1()
-                        .border_color(theme::line())
-                        .font_family(theme::mono())
+                        .gap_0p5()
                         .text_size(theme::text::CAPTION)
                         .text_color(theme::subtle())
-                        .child(c.keys),
+                        .children(c.keys.split('+').map(kbd)),
                 )
             })
             .into_any_element()
@@ -1540,7 +1641,7 @@ impl AppView {
         let place = self.where_of(kind, h);
         h_flex()
             .id(SharedString::from(format!("hit-{ix}")))
-            .mx_2()
+            .w_full()
             .px_3()
             .py_2()
             .gap_3()
@@ -1645,6 +1746,11 @@ impl AppView {
         let cmd2 = c.clone();
         aside(
             if c.setting {
+                "sliders-horizontal"
+            } else {
+                "zap"
+            },
+            if c.setting {
                 c.place.clone()
             } else {
                 t("palette.group.actions")
@@ -1661,7 +1767,7 @@ impl AppView {
                             div()
                                 .flex_none()
                                 .text_color(theme::brand(300))
-                                .child(crate::icons::of(if c.setting { "⚙" } else { "⚡" })),
+                                .child(crate::icons::ic(cmd_icon(c)).size_4()),
                         )
                         .child(c.title.clone()),
                 )
@@ -1958,6 +2064,7 @@ impl AppView {
         let (k1, h1, k2, h2) = (kind.to_string(), h.clone(), kind.to_string(), h.clone());
         let asked2 = asked.to_string();
         aside(
+            kind_icon(kind),
             if place.is_empty() {
                 kind_label(kind)
             } else {
@@ -2023,7 +2130,7 @@ impl AppView {
                 list.push(
                     h_flex()
                         .id(SharedString::from(format!("choice-{i}")))
-                        .mx_2()
+                        .w_full()
                         .px_3()
                         .py_2()
                         .gap_3()
@@ -2090,7 +2197,7 @@ impl AppView {
             if !typed && p.kind.is_empty() && !rows.is_empty() {
                 list.push(
                     div()
-                        .px_5()
+                        .px_3()
                         .pt_1()
                         .pb_2()
                         .text_size(theme::text::CAPTION)
@@ -2129,7 +2236,7 @@ impl AppView {
                         let newest = p.newest;
                         list.push(
                             h_flex()
-                                .px_5()
+                                .px_3()
                                 .pt_2()
                                 .pb_1()
                                 .justify_between()
@@ -2163,19 +2270,24 @@ impl AppView {
                                 .into_any_element(),
                         );
                     } else {
+                        // uppercase tracking-[0.08em], semibold, subtle.
                         list.push(
                             div()
-                                .px_5()
+                                .px_3()
                                 .pt_2()
                                 .pb_1()
                                 .text_size(theme::text::CAPTION)
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(theme::muted())
-                                .child(t(if g == 1 {
-                                    "palette.group.settings"
-                                } else {
-                                    "palette.group.actions"
-                                }))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::subtle())
+                                .child(tracked(
+                                    &t(if g == 1 {
+                                        "palette.group.settings"
+                                    } else {
+                                        "palette.group.actions"
+                                    })
+                                    .to_uppercase(),
+                                    0.96,
+                                ))
                                 .into_any_element(),
                         );
                     }
@@ -2253,6 +2365,7 @@ impl AppView {
             keys.push(format!("⇥ {}", t("palette.keys.filter")));
             keys.push(format!("> {}", t("palette.keys.commandsOnly")));
         }
+        let gutter = p.scroll.max_offset().y > px(0.5);
         Some(
             crate::motion::scrim_in(
                 div()
@@ -2262,7 +2375,7 @@ impl AppView {
                     .bg(theme::scrim())
                     .flex()
                     .justify_center()
-                    .pt(relative(0.08))
+                    .pt(super::controls::viewport().height * 0.08)
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _: &MouseDownEvent, window, cx| {
@@ -2275,20 +2388,26 @@ impl AppView {
                     .child(
                         v_flex()
                             .id("search-card")
-                            .w(px(1152.))
-                            .max_w(relative(0.95))
-                            .h(relative(0.8))
+                            .w(super::controls::viewport().width - px(32.))
+                            .max_w(px(1152.))
+                            .h(super::controls::viewport().height * 0.8)
                             .rounded(theme::radius::XXL)
                             .overflow_hidden()
                             .bg(theme::modal())
                             .border_1()
                             .border_color(theme::line_strong())
-                            .shadow(theme::shadow_modal())
+                            .shadow(vec![BoxShadow {
+                                color: theme::shadow_deep(),
+                                offset: point(px(0.), px(40.)),
+                                blur_radius: px(120.),
+                                spread_radius: px(-30.),
+                                inset: false,
+                            }])
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .child(
                                 h_flex()
                                     .flex_none()
-                                    .h(px(56.))
+                                    .h(px(57.))
                                     .gap_3()
                                     .px_4()
                                     .border_b_1()
@@ -2309,8 +2428,18 @@ impl AppView {
                                             .child(
                                                 Input::new(&p.input)
                                                     .appearance(false)
-                                                    .cleanable(true),
+                                                    .cleanable(true)
+                                                    .px_0()
+                                                    .text_size(theme::text::HEADING),
                                             ),
+                                    )
+                                    .child(
+                                        kbd("Esc")
+                                            .rounded_md()
+                                            .px(px(6.))
+                                            .py(px(2.))
+                                            .text_size(theme::text::CAPTION)
+                                            .text_color(theme::subtle()),
                                     ),
                             )
                             .when(picking.is_none(), |el| el.child(self.filters_bar(cx)))
@@ -2321,14 +2450,24 @@ impl AppView {
                                     .items_start()
                                     .child(
                                         div()
-                                            .id("search-results")
+                                            .relative()
                                             .flex_1()
                                             .min_w_0()
                                             .h_full()
-                                            .overflow_y_scroll()
-                                            .py_2()
-                                            .text_color(theme::primary())
-                                            .children(list),
+                                            .child(
+                                                div()
+                                                    .id("search-results")
+                                                    .size_full()
+                                                    .overflow_y_scroll()
+                                                    .track_scroll(&p.scroll)
+                                                    .p_2()
+                                                    .when(gutter, |el| {
+                                                        el.pr(px(8.) + super::controls::SCROLLBAR)
+                                                    })
+                                                    .text_color(theme::primary())
+                                                    .children(list),
+                                            )
+                                            .child(super::controls::scrollbar(&p.scroll, gutter)),
                                     )
                                     .when_some(side, |el, s| el.child(s)),
                             )
@@ -2365,15 +2504,7 @@ fn key_hint(hint: String) -> AnyElement {
     } else {
         vec![keys]
     } {
-        row = row.child(
-            div()
-                .px_1()
-                .rounded_sm()
-                .border_1()
-                .border_color(theme::line())
-                .font_family(theme::mono())
-                .child(k.to_string()),
-        );
+        row = row.child(kbd(k));
     }
     row.child(what.to_string()).into_any_element()
 }
@@ -2390,7 +2521,13 @@ fn note(text: String) -> AnyElement {
 }
 
 /// aside is the preview beside the list: where, when, the body and its buttons.
-fn aside(place: String, at: String, body: AnyElement, foot: AnyElement) -> AnyElement {
+fn aside(
+    icon: &'static str,
+    place: String,
+    at: String,
+    body: AnyElement,
+    foot: AnyElement,
+) -> AnyElement {
     v_flex()
         .w(relative(0.42))
         .flex_none()
@@ -2409,7 +2546,13 @@ fn aside(place: String, at: String, body: AnyElement, foot: AnyElement) -> AnyEl
                 .border_color(theme::line())
                 .text_size(theme::text::CAPTION)
                 .text_color(theme::subtle())
-                .child(div().min_w_0().truncate().child(place))
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_1p5()
+                        .child(crate::icons::ic(icon).size_3p5().flex_none())
+                        .child(div().min_w_0().truncate().child(place)),
+                )
                 .when(!at.is_empty(), |el| {
                     el.child(div().flex_none().text_color(theme::faint()).child(at))
                 }),
@@ -2447,18 +2590,22 @@ fn primary(
 ) -> AnyElement {
     div()
         .id(id)
+        .flex()
+        .items_center()
+        .gap_1p5()
         .px_2p5()
         .py_1()
         .rounded_lg()
         .bg(theme::brand(500))
         .text_size(theme::text::CAPTION)
         .font_weight(FontWeight::MEDIUM)
-        .text_color(theme::on_brand())
+        .text_color(gpui::white())
         .cursor_pointer()
         .hover(|s| s.bg(theme::brand(400)))
         .active(|s| s.bg(theme::brand(600)))
         .on_click(click)
         .child(label)
+        .child(div().font_family(theme::mono()).opacity(0.8).child("↵"))
         .into_any_element()
 }
 

@@ -44,25 +44,37 @@ impl AppView {
         cx.notify();
     }
 
-    /// choices are Home and the projects matching the search, as (name, label).
+    /// choices are the projects matching the search, the most recently
+    /// talked to first, then Home (newTask.ts taskTargets), as (name, label).
     fn new_task_choices(&self, cx: &App) -> Vec<(String, String)> {
         let Some(n) = &self.new_task else {
             return Vec::new();
         };
-        let q = n.search.read(cx).value().trim().to_lowercase();
-        let mut out = Vec::new();
-        if q.is_empty() {
-            out.push((HOME_PROJECT.to_string(), t("v2.newTask.home")));
-        }
+        let q = n.search.read(cx).value().to_lowercase();
+        let words: Vec<&str> = q.split_whitespace().collect();
+        let matches = |name: &str, label: &str| {
+            let label = label.to_lowercase();
+            words
+                .iter()
+                .all(|w| label.contains(w) || name.to_lowercase().contains(w))
+        };
+        let mut out: Vec<(String, String, i64)> = Vec::new();
         for p in &self.projects {
             let label = if p.display_name.is_empty() {
                 p.name.clone()
             } else {
                 p.display_name.clone()
             };
-            if q.is_empty() || label.to_lowercase().contains(&q) || p.name.contains(&q) {
-                out.push((p.name.clone(), label));
+            if matches(&p.name, &label) {
+                let at = self.lead_line_at(&p.name);
+                out.push((p.name.clone(), label, at));
             }
+        }
+        out.sort_by_key(|o| std::cmp::Reverse(o.2));
+        let mut out: Vec<(String, String)> = out.into_iter().map(|(n, l, _)| (n, l)).collect();
+        let home = t("v2.newTask.home");
+        if matches("", &home) {
+            out.push((HOME_PROJECT.to_string(), home));
         }
         out
     }
@@ -106,9 +118,91 @@ impl AppView {
         cx.notify();
     }
 
+    /// render_new_task is NewTaskDialog: over the scrim, a card at 18vh,
+    /// max-w-xl, its search over the targets and the keys.
     pub(super) fn render_new_task(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let task = self.new_task.as_ref()?;
         let choices = self.new_task_choices(cx);
+        let none = choices.is_empty();
+        let typed = !task.search.read(cx).value().is_empty();
+        let vp = super::controls::viewport();
+        let rows = choices.into_iter().enumerate().map(|(i, (name, label))| {
+            let on = i == task.selected;
+            let home = name == HOME_PROJECT;
+            let project = self.projects.iter().find(|p| p.name == name);
+            h_flex()
+                .id(SharedString::from(format!("nt-{name}")))
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .gap_3()
+                .rounded_lg()
+                .px_3()
+                .py_2()
+                .text_size(theme::text::BODY)
+                .cursor_pointer()
+                .when(home, |el| el.mt_1())
+                .when(on, |el| {
+                    el.bg(theme::surface_raised()).text_color(theme::title())
+                })
+                .when(!on, |el| el.text_color(theme::secondary()))
+                .on_mouse_move(cx.listener(move |this, _: &MouseMoveEvent, _, cx| {
+                    if let Some(n) = this.new_task.as_mut()
+                        && n.selected != i
+                    {
+                        n.selected = i;
+                        cx.notify();
+                    }
+                }))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.pick_new_task(Some(i), window, cx)
+                }))
+                .map(|el| match project.filter(|_| !home) {
+                    Some(p) => el.child(self.project_icon(p, 24.)),
+                    None => el.child(
+                        div()
+                            .flex_none()
+                            .size_6()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_md()
+                            .bg(theme::surface_strong())
+                            .text_color(theme::secondary())
+                            .child(crate::icons::ic("house").size_3p5()),
+                    ),
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(label),
+                )
+                .when(on, |el| {
+                    el.child(
+                        crate::icons::ic("corner-down-left")
+                            .size_3p5()
+                            .flex_none()
+                            .text_color(theme::faint()),
+                    )
+                })
+                .when(i < 9, |el| {
+                    el.child(
+                        div()
+                            .flex_none()
+                            .w_5()
+                            .rounded(px(4.))
+                            .bg(theme::surface_strong())
+                            .text_center()
+                            .font_family(theme::mono())
+                            .text_size(theme::text::CAPTION)
+                            .text_color(theme::subtle())
+                            .child((i + 1).to_string()),
+                    )
+                })
+        });
         Some(
             crate::motion::scrim_in(
                 div()
@@ -118,7 +212,7 @@ impl AppView {
                     .bg(theme::scrim())
                     .flex()
                     .justify_center()
-                    .pt(px(120.))
+                    .pt(vp.height * 0.18)
                     .on_key_down(cx.listener(Self::on_new_task_key))
                     .on_mouse_down(
                         MouseButton::Left,
@@ -130,84 +224,94 @@ impl AppView {
                     .child(
                         v_flex()
                             .id("new-task-card")
-                            .w(px(520.))
-                            .max_h(px(480.))
-                            .p_4()
-                            .gap_3()
-                            .rounded_xl()
-                            .bg(theme::card())
+                            .w(vp.width - px(32.))
+                            .max_w(px(576.))
+                            .h_auto()
+                            .self_start()
+                            .overflow_hidden()
+                            .rounded(theme::radius::XXL)
                             .border_1()
-                            .border_color(theme::line())
+                            .border_color(theme::line_strong())
+                            .bg(theme::modal())
+                            .shadow(vec![BoxShadow {
+                                color: theme::shadow_deep(),
+                                offset: point(px(0.), px(40.)),
+                                blur_radius: px(120.),
+                                spread_radius: px(-30.),
+                                inset: false,
+                            }])
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .child(
-                                div()
-                                    .text_color(theme::primary())
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(t("v2.newTask.title")),
+                                h_flex()
+                                    .items_center()
+                                    .gap(px(10.))
+                                    .border_b_1()
+                                    .border_color(theme::line())
+                                    .px_4()
+                                    .py_3()
+                                    .child(
+                                        crate::icons::ic("search")
+                                            .size_4()
+                                            .flex_none()
+                                            .text_color(theme::faint()),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .h(px(24.))
+                                            .text_size(theme::text::HEADING)
+                                            .text_color(theme::primary())
+                                            .child(
+                                                // text-heading, its 24px line and no padding.
+                                                Input::new(&task.search)
+                                                    .appearance(false)
+                                                    .px_0()
+                                                    .py_0()
+                                                    .h(px(24.))
+                                                    .text_size(theme::text::HEADING)
+                                                    .line_height(px(24.))
+                                                    // gpui-component's editor sets its
+                                                    // line lower than Chromium's input.
+                                                    .mt(px(-3.)),
+                                            ),
+                                    ),
                             )
-                            .child(Input::new(&task.search))
                             .child(
                                 v_flex()
                                     .id("new-task-list")
+                                    .max_h(vp.height * 0.5)
                                     .overflow_y_scroll()
-                                    .when(choices.is_empty(), |el| {
+                                    .p(px(6.))
+                                    .children(rows)
+                                    .when(none, |el| {
                                         el.child(
                                             div()
-                                                .p_2()
-                                                .text_sm()
-                                                .text_color(theme::faint())
+                                                .px_3()
+                                                .py_4()
+                                                .text_size(theme::text::UI)
+                                                .text_color(theme::subtle())
                                                 .child(t("v2.newTask.none")),
                                         )
-                                    })
-                                    .children(choices.into_iter().enumerate().map(
-                                        |(i, (name, label))| {
-                                            let on = i == task.selected;
-                                            h_flex()
-                                                .id(SharedString::from(format!("nt-{name}")))
-                                                .px_2()
-                                                .py_1p5()
-                                                .gap_3()
-                                                .rounded_md()
-                                                .cursor_pointer()
-                                                .when(on, |el| el.bg(theme::surface_strong()))
-                                                .hover(|el| el.bg(theme::surface_raised()))
-                                                .on_click(cx.listener(
-                                                    move |this, _: &ClickEvent, window, cx| {
-                                                        this.pick_new_task(Some(i), window, cx)
-                                                    },
-                                                ))
-                                                .child(
-                                                    div()
-                                                        .w_4()
-                                                        .text_xs()
-                                                        .text_color(theme::faint())
-                                                        .child(if i < 9 {
-                                                            (i + 1).to_string()
-                                                        } else {
-                                                            String::new()
-                                                        }),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .text_color(if on {
-                                                            theme::primary()
-                                                        } else {
-                                                            theme::muted()
-                                                        })
-                                                        .child(label),
-                                                )
-                                        },
-                                    )),
+                                    }),
                             )
                             .child(
                                 h_flex()
-                                    .gap_4()
-                                    .text_xs()
+                                    .items_center()
+                                    .gap_3()
+                                    .border_t_1()
+                                    .border_color(theme::line())
+                                    .px_4()
+                                    .py_2()
+                                    .text_size(theme::text::CAPTION)
                                     .text_color(theme::faint())
                                     .child(t("v2.newTask.hintMove"))
                                     .child(t("v2.newTask.hintOpen"))
-                                    .child(t("v2.newTask.hintDigit")),
+                                    .child(t(if typed {
+                                        "v2.newTask.hintAltDigit"
+                                    } else {
+                                        "v2.newTask.hintDigit"
+                                    })),
                             ),
                     ),
                 "idnew-task-in",

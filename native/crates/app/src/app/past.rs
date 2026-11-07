@@ -506,7 +506,7 @@ impl AppView {
         let fleet = as_fleet(a);
         match self.past.view {
             PView::Files => self.render_files(),
-            PView::Timeline => self.render_timeline(r),
+            PView::Timeline => self.render_timeline(r, cx),
             _ => self.render_evidence(Some(&fleet), cx),
         }
     }

@@ -101,7 +101,10 @@ impl ChatView {
                 gallery.extend(media::live_pages(&pages, &r2).into_iter().map(Shown::Page));
                 let shots: Vec<MediaItem> = gallery
                     .iter()
-                    .filter_map(Shown::thumb)
+                    .filter_map(|s| match s {
+                        Shown::Screenshot(m) => Some(m),
+                        _ => None,
+                    })
                     .take(3)
                     .cloned()
                     .collect();
@@ -241,7 +244,12 @@ impl ChatView {
             .map(|e| {
                 e.gallery
                     .iter()
-                    .filter_map(Shown::thumb)
+                    // proofOf's screenshots, the ones in no before/after pair:
+                    // a recording plays above instead.
+                    .filter_map(|s| match s {
+                        Shown::Screenshot(m) => Some(m),
+                        _ => None,
+                    })
                     .map(|m| (m.id.clone(), e.files.get(&m.id).cloned()))
                     .collect()
             })
@@ -271,157 +279,246 @@ impl ChatView {
         };
         // Its recording plays on the card, muted and looped; a click
         // reviews it.
+        // EvidenceCard: in a card wider than 36rem (its @xl) the recording
+        // sits at the left, 46% wide, else across the top; 16:10, its
+        // chapter or name and its length over a shade at its foot.
+        let wide = self.composer.width >= 576.;
+        let caption = take.as_ref().map(|t| {
+            let first = t.chapters.first().map(|c| c.title.clone());
+            let text = match first {
+                Some(c) => tv("evidence.chapter", &[("title", (&c).into())]),
+                None => media::readable(&t.media.name),
+            };
+            let length = t.media.meta.duration;
+            h_flex()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .items_end()
+                .gap_2()
+                .px_3()
+                .pb_2()
+                .pt_8()
+                .text_size(px(12.))
+                .line_height(px(18.))
+                .text_color(white())
+                .bg(linear_gradient(
+                    0.,
+                    linear_color_stop(black().opacity(0.85), 0.),
+                    linear_color_stop(black().opacity(0.), 1.),
+                ))
+                .child(div().min_w_0().flex_1().truncate().child(text))
+                .when(length > 0., |el| {
+                    el.child(
+                        div()
+                            .flex_none()
+                            .text_color(white().opacity(0.7))
+                            .child(mmss(length)),
+                    )
+                })
+        });
         #[cfg(feature = "video")]
-        let video = self.evidence.players.get(r).cloned().map(|p| {
+        let player = self.evidence.players.get(r).cloned();
+        #[cfg(not(feature = "video"))]
+        let player: Option<Div> = None;
+        let video = take.as_ref().map(|_| {
             div()
                 .id(SharedString::from(format!("ev-video-{item_id}-{r}")))
-                .w_full()
-                .h(px(220.))
+                .relative()
+                .flex_none()
+                .map(|el| {
+                    if wide {
+                        el.w(relative(0.46))
+                    } else {
+                        el.w_full()
+                    }
+                })
+                .aspect_ratio(1.6)
                 .bg(theme::pitch())
                 .overflow_hidden()
                 .cursor_pointer()
                 .on_click(open.clone())
-                .child(p)
+                .children(player.map(|p| div().absolute().inset_0().child(p)))
+                .children(caption)
         });
-        #[cfg(not(feature = "video"))]
-        let video: Option<Div> = None;
         let merge_pr = pr.clone().filter(|p| p.state == "open");
         let block = merge_pr
             .as_ref()
             .and_then(|p| crate::app::pulls::merge_block(p, None));
+        let pr_line = pr.as_ref().map(|pr| {
+            let merged = pr.state == "merged";
+            let url = pr.url.clone();
+            h_flex()
+                .gap_1()
+                .text_color(if merged {
+                    theme::violet(300)
+                } else {
+                    theme::secondary()
+                })
+                .child(
+                    crate::icons::ic(if merged {
+                        "git-merge"
+                    } else {
+                        "git-pull-request"
+                    })
+                    .size(px(14.)),
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("ev-pr-{item_id}-{r}")))
+                        .when(!url.is_empty(), |el| el.text_color(theme::brand(300)))
+                        .cursor_pointer()
+                        .hover(|el| el.underline())
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                        .child(format!("#{}", pr.number)),
+                )
+        });
+        let body = v_flex()
+            .min_w_0()
+            .flex_1()
+            .p_3p5()
+            .gap_2p5()
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(crate::icons::ai_icon(
+                        item.map(|i| i.ai.as_str()).unwrap_or(""),
+                        px(16.),
+                        theme::muted(),
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::title())
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(12.))
+                            .text_color(theme::subtle())
+                            .child(tv("evidence.finished", &[("agent", name.into())])),
+                    ),
+            )
+            .map(|el| {
+                if !chapters.is_empty() {
+                    el.child(v_flex().gap_1().text_size(theme::text::UI).children(
+                        chapters.iter().take(5).enumerate().map(|(i, c)| {
+                            h_flex()
+                                .min_w_0()
+                                .gap_1p5()
+                                .text_color(if i == 0 {
+                                    theme::title()
+                                } else {
+                                    theme::secondary()
+                                })
+                                .child(
+                                    crate::icons::ic("check")
+                                        .size(px(14.))
+                                        .text_color(theme::emerald(400)),
+                                )
+                                .child(div().min_w_0().truncate().child(c.title.clone()))
+                        }),
+                    ))
+                } else if !summary.is_empty() {
+                    el.child(
+                        div()
+                            .text_size(theme::text::UI)
+                            .line_height(relative(1.625))
+                            .text_color(theme::secondary())
+                            .line_clamp(3)
+                            .child(summary),
+                    )
+                } else {
+                    el
+                }
+            })
+            .when_some(page, |el, p| {
+                el.child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_1p5()
+                        .text_size(px(12.))
+                        .text_color(theme::secondary())
+                        .child(
+                            crate::icons::ic("file-text")
+                                .size(px(14.))
+                                .text_color(theme::faint()),
+                        )
+                        .child(div().min_w_0().truncate().child(p)),
+                )
+            })
+            .child(
+                h_flex()
+                    .mt_auto()
+                    .flex_wrap()
+                    .gap_x(px(10.))
+                    .gap_y_1()
+                    .text_size(px(12.))
+                    .line_height(px(18.))
+                    .text_color(theme::subtle())
+                    .children(pr_line)
+                    .when_some(changes, |el, c| {
+                        el.child(
+                            h_flex()
+                                .font_family(theme::mono())
+                                .child(
+                                    div()
+                                        .text_color(theme::emerald(300))
+                                        .child(format!("+{}", c.insertions)),
+                                )
+                                .child(" ")
+                                .child(
+                                    div()
+                                        .text_color(theme::rose(300))
+                                        .child(format!("−{}", c.deletions)),
+                                ),
+                        )
+                    })
+                    .when_some(pr.as_ref().filter(|p| p.state == "open"), |el, pr| match pr
+                        .checks
+                        .as_str()
+                    {
+                        "failing" => el.child(
+                            h_flex()
+                                .gap_1()
+                                .text_color(theme::rose(300))
+                                .child(crate::icons::ic("circle-alert").size(px(14.)))
+                                .child(t("v2.card.checksFailing")),
+                        ),
+                        "passing" => el.child(
+                            h_flex()
+                                .gap_1()
+                                .child(
+                                    crate::icons::ic("circle-check")
+                                        .size(px(14.))
+                                        .text_color(theme::emerald(400)),
+                                )
+                                .child(t("v2.card.checksPass")),
+                        ),
+                        _ => el,
+                    }),
+            );
         v_flex()
             .rounded_xl()
             .border_1()
-            .border_color(theme::line())
-            .bg(theme::card())
+            .border_color(theme::line_strong())
+            .bg(theme::surface())
             .overflow_hidden()
-            .children(video)
             .child(
-                v_flex()
-                    .p_3p5()
-                    .gap_2p5()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(crate::icons::ai_icon(
-                                item.map(|i| i.ai.as_str()).unwrap_or(""),
-                                px(16.),
-                                theme::muted(),
-                            ))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme::primary())
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .text_xs()
-                                    .text_color(theme::faint())
-                                    .child(tv("evidence.finished", &[("agent", name.into())])),
-                            ),
-                    )
-                    .when_some(take.as_ref(), |el, t| {
-                        el.child(
-                            div()
-                                .id(SharedString::from(format!("ev-rec-{item_id}-{r}")))
-                                .text_xs()
-                                .text_color(theme::muted())
-                                .cursor_pointer()
-                                .hover(|s| s.text_color(theme::primary()))
-                                .on_click(open.clone())
-                                .child(crate::icons::lead("play", media::readable(&t.media.name))),
-                        )
-                    })
-                    .map(|el| {
-                        if !chapters.is_empty() {
-                            el.child(v_flex().gap_1().text_sm().children(
-                                chapters.iter().take(5).map(|c| {
-                                    h_flex()
-                                        .gap_1p5()
-                                        .child(
-                                            div()
-                                                .text_color(theme::running())
-                                                .child(crate::icons::of("✓")),
-                                        )
-                                        .child(
-                                            div()
-                                                .min_w_0()
-                                                .truncate()
-                                                .text_color(theme::primary())
-                                                .child(c.title.clone()),
-                                        )
-                                }),
-                            ))
-                        } else if !summary.is_empty() {
-                            el.child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme::muted())
-                                    .line_clamp(3)
-                                    .child(summary),
-                            )
-                        } else {
-                            el
-                        }
-                    })
-                    .when_some(page, |el, p| {
-                        el.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme::muted())
-                                .truncate()
-                                .child(crate::icons::lead("globe", p)),
-                        )
-                    })
-                    .child(
-                        h_flex()
-                            .flex_wrap()
-                            .gap_2p5()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .when_some(pr.as_ref(), |el, pr| el.child(crate::app::pr_chip_for(pr)))
-                            .when_some(changes, |el, c| {
-                                el.child(
-                                    h_flex()
-                                        .gap_1()
-                                        .font_family(theme::mono())
-                                        .child(
-                                            div()
-                                                .text_color(theme::running())
-                                                .child(format!("+{}", c.insertions)),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_color(theme::error())
-                                                .child(format!("−{}", c.deletions)),
-                                        ),
-                                )
-                            })
-                            .when_some(
-                                pr.as_ref().filter(|p| p.state == "open"),
-                                |el, pr| match pr.checks.as_str() {
-                                    "failing" => el.child(
-                                        div()
-                                            .text_color(theme::error())
-                                            .child(t("v2.card.checksFailing")),
-                                    ),
-                                    "passing" => el.child(
-                                        div()
-                                            .text_color(theme::running())
-                                            .child(t("v2.card.checksPass")),
-                                    ),
-                                    _ => el,
-                                },
-                            ),
-                    ),
+                div()
+                    .flex()
+                    .map(|el| if wide { el.flex_row() } else { el.flex_col() })
+                    .children(video)
+                    .child(body),
             )
             .child(
                 h_flex()
+                    .flex_wrap()
                     .p_2p5()
                     .gap_2()
                     .border_t_1()
@@ -440,9 +537,10 @@ impl ChatView {
                                     .rounded_md()
                                     .overflow_hidden()
                                     .border_1()
-                                    .border_color(theme::line())
+                                    .border_color(theme::line_strong())
                                     .bg(theme::pitch())
                                     .cursor_pointer()
+                                    .hover(|el| el.border_color(theme::line_heavy()))
                                     .on_click(open.clone())
                                     .when_some(p, |el, p| {
                                         el.child(img(p).size_full().object_fit(ObjectFit::Cover))
@@ -451,9 +549,19 @@ impl ChatView {
                             .when(more > 0, |el| {
                                 el.child(
                                     div()
-                                        .px_2()
-                                        .text_xs()
-                                        .text_color(theme::faint())
+                                        .id(SharedString::from(format!("ev-more-{item_id}-{r}")))
+                                        .flex_none()
+                                        .size_12()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded_md()
+                                        .border_1()
+                                        .border_color(theme::line())
+                                        .text_size(px(12.))
+                                        .text_color(theme::subtle())
+                                        .cursor_pointer()
+                                        .on_click(open.clone())
                                         .child(tv("evidence.moreShots", &[("count", more.into())])),
                                 )
                             }),
@@ -470,11 +578,12 @@ impl ChatView {
                     .when(pr.as_ref().is_some_and(|p| p.state == "merged"), |el| {
                         el.child(
                             h_flex()
+                                .h_8()
                                 .gap_1p5()
                                 .px_2()
-                                .text_sm()
-                                .text_color(theme::accent())
-                                .child(crate::icons::ic("git-merge"))
+                                .text_size(theme::text::UI)
+                                .text_color(theme::violet(300))
+                                .child(crate::icons::ic("git-merge").size(px(16.)))
                                 .child(t("evidence.merged")),
                         )
                     })
@@ -486,45 +595,47 @@ impl ChatView {
                             p.number,
                         );
                         let tip = block.clone();
+                        let disabled = block.is_some();
                         el.child(
-                            div()
-                                .id(SharedString::from(format!("ev-merge-wrap-{item_id}-{r}")))
+                            h_flex()
+                                .id(SharedString::from(format!("ev-merge-{item_id}-{r}")))
+                                .flex_none()
+                                .h_8()
+                                .gap_2()
+                                .px_3()
+                                .rounded_lg()
+                                .text_size(theme::text::UI)
+                                .font_weight(FontWeight::MEDIUM)
+                                .bg(theme::brand(500))
+                                .text_color(theme::on_brand())
+                                .when(disabled, |el| el.opacity(0.45))
+                                .when(!disabled, |el| {
+                                    el.cursor_pointer()
+                                        .hover(|el| el.bg(theme::brand(600)))
+                                        .on_click(move |_, _, cx| {
+                                            let project = project.clone();
+                                            v.update(cx, |_, cx| {
+                                                cx.emit(ChatAction::Merge(project, number))
+                                            })
+                                        })
+                                })
                                 .when_some(tip, |el, tip| {
                                     el.tooltip(move |w, cx| {
                                         gpui_component::tooltip::Tooltip::new(tip.clone())
                                             .build(w, cx)
                                     })
                                 })
-                                .child(crate::app::controls::button(
-                                    SharedString::from(format!("ev-merge-{item_id}-{r}")),
-                                    t("evidence.merge"),
-                                    crate::app::controls::Btn::Primary,
-                                    block.is_some(),
-                                    move |_, _, cx| {
-                                        let project = project.clone();
-                                        v.update(cx, |_, cx| {
-                                            cx.emit(ChatAction::Merge(project, number))
-                                        })
-                                    },
-                                )),
+                                .child(crate::icons::ic("git-merge").size(px(16.)))
+                                .child(t("evidence.merge")),
                         )
-                    })
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("ev-open-{item_id}-{r}")))
-                            .text_xs()
-                            .text_color(theme::accent())
-                            .cursor_pointer()
-                            .hover(|s| s.underline())
-                            .on_click({
-                                let (v, r) = (view.clone(), r.to_string());
-                                move |_, _, cx| {
-                                    v.update(cx, |_, cx| cx.emit(ChatAction::OpenAgent(r.clone())))
-                                }
-                            })
-                            .child(t("chat.agentPermission.open")),
-                    ),
+                    }),
             )
             .into_any_element()
     }
+}
+
+/// mmss is a recording's length as m:ss (review.ts clock).
+fn mmss(secs: f64) -> String {
+    let s = secs.max(0.).floor() as u64;
+    format!("{}:{:02}", s / 60, s % 60)
 }

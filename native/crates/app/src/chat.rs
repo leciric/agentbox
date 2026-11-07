@@ -15,6 +15,7 @@ use crate::{bench, theme};
 use agentbox_i18n::{t, tv};
 
 mod composer;
+pub use composer::ReviewCard;
 mod evidence;
 mod find;
 mod items;
@@ -99,6 +100,8 @@ pub enum ChatAction {
     Merge(String, i64),
     ReopenClosed,
     DeleteClosed,
+    /// The review banner's Review: the project's Work on what waits.
+    ReviewProject,
 }
 
 /// The picture shown over everything, zoomed.
@@ -161,6 +164,16 @@ pub struct ChatView {
     pub agent_name: String,
     /// The agent's machine is stopped or paused: a message wakes it.
     pub asleep: Option<String>,
+    /// A project's lead: how many of its agents wait for review, the banner
+    /// over its composer (ReviewCount's banner).
+    pub review_count: usize,
+    /// The timeline's row width at the last paint, for a user bubble's
+    /// one-line test (render_user).
+    row_width: std::rc::Rc<std::cell::Cell<f32>>,
+    /// A finished agent's review card over its composer (AgentReviewCard),
+    /// handed in by the app, and the agent's media counts by kind for it.
+    pub review_card: Option<ReviewCard>,
+    media_kinds: std::collections::BTreeMap<String, i64>,
     /// A past agent's chat: read-only, Continue and Delete where the
     /// composer was (ChatTab's readOnly).
     pub past: bool,
@@ -268,9 +281,13 @@ impl ChatView {
             prefix,
             title,
             header: true,
+            row_width: Default::default(),
             agent,
             agent_name: String::new(),
             asleep: None,
+            review_count: 0,
+            review_card: None,
+            media_kinds: Default::default(),
             past: false,
             closed: false,
             evidence: Default::default(),
@@ -578,10 +595,45 @@ impl ChatView {
         .detach();
     }
 
+    /// is_empty is whether the chat has nothing in it yet (New chat is off).
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
     pub fn load(&mut self, cx: &mut Context<Self>) {
         self.read_page(format!("{}/chat?limit={PAGE}", self.prefix), None, cx);
         self.load_checkpoints(cx);
+        self.load_media_counts(cx);
         self.composer.load_cache(&self.client, &self.prefix, cx);
+    }
+
+    /// load_media_counts reads what the agent made, by kind, for its review
+    /// card (useMediaCounts on the agent).
+    fn load_media_counts(&mut self, cx: &mut Context<Self>) {
+        if self.is_lead() {
+            return;
+        }
+        let Some(rest) = self.prefix.strip_prefix("/v1/agents/") else {
+            return;
+        };
+        let Some((p, a)) = rest.split_once('/') else {
+            return;
+        };
+        let path = format!("/v1/media/counts?project={p}&agent={a}");
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(c) = client.get::<agentbox_api::MediaCounts>(&path).await else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                if this.media_kinds != c.kinds {
+                    this.media_kinds = c.kinds;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// read_page replaces what's held with a page: the latest, or the
@@ -902,6 +954,82 @@ impl ChatView {
         cx.notify();
     }
 
+    /// render_hero is an empty lead chat's welcome, as ChatTab's Hero (and
+    /// HomeHero): the tool's mark in a box, a title and a line under it.
+    fn render_hero(&self, window: &Window) -> Option<AnyElement> {
+        if !self.loaded || !self.items.is_empty() {
+            return None;
+        }
+        let (project, name) = self.agent.split_once('/')?;
+        let lead = name == "lead" || name.starts_with("lead.");
+        if !lead {
+            return None;
+        }
+        let (title, line) = if project == agentbox_api::HOME_PROJECT {
+            (t("chat.hero.homeTitle"), t("chat.hero.home"))
+        } else {
+            (
+                tv("chat.hero.title", &[("project", project.into())]),
+                tv(
+                    "chat.hero.project",
+                    &[
+                        ("project", project.into()),
+                        ("branch", t("chat.hero.itsBranch").into()),
+                    ],
+                ),
+            )
+        };
+        let tool = if self.session.tool.is_empty() {
+            "claude"
+        } else {
+            self.session.tool.as_str()
+        };
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .mt_6()
+                .min_h(window.viewport_size().height * 0.42)
+                .pt_6()
+                .child(
+                    div()
+                        .mb_5()
+                        .size_12()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_2xl()
+                        .border_1()
+                        .border_color(theme::line_strong())
+                        .bg(theme::overlay())
+                        .child(crate::icons::ai_icon(tool, px(20.), theme::brand(300))),
+                )
+                .child(
+                    div()
+                        .text_size(theme::text::DISPLAY)
+                        .text_color(theme::primary())
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .mt_2()
+                        .max_w(theme::balanced_width(window, &line, px(14.), px(448.)))
+                        .text_center()
+                        .text_size(theme::text::BODY)
+                        .line_height(relative(1.625))
+                        .text_color(theme::subtle())
+                        .child(line),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn render_header(&self, working: bool) -> AnyElement {
         h_flex()
             .h_12()
@@ -1003,6 +1131,7 @@ impl Render for ChatView {
         let view = cx.entity();
         let working = self.working();
         let zoom = self.render_zoom(window, cx);
+        let gutter = crate::app::controls::list_overflows(&self.list);
         v_flex()
             .id("chat")
             .key_context("Chat")
@@ -1036,12 +1165,25 @@ impl Render for ChatView {
                     .flex_1()
                     .min_h_0()
                     .child(crate::webview::begin())
+                    // ChatTab's chat-scroller: Chromium's thin scrollbar takes
+                    // its gutter off the right while the chat overflows.
                     .child(
-                        list(self.list.clone(), move |ix, _window, cx| {
-                            view.read(cx).render_row(ix, view.clone())
-                        })
-                        .size_full(),
+                        div()
+                            .size_full()
+                            .when(gutter, |el| el.pr(crate::app::controls::SCROLLBAR))
+                            // ChatTab's content pads its bottom by the composer's
+                            // height + 28, its offsetHeight, a whole pixel: the
+                            // lead's review banner is 36.5px tall there (36 here),
+                            // which rounds the room up.
+                            .when(self.review_count > 0 && self.is_lead(), |el| el.pb(px(1.)))
+                            .child(
+                                list(self.list.clone(), move |ix, window, cx| {
+                                    view.read(cx).render_row(ix, view.clone(), window)
+                                })
+                                .size_full(),
+                            ),
                     )
+                    .child(crate::app::controls::list_scrollbar(&self.list, gutter))
                     .child(crate::webview::end())
                     .when(self.loading_older, |el| {
                         el.child(
@@ -1072,6 +1214,7 @@ impl Render for ChatView {
                                 .child(crate::motion::skeleton_chat("chat-loading")),
                         )
                     })
+                    .children(self.render_hero(window))
                     .children(self.render_jump(cx)),
             )
             .when_some(self.error.clone(), |el, e| {
