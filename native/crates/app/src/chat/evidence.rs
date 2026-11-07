@@ -101,7 +101,10 @@ impl ChatView {
                 gallery.extend(media::live_pages(&pages, &r2).into_iter().map(Shown::Page));
                 let shots: Vec<MediaItem> = gallery
                     .iter()
-                    .filter_map(Shown::thumb)
+                    .filter_map(|s| match s {
+                        Shown::Screenshot(m) => Some(m),
+                        _ => None,
+                    })
                     .take(3)
                     .cloned()
                     .collect();
@@ -241,9 +244,12 @@ impl ChatView {
             .map(|e| {
                 e.gallery
                     .iter()
-                    .filter_map(Shown::thumb)
-                    // proofOf's screenshots: a recording plays above instead.
-                    .filter(|m| m.kind == "screenshot")
+                    // proofOf's screenshots, the ones in no before/after pair:
+                    // a recording plays above instead.
+                    .filter_map(|s| match s {
+                        Shown::Screenshot(m) => Some(m),
+                        _ => None,
+                    })
                     .map(|m| (m.id.clone(), e.files.get(&m.id).cloned()))
                     .collect()
             })
