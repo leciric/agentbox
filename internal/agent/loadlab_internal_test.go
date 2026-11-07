@@ -428,7 +428,7 @@ func setUpLoadAgents(t *testing.T, ctx context.Context, c labAPI, cfg loadConfig
 		}
 		if have[i].State != "running" {
 			waitIO(t, cfg.ioMax, "starting "+name)
-			if err := c.do(ctx, http.MethodPost, "/v1/agents/"+have[i].Project+"/"+name+"/start", nil, &have[i]); err != nil {
+			if err := c.do(ctx, http.MethodPost, "/v1/agents/"+have[i].Project+"/"+have[i].Name+"/start", nil, &have[i]); err != nil {
 				t.Fatalf("starting %s: %v", name, err)
 			}
 		}
