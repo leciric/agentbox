@@ -707,6 +707,24 @@ const end = Date.now() + 60000;
 while (Date.now() < end) for (const b of bufs) for (let o = 0; o < chunk; o += 4096) b[o + 2000]++;
 '`
 
+// killForkBomb kills what is left of loadForkBomb in an agent's machine.
+func killForkBomb(t *testing.T, a *loadAgent) {
+	if a.Kind != "forkbomb" {
+		return
+	}
+	dir := filepath.Join(agentCgroup(cgroupRoot, a.Instance), "loadlab-bomb")
+	if err := os.WriteFile(filepath.Join(dir, "cgroup.kill"), []byte("1"), 0o644); err != nil {
+		return // none left
+	}
+	for range 60 {
+		if os.Remove(dir) == nil {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Errorf("%s: its fork bomb's cgroup is still there a minute after it was killed", a.Name)
+}
+
 // loadForkBomb runs the classic fork bomb, as root in its machine, in a
 // cgroup of its own there, which it kills after 30 seconds, and prints the
 // most tasks it reached. That cgroup's pids.max is the lab's own safety net,
@@ -1184,6 +1202,9 @@ func runLoad(t *testing.T, ctx context.Context, c labAPI, agents []*loadAgent, c
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// A fork bomb the run's end cut off outlives its script (timeout
+			// kills the script, not the bomb): killed from outside.
+			defer killForkBomb(t, a)
 			// Staggered over the first 20 seconds, as agents never all start
 			// at the same instant.
 			select {
