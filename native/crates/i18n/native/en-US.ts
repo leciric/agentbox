@@ -30,6 +30,8 @@ export const enUSNative = {
   'native.update.restart': 'Restart to update',
   'native.update.ready': 'AgentBox {version} is installed',
   'native.update.inPlace': 'Downloads {version}, installs it in place of this version, then offers to restart into it',
+  'native.update.daemonBehind': 'The daemon is {daemon}, behind this app ({app}), and this app can’t update it. Update the AgentBox desktop app or CLI, then run `agentbox daemon stop` (click to copy it)',
+  'native.update.commandCopied': 'Copied to the clipboard',
   'native.month.long.1': 'January',
   'native.month.short.1': 'Jan',
   'native.month.long.2': 'February',

@@ -1369,12 +1369,44 @@ impl AppView {
             })
             .into_any_element();
         }
-        let offer = self.side.update.as_ref().and_then(|u| {
-            u.available
-                .as_ref()
-                .filter(|a| newer(&a.version, &u.current))
-                .cloned()
-        });
+        let (offer, behind) = match self.side.update.as_ref().and_then(|u| {
+            offered_update(
+                crate::update::app_version(),
+                &u.current,
+                u.available.as_ref().map(|a| a.version.as_str()),
+            )
+        }) {
+            Some(Offered::App(version)) => (
+                self.side
+                    .update
+                    .as_ref()
+                    .and_then(|u| u.available.clone())
+                    .filter(|a| a.version == version),
+                None,
+            ),
+            Some(Offered::DaemonBehind { daemon, app }) => (None, Some((daemon, app))),
+            None => (None, None),
+        };
+        // The daemon is older than this app, and only the CLI's own updater
+        // (the Electron app, or the CLI) can replace it: say how, with no
+        // button that installs nothing. Clicking copies the command.
+        if let Some((daemon, app)) = behind {
+            let tip = tv(
+                "native.update.daemonBehind",
+                &[("daemon", daemon.into()), ("app", app.into())],
+            );
+            return glyph_button("update-daemon-behind", "info", 16., 8., tip)
+                .rounded_lg()
+                .text_color(theme::muted())
+                .on_click(|_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(
+                        DAEMON_STOP_COMMAND.to_string(),
+                    ));
+                    toasts::Toast::new(toasts::Kind::Info, t("native.update.commandCopied"))
+                        .show(cx);
+                })
+                .into_any_element();
+        }
         if let Some(offer) = offer {
             let progress = self.side.app_update.as_ref().map(update_label);
             let updating = progress.is_some();
@@ -1671,6 +1703,51 @@ pub(super) fn toggle(list: &mut Vec<String>, v: &str) {
     }
 }
 
+/// DAEMON_STOP_COMMAND restarts a daemon so it runs the binary on disk.
+const DAEMON_STOP_COMMAND: &str = "agentbox daemon stop";
+
+/// Offered is what the sidebar's update button shows.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Offered {
+    /// A release newer than this app, which its updater installs.
+    App(String),
+    /// The daemon runs an older version than this app; this app can't
+    /// update it.
+    DaemonBehind { daemon: String, app: String },
+}
+
+/// offered_update decides what to offer from this app's version (None when
+/// unknown), the daemon's, and the release its update check found. Only the
+/// app's own update gets a button: a release newer than the daemon but not
+/// than this app is the daemon's to install.
+pub(super) fn offered_update(
+    app: Option<&str>,
+    daemon: &str,
+    available: Option<&str>,
+) -> Option<Offered> {
+    // The app's build may spell a nightly 0.18.0.20261106.179.
+    fn comparable(v: &str) -> String {
+        let v = v.trim_start_matches('v');
+        let n: Vec<&str> = v.split('.').collect();
+        if !v.contains('-') && n.len() == 5 {
+            format!("{}.{}.{}-nightly.{}.{}", n[0], n[1], n[2], n[3], n[4])
+        } else {
+            v.to_string()
+        }
+    }
+    let base = comparable(app.unwrap_or(daemon));
+    if let Some(a) = available
+        && newer(&comparable(a), &base)
+    {
+        return Some(Offered::App(a.to_string()));
+    }
+    let app = app?;
+    newer(&comparable(app), &comparable(daemon)).then(|| Offered::DaemonBehind {
+        daemon: daemon.to_string(),
+        app: app.to_string(),
+    })
+}
+
 /// newer is whether version a is past b (nightly.ts isUpgrade): their
 /// numbers compared in order, a prerelease before its release.
 pub(super) fn newer(a: &str, b: &str) -> bool {
@@ -1699,7 +1776,43 @@ pub(super) fn newer(a: &str, b: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{newer, toggle};
+    use super::{Offered, newer, offered_update, toggle};
+
+    #[test]
+    fn only_the_apps_own_update_gets_a_button() {
+        let d = "0.18.0-nightly.20261104.168";
+        let n = "0.18.0-nightly.20261106.179";
+        // The issue: daemon behind, app already at the release.
+        assert_eq!(
+            offered_update(Some(n), d, Some(n)),
+            Some(Offered::DaemonBehind {
+                daemon: d.into(),
+                app: n.into()
+            })
+        );
+        // The app's own spelling of the same nightly.
+        assert!(matches!(
+            offered_update(Some("0.18.0.20261106.179"), d, Some(n)),
+            Some(Offered::DaemonBehind { .. })
+        ));
+        // A release past the app: the app's update, whatever the daemon.
+        assert_eq!(
+            offered_update(Some(d), d, Some(n)),
+            Some(Offered::App(n.into()))
+        );
+        assert_eq!(
+            offered_update(Some(d), "0.18.0-nightly.20261101.1", Some(n)),
+            Some(Offered::App(n.into()))
+        );
+        // Everything current, or the app's version unknown.
+        assert_eq!(offered_update(Some(n), n, Some(n)), None);
+        assert_eq!(offered_update(Some(n), n, None), None);
+        assert_eq!(
+            offered_update(None, d, Some(n)),
+            Some(Offered::App(n.into()))
+        );
+        assert_eq!(offered_update(None, n, Some(n)), None);
+    }
 
     #[test]
     fn newer_compares_numbers_then_prereleases() {

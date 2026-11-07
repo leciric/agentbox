@@ -28,6 +28,8 @@ export const ptBRNative = {
   'native.update.restart': 'Reiniciar para atualizar',
   'native.update.ready': 'O AgentBox {version} está instalado',
   'native.update.inPlace': 'Baixa a {version}, instala no lugar desta versão e depois oferece reiniciar nela',
+  'native.update.daemonBehind': 'O daemon está na {daemon}, atrás deste app ({app}), e este app não consegue atualizá-lo. Atualize o app desktop ou a CLI do AgentBox e rode `agentbox daemon stop` (clique para copiar)',
+  'native.update.commandCopied': 'Copiado para a área de transferência',
   'native.month.long.1': 'janeiro',
   'native.month.short.1': 'jan.',
   'native.month.long.2': 'fevereiro',
