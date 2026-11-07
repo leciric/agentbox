@@ -31,6 +31,18 @@ Without a GPU, use Mesa's software Vulkan, lavapipe:
 `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json`. Inside an AgentBox agent, the virtio-GPU
 (Venus) device draws a black window; lavapipe works.
 
+### Through a VM's socket forward
+
+In VM mode the socket the app opens is forwarded into the VM, where `socat VSOCK-LISTEN:…,fork`
+takes each new connection; it queues only a few at once. To try the app against that on a host
+daemon, put socat in front of the socket and point the app at it:
+
+```bash
+socat UNIX-LISTEN:/t/vm.sock,fork,backlog=1 UNIX-CONNECT:$HOME/.local/share/agentbox/run/agentbox.sock &
+AGENTBOX_SOCKET=/t/vm.sock cargo run -p agentbox-api --example burst -- <project> main   # how many requests never got through
+AGENTBOX_SOCKET=/t/vm.sock cargo run --release -p agentbox-native
+```
+
 ### Against a fake daemon
 
 An agent's machine has no Incus, so a real daemon there has a lead but no agents.

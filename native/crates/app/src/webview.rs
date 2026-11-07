@@ -360,6 +360,8 @@ fn with_daemon(b: wry::WebViewBuilder<'_>) -> wry::WebViewBuilder<'_> {
             .path_and_query()
             .map(|p| p.as_str().to_string())
             .unwrap_or_default();
+        // A folder report's files, as /media/<id>/<path> (media::page_path).
+        let path = crate::media::media_route(&path);
         let Some(client) = CLIENT.get().cloned() else {
             responder.respond(
                 wry::http::Response::builder()
