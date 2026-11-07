@@ -143,6 +143,13 @@ struct Pick {
     whose: String,
 }
 
+impl Meters {
+    /// host is the machine's last reading (GET /v1/usage).
+    pub(super) fn host(&self) -> Option<HostUsage> {
+        self.host.clone()
+    }
+}
+
 impl AppView {
     /// watch_meters reads the meters: the limits and the disk every thirty
     /// seconds, the machine every five.
@@ -152,6 +159,8 @@ impl AppView {
         cx.spawn(async move |this, cx| {
             let usage = client.get::<Usage>("/v1/usage").await.ok();
             let agents = client.get::<Vec<Agent>>("/v1/agents").await.ok();
+            // Home's Status tab lists the recent jobs (HomeView's useQuery).
+            let jobs = client.get::<Vec<agentbox_api::Job>>("/v1/jobs").await.ok();
             let slow = if slow {
                 Some((
                     client.get::<Vec<ClaudeLimit>>("/v1/limits").await.ok(),
@@ -167,6 +176,10 @@ impl AppView {
             this.update(cx, |this, cx| {
                 let m = &mut this.meters;
                 m.host = usage.map(|u| u.host);
+                if let Some(j) = jobs {
+                    this.home_status.jobs = j;
+                }
+                let m = &mut this.meters;
                 if let Some(a) = agents {
                     m.agents = a;
                 }

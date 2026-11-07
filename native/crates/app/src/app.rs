@@ -19,6 +19,7 @@ pub(crate) mod agent_status;
 mod connection;
 pub(crate) mod controls;
 mod foot;
+mod home_status;
 mod issues;
 mod merge;
 mod new_agent;
@@ -109,6 +110,8 @@ pub struct AppView {
     past: past::Past,
     /// The panel's Resources view of an agent (resources.rs).
     resources: resources::Resources,
+    /// Home's Status tab (HomeView).
+    home_status: home_status::HomeStatus,
     /// The window's presence lease (presence.rs).
     presence: presence::Presence,
     /// The panel's widths, and its drawer (width.rs).
@@ -214,6 +217,7 @@ impl AppView {
             agent_settings: agent_settings::AgentSettings::new(window, cx),
             past: past::Past::new(window, cx),
             resources: Default::default(),
+            home_status: Default::default(),
             presence: Default::default(),
             widths: width::Widths::load(),
             side: sidebar::Sidebar::new(window, cx),
@@ -931,7 +935,7 @@ impl AppView {
                     div()
                         .flex_1()
                         .min_h_0()
-                        .child(self.render_rail(cx).size_full()),
+                        .child(self.render_home_status(cx)),
                 )
                 .into_any_element();
         }

@@ -79,7 +79,7 @@ pub struct Sidebar {
     pub(super) hidden: HashSet<String>,
     activity: HashMap<String, ProjectActivity>,
     pub(super) agents: Vec<Agent>,
-    questions: HashMap<String, Vec<Question>>,
+    pub(super) questions: HashMap<String, Vec<Question>>,
     /// Each project's lead's last line (GET /v1/projects/<p>/lead).
     lines: HashMap<String, ChatLine>,
     /// Every project's agents ready to review (GET /v1/review).

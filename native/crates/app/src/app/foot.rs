@@ -2425,7 +2425,7 @@ pub(super) fn ui_badge(variant: Variant, icon: Option<&str>, text: impl Into<Sha
 }
 
 /// status_badge is state.tsx's JobStatusBadge.
-fn status_badge(status: &str) -> AnyElement {
+pub(super) fn status_badge(status: &str) -> AnyElement {
     let (variant, key) = match status {
         "running" => (Variant::Info, Some("agent.state.running")),
         "succeeded" => (Variant::Success, Some("agent.job.succeeded")),
