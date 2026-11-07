@@ -56,19 +56,20 @@ bin=$native/target/parity
 pids=()
 cleanup() {
   for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
+  # The passes' displays, apps and fakes.
+  pkill -f 'Xvfb :9[1-4] ' 2>/dev/null || true
+  pkill -f "$bin/" 2>/dev/null || true
+  pkill -f "$here/parity-electron.mjs" 2>/dev/null || true
   rm -rf "$tmp"
 }
 trap cleanup EXIT
 
 # Leftovers of a run that was stopped: its displays and apps.
-pkill -f 'Xvfb :9[12] ' 2>/dev/null || true
+pkill -f 'Xvfb :9[1-4] ' 2>/dev/null || true
 pkill -f 'target/parity/agentbox-native' 2>/dev/null || true
-rm -f /tmp/.X91-lock /tmp/.X92-lock
+rm -f /tmp/.X9[1-4]-lock
 sleep 0.3
 
-# Electron's display, as big as the biggest window.
-Xvfb :91 -screen 0 2560x1440x24 -nolisten tcp >/dev/null 2>&1 &
-pids+=($!)
 
 # The scenarios, flattened for the shell (\x1f between fields): id, its own
 # sizes, the native app's env, its actions for xdotool, its wait, its masks.
@@ -93,16 +94,8 @@ EOF
 }
 mapfile -t rows < <(rows)
 
-fails=0
-report=$out/scores.txt
-: >"$report"
-for theme in $themes; do
-  sock=$tmp/fake-$theme.sock
-  FAKE_STILL=1 FAKE_APPEARANCE=$theme "$bin/fake-daemon" --listen "$sock" --history 12 >"$out/logs/fake-$theme.log" 2>&1 &
-  pids+=($!)
-  for _ in $(seq 50); do [ -S "$sock" ] && break; sleep 0.1; done
-  # Every size some scenario is drawn at.
-  all_sizes=$(printf '%s\n' "${rows[@]}" | python3 -c '
+# Every size some scenario is drawn at.
+all_sizes=$(printf '%s\n' "${rows[@]}" | python3 -c '
 import sys
 default = sys.argv[1].split()
 seen = []
@@ -111,17 +104,30 @@ for line in sys.stdin:
     for s in own or default:
         if s not in seen: seen.append(s)
 print(" ".join(seen))' "$sizes")
+
+# pass runs every scenario in one theme, on its own pair of displays (one for
+# Electron, one for the native app), so the themes run side by side.
+pass() {
+  local theme=$1 edisp=$2 ndisp=$3
+  local sock=$tmp/fake-$theme.sock report=$tmp/scores-$theme.txt
+  : >"$report"
+  FAKE_STILL=1 FAKE_APPEARANCE=$theme "$bin/fake-daemon" --listen "$sock" --history 12 >"$out/logs/fake-$theme.log" 2>&1 &
+  local fake=$!
+  for _ in $(seq 50); do [ -S "$sock" ] && break; sleep 0.1; done
+  Xvfb ":$edisp" -screen 0 2560x1440x24 -nolisten tcp >/dev/null 2>&1 &
+  local exvfb=$!
   for size in $all_sizes; do
-    w=${size%x*} h=${size#*x}
-    edir=$tmp/electron-$theme-$size
+    local w=${size%x*} h=${size#*x}
+    local edir=$tmp/electron-$theme-$size
     mkdir -p "$edir"
-    coproc ELECTRON { DISPLAY=:91 exec node "$here/parity-electron.mjs" "$sock" "$size" "$scenarios" "$edir" "$filter" 2>"$out/logs/electron-$theme-$size.log"; }
-    epid=$ELECTRON_PID
-    pids+=($epid)
+    coproc ELECTRON { DISPLAY=":$edisp" exec node "$here/parity-electron.mjs" "$sock" "$size" "$scenarios" "$edir" "$filter" 2>"$out/logs/electron-$theme-$size.log"; }
+    local epid=$ELECTRON_PID
+    local line
     read -r line <&"${ELECTRON[0]}" # ready
-    Xvfb :92 -screen 0 "${w}x${h}x24" -nolisten tcp >/dev/null 2>&1 &
-    xvfb=$!
+    Xvfb ":$ndisp" -screen 0 "${w}x${h}x24" -nolisten tcp >/dev/null 2>&1 &
+    local xvfb=$!
     sleep 0.5
+    local row id own env acts wait masks
     for row in "${rows[@]}"; do
       IFS=$'\x1f' read -r id own env acts wait masks <<<"$row"
       if [ -n "$own" ]; then
@@ -129,55 +135,79 @@ print(" ".join(seen))' "$sizes")
       else
         case " $sizes " in *" $size "*) ;; *) continue ;; esac
       fi
-      name=$id-$theme-$size
-      prefs=$tmp/prefs-$id.json
+      local name=$id-$theme-$size
+      local prefs=$tmp/prefs-$theme-$id.json
       echo '{"tour":"dismissed"}' >"$prefs"
       # shellcheck disable=SC2086
-      env DISPLAY=:92 WAYLAND_DISPLAY= AGENTBOX_NATIVE_SIZE="$size" AGENTBOX_REDUCE_MOTION=1 \
+      env DISPLAY=":$ndisp" WAYLAND_DISPLAY= AGENTBOX_NATIVE_SIZE="$size" AGENTBOX_REDUCE_MOTION=1 \
         AGENTBOX_NATIVE_PREFS="$prefs" VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
         $env "$bin/agentbox-native" --socket "$sock" >"$out/logs/native-$name.log" 2>&1 &
-      app=$!
+      local app=$!
       # Until the window has drawn something (the first launch on a fresh
       # display compiles lavapipe's shaders), and its data has come.
-      for _ in $(seq 60); do
-        DISPLAY=:92 import -window root "$tmp/probe.png" 2>/dev/null &&
-          [ "$(convert "$tmp/probe.png" -format '%[fx:standard_deviation>0.01]' info: 2>/dev/null)" = 1 ] && break
-        sleep 0.5
+      for _ in $(seq 80); do
+        DISPLAY=":$ndisp" import -window root "$tmp/probe-$theme.png" 2>/dev/null &&
+          [ "$(convert "$tmp/probe-$theme.png" -format '%[fx:standard_deviation>0.01]' info: 2>/dev/null)" = 1 ] && break
+        sleep 0.25
       done
       # gpui maps the window at x=2 with no window manager to place it:
       # put it where Electron's is, at the origin.
-      DISPLAY=:92 xdotool search --name '^AgentBox$' windowmove 0 0 2>/dev/null || true
-      sleep 1.5
+      DISPLAY=":$ndisp" xdotool search --name '^AgentBox$' windowmove 0 0 2>/dev/null || true
+      sleep 1
       # Now both: Electron opens the scenario as the native app plays it.
       echo "$id" >&"${ELECTRON[1]}"
       sleep "$wait"
+      local steps step
       IFS=';' read -ra steps <<<"$acts"
       for step in "${steps[@]}"; do
         # shellcheck disable=SC2086
         case $step in
           sleep*) sleep ${step#sleep } ;;
-          type*) DISPLAY=:92 xdotool type --delay 20 "$(python3 -c 'import json,sys;print(json.loads(sys.argv[1]))' "${step#type }")" ;;
-          *) DISPLAY=:92 xdotool $step ;;
+          type*) DISPLAY=":$ndisp" xdotool type --delay 20 "$(python3 -c 'import json,sys;print(json.loads(sys.argv[1]))' "${step#type }")" ;;
+          *) DISPLAY=":$ndisp" xdotool $step ;;
         esac
       done
-      DISPLAY=:92 import -window root "$tmp/native-$id.png"
+      DISPLAY=":$ndisp" import -window root "$tmp/native-$name.png"
       read -r line <&"${ELECTRON[0]}" # done <id>
       kill $app 2>/dev/null || true
       wait $app 2>/dev/null || true
-      # shellcheck disable=SC2086
-      score=$(python3 "$here/parity_compare.py" "$edir/$id.png" "$tmp/native-$id.png" "$out/$name" $masks)
-      verdict=ok
-      if ! python3 -c "import sys; sys.exit(0 if float('$score') >= $threshold else 1)"; then
-        verdict=FAIL
-        fails=$((fails + 1))
-      fi
-      printf '%-48s %s %s\n' "$name" "$score" "$verdict" | tee -a "$report"
+      # Compared while the next scenario runs.
+      (
+        # shellcheck disable=SC2086
+        score=$(python3 "$here/parity_compare.py" "$edir/$id.png" "$tmp/native-$name.png" "$out/$name" $masks 2>>"$out/logs/compare.log" || echo 0)
+        printf '%-48s %s\n' "$name" "$score" >>"$report"
+      ) &
     done
     exec {ELECTRON[1]}>&-
     wait "$epid" 2>/dev/null || true
     kill $xvfb 2>/dev/null || true
     wait $xvfb 2>/dev/null || true
   done
+  kill $exvfb $fake 2>/dev/null || true
+  wait
+}
+
+i=0
+jobs_=()
+for theme in $themes; do
+  pass "$theme" $((91 + 2 * i)) $((92 + 2 * i)) &
+  jobs_+=($!)
+  i=$((i + 1))
+done
+for j in "${jobs_[@]}"; do wait "$j" || true; done
+
+fails=0
+report=$out/scores.txt
+: >"$report"
+for theme in $themes; do
+  while read -r name score; do
+    verdict=ok
+    if ! python3 -c "import sys; sys.exit(0 if float('$score') >= $threshold else 1)"; then
+      verdict=FAIL
+      fails=$((fails + 1))
+    fi
+    printf '%-48s %s %s\n' "$name" "$score" "$verdict" | tee -a "$report"
+  done < <(sort "$tmp/scores-$theme.txt")
 done
 
 echo "parity: $fails scenario(s) under $threshold; side-by-sides in $out"
