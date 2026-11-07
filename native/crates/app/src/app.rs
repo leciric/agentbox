@@ -1209,7 +1209,9 @@ impl Render for AppView {
                         cx.listener(|this, _: &MouseUpEvent, _, cx| this.drag_end(cx)),
                     )
             })
-            .when(self.sidebar_docked(), |el| el.child(self.render_sidebar(cx)))
+            .when(self.sidebar_docked(), |el| {
+                el.child(self.render_sidebar(cx))
+            })
             // TopBar over the page and the panel, as Electron's shell.
             .child(
                 v_flex()
