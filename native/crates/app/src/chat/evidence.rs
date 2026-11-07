@@ -80,9 +80,17 @@ impl ChatView {
                         break;
                     }
                 }
-                let list = client
+                let mut list = client
                     .get::<Vec<MediaItem>>(&format!("/v1/agents/{project}/{name}/media"))
                     .await;
+                // A past agent has no machine: its media is the project's.
+                if list.as_ref().is_err_and(is_not_found) {
+                    list = client
+                        .get::<Vec<MediaItem>>(&format!(
+                            "/v1/projects/{project}/media?agent={name}"
+                        ))
+                        .await;
+                }
                 // A list that couldn't be read is asked for again the next
                 // time the chat changes, rather than an empty card for good.
                 if list.as_ref().is_err_and(agentbox_api::client::not_ready) {
@@ -638,4 +646,20 @@ impl ChatView {
 fn mmss(secs: f64) -> String {
     let s = secs.max(0.).floor() as u64;
     format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// is_not_found is a daemon's 404: the agent isn't there (any more).
+fn is_not_found(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<agentbox_api::client::DaemonError>()
+        .is_some_and(|d| d.status == 404)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_not_found;
+
+    #[test]
+    fn only_a_404_is_not_found() {
+        assert!(!is_not_found(&anyhow::anyhow!("connection refused")));
+    }
 }

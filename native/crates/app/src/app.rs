@@ -884,12 +884,32 @@ impl AppView {
                 // Waiting for a verdict while it finished and has none
                 // (lib/work.ts awaitingReview).
                 let waiting = !item.fingerprint.is_empty() && item.verdict.is_empty();
-                let w = agentbox_api::WorkItem {
+                let fallback = agentbox_api::WorkItem {
                     status: if waiting { "review" } else { "reviewed" }.into(),
                     item: *item,
                     ..Default::default()
                 };
-                self.open_review(w, Vec::new(), window, cx)
+                // The card's item was read while the agent was live: ask the
+                // work list, as the Work page does, whether it still is, and
+                // open what it answers (past, status, report).
+                let client = self.client.clone();
+                let r = fallback.item.r#ref.clone();
+                let project = r.split('/').next().unwrap_or_default().to_string();
+                let agent = r.rsplit('/').next().unwrap_or_default().to_string();
+                cx.spawn_in(window, async move |this, cx| {
+                    let found = client
+                        .get::<agentbox_api::WorkPage>(&format!(
+                            "/v1/projects/{project}/work?q={agent}&limit=200"
+                        ))
+                        .await
+                        .ok()
+                        .and_then(|p| work_for(p, &r));
+                    this.update_in(cx, |this, window, cx| {
+                        this.open_review(found.unwrap_or(fallback), Vec::new(), window, cx)
+                    })
+                    .ok();
+                })
+                .detach();
             }
             ChatAction::Wake => {
                 if let Some(a) = self.open_agent() {
@@ -1346,5 +1366,35 @@ impl Render for AppView {
             .child(self.toasts.clone())
             .child(crate::webview::pages_end())
             .into_any_element()
+    }
+}
+
+/// work_for is the work item of `r#ref` in a work list searched by its agent's
+/// name, which also matches other agents (agent-4 in agent-40).
+fn work_for(page: agentbox_api::WorkPage, r#ref: &str) -> Option<agentbox_api::WorkItem> {
+    page.items.into_iter().find(|w| w.item.r#ref == r#ref)
+}
+
+#[cfg(test)]
+mod review_lookup_tests {
+    use super::work_for;
+
+    #[test]
+    fn a_past_agents_work_item_keeps_its_flag() {
+        let mk = |r: &str, past| agentbox_api::WorkItem {
+            item: agentbox_api::ReviewItem {
+                r#ref: r.into(),
+                ..Default::default()
+            },
+            past,
+            ..Default::default()
+        };
+        let page = agentbox_api::WorkPage {
+            items: vec![mk("p/agent-4", false), mk("p/agent-40", true)],
+            ..Default::default()
+        };
+        let w = work_for(page, "p/agent-40").unwrap();
+        assert!(w.past);
+        assert!(work_for(agentbox_api::WorkPage::default(), "p/agent-40").is_none());
     }
 }
