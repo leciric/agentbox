@@ -424,6 +424,9 @@ type Server struct {
 	setIOWeight    func(instance string, weight int) error
 	vmSwap         func() int64 // the VM's swap in bytes, -1 unknown
 	setCaps        func(instance string, caps agent.Caps) error
+	thrash         func(instance string) (agent.ThrashSample, bool)
+	killLargest    func(instance string) (agent.OOMVictim, error)
+	thrashing      map[string]thrashState // by instance: watchMemory's
 	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
 	oomVictim      func(instance string) (agent.OOMVictim, bool)
 	oomSeen        map[string]agent.MemoryCounts
@@ -518,6 +521,9 @@ func New(cfg Config) (*Server, error) {
 		setIOWeight:      agent.SetIOWeight,
 		vmSwap:           agent.VMSwap,
 		setCaps:          agent.SetCaps,
+		thrash:           agent.Thrash,
+		killLargest:      agent.KillLargest,
+		thrashing:        map[string]thrashState{},
 		memoryEvents:     agent.MemoryEvents,
 		oomVictim:        agent.LastOOMVictim,
 		oomSeen:          map[string]agent.MemoryCounts{},

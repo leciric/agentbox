@@ -381,6 +381,86 @@ func TestOOMKillTold(t *testing.T) {
 	}
 }
 
+// TestThrashingAgentLosesItsLargestProcess: an agent stalled on memory while
+// it keeps reaching its own memory.max for thrashFor loses the process the
+// OOM killer would have picked, and is told; one stalled with its limit not
+// reached (the VM short) or reaching it without stalling keeps everything.
+func TestThrashingAgentLosesItsLargestProcess(t *testing.T) {
+	t.Parallel()
+	p := newPressureTest(t)
+	ctx := context.Background()
+	var mu sync.Mutex
+	sample := agent.ThrashSample{Full: 80, AtLimit: 100}
+	var killed []string
+	p.srv.vmMemory = func() int64 { return 16 << 30 }
+	p.srv.thrash = func(string) (agent.ThrashSample, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		return sample, true
+	}
+	p.srv.killLargest = func(instance string) (agent.OOMVictim, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		killed = append(killed, instance)
+		return agent.OOMVictim{Name: "node", PID: 777, RSS: 7 << 30}, nil
+	}
+	step := func(full float64, hits int64) {
+		mu.Lock()
+		sample.Full, sample.AtLimit = full, sample.AtLimit+hits
+		mu.Unlock()
+		p.srv.watchMemory(ctx)
+	}
+	// As if it had been at it for thrashFor already.
+	backdate := func() {
+		p.srv.mu.Lock()
+		st := p.srv.thrashing[p.instance]
+		if !st.since.IsZero() {
+			st.since = st.since.Add(-thrashFor)
+		}
+		p.srv.thrashing[p.instance] = st
+		p.srv.mu.Unlock()
+	}
+	kills := func() int { mu.Lock(); defer mu.Unlock(); return len(killed) }
+
+	step(80, 0) // the first look: nothing to compare with
+	step(80, 0) // stalled, but not at its own limit: the VM is short
+	backdate()
+	step(80, 0)
+	step(10, 50) // at its limit, hardly stalled: a build that fits, just
+	backdate()
+	step(10, 50)
+	if kills() != 0 {
+		t.Fatalf("killed %v without thrashing at its own limit", killed)
+	}
+	step(80, 50) // thrashing from now
+	step(80, 50) // not yet thrashFor
+	if kills() != 0 {
+		t.Fatalf("killed %v before thrashFor", killed)
+	}
+	backdate()
+	step(80, 50)
+	if kills() != 1 || killed[0] != p.instance {
+		t.Fatalf("killed %v after thrashFor, want %s once", killed, p.instance)
+	}
+	step(80, 50) // the count starts again
+	if kills() != 1 {
+		t.Errorf("killed %v again at once", killed)
+	}
+	events := func() []memory.Event {
+		events, err := p.srv.memory().Events(ctx, "hello-stack", memory.EventFilter{Types: []string{"oom_kill"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return events
+	}
+	waitFor(t, "the kill to be told", func() bool { return len(events()) > 0 })
+	for _, want := range []string{`"process":"node"`, `"pid":777`, `"thrashing":true`, `"own_limit":true`} {
+		if !strings.Contains(string(events()[0].Payload), want) {
+			t.Errorf("the event %s lacks %s", events()[0].Payload, want)
+		}
+	}
+}
+
 // An agent's memory.max is its share of the VM's cap, half unless the user
 // chose, and a new share reaches running agents; each also gets the io.weight
 // that has its disk use yield to the daemon's and Incus's.

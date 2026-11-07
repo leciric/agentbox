@@ -734,6 +734,7 @@ func (s *Server) watchMemory(ctx context.Context) {
 		if a.Status != state.AgentReady {
 			continue
 		}
+		s.watchThrash(ctx, a, limit)
 		now, ok := s.memoryEvents(a.Instance)
 		if !ok {
 			continue
@@ -754,6 +755,72 @@ func (s *Server) watchMemory(ctx context.Context) {
 			go s.tellKilled(context.WithoutCancel(ctx), a, now.Kills-seen.Kills, now.Limit, own)
 		}
 	}
+}
+
+// thrashFor is how long an agent thrashes at its own limit before its
+// largest process is killed (agent/thrash.go). Ten seconds: memory.pressure's
+// avg10 already lags by a few, and a minute of it took the daemon's requests
+// to 9 seconds in the load lab.
+const thrashFor = 10 * time.Second
+
+// thrashState is what watchThrash knows of one machine: its last
+// ThrashSample, and since when it has been thrashing (zero when it isn't).
+type thrashState struct {
+	last  agent.ThrashSample
+	since time.Time
+}
+
+// watchThrash kills the largest process of an agent that has been thrashing
+// at its own memory.max for thrashFor, and tells it, as the kernel's OOM
+// killer would have, sooner.
+func (s *Server) watchThrash(ctx context.Context, a state.Agent, limit int64) {
+	now, ok := s.thrash(a.Instance)
+	s.mu.Lock()
+	st, known := s.thrashing[a.Instance]
+	if !ok {
+		delete(s.thrashing, a.Instance)
+		s.mu.Unlock()
+		return
+	}
+	// Up against its own limit since the last look, and stalled for it.
+	hit := known && now.AtLimit > st.last.AtLimit && now.Full >= agent.ThrashFull
+	st.last = now
+	switch {
+	case !hit:
+		st.since = time.Time{}
+	case st.since.IsZero():
+		st.since = time.Now()
+	}
+	kill := hit && time.Since(st.since) >= thrashFor
+	if kill {
+		st.since = time.Time{}
+	}
+	s.thrashing[a.Instance] = st
+	s.mu.Unlock()
+	if !kill {
+		return
+	}
+	v, err := s.killLargest(a.Instance)
+	if err != nil {
+		s.logOnce("thrash "+a.Instance, fmt.Sprintf("memory: %s is thrashing at its limit: %v", a.Ref(), err))
+		return
+	}
+	s.countOOMKills(1)
+	text := fmt.Sprintf("`%s` (pid %d, using %s) was killed for memory: your machine spent %s at its limit of %s, "+
+		"swapping and reading its programs back from the disk more than running them. "+
+		"Run fewer packages or workers at once (go test -p 2 ./..., vitest --maxWorkers=2, make -j2, one test file at a time) and try again.",
+		v.Name, v.PID, agent.HumanBytes(v.RSS), thrashFor, agent.HumanBytes(limit))
+	s.logf("memory: %s: %s", a.Ref(), text)
+	go func() {
+		ctx := context.WithoutCancel(ctx)
+		if _, err := s.tellUnlessRetired(ctx, a, text); err != nil {
+			s.logf("memory: telling %s a process was killed: %v", a.Ref(), err)
+		}
+		s.captureEvent(ctx, a.Project, a.Name, "oom_kill", map[string]any{
+			"kills": 1, "limit": limit, "own_limit": true, "thrashing": true,
+			"process": v.Name, "pid": v.PID, "rss": v.RSS,
+		}, "")
+	}()
 }
 
 // agentMemoryShare is the share of the VM, in percent, one agent may have
