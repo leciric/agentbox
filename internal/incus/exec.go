@@ -133,13 +133,18 @@ func (c Client) exec(ctx context.Context, name string, command []string, stdin i
 		Control:  func(conn *websocket.Conn) { control <- conn },
 	}
 	op, err := s.ExecInstance(name, api.InstanceExecPost{Command: command, WaitForWS: true, Environment: env}, args)
-	if err != nil {
+	if err == nil {
+		err = wait(ctx, op, nil)
+	}
+	// Past ctx, what Incus's client answers names the deadline only in its
+	// text, and can come before ctx itself reports it: the error is ctx's
+	// own, so callers can tell it from a failure.
+	if err := ended(ctx); err != nil {
+		killExec(control)
 		return -1, err
 	}
-	err = wait(ctx, op, nil)
-	if ctx.Err() != nil {
-		killExec(control)
-		return -1, ctx.Err()
+	if op == nil {
+		return -1, err
 	}
 	code := -1
 	if status, ok := op.Get().Metadata["return"].(float64); ok {
@@ -155,6 +160,18 @@ func (c Client) exec(ctx context.Context, name string, command []string, stdin i
 		return -1, ctx.Err()
 	}
 	return code, nil
+}
+
+// ended is ctx's error once it is done or past its deadline, which a
+// connection's own deadline reaches a moment before ctx's timer fires.
+func ended(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 // killExec sends SIGKILL to a command given up on, over its exec's control

@@ -40,7 +40,7 @@ func TestExecGivenUpOnIsKilled(t *testing.T) {
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		out, _ := api.Exec(ctx, inst, "sh", "-c", "pgrep -f 'sleep 4321' || true")
+		out, _ := api.Exec(ctx, inst, "sh", "-c", "pgrep -f '[s]leep 4321' || true")
 		if strings.TrimSpace(out) == "" {
 			return
 		}
