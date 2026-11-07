@@ -22,6 +22,9 @@
 # (no window manager: a root-window grab is the window), so both screenshots
 # are taken within a second or two: the apps' own clocks run. Both run with
 # reduced motion and no caret.
+# Read whole before it runs: bash reads a script as it goes, so an edit to
+# this file during a run would otherwise break the run.
+{
 set -euo pipefail
 
 # One run at a time: a second waits for the first rather than kill its
@@ -187,6 +190,7 @@ pass() {
         # shellcheck disable=SC2086
         score=$(python3 "$here/parity_compare.py" "$edir/$id.png" "$tmp/native-$name.png" "$out/$name" $masks 2>>"$out/logs/compare.log" || echo 0)
         printf '%-48s %s\n' "$name" "$score" >>"$report"
+        [ -f "$edir/$id.dom.json" ] && cp "$edir/$id.dom.json" "$out/$name.dom.json"
       ) &
     done
     exec {ELECTRON[1]}>&-
@@ -223,3 +227,5 @@ done
 
 echo "parity: $fails scenario(s) under $threshold; side-by-sides in $out"
 [ "$fails" -eq 0 ]
+exit
+}
