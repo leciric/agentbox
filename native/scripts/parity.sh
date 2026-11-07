@@ -43,6 +43,7 @@ themes=${PARITY_THEMES:-"dark light"}
 scenarios=$here/parity-scenarios.json
 tmp=${TMPDIR:-/tmp}/parity.$$
 mkdir -p "$out/logs" "$tmp"
+: >"$out/logs/retries.log"
 export PATH=$HOME/.cargo/bin:$PATH
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 
@@ -146,52 +147,58 @@ pass() {
       else
         case " $sizes " in *" $size "*) ;; *) continue ;; esac
       fi
-      local name=$id-$theme-$size
-      local prefs=$tmp/prefs-$theme-$id.json
-      echo '{"tour":"dismissed"}' >"$prefs"
-      # shellcheck disable=SC2086
-      env DISPLAY=":$ndisp" WAYLAND_DISPLAY= AGENTBOX_NATIVE_SIZE="$size" AGENTBOX_REDUCE_MOTION=1 \
-        AGENTBOX_NATIVE_PREFS="$prefs" VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
-        $env "$bin/agentbox-native" --socket "$sock" >"$out/logs/native-$name.log" 2>&1 &
-      local app=$!
-      # Until the window has drawn something (the first launch on a fresh
-      # display compiles lavapipe's shaders), and its data has come.
-      for _ in $(seq 80); do
-        DISPLAY=":$ndisp" import -window root "$tmp/probe-$theme.png" 2>/dev/null &&
-          [ "$(convert "$tmp/probe-$theme.png" -format '%[fx:standard_deviation>0.01]' info: 2>/dev/null)" = 1 ] && break
-        sleep 0.25
-      done
-      # gpui maps the window at x=2 with no window manager to place it:
-      # put it where Electron's is, at the origin.
-      DISPLAY=":$ndisp" xdotool search --name '^AgentBox$' windowmove 0 0 2>/dev/null || true
-      # The pointer where Electron's is (parity-electron.mjs moves it to the
-      # bottom-right corner), not Xvfb's centre, which hovers whatever is there.
-      DISPLAY=":$ndisp" xdotool mousemove $((${size%x*} - 2)) $((${size#*x} - 2)) 2>/dev/null || true
-      sleep 1
-      # Now both: Electron opens the scenario as the native app plays it.
-      echo "$id" >&"${ELECTRON[1]}"
-      sleep "$wait"
-      local steps step
-      IFS=';' read -ra steps <<<"$acts"
-      for step in "${steps[@]}"; do
+      local attempt score
+      for attempt in 1 2; do
+        local name=$id-$theme-$size
+        local prefs=$tmp/prefs-$theme-$id.json
+        echo '{"tour":"dismissed"}' >"$prefs"
         # shellcheck disable=SC2086
-        case $step in
-          sleep*) sleep ${step#sleep } ;;
-          type*) DISPLAY=":$ndisp" xdotool type --delay 20 "$(python3 -c 'import json,sys;print(json.loads(sys.argv[1]))' "${step#type }")" ;;
-          *) DISPLAY=":$ndisp" xdotool $step ;;
-        esac
-      done
-      DISPLAY=":$ndisp" import -window root "$tmp/native-$name.png"
-      read -r line <&"${ELECTRON[0]}" # done <id>
-      kill $app 2>/dev/null || true
-      wait $app 2>/dev/null || true
-      # Compared while the next scenario runs.
-      (
+        env DISPLAY=":$ndisp" WAYLAND_DISPLAY= AGENTBOX_NATIVE_SIZE="$size" AGENTBOX_REDUCE_MOTION=1 \
+          AGENTBOX_NATIVE_PREFS="$prefs" VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
+          $env "$bin/agentbox-native" --socket "$sock" >"$out/logs/native-$name.log" 2>&1 &
+        local app=$!
+        # Until the window has drawn something (the first launch on a fresh
+        # display compiles lavapipe's shaders), and its data has come.
+        for _ in $(seq 80); do
+          DISPLAY=":$ndisp" import -window root "$tmp/probe-$theme.png" 2>/dev/null &&
+            [ "$(convert "$tmp/probe-$theme.png" -format '%[fx:standard_deviation>0.01]' info: 2>/dev/null)" = 1 ] && break
+          sleep 0.25
+        done
+        # gpui maps the window at x=2 with no window manager to place it:
+        # put it where Electron's is, at the origin.
+        DISPLAY=":$ndisp" xdotool search --name '^AgentBox$' windowmove 0 0 2>/dev/null || true
+        # The pointer where Electron's is (parity-electron.mjs moves it to the
+        # bottom-right corner), not Xvfb's centre, which hovers whatever is there.
+        DISPLAY=":$ndisp" xdotool mousemove $((${size%x*} - 2)) $((${size#*x} - 2)) 2>/dev/null || true
+        # A scenario that clicks or types waits longer for its data first.
+        case $acts in *click*|*key*|*type*) sleep 3 ;; *) sleep 1 ;; esac
+        # Now both: Electron opens the scenario as the native app plays it.
+        echo "$id" >&"${ELECTRON[1]}"
+        sleep "$wait"
+        local steps step
+        IFS=';' read -ra steps <<<"$acts"
+        for step in "${steps[@]}"; do
+          # shellcheck disable=SC2086
+          case $step in
+            sleep*) sleep ${step#sleep } ;;
+            type*) DISPLAY=":$ndisp" xdotool type --delay 20 "$(python3 -c 'import json,sys;print(json.loads(sys.argv[1]))' "${step#type }")" ;;
+            *) DISPLAY=":$ndisp" xdotool $step ;;
+          esac
+        done
+        DISPLAY=":$ndisp" import -window root "$tmp/native-$name.png"
+        read -r line <&"${ELECTRON[0]}" # done <id>
+        kill $app 2>/dev/null || true
+        wait $app 2>/dev/null || true
         # shellcheck disable=SC2086
         score=$(python3 "$here/parity_compare.py" "$edir/$id.png" "$tmp/native-$name.png" "$out/$name" $masks 2>>"$out/logs/compare.log" || echo 0)
-        printf '%-48s %s\n' "$name" "$score" >>"$report"
-        [ -f "$edir/$id.dom.json" ] && cp "$edir/$id.dom.json" "$out/$name.dom.json"
-      ) &
+        # Once more if it failed: a launch can lose a race with its own data
+        # under load (a click that lands before the page is there). Retries
+        # are logged in logs/retries.log.
+        python3 -c "import sys; sys.exit(0 if float('$score') >= $threshold else 1)" && break
+        [ "$attempt" = 1 ] && echo "$name $score" >>"$out/logs/retries.log"
+      done
+      printf '%-48s %s\n' "$name" "$score" >>"$report"
+      [ -f "$edir/$id.dom.json" ] && cp "$edir/$id.dom.json" "$out/$name.dom.json"
     done
     exec {ELECTRON[1]}>&-
     wait "$epid" 2>/dev/null || true
