@@ -25,5 +25,5 @@
   { "id": "tooltip-add-project", "view": { "kind": "homeChat" }, "actions": [{ "hover": [256, 28], "wait": 1400 }] },
   { "id": "narrow-home", "sizes": ["1000x760"], "view": { "kind": "homeChat" } },
   { "id": "narrow-project", "sizes": ["1000x760"], "view": { "kind": "project", "project": "demo" }, "native": { "AGENTBOX_NATIVE_VIEW": "project:demo" } },
-  { "id": "narrow-drawer", "sizes": ["1000x760"], "view": { "kind": "homeChat" }, "actions": [{ "click": [27, 28], "wait": 900 }] }
+  { "id": "narrow-drawer", "sizes": ["1000x760"], "view": { "kind": "homeChat" }, "actions": [{ "click": [27, 28], "wait": 900 }], "_masks": "the page behind the drawer: Electron's scrim has backdrop-blur-sm, and gpui has no backdrop filter", "masks": [[288, 0, 712, 760]] }
 ]

@@ -236,6 +236,26 @@ impl AppView {
             .py_2()
             .border_b_1()
             .border_color(theme::line())
+            // Below lg (xl with the panel beside the page), the sidebar is a
+            // drawer this opens (TopBar's data-open-nav: -ml-1 p-2, size-5).
+            .when(!self.sidebar_docked(), |el| {
+                el.child(
+                    div()
+                        .id("open-nav")
+                        .flex_none()
+                        .ml(px(-4.))
+                        .p_2()
+                        .rounded_lg()
+                        .cursor_pointer()
+                        .text_color(theme::muted())
+                        .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.widths.nav = true;
+                            cx.notify();
+                        }))
+                        .child(crate::icons::ic("menu").size_5()),
+                )
+            })
             .child(
                 h_flex()
                     .min_w(px(128.))

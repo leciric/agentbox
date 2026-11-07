@@ -580,6 +580,7 @@ impl AppView {
 
     fn select_project(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
         self.close_media(cx);
+        self.widths.nav = false;
         self.settings = false;
         self.work = None;
         self.side.page = None;
@@ -1208,7 +1209,7 @@ impl Render for AppView {
                         cx.listener(|this, _: &MouseUpEvent, _, cx| this.drag_end(cx)),
                     )
             })
-            .child(self.render_sidebar(cx))
+            .when(self.sidebar_docked(), |el| el.child(self.render_sidebar(cx)))
             // TopBar over the page and the panel, as Electron's shell.
             .child(
                 v_flex()
@@ -1321,6 +1322,7 @@ impl Render for AppView {
             )
             // Last, so it draws over the rest.
             .children(self.render_drawer(cx))
+            .children(self.render_nav(cx))
             .children(self.render_desktop_full(cx))
             .children(overlay)
             .children(self.review.clone())

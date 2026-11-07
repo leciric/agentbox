@@ -40,6 +40,8 @@ pub struct Widths {
     pub drawer: bool,
     /// The drawer is sliding shut: still drawn, until its spring settles.
     pub closing: bool,
+    /// Narrow, the sidebar's drawer is open over the page (App's navOpen).
+    pub nav: bool,
 }
 
 fn saved(key: &str) -> Option<f32> {
@@ -56,6 +58,7 @@ impl Widths {
             drag: None,
             drawer: false,
             closing: false,
+            nav: false,
         }
     }
 
@@ -122,10 +125,80 @@ impl AppView {
         }
     }
 
+    /// sidebar_docked is whether the sidebar sits beside the page (App's
+    /// navDocksAtXl): from lg (1024px), or from xl (1280px) while the
+    /// panel is beside the chat, as it's the sidebar that gives way.
+    pub(super) fn sidebar_docked(&self) -> bool {
+        let beside = !self.is_home()
+            && self.project.is_some()
+            && !self.settings
+            && self.work.is_none()
+            && self.side.page.is_none()
+            && !(self.panel.folded && self.which() == Which::List);
+        self.widths.window >= if beside { 1280. } else { 1024. }
+    }
+
+    /// sidebar_room is what the docked sidebar takes of the window.
+    fn sidebar_room(&self) -> f32 {
+        if self.sidebar_docked() { SIDEBAR } else { 0. }
+    }
+
+    /// render_nav is App's data-nav-drawer: the scrim (its backdrop-blur-sm
+    /// gpui can't draw), and the sidebar over it at the left in bg-modal,
+    /// casting 20px 0 60px -20px shadow-deep.
+    pub(super) fn render_nav(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.widths.nav || self.sidebar_docked() {
+            return None;
+        }
+        Some(
+            div()
+                .id("nav-drawer")
+                .absolute()
+                .inset_0()
+                .flex()
+                .occlude()
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                    if ev.keystroke.key == "escape" {
+                        this.widths.nav = false;
+                        cx.notify();
+                    }
+                }))
+                .child(crate::motion::scrim_in(
+                    div()
+                        .id("nav-scrim")
+                        .absolute()
+                        .inset_0()
+                        .bg(theme::scrim())
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.widths.nav = false;
+                            cx.notify();
+                        })),
+                    "nav-scrim-in",
+                ))
+                .child(
+                    div()
+                        .relative()
+                        .flex()
+                        .h_full()
+                        .max_w(relative(0.85))
+                        .bg(theme::modal())
+                        .shadow(vec![BoxShadow {
+                            color: theme::shadow_deep(),
+                            offset: point(px(20.), px(0.)),
+                            blur_radius: px(60.),
+                            spread_radius: px(-20.),
+                            inset: false,
+                        }])
+                        .child(self.render_sidebar(cx)),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// panel_box is the panel's width now, and whether it's a drawer.
     pub(super) fn panel_box(&self) -> PanelBox {
         let w = &self.widths;
-        let room = w.window - SIDEBAR;
+        let room = w.window - self.sidebar_room();
         match self.which() {
             Which::List => list_box(w.list, room, w.window),
             Which::Lead => panel_box(w.lead, room, w.window),
@@ -147,7 +220,7 @@ impl AppView {
     /// narrow is whether the panel is a drawer over the chat, its strip beside it.
     pub(super) fn narrow(&self) -> bool {
         let w = &self.widths;
-        let room = w.window - SIDEBAR;
+        let room = w.window - self.sidebar_room();
         self.panel_box().drawer || list_box(w.list, room, w.window).drawer
     }
 
@@ -241,7 +314,7 @@ impl AppView {
         }
         let b = self.panel_box();
         let width = if matches!(self.which(), Which::List) {
-            let room = self.widths.window - SIDEBAR;
+            let room = self.widths.window - self.sidebar_room();
             list_box(
                 self.widths.list.or(Some(LIST_DEFAULT)),
                 room,
