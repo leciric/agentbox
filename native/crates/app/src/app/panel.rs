@@ -34,6 +34,8 @@ use crate::theme;
 use crate::toasts::{self, Kind, Toast};
 use crate::vnc::VncView;
 
+mod timeline;
+
 /// An agent's views on the panel's switch, in its order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum PView {
@@ -87,7 +89,7 @@ impl PView {
             PView::Terminal => "square-terminal",
             PView::Files => "folder-tree",
             PView::Evidence => "images",
-            PView::Timeline => "chart-gantt",
+            PView::Timeline => "chart-no-axes-gantt",
             PView::Resources => "activity",
             PView::Browser => "globe",
             PView::Android => "smartphone",
@@ -149,6 +151,10 @@ pub struct Panel {
     #[cfg(feature = "video")]
     player: Option<(String, Entity<crate::video::VideoPlayer>)>,
     timeline: Option<(String, Result<Timeline, String>)>,
+    /// The timeline's playhead, on its track, and whether it plays.
+    tl_x: f32,
+    tl_playing: bool,
+    tl_scroll: ScrollHandle,
     browser: Option<BrowserStatus>,
     pub(super) recording: Option<RecordingStatus>,
     shooting: bool,
@@ -230,6 +236,9 @@ impl Panel {
             #[cfg(feature = "video")]
             player: None,
             timeline: None,
+            tl_x: 0.,
+            tl_playing: false,
+            tl_scroll: ScrollHandle::new(),
             browser: None,
             recording: None,
             shooting: false,
@@ -913,23 +922,6 @@ impl AppView {
 
     #[cfg(not(feature = "video"))]
     fn sync_player(&mut self, _cx: &mut Context<Self>) {}
-
-    pub(super) fn load_timeline(&mut self, r#ref: String, cx: &mut Context<Self>) {
-        let (p, a) = split(&r#ref);
-        let client = self.client.clone();
-        cx.spawn(async move |this, cx| {
-            let res = client
-                .get::<Timeline>(&format!("/v1/agents/{p}/{a}/timeline"))
-                .await
-                .map_err(|e| e.to_string());
-            this.update(cx, |this, cx| {
-                this.panel.timeline = Some((r#ref, res));
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
 
     /// on_files_event passes an EventFiles to the files shown.
     pub(super) fn on_files_event(
@@ -2125,7 +2117,7 @@ impl AppView {
             },
             PView::Files => self.render_files(),
             PView::Evidence => self.render_evidence(Some(&a), cx),
-            PView::Timeline => self.render_timeline(r),
+            PView::Timeline => self.render_timeline(r, cx),
             PView::Resources => self.render_resources(r),
             PView::Browser => self.render_browser(&a, self.overlaid(), cx),
             PView::Android => self.render_android(&a, cx),
@@ -3047,127 +3039,6 @@ impl AppView {
     #[cfg(not(feature = "video"))]
     fn seek_player(&mut self, _at: f64, _cx: &mut Context<Self>) {}
 
-    /// render_timeline is what the agent did, step by step (TimelinePanel).
-    pub(super) fn render_timeline(&self, r: &str) -> AnyElement {
-        let Some((of, res)) = &self.panel.timeline else {
-            return loading("panel");
-        };
-        if of != r {
-            return loading("panel");
-        }
-        let tl = match res {
-            Ok(tl) => tl,
-            Err(_) => return note(t("timeline.failedToLoad")),
-        };
-        if tl.steps.is_empty() {
-            return note(t("timeline.empty"));
-        }
-        let clock_time = |s: &str| {
-            chrono::DateTime::parse_from_rfc3339(s)
-                .map(|d| d.with_timezone(&chrono::Local).format("%H:%M").to_string())
-                .unwrap_or_default()
-        };
-        div()
-            .id("panel-timeline")
-            .size_full()
-            .overflow_y_scroll()
-            .px_3()
-            .py_2()
-            .child(
-                v_flex()
-                    .gap_1()
-                    .when(tl.working, |el| {
-                        el.child(
-                            div()
-                                .pb_1()
-                                .text_xs()
-                                .text_color(theme::starting())
-                                .child(t("timeline.working")),
-                        )
-                    })
-                    .children(tl.steps.iter().map(|s| {
-                        let kind = step_kind(&s.kind);
-                        let secs = (media::ms(&s.end) - media::ms(&s.start)) as f64 / 1000.;
-                        let title = step_title(s, kind);
-                        let status = match s.status.as_str() {
-                            "failed" => Some((t("timeline.failed"), theme::error())),
-                            "running" => Some((t("timeline.running"), theme::starting())),
-                            "passed" => Some((t("timeline.passed"), theme::running())),
-                            _ => None,
-                        };
-                        h_flex()
-                            .items_start()
-                            .gap_2()
-                            .py_1p5()
-                            .border_b_1()
-                            .border_color(theme::line().opacity(0.5))
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .w(px(40.))
-                                    .text_xs()
-                                    .font_family(theme::mono())
-                                    .text_color(theme::faint())
-                                    .child(clock_time(&s.start)),
-                            )
-                            .child(
-                                v_flex()
-                                    .min_w_0()
-                                    .flex_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(theme::primary())
-                                            .truncate()
-                                            .child(title),
-                                    )
-                                    .child(
-                                        h_flex()
-                                            .gap_1p5()
-                                            .text_xs()
-                                            .text_color(theme::faint())
-                                            .child(
-                                                div()
-                                                    .text_color(kind_color(kind))
-                                                    .child(t(&format!("timeline.kind.{kind}"))),
-                                            )
-                                            .when(secs >= 1., |el| {
-                                                el.child(format!("· {}", clock(secs)))
-                                            })
-                                            .when(s.added > 0 || s.removed > 0, |el| {
-                                                el.child(
-                                                    div()
-                                                        .text_color(theme::running())
-                                                        .child(format!("+{}", s.added)),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_color(theme::error())
-                                                        .child(format!("−{}", s.removed)),
-                                                )
-                                            })
-                                            .when_some(status, |el, (text, color)| {
-                                                el.child(
-                                                    div()
-                                                        .text_color(color)
-                                                        .child(format!("· {text}")),
-                                                )
-                                            }),
-                                    )
-                                    .children(s.lines.iter().take(2).map(|l| {
-                                        div()
-                                            .truncate()
-                                            .text_xs()
-                                            .font_family(theme::mono())
-                                            .text_color(theme::muted())
-                                            .child(l.clone())
-                                    })),
-                            )
-                    })),
-            )
-            .into_any_element()
-    }
-
     pub(super) fn agent_busy(&self) -> bool {
         self.agent.busy_now()
     }
@@ -3184,63 +3055,6 @@ impl AppView {
 
     fn review_refs(&self, project: &str) -> HashSet<String> {
         self.side.review_of(project).into_iter().collect()
-    }
-}
-
-/// step_kind is a step's kind, as the timeline names them.
-fn step_kind(kind: &str) -> &'static str {
-    match kind {
-        "task" => "task",
-        "read" => "read",
-        "plan" => "plan",
-        "edit" => "edit",
-        "test" => "test",
-        "desktop" => "desktop",
-        "page" => "page",
-        "pr" => "pr",
-        _ => "run",
-    }
-}
-
-fn kind_color(kind: &str) -> Hsla {
-    match kind {
-        "edit" => theme::running(),
-        "test" => theme::starting(),
-        "desktop" | "page" | "pr" => theme::accent(),
-        _ => theme::muted(),
-    }
-}
-
-/// step_title says what a step did (useStepTitle).
-fn step_title(s: &agentbox_api::TimelineStep, kind: &str) -> String {
-    let files = &s.paths;
-    match kind {
-        "task" => s.title.clone(),
-        "read" if !s.title.is_empty() => s.title.clone(),
-        "read" if !files.is_empty() => tv("timeline.title.read", &[("count", files.len().into())]),
-        "read" => t("timeline.title.search"),
-        "plan" => t("timeline.title.plan"),
-        "edit" if !files.is_empty() => {
-            let first = files[0].rsplit('/').next().unwrap_or(&files[0]).to_string();
-            tv(
-                "timeline.title.edit",
-                &[
-                    ("file", (&first).into()),
-                    ("count", (files.len() - 1).into()),
-                ],
-            )
-        }
-        "edit" => t("timeline.title.editNone"),
-        "test" => t(match s.status.as_str() {
-            "failed" => "timeline.title.testFailed",
-            "running" => "timeline.title.testRunning",
-            _ => "timeline.title.testPassed",
-        }),
-        "desktop" if s.title.is_empty() => t("timeline.title.desktop"),
-        "page" if s.title.is_empty() => t("timeline.title.page"),
-        "pr" => t("timeline.title.pr"),
-        _ if s.title.is_empty() => t("timeline.title.run"),
-        _ => s.title.clone(),
     }
 }
 

@@ -27,7 +27,6 @@ use super::AppView;
 use super::agent_status::{self as st, Action, Tone};
 use super::controls::{self, Btn};
 use super::panel::PView;
-use super::pulls;
 use super::settings::defaults::time_ago;
 use crate::theme;
 use crate::toasts::{self, Kind, Toast};
@@ -50,9 +49,18 @@ pub enum Page {
 /// A confirmation waiting for its yes.
 #[derive(Clone)]
 pub enum Confirm {
-    Rollback { checkpoint: String, n: i64 },
-    Restore { snapshot: String },
-    DeleteSnapshot { name: String },
+    Rollback {
+        checkpoint: String,
+        n: i64,
+    },
+    Restore {
+        snapshot: String,
+    },
+    DeleteSnapshot {
+        name: String,
+    },
+    /// New chat: the conversation deleted, a new session started.
+    NewChat,
 }
 
 /// The destroy dialog's choices (DestroyAgentDialog.tsx).
@@ -799,6 +807,25 @@ impl AppView {
                     })
                     .ok();
                 }
+                // New chat (ChatTab's clearChat): the chat reads itself again.
+                Confirm::NewChat => {
+                    let res = client
+                        .raw(
+                            agentbox_api::client::Method::DELETE,
+                            &format!("{base}/chat"),
+                            None,
+                        )
+                        .await;
+                    this.update(cx, |this, cx| {
+                        if let Err(e) = res {
+                            toasts::error(cx, e.to_string());
+                        }
+                        if let Some(chat) = &this.chat {
+                            chat.update(cx, |c, cx| c.load(cx));
+                        }
+                    })
+                    .ok();
+                }
             }
         })
         .detach();
@@ -899,7 +926,11 @@ impl AppView {
         cx.notify();
     }
 
-    /// render_agent_header is the agent's own row under the project's header.
+    /// render_agent_header is the agent's own row under the top bar
+    /// (AgentView.tsx's header): its avatar, its state as one badge that
+    /// opens its details, its pull request or else its branch, and at the
+    /// right the action that brings it back, New chat, its ⋯ and the
+    /// panel's button.
     pub(super) fn render_agent_header(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let a = self.open_agent()?.clone();
         let (text, tone) = st::chat_label(&a);
@@ -911,106 +942,205 @@ impl AppView {
         let menu_tip: SharedString = t("agent.view.moreActions").into();
         let branch_tip: SharedString = t("agent.view.branch").into();
         let details_tip: SharedString = t("agent.view.details").into();
+        let new_tip: SharedString = t("chat.tab.newChat").into();
+        // The ⋯: Button size="icon-sm" variant="ghost" (size-8, a 15px icon).
         let menu = Button::new("agent-menu")
             .ghost()
-            .small()
-            .icon(crate::icons::ic("ellipsis"))
+            .with_size(px(32.))
+            .icon(crate::icons::ic("ellipsis").size(px(15.)))
             .tooltip(menu_tip)
             .dropdown_menu_with_anchor(Anchor::TopRight, self.agent_menu(&a, true, cx));
         let info_ref = r.clone();
+        // The badge's variant by tone (toneVariant): its fill, text and ring.
+        let (fill, fg, ring) = match tone {
+            Tone::Urgent | Tone::Warning => (
+                theme::amber(400).opacity(0.1),
+                theme::amber(200),
+                theme::amber(400).opacity(0.25),
+            ),
+            Tone::Error => (
+                theme::rose(400).opacity(0.1),
+                theme::rose(300),
+                theme::rose(400).opacity(0.25),
+            ),
+            Tone::Live => (
+                theme::sky(400).opacity(0.1),
+                theme::sky(300),
+                theme::sky(400).opacity(0.25),
+            ),
+            Tone::Muted => (theme::surface(), theme::tertiary(), theme::line_strong()),
+        };
+        let asking = self.side.questions_of(&a.project).iter().any(|q| {
+            q.r#ref == a.r#ref
+                && (q.status == "escalated" || (q.status == "pending" && !q.kind.is_empty()))
+        });
+        let empty_chat = self.chat.as_ref().is_none_or(|c| c.read(cx).is_empty());
+        let badge = h_flex()
+            .id("agent-status")
+            .gap_1()
+            .px_2()
+            .py_0p5()
+            .rounded_full()
+            .border_1()
+            .border_color(ring)
+            .bg(fill)
+            .text_size(px(12.))
+            .line_height(px(18.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(fg)
+            .cursor_pointer()
+            .tooltip(move |w, cx| Tooltip::new(details_tip.clone()).build(w, cx))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let just_closed = this
+                    .agent
+                    .info_closed
+                    .is_some_and(|t| t.elapsed() < Duration::from_millis(400));
+                if just_closed {
+                    return;
+                }
+                if this.agent.info.is_some() {
+                    this.agent.info = None;
+                    cx.notify();
+                } else {
+                    this.open_info(info_ref.clone(), cx);
+                }
+            }))
+            .child(
+                div()
+                    .size(px(6.))
+                    .rounded_full()
+                    .bg(theme::state_color(&a.state)),
+            )
+            .child(text)
+            .child(
+                div()
+                    .opacity(0.7)
+                    .child(crate::icons::ic("chevron-down").size(px(12.))),
+            )
+            .when(info_open, |el| {
+                el.child(deferred(
+                    anchored()
+                        .offset(point(px(0.), px(26.)))
+                        .snap_to_window_with_margin(px(8.))
+                        .child(self.info_card(&a, cx)),
+                ))
+            });
+        // Chip (mono): the pull request, or else the branch.
+        let chip = |id: &'static str, icon: &'static str, label: String| {
+            h_flex()
+                .id(id)
+                .max_w(px(280.))
+                .gap_1p5()
+                .px_2()
+                .py_0p5()
+                .rounded_md()
+                .border_1()
+                .border_color(theme::line())
+                .bg(theme::surface_faint())
+                .text_size(px(12.))
+                .line_height(px(18.))
+                .font_family(theme::mono())
+                .text_color(theme::muted())
+                .child(
+                    crate::icons::ic(icon)
+                        .size(px(12.))
+                        .text_color(theme::subtle()),
+                )
+                .child(div().min_w_0().truncate().child(label))
+        };
+        let chip = match a.pr.as_ref().filter(|p| p.number > 0) {
+            Some(pr) => {
+                let state = if pr.draft { "draft" } else { pr.state.as_str() };
+                let word = match state {
+                    "draft" | "open" | "merged" | "closed" => t(&format!("agent.pr.{state}")),
+                    other => other.to_string(),
+                };
+                let url = pr.url.clone();
+                let tip: SharedString = pr.title.clone().into();
+                chip(
+                    "agent-pr",
+                    "git-pull-request",
+                    format!("#{} {word}", pr.number),
+                )
+                .cursor_pointer()
+                .hover(|el| {
+                    el.bg(theme::surface_raised())
+                        .text_color(theme::secondary())
+                })
+                .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
+                .on_click(move |_, _, cx| cx.open_url(&url))
+                .into_any_element()
+            }
+            None => chip("agent-branch", "git-branch", a.branch.to_string())
+                .tooltip(move |w, cx| Tooltip::new(branch_tip.clone()).build(w, cx))
+                .into_any_element(),
+        };
+        let new_chat = div()
+            .id("agent-new-chat")
+            .flex_none()
+            .size_9()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_lg()
+            .text_color(theme::muted())
+            .when(empty_chat, |el| el.opacity(0.45))
+            .when(!empty_chat, |el| {
+                el.cursor_pointer()
+                    .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.agent.confirm = Some(Confirm::NewChat);
+                        cx.notify();
+                    }))
+            })
+            .tooltip(move |w, cx| Tooltip::new(new_tip.clone()).build(w, cx))
+            .child(crate::icons::ic("message-square-plus").size(px(16.)));
         Some(
             h_flex()
                 .flex_none()
-                .px_4()
-                .py_2()
-                .gap_2()
-                .bg(theme::ink())
+                .items_start()
+                .gap_x_3()
+                .px_6()
+                .py(px(10.))
+                .child(avatar(&a, asking, 40.))
                 .child(
                     h_flex()
-                        .id("agent-status")
+                        .min_w_0()
+                        .flex_1()
+                        .self_center()
+                        .flex_wrap()
                         .gap_1p5()
-                        .px_2()
-                        .py_0p5()
-                        .rounded_full()
-                        .border_1()
-                        .border_color(tone_color(tone).opacity(0.4))
-                        .bg(tone_color(tone).opacity(0.12))
-                        .text_xs()
-                        .text_color(tone_color(tone))
-                        .cursor_pointer()
-                        .tooltip(move |w, cx| Tooltip::new(details_tip.clone()).build(w, cx))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let just_closed = this
-                                .agent
-                                .info_closed
-                                .is_some_and(|t| t.elapsed() < Duration::from_millis(400));
-                            if just_closed {
-                                return;
-                            }
-                            if this.agent.info.is_some() {
-                                this.agent.info = None;
-                                cx.notify();
-                            } else {
-                                this.open_info(info_ref.clone(), cx);
-                            }
-                        }))
-                        .child(
-                            div()
-                                .size(px(6.))
-                                .rounded_full()
-                                .bg(theme::state_color(&a.state)),
-                        )
-                        .child(text)
-                        .child(
-                            div()
-                                .text_color(theme::faint())
-                                .child(crate::icons::of("▾")),
-                        )
-                        .when(info_open, |el| {
-                            el.child(deferred(
-                                anchored()
-                                    .offset(point(px(0.), px(26.)))
-                                    .snap_to_window_with_margin(px(8.))
-                                    .child(self.info_card(&a, cx)),
-                            ))
-                        }),
+                        .child(badge)
+                        .child(chip),
                 )
-                .map(|el| match a.pr.as_ref().filter(|p| p.number > 0) {
-                    Some(pr) => el.child(pulls::pr_chip("agent-pr", pr)),
-                    None => el.child(
-                        div()
-                            .id("agent-branch")
-                            .max_w(px(280.))
-                            .truncate()
-                            .px_2()
-                            .py_0p5()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(theme::line())
-                            .text_xs()
-                            .font_family(theme::mono())
-                            .text_color(theme::muted())
-                            .tooltip(move |w, cx| Tooltip::new(branch_tip.clone()).build(w, cx))
-                            .child(crate::icons::lead("git-branch", a.branch.to_string())),
-                    ),
-                })
-                .child(div().flex_1())
-                .when(self.agent.busy, |el| {
-                    el.child(div().text_xs().text_color(theme::faint()).child("…"))
-                })
-                .when_some(primary, |el, action| {
-                    let r = r.clone();
-                    el.child(controls::button(
-                        "agent-primary",
-                        format!("▶ {}", action.label()),
-                        Btn::Primary,
-                        self.agent.busy,
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.run_action(r.clone(), action, cx)
-                        }),
-                    ))
-                })
-                .child(menu)
+                .child(
+                    h_flex()
+                        .flex_none()
+                        .self_center()
+                        .gap_1p5()
+                        .when(self.agent.busy, |el| {
+                            el.child(
+                                crate::icons::ic("loader-circle")
+                                    .size(px(16.))
+                                    .text_color(theme::subtle()),
+                            )
+                        })
+                        .when_some(primary, |el, action| {
+                            let r = r.clone();
+                            el.child(controls::button(
+                                "agent-primary",
+                                format!("▶ {}", action.label()),
+                                Btn::Primary,
+                                self.agent.busy,
+                                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.run_action(r.clone(), action, cx)
+                                }),
+                            ))
+                        })
+                        .child(new_chat)
+                        .child(menu)
+                        .child(self.render_panel_button(cx)),
+                )
                 .into_any_element(),
         )
     }
@@ -1707,6 +1837,19 @@ impl AppView {
                     t("agent.snapshots.deleteDescription"),
                     t("common.delete"),
                 ),
+                Confirm::NewChat => (
+                    t("chat.tab.newChatTitle"),
+                    tv(
+                        "chat.tab.newChatDescription",
+                        &[
+                            ("scope", "other".into()),
+                            ("tool", crate::chat::tool_label(&a.ai).into()),
+                            ("project", (&a.project).into()),
+                            ("name", (&name).into()),
+                        ],
+                    ),
+                    t("chat.tab.newChat"),
+                ),
             };
             return Some(modal(
                 "agent-confirm",
@@ -1889,4 +2032,121 @@ pub fn modal(
         "dialog-backdrop-in",
     )
     .into_any_element()
+}
+
+/// Mood is how an agent's avatar looks (lib/agentStatus.ts avatarMood).
+#[derive(Clone, Copy, PartialEq)]
+enum Mood {
+    Working,
+    Idle,
+    Asking,
+    Sleeping,
+    Error,
+}
+
+fn mood(a: &FleetAgent, asking: bool) -> Mood {
+    let s = a.state.as_str();
+    if s == "initializing" || s == "queued" {
+        return Mood::Sleeping;
+    }
+    if s == "incomplete" || s == "missing" || a.chat == "error" {
+        return Mood::Error;
+    }
+    if s == "running" && a.chat == "running" && a.stalled_since.is_some() {
+        return Mood::Error;
+    }
+    if s != "running" {
+        return Mood::Sleeping;
+    }
+    if a.chat == "waiting" || asking {
+        return Mood::Asking;
+    }
+    if a.chat == "running" || a.chat == "starting" {
+        return Mood::Working;
+    }
+    match a.outcome.as_str() {
+        "asking" => Mood::Asking,
+        "failed" => Mood::Error,
+        _ => Mood::Idle,
+    }
+}
+
+/// avatar is LiveAgentAvatar (components/state.tsx AgentAvatar): a rounded
+/// tile tinted by its mood, the tool's character at rest in it (asleep in
+/// grey, with its z's), its state's dot at the corner.
+fn avatar(a: &FleetAgent, asking: bool, size: f32) -> AnyElement {
+    let m = mood(a, asking);
+    let border = match m {
+        Mood::Asking => theme::amber(400).opacity(0.45),
+        Mood::Error => theme::rose(400).opacity(0.4),
+        _ => theme::line_strong(),
+    };
+    // The tints, bg-gradient-to-br from … to-transparent.
+    let from = match m {
+        Mood::Working | Mood::Idle => theme::brand(500).opacity(0.2),
+        Mood::Asking => theme::amber(400).opacity(0.2),
+        Mood::Sleeping => theme::surface_raised(),
+        Mood::Error => theme::rose(400).opacity(0.18),
+    };
+    let to = from.opacity(0.);
+    let sleeping = m == Mood::Sleeping;
+    let color = if sleeping || m == Mood::Error {
+        theme::muted()
+    } else {
+        theme::brand(200)
+    };
+    let z = |right: f32, top: f32, s: f32| {
+        div()
+            .absolute()
+            .right(relative(right))
+            .top(relative(top))
+            .text_size(px(size * s))
+            .line_height(relative(1.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(theme::subtle())
+            .child("z")
+    };
+    div()
+        .relative()
+        .flex_none()
+        .size(px(size))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_xl()
+        .border_1()
+        .border_color(border)
+        .child(div().absolute().inset_0().rounded_xl().bg(linear_gradient(
+            135.,
+            linear_color_stop(from, 0.),
+            linear_color_stop(to, if sleeping { 0.5 } else { 0.85 }),
+        )))
+        .child(
+            div()
+                .when(sleeping, |el| el.opacity(0.45))
+                .child(crate::icons::tool_mark_grey(
+                    &a.ai,
+                    px((size * 0.58).round()),
+                    color,
+                    sleeping,
+                )),
+        )
+        .when(sleeping, |el| {
+            el.child(z(0.16, 0.30, 0.14))
+                .child(z(0.09, 0.17, 0.16))
+                .child(z(0.02, 0.04, 0.19))
+        })
+        .child(
+            div()
+                .absolute()
+                // size-2.5 at -0.5, its ring-2 in the page's ink outside it.
+                .right(px(-4.))
+                .bottom(px(-4.))
+                .size(px(14.))
+                .rounded_full()
+                .border_2()
+                .border_color(theme::ink())
+                .bg(theme::state_color(&a.state)),
+        )
+        .into_any_element()
 }

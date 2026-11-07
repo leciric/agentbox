@@ -2950,7 +2950,10 @@ impl AppView {
             .gap_1()
             .child(div().flex_none().child(menu))
             .child(self.render_panel_button(cx));
-        Some(self.top_bar_frame(crumbs.into_any_element(), Some(end.into_any_element()), cx))
+        // Only the lead's chat puts them in the top bar (ProjectView's
+        // InTopBar); an agent's header has its own.
+        let end = lead.then(|| end.into_any_element());
+        Some(self.top_bar_frame(crumbs.into_any_element(), end, cx))
     }
 }
 

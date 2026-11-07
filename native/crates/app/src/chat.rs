@@ -584,6 +584,11 @@ impl ChatView {
         .detach();
     }
 
+    /// is_empty is whether the chat has nothing in it yet (New chat is off).
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
     pub fn load(&mut self, cx: &mut Context<Self>) {
         self.read_page(format!("{}/chat?limit={PAGE}", self.prefix), None, cx);
         self.load_checkpoints(cx);

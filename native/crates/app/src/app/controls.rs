@@ -961,6 +961,11 @@ thread_local! {
     static VIEWPORT: std::cell::Cell<Size<Pixels>> = const { std::cell::Cell::new(Size { width: px(0.), height: px(0.) }) };
 }
 
+/// viewport is the window's size as it was last drawn.
+pub fn viewport() -> Size<Pixels> {
+    VIEWPORT.with(|v| v.get())
+}
+
 /// set_viewport records the window's size, each frame.
 pub fn set_viewport(size: Size<Pixels>) {
     VIEWPORT.with(|v| v.set(size));
