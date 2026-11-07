@@ -330,6 +330,16 @@ impl AppView {
         out
     }
 
+    /// lead_line_at is when a project's lead chat was last written in, in
+    /// ms (0 when never), what New task orders its targets by.
+    pub(super) fn lead_line_at(&self, project: &str) -> i64 {
+        self.side
+            .lines
+            .get(project)
+            .and_then(|l| chrono::DateTime::parse_from_rfc3339(&l.at).ok())
+            .map_or(0, |d| d.timestamp_millis())
+    }
+
     /// to_review is how many of a project's agents wait for review ("" for
     /// every project's), as the counts read it.
     pub(super) fn to_review(&self, project: &str) -> usize {

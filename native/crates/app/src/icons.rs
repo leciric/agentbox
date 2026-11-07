@@ -197,6 +197,7 @@ gpui_kit_assets::icon_assets!(
         CircleX,
         Clock,
         Copy,
+        CornerDownLeft,
         CornerDownRight,
         Coins,
         Cpu,

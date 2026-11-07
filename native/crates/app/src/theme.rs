@@ -833,6 +833,11 @@ pub fn shadow_drawer() -> Vec<BoxShadow> {
         inset: false,
     }]
 }
+/// shadow_deep is --ab-shadow-deep, what floats casts.
+pub fn shadow_deep() -> Hsla {
+    c(worn().shadow_deep)
+}
+
 /// shadow_modal is a dialog's: deep, so it reads above the scrim.
 pub fn shadow_modal() -> Vec<BoxShadow> {
     vec![BoxShadow {
