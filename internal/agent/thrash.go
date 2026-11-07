@@ -82,17 +82,20 @@ func thrash(dir string) (ThrashSample, bool) {
 // errNoVictim is a machine with no process the kernel would kill for memory.
 var errNoVictim = errors.New("no process to kill")
 
-// KillLargest kills the process in an agent's machine that the kernel's OOM
-// killer would: the highest /proc/<pid>/oom_score, never one whose
-// oom_score_adj is -1000. It kills through sudo when the daemon may not
-// itself (in AgentBox's VM, the machine's processes are other users').
+// KillLargest kills the process in an agent's machine that holds the most
+// memory, in RAM and in swap, never one whose oom_score_adj is -1000. Not the
+// highest oom_score, as the kernel's OOM killer picks: in the load lab that
+// was a dbus-daemon holding 12 KiB, its oom_score raised by an oom_score_adj
+// its machine's systemd gave it, and killing it freed nothing. It kills
+// through sudo when the daemon may not itself (in AgentBox's VM, the
+// machine's processes are other users').
 func KillLargest(instance string) (OOMVictim, error) {
 	return killLargest(agentCgroup(cgroupRoot, instance), "/proc", killProcess)
 }
 
 func killLargest(dir, proc string, kill func(pid int) error) (OOMVictim, error) {
 	var best OOMVictim
-	bestScore := int64(-1)
+	var bestHeld int64
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if path == dir {
@@ -112,22 +115,24 @@ func killLargest(dir, proc string, kill func(pid int) error) (OOMVictim, error) 
 			if err != nil {
 				continue
 			}
-			score, err := readInt(filepath.Join(proc, f, "oom_score"))
-			if err != nil || score <= bestScore {
+			status := readString(filepath.Join(proc, f, "status"))
+			rss := statusBytes(status, "VmRSS:")
+			held := rss + statusBytes(status, "VmSwap:")
+			if held <= bestHeld {
 				continue
 			}
 			if adj, err := readInt(filepath.Join(proc, f, "oom_score_adj")); err == nil && adj == -1000 {
 				continue
 			}
-			bestScore = score
-			best = OOMVictim{PID: pid, Name: strings.TrimSpace(readString(filepath.Join(proc, f, "comm"))), RSS: statusBytes(filepath.Join(proc, f, "status"), "VmRSS:")}
+			bestHeld = held
+			best = OOMVictim{PID: pid, Name: strings.TrimSpace(readString(filepath.Join(proc, f, "comm"))), RSS: rss}
 		}
 		return nil
 	})
 	if err != nil {
 		return OOMVictim{}, err
 	}
-	if bestScore < 0 {
+	if bestHeld == 0 {
 		return OOMVictim{}, errNoVictim
 	}
 	if err := kill(best.PID); err != nil {
@@ -147,13 +152,9 @@ func killProcess(pid int) error {
 	return sudo("kill", "", "-KILL", strconv.Itoa(pid))
 }
 
-// statusBytes reads a "Name:   123 kB" line of /proc/<pid>/status in bytes.
-func statusBytes(path, name string) int64 {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return 0
-	}
-	for _, line := range strings.Split(string(b), "\n") {
+// statusBytes reads a "Name:   123 kB" line of a /proc/<pid>/status in bytes.
+func statusBytes(status, name string) int64 {
+	for _, line := range strings.Split(status, "\n") {
 		if v, ok := strings.CutPrefix(line, name); ok {
 			kb, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimSpace(v), " kB"), 10, 64)
 			return kb << 10

@@ -22,33 +22,35 @@ func TestThrashReadsFullPressureAndHitsOnItsOwnLimit(t *testing.T) {
 	}
 }
 
-// TestKillLargestPicksWhatTheOOMKillerWould: the highest oom_score anywhere
-// in the machine's cgroup tree, never one the kernel may not kill.
-func TestKillLargestPicksWhatTheOOMKillerWould(t *testing.T) {
+// TestKillLargestPicksTheMostMemory: what holds the most RAM and swap
+// anywhere in the machine's cgroup tree, whatever its oom_score, never one
+// the kernel may not kill.
+func TestKillLargestPicksTheMostMemory(t *testing.T) {
 	t.Parallel()
 	root, proc := t.TempDir(), t.TempDir()
 	machine := filepath.Join(root, "lxc.payload.ab-x")
 	writeCgroupFile(t, filepath.Join(machine, "cgroup.procs"), "")
 	writeCgroupFile(t, filepath.Join(machine, "init.scope", "cgroup.procs"), "10\n")
-	writeCgroupFile(t, filepath.Join(machine, "user.slice", "cgroup.procs"), "20\n30\n40\n")
+	writeCgroupFile(t, filepath.Join(machine, "user.slice", "cgroup.procs"), "20\n30\n35\n40\n")
 	for _, p := range []struct {
 		pid, score, adj int
-		name, rss       string
+		name, rss, swap string
 	}{
-		{10, 2, 0, "systemd", "12000 kB"},
-		{20, 120, 0, "claude", "400000 kB"},
-		{30, 900, 0, "node", "3500000 kB"},
-		{40, 1000, -1000, "sshd", "9000 kB"}, // the kernel never picks it
+		{10, 2, 0, "systemd", "12000 kB", "0 kB"},
+		{20, 950, 900, "dbus-daemon", "12 kB", "0 kB"}, // the highest oom_score, nothing to free
+		{30, 600, 0, "node", "2500000 kB", "1000000 kB"},
+		{35, 610, 0, "go", "3000000 kB", "0 kB"},        // more RAM, less in all
+		{40, 1000, -1000, "sshd", "9000000 kB", "0 kB"}, // the kernel never kills it
 	} {
 		dir := filepath.Join(proc, strconv.Itoa(p.pid))
 		writeCgroupFile(t, filepath.Join(dir, "oom_score"), strconv.Itoa(p.score)+"\n")
 		writeCgroupFile(t, filepath.Join(dir, "oom_score_adj"), strconv.Itoa(p.adj)+"\n")
 		writeCgroupFile(t, filepath.Join(dir, "comm"), p.name+"\n")
-		writeCgroupFile(t, filepath.Join(dir, "status"), "Name:\t"+p.name+"\nVmRSS:\t  "+p.rss+"\n")
+		writeCgroupFile(t, filepath.Join(dir, "status"), "Name:\t"+p.name+"\nVmRSS:\t  "+p.rss+"\nVmSwap:\t  "+p.swap+"\n")
 	}
 	var killed []int
 	v, err := killLargest(machine, proc, func(pid int) error { killed = append(killed, pid); return nil })
-	if err != nil || v.PID != 30 || v.Name != "node" || v.RSS != 3500000<<10 || len(killed) != 1 || killed[0] != 30 {
+	if err != nil || v.PID != 30 || v.Name != "node" || v.RSS != 2500000<<10 || len(killed) != 1 || killed[0] != 30 {
 		t.Errorf("killLargest = %+v, %v; killed %v; want node (30) alone", v, err, killed)
 	}
 	empty := filepath.Join(root, "lxc.payload.ab-empty")
