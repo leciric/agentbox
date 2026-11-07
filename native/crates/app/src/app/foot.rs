@@ -147,8 +147,8 @@ impl AppView {
         self.side.page = Some(page);
         if page == FootPage::Media && self.side.foot.search.is_none() {
             let search = cx.new(|cx| {
+                // Its placeholder is drawn under it (media_search), in faint.
                 gpui_component::input::InputState::new(window, cx)
-                    .placeholder(t("agent.mediaTab.searchPlaceholder"))
             });
             let sub = cx.subscribe(
                 &search,
@@ -1278,7 +1278,10 @@ impl AppView {
                         None,
                     )))
                     .when_some(f.search.as_ref().filter(|_| total > 0), |el, search| {
-                        el.child(media_search(search))
+                        el.child(media_search(
+                            search,
+                            f.q.is_empty() && search.read(cx).value().is_empty(),
+                        ))
                     }),
             )
             .child(h_flex().flex_wrap().gap_1().children(chips));
@@ -2079,7 +2082,7 @@ fn fnv(s: &str) -> u64 {
 
 /// media_search is MediaParts.tsx's MediaSearch: w-64, h-7, Search at
 /// left-2.5, the words at pl-8, text-ui.
-fn media_search(search: &Entity<gpui_component::input::InputState>) -> AnyElement {
+fn media_search(search: &Entity<gpui_component::input::InputState>, empty: bool) -> AnyElement {
     use gpui_component::Sizable as _;
     h_flex()
         .w(px(256.))
@@ -2100,13 +2103,30 @@ fn media_search(search: &Entity<gpui_component::input::InputState>) -> AnyElemen
                 .text_color(theme::subtle()),
         )
         .child(
-            div().flex_1().min_w_0().child(
-                gpui_component::input::Input::new(search)
-                    .appearance(false)
-                    .with_size(gpui_component::Size::Size(px(13. / 0.875)))
-                    .px_0()
-                    .cleanable(true),
-            ),
+            div()
+                .relative()
+                .flex_1()
+                .min_w_0()
+                // placeholder:text-faint, which gpui-component's own (muted) isn't.
+                .when(empty, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .text_color(theme::faint())
+                            .truncate()
+                            .child(t("agent.mediaTab.searchPlaceholder")),
+                    )
+                })
+                .child(
+                    gpui_component::input::Input::new(search)
+                        .appearance(false)
+                        .with_size(gpui_component::Size::Size(px(13. / 0.875)))
+                        .px_0()
+                        .cleanable(true),
+                ),
         )
         .into_any_element()
 }

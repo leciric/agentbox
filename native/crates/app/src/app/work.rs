@@ -66,7 +66,8 @@ impl WorkView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder(t("work.search")));
+        // Its placeholder is drawn under it, in faint (render).
+        let search = cx.new(|cx| InputState::new(window, cx));
         let sub = cx.subscribe(&search, |this: &mut Self, s, ev: &InputEvent, cx| {
             if !matches!(ev, InputEvent::Change) {
                 return;
@@ -441,7 +442,7 @@ impl WorkView {
                     .flex_none()
                     .mt(px(2.))
                     .when(w.past, |el| el.opacity(0.6))
-                    .child(crate::icons::ai_icon(&i.ai, px(16.), theme::muted())),
+                    .child(crate::icons::ai_icon(&i.ai, px(16.), theme::primary())),
             )
             .child(
                 v_flex()
@@ -490,7 +491,12 @@ impl WorkView {
                     ),
             )
             .child(match i.pr.as_ref().filter(|p| p.number > 0) {
-                Some(pr) => pr_chip(pr),
+                // PrChip className="mt-0.5"
+                Some(pr) => div()
+                    .flex_none()
+                    .mt_0p5()
+                    .child(pr_chip(pr))
+                    .into_any_element(),
                 None => div()
                     .flex_none()
                     .mt_0p5()
@@ -671,15 +677,35 @@ impl Render for WorkView {
                                                 .text_color(theme::subtle()),
                                         )
                                         .child(
-                                            div().flex_1().min_w_0().child(
-                                                Input::new(&self.search)
-                                                    .appearance(false)
-                                                    .with_size(gpui_component::Size::Size(px(
-                                                        14. / 0.875
-                                                    )))
-                                                    .px_0()
-                                                    .cleanable(true),
-                                            ),
+                                            div()
+                                                .relative()
+                                                .flex_1()
+                                                .min_w_0()
+                                                // placeholder:text-faint
+                                                .when(
+                                                    self.search.read(cx).value().is_empty(),
+                                                    |el| {
+                                                        el.child(
+                                                            div()
+                                                                .absolute()
+                                                                .inset_0()
+                                                                .flex()
+                                                                .items_center()
+                                                                .truncate()
+                                                                .text_color(theme::faint())
+                                                                .child(t("work.search")),
+                                                        )
+                                                    },
+                                                )
+                                                .child(
+                                                    Input::new(&self.search)
+                                                        .appearance(false)
+                                                        .with_size(gpui_component::Size::Size(px(
+                                                            14. / 0.875,
+                                                        )))
+                                                        .px_0()
+                                                        .cleanable(true),
+                                                ),
                                         ),
                                 )
                                 .when(self.loading && self.page.is_some(), |el| {
