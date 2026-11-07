@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::text::{MarkdownNode, TextView};
 
@@ -69,6 +70,19 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
         .collect();
     let runs =
         crate::highlight::lang_of_fence(lang).map(|l| crate::highlight::line_runs(l, &lines));
+    let longest: SharedString = lines
+        .iter()
+        .max_by_key(|l| l.chars().count())
+        .cloned()
+        .unwrap_or_default()
+        .into();
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut h);
+        h.finish()
+    };
+    let overflows = OVERFLOWS.with(|o| o.borrow().get(&key).copied().unwrap_or(false));
     div()
         .w_full()
         .min_w_0()
@@ -99,11 +113,16 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
         )
         .child(
             div()
+                .relative()
                 .flex()
                 .flex_col()
                 .px(rems(0.9))
                 .py(rems(0.7))
+                // Chromium's thin scrollbar under code that's wider than the
+                // block (.chat-codeblock pre's overflow-x: auto), in its gutter.
+                .when(overflows, |el| el.pb(px(11.2 + 10.)))
                 .overflow_x_hidden()
+                .child(code_scrollbar(key, longest, overflows))
                 .font_family(theme::mono())
                 .text_size(rems(0.78))
                 .line_height(relative(1.6))
@@ -246,4 +265,75 @@ mod tests {
             assert!(svg.starts_with("<svg") || svg.contains("<svg"), "{src}");
         }
     }
+}
+
+thread_local! {
+    /// Whether each code block (by its text) was found wider than its box,
+    /// so it lays out with the scrollbar's gutter from the next frame on.
+    static OVERFLOWS: std::cell::RefCell<HashMap<u64, bool>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// code_scrollbar measures a block's longest line against its box and, when
+/// it overflows, paints Chromium's thin horizontal scrollbar (as
+/// controls::scrollbar draws the vertical one): an arrow at each end in a
+/// 12px button, a 6px pill between, at the scroll's start.
+fn code_scrollbar(key: u64, longest: SharedString, was: bool) -> AnyElement {
+    canvas(
+        move |bounds, window, _| {
+            let size = rems(0.78).to_pixels(window.rem_size());
+            let run = TextRun {
+                len: longest.len(),
+                font: font(theme::mono()),
+                color: theme::primary(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let w = window
+                .text_system()
+                .shape_line(longest.clone(), size, &[run], None)
+                .width;
+            let pad = rems(0.9).to_pixels(window.rem_size()) * 2.;
+            (bounds, w + pad)
+        },
+        move |_, (bounds, content), window, _| {
+            let over = content > bounds.size.width + px(0.5);
+            if over != was {
+                OVERFLOWS.with(|o| o.borrow_mut().insert(key, over));
+                window.refresh();
+            }
+            if !over || !was {
+                return;
+            }
+            let color = theme::line_vivid();
+            let y = bounds.bottom() - px(10.);
+            let left = bounds.left();
+            let right = bounds.right();
+            let col = |window: &mut Window, x: Pixels, from: f32, h: f32| {
+                window.paint_quad(fill(
+                    Bounds::new(point(x, y + px(from)), size(px(1.), px(h))),
+                    color,
+                ));
+            };
+            for i in 0..3 {
+                let i = i as f32;
+                col(window, left + px(4. + i), 4. - i, 2. + 2. * i);
+                col(window, right - px(7. - i), 2. + i, 6. - 2. * i);
+            }
+            let track = bounds.size.width - px(24.);
+            let len = (track * (bounds.size.width / content)).round().max(px(18.));
+            window.paint_quad(
+                fill(
+                    Bounds::new(point(left + px(12.), y + px(2.)), size(len, px(6.))),
+                    color,
+                )
+                .corner_radii(px(3.)),
+            );
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+    .into_any_element()
 }

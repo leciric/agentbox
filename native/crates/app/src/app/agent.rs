@@ -946,8 +946,11 @@ impl AppView {
         // The ⋯: Button size="icon-sm" variant="ghost" (size-8, a 15px icon).
         let menu = Button::new("agent-menu")
             .ghost()
-            .with_size(px(32.))
-            .icon(crate::icons::ic("ellipsis").size(px(15.)))
+            .small()
+            .size_8()
+            .rounded(gpui_component::button::ButtonRounded::Size(px(8.)))
+            .text_color(theme::muted())
+            .child(crate::icons::ic("ellipsis").size(px(15.)))
             .tooltip(menu_tip)
             .dropdown_menu_with_anchor(Anchor::TopRight, self.agent_menu(&a, true, cx));
         let info_ref = r.clone();

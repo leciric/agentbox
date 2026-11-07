@@ -15,6 +15,7 @@ use crate::{bench, theme};
 use agentbox_i18n::{t, tv};
 
 mod composer;
+pub use composer::ReviewCard;
 mod evidence;
 mod find;
 mod items;
@@ -166,6 +167,10 @@ pub struct ChatView {
     /// A project's lead: how many of its agents wait for review, the banner
     /// over its composer (ReviewCount's banner).
     pub review_count: usize,
+    /// A finished agent's review card over its composer (AgentReviewCard),
+    /// handed in by the app, and the agent's media counts by kind for it.
+    pub review_card: Option<ReviewCard>,
+    media_kinds: std::collections::BTreeMap<String, i64>,
     /// A past agent's chat: read-only, Continue and Delete where the
     /// composer was (ChatTab's readOnly).
     pub past: bool,
@@ -277,6 +282,8 @@ impl ChatView {
             agent_name: String::new(),
             asleep: None,
             review_count: 0,
+            review_card: None,
+            media_kinds: Default::default(),
             past: false,
             closed: false,
             evidence: Default::default(),
@@ -592,7 +599,37 @@ impl ChatView {
     pub fn load(&mut self, cx: &mut Context<Self>) {
         self.read_page(format!("{}/chat?limit={PAGE}", self.prefix), None, cx);
         self.load_checkpoints(cx);
+        self.load_media_counts(cx);
         self.composer.load_cache(&self.client, &self.prefix, cx);
+    }
+
+    /// load_media_counts reads what the agent made, by kind, for its review
+    /// card (useMediaCounts on the agent).
+    fn load_media_counts(&mut self, cx: &mut Context<Self>) {
+        if self.is_lead() {
+            return;
+        }
+        let Some(rest) = self.prefix.strip_prefix("/v1/agents/") else {
+            return;
+        };
+        let Some((p, a)) = rest.split_once('/') else {
+            return;
+        };
+        let path = format!("/v1/media/counts?project={p}&agent={a}");
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(c) = client.get::<agentbox_api::MediaCounts>(&path).await else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                if this.media_kinds != c.kinds {
+                    this.media_kinds = c.kinds;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// read_page replaces what's held with a page: the latest, or the

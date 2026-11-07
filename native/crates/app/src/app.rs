@@ -719,6 +719,27 @@ impl AppView {
                 cx.notify();
             });
         }
+        // An agent's chat: its review card (AgentReviewCard), from its review
+        // item and its pull request (useAgentPr: the fleet's, else the item's).
+        let card = self.open_agent().map(|a| {
+            let item = self.side.review.iter().find(|i| i.r#ref == a.r#ref).cloned();
+            let asked = !a.changes_requested.is_empty()
+                && matches!(a.chat.as_str(), "running" | "starting" | "waiting");
+            let pr = a
+                .pr
+                .clone()
+                .filter(|p| p.number > 0)
+                .or_else(|| item.as_ref().and_then(|i| i.pr.clone()));
+            crate::chat::ReviewCard { item, asked, pr }
+        });
+        if let Some(chat) = &self.chat
+            && chat.read(cx).review_card != card
+        {
+            chat.update(cx, |c, cx| {
+                c.review_card = card;
+                cx.notify();
+            });
+        }
     }
 
     /// open_agent_panel picks the view an agent's chat opens its panel on

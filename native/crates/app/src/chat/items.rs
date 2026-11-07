@@ -426,15 +426,36 @@ impl ChatView {
                 let n = cp.number;
                 let latest = n == self.latest_checkpoint();
                 let (v, id) = (view.clone(), cp.id.clone());
+                // TurnMarker: -mt-2 mb-3 px-1, its rule seen only on hover.
                 h_flex()
+                    .group("turn")
+                    .mt(px(-8.))
                     .mb_3()
+                    .px_1()
                     .gap_2()
-                    .child(div().flex_1().h(px(1.)).bg(theme::line()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .h(px(1.))
+                            .group_hover("turn", |s| s.bg(theme::line())),
+                    )
                     .child(
                         Button::new(SharedString::from(format!("turn-{n}")))
                             .ghost()
-                            .xsmall()
-                            .label(format!("{}  ⋯", tv("chat.turn.label", &[("n", n.into())])))
+                            .compact()
+                            .h_6()
+                            .px_1p5()
+                            .rounded(gpui_component::button::ButtonRounded::Size(px(6.)))
+                            .text_size(px(12.))
+                            .text_color(theme::faint())
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .text_size(px(12.))
+                                    .line_height(px(18.))
+                                    .child(tv("chat.turn.label", &[("n", n.into())]))
+                                    .child(crate::icons::ic("ellipsis").size(px(14.))),
+                            )
                             .dropdown_menu(move |menu, _, _| {
                                 let (back, fork) = (v.clone(), v.clone());
                                 let (bid, fid) = (id.clone(), id.clone());

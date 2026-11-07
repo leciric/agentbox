@@ -1719,6 +1719,204 @@ impl ChatView {
         )
     }
 
+    /// render_review_card is AgentReviewCard: over a finished agent's
+    /// composer, what it made, its pull request and Review changes; while it
+    /// works on changes asked for, it says so; asleep, it carries Start.
+    fn render_review_card(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let card = self.review_card.as_ref()?;
+        if card.item.is_none() && !card.asked {
+            return None;
+        }
+        let wake = self.asleep.clone();
+        let count = |k: &str| self.media_kinds.get(k).copied().unwrap_or(0);
+        let made: Vec<(&str, String)> = [
+            ("images", "screenshot", "v2.card.screenshots"),
+            ("film", "recording", "v2.card.recordings"),
+            ("globe", "page", "v2.card.pages"),
+        ]
+        .into_iter()
+        .filter(|(_, k, _)| count(k) > 0)
+        .map(|(icon, k, key)| (icon, tv(key, &[("count", count(k).into())])))
+        .collect();
+        let title = if card.asked {
+            t("v2.card.requested")
+        } else if card.item.as_ref().is_some_and(|i| !i.verdict.is_empty()) {
+            t("v2.card.reviewed")
+        } else {
+            t("v2.card.ready")
+        };
+        let pr = card.pr.as_ref().map(|pr| {
+            let tone = if pr.state == "merged" {
+                theme::violet(300)
+            } else if pr.checks == "failing" || pr.conflict {
+                theme::rose(300)
+            } else {
+                theme::secondary()
+            };
+            let label = if pr.state == "merged" {
+                t("v2.card.prMerged")
+            } else if pr.state == "closed" {
+                t("v2.card.prClosed")
+            } else if pr.draft {
+                t("memory.pulls.draft")
+            } else if pr.conflict {
+                t("memory.pulls.conflicts")
+            } else if pr.checks == "failing" {
+                t("v2.card.checksFailing")
+            } else if pr.checks == "passing" {
+                t("v2.card.checksPass")
+            } else {
+                t("v2.card.prOpen")
+            };
+            let url = pr.url.clone();
+            h_flex()
+                .gap_1()
+                .text_color(tone)
+                .child(
+                    crate::icons::ic(if pr.state == "merged" {
+                        "git-merge"
+                    } else {
+                        "git-pull-request"
+                    })
+                    .size(px(14.)),
+                )
+                .child(
+                    div()
+                        .id("review-card-pr")
+                        // PrNumberLink: brand-300 when it links.
+                        .when(!pr.url.is_empty(), |el| el.text_color(theme::brand(300)))
+                        .cursor_pointer()
+                        .hover(|el| el.underline())
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                        .child(format!("#{}", pr.number)),
+                )
+                .child(label)
+        });
+        let item = card.item.clone();
+        Some(
+            h_flex()
+                .mx_3()
+                .flex_wrap()
+                .gap_x_3()
+                .gap_y(px(6.))
+                .px_3()
+                .py_2()
+                .rounded_t_xl()
+                .border_1()
+                .border_b_0()
+                .border_color(theme::line_strong())
+                .bg(theme::composer())
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_2()
+                        .child(
+                            crate::icons::ic(if card.asked {
+                                "loader-circle"
+                            } else {
+                                "circle-check"
+                            })
+                            .size(px(16.))
+                            .text_color(theme::subtle()),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(theme::text::UI)
+                                .line_height(px(19.5))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::title())
+                                .child(title),
+                        )
+                        .when_some(wake.clone(), |el, state| {
+                            el.child(
+                                h_flex()
+                                    .flex_none()
+                                    .gap_1()
+                                    .text_size(px(12.))
+                                    .text_color(theme::muted())
+                                    .child(crate::icons::ic("moon").size(px(14.)))
+                                    .child(tv("v2.card.asleep", &[("state", (&state).into())])),
+                            )
+                        }),
+                )
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .flex_1()
+                        .flex_wrap()
+                        .gap_x(px(10.))
+                        .gap_y_1()
+                        .text_size(px(12.))
+                        .line_height(px(18.))
+                        .text_color(theme::subtle())
+                        .children(made.into_iter().map(|(icon, text)| {
+                            h_flex()
+                                .gap_1()
+                                .child(
+                                    crate::icons::ic(icon)
+                                        .size(px(14.))
+                                        .text_color(theme::faint()),
+                                )
+                                .child(text)
+                        }))
+                        .children(pr),
+                )
+                .when(item.is_some() || wake.is_some(), |el| {
+                    el.child(
+                        h_flex()
+                            .ml_auto()
+                            .flex_none()
+                            .gap_2()
+                            .when_some(wake, |el, state| {
+                                el.child(super::btn(
+                                    "review-card-wake",
+                                    tv("chat.composer.wake", &[("state", (&state).into())]),
+                                    false,
+                                    false,
+                                    cx.listener(|_, _: &ClickEvent, _, cx| {
+                                        cx.emit(ChatAction::Wake)
+                                    }),
+                                ))
+                            })
+                            .when_some(item, |el, item| {
+                                let asked = card.asked;
+                                el.child(
+                                    h_flex()
+                                        .id("review-open")
+                                        .h_7()
+                                        .gap_2()
+                                        .px_3()
+                                        .rounded_lg()
+                                        .text_size(theme::text::UI)
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .cursor_pointer()
+                                        .map(|el| {
+                                            if asked {
+                                                el.border_1()
+                                                    .border_color(theme::line())
+                                                    .bg(theme::surface_raised())
+                                                    .text_color(theme::primary())
+                                                    .hover(|el| el.bg(theme::surface_strong()))
+                                            } else {
+                                                el.bg(theme::brand(500))
+                                                    .text_color(theme::on_brand())
+                                                    .hover(|el| el.bg(theme::brand(600)))
+                                            }
+                                        })
+                                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                            cx.emit(ChatAction::OpenReview(Box::new(item.clone())))
+                                        }))
+                                        .child(t("v2.card.review"))
+                                        .child(crate::icons::ic("arrow-right").size(px(16.))),
+                                )
+                            }),
+                    )
+                })
+                .into_any_element(),
+        )
+    }
+
     /// render_review is a project lead's "N agents ready to review" over its
     /// composer (ReviewV2's ReviewCount banner: the dock, mx-3 rounded-t-xl
     /// border-line-strong bg-composer, px-3 py-1.5 text-ui).
@@ -1780,7 +1978,11 @@ impl ChatView {
     /// render_above is what waits on the composer, attached to its top.
     fn render_above(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let view = cx.entity();
-        if let Some(state) = &self.asleep {
+        let carded = self
+            .review_card
+            .as_ref()
+            .is_some_and(|c| c.item.is_some() || c.asked);
+        if let Some(state) = self.asleep.as_ref().filter(|_| !carded) {
             return Some(
                 Self::banner(theme::muted())
                     .child(
@@ -2335,7 +2537,9 @@ impl ChatView {
         let working = self.working() || self.session.turn_started_at.is_some();
         let view = cx.entity();
         let above = self.render_above(cx);
-        let review = self.render_review(cx);
+        let review = self
+            .render_review(cx)
+            .or_else(|| self.render_review_card(cx));
         if self.is_lead() && !self.composer.asked_mentions && self.loaded {
             self.load_mentions(cx);
         }
@@ -2866,4 +3070,13 @@ fn rgb_key(c: Hsla) -> u32 {
         | ((r.g * 255.) as u32) << 16
         | ((r.b * 255.) as u32) << 8
         | (r.a * 255.) as u32
+}
+
+/// ReviewCard is what a finished agent's review card shows (AgentReviewCard):
+/// its review item, whether changes asked for are under way, its PR.
+#[derive(Clone, PartialEq, Default)]
+pub struct ReviewCard {
+    pub item: Option<agentbox_api::ReviewItem>,
+    pub asked: bool,
+    pub pr: Option<agentbox_api::PullRequest>,
 }
