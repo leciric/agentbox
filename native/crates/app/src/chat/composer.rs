@@ -1984,16 +1984,23 @@ impl ChatView {
             .is_some_and(|c| c.item.is_some() || c.asked);
         if let Some(state) = self.asleep.as_ref().filter(|_| !carded) {
             return Some(
+                // Composer.tsx's asleep bar: a moon, the words in tertiary
+                // (leading-relaxed), and an h-6 brand Start with its Play.
                 Self::banner(theme::muted())
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(crate::icons::of("☾"))
+                            .child(
+                                crate::icons::ic("moon")
+                                    .size(px(14.))
+                                    .text_color(theme::muted()),
+                            )
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .text_color(theme::muted())
+                                    .line_height(relative(1.625))
+                                    .text_color(theme::tertiary())
                                     .child(tv(
                                         "chat.composer.asleep",
                                         &[
@@ -2002,13 +2009,26 @@ impl ChatView {
                                         ],
                                     )),
                             )
-                            .child(super::btn(
-                                "chat-wake",
-                                tv("chat.composer.wake", &[("state", state.into())]),
-                                true,
-                                false,
-                                cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ChatAction::Wake)),
-                            )),
+                            .child(
+                                h_flex()
+                                    .id("chat-wake")
+                                    .flex_none()
+                                    .h_6()
+                                    .gap_1()
+                                    .px(px(10.))
+                                    .rounded_md()
+                                    .bg(theme::brand(500).opacity(0.9))
+                                    .text_size(px(12.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(white())
+                                    .cursor_pointer()
+                                    .hover(|el| el.bg(theme::brand(500)))
+                                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                                        cx.emit(ChatAction::Wake)
+                                    }))
+                                    .child(crate::icons::ic("play").size(px(12.)))
+                                    .child(tv("chat.composer.wake", &[("state", state.into())])),
+                            ),
                     )
                     .into_any_element(),
             );

@@ -159,6 +159,9 @@ pass() {
       # gpui maps the window at x=2 with no window manager to place it:
       # put it where Electron's is, at the origin.
       DISPLAY=":$ndisp" xdotool search --name '^AgentBox$' windowmove 0 0 2>/dev/null || true
+      # The pointer where Electron's is (parity-electron.mjs moves it to the
+      # bottom-right corner), not Xvfb's centre, which hovers whatever is there.
+      DISPLAY=":$ndisp" xdotool mousemove $((${size%x*} - 2)) $((${size#*x} - 2)) 2>/dev/null || true
       sleep 1
       # Now both: Electron opens the scenario as the native app plays it.
       echo "$id" >&"${ELECTRON[1]}"
