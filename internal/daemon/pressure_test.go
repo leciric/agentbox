@@ -381,6 +381,79 @@ func TestOOMKillTold(t *testing.T) {
 	}
 }
 
+// TestThrashingAgentLosesItsLargestProcess: an agent that has spent its
+// memory and swap, stalled on it, for thrashFor loses the process holding
+// the most memory, and is told; one spent but hardly stalled (a build that
+// fits, just), or stalled but not spent (the VM short), keeps everything.
+func TestThrashingAgentLosesItsLargestProcess(t *testing.T) {
+	t.Parallel()
+	p := newPressureTest(t)
+	ctx := context.Background()
+	var mu sync.Mutex
+	sample := agent.ThrashSample{At: time.Unix(1000, 0)}
+	var killed []string
+	p.srv.vmMemory = func() int64 { return 16 << 30 }
+	p.srv.thrash = func(string) (agent.ThrashSample, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		return sample, true
+	}
+	p.srv.killLargest = func(instance string) (agent.OOMVictim, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		killed = append(killed, instance)
+		return agent.OOMVictim{Name: "node", PID: 777, RSS: 7 << 30}, nil
+	}
+	// Two seconds between looks, full percent of them stalled.
+	step := func(full float64, spent bool) {
+		mu.Lock()
+		sample.At = sample.At.Add(2 * time.Second)
+		sample.Stalled += time.Duration(full / 100 * float64(2*time.Second))
+		sample.Spent = spent
+		mu.Unlock()
+		p.srv.watchMemory(ctx)
+	}
+	kills := func() int { mu.Lock(); defer mu.Unlock(); return len(killed) }
+
+	for range 5 {
+		step(90, false) // stalled, not spent: the VM is short
+	}
+	for range 5 {
+		step(10, true) // spent, hardly stalled
+	}
+	if kills() != 0 {
+		t.Fatalf("killed %v without thrashing", killed)
+	}
+	step(100, false)
+	step(30, true) // spent from here, stalled from 20% to 100%
+	step(100, true)
+	step(20, true)
+	if kills() != 0 {
+		t.Fatalf("killed %v before thrashFor", killed)
+	}
+	step(25, true)
+	if kills() != 1 || killed[0] != p.instance {
+		t.Fatalf("killed %v after thrashFor, want %s once", killed, p.instance)
+	}
+	step(80, true) // the count starts again
+	if kills() != 1 {
+		t.Errorf("killed %v again at once", killed)
+	}
+	events := func() []memory.Event {
+		events, err := p.srv.memory().Events(ctx, "hello-stack", memory.EventFilter{Types: []string{"oom_kill"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return events
+	}
+	waitFor(t, "the kill to be told", func() bool { return len(events()) > 0 })
+	for _, want := range []string{`"process":"node"`, `"pid":777`, `"thrashing":true`, `"own_limit":true`} {
+		if !strings.Contains(string(events()[0].Payload), want) {
+			t.Errorf("the event %s lacks %s", events()[0].Payload, want)
+		}
+	}
+}
+
 // An agent's memory.max is its share of the VM's cap, half unless the user
 // chose, and a new share reaches running agents; each also gets the io.weight
 // that has its disk use yield to the daemon's and Incus's.
@@ -511,10 +584,75 @@ func TestAgentBeingMadeGetsItsMemoryLimit(t *testing.T) {
 		limits[instance] = limit
 		return nil
 	}
+	caps := map[string]agent.Caps{}
+	p.srv.vmSwap = func() int64 { return 8 << 30 }
+	p.srv.setCaps = func(instance string, c agent.Caps) error {
+		mu.Lock()
+		defer mu.Unlock()
+		caps[instance] = c
+		return nil
+	}
 	p.srv.watchMemory(ctx)
 	mu.Lock()
 	defer mu.Unlock()
 	if got, want := limits[making.Instance], agent.MemoryLimit(16<<30, 0); got != want {
 		t.Errorf("memory.max of the agent being made = %d, want %d (all: %v)", got, want, limits)
+	}
+	// Its swap, CPU weight and task count from the same moment: a fork bomb
+	// or a build in its setup is as bounded as one in a Ready agent.
+	want := agent.Caps{SwapMax: agent.SwapLimit(agent.MemoryLimit(16<<30, 0), 8<<30, 0), CPUWeight: agent.AgentCPUWeight, PidsMax: agent.AgentPidsMax}
+	if got := caps[making.Instance]; got != want {
+		t.Errorf("caps of the agent being made = %+v, want %+v", got, want)
+	}
+}
+
+// TestAgentCapsFollowTheShareAndTheVMsSwap: an agent's memory.swap.max is a
+// quarter of its memory.max, at most its share of the VM's swap, and follows
+// both.
+func TestAgentCapsFollowTheShareAndTheVMsSwap(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var swap int64 = 30 << 30
+	caps := map[string]agent.Caps{}
+	p := newPressureTest(t, func(s *Server) {
+		s.vmMemory = func() int64 { return 18 << 30 }
+		s.vmSwap = func() int64 { mu.Lock(); defer mu.Unlock(); return swap }
+		s.setCaps = func(instance string, c agent.Caps) error {
+			mu.Lock()
+			defer mu.Unlock()
+			caps[instance] = c
+			return nil
+		}
+	})
+	ctx := context.Background()
+	got := func() agent.Caps { mu.Lock(); defer mu.Unlock(); return caps[p.instance] }
+
+	p.srv.watchMemory(ctx)
+	if c := got(); c.SwapMax != 18<<30/100*50/agent.SwapDivisor || c.CPUWeight != agent.AgentCPUWeight || c.PidsMax != agent.AgentPidsMax {
+		t.Errorf("caps = %+v, want a quarter of half of 18 GiB, weight %d, %d tasks", c, agent.AgentCPUWeight, agent.AgentPidsMax)
+	}
+	share := 30
+	if _, err := p.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentMemoryShare: &share}); err != nil {
+		t.Fatal(err)
+	}
+	p.srv.watchMemory(ctx)
+	if c := got(); c.SwapMax != 18<<30/100*30/agent.SwapDivisor {
+		t.Errorf("after a 30%% share: swap.max = %d MiB", c.SwapMax>>20)
+	}
+	// Little swap: no more than the agent's share of it.
+	mu.Lock()
+	swap = 2 << 30
+	mu.Unlock()
+	p.srv.watchMemory(ctx)
+	if c := got(); c.SwapMax != 2<<30/100*30 {
+		t.Errorf("with 2 GiB of swap: swap.max = %d MiB", c.SwapMax>>20)
+	}
+	// Swap that can't be read leaves the limit as it is.
+	mu.Lock()
+	swap = -1
+	mu.Unlock()
+	p.srv.watchMemory(ctx)
+	if c := got(); c.SwapMax != 0 || c.PidsMax != agent.AgentPidsMax {
+		t.Errorf("unreadable swap: caps = %+v, want swap untouched", c)
 	}
 }
