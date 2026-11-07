@@ -58,7 +58,9 @@ cleanup() {
   for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
   # The passes' displays, apps and fakes.
   pkill -f 'Xvfb :9[1-4] ' 2>/dev/null || true
-  pkill -f "$bin/" 2>/dev/null || true
+  # The apps only: a rustc building into the same directory is left alone.
+  pkill -f "$bin/agentbox-native" 2>/dev/null || true
+  pkill -f "$bin/fake-daemon" 2>/dev/null || true
   pkill -f "$here/parity-electron.mjs" 2>/dev/null || true
   rm -rf "$tmp"
 }
