@@ -9,6 +9,9 @@
 #   LAB_AGENTS=12 LAB_DURATION=5m scripts/pressurelab.sh
 #   LAB_GATE=none scripts/pressurelab.sh         # as non-Claude agents run
 #   LAB_JOBS=1 LAB_IO_MAX=40                     # one job per build; hold back over 40% IO PSI
+#   LAB_MIX=memhog=1,cpuhog=1,forkbomb=1,go=1 LAB_AGENTS=4 scripts/pressurelab.sh
+#                                                # the caps' run: swap, a CPU hog, a fork bomb
+#   LAB_DAEMON_REF=main scripts/pressurelab.sh   # the daemon from another commit: a "before"
 #   scripts/pressurelab.sh --restart             # restart the lab's daemon first
 #   scripts/pressurelab.sh --down                # stop the lab's daemon
 #
@@ -101,8 +104,18 @@ if ! id "$LAB_USER" >/dev/null 2>&1; then
   echo "$LAB_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/$LAB_USER" >/dev/null
 fi
 
-step "Building agentbox from $(git rev-parse --short HEAD)"
-go build -o bin/agentbox ./cmd/agentbox
+# LAB_DAEMON_REF runs the lab's daemon built from another commit (a "before"
+# run), with this checkout's lab.
+if [[ -n ${LAB_DAEMON_REF:-} ]]; then
+  step "Building agentbox from $LAB_DAEMON_REF"
+  src=$(mktemp -d "$HOME/pressurelab-ref.XXXX")
+  git worktree add -q --detach "$src" "$LAB_DAEMON_REF"
+  (cd "$src" && go build -o "$OLDPWD/bin/agentbox" ./cmd/agentbox)
+  git worktree remove --force "$src"
+else
+  step "Building agentbox from $(git rev-parse --short HEAD)"
+  go build -o bin/agentbox ./cmd/agentbox
+fi
 if ! sudo cmp -s bin/agentbox "$bin"; then
   sudo install -m755 bin/agentbox "$bin"
   sudo ln -sf "$bin" /usr/local/bin/agentbox-lab
