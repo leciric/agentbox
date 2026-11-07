@@ -320,6 +320,61 @@ fn semantic_name(scope: Scope) -> Option<&'static str> {
     )
 }
 
+/// shifted is a code line drawn `dx` right and `dy` down of its box: Chromium
+/// sets text at fractional positions (a pre's 0.9rem of padding is 14.4px)
+/// where GPUI's layout takes whole pixels, and a glyph half a pixel over
+/// antialiases differently. `height` is the box's; the line is painted with
+/// `line_height`.
+pub fn shifted(
+    text: String,
+    runs: Option<&Runs>,
+    dx: gpui::Pixels,
+    dy: gpui::Pixels,
+    height: gpui::Pixels,
+    line_height: gpui::Pixels,
+) -> AnyElement {
+    use gpui::{Styled as _, point, px};
+    let runs = runs.cloned().unwrap_or_default();
+    let text: gpui::SharedString = text.into();
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, cx| {
+            let style = window.text_style();
+            let size = style.font_size.to_pixels(window.rem_size());
+            let mut out = Vec::new();
+            let mut at = 0;
+            for (range, h) in &runs {
+                let range = range.start.min(text.len())..range.end.min(text.len());
+                if range.start > at {
+                    out.push(style.to_run(range.start - at));
+                }
+                if range.end > range.start {
+                    out.push(style.clone().highlight(*h).to_run(range.end - range.start));
+                }
+                at = at.max(range.end);
+            }
+            if text.len() > at {
+                out.push(style.to_run(text.len() - at));
+            }
+            let line = window
+                .text_system()
+                .shape_line(text.clone(), size, &out, None);
+            let _ = line.paint(
+                bounds.origin + point(dx, dy),
+                line_height,
+                gpui::TextAlign::Left,
+                None,
+                window,
+                cx,
+            );
+        },
+    )
+    .w_full()
+    .h(height)
+    .min_w(px(0.))
+    .into_any_element()
+}
+
 /// styled is a line's text with its colours.
 pub fn styled(text: String, runs: Option<&Runs>) -> AnyElement {
     match runs {

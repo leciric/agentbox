@@ -130,12 +130,20 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
                 .text_size(rems(0.78))
                 .line_height(relative(1.6))
                 .text_color(crate::highlight::code_fg())
+                // Each line where Chromium sets it: the padding's 0.4px over
+                // 14px and 0.2px over 11px, its 19.968px line in a 20px box,
+                // less half a pixel down, as Chromium floors a baseline that
+                // GPUI rounds.
                 .children(lines.into_iter().enumerate().map(|(i, l)| {
                     let l = if l.is_empty() { " ".to_string() } else { l };
-                    div().whitespace_nowrap().child(crate::highlight::styled(
+                    crate::highlight::shifted(
                         l,
                         runs.as_ref().and_then(|r| r.get(i)),
-                    ))
+                        px(0.4),
+                        px(0.2 - 0.5),
+                        px(20.),
+                        px(19.968),
+                    )
                 })),
         )
         .into_any_element()

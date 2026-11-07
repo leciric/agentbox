@@ -7,7 +7,7 @@
 //
 // Playwright only reaches into the renderer here (no person watches the
 // harness); the native half plays the same actions with xdotool.
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -97,3 +97,5 @@ for await (const line of createInterface({ input: process.stdin })) {
   console.log(`done ${id}`);
 }
 await app.close();
+// Electron's profile (a few hundred MB of caches) goes with it: $TMPDIR is small.
+rmSync(userData, { recursive: true, force: true });
