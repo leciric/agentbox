@@ -18,10 +18,10 @@ import (
 //     swaps its pages out to the VM's zram, which is RAM the agent isn't
 //     charged for, and the machine crawls faulting them back. With no bound
 //     it could fill all of it, and the VM went short for everyone. Now it
-//     may hold the same share of the VM's swap as of its memory
-//     (SwapLimit): past both, its process is killed at once, as memory.max
-//     meant. A frozen idle agent's memory, or a paused run's, still goes
-//     out to swap (reclaim.go) up to the same share.
+//     may swap a quarter of its memory.max (SwapLimit): past that its
+//     process is killed at once, as memory.max meant. That is still room
+//     for a frozen idle agent's or a paused run's cold memory to go out to
+//     swap (reclaim.go), which is what the VM's swap is for.
 //   - cpu.weight: AgentCPUWeight, against the 100 of system.slice (Incus,
 //     the daemon when it is a service), user.slice and init.scope, which are
 //     the agents' machines' siblings under the cgroup root. A build on every
@@ -58,28 +58,37 @@ type Caps struct {
 	PidsMax   int   // pids.max
 }
 
-// AgentCaps is the caps for an agent in a VM with swapTotal bytes of swap
-// and an agent memory share of share percent (MemoryLimit's). swapTotal
-// below 0 is swap that couldn't be read: its cap is left as it is.
-func AgentCaps(swapTotal int64, share int) Caps {
+// AgentCaps is the caps for an agent whose memory.max is memoryLimit, in a
+// VM with swapTotal bytes of swap and an agent memory share of share percent
+// (MemoryLimit's). swapTotal below 0 is swap that couldn't be read: its cap
+// is left as it is.
+func AgentCaps(memoryLimit, swapTotal int64, share int) Caps {
 	c := Caps{CPUWeight: AgentCPUWeight, PidsMax: AgentPidsMax}
 	if swapTotal >= 0 {
-		c.SwapMax = SwapLimit(swapTotal, share)
+		c.SwapMax = SwapLimit(memoryLimit, swapTotal, share)
 	}
 	return c
 }
 
-// SwapLimit is memory.swap.max for an agent in a VM with swapTotal bytes of
-// swap: the share of it MemoryLimit gives the agent of the VM's memory. A VM
-// with no swap gives -1, none, so the limit doesn't stand in the way when
-// the VM gets some (`agentbox vm swap on`, or zram as the daemon starts)
-// before the next look; there is nothing to swap to meanwhile.
-func SwapLimit(swapTotal int64, share int) int64 {
-	if swapTotal <= 0 {
+// SwapDivisor is how much smaller an agent's memory.swap.max is than its
+// memory.max: a quarter. With the default half of the VM each, an agent may
+// put an eighth of the VM's size in its zram (which zram's half of the VM
+// holds four of), costing a few percent of its RAM once compressed.
+const SwapDivisor = 4
+
+// SwapLimit is memory.swap.max for an agent whose memory.max is
+// memoryLimit, in a VM with swapTotal bytes of swap: a SwapDivisor-th of
+// memoryLimit, and never more than the agent's share of that swap (a VM with
+// a small swapfile and no zram). A VM with no swap gives -1, none, so the
+// limit doesn't stand in the way when it gets some (`agentbox vm swap on`, or
+// zram as the daemon starts) before the next look; there is nothing to swap
+// to meanwhile. So does an agent with no memory.max.
+func SwapLimit(memoryLimit, swapTotal int64, share int) int64 {
+	if swapTotal <= 0 || memoryLimit <= 0 {
 		return -1
 	}
 	// MemoryLimit is the same share of whatever total it is given.
-	return max(MemoryLimit(swapTotal, share), 4096)
+	return max(min(memoryLimit/SwapDivisor, MemoryLimit(swapTotal, share)), 4096)
 }
 
 // VMSwap is the VM's swap in bytes, from /proc/meminfo; -1 when it can't be

@@ -7,24 +7,24 @@ import (
 	"testing"
 )
 
-func TestSwapLimitIsTheMemoryShareOfTheVMsSwap(t *testing.T) {
+func TestSwapLimitIsAQuarterOfMemoryMax(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		swap  int64
-		share int
-		want  int64
+		limit, swap int64
+		share       int
+		want        int64
 	}{
-		{9 * gib, 0, 9 * gib / 100 * DefaultAgentMemoryShare},
-		{9 * gib, 30, 9 * gib / 100 * 30},
-		{9 * gib, 99, 9 * gib / 100 * MaxAgentMemoryShare},
-		{0, 50, -1},  // no swap: no limit, nothing to swap to
-		{-1, 50, -1}, // unreadable is AgentCaps', which leaves it
+		{8 * gib, 9 * gib, 0, 2 * gib},            // a quarter of memory.max
+		{8 * gib, 2 * gib, 0, 2 * gib / 100 * 50}, // its share of a small swap
+		{8 * gib, 2 * gib, 30, 2 * gib / 100 * 30},
+		{8 * gib, 0, 50, -1}, // no swap: no limit, nothing to swap to
+		{0, 9 * gib, 50, -1}, // no memory.max: none
 	} {
-		if got := SwapLimit(tc.swap, tc.share); got != tc.want {
-			t.Errorf("SwapLimit(%d, %d) = %d, want %d", tc.swap, tc.share, got, tc.want)
+		if got := SwapLimit(tc.limit, tc.swap, tc.share); got != tc.want {
+			t.Errorf("SwapLimit(%d, %d, %d) = %d, want %d", tc.limit, tc.swap, tc.share, got, tc.want)
 		}
 	}
-	if c := AgentCaps(-1, 50); c.SwapMax != 0 || c.CPUWeight != AgentCPUWeight || c.PidsMax != AgentPidsMax {
+	if c := AgentCaps(8*gib, -1, 50); c.SwapMax != 0 || c.CPUWeight != AgentCPUWeight || c.PidsMax != AgentPidsMax {
 		t.Errorf("AgentCaps with unreadable swap = %+v, want swap untouched and the rest set", c)
 	}
 	// Below the daemon's and Incus's default 100, so builds yield to them.

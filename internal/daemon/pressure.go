@@ -708,7 +708,7 @@ func (s *Server) watchMemory(ctx context.Context) {
 	s.countRunning(agents)
 	share := s.agentMemoryShare(ctx)
 	limit := agent.MemoryLimit(s.vmMemory(), share)
-	caps := agent.AgentCaps(s.vmSwap(), share)
+	caps := agent.AgentCaps(limit, s.vmSwap(), share)
 	for _, a := range agents {
 		if a.IsLead() || a.Instance == "" {
 			continue

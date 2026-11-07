@@ -132,7 +132,9 @@ func (p probeStats) String() string {
 		}
 		s := slices.Clone(ds)
 		slices.Sort(s)
-		at := func(f float64) time.Duration { return s[min(int(f*float64(len(s))), len(s)-1)].Round(100 * time.Microsecond) }
+		at := func(f float64) time.Duration {
+			return s[min(int(f*float64(len(s))), len(s)-1)].Round(100 * time.Microsecond)
+		}
 		return fmt.Sprintf("n=%d p50 %s p99 %s max %s", len(s), at(0.5), at(0.99), s[len(s)-1].Round(100*time.Microsecond))
 	}
 	out := "write+fsync " + q(p.fsync)
