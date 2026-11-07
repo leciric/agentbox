@@ -2812,8 +2812,8 @@ impl ChatView {
                             .child(
                                 div()
                                     .px_2()
-                                    .pb_0p5()
-                                    .pt_3()
+                                    .pb(px(4.))
+                                    .pt(px(11.))
                                     .text_sm()
                                     .line_height(relative(1.625))
                                     .child(input),
