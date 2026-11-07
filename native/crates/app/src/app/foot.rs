@@ -15,6 +15,7 @@ use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
 use super::controls::{self, Btn, Choice};
+use super::settings::defaults::time_ago;
 use super::sidebar::ago;
 use crate::{media, theme, toasts};
 
@@ -1029,6 +1030,8 @@ impl AppView {
             .into_any_element()
     }
 
+    /// render_jobs is JobsView.tsx: the recent jobs beside the picked one's
+    /// log, two Cards in a 1fr / 1.1fr grid.
     fn render_jobs(&self, cx: &mut Context<Self>) -> AnyElement {
         let f = &self.side.foot;
         if f.loaded && f.jobs.is_empty() {
@@ -1056,141 +1059,138 @@ impl AppView {
             .job
             .as_ref()
             .and_then(|id| f.jobs.iter().find(|j| &j.id == id));
-        let card = |title: String| {
-            v_flex()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .rounded_xl()
-                .border_1()
-                .border_color(theme::line())
-                .bg(theme::card())
-                .child(
-                    div()
-                        .px_4()
-                        .py_3()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-        };
+        // The rows: flex items-center gap-3 rounded-xl px-3 py-2.5 text-ui.
         let rows = f.jobs.iter().map(|j| {
             let id = j.id.clone();
             let on = f.job.as_deref() == Some(j.id.as_str());
             h_flex()
                 .id(SharedString::from(format!("job-{}", j.id)))
-                .mx_2()
                 .px_3()
-                .py_2()
+                .py_2p5()
                 .gap_3()
-                .rounded_lg()
-                .text_sm()
+                .rounded(theme::radius::XL)
+                .text_size(theme::text::UI)
                 .cursor_pointer()
-                .when(on, |el| el.bg(theme::surface_strong()))
-                .hover(|el| el.bg(theme::surface_raised()))
+                .when(on, |el| el.bg(theme::surface_raised()))
+                .hover(|el| el.bg(theme::surface()))
                 .on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_job(id.clone(), cx)),
                 )
                 .child(status_badge(&j.status))
-                .child(div().font_weight(FontWeight::MEDIUM).child(j.kind.clone()))
                 .child(
                     div()
-                        .flex_1()
+                        .flex_none()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::secondary())
+                        .child(j.kind.clone()),
+                )
+                .child(
+                    div()
                         .min_w_0()
                         .truncate()
-                        .text_color(theme::faint())
+                        .text_color(theme::subtle())
                         .child(j.target.clone()),
                 )
+                .child(div().flex_1())
                 .child(
                     div()
-                        .text_xs()
-                        .text_color(theme::faint())
-                        .child(ago(&j.created_at)),
+                        .flex_none()
+                        .text_size(px(12.))
+                        .line_height(px(16.))
+                        .text_color(theme::subtle())
+                        .child(time_ago(&j.created_at)),
                 )
                 .child(
                     div()
+                        .flex_none()
                         .w(px(56.))
                         .text_right()
-                        .text_xs()
+                        .text_size(theme::text::CAPTION)
                         .font_family(theme::MONO)
                         .text_color(theme::faint())
                         .child(duration(&j.created_at, j.finished_at.as_deref())),
                 )
         });
+        let action = current.map(|j| {
+            let id = j.id.clone();
+            if j.status == "running" {
+                controls::button(
+                    "job-cancel",
+                    t("shell.jobs.cancelRollback"),
+                    Btn::Secondary,
+                    false,
+                    cx.listener(move |this, _: &ClickEvent, _, cx| this.cancel_job(id.clone(), cx)),
+                )
+            } else {
+                status_badge(&j.status)
+            }
+        });
         h_flex()
             .size_full()
+            .overflow_hidden()
             .p_6()
             .gap_4()
-            .items_start()
+            .items_stretch()
             .child(
-                card(t("shell.jobs.recent")).h_full().child(
-                    div()
-                        .id("jobs-list")
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .pb_2()
-                        .child(v_flex().gap_0p5().children(rows)),
-                ),
+                card(Some("list-checks"), t("shell.jobs.recent"), None, None)
+                    .flex_grow(1.)
+                    .flex_basis(px(0.))
+                    .child(
+                        div()
+                            .id("jobs-list")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .px_2()
+                            .pt_3()
+                            .pb_2()
+                            .child(v_flex().gap_1().children(rows)),
+                    ),
             )
             .child(
-                card(match current {
-                    Some(j) => format!("{} {}", j.kind, j.target),
-                    None => t("shell.jobs.log"),
-                })
-                .h_full()
-                .when_some(current, |el, j| {
-                    let id = j.id.clone();
-                    el.child(
-                        h_flex()
-                            .px_4()
-                            .pb_2()
-                            .gap_2()
-                            .text_xs()
-                            .text_color(theme::faint())
-                            .child(tv(
-                                "shell.jobs.jobId",
-                                &[
-                                    ("id", (&j.id).into()),
-                                    (
-                                        "duration",
-                                        duration(&j.created_at, j.finished_at.as_deref()).into(),
-                                    ),
-                                ],
-                            ))
-                            .child(div().flex_1())
-                            .map(|el| {
-                                if j.status == "running" {
-                                    el.child(controls::button(
-                                        "job-cancel",
-                                        t("shell.jobs.cancelRollback"),
-                                        Btn::Secondary,
-                                        false,
-                                        cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                            this.cancel_job(id.clone(), cx)
-                                        }),
-                                    ))
-                                } else {
-                                    el.child(status_badge(&j.status))
-                                }
-                            }),
-                    )
-                })
+                card(
+                    None,
+                    match current {
+                        Some(j) => format!("{} {}", j.kind, j.target),
+                        None => t("shell.jobs.log"),
+                    },
+                    current.map(|j| {
+                        tv(
+                            "shell.jobs.jobId",
+                            &[
+                                ("id", (&j.id).into()),
+                                (
+                                    "duration",
+                                    duration(&j.created_at, j.finished_at.as_deref()).into(),
+                                ),
+                            ],
+                        )
+                    }),
+                    action,
+                )
+                .flex_basis(px(0.))
+                .flex_grow(1.1)
                 .child(
                     div()
                         .id("job-log")
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scroll()
-                        .px_4()
-                        .pb_4()
-                        .text_xs()
-                        .font_family(theme::MONO)
-                        .text_color(theme::muted())
-                        .child(if f.job.is_some() {
-                            f.log.clone()
-                        } else {
-                            t("shell.jobs.pick")
+                        .px_5()
+                        .pt_3()
+                        .pb_5()
+                        .map(|el| {
+                            if f.job.is_some() {
+                                el.text_xs()
+                                    .font_family(theme::MONO)
+                                    .text_color(theme::muted())
+                                    .child(f.log.clone())
+                            } else {
+                                el.text_size(px(14.))
+                                    .line_height(px(20.))
+                                    .text_color(theme::subtle())
+                                    .child(t("shell.jobs.pick"))
+                            }
                         }),
                 ),
             )
@@ -1198,17 +1198,144 @@ impl AppView {
     }
 }
 
-fn status_badge(status: &str) -> AnyElement {
-    let color = match status {
-        "succeeded" | "done" => theme::running(),
-        "failed" => theme::error(),
-        "running" | "queued" => theme::starting(),
-        _ => theme::muted(),
-    };
-    controls::badge(status.to_string(), color)
+/// card is ui/card.tsx's Card: the `.panel` ground, rounded-2xl, a header
+/// (an icon in a ringed tile, the title, a description, an action) over
+/// the body the caller adds.
+fn card(
+    icon: Option<&'static str>,
+    title: String,
+    description: Option<String>,
+    action: Option<AnyElement>,
+) -> Stateful<Div> {
+    v_flex()
+        .id(SharedString::from(format!("card-{title}")))
+        .min_w_0()
+        .min_h_0()
+        .overflow_hidden()
+        .rounded(theme::radius::XXL)
+        .border_1()
+        .border_color(theme::line())
+        .bg(theme::linear_panel())
+        .shadow(theme::shadow_card())
+        .child(
+            h_flex()
+                .flex_none()
+                .gap_3()
+                .px_5()
+                .pt_4()
+                .pb_1()
+                .when_some(icon, |el, icon| {
+                    el.child(
+                        div()
+                            .flex_none()
+                            .size_7()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(theme::radius::LG)
+                            .bg(theme::surface())
+                            .border_1()
+                            .border_color(theme::line())
+                            .text_color(theme::muted())
+                            .child(crate::icons::ic(icon).size(px(16.))),
+                    )
+                })
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(14.))
+                                .line_height(px(20.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::primary())
+                                .child(title),
+                        )
+                        .when_some(description, |el, d| {
+                            el.child(
+                                div()
+                                    .text_size(px(12.))
+                                    .line_height(px(16.))
+                                    .text_color(theme::subtle())
+                                    .child(d),
+                            )
+                        }),
+                )
+                .when_some(action, |el, a| {
+                    el.child(div().flex_1()).child(h_flex().gap_1().child(a))
+                }),
+        )
 }
 
-/// duration is how long a job took, or has taken: 42s, 3m 5s.
+/// Variant is ui/badge.tsx's: the pill's tint, text and ring.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Variant {
+    Default,
+    Success,
+    Warning,
+    Danger,
+    Info,
+}
+
+/// ui_badge is ui/badge.tsx's Badge: inline-flex gap-1.5 rounded-full px-2
+/// py-0.5 text-caption font-medium ring-1 ring-inset, its svg size-3.
+pub(super) fn ui_badge(variant: Variant, icon: Option<&str>, text: impl Into<SharedString>) -> Div {
+    let (fg, bg, ring) = match variant {
+        Variant::Default => (theme::tertiary(), theme::surface(), theme::line_strong()),
+        Variant::Success => {
+            let e = theme::emerald(400);
+            (theme::emerald(300), e.opacity(0.1), e.opacity(0.25))
+        }
+        Variant::Warning => {
+            let a = theme::amber(400);
+            (theme::amber(200), a.opacity(0.1), a.opacity(0.25))
+        }
+        Variant::Danger => (
+            theme::rose(300),
+            theme::rose(400).opacity(0.1),
+            theme::rose(400).opacity(0.25),
+        ),
+        Variant::Info => {
+            let s = theme::sky(400);
+            (theme::sky(300), s.opacity(0.1), s.opacity(0.25))
+        }
+    };
+    // The ring is inset in Electron (it takes no room), a border here: the
+    // padding gives up its pixel.
+    h_flex()
+        .flex_none()
+        .gap_1p5()
+        .px(px(7.))
+        .py(px(1.))
+        .rounded_full()
+        .border_1()
+        .border_color(ring)
+        .bg(bg)
+        .text_size(theme::text::CAPTION)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(fg)
+        .when_some(icon, |el, i| el.child(crate::icons::ic(i).size(px(12.))))
+        .child(text.into())
+}
+
+/// status_badge is state.tsx's JobStatusBadge.
+fn status_badge(status: &str) -> AnyElement {
+    let (variant, key) = match status {
+        "running" => (Variant::Info, Some("agent.state.running")),
+        "succeeded" => (Variant::Success, Some("agent.job.succeeded")),
+        "failed" => (Variant::Danger, Some("agent.job.failed")),
+        "cancelled" => (Variant::Warning, Some("agent.job.cancelled")),
+        _ => (Variant::Default, None),
+    };
+    ui_badge(
+        variant,
+        (status == "running").then_some("loader-circle"),
+        key.map_or_else(|| status.to_string(), t),
+    )
+    .into_any_element()
+}
+
+/// duration is utils.ts's: 4.2s under a minute, else 3m 5s.
 fn duration(from: &str, to: Option<&str>) -> String {
     let start = media::ms(from);
     let end = to
@@ -1217,13 +1344,15 @@ fn duration(from: &str, to: Option<&str>) -> String {
     if start == 0 || end < start {
         return String::new();
     }
-    let s = (end - start) / 1000;
-    if s < 60 {
-        format!("{s}s")
-    } else if s < 3600 {
-        format!("{}m {}s", s / 60, s % 60)
+    let ms = end - start;
+    if ms < 60_000 {
+        format!("{:.1}s", ms as f64 / 1000.)
     } else {
-        format!("{}h {}m", s / 3600, (s % 3600) / 60)
+        format!(
+            "{}m {}s",
+            ms / 60_000,
+            ((ms % 60_000) as f64 / 1000.).round() as i64
+        )
     }
 }
 

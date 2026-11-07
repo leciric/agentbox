@@ -798,7 +798,12 @@ impl AppView {
 
     fn home_row(&self, cx: &mut Context<Self>) -> AnyElement {
         // Settings is a page of its own: Electron marks no row under it.
-        let selected = !self.settings && self.project.as_deref() == Some(HOME_PROJECT);
+        // Nor under the foot's pages (Media, Jobs) or Work, which are across
+        // every project.
+        let selected = !self.settings
+            && self.side.page.is_none()
+            && self.work.is_none()
+            && self.project.as_deref() == Some(HOME_PROJECT);
         let line = self
             .line(HOME_PROJECT)
             .unwrap_or_else(|| t("v2.sidebar.homeHint"));
