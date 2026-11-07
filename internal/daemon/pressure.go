@@ -758,10 +758,11 @@ func (s *Server) watchMemory(ctx context.Context) {
 }
 
 // thrashFor is how long an agent thrashes at its own limit before its
-// largest process is killed (agent/thrash.go). Ten seconds: memory.pressure's
-// avg10 already lags by a few, and a minute of it took the daemon's requests
-// to 9 seconds in the load lab.
-const thrashFor = 10 * time.Second
+// largest process is killed (agent/thrash.go): three looks in a row, so a
+// moment's stall at a build's peak isn't one. In the load lab every second
+// of it was the VM's disk reading 200 MB/s and the daemon's requests
+// waiting seconds on it.
+const thrashFor = 6 * time.Second
 
 // thrashState is what watchThrash knows of one machine: its last
 // ThrashSample, and since when it has been thrashing (zero when it isn't).
@@ -783,7 +784,7 @@ func (s *Server) watchThrash(ctx context.Context, a state.Agent, limit int64) {
 		return
 	}
 	// Up against its own limit since the last look, and stalled for it.
-	hit := known && now.AtLimit > st.last.AtLimit && now.Full >= agent.ThrashFull
+	hit := known && now.Thrashing(st.last)
 	st.last = now
 	switch {
 	case !hit:

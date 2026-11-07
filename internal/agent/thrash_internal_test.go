@@ -5,20 +5,44 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 )
 
-func TestThrashReadsFullPressureAndHitsOnItsOwnLimit(t *testing.T) {
+func TestThrashReadsTheFullStallAndItsOwnLimit(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeCgroupFile(t, filepath.Join(dir, "memory.pressure"),
-		"some avg10=91.50 avg60=40.00 avg300=9.00 total=123\nfull avg10=78.25 avg60=30.00 avg300=7.00 total=99\n")
+		"some avg10=91.50 avg60=40.00 avg300=9.00 total=12345678\nfull avg10=78.25 avg60=30.00 avg300=7.00 total=9000000\n")
 	writeCgroupFile(t, filepath.Join(dir, "memory.events.local"), "low 0\nhigh 0\nmax 4211\noom 0\noom_kill 0\n")
-	got, ok := thrash(dir)
-	if want := (ThrashSample{Full: 78.25, AtLimit: 4211}); !ok || got != want {
+	at := time.Unix(1000, 0)
+	got, ok := thrash(dir, at)
+	if want := (ThrashSample{At: at, Stalled: 9 * time.Second, AtLimit: 4211}); !ok || got != want {
 		t.Errorf("thrash = %+v, %v; want %+v", got, ok, want)
 	}
-	if _, ok := thrash(filepath.Join(dir, "stopped")); ok {
+	if _, ok := thrash(filepath.Join(dir, "stopped"), at); ok {
 		t.Error("a cgroup that isn't there was read")
+	}
+}
+
+func TestThrashingIsStalledHalfTheTimeAtItsOwnLimit(t *testing.T) {
+	t.Parallel()
+	prev := ThrashSample{At: time.Unix(1000, 0), Stalled: 5 * time.Second, AtLimit: 10}
+	next := func(stalled time.Duration, hits int64) ThrashSample {
+		return ThrashSample{At: prev.At.Add(2 * time.Second), Stalled: prev.Stalled + stalled, AtLimit: prev.AtLimit + hits}
+	}
+	for _, tc := range []struct {
+		s    ThrashSample
+		want bool
+	}{
+		{next(1500*time.Millisecond, 30), true}, // 75% stalled at its limit
+		{next(time.Second, 1), true},            // half
+		{next(900*time.Millisecond, 30), false}, // under half
+		{next(2*time.Second, 0), false},         // stalled, its limit not reached: the VM is short
+		{ThrashSample{At: prev.At, Stalled: prev.Stalled + time.Second, AtLimit: 99}, false}, // no time passed
+	} {
+		if got := tc.s.Thrashing(prev); got != tc.want {
+			t.Errorf("Thrashing(%+v) = %v, want %v", tc.s, got, tc.want)
+		}
 	}
 }
 

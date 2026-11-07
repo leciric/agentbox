@@ -390,7 +390,7 @@ func TestThrashingAgentLosesItsLargestProcess(t *testing.T) {
 	p := newPressureTest(t)
 	ctx := context.Background()
 	var mu sync.Mutex
-	sample := agent.ThrashSample{Full: 80, AtLimit: 100}
+	sample := agent.ThrashSample{At: time.Unix(1000, 0), AtLimit: 100}
 	var killed []string
 	p.srv.vmMemory = func() int64 { return 16 << 30 }
 	p.srv.thrash = func(string) (agent.ThrashSample, bool) {
@@ -404,9 +404,12 @@ func TestThrashingAgentLosesItsLargestProcess(t *testing.T) {
 		killed = append(killed, instance)
 		return agent.OOMVictim{Name: "node", PID: 777, RSS: 7 << 30}, nil
 	}
+	// Two seconds between looks, full percent of them stalled.
 	step := func(full float64, hits int64) {
 		mu.Lock()
-		sample.Full, sample.AtLimit = full, sample.AtLimit+hits
+		sample.At = sample.At.Add(2 * time.Second)
+		sample.Stalled += time.Duration(full / 100 * float64(2*time.Second))
+		sample.AtLimit += hits
 		mu.Unlock()
 		p.srv.watchMemory(ctx)
 	}

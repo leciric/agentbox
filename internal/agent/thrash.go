@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"agentbox/internal/hostos"
 )
@@ -24,35 +25,46 @@ import (
 // reading 64 GiB, before the kernel killed it; the daemon's requests took up
 // to 9 seconds meanwhile, waiting on the same disk.
 //
-// So, as systemd-oomd does with memory pressure: an agent whose cgroup has
-// spent ThrashFull percent of the last ten seconds with every task stalled
-// on memory (memory.pressure's full avg10), while it keeps reaching its own
+// So, as systemd-oomd does with memory pressure: an agent whose machine's
+// tasks were all stalled on memory (memory.pressure's full) for at least
+// ThrashShare of the time between two looks, while it kept reaching its own
 // memory.max (memory.events.local's max count going up, so it is its own
-// limit it is up against, not the VM running short), for ThrashFor, gets the
-// process the kernel's OOM killer would pick killed: the highest oom_score
-// in its machine (internal/daemon/pressure.go).
+// limit it is up against, not the VM running short), look after look for a
+// few seconds, gets the process holding the most memory in it killed
+// (internal/daemon/pressure.go). The stall is measured between looks from
+// the cumulative total, not avg10, which takes five seconds of a full stall
+// to reach 40%.
 
-// ThrashFull is the memory.pressure full avg10, in percent, from which an
-// agent at its own limit is thrashing. A build at its limit that is just
-// short of memory stalls now and then; at 40% its tasks wait on the disk
-// for most of every second.
-const ThrashFull = 40.0
+// ThrashShare is the share of the time, between two looks, an agent at its
+// own limit spends with every task stalled on memory from which it is
+// thrashing. A build just short of memory stalls now and then; at half the
+// time its tasks wait on the disk more than they run.
+const ThrashShare = 0.5
 
 // ThrashSample is one look at whether an agent's machine is thrashing at its
 // own limit.
 type ThrashSample struct {
-	Full    float64 // memory.pressure's full avg10, in percent
-	AtLimit int64   // memory.events.local's max: times it reached its own memory.max
+	At      time.Time     // when it was read
+	Stalled time.Duration // memory.pressure's full total: all its tasks stalled on memory, ever
+	AtLimit int64         // memory.events.local's max: times it reached its own memory.max
+}
+
+// Thrashing says whether a machine spent ThrashShare or more of the time
+// since prev with every task stalled on memory, while reaching its own
+// memory.max.
+func (s ThrashSample) Thrashing(prev ThrashSample) bool {
+	span := s.At.Sub(prev.At)
+	return span > 0 && s.AtLimit > prev.AtLimit && float64(s.Stalled-prev.Stalled) >= ThrashShare*float64(span)
 }
 
 // Thrash reads an agent's machine's ThrashSample; ok is false when its cgroup
 // isn't there or has no PSI.
 func Thrash(instance string) (ThrashSample, bool) {
-	return thrash(agentCgroup(cgroupRoot, instance))
+	return thrash(agentCgroup(cgroupRoot, instance), time.Now())
 }
 
-func thrash(dir string) (ThrashSample, bool) {
-	var out ThrashSample
+func thrash(dir string, now time.Time) (ThrashSample, bool) {
+	out := ThrashSample{At: now}
 	b, err := os.ReadFile(filepath.Join(dir, "memory.pressure"))
 	if err != nil {
 		return out, false
@@ -64,9 +76,9 @@ func thrash(dir string) (ThrashSample, bool) {
 			continue
 		}
 		for _, f := range strings.Fields(rest) {
-			if v, ok := strings.CutPrefix(f, "avg10="); ok {
-				out.Full, err = strconv.ParseFloat(v, 64)
-				found = err == nil
+			if v, ok := strings.CutPrefix(f, "total="); ok {
+				us, err := strconv.ParseInt(v, 10, 64)
+				out.Stalled, found = time.Duration(us)*time.Microsecond, err == nil
 			}
 		}
 	}
