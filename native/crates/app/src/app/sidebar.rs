@@ -833,7 +833,20 @@ impl AppView {
             .into_any_element()
     }
 
-    fn row(&self, id: &str, selected: bool, _: &mut Context<Self>) -> Stateful<Div> {
+    fn row(&self, id: &str, selected: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+        self.row_hover(id, selected, theme::surface(), cx)
+    }
+
+    /// row_hover is a row whose hover is `hover` rather than the surface:
+    /// a div takes one hover style (a second panics in debug builds).
+    fn row_hover(
+        &self,
+        id: &str,
+        selected: bool,
+        hover: impl Into<Hsla>,
+        _: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let hover = hover.into();
         h_flex()
             .id(SharedString::from(format!("row-{id}")))
             .mx_2()
@@ -843,7 +856,7 @@ impl AppView {
             .rounded_lg()
             .cursor_pointer()
             .when(selected, |el| el.bg(theme::surface_raised()))
-            .when(!selected, |el| el.hover(|el| el.bg(theme::surface())))
+            .when(!selected, |el| el.hover(move |el| el.bg(hover)))
             .active(|el| el.bg(theme::surface_strong()))
     }
 
@@ -909,14 +922,17 @@ impl AppView {
             ));
         }
         let working = c.working > 0 || s_working;
+        let asking = needs > 0 && !selected;
+        let hover = if asking {
+            theme::amber(400).opacity(0.1)
+        } else {
+            theme::surface()
+        };
         let row = self
-            .row(&p.name, selected, cx)
+            .row_hover(&p.name, selected, hover, cx)
             .relative()
             .items_start()
-            .when(needs > 0 && !selected, |el| {
-                el.bg(theme::amber(400).opacity(0.05))
-                    .hover(|el| el.bg(theme::amber(400).opacity(0.1)))
-            })
+            .when(asking, |el| el.bg(theme::amber(400).opacity(0.05)))
             // Working: a thin sky bar down its left edge, breathing.
             .when(working, |el| {
                 el.child(crate::motion::pulse(

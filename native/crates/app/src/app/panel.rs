@@ -152,6 +152,11 @@ pub struct Panel {
     files: Option<Entity<FileBrowser>>,
     /// The desktop asked for last: only that one connects (see connect_desktop).
     desktop_gen: u64,
+    /// Whether the desktop is shown full screen, over the whole window
+    /// (AppView::render_desktop_full), rather than in the panel.
+    pub(super) desktop_full: bool,
+    /// Take control as it was before full screen, to put back after.
+    control_before_full: bool,
     ticks: u64,
     _poll: Task<()>,
 }
@@ -226,6 +231,8 @@ impl Panel {
             shooting: false,
             files: None,
             desktop_gen: 0,
+            desktop_full: false,
+            control_before_full: false,
             ticks: 0,
             _poll: poll,
         }
@@ -263,6 +270,7 @@ impl Panel {
         self.viewer = None;
         self.browser = None;
         self.recording = None;
+        self.desktop_full = false;
         #[cfg(feature = "video")]
         {
             self.player = None;
@@ -468,6 +476,7 @@ impl AppView {
                 let wanted = this.panel.desktop_gen == generation
                     && this.open == agent
                     && this.desktop.is_none()
+                    && this.desktop_up() != Some(false)
                     && this.panel_shows_agent()
                     && this
                         .open_agent()
@@ -609,9 +618,42 @@ impl AppView {
         .detach();
     }
 
+    /// desktop_up is Electron's desktopUp: the agent's machine running and its
+    /// display up; None until its status is read.
+    pub(super) fn desktop_up(&self) -> Option<bool> {
+        let running = self.open_agent().is_some_and(|a| a.state == "running");
+        match &self.panel.browser {
+            _ if !running => Some(false),
+            Some(b) => Some(b.display),
+            None => None,
+        }
+    }
+
+    /// sync_desktop connects the desktop when it's up and shown, and lets it
+    /// go when it isn't up (the view itself reconnects across a drop).
+    pub(super) fn sync_desktop(&mut self, cx: &mut Context<Self>) {
+        match self.desktop_up() {
+            Some(false) => {
+                if self.desktop.take().is_some() {
+                    self.panel.desktop_full = false;
+                }
+            }
+            Some(true) if self.desktop.is_none() && !self.panel.folded => {
+                if let Some(a) = self.open_agent()
+                    && self.panel.view_of(&a.r#ref) == PView::Desktop
+                {
+                    let (p, n) = (a.project.clone(), a.name.clone());
+                    self.connect_desktop(p, n, cx);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn load_desktop_status(&mut self, cx: &mut Context<Self>) {
         let Some(a) = self.open_agent() else { return };
         if a.state != "running" {
+            self.sync_desktop(cx);
             return;
         }
         let (p, n) = (a.project.clone(), a.name.clone());
@@ -629,6 +671,7 @@ impl AppView {
                 if this.open == n {
                     this.panel.browser = b;
                     this.panel.recording = r;
+                    this.sync_desktop(cx);
                     cx.notify();
                 }
             })
@@ -951,7 +994,15 @@ impl AppView {
                 .await;
             this.update(cx, |this, cx| {
                 match res {
-                    Ok(b) => this.panel.browser = Some(b),
+                    Ok(b) => {
+                        this.panel.browser = Some(b);
+                        // Up now: connect, or end the wait of a view that is
+                        // trying again.
+                        if let Some(d) = &this.desktop {
+                            d.update(cx, |d, _| d.retry());
+                        }
+                        this.sync_desktop(cx);
+                    }
                     Err(e) => toasts::error(cx, e.to_string()),
                 }
                 cx.notify();
@@ -959,6 +1010,126 @@ impl AppView {
             .ok();
         })
         .detach();
+    }
+
+    /// set_desktop_full shows the desktop over the whole window, taking the
+    /// pointer and keys (Take control), or puts it back in the panel with
+    /// Take control as it was.
+    pub(super) fn set_desktop_full(&mut self, full: bool, w: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.desktop.clone() else {
+            self.panel.desktop_full = false;
+            return;
+        };
+        if full == self.panel.desktop_full {
+            return;
+        }
+        self.panel.desktop_full = full;
+        let before = self.panel.control_before_full;
+        let was = d.update(cx, |d, cx| {
+            let was = d.control;
+            d.set_control(if full { true } else { before });
+            cx.notify();
+            was
+        });
+        if full {
+            self.panel.control_before_full = was;
+        }
+        if full {
+            d.read(cx).focus_handle().clone().focus(w, cx);
+        }
+        cx.notify();
+    }
+
+    /// render_desktop_full is the desktop over the whole window, with a bar
+    /// to leave it: the panel's view, moved (one entity draws in one place).
+    pub(super) fn render_desktop_full(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.panel.desktop_full {
+            return None;
+        }
+        let d = self.desktop.clone()?;
+        let name = self
+            .open_agent()
+            .map(|a| a.name.clone())
+            .unwrap_or_default();
+        let control = d.read(cx).control;
+        let connected = d.read(cx).connected();
+        Some(
+            v_flex()
+                .id("desktop-full-screen")
+                .absolute()
+                .inset_0()
+                .bg(theme::pitch())
+                .occlude()
+                // Escape leaves, unless the desktop has the keys (it bubbles
+                // up only when it doesn't).
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, w, cx| {
+                    if ev.keystroke.key == "escape" {
+                        this.set_desktop_full(false, w, cx);
+                        cx.stop_propagation();
+                    }
+                }))
+                .child(
+                    h_flex()
+                        .h(px(36.))
+                        .px_3()
+                        .gap_2()
+                        .items_center()
+                        .border_b_1()
+                        .border_color(theme::line())
+                        .bg(theme::surface())
+                        .child(
+                            div()
+                                .text_color(theme::muted())
+                                .child(crate::icons::of("▣")),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_sm()
+                                .text_color(theme::primary())
+                                .child(name),
+                        )
+                        .child(controls::toggle(
+                            "desktop-full-control",
+                            control,
+                            !connected,
+                            cx.listener(|this, _: &ClickEvent, w, cx| {
+                                if let Some(d) = &this.desktop {
+                                    d.update(cx, |d, cx| {
+                                        let on = !d.control;
+                                        d.set_control(on);
+                                        cx.notify();
+                                    });
+                                    d.read(cx).focus_handle().clone().focus(w, cx);
+                                }
+                                cx.notify();
+                            }),
+                        ))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(if control {
+                                    theme::accent()
+                                } else {
+                                    theme::muted()
+                                })
+                                .child(t("agent.browser.takeControl")),
+                        )
+                        .child(controls::button(
+                            "desktop-full-exit",
+                            format!("{} ✕", t("agent.browser.exitFullscreen")),
+                            Btn::Ghost,
+                            false,
+                            cx.listener(|this, _: &ClickEvent, w, cx| {
+                                this.set_desktop_full(false, w, cx)
+                            }),
+                        )),
+                )
+                .child(div().flex_1().min_h_0().child(d))
+                .into_any_element(),
+        )
     }
 
     /// ask_lead drafts, in the lead's chat, a request for the agent (or the
@@ -1862,7 +2033,8 @@ impl AppView {
     /// render_desktop is the agent's desktop, live, with what it captured
     /// under it (PanelDesktop and CaptureStrip).
     fn render_desktop(&self, a: &FleetAgent, cx: &mut Context<Self>) -> AnyElement {
-        let up = self.panel.browser.as_ref().map(|b| b.display);
+        let up = self.desktop_up();
+        let full = self.panel.desktop_full;
         let connected = self
             .desktop
             .as_ref()
@@ -1887,6 +2059,7 @@ impl AppView {
             .and_then(|r| r.started_at.as_deref())
             .map(|s| (chrono::Utc::now().timestamp_millis() - media::ms(s)) as f64 / 1000.);
         let shot_tip: SharedString = t("agent.browser.screenshotTip").into();
+        let full_tip: SharedString = t("agent.browser.fullscreen").into();
         let rec_tip: SharedString = t(if recording.is_some() {
             "agent.browser.stopRecording"
         } else {
@@ -1985,6 +2158,24 @@ impl AppView {
                     }),
             )
             .child(
+                div()
+                    .id("desktop-full")
+                    .px_1p5()
+                    .rounded_md()
+                    .text_sm()
+                    .text_color(theme::muted())
+                    .when(connected, |el| {
+                        el.cursor_pointer()
+                            .hover(|s| s.bg(theme::surface_strong()).text_color(theme::primary()))
+                            .on_click(cx.listener(|this, _: &ClickEvent, w, cx| {
+                                this.set_desktop_full(true, w, cx)
+                            }))
+                    })
+                    .when(!connected, |el| el.opacity(0.4))
+                    .tooltip(move |w, cx| Tooltip::new(full_tip.clone()).build(w, cx))
+                    .child(crate::icons::ic("maximize-2")),
+            )
+            .child(
                 h_flex()
                     .gap_1()
                     .child(controls::toggle(
@@ -1994,7 +2185,8 @@ impl AppView {
                         cx.listener(|this, _: &ClickEvent, w, cx| {
                             if let Some(d) = &this.desktop {
                                 d.update(cx, |d, cx| {
-                                    d.control = !d.control;
+                                    let on = !d.control;
+                                    d.set_control(on);
                                     cx.notify();
                                 });
                                 let focus = d.read(cx).focus_handle().clone();
@@ -2055,6 +2247,29 @@ impl AppView {
                             Btn::Primary,
                             false,
                             cx.listener(|this, _: &ClickEvent, _, cx| this.start_desktop(cx)),
+                        )),
+                ),
+                (_, Some(_)) if full => el.child(
+                    v_flex()
+                        .size_full()
+                        .items_center()
+                        .justify_center()
+                        .gap_2p5()
+                        .px_4()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme::muted())
+                                .child(t("native.vnc.fullHere")),
+                        )
+                        .child(controls::button(
+                            "desktop-unfull",
+                            t("agent.browser.exitFullscreen"),
+                            Btn::Secondary,
+                            false,
+                            cx.listener(|this, _: &ClickEvent, w, cx| {
+                                this.set_desktop_full(false, w, cx)
+                            }),
                         )),
                 ),
                 (_, Some(d)) => el.child(d.clone()),

@@ -162,4 +162,11 @@ export const ptBRNative = {
   'native.office.software.mac': 'Os gráficos deste Mac deveriam ser usados: atualize o macOS e reinicie o app.',
   'native.office.software.dismiss': 'Dispensar',
   'native.office.unsupported': 'Este computador não consegue desenhar o Escritório: não há adaptador gráfico (Vulkan, Metal ou DirectX 12) disponível.',
+  'native.vnc.cantShow': 'Não foi possível mostrar o desktop',
+  'native.vnc.retrying': 'Tentando de novo sozinho.',
+  'native.vnc.retryNow': 'Tentar agora',
+  'native.vnc.closed': 'A conexão com o desktop terminou.',
+  'native.vnc.ended': 'A conexão do desktop terminou: {reason}',
+  'native.vnc.noAnswer': 'O servidor VNC do desktop não respondeu.',
+  'native.vnc.fullHere': 'O desktop está aberto em tela cheia.',
 };

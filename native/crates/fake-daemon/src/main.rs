@@ -29,6 +29,7 @@ use tokio::sync::broadcast;
 
 mod agents;
 mod chat;
+mod desktop;
 mod notify;
 mod panel;
 mod pulls;
@@ -1114,10 +1115,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         // An agent's terminal: a shell on this machine, in place of the
         // agent's tmux session (the same protocol as internal/daemon/terminal.go).
         (&Method::GET, ["v1", "agents", p, _a, "terminal"]) if fake.is_fake(p) => terminal(req),
-        // An agent's desktop: this machine's own VNC server (:5900), as raw
-        // RFB in WebSocket frames like internal/daemon/browser.go's vncView.
-        (&Method::GET, ["v1", "agents", p, _a, "browser", "view"]) if fake.is_fake(p) => {
-            vnc_view(req)
+        // An agent's desktop: this machine's own VNC server (desktop.rs), as
+        // raw RFB in WebSocket frames like internal/daemon/browser.go's vncView.
+        (&Method::GET, ["v1", "agents", p, a, "browser", "view"]) if fake.is_fake(p) => {
+            vnc_view(req, &format!("{p}/{a}")).await
         }
         (&Method::GET, ["v1", "agents", p, a, "chat"]) if fake.is_fake(p) => {
             // A page, as internal/daemon/chat.go reads one: limit= items
@@ -1320,9 +1321,9 @@ fn futures_stream(
     S(rx)
 }
 
-/// vnc_view upgrades to a WebSocket and relays it to the VNC server on
-/// 127.0.0.1:5900 (VNC_ADDR overrides it).
-fn vnc_view(req: Request<Incoming>) -> Response<Body> {
+/// vnc_view upgrades to a WebSocket and relays it to the VNC server
+/// (desktop.rs), or refuses as the daemon does while it isn't running.
+async fn vnc_view(req: Request<Incoming>, r#ref: &str) -> Response<Body> {
     use futures_util::{SinkExt as _, StreamExt as _};
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio_tungstenite::tungstenite::{Message, handshake::derive_accept_key, protocol::Role};
@@ -1336,12 +1337,10 @@ fn vnc_view(req: Request<Incoming>) -> Response<Body> {
             },
         );
     };
+    let Some(vnc) = desktop::connect().await else {
+        return bad_request(desktop::refusal(r#ref));
+    };
     tokio::spawn(async move {
-        let addr = std::env::var("VNC_ADDR").unwrap_or_else(|_| "127.0.0.1:5900".into());
-        let Ok(vnc) = tokio::net::TcpStream::connect(&addr).await else {
-            eprintln!("vnc: can't reach {addr}");
-            return;
-        };
         let Ok(upgraded) = hyper::upgrade::on(req).await else {
             return;
         };
