@@ -77,6 +77,15 @@ async function play(s) {
     await sleep(a.wait ?? 700);
   }
   await page.screenshot({ path: join(out, `${s.id}.png`) });
+  // PARITY_DOM=<css selector>: the matching elements' boxes beside the
+  // screenshot (<id>.dom.json), fractional, to line the native layout up.
+  if (process.env.PARITY_DOM) {
+    const boxes = await page.evaluate((sel) => [...document.querySelectorAll(sel)].map((e) => {
+      const r = e.getBoundingClientRect();
+      return { tag: e.tagName.toLowerCase(), cls: String(e.className).slice(0, 60), text: (e.textContent || '').slice(0, 30), x: r.x, y: r.y, w: r.width, h: r.height };
+    }), process.env.PARITY_DOM);
+    writeFileSync(join(out, `${s.id}.dom.json`), JSON.stringify(boxes, null, 1));
+  }
 }
 console.log('ready');
 const { createInterface } = await import('node:readline');

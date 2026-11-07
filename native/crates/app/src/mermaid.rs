@@ -144,7 +144,14 @@ pub fn with_mermaid(view: TextView) -> TextView {
     // .chat-markdown: blocks 0.65rem apart; inline code in a ring
     // (:not(pre) > code: border line-strong, rounded 0.375rem, bg surface,
     // padding 0.08rem 0.35rem, 0.8em, secondary).
-    view.style(gpui_component::text::TextViewStyle::default().paragraph_gap(rems(0.65)))
+    // A hair over text-sm (the next f32 up): gpui-base spaces list items by a
+    // quarter of the body size, 3.5px at 14px, which GPUI's layout rounds
+    // down to 3; a hair over, it rounds to Electron's 4 (`li + li {
+    // margin-top: .25rem }`), and the marker column to its 20px (ul
+    // padding-left 1.25rem). The glyphs can't tell.
+    view.text_size(px(14f32.next_up()))
+        .font_family(theme::CHAT)
+        .style(gpui_component::text::TextViewStyle::default().paragraph_gap(rems(0.65)))
         .inline_code_style(
             StyleRefinement::default()
                 .border_1()

@@ -200,13 +200,13 @@ impl ChatView {
         &self.items[ix]
     }
 
-    pub(super) fn render_row(&self, ix: usize, view: Entity<Self>) -> AnyElement {
+    pub(super) fn render_row(&self, ix: usize, view: Entity<Self>, window: &Window) -> AnyElement {
         let Some(r) = self.rows.get(ix) else {
             // After the rows, the messages that didn't go.
             return self.failed_row(ix - self.rows.len(), &view);
         };
         let body = match &r.row {
-            Row::User(i) => self.render_user(*i, &view),
+            Row::User(i) => self.render_user(*i, &view, window),
             Row::Assistant { ix, last } => self.render_assistant(*ix, *last, &view),
             Row::Work { items, live } => self.render_work(&r.key, items, *live, &view),
             Row::Fold {
@@ -595,7 +595,7 @@ impl ChatView {
             .into_any_element()
     }
 
-    fn render_user(&self, ix: usize, view: &Entity<Self>) -> AnyElement {
+    fn render_user(&self, ix: usize, view: &Entity<Self>, window: &Window) -> AnyElement {
         let it = self.item(ix);
         let delivery = match it.delivery.as_str() {
             "waiting" | "sent" | "starting" => {
@@ -643,9 +643,17 @@ impl ChatView {
                 )
             })
             .when(!it.text.is_empty(), |el| {
+                // Chromium sizes the bubble to the text's exact width, GPUI
+                // to the next whole pixel: a line that fits is set against
+                // the right edge, so it starts where Electron's does.
+                let one_line = !it.text.contains('\n') && {
+                    let w = theme::text_width(window, &it.text, theme::text::BODY);
+                    w + 28. <= self.row_width.get() * 0.85
+                };
                 el.child(
                     div()
                         .max_w(relative(0.85))
+                        .when(one_line, |el| el.text_right())
                         .rounded_2xl()
                         .bg(theme::surface_raised())
                         .px_3p5()
@@ -659,7 +667,24 @@ impl ChatView {
             .when_some(delivery, |el, (key, color)| {
                 el.child(div().pr_1().text_xs().text_color(color).child(t(&key)))
             })
-            .child(self.meta(it, true));
+            .child(self.meta(it, true))
+            .child({
+                let (cell, v) = (self.row_width.clone(), view.downgrade());
+                canvas(
+                    move |b, _, cx| {
+                        let w = f32::from(b.size.width);
+                        if (cell.get() - w).abs() > 0.5 {
+                            cell.set(w);
+                            v.update(cx, |_, cx| cx.notify()).ok();
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+            });
         self.message_menu(el, it, view)
     }
 

@@ -167,6 +167,9 @@ pub struct ChatView {
     /// A project's lead: how many of its agents wait for review, the banner
     /// over its composer (ReviewCount's banner).
     pub review_count: usize,
+    /// The timeline's row width at the last paint, for a user bubble's
+    /// one-line test (render_user).
+    row_width: std::rc::Rc<std::cell::Cell<f32>>,
     /// A finished agent's review card over its composer (AgentReviewCard),
     /// handed in by the app, and the agent's media counts by kind for it.
     pub review_card: Option<ReviewCard>,
@@ -278,6 +281,7 @@ impl ChatView {
             prefix,
             title,
             header: true,
+            row_width: Default::default(),
             agent,
             agent_name: String::new(),
             asleep: None,
@@ -1167,9 +1171,13 @@ impl Render for ChatView {
                         div()
                             .size_full()
                             .when(gutter, |el| el.pr(crate::app::controls::SCROLLBAR))
+                            // ChatTab's content pads its bottom by the composer's
+                            // height + 28, measured from the composer's box,
+                            // which starts a pixel above its first row here.
+                            .pb(px(1.))
                             .child(
-                                list(self.list.clone(), move |ix, _window, cx| {
-                                    view.read(cx).render_row(ix, view.clone())
+                                list(self.list.clone(), move |ix, window, cx| {
+                                    view.read(cx).render_row(ix, view.clone(), window)
                                 })
                                 .size_full(),
                             ),

@@ -280,14 +280,16 @@ impl AppView {
     /// search_button is the palette's way in for the pointer (TopBar's
     /// SearchButton), its shortcut on it.
     fn search_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        // TopBar's SearchButton: py-1 pl-2.5 pr-1.5, its ring inset (here a
+        // border inside the padding).
         h_flex()
             .id("top-search")
             .flex_none()
             .gap_2()
             .rounded_full()
-            .py_1()
-            .pl(px(10.))
-            .pr(px(6.))
+            .py(px(3.))
+            .pl(px(9.))
+            .pr(px(5.))
             .border_1()
             .border_color(theme::line())
             .text_color(theme::muted())
@@ -295,20 +297,24 @@ impl AppView {
             .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_search(window, cx)))
             .child(crate::icons::ic("search").size(px(14.)))
-            .child(
-                div()
-                    .text_size(theme::text::CAPTION)
-                    .child(t("common.search")),
-            )
+            .child(theme::fit(
+                t("common.search"),
+                theme::text::CAPTION,
+                FontWeight::NORMAL,
+                false,
+            ))
             .child(
                 div()
                     .px(px(6.))
                     .rounded_md()
                     .bg(theme::surface_raised())
-                    .font_family(theme::MONO)
-                    .text_size(theme::text::CAPTION)
                     .text_color(theme::subtle())
-                    .child("Ctrl K"),
+                    .child(theme::fit(
+                        "Ctrl K",
+                        theme::text::CAPTION,
+                        FontWeight::NORMAL,
+                        true,
+                    )),
             )
             .into_any_element()
     }

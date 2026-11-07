@@ -1093,6 +1093,7 @@ impl AppView {
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        theme::keep_text_system(window);
         self.panel.track(&self.fleet);
         self.sync_chat_review(cx);
         self.pulls_gone();

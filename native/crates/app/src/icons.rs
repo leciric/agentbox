@@ -95,6 +95,33 @@ pub fn bold(name: &str, stroke: f32, size: Pixels, color: Hsla) -> AnyElement {
         .into_any_element()
 }
 
+/// claude_mark is TopBar's ClaudeMark: eight rounded spokes, in a colour.
+pub fn claude_mark(size: Pixels, color: Hsla) -> AnyElement {
+    let rgba = color.to_rgb();
+    let hex = (((rgba.r * 255.) as u32) << 16)
+        | (((rgba.g * 255.) as u32) << 8)
+        | ((rgba.b * 255.) as u32);
+    let image = CACHE.with(|c| {
+        c.borrow_mut()
+            .entry(("claude-mark".to_string(), hex))
+            .or_insert_with(|| {
+                let spokes: String = (0..8)
+                    .map(|i| format!(r#"<rect x="11" y="2" width="2" height="9" rx="1" transform="rotate({} 12 12)"/>"#, i * 45))
+                    .collect();
+                let svg = format!(
+                    r##"<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="#{hex:06x}">{spokes}</svg>"##
+                );
+                Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()))
+            })
+            .clone()
+    });
+    img(image)
+        .flex_none()
+        .size(size)
+        .opacity(rgba.a)
+        .into_any_element()
+}
+
 /// ai_icon is an AI tool's icon ("" being Claude Code, as the app takes it).
 pub fn ai_icon(ai: &str, size: Pixels, color: Hsla) -> AnyElement {
     let ai = if ai.is_empty() { "claude" } else { ai };

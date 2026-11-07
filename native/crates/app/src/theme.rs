@@ -16,6 +16,7 @@
 
 use std::sync::RwLock;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{App, BoxShadow, Hsla, Pixels, SharedString, Window, point, px, rgba};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -966,6 +967,84 @@ pub mod text {
 /// registered by `init`, so every platform draws the same letters.
 pub const SANS: &str = "Inter";
 
+thread_local! {
+    /// The window's text system, for [fit] where a render has no window.
+    static TEXT: std::cell::RefCell<Option<std::rc::Rc<gpui::WindowTextSystem>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// keep_text_system remembers the window's text system for [fit]; the
+/// app's root render calls it.
+pub fn keep_text_system(window: &Window) {
+    TEXT.with(|t| {
+        if t.borrow().is_none() {
+            *t.borrow_mut() = Some(window.text_system().clone());
+        }
+    });
+}
+
+/// fit is a one-line text as wide as Chromium sets it, to the nearest
+/// pixel: GPUI rounds a text's measured width up to the next one, so a row
+/// of spans drifts right of Electron's by up to a pixel a span. In Inter
+/// (or JetBrains Mono, `mono`) at `size` and `weight`, nowrap.
+pub fn fit(
+    text: impl Into<SharedString>,
+    size: Pixels,
+    weight: gpui::FontWeight,
+    mono: bool,
+) -> gpui::Div {
+    use gpui::{ParentElement as _, Styled as _};
+    let text: SharedString = text.into();
+    let mut font = gpui::font(if mono { MONO } else { SANS });
+    font.weight = weight;
+    if !mono {
+        font.features = sans_features();
+    }
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let w = TEXT.with(|t| {
+        t.borrow()
+            .as_ref()
+            .map(|ts| f32::from(ts.layout_line(&text, size, &[run], None).width))
+    });
+    let el = gpui::div()
+        .flex_none()
+        .whitespace_nowrap()
+        .text_size(size)
+        .font_weight(weight)
+        .when(mono, |el| el.font_family(MONO));
+    match w {
+        Some(w) => el.w(px(w.round())).child(text),
+        None => el.child(text),
+    }
+}
+
+/// text_width is `text`'s width on one line, in Inter at `size`.
+pub fn text_width(window: &gpui::Window, text: &str, size: Pixels) -> f32 {
+    let mut font = gpui::font(SANS);
+    font.features = sans_features();
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::black(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    f32::from(
+        window
+            .text_system()
+            .layout_line(text, size, &[run], None)
+            .width,
+    )
+}
+
 /// balanced_width is the width that splits `text` (Inter at `size`) into
 /// lines of about equal length within `max`, as CSS's text-wrap: balance
 /// (Tailwind's text-balance) does: `max` when it fits on one line.
@@ -1011,11 +1090,19 @@ pub fn tabular_features() -> gpui::FontFeatures {
 }
 pub const MONO_FACE: &str = "JetBrains Mono";
 
+/// CHAT is Inter for chat Markdown: Inter's Regular, and its SemiBold
+/// registered as the family's Bold. gpui-base sets `**strong**` at 700,
+/// .chat-markdown's `strong` is 600 (assets/fonts/InterChat-*, renamed
+/// copies of Inter's).
+pub const CHAT: &str = "Inter Chat";
+
 static FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/Inter-Regular.ttf"),
     include_bytes!("../assets/fonts/Inter-Medium.ttf"),
     include_bytes!("../assets/fonts/Inter-SemiBold.ttf"),
     include_bytes!("../assets/fonts/Inter-Bold.ttf"),
+    include_bytes!("../assets/fonts/InterChat-Regular.ttf"),
+    include_bytes!("../assets/fonts/InterChat-Bold.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMono-Medium.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf"),

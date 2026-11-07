@@ -74,6 +74,7 @@ fn palette(name: &str) -> Option<u32> {
         "comment" | "comment.doc" => pick(0x8b949e, 0x6e7781, 0x6272a4),
         "function" => pick(0xd2a8ff, 0x8250df, 0x50fa7b),
         "type" => pick(0xffa657, 0x953800, 0x8be9fd),
+        "variable.parameter" => pick(0xffa657, 0x953800, 0xffb86c),
         "tag" => pick(0x7ee787, 0x116329, 0xff79c6),
         "title" => pick(0x1f6feb, 0x0550ae, 0xbd93f9),
         _ => return None,
@@ -138,37 +139,57 @@ fn colour(lang: &str, lines: &[String]) -> Vec<Runs> {
     let mut names = HashMap::<Scope, Option<&'static str>>::new();
     let mut out = Vec::with_capacity(lines.len());
     for line in lines {
-        let mut runs: Runs = Vec::new();
-        let mut push = |range: Range<usize>, scopes: &ScopeStack| {
-            if range.is_empty() {
-                return;
-            }
-            // The innermost scope that names something wins.
-            let style = scopes
-                .scopes
-                .iter()
-                .rev()
-                .find_map(|s| *names.entry(*s).or_insert_with(|| semantic_name(*s)))
-                .and_then(style_of);
-            if let Some(style) = style {
-                match runs.last_mut() {
-                    Some((last, s)) if last.end == range.start && *s == style => {
-                        last.end = range.end
-                    }
-                    _ => runs.push((range, style)),
-                }
-            }
-        };
+        // The line's tokens with the scopes over each, then their colours.
+        let mut tokens: Vec<(Range<usize>, ScopeStack)> = Vec::new();
         let with_end = format!("{line}\n");
         if let Ok(ops) = parser.parse_line(&with_end, set) {
             let mut cursor = 0;
             for (at, op) in ops {
                 let at = at.min(line.len());
-                push(cursor..at, &scopes);
+                if at > cursor {
+                    tokens.push((cursor..at, scopes.clone()));
+                }
                 let _ = scopes.apply(&op);
                 cursor = at;
             }
-            push(cursor..line.len(), &scopes);
+            if line.len() > cursor {
+                tokens.push((cursor..line.len(), scopes.clone()));
+            }
+        }
+        let innermost = |i: usize| {
+            tokens
+                .get(i)
+                .and_then(|(_, s)| s.scopes.last())
+                .map(|s| s.build_string())
+                .unwrap_or_default()
+        };
+        let mut runs: Runs = Vec::new();
+        for (i, (range, stack)) in tokens.iter().enumerate() {
+            // Shiki's Go grammar takes the package of a qualified type
+            // (`http` in `http.Request`) as part of the type; syntect's
+            // calls it a variable.
+            let qualifier = innermost(i) == "variable.other.go"
+                && innermost(i + 1) == "punctuation.accessor.dot.go"
+                && innermost(i + 2) == "storage.type.go";
+            // The innermost scope that names something wins.
+            let style = if qualifier {
+                style_of("type")
+            } else {
+                stack
+                    .scopes
+                    .iter()
+                    .rev()
+                    .find_map(|s| *names.entry(*s).or_insert_with(|| semantic_name(*s)))
+                    .and_then(style_of)
+            };
+            if let Some(style) = style {
+                match runs.last_mut() {
+                    Some((last, s)) if last.end == range.start && *s == style => {
+                        last.end = range.end
+                    }
+                    _ => runs.push((range.clone(), style)),
+                }
+            }
         }
         out.push(runs);
     }
@@ -210,6 +231,14 @@ fn semantic_name(scope: Scope) -> Option<&'static str> {
             "boolean"
         } else if is("constant") || is("support.constant") || is("entity.name.constant") {
             "constant"
+        } else if scope == "storage.type.go" {
+            // syntect's Go names a named type (`Server`, `http.Request`)
+            // storage.type, Shiki's entity.name.type.
+            "type"
+        } else if is("support.type.builtin.go") {
+            // Shiki's Go grammar has `error`, `int` and `string` as
+            // storage.type, which the themes paint as keywords.
+            "keyword"
         } else if is("keyword.operator") {
             "operator"
         } else if is("keyword.control.import") || is("meta.preprocessor") {
@@ -269,6 +298,8 @@ fn semantic_name(scope: Scope) -> Option<&'static str> {
             || is("meta.mapping.key")
         {
             "property"
+        } else if is("variable.parameter") {
+            "variable.parameter"
         } else if is("variable") {
             "variable"
         } else if is("markup.bold") {

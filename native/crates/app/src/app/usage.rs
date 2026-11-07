@@ -407,56 +407,54 @@ impl AppView {
         } else {
             tool_name(&pick.tool).to_string()
         };
+        // TopBar's ClaudeUsage trigger: py-1 pl-2 pr-2.5, its ring inset
+        // (here a border inside the padding), the spans text-caption.
+        let caption = theme::text::CAPTION;
         let trigger = h_flex()
             .id("claude-meter")
             .flex_none()
             .gap_1p5()
-            .pl_2()
-            .pr_2p5()
-            .py_0p5()
+            .pl(px(7.))
+            .pr(px(9.))
+            .py(px(3.))
             .rounded_full()
             .border_1()
-            .border_color(ring.opacity(0.35))
+            .border_color(ring.opacity(if worst == 2 { 0.4 } else { 0.3 }))
             .bg(ring.opacity(0.1))
-            .hover(move |s| s.bg(ring.opacity(0.16)))
+            .hover(move |s| s.bg(ring.opacity(0.15)))
             .cursor_pointer()
-            .text_xs()
-            .child(div().text_color(base).child(crate::icons::of(if codex {
-                "◎"
+            .text_size(caption)
+            .child(if codex {
+                crate::icons::tool_mark("codex", px(14.), base)
             } else {
-                "✳"
-            })))
+                crate::icons::claude_mark(px(14.), base)
+            })
             .child(
-                div()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme::primary())
-                    .child(name),
+                theme::fit(name, caption, FontWeight::MEDIUM, false).text_color(theme::primary()),
             )
             .child(
-                div().text_color(theme::muted()).child(
+                theme::fit(
                     five_left
                         .clone()
                         .unwrap_or_else(|| t("shell.top.fiveHourShort")),
-                ),
+                    caption,
+                    FontWeight::NORMAL,
+                    false,
+                )
+                .text_color(theme::muted()),
             )
             .child(
-                div()
-                    .font_family(theme::mono())
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(tone_color(tone(five_now), theme::primary()))
-                    .child(percent(five_now)),
+                theme::fit(percent(five_now), caption, FontWeight::SEMIBOLD, true)
+                    .text_color(tone_color(tone(five_now), theme::primary())),
             )
             .when(week.is_some(), |el| {
                 el.child(
-                    div()
-                        .text_color(theme::muted())
-                        .child(t("shell.top.weekShort")),
+                    theme::fit(t("shell.top.weekShort"), caption, FontWeight::NORMAL, false)
+                        .text_color(theme::muted()),
                 )
                 .child(
-                    div()
-                        .font_family(theme::mono())
-                        .text_color(tone_color(tone(week_now), theme::primary()))
-                        .child(percent(week_now)),
+                    theme::fit(percent(week_now), caption, FontWeight::NORMAL, true)
+                        .text_color(tone_color(tone(week_now), theme::primary())),
                 )
             });
         let account = account.clone();
