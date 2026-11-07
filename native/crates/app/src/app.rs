@@ -726,14 +726,18 @@ impl AppView {
         // An agent's chat: its review card (AgentReviewCard), from its review
         // item and its pull request (useAgentPr: the fleet's, else the item's).
         let card = self.open_agent().map(|a| {
-            let item = self.side.review.iter().find(|i| i.r#ref == a.r#ref).cloned();
+            let item = self
+                .side
+                .review
+                .iter()
+                .find(|i| i.r#ref == a.r#ref)
+                .cloned();
             let asked = !a.changes_requested.is_empty()
                 && matches!(a.chat.as_str(), "running" | "starting" | "waiting");
-            let pr = a
-                .pr
-                .clone()
-                .filter(|p| p.number > 0)
-                .or_else(|| item.as_ref().and_then(|i| i.pr.clone()));
+            let pr =
+                a.pr.clone()
+                    .filter(|p| p.number > 0)
+                    .or_else(|| item.as_ref().and_then(|i| i.pr.clone()));
             crate::chat::ReviewCard { item, asked, pr }
         });
         if let Some(chat) = &self.chat
@@ -931,12 +935,7 @@ impl AppView {
                 .flex_1()
                 .min_h_0()
                 .child(self.render_home_header(cx))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .child(self.render_home_status(cx)),
-                )
+                .child(div().flex_1().min_h_0().child(self.render_home_status(cx)))
                 .into_any_element();
         }
         if home && self.sessions.home_tab == 2 {
@@ -1526,4 +1525,3 @@ impl Render for AppView {
             .into_any_element()
     }
 }
-
