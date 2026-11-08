@@ -605,6 +605,197 @@ pub fn draw_mark() -> Image {
     s.render()
 }
 
+/// A project's logo, as its carpet shows it: its picture, its emoji, or none
+/// (its initials then, in its colour).
+#[derive(Clone, Default)]
+pub enum Logo {
+    #[default]
+    None,
+    Emoji(String),
+    Picture(std::sync::Arc<Image>),
+}
+
+impl std::fmt::Debug for Logo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.kind())
+    }
+}
+
+impl Logo {
+    /// kind tells two logos of the same version apart (none until it's read).
+    pub fn kind(&self) -> String {
+        match self {
+            Logo::None => "none".into(),
+            Logo::Emoji(e) => format!("emoji:{e}"),
+            Logo::Picture(p) => format!("picture:{}x{}", p.width, p.height),
+        }
+    }
+}
+
+/// initials are a project's letters for a carpet with no logo: the first of
+/// its first two words (my-shop, My Shop: MS), or its first.
+pub fn initials(label: &str) -> String {
+    let words: Vec<&str> = label
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let s: String = words
+        .iter()
+        .take(2)
+        .filter_map(|w| w.chars().next())
+        .collect();
+    let s = if s.is_empty() {
+        label.chars().next().map(String::from).unwrap_or_default()
+    } else {
+        s
+    };
+    s.to_uppercase()
+}
+
+/// draw_carpet paints a project's carpet, w×h pixels: a rug in its colour
+/// with a border, and a round medallion at (cx, cy), size across, its logo
+/// (or its initials) on it.
+pub fn draw_carpet(
+    w: u32,
+    h: u32,
+    (cx, cy, size): (f32, f32, f32),
+    label: &str,
+    hue: f32,
+    logo: &Logo,
+) -> Image {
+    let (wf, hf) = (w as f32, h as f32);
+    let mut s = Svg::new(w, h);
+    s.rect(0., 0., wf, hf, &css_hsl(hue, 40., 36.));
+    // A woven border: a light band, a darker line inside it.
+    s.stroke_rect(
+        14.,
+        14.,
+        wf - 28.,
+        hf - 28.,
+        20.,
+        &css_hsl(hue, 62., 66.),
+        9.,
+    );
+    s.stroke_rect(
+        32.,
+        32.,
+        wf - 64.,
+        hf - 64.,
+        12.,
+        &css_hsl(hue, 45., 28.),
+        4.,
+    );
+    // The medallion: a cream tile, ringed in the border's colour.
+    let r = size / 2.;
+    let ring = (size * 0.05).max(6.);
+    s.round_rect(
+        cx - r,
+        cy - r,
+        size,
+        size,
+        size * 0.2,
+        &css_hsl(hue, 62., 66.),
+    );
+    s.round_rect(
+        cx - r + ring,
+        cy - r + ring,
+        size - 2. * ring,
+        size - 2. * ring,
+        size * 0.2 - ring,
+        "#fbf7ef",
+    );
+    match logo {
+        Logo::Emoji(e) => {
+            let fs = size * 0.62;
+            s.raw(&format!(
+                r##"<text x="{cx}" y="{}" font-family="Noto Color Emoji, emoji, sans-serif" font-size="{fs}" text-anchor="middle">{}</text>"##,
+                cy + fs * 0.36,
+                esc(e)
+            ));
+        }
+        Logo::None => {
+            let text = initials(label);
+            let mut i = Ink::sans(800, size * 0.55);
+            if i.width(&text) > size * 0.76 {
+                i = Ink::sans(800, size * 0.55 * size * 0.76 / i.width(&text));
+            }
+            i.draw(
+                &mut s,
+                cx,
+                cy + i.size * 0.36,
+                &css_hsl(hue, 55., 38.),
+                Align::Center,
+                &text,
+            );
+        }
+        Logo::Picture(_) => {}
+    }
+    let mut img = s.render();
+    if let Logo::Picture(p) = logo {
+        // Inside the medallion, nearly filling it.
+        let side = size * 0.8;
+        put_picture(&mut img, p, cx - side / 2., cy - side / 2., side);
+    }
+    img
+}
+
+/// put_picture lays a picture over an image, fitted in a square at (x, y),
+/// side across (its shape kept), sampled smoothly, its transparency kept.
+fn put_picture(img: &mut Image, p: &Image, x: f32, y: f32, side: f32) {
+    if p.width == 0 || p.height == 0 || p.rgba.len() < (p.width * p.height * 4) as usize {
+        return;
+    }
+    let k = side / p.width.max(p.height) as f32;
+    let (pw, ph) = (p.width as f32 * k, p.height as f32 * k);
+    let (x, y) = (x + (side - pw) / 2., y + (side - ph) / 2.);
+    let px = |u: i64, v: i64, c: usize| -> f32 {
+        let u = u.clamp(0, p.width as i64 - 1) as usize;
+        let v = v.clamp(0, p.height as i64 - 1) as usize;
+        p.rgba[(v * p.width as usize + u) * 4 + c] as f32
+    };
+    let (x0, y0) = (x.floor().max(0.) as u32, y.floor().max(0.) as u32);
+    let x1 = ((x + pw).ceil() as u32).min(img.width);
+    let y1 = ((y + ph).ceil() as u32).min(img.height);
+    for ty in y0..y1 {
+        for tx in x0..x1 {
+            // Where this pixel's centre falls in the picture.
+            let u = (tx as f32 + 0.5 - x) / k - 0.5;
+            let v = (ty as f32 + 0.5 - y) / k - 0.5;
+            if u < -0.5 || v < -0.5 || u > p.width as f32 - 0.5 || v > p.height as f32 - 0.5 {
+                continue;
+            }
+            let (fu, fv) = (u.floor(), v.floor());
+            let (au, av) = (u - fu, v - fv);
+            let (iu, iv) = (fu as i64, fv as i64);
+            // Weighted by alpha, so a transparent edge doesn't darken.
+            let mut acc = [0f32; 4];
+            for (du, dv, wgt) in [
+                (0, 0, (1. - au) * (1. - av)),
+                (1, 0, au * (1. - av)),
+                (0, 1, (1. - au) * av),
+                (1, 1, au * av),
+            ] {
+                let a = px(iu + du, iv + dv, 3) / 255. * wgt;
+                for (c, slot) in acc.iter_mut().take(3).enumerate() {
+                    *slot += px(iu + du, iv + dv, c) * a;
+                }
+                acc[3] += a;
+            }
+            if acc[3] <= 0. {
+                continue;
+            }
+            let a = acc[3].min(1.);
+            let i = ((ty * img.width + tx) * 4) as usize;
+            for c in 0..3 {
+                let src = acc[c] / acc[3];
+                let dst = img.rgba[i + c] as f32;
+                img.rgba[i + c] = (src * a + dst * (1. - a)).round().clamp(0., 255.) as u8;
+            }
+            img.rgba[i + 3] = 255;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -673,6 +864,47 @@ mod tests {
             rows.iter()
                 .all(|r| r.x >= 0. && r.x + r.w <= 1024. && r.y + r.h <= 532.)
         );
+    }
+
+    #[test]
+    fn a_carpet_without_a_logo_has_its_initials_and_one_with_a_picture_shows_it() {
+        assert_eq!(initials("my-shop"), "MS");
+        assert_eq!(initials("Web app and api"), "WA");
+        assert_eq!(initials("quill"), "Q");
+        assert_eq!(initials("ação"), "A");
+        assert_eq!(initials("--"), "-");
+        let plain = draw_carpet(256, 256, (128., 128., 160.), "quill", 30., &Logo::None);
+        assert_eq!((plain.width, plain.height), (256, 256));
+        // The medallion's middle is cream, but for the letter's ink.
+        let at = |img: &Image, x: u32, y: u32| {
+            let i = ((y * img.width + x) * 4) as usize;
+            [
+                img.rgba[i],
+                img.rgba[i + 1],
+                img.rgba[i + 2],
+                img.rgba[i + 3],
+            ]
+        };
+        assert_eq!(at(&plain, 128, 70), [0xfb, 0xf7, 0xef, 255]);
+        // A picture, pure blue, in the middle, scaled up smoothly.
+        let blue = Image {
+            width: 4,
+            height: 4,
+            rgba: [20, 40, 220, 255].repeat(16),
+        };
+        let pic = draw_carpet(
+            256,
+            256,
+            (128., 128., 160.),
+            "quill",
+            30.,
+            &Logo::Picture(std::sync::Arc::new(blue)),
+        );
+        assert_eq!(at(&pic, 128, 128), [20, 40, 220, 255]);
+        // Beyond the medallion, the rug.
+        assert_eq!(at(&pic, 20, 128)[3], 255);
+        assert_ne!(at(&pic, 20, 128), at(&pic, 128, 128));
+        assert_ne!(Logo::None.kind(), Logo::Emoji("🦊".into()).kind());
     }
 
     #[test]

@@ -84,6 +84,19 @@ pub struct AreaPlace {
     pub pods: Vec<Rect>,
     /// The area's sign, hung over its back edge.
     pub sign: P,
+    /// Its project's carpet, the logo on it: every room has one, at its front
+    /// desk, where you see whose room it is at a glance.
+    pub carpet: Option<Carpet>,
+}
+
+/// A carpet on the floor, and where on it its logo goes (a square's centre
+/// and size, across): before the lead's counter, or, on a floor with no lead,
+/// in its middle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Carpet {
+    pub r#box: Rect,
+    pub logo: P,
+    pub logo_size: f64,
 }
 
 /// Where a feature of a wall sits along it, and how wide it is.
@@ -177,6 +190,9 @@ const BACK: f64 = 3.1;
 const FRONT: f64 = 0.5;
 /// From a cell's back to its pod's desks.
 const DESK_IN: f64 = 2.2;
+/// From the front desk's cell's back to the lead's counter: clear of the pods
+/// behind, with room before it for the project's logo on its carpet.
+const LEAD_IN: f64 = 1.9;
 
 /// columns is how many pods an area puts side by side: a block a little wider
 /// than deep, so its room stays the target's size.
@@ -282,6 +298,9 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     let n = a.map_or(0, |a| a.desks.len()) as i64;
     let pn = (n as f64 / POD as f64).ceil() as i64;
     let has_lead = a.is_some_and(|a| !a.no_lead);
+    // Every room's front desk: its lead's counter on its project's carpet, or,
+    // on a floor past the first, the carpet alone.
+    let has_front = a.is_some();
     // A small team's room has no meeting room: it's small.
     let compact = a.is_some() && n <= 4;
     let project = a.map_or("", |a| a.project.as_str());
@@ -297,7 +316,7 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     // left: floor to floor in turn.
     let meet_front = meet_in && ((hs >> 1) + floor) % 2 == 0;
     let cn = 2.max(
-        ((pn + i64::from(has_lead) + i64::from(meet_in) + 2) as f64 / ROWS as f64).ceil() as usize,
+        ((pn + i64::from(has_front) + i64::from(meet_in) + 2) as f64 / ROWS as f64).ceil() as usize,
     );
     let cw = if compact { SMALL_W } else { CELL_W };
     let cd = if compact { SMALL_D } else { CELL_D };
@@ -368,7 +387,7 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
     }
     // The lead's counter in the front row, nearest its middle: who you see first.
     let mut lead_cell: Option<Cell> = None;
-    if has_lead {
+    if has_front {
         lead_cell =
             mid(&open(&kinds, &cells, Some(1))).or_else(|| mid(&open(&kinds, &cells, None)));
         if let Some((c, r)) = lead_cell {
@@ -519,21 +538,44 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
             );
         }
     }
-    // The lead's counter, its lead behind it facing the room, on a mat.
+    // The lead's counter, its lead behind it facing the room, on its
+    // project's carpet, the logo before the counter where nothing hides it.
     let mut lead: Option<LeadPlace> = None;
+    let mut carpet: Option<Carpet> = None;
     if let Some((c, r)) = lead_cell {
         let cb = cell_box(c, r);
         let cx = (cb.x0 + cb.x1) / 2.;
-        // At its cell's front: well clear of the pods behind.
-        let cz = cb.z0 + 2.9;
+        let cz = cb.z0 + LEAD_IN;
+        // (In the front row, out over the room's front edge.)
+        let front = if r == ROWS - 1 {
+            room_d - 0.15
+        } else {
+            cb.z1 - 0.2
+        };
+        let half = 2.1f64.min((cb.x1 - cb.x0) / 2. - 0.6);
+        carpet = Some(if has_lead {
+            let z0 = cz + COUNTER.d / 2. + 0.1;
+            let size = (front - z0 - 0.35).min(2. * half - 0.4);
+            Carpet {
+                r#box: rect(cx - half, cz - 1.3, cx + half, front),
+                logo: pt(cx, (z0 + front) / 2.),
+                logo_size: size,
+            }
+        } else {
+            let z0 = cb.z0 + 0.8;
+            Carpet {
+                r#box: rect(cx - half, z0, cx + half, front),
+                logo: pt(cx, (z0 + front) / 2.),
+                logo_size: (front - z0 - 0.6).min(2. * half - 0.6),
+            }
+        });
+    }
+    if let (Some((c, r)), true) = (lead_cell, has_lead) {
+        let cb = cell_box(c, r);
+        let cx = (cb.x0 + cb.x1) / 2.;
+        let cz = cb.z0 + LEAD_IN;
         obstacles.push(boxc(cx, cz, COUNTER.w, COUNTER.d));
         obstacles.push(boxc(cx, cz - 0.75, 0.7, 0.6));
-        props.push(Prop {
-            kind: PropKind::Mat,
-            x: cx,
-            z: cz + 0.25,
-            rot: 0.,
-        });
         lead = Some(LeadPlace {
             x: cx,
             z: cz,
@@ -939,6 +981,7 @@ pub fn room_layout(areas_in: &[AreaIn]) -> Layout {
             lead,
             desks,
             sign: pt(board_x, bk),
+            carpet,
         }],
         None => Vec::new(),
     };
@@ -1333,6 +1376,11 @@ pub fn layout(areas_in: &[AreaModel]) -> Campus {
                         project: a.project.clone(),
                         rug: move_box(&a.rug, ox, oz),
                         pods: a.pods.iter().map(|q| move_box(q, ox, oz)).collect(),
+                        carpet: a.carpet.map(|c| Carpet {
+                            r#box: move_box(&c.r#box, ox, oz),
+                            logo: pt(c.logo.x + ox, c.logo.z + oz),
+                            logo_size: c.logo_size,
+                        }),
                         lead: a.lead.map(|l| LeadPlace {
                             x: l.x + ox,
                             z: l.z + oz,
@@ -1670,6 +1718,64 @@ mod tests {
         assert_eq!(c.rooms.len(), 1);
         assert!(c.rooms[0].r#box.x1 >= 12.);
         assert!(c.spawn.z > c.rooms[0].board.spot.z);
+    }
+
+    #[test]
+    fn every_room_has_its_projects_carpet_its_logo_before_the_lead_in_full_view() {
+        let overlaps =
+            |a: &Rect, b: &Rect| a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
+        // A project with no agents, a few, and enough for three floors.
+        let c = layout(&[area("a", 0), area("b", 3), area("c", 30)]);
+        assert!(
+            c.rooms.iter().any(|r| r.project == "a"),
+            "a project with no agents has its room"
+        );
+        for room in &c.rooms {
+            let a = c
+                .areas
+                .iter()
+                .find(|a| a.room == c.rooms.iter().position(|r| r.key == room.key).unwrap())
+                .expect("every room has its area");
+            let carpet = a.carpet.expect("every room has its carpet");
+            let b = carpet.r#box;
+            assert!(
+                within(&room.r#box, &b),
+                "{}'s carpet is in its room",
+                room.key
+            );
+            let half = carpet.logo_size / 2.;
+            let logo = rect(
+                carpet.logo.x - half,
+                carpet.logo.z - half,
+                carpet.logo.x + half,
+                carpet.logo.z + half,
+            );
+            assert!(within(&b, &logo), "{}'s logo is on its carpet", room.key);
+            assert!(
+                carpet.logo_size >= 1.4,
+                "{}'s logo is big: {}",
+                room.key,
+                carpet.logo_size
+            );
+            // Nothing stands on the logo, and no pod's rug lies over the carpet.
+            for o in &c.obstacles {
+                assert!(!overlaps(o, &logo), "{}: {o:?} on its logo", room.key);
+            }
+            for q in &a.pods {
+                assert!(
+                    !overlaps(q, &b),
+                    "{}: a pod's rug over its carpet",
+                    room.key
+                );
+            }
+            // The lead's counter on it, the logo before the counter.
+            if let Some(l) = &a.lead {
+                assert!(l.x > b.x0 && l.x < b.x1 && l.z > b.z0 && l.z < b.z1);
+                assert!(logo.z0 > l.z + COUNTER.d / 2.);
+            } else {
+                assert!(room.floor > 1);
+            }
+        }
     }
 
     #[test]
