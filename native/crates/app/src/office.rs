@@ -64,7 +64,12 @@ pub struct OfficeView {
     failed: Option<String>,
     notice_closed: bool,
     frame: Option<Arc<RenderImage>>,
-    painted: usize,
+    /// The next frame, held until the refresh it was drawn for (engine.rs's
+    /// Pace), with its labels and that moment.
+    pending: std::collections::VecDeque<(Arc<RenderImage>, Vec<Label>, std::time::Instant)>,
+    refresh: Option<Duration>,
+    /// Wakes the view when the next frame's moment comes.
+    _wake: Option<Task<()>>,
     stale: Vec<Arc<RenderImage>>,
     labels: Vec<Label>,
     bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -93,8 +98,6 @@ pub struct OfficeView {
     /// AGENTBOX_NATIVE_BENCH: when each frame was painted, and the render
     /// thread's time for each (printed every 5 s with the CPU used).
     bench: Option<Bench>,
-    /// The moment the frame on screen shows (the sim's clock when it was drawn).
-    frame_at: Option<std::time::Instant>,
     _bench: Option<Task<()>>,
     _task: Task<()>,
     _blur: Subscription,
@@ -126,6 +129,12 @@ impl Bench {
             let sim = (w[1].1 - w[0].1).as_secs_f32() * 1000.;
             judder.push((shown - sim).abs());
         }
+        let mut late: Vec<f32> = self
+            .painted
+            .iter()
+            .map(|(shown, at)| ms(shown.saturating_duration_since(*at)) - ms(at.saturating_duration_since(*shown)))
+            .collect();
+        late.sort_by(f32::total_cmp);
         let n = self.painted.len();
         self.painted.clear();
         let mut render = std::mem::take(&mut self.render);
@@ -139,13 +148,16 @@ impl Bench {
         let mean = gaps.iter().sum::<f32>() / gaps.len() as f32;
         let sd = (gaps.iter().map(|g| (g - mean).powi(2)).sum::<f32>() / gaps.len() as f32).sqrt();
         Some(format!(
-            "bench office {size}: {n} frames in 5s ({:.1} fps), gap p50 {:.1} p95 {:.1} sd {:.1} ms, judder p50 {:.1} p95 {:.1} ms, render+readback p50 {:.1} p95 {:.1} ms, cpu {:.0}% of a core",
+            "bench office {size}: {n} frames in 5s ({:.1} fps), gap p50 {:.1} p95 {:.1} sd {:.1} ms, judder p50 {:.1} p95 {:.1} ms, late p5 {:.1} p50 {:.1} p95 {:.1} ms, render+readback p50 {:.1} p95 {:.1} ms, cpu {:.0}% of a core",
             n as f32 / 5.,
             p(&gaps, 0.5),
             p(&gaps, 0.95),
             sd,
             p(&judder, 0.5),
             p(&judder, 0.95),
+            p(&late, 0.05),
+            p(&late, 0.5),
+            p(&late, 0.95),
             p(&render, 0.5),
             p(&render, 0.95),
             cpu
@@ -180,7 +192,9 @@ impl OfficeView {
             failed: None,
             notice_closed: false,
             frame: None,
-            painted: 0,
+            pending: Default::default(),
+            refresh: None,
+            _wake: None,
             stale: Vec::new(),
             labels: Vec::new(),
             bounds: Rc::default(),
@@ -209,7 +223,6 @@ impl OfficeView {
             chat: None,
             shown: true,
             bench: None,
-            frame_at: None,
             _bench: None,
             _task: task,
             _blur: blur,
@@ -238,6 +251,24 @@ impl OfficeView {
             }));
         }
         this
+    }
+
+    /// wake renders the view at the next frame's moment (half a refresh
+    /// before it, as render shows it), rather than every refresh until then.
+    fn wake(&mut self, cx: &mut Context<Self>) {
+        let Some((_, _, at)) = self.pending.front() else {
+            return;
+        };
+        let half = self.refresh.unwrap_or(Duration::from_micros(16_667)) / 2;
+        let wait = at.saturating_duration_since(std::time::Instant::now()).saturating_sub(half);
+        if wait.is_zero() {
+            cx.notify();
+            return;
+        }
+        self._wake = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(wait).await;
+            this.update(cx, |_, cx| cx.notify()).ok();
+        }));
     }
 
     fn send(&self, m: In) {
@@ -591,16 +622,15 @@ impl OfficeView {
                 if let Some(b) = &mut self.bench {
                     b.render.push(render_ms);
                 }
-                self.frame_at = Some(at);
                 if let Some(rgba) =
                     image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra)
                 {
                     let img = Arc::new(RenderImage::new(vec![image::Frame::new(rgba)]));
-                    if let Some(old) = self.frame.replace(img) {
-                        self.stale.push(old);
-                    }
+                    self.pending.push_back((img, labels, at));
                 }
-                self.labels = labels;
+                // Not painted now: when its moment comes.
+                self.wake(cx);
+                return;
             }
             Out::Notes(notes) => {
                 for n in notes {
@@ -884,16 +914,40 @@ impl Render for OfficeView {
         for old in self.stale.drain(..) {
             let _ = window.drop_image(old);
         }
-        // A new frame on its way to the screen: the next may be drawn.
-        if let Some(f) = &self.frame {
-            let id = Arc::as_ptr(f) as usize;
-            if id != self.painted {
-                self.painted = id;
-                self.send(In::Painted);
-                if let (Some(b), Some(at)) = (&mut self.bench, self.frame_at) {
-                    b.painted.push((std::time::Instant::now(), at));
+        let period = window
+            .refresh_interval(cx)
+            .unwrap_or(Duration::from_micros(16_667));
+        if self.refresh != Some(period) {
+            self.refresh = Some(period);
+            self.send(In::Refresh(period));
+        }
+        // The next frame goes on screen at the refresh it was drawn for, not
+        // as soon as it's here (half a refresh early: GPUI's frame starts a
+        // little after the refresh it's for). Then the next may be drawn.
+        let now = std::time::Instant::now();
+        let due = |at: std::time::Instant| at <= now + period / 2 || at > now + Duration::from_millis(250);
+        let mut shown = None;
+        while self.pending.front().is_some_and(|(_, _, at)| due(*at)) {
+            if let Some(f) = self.pending.pop_front() {
+                // One due behind another is skipped: told as painted too.
+                if let Some((old, ..)) = shown.replace(f) {
+                    self.stale.push(old);
+                    self.send(In::Painted(now));
                 }
             }
+        }
+        if let Some((img, labels, at)) = shown {
+            if let Some(old) = self.frame.replace(img) {
+                self.stale.push(old);
+            }
+            self.labels = labels;
+            self.send(In::Painted(now));
+            if let Some(b) = &mut self.bench {
+                b.painted.push((now, at));
+            }
+        }
+        if !self.pending.is_empty() {
+            self.wake(cx);
         }
         let bounds = self.bounds.clone();
         let scale = window.scale_factor();
