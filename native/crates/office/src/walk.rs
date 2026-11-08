@@ -27,17 +27,39 @@ pub fn blocked(boxes: &[Rect], room: &Rect, p: P) -> bool {
 }
 
 /// slide moves p by d, each axis on its own, so you slide along a wall
-/// rather than stop dead at it.
+/// rather than stop dead at it. An axis that would go into something goes as
+/// far as it can, so you come up against the wall rather than stop a step
+/// short of it (a frame's step is half a metre running at a low frame rate).
+/// Already inside something (put there, not walked), you can walk out.
 pub fn slide(boxes: &[Rect], room: &Rect, p: P, d: P) -> P {
-    let mut x = p.x;
-    let mut z = p.z;
-    if !blocked(boxes, room, P { x: x + d.x, z }) {
-        x += d.x;
+    if blocked(boxes, room, p) {
+        return P {
+            x: p.x + d.x,
+            z: p.z + d.z,
+        };
     }
-    if !blocked(boxes, room, P { x, z: z + d.z }) {
-        z += d.z;
-    }
-    P { x, z }
+    let reach = |from: P, step: P| -> P {
+        let at = |k: f64| P {
+            x: from.x + step.x * k,
+            z: from.z + step.z * k,
+        };
+        if !blocked(boxes, room, at(1.)) {
+            return at(1.);
+        }
+        // How far is free, to a hundredth of the step.
+        let (mut lo, mut hi) = (0., 1.);
+        for _ in 0..7 {
+            let mid = (lo + hi) / 2.;
+            if blocked(boxes, room, at(mid)) {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        at(lo)
+    };
+    let a = reach(p, P { x: d.x, z: 0. });
+    reach(a, P { x: 0., z: d.z })
 }
 
 /// clear: a straight walk from a to b meets nothing.
@@ -304,10 +326,15 @@ mod tests {
 
     #[test]
     fn a_move_into_a_box_slides_along_its_side() {
-        assert_eq!(slide(&[WALL], &ROOM, p(3.9, 5.), p(0.5, 0.5)), p(3.9, 5.5));
+        // Up against its side (x 4), and on along it.
+        let q = slide(&[WALL], &ROOM, p(3.5, 5.), p(1., 0.5));
+        assert!(q.x <= 4. && q.x > 3.99 && q.z == 5.5, "{q:?}");
         assert_eq!(slide(&[WALL], &ROOM, p(1., 1.), p(0.5, 0.)), p(1.5, 1.));
         // The room's walls hold too.
-        assert_eq!(slide(&[], &ROOM, p(9.9, 1.), p(0.5, 0.)), p(9.9, 1.));
+        let q = slide(&[], &ROOM, p(9.5, 1.), p(1., 0.));
+        assert!(q.x <= 10. && q.x > 9.99 && q.z == 1., "{q:?}");
+        // Put inside something, you can walk out of it.
+        assert_eq!(slide(&[WALL], &ROOM, p(5., 5.), p(-0.5, 0.)), p(4.5, 5.));
     }
 
     #[test]

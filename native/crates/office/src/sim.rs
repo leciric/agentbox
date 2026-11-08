@@ -20,6 +20,16 @@ pub const RUN: f64 = 6.0;
 // How quickly you get going and come to a stop, metres a second a second.
 const ACCEL: f64 = 9.;
 const BRAKE: f64 = 8.;
+// Turning on the keys: changing direction takes this much more than setting
+// off, so a turn is a short curve rather than a skid or a snap.
+const TURN_ACCEL: f64 = 20.;
+// How quickly you turn to face where the keys point (radians a second, at
+// most), easing in at the end.
+const TURN_RATE: f64 = 14.;
+const TURN_MAX: f64 = 4. * std::f64::consts::PI;
+// Following you, the camera looks this many seconds ahead of you, so more of
+// where you're going is in view than of where you've been.
+const LOOK_AHEAD: f64 = 0.3;
 pub const FOV: f64 = 24.;
 // The overview's 3/4 view: from the front right, over the open corner.
 const HOME_YAW: f64 = 0.4;
@@ -139,6 +149,13 @@ pub struct Sim {
     pub speed: f64,
     pace: f64,
     key_dir: Option<P>,
+    /// How you're moving on the keys (metres a second, each way): eased
+    /// towards where they point, so you set off, curve and stop.
+    vel: P,
+    /// Shift is held: the keys run.
+    run: bool,
+    /// Where the camera looks ahead of you, eased.
+    look: P,
     route: Vec<P>,
     route_goal: Option<String>,
     came_to: Option<String>,
@@ -266,6 +283,9 @@ impl Sim {
             speed: 0.,
             pace: 0.,
             key_dir: None,
+            vel: P { x: 0., z: 0. },
+            run: false,
+            look: P { x: 0., z: 0. },
             route: Vec::new(),
             route_goal: None,
             came_to: None,
@@ -729,14 +749,31 @@ impl Sim {
             self.started();
             let len = f64::hypot(kx, kz);
             let (s, c) = self.eased.yaw.sin_cos();
-            self.pace = toward(self.pace, SPEED);
             let d = P {
                 x: (kx * c + kz * s) / len,
                 z: (-kx * s + kz * c) / len,
             };
+            // Set off from a walk to a desk at the pace you had.
+            if self.key_dir.is_none() && self.pace > 0. {
+                self.vel = P {
+                    x: self.facing.sin() * self.pace,
+                    z: self.facing.cos() * self.pace,
+                };
+            }
+            let top = if self.run { RUN } else { SPEED };
+            self.vel = accelerate(
+                self.vel,
+                P {
+                    x: d.x * top,
+                    z: d.z * top,
+                },
+                dt,
+                motion,
+            );
+            self.pace = self.vel.x.hypot(self.vel.z);
             self.key_dir = Some(d);
-            vx = d.x * self.pace;
-            vz = d.z * self.pace;
+            vx = self.vel.x;
+            vz = self.vel.z;
         } else if let Some(goal) = self.route.first().copied() {
             let dx = goal.x - self.pos.x;
             let dz = goal.z - self.pos.z;
@@ -749,7 +786,7 @@ impl Sim {
                 };
             // A long walk, or one you asked for by name, is a run; a short
             // one a walk. Slowing in time to stop where it ends.
-            let top = if self.route_goal.is_some() || left > 7. {
+            let top = if self.route_goal.is_some() || left > 7. || self.run {
                 RUN
             } else {
                 SPEED
@@ -774,17 +811,17 @@ impl Sim {
                 vx = dx / dist * self.pace;
                 vz = dz / dist * self.pace;
             }
-        } else if let Some(d) = self.key_dir
-            && self.pace > 0.05
-        {
-            // The keys let go: a few steps' stop.
-            self.pace = toward(self.pace, 0.);
-            vx = d.x * self.pace;
-            vz = d.z * self.pace;
+        } else if self.key_dir.is_some() && self.pace > 0.05 {
+            // The keys let go: a few steps' stop, the way you were going.
+            self.vel = accelerate(self.vel, P { x: 0., z: 0. }, dt, motion);
+            self.pace = self.vel.x.hypot(self.vel.z);
+            vx = self.vel.x;
+            vz = self.vel.z;
         }
         if self.route.is_empty() && kx == 0. && kz == 0. && self.pace <= 0.05 {
             self.pace = 0.;
             self.key_dir = None;
+            self.vel = P { x: 0., z: 0. };
         }
         if vx != 0. || vz != 0. {
             let next = if self.key_dir.is_some() && self.route.is_empty() {
@@ -804,17 +841,29 @@ impl Sim {
                 }
             };
             let moved1 = (next.x - self.pos.x).hypot(next.z - self.pos.z);
+            // Up against something, the way into it stops: you slide on along
+            // it at what's left, and don't carry the push round a corner.
+            if self.key_dir.is_some() && dt > 0. {
+                if (next.x - self.pos.x).abs() < (vx * dt).abs() * 0.5 {
+                    self.vel.x = (next.x - self.pos.x) / dt;
+                }
+                if (next.z - self.pos.z).abs() < (vz * dt).abs() * 0.5 {
+                    self.vel.z = (next.z - self.pos.z) / dt;
+                }
+            }
             self.pos = next;
             self.speed = moved1 / dt.max(1e-3);
-            self.facing = turn(
-                self.facing,
-                vx.atan2(vz),
-                if motion {
-                    dt * 12.
-                } else {
-                    std::f64::consts::PI
-                },
-            );
+            // You turn to where the keys point (the way you're going follows
+            // in a curve), or along a walk to a desk.
+            let want = match (self.route.is_empty(), self.key_dir) {
+                (true, Some(d)) if kx != 0. || kz != 0. => d.x.atan2(d.z),
+                _ => vx.atan2(vz),
+            };
+            self.facing = if motion {
+                ease_turn(self.facing, want, dt)
+            } else {
+                turn(self.facing, want, std::f64::consts::PI)
+            };
             moving = true;
             self.still_for = 0.;
         } else if stepped > 0. && !self.route.is_empty() {
@@ -1143,8 +1192,36 @@ impl Sim {
                 v.clamp(a + m, b - m)
             }
         };
-        let fx0 = self.zoom_focus.map(|z| z.x).unwrap_or(self.pos.x);
-        let fz0 = self.zoom_focus.map(|z| z.z).unwrap_or(self.pos.z);
+        // A little ahead of you, the way you're going.
+        let ahead = if motion && self.zoom_focus.is_none() {
+            let (vx, vz) = if self.key_dir.is_some() {
+                (self.vel.x, self.vel.z)
+            } else if self.speed > 0. {
+                (
+                    self.facing.sin() * self.speed,
+                    self.facing.cos() * self.speed,
+                )
+            } else {
+                (0., 0.)
+            };
+            P {
+                x: vx * LOOK_AHEAD,
+                z: vz * LOOK_AHEAD,
+            }
+        } else {
+            P { x: 0., z: 0. }
+        };
+        let kl = if motion { 1. - (-dt * 2.5).exp() } else { 1. };
+        self.look.x += (ahead.x - self.look.x) * kl;
+        self.look.z += (ahead.z - self.look.z) * kl;
+        let fx0 = self
+            .zoom_focus
+            .map(|z| z.x)
+            .unwrap_or(self.pos.x + self.look.x);
+        let fz0 = self
+            .zoom_focus
+            .map(|z| z.z)
+            .unwrap_or(self.pos.z + self.look.z);
         let (fx, fz) = match sb {
             Some(b) => (
                 clamp_to(fx0, b.x0, b.x1, 5.),
@@ -1491,6 +1568,11 @@ impl Sim {
                 self.poke();
                 true
             }
+            "shift" => {
+                self.run = true;
+                self.poke();
+                false
+            }
             "escape" if repeat => true,
             "escape" if self.near.is_some() || self.follow_target > 0. || self.scope.is_some() => {
                 // Escape stands back a step: out of a close-up, then to the
@@ -1531,6 +1613,10 @@ impl Sim {
     }
 
     pub fn key_up(&mut self, k: &str) {
+        if k == "shift" {
+            self.run = false;
+            self.poke();
+        }
         if self.keys.remove(k) {
             self.poke();
         }
@@ -1539,11 +1625,15 @@ impl Sim {
     /// blur lets go of every key (the window lost focus).
     pub fn blur(&mut self) {
         self.keys.clear();
+        self.run = false;
     }
 
     /// busy is whether a key is held or a walk is under way: frames are wanted.
     pub fn busy(&self) -> bool {
-        !self.keys.is_empty() || !self.route.is_empty() || self.pace > 0.
+        !self.keys.is_empty()
+            || !self.route.is_empty()
+            || self.pace > 0.
+            || self.look.x.abs() + self.look.z.abs() > 0.01
     }
 
     /// moving_pos is where you are, in the world (your room's shown offset added).
@@ -1551,6 +1641,51 @@ impl Sim {
         let off = self.shown(self.cur);
         Vec3::new(self.pos.x as f32, 0., self.pos.z as f32) + off
     }
+}
+
+/// accelerate eases a velocity towards the one wanted by dt seconds: setting
+/// off at ACCEL, stopping harder, and changing direction harder still, so
+/// you curve into a turn and a reversal is a quick stop and start.
+fn accelerate(v: P, want: P, dt: f64, motion: bool) -> P {
+    if !motion {
+        return want;
+    }
+    let (dx, dz) = (want.x - v.x, want.z - v.z);
+    let gap = dx.hypot(dz);
+    if gap < 1e-9 {
+        return want;
+    }
+    let speed = v.x.hypot(v.z);
+    let top = want.x.hypot(want.z);
+    let rate = if top < 1e-9 {
+        BRAKE * 1.6
+    } else if speed < 1e-6 {
+        ACCEL
+    } else {
+        // How far the way you're going is from the way wanted: none, ACCEL;
+        // square or back, TURN_ACCEL.
+        let cos = (v.x * want.x + v.z * want.z) / (speed * top);
+        if cos > 0.97 && top >= speed {
+            ACCEL
+        } else if cos > 0.97 {
+            BRAKE * 1.6
+        } else {
+            TURN_ACCEL
+        }
+    };
+    let k = (rate * dt / gap).min(1.);
+    P {
+        x: v.x + dx * k,
+        z: v.z + dz * k,
+    }
+}
+
+/// ease_turn turns from one heading towards another by dt seconds: quickly,
+/// at most TURN_MAX a second, slowing as it gets there.
+fn ease_turn(from: f64, to: f64, dt: f64) -> f64 {
+    let d = turn(0., to - from, std::f64::consts::PI * 2.);
+    let step = d * (1. - (-dt * TURN_RATE).exp());
+    from + step.clamp(-TURN_MAX * dt, TURN_MAX * dt)
 }
 
 impl Default for Sim {
@@ -1571,6 +1706,91 @@ mod tests {
         let (o, d) = c.ray(Vec2::ZERO);
         let hit = floor_hit(o, d).unwrap();
         assert!((hit.x - 1.).abs() < 1e-3 && (hit.z - 2.).abs() < 1e-3);
+    }
+
+    fn len(v: P) -> f64 {
+        v.x.hypot(v.z)
+    }
+
+    #[test]
+    fn you_set_off_curve_and_stop_rather_than_jump() {
+        let dt = 1. / 60.;
+        let zero = P { x: 0., z: 0. };
+        let ahead = P { x: 0., z: SPEED };
+        // Setting off takes a few frames, not one.
+        let mut v = accelerate(zero, ahead, dt, true);
+        assert!(len(v) > 0. && len(v) < SPEED / 4.);
+        for _ in 0..30 {
+            v = accelerate(v, ahead, dt, true);
+        }
+        assert_eq!(v, ahead);
+        // Turning square, the way you go swings round through a curve: part
+        // way, you're going both ways at once, never stopped.
+        let right = P { x: SPEED, z: 0. };
+        let mut mid = v;
+        for _ in 0..6 {
+            mid = accelerate(mid, right, dt, true);
+        }
+        assert!(mid.x > 0.5 && mid.z > 0.5, "{mid:?}");
+        // Letting go stops you within a few steps' length.
+        let (mut v, mut went) = (ahead, 0.);
+        while len(v) > 0. {
+            v = accelerate(v, zero, dt, true);
+            went += len(v) * dt;
+        }
+        assert!(went > 0.1 && went < 0.6, "{went}");
+        // Reduced motion: at once.
+        assert_eq!(accelerate(zero, ahead, dt, false), ahead);
+    }
+
+    #[test]
+    fn you_turn_to_face_the_way_smoothly() {
+        let dt = 1. / 60.;
+        let mut f: f64 = 0.;
+        let to = std::f64::consts::PI * 0.9;
+        let first = ease_turn(f, to, dt);
+        assert!(first > 0. && first <= TURN_MAX * dt + 1e-9);
+        for _ in 0..30 {
+            f = ease_turn(f, to, dt);
+        }
+        assert!((f - to).abs() < 0.05, "{f}");
+        // The short way round: from just left of behind to just right.
+        let g = ease_turn(3., -3., dt);
+        assert!(g > 3., "{g}");
+    }
+
+    #[test]
+    fn shift_runs() {
+        let pace_after = |run: bool| {
+            let mut s = Sim::new();
+            // Out in the open, nothing in the way.
+            s.bounds = Rect {
+                x0: -50.,
+                z0: -50.,
+                x1: 50.,
+                z1: 50.,
+            };
+            s.boxes.clear();
+            if run {
+                s.key_down("shift", false);
+            }
+            s.key_down("w", false);
+            for _ in 0..90 {
+                s.step(1. / 60.);
+            }
+            s.pace
+        };
+        let (walk, run) = (pace_after(false), pace_after(true));
+        assert!((walk - SPEED).abs() < 0.1, "{walk}");
+        assert!(run > SPEED * 1.5, "{run}");
+        // Let go of Shift (or the window), and you walk again.
+        let mut s = Sim::new();
+        s.key_down("shift", false);
+        s.key_up("shift");
+        assert!(!s.run);
+        s.key_down("shift", false);
+        s.blur();
+        assert!(!s.run);
     }
 
     #[test]

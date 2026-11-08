@@ -95,6 +95,8 @@ pub struct OfficeView {
     at: ViewAt,
     hint: bool,
     help: bool,
+    /// Shift is held (the keys and clicks run), as last told to the Office.
+    shift: bool,
     tray: bool,
     /// The chat open in place, over the room's right side (the app's own).
     chat: Option<AnyView>,
@@ -188,7 +190,10 @@ impl OfficeView {
                 }
             }
         });
-        let blur = cx.on_blur(&focus, window, |this, _, _| this.engine.send(In::Blur));
+        let blur = cx.on_blur(&focus, window, |this, _, _| {
+            this.shift = false;
+            this.engine.send(In::Blur)
+        });
         // The Office's thread starts once and stays while the app runs:
         // coming back is instant, where you left it.
         let (engine, _visit) = Engine::start(None, move |out| {
@@ -230,6 +235,7 @@ impl OfficeView {
             },
             hint: !crate::prefs::get_bool(HINT_SEEN, false),
             help: false,
+            shift: false,
             tray: false,
             chat: None,
             shown: true,
@@ -795,6 +801,18 @@ impl OfficeView {
         )
     }
 
+    /// set_shift tells the Office when Shift goes down or up: held, you run.
+    fn set_shift(&mut self, down: bool) {
+        if down != self.shift {
+            self.shift = down;
+            self.send(In::Key {
+                key: "shift".into(),
+                down,
+                repeat: false,
+            });
+        }
+    }
+
     fn key_name(k: &Keystroke) -> Option<&'static str> {
         if k.modifiers.control || k.modifiers.alt || k.modifiers.platform {
             return None;
@@ -1148,7 +1166,11 @@ impl Render for OfficeView {
             .size_full()
             .overflow_hidden()
             .bg(rgb(0xdbe7ef))
+            .on_modifiers_changed(cx.listener(|this, ev: &ModifiersChangedEvent, _, _| {
+                this.set_shift(ev.modifiers.shift);
+            }))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                this.set_shift(ev.keystroke.modifiers.shift);
                 if let Some(k) = Self::key_name(&ev.keystroke) {
                     this.send(In::Key {
                         key: k.into(),
@@ -1935,6 +1957,7 @@ impl OfficeView {
                         "native.office.keys.walk",
                     ))
                     .child(key("W A S D".into(), "native.office.keys.walkKeys"))
+                    .child(key("Shift".into(), "native.office.keys.run"))
                     .child(key(t("native.office.keys.drag"), "native.office.keys.turn"))
                     .child(key(
                         t("native.office.keys.scroll"),
