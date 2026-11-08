@@ -92,13 +92,66 @@ pub struct OfficeView {
     shown: bool,
     /// AGENTBOX_NATIVE_BENCH: when each frame was painted, and the render
     /// thread's time for each (printed every 5 s with the CPU used).
-    bench: Option<(Vec<std::time::Instant>, Vec<f32>)>,
+    bench: Option<Bench>,
+    /// The moment the frame on screen shows (the sim's clock when it was drawn).
+    frame_at: Option<std::time::Instant>,
     _bench: Option<Task<()>>,
     _task: Task<()>,
     _blur: Subscription,
 }
 
 impl EventEmitter<OfficeEvent> for OfficeView {}
+
+/// Bench (AGENTBOX_NATIVE_BENCH) is what the Office's frames did, reported
+/// every five seconds while it draws.
+#[derive(Default)]
+struct Bench {
+    /// When each frame was first painted, and the moment it shows.
+    painted: Vec<(std::time::Instant, std::time::Instant)>,
+    render: Vec<f32>,
+}
+
+impl Bench {
+    /// report is a line for the last five seconds (None when nothing was
+    /// drawn): frame gaps, render time, and judder, how far each frame's
+    /// step in the sim's time is from its step on screen. Smooth motion is
+    /// judder near zero: the picture moves as much as time passed.
+    fn report(&mut self, size: &str, cpu: f32) -> Option<String> {
+        let ms = |d: std::time::Duration| d.as_secs_f32() * 1000.;
+        let mut gaps: Vec<f32> = Vec::new();
+        let mut judder: Vec<f32> = Vec::new();
+        for w in self.painted.windows(2) {
+            let shown = ms(w[1].0 - w[0].0);
+            gaps.push(shown);
+            let sim = (w[1].1 - w[0].1).as_secs_f32() * 1000.;
+            judder.push((shown - sim).abs());
+        }
+        let n = self.painted.len();
+        self.painted.clear();
+        let mut render = std::mem::take(&mut self.render);
+        if n < 2 {
+            return None;
+        }
+        gaps.sort_by(f32::total_cmp);
+        judder.sort_by(f32::total_cmp);
+        render.sort_by(f32::total_cmp);
+        let p = |v: &[f32], q: f32| v.get(((v.len() as f32 - 1.) * q) as usize).copied().unwrap_or(0.);
+        let mean = gaps.iter().sum::<f32>() / gaps.len() as f32;
+        let sd = (gaps.iter().map(|g| (g - mean).powi(2)).sum::<f32>() / gaps.len() as f32).sqrt();
+        Some(format!(
+            "bench office {size}: {n} frames in 5s ({:.1} fps), gap p50 {:.1} p95 {:.1} sd {:.1} ms, judder p50 {:.1} p95 {:.1} ms, render+readback p50 {:.1} p95 {:.1} ms, cpu {:.0}% of a core",
+            n as f32 / 5.,
+            p(&gaps, 0.5),
+            p(&gaps, 0.95),
+            sd,
+            p(&judder, 0.5),
+            p(&judder, 0.95),
+            p(&render, 0.5),
+            p(&render, 0.95),
+            cpu
+        ))
+    }
+}
 
 const HINT_SEEN: &str = "office.hintSeen";
 
@@ -156,6 +209,7 @@ impl OfficeView {
             chat: None,
             shown: true,
             bench: None,
+            frame_at: None,
             _bench: None,
             _task: task,
             _blur: blur,
@@ -163,31 +217,18 @@ impl OfficeView {
         this.focus.focus(window, cx);
         this.load(cx);
         if std::env::var_os("AGENTBOX_NATIVE_BENCH").is_some() {
-            this.bench = Some((Vec::new(), Vec::new()));
+            this.bench = Some(Bench::default());
             this._bench = Some(cx.spawn(async move |this, cx| {
                 let mut cpu0 = cpu_secs();
                 loop {
                     cx.background_executor().timer(Duration::from_secs(5)).await;
                     let cpu1 = cpu_secs();
                     let ok = this.update(cx, |this, _| {
-                        let Some((painted, render)) = &mut this.bench else { return };
-                        let mut gaps: Vec<f32> = painted.windows(2).map(|w| (w[1] - w[0]).as_secs_f32() * 1000.).collect();
-                        gaps.sort_by(f32::total_cmp);
-                        render.sort_by(f32::total_cmp);
-                        let p = |v: &[f32], q: f32| v.get(((v.len() as f32 - 1.) * q) as usize).copied().unwrap_or(0.);
+                        let Some(b) = &mut this.bench else { return };
                         let size = this.sent.map(|(w, h, s)| format!("{}x{}", (w * s) as u32, (h * s) as u32)).unwrap_or_default();
-                        eprintln!(
-                            "bench office {size}: {} frames in 5s ({:.1} fps), gap p50 {:.1} p95 {:.1} ms, render+readback p50 {:.1} p95 {:.1} ms, cpu {:.0}% of a core",
-                            painted.len(),
-                            painted.len() as f32 / 5.,
-                            p(&gaps, 0.5),
-                            p(&gaps, 0.95),
-                            p(render, 0.5),
-                            p(render, 0.95),
-                            (cpu1 - cpu0) / 5. * 100.
-                        );
-                        painted.clear();
-                        render.clear();
+                        if let Some(line) = b.report(&size, (cpu1 - cpu0) / 5. * 100.) {
+                            eprintln!("{line}");
+                        }
                     });
                     cpu0 = cpu1;
                     if ok.is_err() {
@@ -545,10 +586,12 @@ impl OfficeView {
                 frame,
                 labels,
                 render_ms,
+                at,
             } => {
-                if let Some((_, r)) = &mut self.bench {
-                    r.push(render_ms);
+                if let Some(b) = &mut self.bench {
+                    b.render.push(render_ms);
                 }
+                self.frame_at = Some(at);
                 if let Some(rgba) =
                     image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra)
                 {
@@ -847,8 +890,8 @@ impl Render for OfficeView {
             if id != self.painted {
                 self.painted = id;
                 self.send(In::Painted);
-                if let Some((p, _)) = &mut self.bench {
-                    p.push(std::time::Instant::now());
+                if let (Some(b), Some(at)) = (&mut self.bench, self.frame_at) {
+                    b.painted.push((std::time::Instant::now(), at));
                 }
             }
         }

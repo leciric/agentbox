@@ -99,6 +99,8 @@ pub enum Out {
         frame: gpu::Frame,
         labels: Vec<Label>,
         render_ms: f32,
+        /// The moment it shows: the sim's clock when it was drawn.
+        at: Instant,
     },
     Notes(Vec<Note>),
 }
@@ -468,6 +470,7 @@ fn run(
                     frame,
                     labels,
                     render_ms: t0.elapsed().as_secs_f32() * 1000.,
+                    at: now,
                 });
             }
             Err(e) => {
