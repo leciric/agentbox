@@ -60,8 +60,10 @@ pub enum In {
     Blur,
     /// The view is shown (again) or hidden: hidden, nothing is drawn.
     Shown(bool),
-    /// A frame was painted: the next may come.
-    Painted,
+    /// The display's refresh interval (GPUI's, 60 Hz when it doesn't say).
+    Refresh(Duration),
+    /// A frame was painted, at this moment (a display refresh): the next may come.
+    Painted(Instant),
 }
 
 /// A label the view draws over the room: an agent's name tag, a bubble
@@ -99,6 +101,10 @@ pub enum Out {
         frame: gpu::Frame,
         labels: Vec<Label>,
         render_ms: f32,
+        /// The moment it shows: the display refresh it was drawn for. The
+        /// view holds it until then, so what moved by a frame's time is on
+        /// screen for that time.
+        at: Instant,
     },
     Notes(Vec<Note>),
 }
@@ -217,8 +223,8 @@ impl Stage {
         self.sim.poke();
     }
 
-    fn frame(&mut self, w: u32, h: u32) -> anyhow::Result<(gpu::Frame, Vec<Label>)> {
-        let t = self.start.elapsed().as_secs_f32();
+    fn frame(&mut self, w: u32, h: u32, at: Instant) -> anyhow::Result<(gpu::Frame, Vec<Label>)> {
+        let t = at.saturating_duration_since(self.start).as_secs_f32();
         let mut draws: Vec<Draw> = Vec::new();
         if let Some(b) = &mut self.built {
             b.draws(&self.sim, t, self.sim.motion, &mut self.kit, &mut draws);
@@ -362,14 +368,16 @@ fn run(
         extra: Vec::new(),
     };
     let mut shown = true;
-    // A frame is in flight until the view says it's painted it: one at a
-    // time, so a slow GPU (or CPU) never queues frames up.
-    let mut in_flight = false;
-    let mut last = Instant::now();
+    // A frame is in flight until the view says it's painted (or skipped)
+    // it. Two at most: the next is drawn while the view shows the last
+    // (GPUI's upload and frame overlap this thread's), and a slow GPU (or
+    // CPU) never queues more up.
+    let mut in_flight = 0u32;
     let mut busy = true;
+    let mut pace = Pace::new();
     loop {
         // Wait for something to do: while busy, only until the next frame's due.
-        let wait = if busy && shown && !in_flight {
+        let wait = if busy && shown && in_flight < AHEAD {
             Some(Duration::from_millis(0))
         } else {
             None
@@ -419,7 +427,13 @@ fn run(
                     shown = s;
                     st.sim.poke();
                 }
-                In::Painted => in_flight = false,
+                In::Refresh(d) => {
+                    pace.period = d.clamp(Duration::from_millis(4), Duration::from_millis(50))
+                }
+                In::Painted(at) => {
+                    in_flight = in_flight.saturating_sub(1);
+                    pace.vsync = Some(at);
+                }
             }
         }
         if let Some((w, h, scale)) = size {
@@ -430,44 +444,40 @@ fn run(
         if let Ok(mut k) = kept.lock() {
             *k = Some(st.sim.visit());
         }
-        if in_flight && shown && st.built.is_some() {
+        if in_flight >= AHEAD && shown && st.built.is_some() {
             // Waiting for the view to paint: the clock runs on, so walking
             // keeps its pace however slowly frames come.
             continue;
         }
         if !shown || st.built.is_none() {
-            last = Instant::now();
             busy = false;
+            pace.rest();
             continue;
         }
-        // Coming back from rest: one short step, not the whole pause.
-        if !busy {
-            last = Instant::now() - Duration::from_millis(16);
-        }
-        let now = Instant::now();
-        // As #668: a long pause (the first frame, a stall) is one 50 ms step.
-        let dt = (now - last).as_secs_f64().min(0.05);
-        last = now;
-        let moving = st.sim.step(dt.max(1. / 240.));
+        let (now, dt) = pace.next(Instant::now());
+        let moving = st.sim.step(dt);
         let notes = std::mem::take(&mut st.sim.notes);
         if !notes.is_empty() {
             out(Out::Notes(notes));
         }
         busy = moving || st.sim.busy();
         if !(busy || st.sim.dirty) {
+            pace.rest();
             continue;
         }
         st.sim.dirty = false;
         let w = (st.sim.size.x * st.scale).round() as u32;
         let h = (st.sim.size.y * st.scale).round() as u32;
         let t0 = Instant::now();
-        match st.frame(w, h) {
+        match st.frame(w, h, now) {
             Ok((frame, labels)) => {
-                in_flight = true;
+                in_flight += 1;
+                pace.drew(t0.elapsed());
                 out(Out::Frame {
                     frame,
                     labels,
                     render_ms: t0.elapsed().as_secs_f32() * 1000.,
+                    at: now,
                 });
             }
             Err(e) => {
@@ -475,5 +485,128 @@ fn run(
                 return;
             }
         }
+    }
+}
+
+/// Pace times the frames to the display. Each frame is drawn for a display
+/// refresh: the first one it can be ready by (the time a frame takes, its
+/// slowest lately, from the last refresh one was painted at), and the sim
+/// steps to exactly that moment. The view shows it then and not before. So
+/// every frame moves things by the time it's on screen for: a steady 60 fps
+/// where a frame takes under a refresh, a steady 30 where it takes under two
+/// (lavapipe), never a mix of 1- and 2-refresh frames each moved as if it
+/// lasted as long as it took to draw (judder).
+struct Pace {
+    period: Duration,
+    /// A refresh a frame was painted at: where the display's refreshes fall.
+    vsync: Option<Instant>,
+    /// What the last frame was drawn for; None at rest.
+    last: Option<Instant>,
+    /// How long a frame takes, its slowest lately (decaying).
+    cost: Duration,
+}
+
+/// How many frames may be on their way to the screen at once.
+const AHEAD: u32 = 2;
+
+/// Besides drawing: sending it, GPUI's upload and its own frame.
+const MARGIN: Duration = Duration::from_millis(4);
+
+impl Pace {
+    fn new() -> Self {
+        Self {
+            period: Duration::from_micros(16_667),
+            vsync: None,
+            last: None,
+            cost: Duration::ZERO,
+        }
+    }
+
+    fn rest(&mut self) {
+        self.last = None;
+    }
+
+    fn drew(&mut self, took: Duration) {
+        // A one-off stall (a new campus built) doesn't slow what follows.
+        let took = took.min(self.period * 3);
+        self.cost = took.max(self.cost.mul_f64(0.9));
+    }
+
+    /// next is the moment the next frame shows and how far the sim steps to it.
+    fn next(&mut self, now: Instant) -> (Instant, f64) {
+        let p = self.period;
+        let mut ready = now + self.cost + MARGIN;
+        // Frames drawn back to back (one ahead) are as far apart as one
+        // takes, in whole refreshes: a steady cadence, not as they come.
+        if let Some(l) = self.last {
+            let k = (self.cost.as_secs_f64() / p.as_secs_f64()).ceil().max(1.);
+            ready = ready.max(l + p.mul_f64(k) - p / 2);
+        }
+        // The first refresh at or after `ready`, on the display's grid.
+        let mut at = match self.vsync {
+            Some(v) if v <= ready => {
+                let n = (ready - v).as_secs_f64() / p.as_secs_f64();
+                v + p.mul_f64(n.ceil())
+            }
+            Some(v) => v,
+            None => ready,
+        };
+        let dt = match self.last {
+            // Never twice the same moment, never backwards.
+            Some(l) if at <= l => {
+                at = l + p;
+                p.as_secs_f64()
+            }
+            Some(l) => (at - l).as_secs_f64(),
+            // Coming back from rest: one refresh's step, not the whole pause.
+            None => p.as_secs_f64(),
+        };
+        self.last = Some(at);
+        // As #668: a long pause (a stall) is one 50 ms step.
+        (at, dt.clamp(1. / 240., 0.05))
+    }
+}
+
+#[cfg(test)]
+mod pace_tests {
+    use super::*;
+
+    #[test]
+    fn frames_land_on_refreshes_and_step_by_them() {
+        let mut p = Pace::new();
+        p.period = Duration::from_millis(16);
+        let t0 = Instant::now();
+        // A slow frame (lavapipe): 25 ms to draw.
+        p.drew(Duration::from_millis(25));
+        p.vsync = Some(t0);
+        let (a, _) = p.next(t0 + Duration::from_millis(1));
+        assert_eq!(a, t0 + Duration::from_millis(32), "two refreshes on");
+        // Painted then, the next is drawn for two more, and steps 32 ms.
+        p.vsync = Some(a);
+        let (b, dt) = p.next(a + Duration::from_millis(1));
+        assert_eq!(b, a + Duration::from_millis(32));
+        assert!((dt - 0.032).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_fast_frame_is_every_refresh() {
+        let mut p = Pace::new();
+        p.period = Duration::from_millis(16);
+        p.drew(Duration::from_millis(3));
+        let t0 = Instant::now();
+        p.vsync = Some(t0);
+        let (a, _) = p.next(t0);
+        assert_eq!(a, t0 + Duration::from_millis(16));
+        p.vsync = Some(a);
+        let (b, dt) = p.next(a);
+        assert_eq!(b - a, Duration::from_millis(16));
+        assert!((dt - 0.016).abs() < 1e-9);
+    }
+
+    #[test]
+    fn from_rest_one_refresh_step() {
+        let mut p = Pace::new();
+        let (_, dt) = p.next(Instant::now());
+        assert!((dt - p.period.as_secs_f64()).abs() < 1e-9);
     }
 }
