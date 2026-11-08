@@ -15,9 +15,10 @@ pub mod mesh;
 pub mod rig;
 pub mod sim;
 
-/// Kenney's models, bundled (CC0, assets/kenney/License.txt).
+/// Kenney's models (CC0, assets/kenney/License.txt) and you, Quaternius's
+/// Hoodie Character (CC0, assets/quaternius/License.txt), bundled.
 pub mod assets {
-    pub const CHARACTER: &[u8] = include_bytes!("../assets/kenney/character-female-b.glb");
+    pub const CHARACTER: &[u8] = include_bytes!("../assets/quaternius/hoodie-character.glb");
     pub const COLORMAP: &[u8] = include_bytes!("../assets/kenney/colormap.png");
 
     /// external resolves the files Kenney's models name beside them.

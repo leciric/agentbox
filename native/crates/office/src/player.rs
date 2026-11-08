@@ -1,8 +1,9 @@
-//! You, as Kenney's Mini Characters "character-female-b": a blocky chibi with
-//! its own walk, sprint and idle, played at the speed you move, which suit the
-//! logo cube's toy room better than anything drawn in code (#668's
-//! kenney.ts). CC0 (assets/kenney/License.txt), bundled in the crate; the
-//! hand-drawn [`crate::figures::Walker`] stands in if it can't be read.
+//! You, as Quaternius's Hoodie Character (Ultimate Animated Character Pack,
+//! CC0, assets/quaternius/License.txt): a developer in a hoodie with its own
+//! idle, walk and run, played at the speed you move. Drawn a little
+//! stylised: its head a size up, so a face still reads from the Office's
+//! camera, and its hoodie in AgentBox's violet. The hand-drawn
+//! [`crate::figures::Walker`] stands in if it can't be read.
 //!
 //! The figure is skinned on the CPU: [`Player::stride`] poses the skeleton and
 //! rewrites `meshes`' vertices, which the scene sends to the GPU each frame
@@ -15,8 +16,15 @@ use crate::kit::Kit;
 use anyhow::Result;
 use glam::{Mat4, Vec3};
 
-/// How tall you stand, in metres: about a seated Boxie's height, a toy among toys.
-pub const HEIGHT: f32 = 1.95;
+/// How tall you stand, in metres: about a Boxie's height, a toy among toys.
+pub const HEIGHT: f32 = 2.3;
+/// How much bigger the head is than the model's own, and how much sturdier
+/// the build (across and front to back): a toy's proportions, which read
+/// from the Office's camera and sit with the Boxies, rather than a person's.
+const HEAD: f32 = 1.5;
+const BUILD: f32 = 1.25;
+/// The hoodie's colour (linear RGB): AgentBox's violet.
+const HOODIE: [f32; 3] = [0.16, 0.07, 0.42];
 
 pub struct Player {
     skinned: Skinned,
@@ -42,6 +50,10 @@ pub struct Player {
     last_yaw: Option<f32>,
     roll: f32,
     lean: f32,
+    // The last speed, and a lean with how it's changing: forward setting
+    // off, back coming to a stop.
+    last_speed: f32,
+    surge: f32,
     motion: bool,
     /// Which way you face (radians about y): set it before `stride`, which
     /// leans you into a turn.
@@ -51,7 +63,13 @@ pub struct Player {
 
 impl Player {
     pub fn new(kit: &mut Kit) -> Result<Player> {
-        let mut skinned = glb::load_skinned(crate::assets::CHARACTER, &crate::assets::external)?;
+        Self::from_glb(crate::assets::CHARACTER, kit)
+    }
+
+    /// from_glb is you as another character: a skinned .glb with an idle, a
+    /// walk and a run (or sprint) among its clips.
+    pub fn from_glb(bytes: &[u8], kit: &mut Kit) -> Result<Player> {
+        let mut skinned = glb::load_skinned(bytes, &crate::assets::external)?;
         let textures: Vec<usize> = skinned
             .images
             .iter()
@@ -66,28 +84,61 @@ impl Player {
             .collect();
         // Its walk and sprint as they are, but for their hop: the root's bounce
         // goes, so you glide over the floor rather than skip along it.
-        let root = skinned.node("root");
+        let root = skinned
+            .nodes
+            .iter()
+            .position(|n| n.name.eq_ignore_ascii_case("root"));
         for c in &mut skinned.clips {
             c.channels
                 .retain(|ch| !(Some(ch.node) == root && ch.path == glb::Path::Translation));
         }
-        let h = (skinned.max.y - skinned.min.y).max(0.01);
-        let k = HEIGHT / h;
-        let meshes = skinned.rest_meshes(&textures);
-        // How far each cycle carries you, in metres, from its legs' swing (60° a
-        // side walking, 90° running) and their length: playing it at speed over
-        // that, the feet stay where they're put.
-        let leg = 0.176 * k;
+        // A head a size up: the clips mustn't scale it back.
+        if let Some(h) = skinned.node("Head") {
+            for c in &mut skinned.clips {
+                c.channels
+                    .retain(|ch| !(ch.node == h && ch.path == glb::Path::Scale));
+            }
+            skinned.nodes[h].s *= HEAD;
+        }
+        for part in &mut skinned.parts {
+            if part.material == "Purple" {
+                for v in &mut part.rest.vertices {
+                    v.color = [HOODIE[0], HOODIE[1], HOODIE[2], v.color[3]];
+                }
+            }
+        }
+        let idle = find_clip(&skinned, &["idle"]);
+        let walk = find_clip(&skinned, &["walk", "walking"]);
+        let sprint = find_clip(&skinned, &["sprint", "run", "running"]);
+        let mut meshes = skinned.rest_meshes(&textures);
+        // Its size as it stands (its idle's first frame), since a model's
+        // bind pose needn't be in the units it's posed in.
+        if let Some(c) = idle {
+            skinned.pose(&[(c, 0., 1.)], &mut meshes);
+        }
+        let (lo, hi) = extent(&meshes);
+        let k = HEIGHT / (hi.y - lo.y).max(0.01);
+        // How far each cycle carries you, in metres: two steps, each as long
+        // as a foot sweeps under you. Playing it at speed over that, the
+        // feet stay where they're put.
+        let cycle = |c: Option<usize>, fallback: f32| {
+            c.and_then(|c| stride_of(&skinned, c))
+                .map(|m| m * k)
+                .unwrap_or(fallback)
+        };
+        // (Drawn a size deeper, its steps are that much longer.)
+        let walk_cycle = cycle(walk, 1.6) * BUILD;
+        let run_cycle = (cycle(sprint, 2.6) * BUILD).max(walk_cycle);
         let mut p = Player {
-            idle: skinned.clip("idle"),
-            walk: skinned.clip("walk"),
-            sprint: skinned.clip("sprint"),
+            idle,
+            walk,
+            sprint,
             skinned,
             meshes,
             k,
-            base_y: 0.,
-            walk_cycle: 4. * leg * (std::f32::consts::PI / 3.).sin(),
-            run_cycle: 4. * leg,
+            base_y: -lo.y * k,
+            walk_cycle,
+            run_cycle,
             last_t: None,
             move_k: 0.,
             run_k: 0.,
@@ -96,11 +147,12 @@ impl Player {
             last_yaw: None,
             roll: 0.,
             lean: 0.,
+            last_speed: 0.,
+            surge: 0.,
             motion: false,
             yaw: 0.,
             opacity: 1.,
         };
-        p.base_y = -p.skinned.min.y * k;
         p.stride(0., 0., false);
         Ok(p)
     }
@@ -161,8 +213,15 @@ impl Player {
             (-turn_rate * speed * 0.012).clamp(-0.16, 0.16),
             8.,
         );
+        let accel = if dt > 0. {
+            (speed - self.last_speed) / dt
+        } else {
+            0.
+        };
+        self.last_speed = speed;
+        self.surge = ease(self.surge, (accel * 0.015).clamp(-0.12, 0.09), 7.);
         self.lean = if motion {
-            self.move_k * (0.04 + 0.08 * self.run_k)
+            self.move_k * (0.04 + 0.08 * self.run_k) + self.surge
         } else {
             0.
         };
@@ -179,7 +238,7 @@ impl Player {
             self.lean,
             0.,
             roll,
-            Vec3::splat(self.k),
+            Vec3::new(self.k * BUILD, self.k, self.k * BUILD),
         )
     }
 
@@ -196,6 +255,55 @@ impl Player {
     pub fn visible(&self) -> bool {
         self.opacity > 0.2
     }
+}
+
+/// find_clip is the first clip called one of `names` (any case), alone or
+/// after an armature's name ("CharacterArmature|Run").
+fn find_clip(s: &Skinned, names: &[&str]) -> Option<usize> {
+    names.iter().find_map(|n| {
+        s.clips.iter().position(|c| {
+            let last = c.name.rsplit('|').next().unwrap_or(&c.name);
+            last.eq_ignore_ascii_case(n)
+        })
+    })
+}
+
+/// extent is the meshes' bounds, as posed.
+fn extent(meshes: &[MeshData]) -> (Vec3, Vec3) {
+    let mut lo = Vec3::splat(f32::MAX);
+    let mut hi = Vec3::splat(f32::MIN);
+    for v in meshes.iter().flat_map(|m| &m.vertices) {
+        lo = lo.min(Vec3::from(v.pos));
+        hi = hi.max(Vec3::from(v.pos));
+    }
+    (lo, hi)
+}
+
+/// stride_of is how far a clip's cycle carries the figure, in the model's
+/// units: two steps, each as long as the feet get apart front to back, so
+/// how far one foot goes from in front of the other to behind it.
+fn stride_of(s: &Skinned, clip: usize) -> Option<f32> {
+    let foot = |side: &[&str]| {
+        s.nodes.iter().position(|n| {
+            let l = n.name.to_ascii_lowercase();
+            l.contains("foot") && side.iter().any(|x| l.ends_with(x))
+        })
+    };
+    let (l, r) = (
+        foot(&["l", ".l", "_l", "left"])?,
+        foot(&["r", ".r", "_r", "right"])?,
+    );
+    let dur = s.clips[clip].duration;
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for i in 0..32 {
+        let g = s.globals(&[(clip, dur * i as f32 / 32., 1.)]);
+        let d = g[l].w_axis.truncate() - g[r].w_axis.truncate();
+        lo = lo.min(d);
+        hi = hi.max(d);
+    }
+    // Front to back is the way they swing furthest; across they stay apart.
+    let most = (hi.x - lo.x).max(hi.z - lo.z);
+    (most > 1e-4).then_some(most)
 }
 
 #[cfg(test)]
@@ -227,11 +335,18 @@ mod tests {
     fn the_player_stands_at_its_height_and_poses_by_speed() {
         let mut kit = Kit::default();
         let mut p = Player::new(&mut kit).expect("the character loads");
-        assert_eq!(kit.textures.len(), 1);
+        // Coloured by its materials, no textures; the hoodie in violet.
+        assert!(kit.textures.is_empty());
+        assert!(p.meshes.iter().all(|m| !m.indices.is_empty()));
+        assert!(p.meshes.iter().any(|m| m.vertices[0].color[..3] == HOODIE));
+        assert!(p.idle.is_some() && p.walk.is_some() && p.sprint.is_some());
+        // A cycle's stride, measured from its feet: a run's is longer.
+        assert!(p.walk_cycle > 0.5 && p.walk_cycle < 3., "{}", p.walk_cycle);
         assert!(
-            p.meshes
-                .iter()
-                .all(|m| m.texture == Some(0) && !m.indices.is_empty())
+            p.run_cycle > p.walk_cycle,
+            "{} {}",
+            p.run_cycle,
+            p.walk_cycle
         );
         // Standing: idle.
         for i in 0..30 {

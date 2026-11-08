@@ -1,0 +1,13 @@
+Hoodie Character (hoodie-character.glb)
+
+Created/distributed by Quaternius (quaternius.com), from the Ultimate
+Animated Character Pack, downloaded from https://poly.pizza/m/gKLBoRsyKe
+
+License: Creative Commons Zero, CC0
+http://creativecommons.org/publicdomain/zero/1.0/
+
+You can use this content for personal, educational, and commercial purposes,
+and redistribute it. Crediting Quaternius is appreciated, not required.
+
+The Office loads it as it is; its head a size up and its hoodie recoloured are
+done in code (src/player.rs), not in the file.

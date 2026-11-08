@@ -227,6 +227,8 @@ pub struct SkinnedPart {
     pub joints: Vec<[u16; 4]>,
     pub weights: Vec<[f32; 4]>,
     pub skin: usize,
+    /// Its material's name, for recolouring.
+    pub material: String,
 }
 
 /// How much of each clip is playing: (clip index, time in seconds, weight).
@@ -530,6 +532,7 @@ pub fn load_skinned(
                 joints,
                 weights,
                 skin: skin.index(),
+                material: prim.material().name().unwrap_or("").to_string(),
             });
         }
     }
