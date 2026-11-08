@@ -42,6 +42,10 @@ pub struct Player {
     last_yaw: Option<f32>,
     roll: f32,
     lean: f32,
+    // The last speed, and a lean with how it's changing: forward setting
+    // off, back coming to a stop.
+    last_speed: f32,
+    surge: f32,
     motion: bool,
     /// Which way you face (radians about y): set it before `stride`, which
     /// leans you into a turn.
@@ -74,20 +78,32 @@ impl Player {
         let h = (skinned.max.y - skinned.min.y).max(0.01);
         let k = HEIGHT / h;
         let meshes = skinned.rest_meshes(&textures);
-        // How far each cycle carries you, in metres, from its legs' swing (60° a
-        // side walking, 90° running) and their length: playing it at speed over
-        // that, the feet stay where they're put.
+        let idle = skinned.clip("idle");
+        let walk = skinned.clip("walk");
+        let sprint = skinned.clip("sprint").or_else(|| skinned.clip("run"));
+        // How far each cycle carries you, in metres, measured from how far its
+        // legs swing apart: playing it at speed over that, the feet stay where
+        // they're put. (Should the legs not be found, from their length and a
+        // swing of 60° a side walking, 90° running.)
         let leg = 0.176 * k;
+        let measured = |c: Option<usize>| c.and_then(|c| stride_of(&skinned, c)).map(|m| m * k);
+        let walk_cycle = measured(walk).unwrap_or(4. * leg * (std::f32::consts::PI / 3.).sin());
+        // With no run of its own, the run is the walk played faster: the same
+        // stride, so its feet still stay put.
+        let run_cycle = match sprint {
+            Some(_) => measured(sprint).unwrap_or(4. * leg).max(walk_cycle),
+            None => walk_cycle,
+        };
         let mut p = Player {
-            idle: skinned.clip("idle"),
-            walk: skinned.clip("walk"),
-            sprint: skinned.clip("sprint"),
+            idle,
+            walk,
+            sprint: sprint.or(walk),
             skinned,
             meshes,
             k,
             base_y: 0.,
-            walk_cycle: 4. * leg * (std::f32::consts::PI / 3.).sin(),
-            run_cycle: 4. * leg,
+            walk_cycle,
+            run_cycle,
             last_t: None,
             move_k: 0.,
             run_k: 0.,
@@ -96,6 +112,8 @@ impl Player {
             last_yaw: None,
             roll: 0.,
             lean: 0.,
+            last_speed: 0.,
+            surge: 0.,
             motion: false,
             yaw: 0.,
             opacity: 1.,
@@ -147,7 +165,8 @@ impl Player {
             blend.push((c, self.phase * dur(self.sprint), self.move_k * self.run_k));
         }
         self.skinned.pose(&blend, &mut self.meshes);
-        // A small lean into a turn, and forward into a run.
+        // A small lean into a turn, forward into a run, and with setting off
+        // and stopping.
         let mut turn_rate = 0.;
         if let Some(l) = self.last_yaw
             && dt > 0.
@@ -161,8 +180,15 @@ impl Player {
             (-turn_rate * speed * 0.012).clamp(-0.16, 0.16),
             8.,
         );
+        let accel = if dt > 0. {
+            (speed - self.last_speed) / dt
+        } else {
+            0.
+        };
+        self.last_speed = speed;
+        self.surge = ease(self.surge, (accel * 0.015).clamp(-0.12, 0.09), 7.);
         self.lean = if motion {
-            self.move_k * (0.04 + 0.08 * self.run_k)
+            self.move_k * (0.04 + 0.08 * self.run_k) + self.surge
         } else {
             0.
         };
@@ -198,6 +224,39 @@ impl Player {
     }
 }
 
+/// stride_of is how far a clip's cycle carries the figure, in the model's
+/// units: two steps, each as long as the feet get apart front to back. Kenney's
+/// figures have no feet of their own, so a foot is the floor under its leg's
+/// hip, carried round as the leg swings.
+fn stride_of(s: &Skinned, clip: usize) -> Option<f32> {
+    let leg = |side: &str| {
+        s.nodes.iter().position(|n| {
+            let l = n.name.to_ascii_lowercase();
+            l.contains("leg") && l.contains(side)
+        })
+    };
+    let (l, r) = (leg("left")?, leg("right")?);
+    let rest = s.globals(&[]);
+    // Where each foot is at rest: under its hip, on the floor.
+    let foot = |i: usize| {
+        let hip = rest[i].w_axis.truncate();
+        (rest[i].inverse(), Vec3::new(hip.x, s.min.y, hip.z))
+    };
+    let (fl, fr) = (foot(l), foot(r));
+    let dur = s.clips[clip].duration;
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for i in 0..32 {
+        let g = s.globals(&[(clip, dur * i as f32 / 32., 1.)]);
+        let at = |i: usize, (inv, p): (Mat4, Vec3)| (g[i] * inv).transform_point3(p);
+        let d = at(l, fl) - at(r, fr);
+        lo = lo.min(d);
+        hi = hi.max(d);
+    }
+    // Front to back is the way they swing furthest; across they stay apart.
+    let most = (hi.x - lo.x).max(hi.z - lo.z);
+    (most > 1e-4).then_some(most)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,6 +287,22 @@ mod tests {
         let mut kit = Kit::default();
         let mut p = Player::new(&mut kit).expect("the character loads");
         assert_eq!(kit.textures.len(), 1);
+        assert!(p.idle.is_some() && p.walk.is_some() && p.sprint.is_some());
+        // Each cycle's stride, measured from its legs: about what their length
+        // and swing make it, and a run's longer.
+        let leg = 0.176 * p.k;
+        let walk = 4. * leg * (std::f32::consts::PI / 3.).sin();
+        assert!(
+            (p.walk_cycle - walk).abs() < walk * 0.35,
+            "{} {walk}",
+            p.walk_cycle
+        );
+        assert!(
+            p.run_cycle > p.walk_cycle,
+            "{} {}",
+            p.run_cycle,
+            p.walk_cycle
+        );
         assert!(
             p.meshes
                 .iter()
@@ -242,7 +317,8 @@ mod tests {
         assert!((hi.y - lo.y - HEIGHT).abs() < 0.2, "{lo:?} {hi:?}");
         assert!(lo.y.abs() < 0.1, "feet on the floor: {lo:?}");
         // Walking: the legs swing.
-        for i in 30..70 {
+        // (Stopping three quarters into a cycle, with the legs apart.)
+        for i in 30..65 {
             p.stride(1.6, i as f32 * 0.05, true);
         }
         let walk = flat(&p);
@@ -252,7 +328,7 @@ mod tests {
             "walking looks like standing"
         );
         // Sprinting differs from walking.
-        for i in 70..140 {
+        for i in 65..140 {
             p.stride(4.8, i as f32 * 0.05, true);
         }
         let run = flat(&p);
