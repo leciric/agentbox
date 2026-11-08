@@ -64,6 +64,8 @@ second) shape the fixtures. Without `--upstream` it serves one project on its ow
 
 `--neighbours storefront:4,quill:3` adds more projects with a few agents each (no chats), for the
 Office's campus.
+`--neighbours empty:0` adds one with none. `--icons demo=🦊,quill=logo.svg` gives projects icons (an
+emoji, or a picture's file), which the sidebar and the Office's carpets show.
 
 ## The Office
 

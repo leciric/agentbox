@@ -375,11 +375,8 @@ pub fn office_model(inp: &OfficeInputs) -> OfficeModel {
                 .and_then(|c| c.last.as_ref())
                 .map(|l| l.text.clone()),
         };
-        // A project with no agents and a quiet lead has no area: an empty rug
-        // helps no one, and its chat is a click away in the sidebar.
-        if desks.is_empty() && lead.tone == LeadTone::Idle {
-            continue;
-        }
+        // Every project has its room, one with no agents too: its lead at its
+        // counter, on its own (the campus is every project, as the sidebar is).
         let lead_needs = lead.tone == LeadTone::Needs;
         areas.push(AreaModel {
             project: p.name.clone(),
@@ -855,7 +852,7 @@ mod tests {
     }
 
     #[test]
-    fn a_project_with_nothing_going_on_has_no_area_one_the_list_lacks_still_does() {
+    fn every_project_has_an_area_one_the_list_lacks_too() {
         let m = In {
             rows: vec![row(a("new/agent-1"), AgentSt::Working)],
             ..Default::default()
@@ -866,28 +863,20 @@ mod tests {
                 .iter()
                 .map(|a| a.project.as_str())
                 .collect::<Vec<_>>(),
-            ["new"]
+            ["web", "api", "new"]
         );
+        // A project with no agents and a quiet lead has its room too: its lead
+        // alone in it.
         let quiet = In {
             leads: HashMap::from([("api".into(), lead("ready", Some("Hi")))]),
             ..Default::default()
         }
         .model();
-        assert!(quiet.areas.is_empty());
-        let thinking = In {
-            leads: HashMap::from([("api".into(), lead("running", Some("Hi")))]),
-            ..Default::default()
-        }
-        .model();
-        assert_eq!(
-            thinking
-                .areas
-                .iter()
-                .map(|a| a.project.as_str())
-                .collect::<Vec<_>>(),
-            ["api"]
-        );
-        assert_eq!(thinking.areas[0].lead.line.as_deref(), Some("Hi"));
+        let api = quiet.areas.iter().find(|a| a.project == "api").unwrap();
+        assert!(api.desks.is_empty());
+        assert_eq!(api.lead.tone, LeadTone::Idle);
+        assert_eq!(api.lead.line.as_deref(), Some("Hi"));
+        assert!(quiet.board.needs.is_empty());
     }
 
     fn question(id: &str, agent: &str, r: &str, q: &str, status: &str) -> t::Question {

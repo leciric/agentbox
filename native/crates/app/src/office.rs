@@ -6,7 +6,9 @@
 //! leads), the frames it paints, and what goes over them (name tags, the top
 //! bar, the tray, the desk's card, the help, the chat in place).
 
-use agentbox_api::{Agent, Client, Fleet, Project, ProjectChat, Question, ReviewItem, ReviewPage};
+use agentbox_api::{
+    Agent, Client, Fleet, Project, ProjectChat, ProjectIcon, Question, ReviewItem, ReviewPage,
+};
 use agentbox_i18n::{t, tv};
 use agentbox_office::desks::{AreaLabel, SceneInput};
 use agentbox_office::engine::{Engine, In, Label, LabelKind, Out};
@@ -15,7 +17,7 @@ use agentbox_office::model::{
 };
 use agentbox_office::sim::Note;
 use agentbox_office::textures::{
-    BoardColumn, BoardEntry, BoardScreen, LineTone, Screen, ScreenLine,
+    BoardColumn, BoardEntry, BoardScreen, LineTone, Logo, Screen, ScreenLine,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
@@ -82,6 +84,8 @@ pub struct OfficeView {
     questions: Vec<(String, Vec<Question>)>,
     leads: HashMap<String, ProjectChat>,
     fleets: HashMap<String, Fleet>,
+    /// Each project's logo for its carpet, by the icon version it was read at.
+    logos: HashMap<String, (i64, Logo)>,
     model: OfficeModel,
     loaded: bool,
     reload: Option<Task<()>>,
@@ -212,6 +216,7 @@ impl OfficeView {
             questions: Vec::new(),
             leads: HashMap::new(),
             fleets: HashMap::new(),
+            logos: HashMap::new(),
             model: OfficeModel::default(),
             loaded: false,
             reload: None,
@@ -364,12 +369,53 @@ impl OfficeView {
                 this.leads = leads;
                 this.fleets = fleets;
                 this.loaded = true;
+                this.load_logos(cx);
                 this.rebuild();
                 cx.notify();
             })
             .ok();
         })
         .detach();
+    }
+
+    /// load_logos reads the icons of the projects whose icon changed
+    /// (IconVersion), for their carpets; until one is read, or when it's none,
+    /// the carpet has the project's initials.
+    fn load_logos(&mut self, cx: &mut Context<Self>) {
+        for p in &self.projects {
+            if self
+                .logos
+                .get(&p.name)
+                .is_some_and(|(v, _)| *v == p.icon_version)
+            {
+                continue;
+            }
+            // Read once per version, even if the read fails.
+            self.logos
+                .insert(p.name.clone(), (p.icon_version, Logo::None));
+            let (client, name, version) = (self.client.clone(), p.name.clone(), p.icon_version);
+            cx.spawn(async move |this, cx| {
+                let Ok(icon) = client
+                    .get::<ProjectIcon>(&format!("/v1/projects/{name}/icon"))
+                    .await
+                else {
+                    return;
+                };
+                let logo = cx
+                    .background_executor()
+                    .spawn(async move { logo_of(&icon) })
+                    .await;
+                this.update(cx, |this, _| {
+                    // (Unless a newer version came meanwhile.)
+                    if this.logos.get(&name).is_some_and(|(v, _)| *v == version) {
+                        this.logos.insert(name, (version, logo));
+                        this.rebuild();
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
     }
 
     /// rebuild works the model out again and hands it to the Office.
@@ -425,6 +471,7 @@ impl OfficeView {
             board: self.board(),
             you: t("native.office.you"),
             area_labels: self.area_labels(),
+            logos: self.logos.clone(),
         };
         self.send(In::Apply(Box::new(input)));
     }
@@ -771,6 +818,80 @@ impl OfficeView {
 }
 
 /// cpu_secs is the CPU this process has used (Linux; 0 elsewhere).
+/// The largest a logo is kept, across: a carpet's medallion is about this.
+const LOGO_PX: u32 = 256;
+
+/// logo_of reads a project's icon for its carpet: its emoji, or its data:
+/// URL's picture (an SVG drawn at LOGO_PX, any other picture as it is, made
+/// smaller if it's bigger); None when it has neither, or it can't be read.
+fn logo_of(icon: &ProjectIcon) -> Logo {
+    use base64::Engine as _;
+    if !icon.emoji.is_empty() {
+        return Logo::Emoji(icon.emoji.clone());
+    }
+    let Some((mime, data)) = icon
+        .image
+        .strip_prefix("data:")
+        .and_then(|r| r.split_once(";base64,"))
+    else {
+        return Logo::None;
+    };
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data.trim().as_bytes()) else {
+        return Logo::None;
+    };
+    let pic = if mime == "image/svg+xml" {
+        svg_logo(&bytes)
+    } else {
+        image::load_from_memory(&bytes).ok().map(|img| {
+            let img = if img.width().max(img.height()) > LOGO_PX {
+                img.thumbnail(LOGO_PX, LOGO_PX)
+            } else {
+                img
+            };
+            let rgba = img.to_rgba8();
+            agentbox_office::glb::Image {
+                width: rgba.width(),
+                height: rgba.height(),
+                rgba: rgba.into_raw(),
+            }
+        })
+    };
+    pic.map_or(Logo::None, |p| Logo::Picture(Arc::new(p)))
+}
+
+/// svg_logo draws an SVG icon LOGO_PX across (its shape kept), in straight
+/// alpha as the Office's textures are.
+fn svg_logo(bytes: &[u8]) -> Option<agentbox_office::glb::Image> {
+    use resvg::{tiny_skia, usvg};
+    let tree = usvg::Tree::from_data(bytes, &usvg::Options::default()).ok()?;
+    let size = tree.size();
+    let k = LOGO_PX as f32 / size.width().max(size.height());
+    let (w, h) = (
+        ((size.width() * k).round() as u32).max(1),
+        ((size.height() * k).round() as u32).max(1),
+    );
+    let mut pixmap = tiny_skia::Pixmap::new(w, h)?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(k, k),
+        &mut pixmap.as_mut(),
+    );
+    let mut rgba = pixmap.take();
+    for p in rgba.chunks_mut(4) {
+        let a = p[3] as u32;
+        if a > 0 && a < 255 {
+            for c in &mut p[..3] {
+                *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
+    }
+    Some(agentbox_office::glb::Image {
+        width: w,
+        height: h,
+        rgba,
+    })
+}
+
 fn cpu_secs() -> f32 {
     let s = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
     let f: Vec<&str> = s

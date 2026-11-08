@@ -52,6 +52,9 @@ struct Opts {
     /// More projects, each with a few agents that only stand there (no
     /// chats): --neighbours storefront:4,quill:2, for the Office's campus.
     neighbours: Vec<(String, usize)>,
+    /// Projects' icons: --icons demo=🦊,quill=logo.svg (an emoji, or a
+    /// picture's file). The rest have none.
+    icons: Vec<(String, String)>,
 }
 
 /// A chat: its last event's seq, its session and its items.
@@ -431,6 +434,35 @@ impl Fake {
             }
         }
         out
+    }
+
+    /// icon is a project's icon from --icons, when it has one.
+    fn icon(&self, project: &str) -> Option<ProjectIcon> {
+        use base64::Engine as _;
+        let (_, icon) = self.opts.icons.iter().find(|(p, _)| p == project)?;
+        let path = std::path::Path::new(icon);
+        let mime = match path.extension().and_then(|e| e.to_str()) {
+            Some("svg") => "image/svg+xml",
+            Some("png") => "image/png",
+            Some("jpg" | "jpeg") => "image/jpeg",
+            Some("webp") => "image/webp",
+            _ => "",
+        };
+        Some(match std::fs::read(path) {
+            Ok(bytes) if !mime.is_empty() => ProjectIcon {
+                source: "chosen".into(),
+                image: format!(
+                    "data:{mime};base64,{}",
+                    base64::engine::general_purpose::STANDARD.encode(bytes)
+                ),
+                ..Default::default()
+            },
+            _ => ProjectIcon {
+                source: "chosen".into(),
+                emoji: icon.clone(),
+                ..Default::default()
+            },
+        })
     }
 
     fn neighbour(&self, project: &str) -> bool {
@@ -918,7 +950,15 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             for (name, _) in &fake.opts.neighbours {
                 all.push(Project { name: name.clone(), display_name: name.clone(), ..Default::default() });
             }
+            for p in &mut all {
+                if fake.icon(&p.name).is_some() {
+                    p.icon_version = 1;
+                }
+            }
             json(StatusCode::OK, &all)
+        }
+        (&Method::GET, ["v1", "projects", p, "icon"]) if fake.icon(p).is_some() => {
+            json(StatusCode::OK, &fake.icon(p).unwrap())
         }
         // An open question from an agent, for the sidebar's "needs you".
         (&Method::GET, ["v1", "projects", p, "questions"]) if fake.is_fake(p) => json(
@@ -1954,6 +1994,7 @@ fn parse() -> Opts {
             .join("abx/fake-media"),
         worktree: std::env::current_dir().unwrap_or_default(),
         neighbours: Vec::new(),
+        icons: Vec::new(),
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -1973,6 +2014,15 @@ fn parse() -> Opts {
                     .filter_map(|p| {
                         let (name, n) = p.split_once(':')?;
                         Some((name.to_string(), n.parse().ok()?))
+                    })
+                    .collect()
+            }
+            "--icons" => {
+                o.icons = v()
+                    .split(',')
+                    .filter_map(|p| {
+                        let (name, icon) = p.split_once('=')?;
+                        Some((name.to_string(), icon.to_string()))
                     })
                     .collect()
             }

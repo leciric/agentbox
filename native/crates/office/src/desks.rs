@@ -23,8 +23,8 @@ use crate::mesh::{
 use crate::model::{DeskTone, LeadTone, OfficeModel, PrChecks, PrState};
 use crate::sim::{Hit, Sim};
 use crate::textures::{
-    self, BoardRow, BoardScreen, Screen, bubble_of, draw_board, draw_contact, draw_plate,
-    draw_screen, flip, tone_color,
+    self, BoardRow, BoardScreen, Logo, Screen, bubble_of, draw_board, draw_carpet, draw_contact,
+    draw_plate, draw_screen, flip, tone_color,
 };
 use glam::{Mat4, Vec3};
 use std::collections::HashMap;
@@ -50,6 +50,20 @@ pub struct SceneInput {
     pub board: BoardScreen,
     pub you: String,
     pub area_labels: HashMap<String, AreaLabel>,
+    /// Each project's logo for its carpets, with its icon's version: a
+    /// carpet is painted again when either changes.
+    pub logos: HashMap<String, (i64, Logo)>,
+}
+
+/// A room's carpet: its texture, painted again when its project's logo,
+/// name or colour changes.
+struct CarpetObj {
+    project: String,
+    tex: usize,
+    px: (u32, u32),
+    /// The medallion's centre and size, in the texture's pixels.
+    medal: (f32, f32, f32),
+    key: String,
 }
 
 /// A label the app draws over the frame, at a point in the world.
@@ -170,6 +184,7 @@ pub struct Built {
     area_labels: HashMap<String, AreaLabel>,
     hues: HashMap<String, f64>,
     names: HashMap<String, String>,
+    carpets: Vec<CarpetObj>,
 }
 
 // ---- Geometry three has that mesh.rs doesn't ----
@@ -590,6 +605,7 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
         Shared { ring, pole, cloth }
     };
     let mut desks: Vec<DeskObj> = Vec::new();
+    let mut carpets: Vec<CarpetObj> = Vec::new();
     let mut per_room: HashMap<usize, u32> = HashMap::new();
     let plate_tex: HashMap<String, usize> = HashMap::new();
     let mut plate_tex = plate_tex;
@@ -618,6 +634,48 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
             );
         }
         add(&mut statics, kit, place.room as i64, rugs, Mat4::IDENTITY);
+
+        // The project's carpet, its logo on it, a little over the floor and
+        // its rugs' height (no fighting with the boards under it).
+        if let Some(c) = &place.carpet {
+            let b = &c.r#box;
+            let (cw, cd) = ((b.x1 - b.x0) as f32, (b.z1 - b.z0) as f32);
+            let ppm = (512. / cw.max(cd)).min(128.);
+            let px = ((cw * ppm).round() as u32, (cd * ppm).round() as u32);
+            let medal = (
+                (c.logo.x - b.x0) as f32 * ppm,
+                (c.logo.z - b.z0) as f32 * ppm,
+                c.logo_size as f32 * ppm,
+            );
+            let tex = kit.add(Image {
+                width: px.0,
+                height: px.1,
+                rgba: vec![0; (px.0 * px.1 * 4) as usize],
+            });
+            let hh = (area.hue as f32 % 360.) / 360.;
+            let (cx, cz) = (((b.x0 + b.x1) / 2.) as f32, ((b.z0 + b.z1) / 2.) as f32);
+            let mut rug = Baker::default();
+            rug.put(
+                &slab(cw + 0.08, cd + 0.08, 0.3, 0.012),
+                &Mat::new(hsl(hh, 0.4, 0.22)),
+                at(cx, 0., cz),
+            );
+            // (Its texture's top row at the back: it reads the right way up
+            // from the front, where the camera is.)
+            rug.put(
+                &slab(cw, cd, 0.26, 0.016),
+                &Mat::new([1., 1., 1.]).tex(tex, [1., 1.]),
+                at(cx, 0., cz),
+            );
+            add(&mut statics, kit, place.room as i64, rug, Mat4::IDENTITY);
+            carpets.push(CarpetObj {
+                project: place.project.clone(),
+                tex,
+                px,
+                medal,
+                key: String::new(),
+            });
+        }
 
         for d in &place.desks {
             let variant = {
@@ -755,6 +813,7 @@ pub fn build(input: &SceneInput, lay: &Campus, kit: &mut Kit) -> Built {
         area_labels: HashMap::new(),
         hues: HashMap::new(),
         names: HashMap::new(),
+        carpets,
     };
     built.update(input, kit);
     built
@@ -1179,6 +1238,21 @@ impl Built {
             {
                 d.screen = Some(sc.clone());
                 kit.replace(d.screen_tex, flip(draw_screen(sc, 0.)));
+            }
+        }
+        // Each carpet: its project's logo, or its initials in its colour.
+        for c in &mut self.carpets {
+            let area = input.model.areas.iter().find(|a| a.project == c.project);
+            let (label, hue) = area.map_or((c.project.as_str(), 0.), |a| (a.label.as_str(), a.hue));
+            let none = (0, Logo::None);
+            let (version, logo) = input.logos.get(&c.project).unwrap_or(&none);
+            let key = format!("{version}:{}:{label}:{hue}", logo.kind());
+            if key != c.key {
+                c.key = key;
+                kit.replace(
+                    c.tex,
+                    draw_carpet(c.px.0, c.px.1, c.medal, label, hue as f32, logo),
+                );
             }
         }
         // Each room's board: what waits in its project, every floor's.
