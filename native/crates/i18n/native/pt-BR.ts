@@ -168,4 +168,7 @@ export const ptBRNative = {
   'native.vnc.ended': 'A conexão do desktop terminou: {reason}',
   'native.vnc.noAnswer': 'O servidor VNC do desktop não respondeu.',
   'native.vnc.fullHere': 'O desktop está aberto em tela cheia.',
+  'native.chat.options.modelTip': '{setup}: trocar o modelo, a janela de contexto ou o esforço',
+  'native.chat.options.modeTip': '{mode}: trocar o modo de permissão, ou planejar antes',
+  'native.chat.options.moreTip': 'Mais configurações: {settings}',
 };

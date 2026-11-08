@@ -68,6 +68,8 @@ struct Fake {
     machines: Mutex<agents::Machines>,
     /// Line notes on the agents' diffs, by agent (reviewnotes.go).
     notes: Mutex<Vec<(String, ReviewNote)>>,
+    /// The account the agents' chats run on (PUT …/chat/runner).
+    account: Mutex<String>,
 }
 
 /// chat_options are the model and effort an agent's chat runs with.
@@ -88,6 +90,15 @@ fn chat_options() -> Vec<ChatOption> {
             ..Default::default()
         },
         ChatOption {
+            id: "context".into(),
+            name: "Context window".into(),
+            category: "context_window".into(),
+            r#type: "select".into(),
+            value: "200k".into(),
+            choices: vec![choice("200k", "200k"), choice("1m", "1M")],
+            ..Default::default()
+        },
+        ChatOption {
             id: "effort".into(),
             name: "Effort".into(),
             category: "thought_level".into(),
@@ -96,7 +107,66 @@ fn chat_options() -> Vec<ChatOption> {
             choices: vec![choice("medium", "Medium"), choice("high", "High")],
             ..Default::default()
         },
+        ChatOption {
+            id: "mode".into(),
+            name: "Mode".into(),
+            category: "mode".into(),
+            r#type: "select".into(),
+            value: "default".into(),
+            choices: vec![
+                choice("default", "Ask before edits"),
+                choice("acceptEdits", "Accept edits"),
+                choice("bypassPermissions", "Bypass permissions"),
+            ],
+            ..Default::default()
+        },
+        ChatOption {
+            id: CHAT_OPTION_PLAN.into(),
+            name: "Plan".into(),
+            r#type: "boolean".into(),
+            value: "false".into(),
+            ..Default::default()
+        },
+        ChatOption {
+            id: "output_style".into(),
+            name: "Output style".into(),
+            r#type: "select".into(),
+            value: "default".into(),
+            choices: vec![
+                choice("default", "Default"),
+                choice("explanatory", "Explanatory"),
+                choice("learning", "Learning"),
+            ],
+            ..Default::default()
+        },
     ]
+}
+
+/// runners are the AI tools and accounts a chat can run on (GET …/chat/runners).
+fn runners(tool: &str, account: &str) -> LeadRunners {
+    let acc = |name: &str| LeadAccount {
+        name: name.into(),
+        default: name == "work",
+        ..Default::default()
+    };
+    let runner = |tool: &str, name: &str, accounts: Vec<LeadAccount>| LeadRunner {
+        tool: tool.into(),
+        name: name.into(),
+        ready: true,
+        installed: true,
+        accounts,
+        ..Default::default()
+    };
+    LeadRunners {
+        tool: tool.into(),
+        account: account.into(),
+        runners: vec![
+            runner("claude", "Claude Code", vec![acc("work"), acc("personal")]),
+            runner("codex", "Codex", vec![]),
+            runner("opencode", "OpenCode", vec![]),
+        ],
+        ..Default::default()
+    }
 }
 
 /// clock is the fixtures' now: the time, or with FAKE_STILL one instant two
@@ -297,6 +367,7 @@ impl Fake {
             fleet: Mutex::new(fleet),
             chats: Mutex::new(HashMap::new()),
             events,
+            account: Mutex::new("work".into()),
         })
     }
 
@@ -1481,6 +1552,36 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 .status(StatusCode::NO_CONTENT)
                 .body(Full::new(Bytes::new()).boxed())
                 .unwrap()
+        }
+        (&Method::GET, ["v1", "agents", p, a, "chat", "runners"]) if fake.is_fake(p) => {
+            let t = fake.thread(&format!("{p}/{a}"));
+            let account = fake.account.lock().unwrap().clone();
+            json(StatusCode::OK, &runners(&t.session.tool, &account))
+        }
+        (&Method::PUT, ["v1", "agents", p, a, "chat", "runner"]) if fake.is_fake(p) => {
+            let agent = format!("{p}/{a}");
+            let body = req.into_body().collect().await.map(|b| b.to_bytes()).unwrap_or_default();
+            let r: LeadRunnerRequest = serde_json::from_slice(&body).unwrap_or_default();
+            *fake.account.lock().unwrap() = r.account;
+            fake.chat_event(&agent, |ev, s, _| {
+                s.tool = r.tool;
+                ev.session = Some(s.clone());
+            });
+            json(StatusCode::OK, &serde_json::json!({}))
+        }
+        // A setting chosen in the composer, the session sent back as the daemon does.
+        (&Method::PUT, ["v1", "agents", p, a, "chat", "options", id]) if fake.is_fake(p) => {
+            let agent = format!("{p}/{a}");
+            let body = req.into_body().collect().await.map(|b| b.to_bytes()).unwrap_or_default();
+            let r: ChatOptionRequest = serde_json::from_slice(&body).unwrap_or_default();
+            let id = id.to_string();
+            fake.chat_event(&agent, |ev, s, _| {
+                if let Some(o) = s.options.iter_mut().find(|o| o.id == id) {
+                    o.value = r.value;
+                }
+                ev.session = Some(s.clone());
+            });
+            json(StatusCode::OK, &serde_json::json!({}))
         }
         (&Method::POST, ["v1", "agents", p, a, "chat", "messages"]) if fake.is_fake(p) => {
             let agent = format!("{p}/{a}");

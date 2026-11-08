@@ -170,4 +170,7 @@ export const enUSNative = {
   'native.vnc.ended': 'The desktop’s connection ended: {reason}',
   'native.vnc.noAnswer': 'The desktop’s VNC server didn’t answer.',
   'native.vnc.fullHere': 'The desktop is open full screen.',
+  'native.chat.options.modelTip': '{setup}: change the model, context window or effort',
+  'native.chat.options.modeTip': '{mode}: change the permission mode, or plan first',
+  'native.chat.options.moreTip': 'More settings: {settings}',
 };
