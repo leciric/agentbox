@@ -84,6 +84,16 @@ fps (render and readback p50 29 ms), standing still 0 frames and about 1% CPU (t
 `cargo run --release -p agentbox-office --example spike` (`OFFICE_SPIKE_BENCH=5`) is the first
 spike: one Kenney model, 59 fps painted by GPUI on lavapipe.
 
+- Frames are paced to the display (`Pace` in `engine.rs`): each is drawn for a display refresh, the
+  sim steps to exactly that moment, and the view holds it until then; one frame is drawn ahead while
+  GPUI shows the last. The bench's `judder` is how far a frame's step in sim time is from its step
+  on screen (0 is smooth), `late` how far from its refresh it was painted.
+- Depth is reversed (near 1, far 0) so floors stacked a millimetre apart don't fight from the campus
+  view; pictures have mips and anisotropic filtering, Kenney's colormap stays nearest.
+  `cargo run --release -p agentbox-office --example flicker` counts the pixels that flicker as the
+  camera moves 1 mm at a time and writes where, in red.
+- A GPU draws with 4× MSAA, a software adapter without; `AGENTBOX_OFFICE_MSAA=1` or `4` says otherwise.
+
 ## The API's types
 
 `crates/agentbox-api/src/types.rs` is generated from `internal/api` by the same test that writes

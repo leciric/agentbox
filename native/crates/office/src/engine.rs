@@ -427,7 +427,9 @@ fn run(
                     shown = s;
                     st.sim.poke();
                 }
-                In::Refresh(d) => pace.period = d.clamp(Duration::from_millis(4), Duration::from_millis(50)),
+                In::Refresh(d) => {
+                    pace.period = d.clamp(Duration::from_millis(4), Duration::from_millis(50))
+                }
                 In::Painted(at) => {
                     in_flight = in_flight.saturating_sub(1);
                     pace.vsync = Some(at);

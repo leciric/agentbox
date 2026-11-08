@@ -699,8 +699,8 @@ impl Gpu {
 /// with antialiasing, noise or gradients have thousands.
 fn is_palette(rgba: &[u8]) -> bool {
     let mut seen = std::collections::HashSet::new();
-    for px in rgba.chunks_exact(4) {
-        seen.insert(u32::from_le_bytes([px[0], px[1], px[2], px[3]]));
+    for px in rgba.as_chunks::<4>().0 {
+        seen.insert(u32::from_le_bytes(*px));
         if seen.len() > 256 {
             return false;
         }
@@ -788,12 +788,19 @@ mod tests {
 
     #[test]
     fn palettes_and_pictures() {
-        let flat: Vec<u8> = (0..64 * 64).flat_map(|i| [(i / 512 * 30) as u8, 0, 0, 255]).collect();
+        let flat: Vec<u8> = (0..64 * 64)
+            .flat_map(|i| [(i / 512 * 30) as u8, 0, 0, 255])
+            .collect();
         assert!(is_palette(&flat));
-        let noise: Vec<u8> = (0..64 * 64u32).flat_map(|i| [(i * 7) as u8, (i * 13) as u8, (i / 3) as u8, 255]).collect();
+        let noise: Vec<u8> = (0..64 * 64u32)
+            .flat_map(|i| [(i * 7) as u8, (i * 13) as u8, (i / 3) as u8, 255])
+            .collect();
         assert!(!is_palette(&noise));
         let colormap = crate::glb::decode_png(crate::assets::COLORMAP).unwrap();
-        assert!(is_palette(&colormap.rgba), "Kenney's colormap keeps nearest, no mips");
+        assert!(
+            is_palette(&colormap.rgba),
+            "Kenney's colormap keeps nearest, no mips"
+        );
     }
 
     #[test]
@@ -801,7 +808,9 @@ mod tests {
         assert_eq!(mip_levels(512, 256), 10);
         assert_eq!(mip_levels(1, 1), 1);
         // Black and white checks average to sRGB 188, not 128.
-        let img = [0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 255];
+        let img = [
+            0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 255,
+        ];
         let (half, w, h) = downsample(&img, 2, 2);
         assert_eq!((w, h), (1, 1));
         assert_eq!(half[0], 188);

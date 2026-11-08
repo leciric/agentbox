@@ -132,7 +132,9 @@ impl Bench {
         let mut late: Vec<f32> = self
             .painted
             .iter()
-            .map(|(shown, at)| ms(shown.saturating_duration_since(*at)) - ms(at.saturating_duration_since(*shown)))
+            .map(|(shown, at)| {
+                ms(shown.saturating_duration_since(*at)) - ms(at.saturating_duration_since(*shown))
+            })
             .collect();
         late.sort_by(f32::total_cmp);
         let n = self.painted.len();
@@ -144,7 +146,11 @@ impl Bench {
         gaps.sort_by(f32::total_cmp);
         judder.sort_by(f32::total_cmp);
         render.sort_by(f32::total_cmp);
-        let p = |v: &[f32], q: f32| v.get(((v.len() as f32 - 1.) * q) as usize).copied().unwrap_or(0.);
+        let p = |v: &[f32], q: f32| {
+            v.get(((v.len() as f32 - 1.) * q) as usize)
+                .copied()
+                .unwrap_or(0.)
+        };
         let mean = gaps.iter().sum::<f32>() / gaps.len() as f32;
         let sd = (gaps.iter().map(|g| (g - mean).powi(2)).sum::<f32>() / gaps.len() as f32).sqrt();
         Some(format!(
@@ -238,7 +244,10 @@ impl OfficeView {
                     let cpu1 = cpu_secs();
                     let ok = this.update(cx, |this, _| {
                         let Some(b) = &mut this.bench else { return };
-                        let size = this.sent.map(|(w, h, s)| format!("{}x{}", (w * s) as u32, (h * s) as u32)).unwrap_or_default();
+                        let size = this
+                            .sent
+                            .map(|(w, h, s)| format!("{}x{}", (w * s) as u32, (h * s) as u32))
+                            .unwrap_or_default();
                         if let Some(line) = b.report(&size, (cpu1 - cpu0) / 5. * 100.) {
                             eprintln!("{line}");
                         }
@@ -260,7 +269,9 @@ impl OfficeView {
             return;
         };
         let half = self.refresh.unwrap_or(Duration::from_micros(16_667)) / 2;
-        let wait = at.saturating_duration_since(std::time::Instant::now()).saturating_sub(half);
+        let wait = at
+            .saturating_duration_since(std::time::Instant::now())
+            .saturating_sub(half);
         if wait.is_zero() {
             cx.notify();
             return;
@@ -925,7 +936,9 @@ impl Render for OfficeView {
         // as soon as it's here (half a refresh early: GPUI's frame starts a
         // little after the refresh it's for). Then the next may be drawn.
         let now = std::time::Instant::now();
-        let due = |at: std::time::Instant| at <= now + period / 2 || at > now + Duration::from_millis(250);
+        let due = |at: std::time::Instant| {
+            at <= now + period / 2 || at > now + Duration::from_millis(250)
+        };
         let mut shown = None;
         while self.pending.front().is_some_and(|(_, _, at)| due(*at)) {
             if let Some(f) = self.pending.pop_front() {

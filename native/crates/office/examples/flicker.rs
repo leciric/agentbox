@@ -7,13 +7,12 @@
 //!
 //!   VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json cargo run --release -p agentbox-office --example flicker
 
-use agentbox_office::desks::{AreaLabel, SceneInput, build};
+use agentbox_office::desks::{SceneInput, build};
 use agentbox_office::gpu::{Camera, Gpu, Instance, MeshId};
 use agentbox_office::kit::{Draw, Kit};
 use agentbox_office::layout;
 use agentbox_office::model::{AreaModel, DeskModel, DeskTone, LeadModel, LeadTone, OfficeModel};
 use agentbox_office::sim::Sim;
-use agentbox_office::textures::{LineTone, Screen, ScreenLine};
 use std::collections::HashMap;
 
 fn area(project: &str, n: usize, hue: f64, off: usize) -> AreaModel {
@@ -77,7 +76,9 @@ fn save(path: &str, f: &agentbox_office::gpu::Frame) -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let out = std::env::args().nth(1).unwrap_or_else(|| "/t/flicker.png".into());
+    let out = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/t/flicker.png".into());
     let (w, h) = (1440u32, 813u32);
     let areas = vec![
         area("agentbox", 5, 260., 0),
@@ -129,9 +130,12 @@ fn main() -> anyhow::Result<()> {
         built.draws(&sim, 3., false, &mut kit, &mut draws);
         let mut by: HashMap<usize, Vec<Instance>> = HashMap::new();
         for d in &draws {
-            by.entry(d.mesh.0).or_default().push(Instance::new(d.at, d.tint));
+            by.entry(d.mesh.0)
+                .or_default()
+                .push(Instance::new(d.at, d.tint));
         }
-        let list: Vec<(MeshId, Vec<Instance>)> = by.into_iter().map(|(k, v)| (meshes[k], v)).collect();
+        let list: Vec<(MeshId, Vec<Instance>)> =
+            by.into_iter().map(|(k, v)| (meshes[k], v)).collect();
         let c = sim.camera;
         let side = (c.target - c.eye).cross(glam::Vec3::Y).normalize();
         let mut prev: Option<Vec<u8>> = None;
@@ -163,7 +167,11 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             if i == N - 1 && first {
-                let mut f2 = agentbox_office::gpu::Frame { width: f.width, height: f.height, bgra: f.bgra.clone() };
+                let mut f2 = agentbox_office::gpu::Frame {
+                    width: f.width,
+                    height: f.height,
+                    bgra: f.bgra.clone(),
+                };
                 for (k, px) in f2.bgra.chunks_mut(4).enumerate() {
                     if mask[k] > 0 {
                         px.copy_from_slice(&[0, 0, 255, 255]);
