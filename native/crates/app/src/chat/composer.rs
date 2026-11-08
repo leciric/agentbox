@@ -2,7 +2,8 @@
 //! written (Enter sends, Shift+Enter starts a new line), files and pictures
 //! attached by picking, pasting or dropping them, "/" for the tool's
 //! commands and "@" for files, projects and agents, the chat's settings
-//! (model, context window, effort, mode, plan, the AI tool and account), and
+//! (options.rs: the AI tool and account, the model with its context window
+//! and effort, the mode with plan, and more), and
 //! what waits above it: a permission request, the sleeping agent's wake
 //! button, the prompt cache about to expire (holding the message until you
 //! choose), changed connectors, the plan's tasks.
@@ -10,9 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use agentbox_api::{
-    CHAT_OPTION_PLAN, ChatCache, ChatCacheChoice, ChatFileUpload, ChatImageUpload,
-    ChatMessageRequest, ChatOption, ChatOptionRequest, ChatSession, Client, LeadRunnerRequest,
-    LeadRunners,
+    ChatCache, ChatCacheChoice, ChatFileUpload, ChatImageUpload, ChatMessageRequest,
+    ChatOptionRequest, ChatSession, Client, LeadRunnerRequest, LeadRunners,
 };
 use agentbox_i18n::{t, tv};
 use base64::Engine as _;
@@ -25,6 +25,8 @@ use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use super::{ChatAction, ChatView};
 use crate::theme;
+
+mod options;
 
 const MAX_IMAGES: usize = 8;
 const MAX_IMAGE_BYTES: usize = ((5 << 20) / 4) * 3;
@@ -1285,366 +1287,6 @@ impl ChatView {
         } else {
             t("chat.composer.placeholder")
         }
-    }
-
-    /// option_button is OptionMenu: `fold` is the composer's width under
-    /// which its label folds to its icon (its @max-[…]/composer:hidden).
-    fn option_button(
-        &self,
-        o: &ChatOption,
-        label: String,
-        fold: Option<f32>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let folded = icon_of(o).is_some() && fold.is_some_and(|f| self.composer.width < f);
-        let view = cx.entity().downgrade();
-        let (id, value, choices) = (o.id.clone(), o.value.clone(), o.choices.clone());
-        let icon = icon_of(o);
-        option_chip(Button::new(SharedString::from(format!("opt-{}", o.id))))
-            .child(
-                // The Button's label sets its own size: text-ui here.
-                h_flex()
-                    .gap(px(6.))
-                    .text_size(theme::text::UI)
-                    .line_height(px(19.5))
-                    .children(icon.map(|i| crate::icons::ic(i).size(px(16.))))
-                    .when(!folded, |el| {
-                        el.child(div().max_w(px(160.)).truncate().child(label))
-                    })
-                    .child(
-                        div()
-                            .text_color(theme::faint())
-                            .child(crate::icons::ic("chevron-down").size(px(14.))),
-                    ),
-            )
-            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
-                let mut menu = menu.max_h(px(420.)).scrollable(true);
-                let mut group = String::new();
-                for c in &choices {
-                    if c.group != group {
-                        group = c.group.clone();
-                        menu = menu.separator();
-                        if !group.is_empty() {
-                            menu = menu.label(group.clone());
-                        }
-                    }
-                    let on = c.value == value;
-                    let (name, about) = (c.name.clone(), c.description.clone());
-                    let (view, id, v) = (view.clone(), id.clone(), c.value.clone());
-                    menu = menu.item(
-                        PopupMenuItem::element(move |_, _| {
-                            h_flex()
-                                .items_start()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .w(px(12.))
-                                        .flex_none()
-                                        .text_color(theme::accent())
-                                        .child(crate::icons::of(if on { "✓" } else { "" })),
-                                )
-                                .child(v_flex().child(div().text_sm().child(name.clone())).when(
-                                    !about.is_empty(),
-                                    |el| {
-                                        el.child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(theme::muted())
-                                                .child(about.clone()),
-                                        )
-                                    },
-                                ))
-                        })
-                        .on_click(move |_, _, cx| {
-                            if on {
-                                return;
-                            }
-                            view.update(cx, |this, cx| this.set_option(id.clone(), v.clone(), cx))
-                                .ok();
-                        }),
-                    );
-                }
-                menu
-            })
-            .into_any_element()
-    }
-
-    /// render_options are the chat's settings, under the message box.
-    fn render_options(&self, cx: &mut Context<Self>) -> AnyElement {
-        let opts = &self.session.options;
-        let find = |cat: &str| {
-            opts.iter()
-                .find(|o| o.category == cat && o.r#type == "select")
-        };
-        let name_of = |o: &ChatOption| {
-            o.choices
-                .iter()
-                .find(|c| c.value == o.value)
-                .map(|c| c.name.clone())
-                .unwrap_or_else(|| o.value.clone())
-        };
-        let mut row = h_flex().gap_0p5().flex_wrap().items_center();
-        // What runs the chat, as one chip read as a sentence (SetupChip):
-        // "Claude Code · Opus · 200k", its menu a submenu for each of the
-        // tool and account, the model and the context window.
-        let runner = self
-            .composer
-            .runners
-            .as_ref()
-            .filter(|r| !r.runners.is_empty())
-            .cloned();
-        let tool = runner
-            .as_ref()
-            .map(|r| r.tool.clone())
-            .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| self.session.tool.clone());
-        let tool_name = super::tool_label(&tool);
-        let model = find("model").cloned();
-        let window_opt = find("context_window").cloned();
-        let model_name = model.as_ref().map(name_of);
-        let size = window_opt.as_ref().map(name_of);
-        let parts: Vec<String> = [Some(tool_name.clone()), model_name.clone(), size.clone()]
-            .into_iter()
-            .flatten()
-            .filter(|p| !p.is_empty())
-            .collect();
-        let sentence = parts.join(" · ");
-        let nothing = runner.is_none() && model.is_none() && window_opt.is_none();
-        // SetupChip: the tool's mark, its name (hidden in a composer under
-        // 46rem, Electron's container query) and the model, a chevron.
-        let shown_parts: Vec<String> = [
-            (self.composer.width >= 736.).then(|| tool_name.clone()),
-            model_name.clone(),
-            size.clone(),
-        ]
-        .into_iter()
-        .flatten()
-        .filter(|p| !p.is_empty())
-        .collect();
-        let chip_label = h_flex()
-            .gap(px(6.))
-            .text_size(theme::text::UI)
-            .line_height(px(19.5))
-            .child(crate::icons::tool_mark(&tool, px(16.), theme::muted()))
-            .child(div().min_w_0().truncate().child(if shown_parts.is_empty() {
-                tool_name.clone()
-            } else {
-                shown_parts.join(" · ")
-            }))
-            .when(!nothing, |el| {
-                el.child(
-                    div()
-                        .text_color(theme::faint())
-                        .child(crate::icons::ic("chevron-down").size(px(14.))),
-                )
-            });
-        if nothing {
-            row = row.child(
-                h_flex()
-                    .h_7()
-                    .px_2()
-                    .rounded_lg()
-                    .text_size(theme::text::UI)
-                    .text_color(theme::muted())
-                    .child(chip_label),
-            );
-        } else {
-            let view = cx.entity().downgrade();
-            let lead = self.is_lead();
-            let account = runner
-                .as_ref()
-                .map(|r| r.account.clone())
-                .unwrap_or_default();
-            let tool_value = if account.is_empty() || account == "default" {
-                tool_name.clone()
-            } else {
-                format!("{tool_name} · {account}")
-            };
-            row = row.child(
-                option_chip(Button::new("opt-setup"))
-                    .child(chip_label)
-                    .tooltip(tv("chat.setup.label", &[("setup", sentence.into())]))
-                    .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, window, cx| {
-                        let mut menu = menu.min_w(px(240.));
-                        if let Some(r) = &runner {
-                            let (view, r, tool) = (view.clone(), r.clone(), tool.clone());
-                            let account = account.clone();
-                            menu = menu.submenu(
-                                format!("{}: {tool_value}", t("chat.setup.tool")),
-                                window,
-                                cx,
-                                move |mut menu, _, _| {
-                                    menu = menu.label(if lead {
-                                        t("chat.runner.title")
-                                    } else {
-                                        t("chat.runner.titleAgent")
-                                    });
-                                    for runner in &r.runners {
-                                        if !lead && runner.tool != tool {
-                                            continue;
-                                        }
-                                        let accounts: Vec<String> = if runner.accounts.is_empty() {
-                                            vec![String::new()]
-                                        } else {
-                                            runner.accounts.iter().map(|a| a.name.clone()).collect()
-                                        };
-                                        for acc in accounts {
-                                            let on = runner.tool == tool
-                                                && (acc == account || acc.is_empty());
-                                            let label = format!(
-                                                "{}{}{}",
-                                                if on { "✓ " } else { "   " },
-                                                runner.name,
-                                                if acc.is_empty() {
-                                                    String::new()
-                                                } else {
-                                                    format!(" · {acc}")
-                                                }
-                                            );
-                                            let (view, tl, a) =
-                                                (view.clone(), runner.tool.clone(), acc.clone());
-                                            menu = menu.item(
-                                                PopupMenuItem::new(label)
-                                                    .disabled(!runner.ready && runner.installed)
-                                                    .on_click(move |_, _, cx| {
-                                                        view.update(cx, |this, cx| {
-                                                            this.set_runner(
-                                                                tl.clone(),
-                                                                a.clone(),
-                                                                cx,
-                                                            )
-                                                        })
-                                                        .ok();
-                                                    }),
-                                            );
-                                        }
-                                    }
-                                    menu
-                                },
-                            );
-                        } else {
-                            menu = menu.label(tool_name.clone());
-                        }
-                        for o in [&model, &window_opt].into_iter().flatten() {
-                            let current = o
-                                .choices
-                                .iter()
-                                .find(|c| c.value == o.value)
-                                .map(|c| c.name.clone())
-                                .unwrap_or_else(|| o.value.clone());
-                            let (view, o) = (view.clone(), o.clone());
-                            menu = menu.submenu(
-                                format!("{}: {current}", o.name),
-                                window,
-                                cx,
-                                move |mut menu, _, _| {
-                                    menu = menu.max_h(px(420.)).scrollable(true);
-                                    for c in &o.choices {
-                                        let on = c.value == o.value;
-                                        let (view, id, v) =
-                                            (view.clone(), o.id.clone(), c.value.clone());
-                                        menu = menu.item(
-                                            PopupMenuItem::new(format!(
-                                                "{}{}",
-                                                if on { "✓ " } else { "   " },
-                                                c.name
-                                            ))
-                                            .on_click(move |_, _, cx| {
-                                                if on {
-                                                    return;
-                                                }
-                                                view.update(cx, |this, cx| {
-                                                    this.set_option(id.clone(), v.clone(), cx)
-                                                })
-                                                .ok();
-                                            }),
-                                        );
-                                    }
-                                    menu
-                                },
-                            );
-                        }
-                        menu
-                    }),
-            );
-        }
-        if let Some(e) = find("thought_level") {
-            let label = if e.value == "default" {
-                t("chat.options.effort")
-            } else {
-                name_of(e)
-            };
-            row = row.child(self.option_button(e, label, Some(576.), cx));
-        }
-        let plan = opts
-            .iter()
-            .find(|o| o.id == CHAT_OPTION_PLAN && o.r#type == "boolean");
-        if let Some(p) = plan {
-            let on = p.value == "true";
-            let view = cx.entity().downgrade();
-            let id = p.id.clone();
-            row = row.child(
-                div()
-                    .id("opt-plan")
-                    .px_2()
-                    .py_0p5()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .text_xs()
-                    .when(on, |el| {
-                        el.bg(theme::accent().opacity(0.2))
-                            .text_color(theme::accent())
-                    })
-                    .when(!on, |el| el.text_color(theme::muted()))
-                    .hover(|el| el.bg(theme::surface_strong()))
-                    .child(t("chat.options.plan"))
-                    .tooltip({
-                        let tip = if on {
-                            t("chat.options.planOnTip")
-                        } else {
-                            t("chat.options.planTip")
-                        };
-                        move |w, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
-                    })
-                    .on_click(move |_, _, cx| {
-                        let value = if on { "false" } else { "true" }.to_string();
-                        view.update(cx, |this, cx| this.set_option(id.clone(), value, cx))
-                            .ok();
-                    }),
-            );
-        }
-        if let Some(m) = find("mode")
-            && (plan.is_none() || m.choices.len() > 1)
-        {
-            row = row.child(self.option_button(m, name_of(m), Some(672.), cx));
-        }
-        let others: Vec<&ChatOption> = opts
-            .iter()
-            .filter(|o| {
-                o.r#type == "select"
-                    && !matches!(
-                        o.category.as_str(),
-                        "model" | "context_window" | "thought_level" | "mode"
-                    )
-            })
-            .collect();
-        for o in others {
-            row = row.child(self.option_button(o, format!("{}: {}", o.name, name_of(o)), None, cx));
-        }
-        if self.session.state == "starting"
-            && !opts
-                .iter()
-                .any(|o| o.category == "thought_level" || o.category == "mode")
-        {
-            row = row.child(
-                div()
-                    .px_1p5()
-                    .text_xs()
-                    .text_color(theme::faint())
-                    .child(t("chat.options.loading")),
-            );
-        }
-        row.into_any_element()
     }
 
     /// banner is Attached: a card on the composer's top edge, 20px in from
@@ -3045,11 +2687,6 @@ mod tests {
             ["desktop/src/Composer.tsx"]
         );
     }
-}
-
-/// icon_of is an option's icon in its chip: effort's brain.
-fn icon_of(o: &ChatOption) -> Option<&'static str> {
-    (o.category == "thought_level" || o.id.contains("effort")).then_some("brain")
 }
 
 thread_local! {
