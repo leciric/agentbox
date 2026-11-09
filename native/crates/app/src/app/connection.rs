@@ -482,7 +482,7 @@ impl AppView {
             Err(e) => {
                 self.connected = false;
                 self.conn.error = Some(e);
-                self.maybe_start_daemon();
+                self.maybe_start_daemon(cx);
                 self.poll_start();
                 self.read_vm_status(cx);
             }
@@ -499,7 +499,7 @@ impl AppView {
     /// only on the default socket, with the tool on PATH, and unless
     /// AGENTBOX_NO_AUTOSTART says not to. On Windows it's agentbox.exe, which
     /// starts the daemon in its WSL distro (the relay reaches it there).
-    fn maybe_start_daemon(&mut self) {
+    fn maybe_start_daemon(&mut self, cx: &mut Context<Self>) {
         let c = &mut self.conn;
         if c.tried || std::env::var_os("AGENTBOX_NO_AUTOSTART").is_some() {
             return;
@@ -522,6 +522,25 @@ impl AppView {
         // `vm power` on Linux and Windows only).
         let vm_power = !cfg!(target_os = "macos");
         std::thread::spawn(move || start(&bin, vm_power, answered, &run));
+        // What it says, its clock and how it ends, as they happen: the
+        // version checks come only every few seconds while nothing answers
+        // (the client tries a socket nobody listens on for a while).
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+                let going = this.update(cx, |this, cx| {
+                    this.poll_start();
+                    cx.notify();
+                    this.conn.run.is_some()
+                });
+                if !matches!(going, Ok(true)) {
+                    return;
+                }
+            }
+        })
+        .detach();
     }
 
     /// poll_start takes what the start has said since the last look.
@@ -725,6 +744,10 @@ impl AppView {
                     )
                 })
                 .into_any_element()
+        } else if c.error.is_none() && c.start_error.is_none() {
+            // The first look hasn't failed yet: the client tries a socket
+            // nobody listens on for a few seconds before giving up.
+            notice(t("shell.machine.connecting"), theme::accent())
         } else {
             let error = c
                 .start_error
@@ -782,11 +805,13 @@ impl AppView {
                             .gap_2()
                             .text_sm()
                             .text_color(theme::muted())
-                            .child(div().size_2().rounded_full().bg(if c.starting.is_some() {
-                                theme::starting()
-                            } else {
-                                theme::error()
-                            }))
+                            .child(div().size_2().rounded_full().bg(
+                                if c.starting.is_some() || c.error.is_none() {
+                                    theme::starting()
+                                } else {
+                                    theme::error()
+                                },
+                            ))
                             .child(if c.answered {
                                 t("shell.machine.offline")
                             } else {
