@@ -40,6 +40,8 @@ pub struct Sessions {
     seen: HashMap<String, i64>,
     pub history: bool,
     adding: bool,
+    /// Which list reads are still current, by project (Epochs).
+    epochs: Epochs,
     output: HashMap<String, SessionOutput>,
     renaming: Option<String>,
     rename: Entity<InputState>,
@@ -225,6 +227,30 @@ fn mark(s: &LeadSession, unread: bool) -> Option<AnyElement> {
     }
 }
 
+/// Epochs tells a list read that started before a session was added from one
+/// that started after: the older one doesn't have the session, and when it
+/// lands late it must not take the session out of the list (and so the
+/// selection with it).
+#[derive(Default)]
+pub struct Epochs(HashMap<String, u64>);
+
+impl Epochs {
+    /// begin is the epoch a read of the project's list starts in.
+    pub fn begin(&self, project: &str) -> u64 {
+        self.0.get(project).copied().unwrap_or(0)
+    }
+
+    /// changed starts a new epoch: reads begun before it are stale.
+    pub fn changed(&mut self, project: &str) {
+        *self.0.entry(project.to_string()).or_default() += 1;
+    }
+
+    /// current is whether a read begun in `epoch` may still be applied.
+    pub fn current(&self, project: &str, epoch: u64) -> bool {
+        self.begin(project) == epoch
+    }
+}
+
 impl Sessions {
     pub fn new(window: &mut Window, cx: &mut Context<AppView>) -> Self {
         let chosen = prefs::get(CHOSEN)
@@ -247,6 +273,7 @@ impl Sessions {
             seen: HashMap::new(),
             history: false,
             adding: false,
+            epochs: Epochs::default(),
             output: HashMap::new(),
             renaming: None,
             rename,
@@ -331,6 +358,7 @@ impl AppView {
     pub(super) fn load_sessions(&mut self, project: String, cx: &mut Context<Self>) {
         let client = self.client.clone();
         let open = self.project.as_deref() == Some(project.as_str());
+        let epoch = self.sessions.epochs.begin(&project);
         cx.spawn(async move |this, cx| {
             let list = client
                 .get::<Vec<LeadSession>>(&format!("/v1/projects/{project}/sessions"))
@@ -347,6 +375,11 @@ impl AppView {
             };
             this.update(cx, |this, cx| {
                 let Ok(list) = list else { return };
+                // A session was added since this read began: it doesn't
+                // list it, and the read that follows the add will.
+                if !this.sessions.epochs.current(&project, epoch) {
+                    return;
+                }
                 this.sessions.lists.insert(project.clone(), list);
                 if let Some(c) = closed {
                     this.sessions.closed.insert(project.clone(), c);
@@ -541,6 +574,7 @@ impl AppView {
                         if !list.iter().any(|x| x.id == s.id) {
                             list.push(s.clone());
                         }
+                        this.sessions.epochs.changed(&project);
                         this.select_session(project.clone(), s.id, window, cx);
                         this.focus_lead_composer(window, cx);
                         this.load_sessions(project, cx);
@@ -2224,5 +2258,29 @@ impl AppView {
             .ok();
         })
         .detach();
+    }
+}
+
+#[cfg(test)]
+mod epoch_tests {
+    use super::Epochs;
+
+    #[test]
+    fn a_read_begun_before_a_session_was_added_is_stale() {
+        let mut e = Epochs::default();
+        let early = e.begin("p");
+        assert!(e.current("p", early));
+        e.changed("p");
+        assert!(!e.current("p", early), "the early read lacks the session");
+        let late = e.begin("p");
+        assert!(e.current("p", late), "a read begun after is current");
+    }
+
+    #[test]
+    fn projects_have_their_own_epochs() {
+        let mut e = Epochs::default();
+        let other = e.begin("q");
+        e.changed("p");
+        assert!(e.current("q", other));
     }
 }
