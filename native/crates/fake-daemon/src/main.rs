@@ -73,6 +73,8 @@ struct Fake {
     notes: Mutex<Vec<(String, ReviewNote)>>,
     /// The account the agents' chats run on (PUT …/chat/runner).
     account: Mutex<String>,
+    /// The leads' sessions beyond main, by project (POST …/sessions).
+    sessions: Mutex<HashMap<String, Vec<LeadSession>>>,
 }
 
 /// chat_options are the model and effort an agent's chat runs with.
@@ -371,6 +373,7 @@ impl Fake {
             chats: Mutex::new(HashMap::new()),
             events,
             account: Mutex::new("work".into()),
+            sessions: Mutex::new(HashMap::new()),
         })
     }
 
@@ -1449,10 +1452,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         (&Method::GET, ["v1", "agents", p, a, "browser", "view"]) if fake.is_fake(p) => {
             vnc_view(req, &format!("{p}/{a}")).await
         }
-        // On its own, each lead has one session, main, ready.
-        (&Method::GET, ["v1", "projects", p, "sessions"]) if fake.opts.upstream.is_none() => json(
-            StatusCode::OK,
-            &vec![LeadSession {
+        // On its own, each lead has one session, main, ready, and the ones
+        // POST …/sessions opened.
+        (&Method::GET, ["v1", "projects", p, "sessions"]) if fake.opts.upstream.is_none() => {
+            let mut all = vec![LeadSession {
                 project: p.to_string(),
                 id: "main".into(),
                 r#ref: format!("{p}/lead"),
@@ -1460,10 +1463,54 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 chat: CHAT_READY.into(),
                 status: "idle".into(),
                 created_at: now(),
+                active_at: "2000-01-01T00:00:00Z".into(),
+                ..Default::default()
+            }];
+            all.extend(
+                fake.sessions
+                    .lock()
+                    .unwrap()
+                    .get(*p)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            json(StatusCode::OK, &all)
+        }
+        (&Method::POST, ["v1", "projects", p, "sessions"]) if fake.opts.upstream.is_none() => {
+            let body = req
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            let want: NewLeadSessionRequest = serde_json::from_slice(&body).unwrap_or_default();
+            // A slow daemon: a list read before this answers must not hide it.
+            let ms = std::env::var("FAKE_SESSION_DELAY_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+            tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+            let mut map = fake.sessions.lock().unwrap();
+            let list = map.entry(p.to_string()).or_default();
+            let id = format!("s{}", list.len() + 2);
+            let s = LeadSession {
+                project: p.to_string(),
+                r#ref: format!("{p}/lead/{id}"),
+                topic: if want.topic.is_empty() {
+                    format!("Session {}", list.len() + 2)
+                } else {
+                    want.topic
+                },
+                id,
+                chat: CHAT_READY.into(),
+                status: "idle".into(),
+                created_at: now(),
                 active_at: now(),
                 ..Default::default()
-            }],
-        ),
+            };
+            list.push(s.clone());
+            json(StatusCode::OK, &s)
+        }
         (&Method::GET, ["v1", "projects", p, "lead"] | ["v1", "projects", p, "sessions", _, "lead"])
             if fake.opts.upstream.is_none() =>
         {

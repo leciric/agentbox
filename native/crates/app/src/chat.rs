@@ -184,6 +184,9 @@ pub struct ChatView {
     evidence: evidence::Evidences,
     /// Text to add to the composer's on the next frame (a picked element).
     append: Vec<String>,
+    /// Focus the message box when next drawn (its element isn't there yet
+    /// in the frame a chat is opened in).
+    pub(crate) focus_next: bool,
     items: Vec<ChatItem>,
     rows: Vec<rows::Keyed>,
     session: ChatSession,
@@ -292,6 +295,7 @@ impl ChatView {
             closed: false,
             evidence: Default::default(),
             append: Vec::new(),
+            focus_next: false,
             items: Vec::new(),
             rows: Vec::new(),
             session: ChatSession::default(),
@@ -569,6 +573,10 @@ impl ChatView {
     /// focus_composer puts the cursor in the message box.
     pub fn focus_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer.input.update(cx, |s, cx| s.focus(window, cx));
+        // Again once drawn: a chat just opened has no box in the tree yet,
+        // and the window's focus falls back to the app's root.
+        self.focus_next = true;
+        cx.notify();
     }
 
     /// stop ends the turn in progress (POST …/chat/cancel).
@@ -1096,6 +1104,11 @@ impl ChatView {
 
 impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if std::mem::take(&mut self.focus_next) {
+            cx.defer_in(window, |this, window, cx| {
+                this.composer.input.update(cx, |s, cx| s.focus(window, cx))
+            });
+        }
         if !self.append.is_empty() {
             let mut text = self.draft_text(cx);
             for more in std::mem::take(&mut self.append) {
