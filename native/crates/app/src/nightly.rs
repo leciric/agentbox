@@ -53,7 +53,11 @@ fn star_color() -> Hsla {
 
 /// night is --ab-night, the dusk wash's top.
 fn night() -> Hsla {
-    let a = if theme::look() == theme::Look::Light { 0.14 } else { 0.16 };
+    let a = if theme::look() == theme::Look::Light {
+        0.14
+    } else {
+        0.16
+    };
     let mut c: Hsla = rgba(0x6366f1ff).into();
     c.a = a;
     c
@@ -65,7 +69,11 @@ fn night() -> Hsla {
 pub fn sky(h: f32) -> impl IntoElement {
     let fade = move |y_pct: f32| -> f32 {
         let y = y_pct / 100.;
-        if y <= 0.45 { 1. } else { ((1. - y) / 0.55).clamp(0., 1.) }
+        if y <= 0.45 {
+            1.
+        } else {
+            ((1. - y) / 0.55).clamp(0., 1.)
+        }
     };
     let wash = div().absolute().inset_0().bg(linear_gradient(
         180.,
@@ -138,7 +146,13 @@ pub fn badge(tip: String) -> impl IntoElement {
 fn mix_white(c: Hsla, amount: f32) -> Hsla {
     let a = c.to_rgb();
     let m = |x: f32| x * amount + (1. - amount);
-    Rgba { r: m(a.r), g: m(a.g), b: m(a.b), a: 1. }.into()
+    Rgba {
+        r: m(a.r),
+        g: m(a.g),
+        b: m(a.b),
+        a: 1.,
+    }
+    .into()
 }
 
 #[cfg(test)]

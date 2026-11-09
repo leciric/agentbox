@@ -152,7 +152,11 @@ impl AppView {
         let nightly = crate::nightly::is_nightly(self.conn.version.as_deref())
             || crate::nightly::is_nightly(app_version)
             || self.settings_page.nightly();
-        let shown = self.conn.version.clone().or(app_version.map(str::to_string));
+        let shown = self
+            .conn
+            .version
+            .clone()
+            .or(app_version.map(str::to_string));
         h_flex()
             .relative()
             .h(px(56.))
