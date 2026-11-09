@@ -3,10 +3,19 @@
 //! RunInVM.tsx's LinuxVMSetup and WSLSetup.tsx as far as a thin client can).
 //!
 //! It asks GET /v1/version every few seconds. When nothing answers on the
-//! default socket and the command-line tool is on PATH, it starts the daemon
-//! the way Electron's main process does (desktop/src/main/daemon.ts): runs
-//! `agentbox daemon start` once, showing the last line it says on stderr
-//! and how long it has taken, then waits for the socket. On a Mac, or a
+//! default socket and the command-line tool is on PATH, it starts AgentBox
+//! the way Electron's main process does (desktop/src/main/daemon.ts,
+//! vmpower.ts), once, showing the last line it says on stderr and how long
+//! it has taken, then waits for the socket. On Linux and Windows it first
+//! asks `agentbox vm power --json`: a VM (or WSL distro) that's off is
+//! started with `agentbox vm start` and a paused one resumed with `agentbox
+//! vm resume`, each returning once the daemon in it answers; host mode (a
+//! tool that says {"mode":"host"}, or one from before `vm power`), a VM
+//! that's already up and a Mac run `agentbox daemon start`, which on a Mac
+//! boots Lima's VM itself. Once the app has reached a daemon, a VM that's
+//! off or paused stays so (the top bar's Free resources, `agentbox vm
+//! stop`): the app shows the command that brings it back rather than boot
+//! it behind the user's back. On a Mac, or a
 //! Linux machine in VM mode, `agentbox vm status --json` says whether the VM
 //! is there: one that isn't is set up with the command shown, which the
 //! user runs, since making the VM, the WSL distro or running host setup
@@ -24,11 +33,33 @@ use gpui_component::{h_flex, v_flex};
 use super::AppView;
 use crate::theme;
 
-/// What `agentbox daemon start` has said so far, and how it ended.
+/// What a start runs: `agentbox daemon start`, or `agentbox vm start` or
+/// `vm resume` for a VM (wsl: AgentBox's WSL distro) whose daemon answers
+/// once it's up.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum Starting {
+    #[default]
+    Daemon,
+    Vm {
+        resume: bool,
+        wsl: bool,
+    },
+}
+
+/// How a start ended short of a daemon: why, and the command that brings
+/// the VM back, when it's the VM that's in the way.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StartFailure {
+    error: String,
+    fix: Option<&'static str>,
+}
+
+/// What the start has said so far, what it runs, and how it ended.
 #[derive(Default)]
 struct StartRun {
     step: String,
-    done: Option<Result<(), String>>,
+    what: Starting,
+    done: Option<Result<(), StartFailure>>,
 }
 
 #[derive(Default)]
@@ -41,8 +72,12 @@ pub(super) struct Conn {
     /// starting is a start under way: since when, and what it said last.
     pub starting: Option<(Instant, String)>,
     run: Option<Arc<Mutex<StartRun>>>,
-    /// start_error is how the app's own start failed.
+    /// what is what the start under way runs.
+    pub what: Starting,
+    /// start_error is how the app's own start failed, and start_fix the
+    /// command to run about it.
     pub start_error: Option<String>,
+    pub start_fix: Option<&'static str>,
     tried: bool,
     /// vm is what `agentbox vm status --json` said, while there's no daemon.
     pub vm: Option<serde_json::Value>,
@@ -174,6 +209,219 @@ fn elapsed(d: Duration) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
+/// Power is what `agentbox vm power --json` says (internal/hostvm's Power,
+/// internal/hostwsl's): host mode, or a VM's state (off, starting, running,
+/// pausing, paused, resuming, stopping) and why it can't be used.
+#[derive(Debug, PartialEq, Eq)]
+enum Power {
+    Host,
+    Vm {
+        state: String,
+        error: String,
+        wsl: bool,
+        /// for_disk is a VM the supervisor paused because the host's disk
+        /// is nearly full, which it resumes by itself once there's room.
+        for_disk: bool,
+    },
+}
+
+/// parse_power reads `agentbox vm power --json`'s output; None when it isn't
+/// one, which a tool from before VM mode is (host mode, as vmpower.ts has it).
+fn parse_power(stdout: &[u8]) -> Option<Power> {
+    let v: serde_json::Value = serde_json::from_slice(stdout).ok()?;
+    let str_of = |k: &str| v.get(k).and_then(|s| s.as_str()).unwrap_or_default();
+    if str_of("mode") == "host" {
+        return Some(Power::Host);
+    }
+    let state = str_of("state");
+    if state.is_empty() {
+        return None;
+    }
+    Some(Power::Vm {
+        state: state.to_string(),
+        error: str_of("error").to_string(),
+        wsl: str_of("driver") == "wsl",
+        for_disk: v.get("pausedForDisk").and_then(|b| b.as_bool()) == Some(true),
+    })
+}
+
+/// Plan is what a start does about the power it found.
+#[derive(Debug, PartialEq, Eq)]
+enum Plan {
+    /// Daemon is `agentbox daemon start`.
+    Daemon,
+    /// Vm is `agentbox vm start`, or `vm resume`.
+    Vm { resume: bool, wsl: bool },
+    /// Leave starts nothing, and says why.
+    Leave(StartFailure),
+}
+
+/// plan decides how to start AgentBox (daemon.ts's start): host mode, or a
+/// VM that's up with no daemon answering, is a daemon start; a VM that's off
+/// is started and a paused one resumed, unless the app has already reached
+/// its daemon (answered), when only the user brings it back. A VM that can't
+/// be used (one vm init hasn't made) says why, and isn't started.
+fn plan(power: Option<&Power>, answered: bool) -> Plan {
+    let Some(Power::Vm {
+        state,
+        error,
+        wsl,
+        for_disk,
+    }) = power
+    else {
+        return Plan::Daemon;
+    };
+    let wsl = *wsl;
+    let resume = state == "paused";
+    match state.as_str() {
+        "running" | "starting" | "resuming" => Plan::Daemon,
+        "paused" if *for_disk => Plan::Leave(StartFailure {
+            error: t("shell.diskGuard.vmPausedTitle"),
+            fix: None,
+        }),
+        _ if !error.is_empty() => Plan::Leave(StartFailure {
+            error: error.clone(),
+            fix: None,
+        }),
+        _ if answered => Plan::Leave(StartFailure {
+            error: if resume {
+                t("web.main.vmPaused")
+            } else if wsl {
+                t("native.vm.wslOff")
+            } else {
+                tv("web.main.vmNotRunning", &[("state", state.as_str().into())])
+            },
+            fix: Some(fix_for(resume)),
+        }),
+        _ => Plan::Vm { resume, wsl },
+    }
+}
+
+/// fix_for is the command that starts the VM, or resumes it.
+fn fix_for(resume: bool) -> &'static str {
+    if resume {
+        "agentbox vm resume"
+    } else {
+        "agentbox vm start"
+    }
+}
+
+/// start runs the start with the tool at bin (vm_power: on Linux and
+/// Windows, where `vm power` decides it), saying how it goes in run. It
+/// returns once the command has.
+fn start(bin: &std::path::Path, vm_power: bool, answered: bool, run: &Mutex<StartRun>) {
+    let power = if vm_power { read_power(bin) } else { None };
+    let (args, what) = match plan(power.as_ref(), answered) {
+        Plan::Leave(f) => {
+            run.lock().unwrap().done = Some(Err(f));
+            return;
+        }
+        Plan::Daemon => (["daemon", "start"], Starting::Daemon),
+        Plan::Vm { resume, wsl } => (
+            ["vm", if resume { "resume" } else { "start" }],
+            Starting::Vm { resume, wsl },
+        ),
+    };
+    run.lock().unwrap().what = what;
+    let done = run_said(bin, &args, |step| run.lock().unwrap().step = step).map_err(|error| {
+        StartFailure {
+            error,
+            fix: match what {
+                Starting::Vm { resume, .. } => Some(fix_for(resume)),
+                Starting::Daemon => None,
+            },
+        }
+    });
+    run.lock().unwrap().done = Some(done);
+}
+
+/// read_power is `agentbox vm power --json`, None when the tool fails or
+/// says something else.
+fn read_power(bin: &std::path::Path) -> Option<Power> {
+    let out = std::process::Command::new(bin)
+        .args(["vm", "power", "--json"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_power(&out.stdout)
+}
+
+/// run_said runs bin with args, telling step the last line it says on
+/// stderr as it goes; an error is its last line, or how it exited.
+fn run_said(
+    bin: &std::path::Path,
+    args: &[&str],
+    mut step: impl FnMut(String),
+) -> Result<(), String> {
+    use std::io::Read as _;
+    let mut child = std::process::Command::new(bin)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{}: {e}", bin.display()))?;
+    let mut said = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let mut buf = [0u8; 512];
+        while let Ok(n) = err.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            said.push_str(&String::from_utf8_lossy(&buf[..n]));
+            if said.len() > 4000 {
+                let mut cut = said.len() - 4000;
+                while !said.is_char_boundary(cut) {
+                    cut += 1;
+                }
+                said.drain(..cut);
+            }
+            step(last_line(&said));
+        }
+    }
+    match child.wait() {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(said
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .map(|l| l.trim().trim_start_matches("error: ").to_string())
+            .unwrap_or_else(|| format!("agentbox {}: {s}", args.join(" ")))),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// starting_text says what a start under way does, and for how long:
+/// "Starting AgentBox… 0:42", or "VM starting… 0:42" while it's the VM.
+fn starting_text(what: Starting, took: Duration) -> String {
+    let Starting::Vm { resume, wsl } = what else {
+        return tv(
+            "shell.app.daemonStarting",
+            &[("elapsed", elapsed(took).into())],
+        );
+    };
+    let busy = tv(
+        "shell.machine.busy",
+        &[
+            ("state", if resume { "resuming" } else { "starting" }.into()),
+            (
+                "what",
+                t(if wsl {
+                    "shell.machine.wsl"
+                } else {
+                    "shell.machine.vm"
+                })
+                .into(),
+            ),
+        ],
+    );
+    format!("{busy} {}", elapsed(took))
+}
+
 /// vm_missing is a VM `agentbox vm status --json` says isn't made yet: the
 /// Mac's (exists: false) or a Linux VM mode's (state "missing").
 fn vm_missing(v: &serde_json::Value) -> bool {
@@ -223,6 +471,7 @@ impl AppView {
                 c.error = None;
                 c.starting = None;
                 c.start_error = None;
+                c.start_fix = None;
                 c.vm = None;
                 if !c.answered {
                     c.answered = true;
@@ -233,7 +482,7 @@ impl AppView {
             Err(e) => {
                 self.connected = false;
                 self.conn.error = Some(e);
-                self.maybe_start_daemon();
+                self.maybe_start_daemon(cx);
                 self.poll_start();
                 self.read_vm_status(cx);
             }
@@ -250,7 +499,7 @@ impl AppView {
     /// only on the default socket, with the tool on PATH, and unless
     /// AGENTBOX_NO_AUTOSTART says not to. On Windows it's agentbox.exe, which
     /// starts the daemon in its WSL distro (the relay reaches it there).
-    fn maybe_start_daemon(&mut self) {
+    fn maybe_start_daemon(&mut self, cx: &mut Context<Self>) {
         let c = &mut self.conn;
         if c.tried || std::env::var_os("AGENTBOX_NO_AUTOSTART").is_some() {
             return;
@@ -265,48 +514,33 @@ impl AppView {
         let run = Arc::new(Mutex::new(StartRun::default()));
         c.run = Some(run.clone());
         c.starting = Some((Instant::now(), String::new()));
-        std::thread::spawn(move || {
-            use std::io::Read as _;
-            let child = std::process::Command::new(&bin)
-                .args(["daemon", "start"])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .spawn();
-            let mut child = match child {
-                Ok(c) => c,
-                Err(e) => {
-                    run.lock().unwrap().done = Some(Err(format!("{}: {e}", bin.display())));
+        c.what = Starting::Daemon;
+        c.start_error = None;
+        c.start_fix = None;
+        let answered = c.answered;
+        // A Mac's VM is Lima's, which `daemon start` boots (vmpower.ts asks
+        // `vm power` on Linux and Windows only).
+        let vm_power = !cfg!(target_os = "macos");
+        std::thread::spawn(move || start(&bin, vm_power, answered, &run));
+        // What it says, its clock and how it ends, as they happen: the
+        // version checks come only every few seconds while nothing answers
+        // (the client tries a socket nobody listens on for a while).
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+                let going = this.update(cx, |this, cx| {
+                    this.poll_start();
+                    cx.notify();
+                    this.conn.run.is_some()
+                });
+                if !matches!(going, Ok(true)) {
                     return;
                 }
-            };
-            let mut said = String::new();
-            if let Some(mut err) = child.stderr.take() {
-                let mut buf = [0u8; 512];
-                while let Ok(n) = err.read(&mut buf) {
-                    if n == 0 {
-                        break;
-                    }
-                    said.push_str(&String::from_utf8_lossy(&buf[..n]));
-                    if said.len() > 4000 {
-                        said = said[said.len() - 4000..].to_string();
-                    }
-                    run.lock().unwrap().step = last_line(&said);
-                }
             }
-            let status = child.wait();
-            let done = match status {
-                Ok(s) if s.success() => Ok(()),
-                Ok(s) => Err(said
-                    .lines()
-                    .rev()
-                    .find(|l| !l.trim().is_empty())
-                    .map(|l| l.trim().trim_start_matches("error: ").to_string())
-                    .unwrap_or_else(|| format!("agentbox daemon start: {s}"))),
-                Err(e) => Err(e.to_string()),
-            };
-            run.lock().unwrap().done = Some(done);
-        });
+        })
+        .detach();
     }
 
     /// poll_start takes what the start has said since the last look.
@@ -319,10 +553,12 @@ impl AppView {
         if let Some((_, step)) = c.starting.as_mut() {
             step.clone_from(&r.step);
         }
+        c.what = r.what;
         if let Some(done) = &r.done {
             c.starting = None;
             if let Err(e) = done {
-                c.start_error = Some(e.clone());
+                c.start_error = Some(e.error.clone());
+                c.start_fix = e.fix;
             }
             drop(r);
             c.run = None;
@@ -372,10 +608,7 @@ impl AppView {
         let c = &self.conn;
         let (text, color) = match &c.starting {
             Some((since, step)) => {
-                let mut s = tv(
-                    "shell.app.daemonStarting",
-                    &[("elapsed", elapsed(since.elapsed()).into())],
-                );
+                let mut s = starting_text(c.what, since.elapsed());
                 if !step.is_empty() {
                     s = format!("{s} {step}");
                 }
@@ -384,11 +617,20 @@ impl AppView {
             None => (
                 tv(
                     "shell.app.daemonUnreachable",
-                    &[("error", c.error.clone().unwrap_or_default().into())],
+                    &[(
+                        "error",
+                        c.start_error
+                            .clone()
+                            .or_else(|| c.error.clone())
+                            .unwrap_or_default()
+                            .into(),
+                    )],
                 ),
                 theme::error(),
             ),
         };
+        // A VM left off or paused: the command that brings it back.
+        let fix = c.start_fix.filter(|_| c.starting.is_none());
         div()
             .flex_none()
             .px_4()
@@ -399,6 +641,21 @@ impl AppView {
             .text_sm()
             .text_color(theme::primary())
             .child(text)
+            .when_some(fix, |el, fix| {
+                el.child(
+                    h_flex()
+                        .gap_2()
+                        .text_xs()
+                        .text_color(theme::muted())
+                        .child(t("native.vm.runIt"))
+                        .child(
+                            div()
+                                .font_family(theme::mono())
+                                .text_color(theme::secondary())
+                                .child(format!("$ {fix}")),
+                        ),
+                )
+            })
             .into_any_element()
     }
 
@@ -471,10 +728,11 @@ impl AppView {
                 .border_1()
                 .border_color(theme::accent().opacity(0.35))
                 .bg(theme::accent().opacity(0.08))
-                .child(div().text_sm().child(tv(
-                    "shell.app.daemonStarting",
-                    &[("elapsed", elapsed(since.elapsed()).into())],
-                )))
+                .child(
+                    div()
+                        .text_sm()
+                        .child(starting_text(c.what, since.elapsed())),
+                )
                 .when(!step.is_empty(), |el| {
                     el.child(
                         div()
@@ -486,6 +744,10 @@ impl AppView {
                     )
                 })
                 .into_any_element()
+        } else if c.error.is_none() && c.start_error.is_none() {
+            // The first look hasn't failed yet: the client tries a socket
+            // nobody listens on for a few seconds before giving up.
+            notice(t("shell.machine.connecting"), theme::accent())
         } else {
             let error = c
                 .start_error
@@ -498,6 +760,15 @@ impl AppView {
                     tv("shell.app.daemonUnreachable", &[("error", error.into())]),
                     theme::error(),
                 ))
+                .when_some(c.start_fix, |el, fix| {
+                    el.child(
+                        div()
+                            .text_sm()
+                            .text_color(theme::muted())
+                            .child(t("native.vm.runIt")),
+                    )
+                    .child(self.command_box("vm-fix", fix, cx))
+                })
                 .when(
                     !c.tried && self.client.socket() == agentbox_api::client::default_socket(),
                     |el| {
@@ -534,11 +805,13 @@ impl AppView {
                             .gap_2()
                             .text_sm()
                             .text_color(theme::muted())
-                            .child(div().size_2().rounded_full().bg(if c.starting.is_some() {
-                                theme::starting()
-                            } else {
-                                theme::error()
-                            }))
+                            .child(div().size_2().rounded_full().bg(
+                                if c.starting.is_some() || c.error.is_none() {
+                                    theme::starting()
+                                } else {
+                                    theme::error()
+                                },
+                            ))
                             .child(if c.answered {
                                 t("shell.machine.offline")
                             } else {
@@ -563,6 +836,269 @@ mod tests {
         assert!(vm_missing(&serde_json::json!({"exists": false})));
         assert!(vm_missing(&serde_json::json!({"state": "missing"})));
         assert!(!vm_missing(&serde_json::json!({"state": "running"})));
+    }
+}
+
+#[cfg(test)]
+mod start_tests {
+    use super::*;
+
+    fn vm(state: &str) -> Power {
+        Power::Vm {
+            state: state.into(),
+            error: String::new(),
+            wsl: false,
+            for_disk: false,
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn vm_power_is_read_as_host_mode_or_a_vm() {
+        assert_eq!(parse_power(br#"{"mode":"host"}"#), Some(Power::Host));
+        assert_eq!(
+            parse_power(br#"{"state":"paused","memoryUsed":0,"cpus":4}"#),
+            Some(vm("paused"))
+        );
+        assert_eq!(
+            parse_power(br#"{"state":"off","driver":"wsl","error":"why"}"#),
+            Some(Power::Vm {
+                state: "off".into(),
+                error: "why".into(),
+                wsl: true,
+                for_disk: false
+            })
+        );
+        assert_eq!(parse_power(b"unknown command \"power\""), None);
+        assert_eq!(parse_power(b"{}"), None);
+    }
+
+    #[::core::prelude::v1::test]
+    fn host_mode_and_a_vm_that_runs_start_the_daemon() {
+        assert_eq!(plan(None, false), Plan::Daemon);
+        assert_eq!(plan(Some(&Power::Host), false), Plan::Daemon);
+        assert_eq!(plan(Some(&Power::Host), true), Plan::Daemon);
+        for state in ["running", "starting", "resuming"] {
+            assert_eq!(plan(Some(&vm(state)), false), Plan::Daemon, "{state}");
+            assert_eq!(plan(Some(&vm(state)), true), Plan::Daemon, "{state}");
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn at_launch_a_vm_off_is_started_and_one_paused_resumed() {
+        let off_wsl = Power::Vm {
+            state: "off".into(),
+            error: String::new(),
+            wsl: true,
+            for_disk: false,
+        };
+        assert_eq!(
+            plan(Some(&vm("off")), false),
+            Plan::Vm {
+                resume: false,
+                wsl: false
+            }
+        );
+        assert_eq!(
+            plan(Some(&off_wsl), false),
+            Plan::Vm {
+                resume: false,
+                wsl: true
+            }
+        );
+        assert_eq!(
+            plan(Some(&vm("paused")), false),
+            Plan::Vm {
+                resume: true,
+                wsl: false
+            }
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn once_reached_a_vm_off_or_paused_is_left_to_the_user() {
+        let Plan::Leave(f) = plan(Some(&vm("paused")), true) else {
+            panic!("paused VM started again");
+        };
+        assert_eq!(f.fix, Some("agentbox vm resume"));
+        let Plan::Leave(f) = plan(Some(&vm("stopping")), true) else {
+            panic!("stopping VM started again");
+        };
+        assert_eq!(f.fix, Some("agentbox vm start"));
+        assert!(f.error.contains("turning off"), "{}", f.error);
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_vm_that_cant_be_used_says_why_and_isnt_started() {
+        let broken = Power::Vm {
+            state: "off".into(),
+            error: "AgentBox's VM isn't made yet: run agentbox vm init".into(),
+            wsl: false,
+            for_disk: false,
+        };
+        assert_eq!(
+            plan(Some(&broken), false),
+            Plan::Leave(StartFailure {
+                error: "AgentBox's VM isn't made yet: run agentbox vm init".into(),
+                fix: None
+            })
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_vm_paused_for_a_full_disk_isnt_resumed() {
+        let full = parse_power(br#"{"state":"paused","pausedForDisk":true}"#).unwrap();
+        let Plan::Leave(f) = plan(Some(&full), false) else {
+            panic!("a VM paused for a full disk was resumed");
+        };
+        assert_eq!(f.fix, None);
+        assert!(f.error.contains("disk"), "{}", f.error);
+    }
+
+    #[::core::prelude::v1::test]
+    fn the_vm_starting_says_so() {
+        let took = Duration::from_secs(42);
+        assert_eq!(
+            starting_text(
+                Starting::Vm {
+                    resume: false,
+                    wsl: false
+                },
+                took
+            ),
+            "VM starting… 0:42"
+        );
+        assert_eq!(
+            starting_text(
+                Starting::Vm {
+                    resume: true,
+                    wsl: false
+                },
+                took
+            ),
+            "VM resuming… 0:42"
+        );
+        assert_eq!(
+            starting_text(
+                Starting::Vm {
+                    resume: false,
+                    wsl: true
+                },
+                took
+            ),
+            "WSL starting… 0:42"
+        );
+        assert_eq!(
+            starting_text(Starting::Daemon, took),
+            "Starting AgentBox… 0:42"
+        );
+    }
+}
+
+/// The start against a fake command-line tool: a shell script that answers
+/// `vm power --json` with $POWER, logs every command it's given and fails
+/// `vm start` when $FAIL says so.
+#[cfg(all(test, unix))]
+mod start_run_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    fn fake(dir: &std::path::Path, power: &str, fail: bool) -> PathBuf {
+        let bin = dir.join("agentbox");
+        let log = dir.join("log");
+        let script = format!(
+            r#"#!/bin/sh
+echo "$*" >> '{log}'
+case "$*" in
+  "vm power --json") echo '{power}' ;;
+  "vm start"|"vm resume")
+    echo "==> Starting AgentBox's VM (agentbox)" >&2
+    {fail}
+    ;;
+esac
+"#,
+            log = log.display(),
+            fail = if fail {
+                "echo 'error: cloud-hypervisor: /dev/kvm: permission denied' >&2; exit 1"
+            } else {
+                ":"
+            },
+        );
+        std::fs::write(&bin, script).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    fn run(power: &str, fail: bool, vm_power: bool, answered: bool) -> (StartRun, String) {
+        let dir = std::env::temp_dir().join(format!(
+            "agentbox-start-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = fake(&dir, power, fail);
+        let r = Mutex::new(StartRun::default());
+        start(&bin, vm_power, answered, &r);
+        let log = std::fs::read_to_string(dir.join("log")).unwrap_or_default();
+        std::fs::remove_dir_all(&dir).ok();
+        (r.into_inner().unwrap(), log)
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_vm_off_is_started() {
+        let (r, log) = run(r#"{"state":"off"}"#, false, true, false);
+        assert_eq!(log, "vm power --json\nvm start\n");
+        assert_eq!(r.done, Some(Ok(())));
+        assert_eq!(
+            r.what,
+            Starting::Vm {
+                resume: false,
+                wsl: false
+            }
+        );
+        assert_eq!(r.step, "==> Starting AgentBox's VM (agentbox)");
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_paused_vm_is_resumed() {
+        let (r, log) = run(r#"{"state":"paused"}"#, false, true, false);
+        assert_eq!(log, "vm power --json\nvm resume\n");
+        assert_eq!(r.done, Some(Ok(())));
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_failed_start_shows_stderr_and_the_command() {
+        let (r, _) = run(r#"{"state":"off"}"#, true, true, false);
+        assert_eq!(
+            r.done,
+            Some(Err(StartFailure {
+                error: "cloud-hypervisor: /dev/kvm: permission denied".into(),
+                fix: Some("agentbox vm start"),
+            }))
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn host_mode_starts_the_daemon() {
+        let (r, log) = run(r#"{"mode":"host"}"#, false, true, false);
+        assert_eq!(log, "vm power --json\ndaemon start\n");
+        assert_eq!(r.done, Some(Ok(())));
+        assert_eq!(r.what, Starting::Daemon);
+        // A Mac doesn't ask.
+        let (_, log) = run(r#"{"state":"off"}"#, false, false, false);
+        assert_eq!(log, "daemon start\n");
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_vm_the_user_paused_after_launch_is_left_paused() {
+        let (r, log) = run(r#"{"state":"paused"}"#, false, true, true);
+        assert_eq!(log, "vm power --json\n");
+        assert_eq!(
+            r.done.and_then(Result::err).and_then(|f| f.fix),
+            Some("agentbox vm resume")
+        );
     }
 }
 
