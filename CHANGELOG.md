@@ -3,6 +3,89 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.18.0](https://github.com/leciric/agentbox/compare/v0.17.0...v0.18.0) (2026-11-09)
+
+
+### Added
+
+* a native desktop app in Rust and GPUI, beside the Electron one ([#684](https://github.com/leciric/agentbox/issues/684)) ([e0d46c3](https://github.com/leciric/agentbox/commit/e0d46c321f74017cb58bb0b28e194a579c3cb527))
+* agent goals are always on, and can be set, changed or cleared on a running agent from its page, the CLI and both chats ([#696](https://github.com/leciric/agentbox/issues/696)) ([5646727](https://github.com/leciric/agentbox/commit/5646727391e057ad351db3e32b926a7f36eaf8d3))
+* agents can have goals — the AI tool's own /goal shown, or checks AgentBox runs until they pass (experimental) ([#659](https://github.com/leciric/agentbox/issues/659)) ([60465bc](https://github.com/leciric/agentbox/commit/60465bc87174ddfe036cf45bbc0bb053233b48ac))
+* an agent's page shows its live CPU, memory and disk, and background polling backs off while nobody is looking ([#690](https://github.com/leciric/agentbox/issues/690)) ([3a176c9](https://github.com/leciric/agentbox/commit/3a176c9e6322727795e34c33f910afed3fd98d76))
+* any session of a project's chat can message or retire any of its agents, without asking ([#657](https://github.com/leciric/agentbox/issues/657)) ([fc1df63](https://github.com/leciric/agentbox/commit/fc1df63a32bd97c30e865abcaeb107eca2d28828))
+* chat sessions show their agents and PRs above the chat, settle into History once their work is in, and can be snoozed ([#661](https://github.com/leciric/agentbox/issues/661)) ([ef3e32f](https://github.com/leciric/agentbox/commit/ef3e32f0873316461f3f19ea183bacd6d665f2e2))
+* each chat session shows whether it's working, needs you or failed, with an unread mark shared across windows and the phone, and notifies you when it's off screen ([#662](https://github.com/leciric/agentbox/issues/662)) ([1237e01](https://github.com/leciric/agentbox/commit/1237e011855e3be7c356c5dcd3f996a27bae81fb))
+* find any chat session with Ctrl+K, jump to tabs with Mod+1…9, and pin and drag session tabs ([#664](https://github.com/leciric/agentbox/issues/664)) ([6445634](https://github.com/leciric/agentbox/commit/6445634baf8ab4739a5b9167bc7f20a85819f49e))
+* fork a chat session from any message, and Continue carries the conversation over ([#660](https://github.com/leciric/agentbox/issues/660)) ([f958528](https://github.com/leciric/agentbox/commit/f9585280e02269ed8b30fd5d39dfa2124dda80d7))
+* phone recordings show a ripple where each tap lands, and stay unedited ([#658](https://github.com/leciric/agentbox/issues/658)) ([e68ce6c](https://github.com/leciric/agentbox/commit/e68ce6c042366a1bfb33f9103c167a28f37944fb))
+* projects with work in progress stand out and come first in the sidebar ([#649](https://github.com/leciric/agentbox/issues/649)) ([6993c14](https://github.com/leciric/agentbox/commit/6993c14cb122834ae5262719b277c53e3f9eb634))
+* Resolved — merge when CI is green, in the review (off by default) ([#651](https://github.com/leciric/agentbox/issues/651)) ([23009fe](https://github.com/leciric/agentbox/commit/23009feb82f5a6de9614082f2e28322b26ba14d8))
+* review media fills its space, and every piece zooms, before/after in sync ([#650](https://github.com/leciric/agentbox/issues/650)) ([7f41f7d](https://github.com/leciric/agentbox/commit/7f41f7d964e459e975fd6dd90555da82d26bde80))
+* search the phone app's projects and sort them by recent activity ([#642](https://github.com/leciric/agentbox/issues/642)) ([fd345a5](https://github.com/leciric/agentbox/commit/fd345a56a48cb73e0148ebe5b8a74ef08d10541e))
+* start any number of agents: they wait On hold for memory and start by themselves, builds wait their turn in every AI tool, and idle agents give their memory back ([#695](https://github.com/leciric/agentbox/issues/695)) ([a0c7f57](https://github.com/leciric/agentbox/commit/a0c7f5781a8a5492a06a7a4333fd4936a5766864))
+* the Home chat hears back when it asks a project's lead something ([#678](https://github.com/leciric/agentbox/issues/678)) ([dad88e4](https://github.com/leciric/agentbox/commit/dad88e477e6df07b8050fe96725be4a9946b5a2c))
+* the native app's composer groups its settings into a few pickers that read as a summary ([#722](https://github.com/leciric/agentbox/issues/722)) ([6cd0dbc](https://github.com/leciric/agentbox/commit/6cd0dbc0db5d6f9b814494f8f5d8e6e61a24dc35))
+* the native Office has a room for every project, with its logo on a carpet ([#724](https://github.com/leciric/agentbox/issues/724)) ([22c1921](https://github.com/leciric/agentbox/commit/22c19213f1ab04540078b061efa9f6af06684e07))
+* the native Office's player eases into walking, turns smoothly and runs with Shift ([#726](https://github.com/leciric/agentbox/issues/726)) ([600e4ec](https://github.com/leciric/agentbox/commit/600e4ec33840540f49e097fc1991c5406721df8f))
+* the native sidebar's header wears the nightly sky and moon badge on nightly builds ([#727](https://github.com/leciric/agentbox/issues/727)) ([c157bf6](https://github.com/leciric/agentbox/commit/c157bf6b21280c73645be9bc6cae8d861733730f))
+* the Office in the native app, drawn with wgpu ([#703](https://github.com/leciric/agentbox/issues/703)) ([07f7012](https://github.com/leciric/agentbox/commit/07f7012652b7d813f8176bb72767df7177207cf4))
+* the Office, a full-screen 3D campus of your projects where you walk to your agents and talk to them at their desks ([#668](https://github.com/leciric/agentbox/issues/668)) ([0241ef7](https://github.com/leciric/agentbox/commit/0241ef7cfd672140aa33f10bb14aeec5c88ab384))
+
+
+### Fixed
+
+* a chat session's colour is a thin border around its chat and its agents, in a calmer palette ([#646](https://github.com/leciric/agentbox/issues/646)) ([5fab3a2](https://github.com/leciric/agentbox/commit/5fab3a27da4c8272cd353e95435d01011b8dc10f))
+* a chat session's colour no longer draws a border around its chat ([#656](https://github.com/leciric/agentbox/issues/656)) ([e3a76dc](https://github.com/leciric/agentbox/commit/e3a76dcc029770c5b329e861a81ffbd841ca4699))
+* a paired phone's card stays inside Settings' column when its address is long ([#648](https://github.com/leciric/agentbox/issues/648)) ([6db788a](https://github.com/leciric/agentbox/commit/6db788a0073d962e2aa12341d6900dca48f2a48a))
+* a project's chat keeps its AgentBox tools when the machine is busy, and its agentbox commands reach the daemon ([#652](https://github.com/leciric/agentbox/issues/652)) ([b4e57b9](https://github.com/leciric/agentbox/commit/b4e57b99ee224c3f1db6748a739839394b447cb7))
+* a project's chat no longer shows as unavailable when you open it right after adding it ([#654](https://github.com/leciric/agentbox/issues/654)) ([35a8389](https://github.com/leciric/agentbox/commit/35a8389b4f67344c4ac160f06c7c10ea075e32da))
+* a pull request that breaks while its agent is stopping still gets the agent told ([#671](https://github.com/leciric/agentbox/issues/671)) ([e5b1dbb](https://github.com/leciric/agentbox/commit/e5b1dbbc7890de36e889b65c93b0f27d6e98bbf5))
+* a retired or stopped agent keeps its finish instead of showing it stopped on an error ([#666](https://github.com/leciric/agentbox/issues/666)) ([9217d51](https://github.com/leciric/agentbox/commit/9217d51e98e88da11c9fe61a717aeaff78d59ba8))
+* agent tools update again after an interrupted update left the base image's copy behind ([#692](https://github.com/leciric/agentbox/issues/692)) ([b723221](https://github.com/leciric/agentbox/commit/b723221b6691116e8228567ab9358a023e5dec42))
+* AgentBox gives your disk back the space its VM frees, keeps agents' Rust builds out of your home folder, and shows what it takes in Settings ([#694](https://github.com/leciric/agentbox/issues/694)) ([f6dddfb](https://github.com/leciric/agentbox/commit/f6dddfb119a9196f3ecd73c9724265ccd0d088a2))
+* AgentBox no longer hangs listing, starting or waking agents while the machine is busy ([#712](https://github.com/leciric/agentbox/issues/712)) ([8c1dc49](https://github.com/leciric/agentbox/commit/8c1dc49b7d6167b6a35e5524d210709748ba9e6f))
+* AgentBox's VM keeps the files its agents keep reading cached, and runs below your desktop ([#683](https://github.com/leciric/agentbox/issues/683)) ([350412a](https://github.com/leciric/agentbox/commit/350412ae59915edebf15a4c059a5cb0a33be770a))
+* agents' AI tools no longer die when a loaded machine holds up Incus, and one that does is resumed and reported ([#653](https://github.com/leciric/agentbox/issues/653)) ([7ade851](https://github.com/leciric/agentbox/commit/7ade85112c1a181d787d736740479d19bd39677b))
+* agents' chats no longer go silent after Claude Code compacts an idle session, and a turn stuck after compacting carries on by itself ([#700](https://github.com/leciric/agentbox/issues/700)) ([65a717b](https://github.com/leciric/agentbox/commit/65a717ba07707fa8d0c16e412baa7eeb5f188013))
+* another project's lead always writes to the project's main chat session, not whichever one is selected ([#655](https://github.com/leciric/agentbox/issues/655)) ([5db6018](https://github.com/leciric/agentbox/commit/5db6018abc88a264eb80a7f1f1ecbb175e28a592))
+* Home leads with New agent, shows each agent's whole status, and drops tiles it can't measure ([#674](https://github.com/leciric/agentbox/issues/674)) ([9859a25](https://github.com/leciric/agentbox/commit/9859a25b340295c881f1b998552fb6629b75ba31))
+* Home's tabs sit beside its title instead of on a second row ([#643](https://github.com/leciric/agentbox/issues/643)) ([bb11c56](https://github.com/leciric/agentbox/commit/bb11c56fa507c613702ddca65ecf177f214cef57))
+* long dialogs keep their buttons in view, and a rendering error shows a way back instead of a black window ([#670](https://github.com/leciric/agentbox/issues/670)) ([b89a5b0](https://github.com/leciric/agentbox/commit/b89a5b06cb25fd830dc7679cf98b981a2ac6df78))
+* Merge and Hand to an agent look like buttons, and Settings says why Export waits and where to sign in ([#677](https://github.com/leciric/agentbox/issues/677)) ([19f7809](https://github.com/leciric/agentbox/commit/19f7809e31d3ad78046ec9fe54635121ecd046ba))
+* merge when CI is green keeps trying through red checks, conflicts and new commits until it merges ([#667](https://github.com/leciric/agentbox/issues/667)) ([53a440a](https://github.com/leciric/agentbox/commit/53a440af98c3ed226833aabe23d5914257ade8d6))
+* native: a review opened from a chat's evidence card works once the agent is a past agent ([#721](https://github.com/leciric/agentbox/issues/721)) ([23b418a](https://github.com/leciric/agentbox/commit/23b418a19fb195c0ad317ee12ebbc0ab81872ccf))
+* native: Ctrl+T shows the new session with its message box focused, and a session list refresh can't undo it ([#729](https://github.com/leciric/agentbox/issues/729)) ([405a8e8](https://github.com/leciric/agentbox/commit/405a8e8d3d76577777a6966385bf7dcc5d95b03c))
+* one agent can no longer take the whole VM: it gets half by default, its disk use yields to AgentBox, and the VM leaves your computer a quarter of its memory ([#689](https://github.com/leciric/agentbox/issues/689)) ([da49233](https://github.com/leciric/agentbox/commit/da49233682c2ff57f3121a113f5395a314a74306))
+* pushing idle agents' memory out no longer leaves runaway reclaim writers, and stopped agents' worktrees aren't rescanned every few minutes ([#709](https://github.com/leciric/agentbox/issues/709)) ([847d5b0](https://github.com/leciric/agentbox/commit/847d5b0a93790cdf44b302b14bbe2de7c156a6f2))
+* Rust builds in agents wait for memory and run fewer jobs when it's short ([#685](https://github.com/leciric/agentbox/issues/685)) ([2124629](https://github.com/leciric/agentbox/commit/212462940a838d13eaf650306b634e07a212b5df))
+* Setup says what skipping a step costs, keeps every step readable, and moves the focus with it ([#675](https://github.com/leciric/agentbox/issues/675)) ([4a81963](https://github.com/leciric/agentbox/commit/4a819635a2d4df0b708c1a5698b1482cd10bfadd))
+* stopped agents no longer hold a copy of their node_modules on the VM's disk ([#669](https://github.com/leciric/agentbox/issues/669)) ([84faf29](https://github.com/leciric/agentbox/commit/84faf29d7f283e52ee98c458433846bed607d245))
+* the chat's composer, pages stack and session tabs fit narrow windows and work from the keyboard ([#673](https://github.com/leciric/agentbox/issues/673)) ([9857bf4](https://github.com/leciric/agentbox/commit/9857bf4d3816d608b5b629c2d515aa6d5c661ee7))
+* the daemon gives memory back, and uses less CPU while the app is open ([#688](https://github.com/leciric/agentbox/issues/688)) ([3489ae5](https://github.com/leciric/agentbox/commit/3489ae536d036757231295b48ec9d0cacb7f30c4))
+* the daemon no longer loses conversation, name and event writes with "database is locked" when several agents are busy ([#698](https://github.com/leciric/agentbox/issues/698)) ([014cc90](https://github.com/leciric/agentbox/commit/014cc90b98ef0c51647b7890b45397d3d5799844))
+* the daemon no longer runs git over every stopped agent's worktree on each fleet poll ([#663](https://github.com/leciric/agentbox/issues/663)) ([8d50735](https://github.com/leciric/agentbox/commit/8d50735328ee796764ed1779d0b016abe0433911))
+* the Home chat starts on machines where Node comes from a mise shim ([#665](https://github.com/leciric/agentbox/issues/665)) ([2067011](https://github.com/leciric/agentbox/commit/2067011ec6d05d5dc67fb6283a0108e40af27b10))
+* the native app finds its updates, and the nightly ships an AppImage and .pacman that start without the distribution's FFmpeg ([#704](https://github.com/leciric/agentbox/issues/704)) ([7697f87](https://github.com/leciric/agentbox/commit/7697f87868d81d7375dbf0c2ba28244d4a1bd64b))
+* the native app no longer fails to open lead sessions when the daemon's socket refuses a connection, and shows logs, files, picture files and HTML reports in Media ([#713](https://github.com/leciric/agentbox/issues/713)) ([e708918](https://github.com/leciric/agentbox/commit/e7089183e2a69a0552ddc039245baacb07a33438))
+* the native app shows agents' desktops, reconnecting by itself and saying why when it can't ([#710](https://github.com/leciric/agentbox/issues/710)) ([88e3afb](https://github.com/leciric/agentbox/commit/88e3afb505c534ba62bca31e47eddfc889fd0f2a))
+* the native app starts or resumes AgentBox's VM when it opens and finds it off ([#728](https://github.com/leciric/agentbox/issues/728)) ([4970060](https://github.com/leciric/agentbox/commit/4970060e67345d25816da1a8a6868aee3581a8f9))
+* the native app starts the daemon when opened from Finder, and Mac notifications no longer ask where to find an app ([#720](https://github.com/leciric/agentbox/issues/720)) ([c045c05](https://github.com/leciric/agentbox/commit/c045c058b552b805d353e792c0405d6e594b940a))
+* the native app's screens match the Electron app's, checked pixel by pixel against it ([#711](https://github.com/leciric/agentbox/issues/711)) ([19bdf45](https://github.com/leciric/agentbox/commit/19bdf45ebf2acb38c157c272432af27e13ba8f07))
+* the native app's update button offers only the app's own update, and says how to update a daemon that is behind ([#719](https://github.com/leciric/agentbox/issues/719)) ([e21669d](https://github.com/leciric/agentbox/commit/e21669d7c9984e04bba09e4a53fe05da48f294da))
+* the Office moves smoothly and its floors no longer flicker ([#723](https://github.com/leciric/agentbox/issues/723)) ([a9fbe1d](https://github.com/leciric/agentbox/commit/a9fbe1dc65691ad143c4d09306fcf74b9bc15156))
+* the phone app reconnects by itself after the phone is unlocked or its network comes back ([#644](https://github.com/leciric/agentbox/issues/644)) ([82d8349](https://github.com/leciric/agentbox/commit/82d8349014ced6d81dff8844ba9ec49c2cc074a0))
+* the phone's tunnel link shows only while it works, and a dead tunnel starts again ([#691](https://github.com/leciric/agentbox/issues/691)) ([87b2ca9](https://github.com/leciric/agentbox/commit/87b2ca92b33fe85514d2fdbfea80bab0a3bf2d89))
+* the project's chat no longer stalls waiting on a hidden approval for its own agent tools ([#680](https://github.com/leciric/agentbox/issues/680)) ([0b7ebd8](https://github.com/leciric/agentbox/commit/0b7ebd8ade867b01034cae947c17ed219ec0dd05))
+* the project's settings button in the sidebar closes Settings when they are already open ([#647](https://github.com/leciric/agentbox/issues/647)) ([35ad628](https://github.com/leciric/agentbox/commit/35ad628cbac89dbb6d01c134a5ebba69a4e4d3a7))
+* the review shows phone, square and ultra-wide media at their own shape, without bars or stretching ([#682](https://github.com/leciric/agentbox/issues/682)) ([60af053](https://github.com/leciric/agentbox/commit/60af053aa14b91f925de46c5cc8050d8ca7b64fc))
+* Work, Recap and the agent list read correctly with a keyboard or screen reader, and Work rows say their status once ([#676](https://github.com/leciric/agentbox/issues/676)) ([c49fb1b](https://github.com/leciric/agentbox/commit/c49fb1b8a1a93f08033c32c6deb7fd3ab61d266f))
+* your computer comes first: agents' builds wait while it is busy, and the app never waits on the daemon ([#693](https://github.com/leciric/agentbox/issues/693)) ([cfdd436](https://github.com/leciric/agentbox/commit/cfdd43649a17e4b889f47fe483a5dba4d6e3810f))
+
+
+### Changed
+
+* remove the Ask, Watch, Review prototype navigation ([#672](https://github.com/leciric/agentbox/issues/672)) ([37e02b9](https://github.com/leciric/agentbox/commit/37e02b9c192f501c9a2ced1323095cd8fba941f1))
+
 ## [0.17.0](https://github.com/leciric/agentbox/compare/v0.16.0...v0.17.0) (2026-11-01)
 
 
