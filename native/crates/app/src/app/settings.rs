@@ -487,6 +487,14 @@ fn minutes_words(seconds: i64) -> String {
     }
 }
 
+impl SettingsPage {
+    /// nightly is the update check's word that this is a nightly (as the
+    /// sidebar's own test in Electron).
+    pub(super) fn nightly(&self) -> bool {
+        self.update.as_ref().is_some_and(|u| u.nightly)
+    }
+}
+
 impl AppView {
     /// load_settings_page reads what the page shows, as it opens and when
     /// the daemon says the theme or the update status changed.

@@ -22,6 +22,7 @@ mod icons;
 mod media;
 mod mermaid;
 mod motion;
+mod nightly;
 mod notices;
 mod office;
 mod prefs;

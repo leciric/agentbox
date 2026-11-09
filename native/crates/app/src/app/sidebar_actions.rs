@@ -148,11 +148,18 @@ impl AppView {
                             }),
                     )
             });
+        let app_version = crate::update::app_version();
+        let nightly = crate::nightly::is_nightly(self.conn.version.as_deref())
+            || crate::nightly::is_nightly(app_version)
+            || self.settings_page.nightly();
+        let shown = self.conn.version.clone().or(app_version.map(str::to_string));
         h_flex()
+            .relative()
             .h(px(56.))
             .flex_none()
             .px_4()
             .gap_2()
+            .when(nightly, |el| el.child(crate::nightly::sky(56.)))
             .child(theme::logo(px(28.)))
             .child(
                 div()
@@ -161,6 +168,15 @@ impl AppView {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("AgentBox"),
             )
+            .when(nightly, |el| {
+                el.child(crate::nightly::badge(tv(
+                    "shell.sidebar.nightlyTip",
+                    &[(
+                        "version",
+                        shown.map(|v| format!(", {v}")).unwrap_or_default().into(),
+                    )],
+                )))
+            })
             // Electron says nothing while connected; native marks a lost daemon.
             .when(!self.connected, |el| {
                 el.child(div().ml_1().size_2().rounded_full().bg(theme::error()))
@@ -1447,7 +1463,6 @@ impl AppView {
         glyph_button("update-check", "refresh-cw", 16., 8., label)
             .rounded_lg()
             .text_color(theme::muted())
-            .hover(|el| el.bg(theme::surface()).text_color(theme::primary()))
             .when(self.side.checking, |el| el.opacity(0.5))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.check_update(cx)))
             .into_any_element()
