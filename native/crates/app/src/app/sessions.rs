@@ -589,6 +589,16 @@ impl AppView {
     }
 
     fn focus_lead_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The chat may be opened again within moments (session_shown): the
+        // one that stays takes the cursor too.
+        self.focus_lead = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(2))
+                .await;
+            this.update(cx, |this, _| this.focus_lead = false).ok();
+        })
+        .detach();
         if let Some(chat) = &self.chat {
             chat.update(cx, |c, cx| c.focus_composer(window, cx));
         }

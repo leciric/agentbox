@@ -132,6 +132,9 @@ pub struct AppView {
     sessions: sessions::Sessions,
     /// The lead's chat should show another session: opened on the next frame.
     reopen_lead: bool,
+    /// The lead's chat opened in the next moments takes the cursor in its
+    /// message box (a new session: it may open twice, see session_shown).
+    pub(crate) focus_lead: bool,
     /// The doctor's check being handed to the Home chat.
     asking_home: Option<String>,
     _chat_sub: Option<Subscription>,
@@ -224,6 +227,7 @@ impl AppView {
             alerts: Default::default(),
             sessions: sessions::Sessions::new(window, cx),
             reopen_lead: false,
+            focus_lead: false,
             asking_home: None,
             _chat_sub: None,
             _subs: vec![search_sub, views_sub],
@@ -663,10 +667,14 @@ impl AppView {
             self.open.clone()
         };
         let draft = self.side.drafts.get(&agent).cloned();
+        let focus = self.focus_lead && self.open == "lead";
         let chat = cx.new(|cx| {
             let mut c = ChatView::new(client, prefix, agent, title.into(), window, cx);
             c.header = header;
             c.agent_name = name;
+            if focus {
+                c.focus_next = true;
+            }
             if let Some(d) = &draft {
                 c.set_draft(d, window, cx);
             }
