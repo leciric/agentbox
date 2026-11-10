@@ -1687,7 +1687,10 @@ impl AppView {
                             mine.into_iter().map(|r| {
                                 crate::motion::arrive(
                                     div().child(self.list_row(r, r.agent.name == active, cx)),
-                                    &format!("panel-list-{project_label}"),
+                                    &format!(
+                                        "panel-list-{}",
+                                        self.project.as_deref().unwrap_or("")
+                                    ),
                                     &format!("{}@{g:?}", r.agent.name),
                                 )
                             }),

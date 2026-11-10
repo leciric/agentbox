@@ -1252,10 +1252,14 @@ fn icon_button(id: &'static str, glyph: &'static str, tip: String) -> Stateful<D
             gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
         })
         // A mark the app drew before (↻), or an icon by its name.
-        .child(match crate::icons::lucide(glyph) {
-            Some(_) => crate::icons::of(glyph),
-            None => crate::icons::ic(glyph).into_any_element(),
-        })
+        .child(
+            if glyph.len() > 1 && glyph.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+                crate::icons::ic(glyph).into_any_element()
+            } else {
+                // A mark the app drew, or plain text (the PDF's + and −).
+                crate::icons::of(glyph)
+            },
+        )
 }
 
 /// encode escapes a query value.

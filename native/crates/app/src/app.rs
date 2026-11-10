@@ -1259,11 +1259,6 @@ impl Render for AppView {
                 if ev.keystroke.key == "escape" && this.dismiss_top(cx) {
                     cx.stop_propagation();
                 }
-                if ev.keystroke.modifiers.control && ev.keystroke.key == "/" {
-                    this.side.dialog = Some(sidebar_dialogs::Dialog::Keys);
-                    cx.notify();
-                    cx.stop_propagation();
-                }
                 // Ctrl+D folds the panel to its strip and back (a terminal's
                 // or a controlled desktop's own keys stop before here).
                 if ev.keystroke.modifiers.control

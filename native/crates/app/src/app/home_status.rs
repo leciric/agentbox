@@ -194,7 +194,7 @@ fn stat(
         .border_color(theme::line_faint())
         .px_4()
         .py_3()
-        .child(caption(div()).child(label))
+        .child(caption(div()).child(label.clone()))
         .child(
             h_flex()
                 .mt(px(6.))
@@ -236,7 +236,9 @@ fn stat(
                                 linear_color_stop(theme::brand(400), 0.),
                                 linear_color_stop(theme::sky(400), 1.),
                             )),
-                            "home-progress-fill",
+                            // Each meter its own: one id would have
+                            // CPU and memory share a spring.
+                            SharedString::from(format!("home-progress-fill-{label}")),
                             p / 100.,
                         ))
                     }),

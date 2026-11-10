@@ -151,6 +151,9 @@ pub(crate) fn btn(
 }
 
 pub struct ChatView {
+    /// Counts the glides to the end and whatever else moves the chat on
+    /// purpose: a glide that isn't the latest stops where it is.
+    glide: u64,
     client: Client,
     /// The API prefix of this chat: /v1/projects/<p>[/sessions/<s>] (the
     /// lead) or /v1/agents/<p>/<a>.
@@ -318,6 +321,7 @@ impl ChatView {
             loading_older: false,
             newer: false,
             at_end: true,
+            glide: 0,
             find: None,
             focus: cx.focus_handle(),
             _tick: None,
@@ -768,6 +772,7 @@ impl ChatView {
     /// reveal shows an item: scrolled to where it's held, else read around it.
     pub fn reveal(&mut self, id: String, cx: &mut Context<Self>) {
         if let Some(ix) = self.row_of(&id) {
+            self.glide += 1;
             self.list.set_follow_mode(FollowMode::Normal);
             self.list.scroll_to_reveal_item(ix);
             self.at_end = false;
@@ -805,6 +810,8 @@ impl ChatView {
             self.land_at_end(cx);
             return;
         }
+        self.glide += 1;
+        let mine = self.glide;
         cx.spawn(async move |this, cx| {
             let (start, mut gone) = (std::time::Instant::now(), 0f32);
             loop {
@@ -814,16 +821,30 @@ impl ChatView {
                 let t =
                     (start.elapsed().as_secs_f32() / crate::motion::NORMAL.as_secs_f32()).min(1.);
                 let want = total * crate::motion::ease_out(t);
-                list.scroll_by(px(want - gone));
-                gone = want;
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                // Something else has moved the chat since (a message
+                // revealed, another glide): leave it where that put it.
+                let still = this.update(cx, |this, cx| {
+                    let still = this.glide == mine;
+                    if still {
+                        list.scroll_by(px(want - gone));
+                        cx.notify();
+                    }
+                    still
+                });
+                if !still.unwrap_or(false) {
                     return;
                 }
+                gone = want;
                 if t >= 1. {
                     break;
                 }
             }
-            this.update(cx, |this, cx| this.land_at_end(cx)).ok();
+            this.update(cx, |this, cx| {
+                if this.glide == mine {
+                    this.land_at_end(cx)
+                }
+            })
+            .ok();
         })
         .detach();
     }
