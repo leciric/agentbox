@@ -14,7 +14,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
-use super::controls::{Btn, button, note_in};
+use super::controls::{Btn, button};
 use crate::theme;
 
 #[derive(Default)]
@@ -390,7 +390,7 @@ impl AppView {
                 )
                 .child(self.job_progress(&i.job))
                 .when_some(self.topbar.retry_error.clone(), |el, e| {
-                    el.child(note_in(e, theme::error()))
+                    el.child(crate::app::controls::error_line(e))
                 })
                 .when(failed, |el| {
                     el.child(h_flex().justify_end().child(button(

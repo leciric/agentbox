@@ -1151,7 +1151,7 @@ impl AppView {
                                 el.child(note_in(said.clone(), theme::emerald(300)))
                             })
                             .when_some(acc.errors.get(e.id), |el, err| {
-                                el.child(note_in(err.clone(), theme::rose(300)))
+                                el.child(crate::app::controls::error_line(err.clone()))
                             }),
                     ),
             )
@@ -1590,7 +1590,7 @@ impl AppView {
                     )
                     .when(failed, |el| {
                         el.when_some(st.as_ref().map(|s| s.error.clone()), |el, e| {
-                            el.child(note_in(e, theme::rose(300)))
+                            el.child(crate::app::controls::error_line(e))
                         })
                     })
                     .when_some(code_url.filter(|_| running), |el, code_url| {

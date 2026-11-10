@@ -1788,7 +1788,7 @@ impl AppView {
         let st = &self.settings_page.stopped;
         let preview = match &st.loaded {
             None => v_flex().child(note(t("defaults.newAgent.removeStoppedChecking"))),
-            Some(Err(err)) => v_flex().child(note_in(err.clone(), theme::rose(300))),
+            Some(Err(err)) => v_flex().child(crate::app::controls::error_line(err.clone())),
             Some(Ok(m)) => {
                 let removable: Vec<_> =
                     m.machines.iter().filter(|m| !m.remove.is_empty()).collect();

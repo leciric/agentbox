@@ -644,7 +644,7 @@ impl AppView {
         } else if let Some((e, c)) = &d.error
             && c != ERROR_BAD_REPO_URL
         {
-            body.push(controls::note_in(e.clone(), theme::error()));
+            body.push(controls::error_line(e.clone()));
         }
         let pending = busy;
         let label = match mode {
@@ -934,7 +934,7 @@ pub(super) fn job_log(lines: &[String], job: Option<&Job>) -> AnyElement {
     v_flex()
         .gap_1()
         .when_some(job.filter(|j| !j.error.is_empty()), |el, j| {
-            el.child(controls::note_in(j.error.clone(), theme::error()))
+            el.child(controls::error_line(j.error.clone()))
         })
         .child(
             div()

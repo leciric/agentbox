@@ -309,6 +309,15 @@ impl Action {
         })
     }
 
+    /// icon is its Lucide icon, for a menu.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Action::Pause => "pause",
+            Action::Resume | Action::Start => "play",
+            Action::Stop => "circle-stop",
+        }
+    }
+
     /// primary is the one that brings it back, the header's button.
     pub fn primary(self) -> bool {
         matches!(self, Action::Resume | Action::Start)

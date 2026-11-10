@@ -485,7 +485,7 @@ impl AppView {
                     )),
             )
             .when_some(d.spans.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                el.child(note_in(e.clone(), theme::rose(300)))
+                el.child(crate::app::controls::error_line(e.clone()))
             })
             .when(spans.is_some_and(|s| s.dropped > 0), |el| {
                 el.child(note_in(
@@ -593,7 +593,7 @@ impl AppView {
                 t("diagnostics.stalls.description"),
             ))
             .child(match &d.stalls {
-                Some(Err(e)) => empty_line(e.clone()),
+                Some(Err(e)) => super::super::controls::error_line(e.clone()),
                 _ if stall_list.is_empty() => empty_line(if d.stalls.is_none() {
                     t("common.loading")
                 } else {
@@ -804,7 +804,7 @@ impl AppView {
             .gap_2()
             .child(heading(t("diagnostics.pkgcache.title"), description))
             .when_some(d.cache.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                el.child(note_in(e.clone(), theme::rose(300)))
+                el.child(crate::app::controls::error_line(e.clone()))
             })
             .child(if parts.is_empty() {
                 empty_line(if d.cache.is_none() {
@@ -862,7 +862,7 @@ impl AppView {
                 t("diagnostics.files.description"),
             ))
             .when_some(d.files.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                el.child(note_in(e.clone(), theme::rose(300)))
+                el.child(crate::app::controls::error_line(e.clone()))
             })
             .when(f.is_some_and(|f| f.waiting), |el| {
                 el.child(note_in(t("diagnostics.files.waiting"), theme::amber(300)))
@@ -1042,7 +1042,7 @@ impl AppView {
                     )),
             )
             .child(match &d.resources {
-                Some(Err(e)) => empty_line(e.clone()),
+                Some(Err(e)) => super::super::controls::error_line(e.clone()),
                 None => empty_line(t("common.loading")),
                 Some(Ok(_)) if rows.is_empty() => card("diag-resources-empty")
                     .items_center()

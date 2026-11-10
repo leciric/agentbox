@@ -2767,35 +2767,45 @@ impl AppView {
                     let mut menu = menu
                         .min_w(px(220.))
                         .label(display.clone())
-                        .item(PopupMenuItem::new(t("chat.tab.newChat")).on_click(act(
-                            |this, n, _, cx| {
-                                this.side.dialog =
-                                    Some(super::sidebar_dialogs::Dialog::NewChat { project: n });
-                                cx.notify();
-                            },
-                        )))
                         .item(
-                            PopupMenuItem::new(t("group.menu.fanOut")).on_click(act(
-                                |this, n, window, cx| this.open_fan_out(n, window, cx),
-                            )),
+                            PopupMenuItem::new(t("chat.tab.newChat"))
+                                .icon(crate::icons::ic("plus"))
+                                .on_click(act(|this, n, _, cx| {
+                                    this.side.dialog =
+                                        Some(super::sidebar_dialogs::Dialog::NewChat {
+                                            project: n,
+                                        });
+                                    cx.notify();
+                                })),
+                        )
+                        .item(
+                            PopupMenuItem::new(t("group.menu.fanOut"))
+                                .icon(crate::icons::ic("split"))
+                                .on_click(act(|this, n, window, cx| {
+                                    this.open_fan_out(n, window, cx)
+                                })),
                         );
                     if others {
-                        menu = menu.item(PopupMenuItem::new(t("v2.talk.button")).on_click(act(
-                            |this, n, _, cx| {
-                                this.side.dialog =
-                                    Some(super::sidebar_dialogs::Dialog::Talk { project: n });
-                                cx.notify();
-                            },
-                        )));
+                        menu = menu.item(
+                            PopupMenuItem::new(t("v2.talk.button"))
+                                .icon(crate::icons::ic("message-circle"))
+                                .on_click(act(|this, n, _, cx| {
+                                    this.side.dialog =
+                                        Some(super::sidebar_dialogs::Dialog::Talk { project: n });
+                                    cx.notify();
+                                })),
+                        );
                     }
                     menu = menu
-                        .item(PopupMenuItem::new(t("panel.view.pulls")).on_click(act(
-                            |this, _, _, cx| {
-                                this.pulls.tab = RailTab::Pulls;
-                                this.load_pulls(false, cx);
-                                cx.notify();
-                            },
-                        )))
+                        .item(
+                            PopupMenuItem::new(t("panel.view.pulls"))
+                                .icon(crate::icons::ic("git-pull-request"))
+                                .on_click(act(|this, _, _, cx| {
+                                    this.pulls.tab = RailTab::Pulls;
+                                    this.load_pulls(false, cx);
+                                    cx.notify();
+                                })),
+                        )
                         .separator()
                         .item(
                             PopupMenuItem::new(if pinned {
@@ -2803,44 +2813,55 @@ impl AppView {
                             } else {
                                 t("v2.sidebar.pin")
                             })
+                            .icon(crate::icons::ic("pin"))
                             .on_click(act(|this, n, _, cx| this.toggle_pin(&n, cx))),
                         )
                         .item(
-                            PopupMenuItem::new(t("v2.sidebar.projectSettings")).on_click(act(
-                                |this, n, window, cx| {
+                            PopupMenuItem::new(t("v2.sidebar.projectSettings"))
+                                .icon(crate::icons::ic("settings"))
+                                .on_click(act(|this, n, window, cx| {
                                     this.open_settings_at(format!("project:{n}"), window, cx)
-                                },
-                            )),
+                                })),
                         );
                     let (v, n, r) = (view.clone(), menu_project.clone(), root.clone());
                     menu.submenu(t("common.more"), window, cx, move |m, _, _| {
                         let (v1, v2, v3) = (v.clone(), v.clone(), v.clone());
                         let (n1, n2, n3, r) = (n.clone(), n.clone(), n.clone(), r.clone());
-                        m.item(PopupMenuItem::new(t("projectIcon.change")).on_click(
-                            move |_, window, cx| {
-                                let n = n1.clone();
-                                v1.update(cx, |this, cx| this.open_icon_dialog(n, window, cx))
-                                    .ok();
-                            },
-                        ))
-                        .item(PopupMenuItem::new(t("project.view.openFolder")).on_click(
-                            move |_, _, cx| cx.open_with_system(std::path::Path::new(&r)),
-                        ))
-                        .item(PopupMenuItem::new(t("v2.menu.agentYourself")).on_click(
-                            move |_, window, cx| {
-                                let n = n2.clone();
-                                v2.update(cx, |this, cx| this.open_new_agent(n, window, cx))
-                                    .ok();
-                            },
-                        ))
+                        m.item(
+                            PopupMenuItem::new(t("projectIcon.change"))
+                                .icon(crate::icons::ic("image"))
+                                .on_click(move |_, window, cx| {
+                                    let n = n1.clone();
+                                    v1.update(cx, |this, cx| this.open_icon_dialog(n, window, cx))
+                                        .ok();
+                                }),
+                        )
                         .item(
-                            PopupMenuItem::new(t("work.title")).on_click(move |_, window, cx| {
-                                let n = n3.clone();
-                                v3.update(cx, |this, cx| {
-                                    this.open_work(n, String::new(), window, cx)
-                                })
-                                .ok();
-                            }),
+                            PopupMenuItem::new(t("project.view.openFolder"))
+                                .icon(crate::icons::ic("folder-open"))
+                                .on_click(move |_, _, cx| {
+                                    cx.open_with_system(std::path::Path::new(&r))
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new(t("v2.menu.agentYourself"))
+                                .icon(crate::icons::ic("bot"))
+                                .on_click(move |_, window, cx| {
+                                    let n = n2.clone();
+                                    v2.update(cx, |this, cx| this.open_new_agent(n, window, cx))
+                                        .ok();
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new(t("work.title"))
+                                .icon(crate::icons::ic("list-todo"))
+                                .on_click(move |_, window, cx| {
+                                    let n = n3.clone();
+                                    v3.update(cx, |this, cx| {
+                                        this.open_work(n, String::new(), window, cx)
+                                    })
+                                    .ok();
+                                }),
                         )
                     })
                 }

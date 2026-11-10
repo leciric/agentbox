@@ -463,6 +463,7 @@ impl ChatView {
                                     } else {
                                         t("chat.turn.rollBackHere")
                                     })
+                                    .icon(crate::icons::ic("undo-2"))
                                     .disabled(latest)
                                     .on_click(
                                         move |_, _, cx| {
@@ -476,16 +477,16 @@ impl ChatView {
                                     ),
                                 )
                                 .item(
-                                    PopupMenuItem::new(t("chat.turn.forkHere")).on_click(
-                                        move |_, _, cx| {
+                                    PopupMenuItem::new(t("chat.turn.forkHere"))
+                                        .icon(crate::icons::ic("git-fork"))
+                                        .on_click(move |_, _, cx| {
                                             fork.update(cx, |_, cx| {
                                                 cx.emit(ChatAction::Fork {
                                                     checkpoint: fid.clone(),
                                                     n,
                                                 })
                                             })
-                                        },
-                                    ),
+                                        }),
                                 )
                             }),
                     )
@@ -533,22 +534,25 @@ impl ChatView {
         el.context_menu(move |menu, _, _| {
             let text = text.clone();
             // The menu closes on the click: a toast says it copied (MessageMenu's).
-            let menu = menu.item(PopupMenuItem::new(t("chat.message.copy")).on_click(
-                move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-                    crate::toasts::info(cx, t("common.copied"));
-                },
-            ));
+            let menu = menu.item(
+                PopupMenuItem::new(t("chat.message.copy"))
+                    .icon(crate::icons::ic("copy"))
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                        crate::toasts::info(cx, t("common.copied"));
+                    }),
+            );
             if !lead {
                 return menu;
             }
             let (v, id) = (v.clone(), id.clone());
-            menu.separator()
-                .item(
-                    PopupMenuItem::new(t("chat.message.fork")).on_click(move |_, _, cx| {
+            menu.separator().item(
+                PopupMenuItem::new(t("chat.message.fork"))
+                    .icon(crate::icons::ic("git-fork"))
+                    .on_click(move |_, _, cx| {
                         v.update(cx, |_, cx| cx.emit(ChatAction::ForkSession(id.clone())))
                     }),
-                )
+            )
         })
         .into_any_element()
     }

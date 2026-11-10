@@ -400,7 +400,15 @@ impl AppView {
                         },
                         true,
                     ),
-                    (t("agent.overview.instance"), a.instance.clone(), true),
+                    (
+                        t("agent.overview.instance"),
+                        if a.instance.is_empty() {
+                            dash()
+                        } else {
+                            a.instance.clone()
+                        },
+                        true,
+                    ),
                     (
                         t("agent.overview.startedFrom"),
                         if a.source.is_empty() {
@@ -690,7 +698,7 @@ impl AppView {
         let mut own: Vec<AnyElement> = Vec::new();
         match &s.secrets {
             None => own.push(super::panel::loading("agent_settings")),
-            Some(Err(e)) => own.push(controls::note_in(e.clone(), theme::rose(300))),
+            Some(Err(e)) => own.push(controls::error_line(e.clone())),
             Some(Ok(_)) if mine.is_empty() => own.push(
                 div()
                     .text_xs()
@@ -712,7 +720,7 @@ impl AppView {
     fn settings_connectors(&self, cx: &mut Context<Self>) -> AnyElement {
         let list = match &self.agent_settings.connectors {
             None => return super::panel::loading("agent_settings"),
-            Some(Err(e)) => return controls::note_in(e.clone(), theme::rose(300)),
+            Some(Err(e)) => return controls::error_line(e.clone()),
             Some(Ok(l)) => l.clone(),
         };
         let (project, mine): (Vec<Connector>, Vec<Connector>) =

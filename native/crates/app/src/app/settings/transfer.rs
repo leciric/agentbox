@@ -529,7 +529,7 @@ impl AppView {
                 return row.render();
             }
             Some(Err(err)) => {
-                row.body.push(note_in(err.clone(), theme::rose(300)));
+                row.body.push(crate::app::controls::error_line(err.clone()));
                 return row.render();
             }
             Some(Ok(p)) => p,
@@ -748,7 +748,7 @@ impl AppView {
                 .into_any_element(),
         );
         if let Some(e) = &tr.export_error {
-            row.body.push(note_in(e.clone(), theme::rose(300)));
+            row.body.push(crate::app::controls::error_line(e.clone()));
         }
         if let Some(j) = &tr.export_job {
             row.body.push(self.job_progress(j));
@@ -799,7 +799,7 @@ impl AppView {
                 .into_any_element(),
         );
         if let Some(e) = &tr.inspect_error {
-            row.body.push(note_in(e.clone(), theme::rose(300)));
+            row.body.push(crate::app::controls::error_line(e.clone()));
         }
         if let Some(c) = &tr.contents {
             row.body.push(note(tv(
@@ -948,7 +948,7 @@ impl AppView {
             );
         }
         if let Some(e) = &tr.import_error {
-            row.body.push(note_in(e.clone(), theme::rose(300)));
+            row.body.push(crate::app::controls::error_line(e.clone()));
         }
         if let Some(j) = &tr.import_job {
             row.body.push(self.job_progress(j));

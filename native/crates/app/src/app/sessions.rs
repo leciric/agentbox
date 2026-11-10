@@ -434,10 +434,10 @@ impl AppView {
                 .get::<SessionOutput>(&format!("/v1/projects/{project}/sessions/{id}/output"))
                 .await;
             this.update(cx, |this, cx| {
-                if let Ok(o) = res {
-                    this.sessions.output.insert(id, o);
-                    cx.notify();
-                }
+                // A failed read is no agents, not "Loading…" for good; the
+                // next status event asks again.
+                this.sessions.output.insert(id, res.unwrap_or_default());
+                cx.notify();
             })
             .ok();
         })
@@ -1131,6 +1131,7 @@ impl AppView {
                         } else {
                             t("sessions.pin")
                         })
+                        .icon(crate::icons::ic("pin"))
                         .on_click(move |_, _, cx| {
                             v1.update(cx, |this, cx| {
                                 this.patch_session(
@@ -1146,20 +1147,29 @@ impl AppView {
                             .ok();
                         }),
                     )
-                    .item(PopupMenuItem::new(t("sessions.rename")).on_click(
-                        move |_, window, cx| {
-                            v2.update(cx, |this, cx| this.rename_session(&s2, window, cx))
-                                .ok();
-                        },
-                    ))
+                    .item(
+                        PopupMenuItem::new(t("sessions.rename"))
+                            .icon(crate::icons::ic("pencil"))
+                            .on_click(move |_, window, cx| {
+                                v2.update(cx, |this, cx| this.rename_session(&s2, window, cx))
+                                    .ok();
+                            }),
+                    )
                     .separator()
                     .item(
-                        PopupMenuItem::new(t("sessions.close")).on_click(move |_, window, cx| {
-                            v3.update(cx, |this, cx| {
-                                this.close_session(s3.project.clone(), s3.id.clone(), window, cx)
-                            })
-                            .ok();
-                        }),
+                        PopupMenuItem::new(t("sessions.close"))
+                            .icon(crate::icons::ic("x"))
+                            .on_click(move |_, window, cx| {
+                                v3.update(cx, |this, cx| {
+                                    this.close_session(
+                                        s3.project.clone(),
+                                        s3.id.clone(),
+                                        window,
+                                        cx,
+                                    )
+                                })
+                                .ok();
+                            }),
                     )
                 })
                 .into_any_element()
@@ -1236,6 +1246,7 @@ impl AppView {
                                                 )]
                                             )
                                         ))
+                                        .icon(crate::icons::ic("alarm-clock"))
                                         .on_click(
                                             move |_, window, cx| {
                                                 v.update(cx, |this, cx| {

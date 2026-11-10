@@ -10,7 +10,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, note_in};
+use super::super::controls::{Btn, button};
 use super::kit::{badge, note};
 use crate::theme;
 
@@ -239,7 +239,7 @@ impl AppView {
         };
         let body: Vec<AnyElement> = match pending {
             None => vec![super::super::panel::loading("sent")],
-            Some(Err(e)) => vec![note_in(e.clone(), theme::rose(300))],
+            Some(Err(e)) => vec![crate::app::controls::error_line(e.clone())],
             Some(Ok(p)) if !p.on => vec![note(t("settings.usageStats.sentOff"))],
             Some(Ok(p))
                 if p.usage.is_empty()

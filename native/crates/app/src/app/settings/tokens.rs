@@ -16,7 +16,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, note_in};
+use super::super::controls::{Btn, button};
 use super::defaults::time_ago;
 use super::kit::enc;
 use super::kit::note;
@@ -468,7 +468,7 @@ impl AppView {
         let body: AnyElement = match &tk.report {
             _ if tk.project != project => super::super::panel::loading("tokens"),
             None => super::super::panel::loading("tokens"),
-            Some(Err(e)) => note_in(e.clone(), theme::rose(300)),
+            Some(Err(e)) => crate::app::controls::error_line(e.clone()),
             Some(Ok(r)) if r.agents.is_empty() => super::kit::panel(v_flex())
                 .items_center()
                 .gap_1()
@@ -1106,7 +1106,7 @@ impl AppView {
         });
         let turns: AnyElement = match self.settings_page.tokens.turns.get(&a.r#ref) {
             None => super::super::panel::loading("agent-tokens"),
-            Some(Err(e)) => note_in(e.clone(), theme::rose(300)),
+            Some(Err(e)) => crate::app::controls::error_line(e.clone()),
             Some(Ok(list)) if list.is_empty() => note(t("vm.tokens.noneInStretch")),
             Some(Ok(list)) => {
                 let col = |text: String, w: f32| {

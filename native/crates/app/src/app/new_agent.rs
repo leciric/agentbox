@@ -885,7 +885,7 @@ impl AppView {
             ));
         }
         if let Some(e) = &d.error {
-            body.push(controls::note_in(e.clone(), theme::error()));
+            body.push(controls::error_line(e.clone()));
         }
         // The same work on several agents at once, to compare.
         let compare = controls::button(
@@ -954,7 +954,9 @@ impl AppView {
             Some(field(
                 t("project.newAgent.fromLabel"),
                 Input::new(&d.from).into_any_element(),
-                selected.map(|p| {
+                // No "Default:" with nothing after it for a project whose
+                // branch isn't known.
+                selected.filter(|p| !p.branch.is_empty()).map(|p| {
                     tv(
                         "project.newAgent.fromHint",
                         &[("branch", p.branch.clone().into())],

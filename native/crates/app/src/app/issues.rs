@@ -166,7 +166,7 @@ impl AppView {
     pub(super) fn render_issues(&self, cx: &mut Context<Self>) -> AnyElement {
         let body: AnyElement = match &self.issues.data {
             None => super::panel::loading("issues"),
-            Some(Err(e)) => controls::note_in(e.clone(), theme::error()),
+            Some(Err(e)) => controls::error_line(e.clone()),
             Some(Ok(d)) if d.github.is_empty() && d.github_error.is_none() => {
                 empty_state(t("issues.noRepo.title"), t("issues.noRepo.body"))
             }

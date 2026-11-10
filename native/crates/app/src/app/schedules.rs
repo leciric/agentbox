@@ -789,7 +789,7 @@ impl AppView {
         );
         match &s.list {
             None => body = body.child(super::panel::loading("schedules")),
-            Some(Err(e)) => body = body.child(controls::note_in(e.clone(), theme::error())),
+            Some(Err(e)) => body = body.child(controls::error_line(e.clone())),
             Some(Ok(list)) if list.is_empty() => {
                 body = body.child(
                     v_flex()
@@ -1552,7 +1552,7 @@ impl AppView {
             ));
         }
         if let Some(e) = &s.error {
-            body.push(controls::note_in(e.clone(), theme::error()));
+            body.push(controls::error_line(e.clone()));
         }
         let scroll = vec![
             div()

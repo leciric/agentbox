@@ -339,6 +339,19 @@ pub fn button(
     disabled: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
+    button_at(id, label, kind, disabled, None, on_click)
+}
+
+/// button_at is a button whose focus is the caller's to give and to ask
+/// after (a dialog's, which keeps Tab between its own).
+pub fn button_at(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    kind: Btn,
+    disabled: bool,
+    focus: Option<&FocusHandle>,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     let label: SharedString = label.into();
     // A button that is only a mark says what it does on hover.
     let tip = glyph_tip(&label);
@@ -374,26 +387,29 @@ pub fn button(
         .when(!disabled, |el| {
             // Reached with Tab and pressed with Enter or Space, wearing
             // Electron's focus-visible ring while the keyboard is on it.
-            el.tab_index(0)
-                .focus_visible(|s| s.shadow(focus_ring()))
-                .cursor_pointer()
-                .hover(move |s| match kind {
-                    Btn::Primary => s.bg(theme::brand(600)),
-                    Btn::Danger => s.bg(theme::destructive(1)),
-                    Btn::DangerQuiet => s
-                        .bg(theme::rose(400).opacity(0.1))
-                        .text_color(theme::rose(200)),
-                    Btn::Ghost => s.bg(theme::surface_raised()).text_color(theme::primary()),
-                    Btn::Secondary => s.bg(theme::surface_strong()),
-                })
-                .active(move |s| match kind {
-                    Btn::Primary => s.bg(theme::brand(700)),
-                    Btn::Danger => s.bg(theme::destructive(2)),
-                    Btn::DangerQuiet => s.bg(theme::rose(400).opacity(0.2)),
-                    Btn::Ghost => s.bg(theme::surface_strong()),
-                    Btn::Secondary => s.bg(theme::surface_vivid()),
-                })
-                .on_click(on_click)
+            match focus {
+                Some(handle) => el.track_focus(handle),
+                None => el.tab_index(0),
+            }
+            .focus_visible(|s| s.shadow(focus_ring()))
+            .cursor_pointer()
+            .hover(move |s| match kind {
+                Btn::Primary => s.bg(theme::brand(600)),
+                Btn::Danger => s.bg(theme::destructive(1)),
+                Btn::DangerQuiet => s
+                    .bg(theme::rose(400).opacity(0.1))
+                    .text_color(theme::rose(200)),
+                Btn::Ghost => s.bg(theme::surface_raised()).text_color(theme::primary()),
+                Btn::Secondary => s.bg(theme::surface_strong()),
+            })
+            .active(move |s| match kind {
+                Btn::Primary => s.bg(theme::brand(700)),
+                Btn::Danger => s.bg(theme::destructive(2)),
+                Btn::DangerQuiet => s.bg(theme::rose(400).opacity(0.2)),
+                Btn::Ghost => s.bg(theme::surface_strong()),
+                Btn::Secondary => s.bg(theme::surface_vivid()),
+            })
+            .on_click(on_click)
         })
         .child(crate::icons::glyph(label))
         .into_any_element()
@@ -900,6 +916,34 @@ pub fn note_in(text: impl Into<SharedString>, color: Hsla) -> AnyElement {
         .into_any_element()
 }
 
+/// error_line is what went wrong, the same everywhere: a warning mark and
+/// the message in rose, wrapping in its column. Sections used to draw a
+/// failed load each their own way (rose text, a lighter rose, a muted box).
+pub fn error_line(text: impl Into<SharedString>) -> AnyElement {
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .items_start()
+        .gap_1p5()
+        .px_2p5()
+        .py_1p5()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme::rose(400).opacity(0.3))
+        .bg(theme::rose(400).opacity(0.08))
+        .text_size(theme::text::CAPTION)
+        .line_height(relative(1.5))
+        .text_color(theme::rose(300))
+        .child(
+            div()
+                .flex_none()
+                .pt(px(2.))
+                .child(crate::icons::ic("triangle-alert").size(px(12.))),
+        )
+        .child(div().min_w_0().flex_1().child(text.into()))
+        .into_any_element()
+}
+
 /// Row is one setting (SettingRow): its name, what it does, "More" for the
 /// rest of that when there is a rest, its control beside them and anything
 /// else under them; marked at its edge when it's changed from its default.
@@ -1265,6 +1309,7 @@ pub fn copy_button(
 pub fn danger_item(label: impl Into<SharedString>) -> PopupMenuItem {
     let label: SharedString = label.into();
     PopupMenuItem::element(move |_, _| div().text_color(theme::rose(300)).child(label.clone()))
+        .icon(crate::icons::ic("trash").text_color(theme::rose(300)))
 }
 
 /// full_on_hover gives text that is cut short (a clamp, a truncate) its

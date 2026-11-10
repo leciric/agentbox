@@ -734,11 +734,9 @@ impl Render for WorkView {
                                 .shadow(theme::shadow_card())
                                 .overflow_hidden()
                                 .map(|el| match (&self.error, &self.page) {
-                                    (Some(e), _) => el.child(
-                                        div()
-                                            .p_4()
-                                            .child(controls::note_in(e.clone(), theme::rose(300))),
-                                    ),
+                                    (Some(e), _) => {
+                                        el.child(div().p_4().child(controls::error_line(e.clone())))
+                                    }
                                     (None, None) => el.children(
                                         [0.33f32, 0.5, 0.25, 0.42, 0.3]
                                             .into_iter()

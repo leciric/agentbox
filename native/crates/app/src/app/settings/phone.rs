@@ -338,10 +338,10 @@ impl AppView {
                     cx,
                 );
                 if let Some(Err(err)) = &p.lan {
-                    row.body.push(note_in(err.clone(), theme::rose(300)));
+                    row.body.push(crate::app::controls::error_line(err.clone()));
                 }
                 if let Some(err) = &p.error {
-                    row.body.push(note_in(err.clone(), theme::rose(300)));
+                    row.body.push(crate::app::controls::error_line(err.clone()));
                 }
                 if let Some(s) = &p.said {
                     row.body.push(note_in(s.clone(), theme::emerald(300)));
@@ -1001,7 +1001,7 @@ impl AppView {
             .when_some(p.audits.get(&ph.id), |el, a| {
                 el.child(
                     div().pl_7().child(match a {
-                        Err(e) => note_in(e.clone(), theme::rose(300)),
+                        Err(e) => crate::app::controls::error_line(e.clone()),
                         Ok(a) if a.entries.is_empty() => note(t("defaults.phone.auditEmpty")),
                         Ok(a) => v_flex()
                             .gap_0p5()

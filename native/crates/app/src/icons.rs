@@ -335,6 +335,13 @@ gpui_kit_assets::icon_assets!(
         Zap,
         ZoomIn,
         ZoomOut,
+        Clipboard,
+        Compass,
+        FolderMinus,
+        GitFork,
+        MessageCircle,
+        Split,
+        Undo2,
     ]
 );
 

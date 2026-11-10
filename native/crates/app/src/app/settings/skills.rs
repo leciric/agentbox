@@ -716,7 +716,7 @@ impl AppView {
             .id(SharedString::from(format!("skills-{scope}")))
             .gap_3()
             .when_some(s.error.get(scope), |el, e| {
-                el.child(note_in(e.clone(), theme::rose(300)))
+                el.child(crate::app::controls::error_line(e.clone()))
             })
             .when_some(s.said.get(scope), |el, m| {
                 el.child(note_in(m.clone(), theme::emerald(300)))
@@ -1431,7 +1431,7 @@ impl AppView {
                     })
                     .when_some(waiting, |el, w| el.child(note(w)))
                     .when_some(s.scan.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                        el.child(note_in(e.clone(), theme::rose(300)))
+                        el.child(crate::app::controls::error_line(e.clone()))
                     })
                     .when(matches!(&s.scan, Some(Ok(l)) if l.is_empty()), |el| {
                         el.child(empty(

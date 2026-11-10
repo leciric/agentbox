@@ -2231,6 +2231,17 @@ impl ChatView {
         let meter = self.context_meter();
         let menu_el = (!menu.is_empty()).then(|| {
             let mention = !token.starts_with('/');
+            let skills = menu.iter().filter(|m| m.label.starts_with('$')).count();
+            let grouped = !mention && skills > 0 && skills < menu.len();
+            let head = |text: String| {
+                div()
+                    .px_2()
+                    .py_0p5()
+                    .text_xs()
+                    .text_color(theme::faint())
+                    .child(text)
+                    .into_any_element()
+            };
             v_flex()
                 .mb_1()
                 .p_1()
@@ -2239,27 +2250,37 @@ impl ChatView {
                 .border_color(theme::line())
                 .bg(theme::card())
                 .shadow_md()
-                .child(
-                    div()
-                        .px_2()
-                        .py_0p5()
-                        .text_xs()
-                        .text_color(theme::faint())
-                        .child(if token.starts_with('$') {
-                            t("chat.composer.skills")
-                        } else if mention {
-                            t("chat.composer.mentions")
-                        } else {
-                            t("chat.composer.commands")
-                        }),
-                )
-                .children(menu.iter().enumerate().map(|(i, m)| {
+                // "/" lists the chat's skills ($name) and then the tool's
+                // commands: each under its own head when there are both, as
+                // Electron's list, where they used to run on as one.
+                .when(!grouped, |el| {
+                    el.child(head(if token.starts_with('$') {
+                        t("chat.composer.skills")
+                    } else if mention {
+                        t("chat.composer.mentions")
+                    } else {
+                        t("chat.composer.commands")
+                    }))
+                })
+                .children(menu.iter().enumerate().flat_map(|(i, m)| {
                     let (v, item) = (view.clone(), m.clone());
-                    h_flex()
+                    let skill = m.label.starts_with('$');
+                    let first = i == 0 || menu[i - 1].label.starts_with('$') != skill;
+                    let group = (grouped && first).then(|| {
+                        head(if skill {
+                            t("chat.composer.skills")
+                        } else {
+                            t("chat.composer.commandsGroup")
+                        })
+                    });
+                    let row = h_flex()
                         .id(SharedString::from(format!("menu-{i}")))
                         .gap_3()
                         .px_2()
-                        .py_1()
+                        // One height for every row: a mono name beside a
+                        // smaller hint made some a pixel taller.
+                        .h(px(28.))
+                        .flex_none()
                         .rounded_md()
                         .cursor_pointer()
                         .text_sm()
@@ -2284,6 +2305,8 @@ impl ChatView {
                                 .text_color(theme::faint())
                                 .child(m.hint.clone()),
                         )
+                        .into_any_element();
+                    group.into_iter().chain(Some(row))
                 }))
                 .into_any_element()
         });

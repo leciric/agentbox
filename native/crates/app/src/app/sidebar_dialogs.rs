@@ -479,9 +479,7 @@ impl AppView {
                 .into_any_element()
         };
         let error = |e: &Option<String>| -> Vec<AnyElement> {
-            e.iter()
-                .map(|e| controls::note_in(e.clone(), theme::error()))
-                .collect()
+            e.iter().map(|e| controls::error_line(e.clone())).collect()
         };
         Some(match d {
             Dialog::AddProject(d) => self.render_add_project(d, cancel, cx),

@@ -120,9 +120,11 @@ impl AppView {
                 let version = version.clone();
                 menu.min_w(px(220.))
                     .item(
-                        PopupMenuItem::new(t("tour.help.take")).on_click(move |_, _, cx| {
-                            v1.update(cx, |this, cx| this.replay_tour(cx)).ok();
-                        }),
+                        PopupMenuItem::new(t("tour.help.take"))
+                            .icon(crate::icons::ic("compass"))
+                            .on_click(move |_, _, cx| {
+                                v1.update(cx, |this, cx| this.replay_tour(cx)).ok();
+                            }),
                     )
                     .label(t("tour.whatsNew"))
                     .item(
@@ -130,6 +132,7 @@ impl AppView {
                             "shell.whatsNew.version",
                             &[("version", version.clone().into())],
                         ))
+                        .icon(crate::icons::ic("sparkles"))
                         .on_click(move |_, _, cx| {
                             let version = version.clone();
                             v2.update(cx, |this, cx| this.show_whats_new(version, cx))
@@ -139,6 +142,7 @@ impl AppView {
                     .separator()
                     .item(
                         PopupMenuItem::new(tv("tour.help.keys", &[("keys", "Ctrl+/".into())]))
+                            .icon(crate::icons::ic("keyboard"))
                             .on_click(move |_, _, cx| {
                                 v3.update(cx, |this, cx| {
                                     this.side.dialog = Some(Dialog::Keys);
@@ -260,7 +264,10 @@ impl AppView {
             .cursor_pointer()
             .hover(|el| el.text_color(theme::title()))
             .active(|s| s.opacity(0.7))
-            .tooltip(|w, cx| Tooltip::new(t("v2.filters.button")).build(w, cx))
+            // Not over its own popover, which is its child and so hovers it.
+            .when(!self.side.filter_open, |el| {
+                el.tooltip(|w, cx| Tooltip::new(t("v2.filters.button")).build(w, cx))
+            })
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.side.filter_open = !this.side.filter_open;
                 cx.notify();
@@ -577,6 +584,7 @@ impl AppView {
                 } else {
                     t("shell.sidebar.collapse")
                 })
+                .icon(crate::icons::ic("chevrons-up-down"))
                 .on_click(move |_, _, cx| {
                     let s1 = s1.clone();
                     v1.update(cx, |this, cx| this.fold_section(&s1.id, !s1.collapsed, cx))
@@ -584,13 +592,15 @@ impl AppView {
                 }),
             )
             .item(
-                PopupMenuItem::new(t("common.rename")).on_click(move |_, window, cx| {
-                    let s2 = s2.clone();
-                    v2.update(cx, |this, cx| {
-                        this.open_section_name(Some(s2), None, window, cx)
-                    })
-                    .ok();
-                }),
+                PopupMenuItem::new(t("common.rename"))
+                    .icon(crate::icons::ic("pencil"))
+                    .on_click(move |_, window, cx| {
+                        let s2 = s2.clone();
+                        v2.update(cx, |this, cx| {
+                            this.open_section_name(Some(s2), None, window, cx)
+                        })
+                        .ok();
+                    }),
             )
             .separator()
             .item(
@@ -647,7 +657,11 @@ impl AppView {
                 let id = id.clone();
                 move |this, d: &DragSection, _, cx| this.move_section(&d.id, &id, cx)
             }))
-            .child(crate::motion::chevron("chev-641", !collapsed, None))
+            .child(crate::motion::chevron(
+                SharedString::from(format!("section-chev-{}", s.id)),
+                !collapsed,
+                None,
+            ))
             .child(
                 div()
                     .min_w_0()
@@ -843,30 +857,39 @@ impl AppView {
             };
             let mut menu = menu
                 .min_w(px(220.))
-                .item(PopupMenuItem::new(t("v2.sidebar.newTask")).on_click(act(
-                    |this, n, window, cx| {
-                        this.select_project(n, window, cx);
-                        if let Some(chat) = &this.chat {
-                            chat.update(cx, |c, cx| c.focus_composer(window, cx));
-                        }
-                    },
-                )))
+                .item(
+                    PopupMenuItem::new(t("v2.sidebar.newTask"))
+                        .icon(crate::icons::ic("plus"))
+                        .on_click(act(|this, n, window, cx| {
+                            this.select_project(n, window, cx);
+                            if let Some(chat) = &this.chat {
+                                chat.update(cx, |c, cx| c.focus_composer(window, cx));
+                            }
+                        })),
+                )
                 .item(
                     PopupMenuItem::new(t("group.menu.fanOut"))
+                        .icon(crate::icons::ic("split"))
                         .on_click(act(|this, n, window, cx| this.open_fan_out(n, window, cx))),
                 );
             if others {
-                menu = menu.item(PopupMenuItem::new(t("v2.talk.button")).on_click(act(
-                    |this, n, _, cx| {
-                        this.side.dialog = Some(Dialog::Talk { project: n });
-                        cx.notify();
-                    },
-                )));
+                menu = menu.item(
+                    PopupMenuItem::new(t("v2.talk.button"))
+                        .icon(crate::icons::ic("message-circle"))
+                        .on_click(act(|this, n, _, cx| {
+                            this.side.dialog = Some(Dialog::Talk { project: n });
+                            cx.notify();
+                        })),
+                );
             }
-            menu =
-                menu.item(PopupMenuItem::new(t("work.title")).on_click(act(
-                    |this, n, window, cx| this.open_work(n, String::new(), window, cx),
-                )))
+            menu = menu
+                .item(
+                    PopupMenuItem::new(t("work.title"))
+                        .icon(crate::icons::ic("list-todo"))
+                        .on_click(act(|this, n, window, cx| {
+                            this.open_work(n, String::new(), window, cx)
+                        })),
+                )
                 .separator()
                 .item(
                     PopupMenuItem::new(if pinned {
@@ -874,14 +897,15 @@ impl AppView {
                     } else {
                         t("v2.sidebar.pin")
                     })
+                    .icon(crate::icons::ic("pin"))
                     .on_click(act(|this, n, _, cx| this.toggle_pin(&n, cx))),
                 )
                 .item(
-                    PopupMenuItem::new(t("v2.sidebar.projectSettings")).on_click(act(
-                        |this, n, window, cx| {
+                    PopupMenuItem::new(t("v2.sidebar.projectSettings"))
+                        .icon(crate::icons::ic("settings"))
+                        .on_click(act(|this, n, window, cx| {
                             this.open_settings_at(format!("project:{n}"), window, cx)
-                        },
-                    )),
+                        })),
                 )
                 .item(
                     PopupMenuItem::new(if hidden {
@@ -889,6 +913,7 @@ impl AppView {
                     } else {
                         t("v2.sidebar.hide")
                     })
+                    .icon(crate::icons::ic("eye-off"))
                     .on_click(act(|this, n, _, cx| this.toggle_hidden(&n, cx))),
                 );
             let (secs, cur, v, n) = (
@@ -897,62 +922,83 @@ impl AppView {
                 view.clone(),
                 name.clone(),
             );
-            menu = menu.submenu(t("v2.sidebar.moveToSection"), window, cx, move |m, _, _| {
-                let mut m = m;
-                for (id, label) in secs.iter().filter(|(id, _)| *id != cur) {
-                    let (v, n, id) = (v.clone(), n.clone(), id.clone());
-                    m = m.item(PopupMenuItem::new(label.clone()).on_click(move |_, _, cx| {
-                        let (n, id) = (n.clone(), id.clone());
-                        v.update(cx, |this, cx| this.move_project(n, Some(id), None, cx))
-                            .ok();
-                    }));
-                }
-                if !cur.is_empty() {
+            menu = menu.submenu_with_icon(
+                Some(crate::icons::ic("folder")),
+                t("v2.sidebar.moveToSection"),
+                window,
+                cx,
+                move |m, _, _| {
+                    let mut m = m;
+                    for (id, label) in secs.iter().filter(|(id, _)| *id != cur) {
+                        let (v, n, id) = (v.clone(), n.clone(), id.clone());
+                        m = m.item(
+                            PopupMenuItem::new(label.clone())
+                                .icon(crate::icons::ic("folder"))
+                                .on_click(move |_, _, cx| {
+                                    let (n, id) = (n.clone(), id.clone());
+                                    v.update(cx, |this, cx| {
+                                        this.move_project(n, Some(id), None, cx)
+                                    })
+                                    .ok();
+                                }),
+                        );
+                    }
+                    if !cur.is_empty() {
+                        let (v, n) = (v.clone(), n.clone());
+                        m = m.item(
+                            PopupMenuItem::new(t("v2.sidebar.noSection"))
+                                .icon(crate::icons::ic("folder-minus"))
+                                .on_click(move |_, _, cx| {
+                                    let n = n.clone();
+                                    v.update(cx, |this, cx| this.move_project(n, None, None, cx))
+                                        .ok();
+                                }),
+                        );
+                    }
+                    if secs.len() > 1 || (secs.len() == 1 && cur.is_empty()) {
+                        m = m.separator();
+                    }
                     let (v, n) = (v.clone(), n.clone());
-                    m = m.item(PopupMenuItem::new(t("v2.sidebar.noSection")).on_click(
-                        move |_, _, cx| {
-                            let n = n.clone();
-                            v.update(cx, |this, cx| this.move_project(n, None, None, cx))
+                    m.item(
+                        PopupMenuItem::new(t("v2.sidebar.newSectionFor"))
+                            .icon(crate::icons::ic("folder-plus"))
+                            .on_click(move |_, window, cx| {
+                                let n = n.clone();
+                                v.update(cx, |this, cx| {
+                                    this.open_section_name(None, Some(n), window, cx)
+                                })
                                 .ok();
-                        },
-                    ));
-                }
-                if secs.len() > 1 || (secs.len() == 1 && cur.is_empty()) {
-                    m = m.separator();
-                }
-                let (v, n) = (v.clone(), n.clone());
-                m.item(PopupMenuItem::new(t("v2.sidebar.newSectionFor")).on_click(
-                    move |_, window, cx| {
-                        let n = n.clone();
-                        v.update(cx, |this, cx| {
-                            this.open_section_name(None, Some(n), window, cx)
-                        })
-                        .ok();
-                    },
-                ))
-            });
+                            }),
+                    )
+                },
+            );
             let (v, n, r) = (view.clone(), name.clone(), root.clone());
             menu.submenu(t("common.more"), window, cx, move |m, _, _| {
                 let (v1, v2) = (v.clone(), v.clone());
                 let (n1, n2, r) = (n.clone(), n.clone(), r.clone());
-                m.item(PopupMenuItem::new(t("projectIcon.change")).on_click(
-                    move |_, window, cx| {
-                        let n = n1.clone();
-                        v1.update(cx, |this, cx| this.open_icon_dialog(n, window, cx))
-                            .ok();
-                    },
-                ))
+                m.item(
+                    PopupMenuItem::new(t("projectIcon.change"))
+                        .icon(crate::icons::ic("image"))
+                        .on_click(move |_, window, cx| {
+                            let n = n1.clone();
+                            v1.update(cx, |this, cx| this.open_icon_dialog(n, window, cx))
+                                .ok();
+                        }),
+                )
                 .item(
                     PopupMenuItem::new(t("project.view.openFolder"))
+                        .icon(crate::icons::ic("folder-open"))
                         .on_click(move |_, _, cx| cx.open_with_system(std::path::Path::new(&r))),
                 )
-                .item(PopupMenuItem::new(t("v2.menu.agentYourself")).on_click(
-                    move |_, window, cx| {
-                        let n = n2.clone();
-                        v2.update(cx, |this, cx| this.open_new_agent(n, window, cx))
-                            .ok();
-                    },
-                ))
+                .item(
+                    PopupMenuItem::new(t("v2.menu.agentYourself"))
+                        .icon(crate::icons::ic("bot"))
+                        .on_click(move |_, window, cx| {
+                            let n = n2.clone();
+                            v2.update(cx, |this, cx| this.open_new_agent(n, window, cx))
+                                .ok();
+                        }),
+                )
             })
         }
     }

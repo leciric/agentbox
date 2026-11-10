@@ -514,6 +514,9 @@ impl AppView {
                                     Some(("home", tab)) => {
                                         this.sessions.home_tab =
                                             if tab == "status" { 1 } else { 2 };
+                                        if tab != "status" {
+                                            this.load_global_memory(cx);
+                                        }
                                     }
                                     _ if v == "media" => {
                                         this.open_foot_page(foot::FootPage::Media, window, cx)
@@ -962,16 +965,32 @@ impl AppView {
                 .flex_1()
                 .min_h_0()
                 .child(self.render_home_header(cx))
+                // HomeChatPanel's memory tab: what it is, then what it
+                // holds (GlobalMemoryPanel, as Settings shows it), which was
+                // missing: the tab was its first sentence and nothing else.
                 .child(
                     div()
-                        .mx_auto()
-                        .max_w(px(896.))
-                        .w_full()
-                        .px_8()
-                        .py_2()
-                        .text_size(theme::text::UI)
-                        .text_color(theme::muted())
-                        .child(t("chat.home.memoryIntro")),
+                        .id("home-memory")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .child(
+                            v_flex()
+                                .mx_auto()
+                                .max_w(px(896.))
+                                .w_full()
+                                .px_8()
+                                .pt_2()
+                                .pb_7()
+                                .gap_3()
+                                .child(
+                                    div()
+                                        .text_size(theme::text::UI)
+                                        .text_color(theme::muted())
+                                        .child(t("chat.home.memoryIntro")),
+                                )
+                                .child(self.memory_card(cx)),
+                        ),
                 )
                 .into_any_element();
         }
@@ -1030,6 +1049,9 @@ impl AppView {
                 .when(!on, |el| el.hover(|el| el.text_color(theme::primary())))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.sessions.home_tab = ix;
+                    if ix == 2 {
+                        this.load_global_memory(cx);
+                    }
                     cx.notify();
                 }))
                 .child(crate::icons::ic(icon).size(px(15.)))
@@ -1125,7 +1147,7 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         theme::keep_text_system(window);
-        agent::modal_keys_reset();
+        agent::modal_frame(window, cx);
         self.panel.track(&self.fleet);
         self.sync_chat_review(cx);
         self.pulls_gone();
@@ -1209,12 +1231,6 @@ impl Render for AppView {
                     && !ev.keystroke.modifiers.modified()
                     && agent::modal_escape(window, cx)
                 {
-                    cx.stop_propagation();
-                    return;
-                }
-                // Tab stays put while a plain one is open: the buttons it
-                // would walk to are the page's, under the dialog.
-                if ev.keystroke.key == "tab" && agent::modal_holds_tab() {
                     cx.stop_propagation();
                     return;
                 }

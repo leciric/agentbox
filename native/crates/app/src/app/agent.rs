@@ -366,10 +366,15 @@ impl AppView {
             let mut menu = menu.min_w(px(220.));
             if !header {
                 let r1 = r.clone();
-                menu = menu.item(item(
-                    t("agent.menu.openTerminal"),
-                    Rc::new(move |this, w, cx| this.open_agent_view(&r1, PView::Terminal, w, cx)),
-                ));
+                menu = menu.item(
+                    item(
+                        t("agent.menu.openTerminal"),
+                        Rc::new(move |this, w, cx| {
+                            this.open_agent_view(&r1, PView::Terminal, w, cx)
+                        }),
+                    )
+                    .icon(crate::icons::ic("square-terminal")),
+                );
                 let r2 = r.clone();
                 menu = menu.item(
                     item(
@@ -386,6 +391,7 @@ impl AppView {
                             this.open_agent_view(&r2, PView::Desktop, w, cx)
                         }),
                     )
+                    .icon(crate::icons::ic("monitor"))
                     .disabled(a.state != "running"),
                 );
             }
@@ -393,6 +399,7 @@ impl AppView {
                 let url = pr.url.clone();
                 menu = menu.item(
                     PopupMenuItem::new(tv("agent.menu.openPr", &[("number", pr.number.into())]))
+                        .icon(crate::icons::ic("external-link"))
                         .on_click(move |_, _, cx| cx.open_url(&url)),
                 );
             }
@@ -402,39 +409,55 @@ impl AppView {
                     continue;
                 }
                 let r = r.clone();
-                menu = menu.item(item(
-                    action.label(),
-                    Rc::new(move |this, _, cx| this.run_action(r.clone(), action, cx)),
-                ));
+                menu = menu.item(
+                    item(
+                        action.label(),
+                        Rc::new(move |this, _, cx| this.run_action(r.clone(), action, cx)),
+                    )
+                    .icon(crate::icons::ic(action.icon())),
+                );
             }
             let retiring = a.clone();
-            menu = menu.item(item(
-                t("agent.menu.retire"),
-                Rc::new(move |this, _, cx| this.retire_agent(&retiring, cx)),
-            ));
+            menu = menu.item(
+                item(
+                    t("agent.menu.retire"),
+                    Rc::new(move |this, _, cx| this.retire_agent(&retiring, cx)),
+                )
+                .icon(crate::icons::ic("archive")),
+            );
             // What the daemon says retiring would leave behind, when it isn't safe.
             if !a.retire.safe && !a.retire.reason.is_empty() {
                 menu = menu.item(PopupMenuItem::new(a.retire.reason.clone()).disabled(true));
             }
             if header {
                 let r = r.clone();
-                menu = menu.item(item(
-                    t("agent.view.editTitle"),
-                    Rc::new(move |this, w, cx| this.start_agent_rename(r.clone(), w, cx)),
-                ));
+                menu = menu.item(
+                    item(
+                        t("agent.view.editTitle"),
+                        Rc::new(move |this, w, cx| this.start_agent_rename(r.clone(), w, cx)),
+                    )
+                    .icon(crate::icons::ic("pencil")),
+                );
                 let wt = a.worktree.clone();
                 menu = menu.item(
                     PopupMenuItem::new(t("agent.view.openWorktree"))
+                        .icon(crate::icons::ic("folder-open"))
                         .on_click(move |_, _, cx| cx.open_with_system(std::path::Path::new(&wt))),
                 );
-                menu = menu.item(item(
-                    t("agent.tab.settings"),
-                    Rc::new(move |this, _, cx| this.open_agent_settings(cx)),
-                ));
-                menu = menu.item(item(
-                    t("agent.tab.snapshots"),
-                    Rc::new(move |this, _, cx| this.open_snapshots(cx)),
-                ));
+                menu = menu.item(
+                    item(
+                        t("agent.tab.settings"),
+                        Rc::new(move |this, _, cx| this.open_agent_settings(cx)),
+                    )
+                    .icon(crate::icons::ic("settings")),
+                );
+                menu = menu.item(
+                    item(
+                        t("agent.tab.snapshots"),
+                        Rc::new(move |this, _, cx| this.open_snapshots(cx)),
+                    )
+                    .icon(crate::icons::ic("camera")),
+                );
             }
             let (stop_ref, info_ref, branch) = (r.clone(), r.clone(), a.branch.clone());
             let (ip, worktree, shell) = (
@@ -444,59 +467,77 @@ impl AppView {
             );
             let stops = actions.contains(&Action::Stop);
             let v = view.clone();
-            menu = menu.submenu(t("common.more"), window, cx, move |m, _, _| {
-                let mut m = m;
-                let item = |label: String, f: MenuNote| {
-                    let v = v.clone();
-                    PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                        let f = f.clone();
-                        v.update(cx, |this, cx| f(this, cx)).ok();
-                    })
-                };
-                if stops {
-                    let r = stop_ref.clone();
-                    m = m.item(item(
-                        t("common.stop"),
-                        Rc::new(move |this, cx| this.run_action(r.clone(), Action::Stop, cx)),
-                    ));
-                }
-                let r = info_ref.clone();
-                m = m.item(item(
-                    t("agent.menu.info"),
-                    Rc::new(move |this, cx| this.open_info(r.clone(), cx)),
-                ));
-                let copy = |label: String, text: String, done: String| {
-                    PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-                        toasts::info(cx, done.clone());
-                    })
-                };
-                m = m.item(copy(
-                    t("agent.menu.copyBranch"),
-                    branch.clone(),
-                    t("agent.menu.copiedBranch"),
-                ));
-                if header {
-                    if !ip.is_empty() {
-                        m = m.item(copy(
-                            t("agent.view.copyIp"),
-                            ip.clone(),
-                            t("agent.view.copiedIp"),
-                        ));
+            menu = menu.submenu_with_icon(
+                Some(crate::icons::ic("ellipsis")),
+                t("common.more"),
+                window,
+                cx,
+                move |m, _, _| {
+                    let mut m = m;
+                    let item = |label: String, f: MenuNote| {
+                        let v = v.clone();
+                        PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                            let f = f.clone();
+                            v.update(cx, |this, cx| f(this, cx)).ok();
+                        })
+                    };
+                    if stops {
+                        let r = stop_ref.clone();
+                        m = m.item(
+                            item(
+                                t("common.stop"),
+                                Rc::new(move |this, cx| {
+                                    this.run_action(r.clone(), Action::Stop, cx)
+                                }),
+                            )
+                            .icon(crate::icons::ic("circle-stop")),
+                        );
                     }
-                    m = m.item(copy(
-                        t("agent.view.copyWorktree"),
-                        worktree.clone(),
-                        t("agent.view.copiedWorktree"),
-                    ));
-                    m = m.item(copy(
-                        t("agent.view.copyShell"),
-                        shell.clone(),
-                        t("common.copied"),
-                    ));
-                }
-                m
-            });
+                    let r = info_ref.clone();
+                    m = m.item(
+                        item(
+                            t("agent.menu.info"),
+                            Rc::new(move |this, cx| this.open_info(r.clone(), cx)),
+                        )
+                        .icon(crate::icons::ic("info")),
+                    );
+                    let copy = |label: String, text: String, done: String| {
+                        PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                            toasts::info(cx, done.clone());
+                        })
+                    };
+                    m = m.item(
+                        copy(
+                            t("agent.menu.copyBranch"),
+                            branch.clone(),
+                            t("agent.menu.copiedBranch"),
+                        )
+                        .icon(crate::icons::ic("copy")),
+                    );
+                    if header {
+                        if !ip.is_empty() {
+                            m = m.item(
+                                copy(t("agent.view.copyIp"), ip.clone(), t("agent.view.copiedIp"))
+                                    .icon(crate::icons::ic("copy")),
+                            );
+                        }
+                        m = m.item(
+                            copy(
+                                t("agent.view.copyWorktree"),
+                                worktree.clone(),
+                                t("agent.view.copiedWorktree"),
+                            )
+                            .icon(crate::icons::ic("copy")),
+                        );
+                        m = m.item(
+                            copy(t("agent.view.copyShell"), shell.clone(), t("common.copied"))
+                                .icon(crate::icons::ic("copy")),
+                        );
+                    }
+                    m
+                },
+            );
             let d = a.clone();
             let view = view.clone();
             menu.separator()
@@ -1002,7 +1043,10 @@ impl AppView {
             .font_weight(FontWeight::MEDIUM)
             .text_color(fg)
             .cursor_pointer()
-            .tooltip(move |w, cx| Tooltip::new(details_tip.clone()).build(w, cx))
+            // Not while its card is open, which the tip would sit over.
+            .when(self.agent.info.is_none(), |el| {
+                el.tooltip(move |w, cx| Tooltip::new(details_tip.clone()).build(w, cx))
+            })
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 let just_closed = this
                     .agent
@@ -1646,7 +1690,7 @@ impl AppView {
         ))
         .when_some(
             self.agent.snapshots.as_ref().and_then(|s| s.as_ref().err()),
-            |el, e| el.child(controls::note_in(e.clone(), theme::error())),
+            |el, e| el.child(controls::error_line(e.clone())),
         )
         .when(
             matches!(&self.agent.snapshots, Some(Ok(s)) if s.is_empty()),
@@ -2016,29 +2060,106 @@ impl AppView {
     }
 }
 
+/// The focus of a modal's card and its two buttons, made once: what lets
+/// Tab be kept inside the dialog (a focus trap, as Radix's Dialog has).
+#[derive(Clone)]
+struct ModalFocus {
+    card: FocusHandle,
+    cancel: FocusHandle,
+    confirm: FocusHandle,
+}
+
 thread_local! {
     /// The cancel of the modal drawn this frame, if one was.
     static MODAL_CANCEL: std::cell::RefCell<Option<OnCancel>> =
         const { std::cell::RefCell::new(None) };
-    /// Whether that modal is a plain question, with no form in it.
-    static MODAL_PLAIN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static MODAL_FOCUS: std::cell::RefCell<Option<ModalFocus>> =
+        const { std::cell::RefCell::new(None) };
+    /// The modal drawn last, by its id: another id is a modal just opened.
+    static MODAL_ID: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+    /// Set by a modal that has just opened, for the button it gives the
+    /// focus: true its confirm, false its cancel, None the card itself.
+    static MODAL_AUTOFOCUS: std::cell::Cell<Option<Option<bool>>> =
+        const { std::cell::Cell::new(None) };
 }
 
-/// modal_keys_reset forgets the last frame's modal, before a frame is drawn.
-pub fn modal_keys_reset() {
-    MODAL_CANCEL.with(|k| *k.borrow_mut() = None);
+fn modal_focus() -> Option<ModalFocus> {
+    MODAL_FOCUS.with(|f| f.borrow().clone())
 }
 
-/// modal_holds_tab says whether a plain confirmation is open: Tab then
-/// stays put, since the buttons it would walk to are the page's, under the
-/// dialog. A dialog with a form keeps Tab, for its fields.
-pub fn modal_holds_tab() -> bool {
-    MODAL_CANCEL.with(|k| k.borrow().is_some()) && MODAL_PLAIN.with(|p| p.get())
+gpui::actions!(agentbox_modal, [ModalTab, ModalTabPrev]);
+
+/// The key context of a modal's card: Tab in it is ours, not Root's, which
+/// would walk on to the page's buttons under the dialog.
+const MODAL_KEYS: &str = "AgentBoxModal";
+
+/// modal_frame is called as a frame starts: it gives a modal that opened in
+/// the last one its focus, and forgets that frame's modal.
+pub fn modal_frame(window: &mut Window, cx: &mut App) {
+    if modal_focus().is_none() {
+        let handle = |cx: &mut App| cx.focus_handle().tab_index(0).tab_stop(true);
+        let focus = ModalFocus {
+            card: cx.focus_handle(),
+            cancel: handle(cx),
+            confirm: handle(cx),
+        };
+        MODAL_FOCUS.with(|f| *f.borrow_mut() = Some(focus));
+        cx.bind_keys([
+            gpui::KeyBinding::new("tab", ModalTab, Some(MODAL_KEYS)),
+            gpui::KeyBinding::new("shift-tab", ModalTabPrev, Some(MODAL_KEYS)),
+        ]);
+    }
+    let was_open = MODAL_CANCEL.with(|k| k.borrow_mut().take()).is_some();
+    if !was_open {
+        MODAL_ID.with(|i| i.borrow_mut().clear());
+        MODAL_AUTOFOCUS.with(|a| a.set(None));
+        return;
+    }
+    // Its first frame is drawn: a plain question's answer takes the focus,
+    // and any other dialog does itself unless a text box of its own has it,
+    // so that Tab starts inside it.
+    if let (Some(confirm), Some(f)) = (MODAL_AUTOFOCUS.with(|a| a.take()), modal_focus()) {
+        match confirm {
+            Some(true) => f.confirm.focus(window, cx),
+            Some(false) => f.cancel.focus(window, cx),
+            None if !f.card.contains_focused(window, cx) => f.card.focus(window, cx),
+            None => {}
+        }
+    }
+}
+
+/// modal_step is Tab (back, with Shift) in a modal: the next of its own
+/// fields and buttons, and round to the first after the last.
+fn modal_step(back: bool, window: &mut Window, cx: &mut App) {
+    let Some(f) = modal_focus() else {
+        return;
+    };
+    let step = |window: &mut Window, cx: &mut App| {
+        if back {
+            window.focus_prev(cx)
+        } else {
+            window.focus_next(cx)
+        }
+    };
+    step(window, cx);
+    if f.card.contains_focused(window, cx) && !f.card.is_focused(window) {
+        return;
+    }
+    // It left the dialog: back in at its other end. The card comes before
+    // its first field in the tab order, so a step from it lands there.
+    if back {
+        f.confirm.focus(window, cx);
+        return;
+    }
+    f.card.focus(window, cx);
+    step(window, cx);
+    if !f.card.contains_focused(window, cx) || f.card.is_focused(window) {
+        f.cancel.focus(window, cx);
+    }
 }
 
 /// modal_escape cancels the modal that is open, and says whether one was:
-/// Escape closes a dialog whatever has the focus under or in it. (Enter is
-/// left to the button that has the focus, reached with Tab.)
+/// Escape closes a dialog whatever has the focus under or in it.
 pub fn modal_escape(window: &mut Window, cx: &mut App) -> bool {
     let Some(cancel) = MODAL_CANCEL.with(|k| k.borrow().clone()) else {
         return false;
@@ -2065,7 +2186,19 @@ pub fn modal(
 ) -> AnyElement {
     let backdrop = on_cancel.clone();
     MODAL_CANCEL.with(|k| *k.borrow_mut() = Some(on_cancel.clone()));
-    MODAL_PLAIN.with(|p| p.set(body.is_empty()));
+    // Just opened, and a plain question: the focus goes to the answer that
+    // costs least, Cancel when it destroys something (a form keeps the
+    // focus its text box was given).
+    let opened = MODAL_ID.with(|last| {
+        let mut last = last.borrow_mut();
+        let opened = *last != id;
+        *last = id.to_string();
+        opened
+    });
+    if opened {
+        MODAL_AUTOFOCUS.with(|a| a.set(Some(body.is_empty().then_some(!destructive && !disabled))));
+    }
+    let focus = modal_focus();
     crate::motion::scrim_in(
         div()
             .id(SharedString::from(format!("{id}-backdrop")))
@@ -2089,6 +2222,10 @@ pub fn modal(
                     .border_color(theme::line_strong())
                     .shadow(theme::shadow_modal())
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .when_some(focus.as_ref(), |el, f| el.track_focus(&f.card))
+                    .key_context(MODAL_KEYS)
+                    .on_action(|_: &ModalTab, window, cx| modal_step(false, window, cx))
+                    .on_action(|_: &ModalTabPrev, window, cx| modal_step(true, window, cx))
                     .child(
                         div()
                             .text_size(theme::text::HEADING)
@@ -2104,14 +2241,15 @@ pub fn modal(
                         h_flex()
                             .gap_2()
                             .justify_end()
-                            .child(controls::button(
+                            .child(controls::button_at(
                                 SharedString::from(format!("{id}-cancel")),
                                 t("common.cancel"),
                                 Btn::Ghost,
                                 false,
+                                focus.as_ref().map(|f| &f.cancel),
                                 move |_, w, cx| on_cancel(w, cx),
                             ))
-                            .child(controls::button(
+                            .child(controls::button_at(
                                 SharedString::from(format!("{id}-confirm")),
                                 confirm,
                                 if destructive {
@@ -2120,6 +2258,7 @@ pub fn modal(
                                     Btn::Primary
                                 },
                                 disabled,
+                                focus.as_ref().map(|f| &f.confirm),
                                 on_confirm,
                             )),
                     ),

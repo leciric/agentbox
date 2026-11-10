@@ -851,6 +851,7 @@ impl AppView {
                 let v3 = view.clone();
                 let menu = menu.item(
                     PopupMenuItem::new(t("agent.android.sendClipboard"))
+                        .icon(crate::icons::ic("clipboard"))
                         .disabled(!booted)
                         .on_click(move |_, _, cx| {
                             let text = cx
@@ -870,6 +871,7 @@ impl AppView {
                 );
                 let menu = menu.item(
                     PopupMenuItem::new(t("agent.android.saveLogcat"))
+                        .icon(crate::icons::ic("file-text"))
                         .disabled(!booted)
                         .on_click(move |_, _, cx| {
                             v1.update(cx, |this, cx| this.android_capture(true, cx))
@@ -880,6 +882,7 @@ impl AppView {
                 if menu_running {
                     menu.item(
                         PopupMenuItem::new(t("agent.android.stop"))
+                            .icon(crate::icons::ic("square"))
                             .disabled(busy)
                             .on_click(move |_, _, cx| {
                                 v2.update(cx, |this, cx| this.stop_android(cx)).ok();
@@ -888,6 +891,7 @@ impl AppView {
                 } else {
                     menu.item(
                         PopupMenuItem::new(t("agent.android.start"))
+                            .icon(crate::icons::ic("play"))
                             .disabled(!can_start)
                             .on_click(move |_, _, cx| {
                                 v2.update(cx, |this, cx| this.start_android(cx)).ok();
