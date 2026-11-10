@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use gpui::{
     Animation, AnimationExt, App, ElementId, Hsla, IntoElement, Pixels, SpringAnimation,
-    SpringConfig, Styled, div, px,
+    SpringConfig, Styled, div, px, radians,
 };
 
 use crate::theme;
@@ -189,6 +189,18 @@ pub fn pulse<E: IntoElement + Styled + 'static>(
             let wave = (1. - (t * std::f32::consts::TAU).cos()) / 2.;
             el.opacity(1. - 0.6 * wave)
         },
+    )
+}
+
+/// spin turns a loader icon once a second (Tailwind's animate-spin). Loops:
+/// use it only on what is working right now.
+pub fn spin(icon: gpui_component::Icon, id: impl Into<ElementId>) -> impl IntoElement {
+    icon.with_animation(
+        id,
+        Animation::new(Duration::from_millis(1000))
+            .repeat()
+            .with_max_fps(AMBIENT_FPS),
+        |icon, t| icon.rotate(radians(t * std::f32::consts::TAU)),
     )
 }
 

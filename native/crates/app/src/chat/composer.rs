@@ -868,6 +868,36 @@ impl ChatView {
             .input
             .update(cx, |s, cx| s.set_value("", window, cx));
         self.composer.sending = true;
+        // The chat takes it as a turn now, as Electron's does; the session's
+        // own state replaces this as it arrives. A message to an agent from
+        // the lead's chat leaves a notice here, and no turn.
+        if to.is_empty() {
+            if !matches!(
+                self.session.state.as_str(),
+                "running" | "starting" | "waiting"
+            ) {
+                let was = std::mem::replace(&mut self.session.state, "running".into());
+                let at = std::time::Instant::now();
+                self.unsent_state = Some((was, at));
+                // A turn that never began gives the chat back what it said.
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(super::UNSENT_HOLD).await;
+                    this.update(cx, |this, cx| {
+                        if this.unsent_state.as_ref().is_some_and(|(_, a)| *a == at)
+                            && let Some((was, _)) = this.unsent_state.take()
+                        {
+                            this.session.state = was;
+                            cx.emit(ChatAction::SendFailed(this.agent.clone()));
+                            cx.notify();
+                        }
+                    })
+                    .ok();
+                })
+                .detach();
+                self.tick(cx);
+            }
+            cx.emit(ChatAction::Sent(self.agent.clone()));
+        }
         self.list.set_follow_mode(FollowMode::Tail);
         let client = self.client.clone();
         let path = format!("{}/chat/messages", self.prefix);
@@ -887,6 +917,12 @@ impl ChatView {
             this.update_in(cx, |this, _window, cx| {
                 this.composer.sending = false;
                 if let Err(e) = res {
+                    if let Some((was, _)) = this.unsent_state.take() {
+                        this.session.state = was;
+                    }
+                    if to.is_empty() {
+                        cx.emit(ChatAction::SendFailed(this.agent.clone()));
+                    }
                     // What didn't go stays, marked, to send again or edit.
                     let key = this
                         .composer

@@ -938,6 +938,10 @@ impl AppView {
             ));
         }
         let working = c.working > 0 || s_working;
+        // Its lead in a turn: a spinner by its name, sky unless something
+        // louder marks the row (ProjectLead's leadRunning).
+        let lead_running = s_working;
+        let louder = needs > 0;
         let when = activity.and_then(|a| a.last_activity.as_deref()).map(ago);
         let right = if needs > 0 {
             Some(
@@ -1067,6 +1071,18 @@ impl AppView {
                                     .text_color(theme::title())
                                     .child(display.clone()),
                             )
+                            .when(lead_running, |el| {
+                                el.child(div().flex_none().child(crate::motion::spin(
+                                    crate::icons::ic("loader-circle").size(px(12.)).text_color(
+                                        if louder {
+                                            theme::subtle()
+                                        } else {
+                                            theme::sky(400)
+                                        },
+                                    ),
+                                    SharedString::from(format!("lead-spin-{}", p.name)),
+                                )))
+                            })
                             .when(draft, |el| {
                                 let tip: SharedString = t("v2.sidebar.draft").into();
                                 el.child(

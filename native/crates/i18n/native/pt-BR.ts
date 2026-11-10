@@ -112,6 +112,7 @@ export const ptBRNative = {
   'native.office.chat.close': 'Fechar a conversa',
   'native.office.chat.openInApp': 'Abrir no app',
   'native.office.help': 'Controles e legenda',
+  'native.keys.panel': 'Mostrar a lista de agentes, ou compactar o painel quando ela já está aberta',
   'native.office.keys.back': 'Voltar um passo',
   'native.office.keys.click': 'Clique',
   'native.office.keys.drag': 'Arraste',
