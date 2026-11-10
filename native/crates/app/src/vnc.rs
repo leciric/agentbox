@@ -782,6 +782,7 @@ impl VncView {
                                 .text_color(theme::primary())
                                 .cursor_pointer()
                                 .hover(|s| s.bg(theme::surface_strong()))
+                                .active(|s| s.bg(theme::surface_vivid()))
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.retry();
                                     cx.notify();

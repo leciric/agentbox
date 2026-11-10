@@ -473,6 +473,7 @@ impl AppView {
                                 .gap_1p5()
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(theme::primary()))
+                                .active(|s| s.opacity(0.7))
                                 .on_click(move |_, _, cx| cx.open_url(&url))
                                 .child(format!(
                                     "⇄ {}",

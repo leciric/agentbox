@@ -187,7 +187,7 @@ pub(super) struct Pulls {
     pub(super) confirm: Option<merge::Confirm>,
     viewing: Option<Viewing>,
     /// The label picker, open on this pull request.
-    picker: Option<i64>,
+    pub(super) picker: Option<i64>,
     /// Where it was opened: a row of the list, or the one open over the window.
     picker_at: &'static str,
     labels: Option<Result<Vec<Label>, String>>,
@@ -1328,9 +1328,12 @@ impl AppView {
                     )
                     .when(open, |el| {
                         el.child(deferred(
-                            anchored()
-                                .snap_to_window_with_margin(px(8.))
-                                .child(self.render_picker(number, cx)),
+                            anchored().snap_to_window_with_margin(px(8.)).child(
+                                crate::motion::menu_in(
+                                    div().child(self.render_picker(number, cx)),
+                                    "label-picker-in",
+                                ),
+                            ),
                         ))
                     }),
             )
@@ -1384,6 +1387,7 @@ impl AppView {
                         .rounded_md()
                         .cursor_pointer()
                         .hover(|s| s.bg(theme::surface()))
+                        .active(|s| s.bg(theme::surface_raised()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.toggle_label(number, label.clone(), !on, cx)
                         }))
@@ -1485,9 +1489,7 @@ impl AppView {
                 return wrap(
                     div()
                         .p_6()
-                        .text_sm()
-                        .text_color(theme::subtle())
-                        .child(t("common.loading"))
+                        .child(crate::motion::skeleton_lines("loading-pulls-1", 4))
                         .into_any_element(),
                 );
             }
@@ -1848,15 +1850,18 @@ impl AppView {
                                     .items_start()
                                     .gap_1p5()
                                     .min_w_0()
-                                    .child(
+                                    .child(super::controls::full_on_hover(
                                         div()
                                             .min_w_0()
                                             .text_size(theme::text::BODY)
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(theme::primary())
                                             .line_clamp(2)
+                                            .text_ellipsis()
                                             .child(pr.title.clone()),
-                                    )
+                                        SharedString::from(format!("pr-title-{}", pr.number)),
+                                        pr.title.clone(),
+                                    ))
                                     .child(
                                         div()
                                             .id(SharedString::from(format!("pull-gh-{number}")))
@@ -2090,6 +2095,7 @@ impl AppView {
                     .when(!on, |el| {
                         el.cursor_pointer()
                             .hover(|s| s.text_color(theme::primary()))
+                            .active(|s| s.opacity(0.7))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 if let Some(v) = &mut this.pulls.viewing {
                                     v.tab = to;
@@ -2114,9 +2120,7 @@ impl AppView {
                     )
                     .into_any_element(),
                     None => div()
-                        .text_size(theme::text::UI)
-                        .text_color(theme::subtle())
-                        .child(t("common.loading"))
+                        .child(crate::motion::skeleton_lines("loading-pulls-2", 4))
                         .into_any_element(),
                     Some(Ok(d)) => v_flex()
                         .gap_6()
@@ -2649,6 +2653,14 @@ impl AppView {
                                 }),
                         )
                     })
+                    // The tab just picked lights up as it opens out.
+                    .map(|el| {
+                        if on {
+                            crate::motion::lit(el, "rail-tab", &key)
+                        } else {
+                            el.into_any_element()
+                        }
+                    })
             }))
             .into_any_element()
     }
@@ -2870,6 +2882,7 @@ impl AppView {
                     .text_color(theme::primary())
                     .cursor_pointer()
                     .hover(|s| s.bg(theme::surface_raised()))
+                    .active(|s| s.bg(theme::surface_strong()))
                     .tooltip(move |window, cx| Tooltip::new(root_tip.clone()).build(window, cx))
                     .map(|el| {
                         if lead {

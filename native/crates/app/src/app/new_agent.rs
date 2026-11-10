@@ -735,6 +735,7 @@ impl AppView {
                     .when(!disabled, |el| {
                         el.cursor_pointer()
                             .hover(|s| s.bg(theme::surface_raised()))
+                            .active(|s| s.bg(theme::surface_strong()))
                             .on_click(click)
                     })
                     .child(
@@ -830,12 +831,13 @@ impl AppView {
                 .text_color(theme::muted())
                 .cursor_pointer()
                 .hover(|s| s.text_color(theme::primary()))
+                .active(|s| s.opacity(0.7))
                 .on_click(flip(|d| d.advanced = !d.advanced))
-                .child(format!(
-                    "{} {}",
-                    if d.advanced { "▾" } else { "▸" },
-                    t("project.newAgent.moreOptions")
-                ))
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(crate::motion::chevron("chev", d.advanced, Some(px(14.))))
+                .child(t("project.newAgent.moreOptions"))
                 .into_any_element(),
         );
         if d.advanced {

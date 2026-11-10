@@ -1277,24 +1277,24 @@ impl ReviewView {
                                 cx.emit(ReviewEvent::Chat(r#ref.clone()))
                             }),
                         ))
-                    })
-                    // The dialog's own close, in its corner (DialogContent's).
-                    .child(
-                        div()
-                            .id("review-close")
-                            .absolute()
-                            .top_4()
-                            .right_4()
-                            .p_1()
-                            .rounded_md()
-                            .text_color(theme::subtle())
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
-                            .on_click(
-                                cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ReviewEvent::Close)),
-                            )
-                            .child(crate::icons::ic("x").size(px(16.))),
-                    ),
+                    }),
+            )
+            // The dialog's own close, in the header's corner (DialogContent's),
+            // clear of the row's buttons: a child of the header, not of the
+            // row, whose right edge is where Chat is.
+            .child(
+                div()
+                    .id("review-close")
+                    .absolute()
+                    .top_4()
+                    .right_4()
+                    .p_1()
+                    .rounded_md()
+                    .text_color(theme::subtle())
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(ReviewEvent::Close)))
+                    .child(crate::icons::ic("x").size(px(16.))),
             )
             // Where its pull request stands, and why Merge waits if it does.
             .child(
@@ -1538,9 +1538,7 @@ impl ReviewView {
                 .child(e.clone())
                 .into_any_element(),
             _ => div()
-                .text_size(theme::text::UI)
-                .text_color(theme::subtle())
-                .child(t("common.loading"))
+                .child(crate::motion::skeleton_lines("loading-review-3", 4))
                 .into_any_element(),
         }
     }
@@ -1661,6 +1659,7 @@ impl ReviewView {
                                 .rounded_r_lg()
                                 .cursor_pointer()
                                 .hover(|s| s.bg(theme::surface_raised()))
+                                .active(|s| s.bg(theme::surface_strong()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     #[cfg(feature = "video")]
                                     if let Some(p) = this.players.get(&id) {
@@ -2358,6 +2357,7 @@ impl ReviewView {
                     .text_color(theme::subtle())
                     .cursor_pointer()
                     .hover(|s| s.text_color(theme::primary()))
+                    .active(|s| s.opacity(0.7))
                     .tooltip(|w, cx| {
                         gpui_component::tooltip::Tooltip::new(t("review.zoom.fitTitle"))
                             .build(w, cx)
@@ -2490,9 +2490,7 @@ impl ReviewView {
         match &self.media {
             None => div()
                 .p_6()
-                .text_size(theme::text::UI)
-                .text_color(theme::subtle())
-                .child(t("common.loading"))
+                .child(crate::motion::skeleton_lines("loading-review-4", 4))
                 .into_any_element(),
             Some(Err(e)) => div()
                 .p_5()
@@ -2557,9 +2555,7 @@ impl ReviewView {
         match &self.diff {
             None => div()
                 .p_6()
-                .text_size(theme::text::UI)
-                .text_color(theme::subtle())
-                .child(t("common.loading"))
+                .child(crate::motion::skeleton_lines("loading-review-5", 4))
                 .into_any_element(),
             Some(Err(e)) => div()
                 .p_5()

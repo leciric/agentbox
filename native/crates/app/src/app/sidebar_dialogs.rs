@@ -523,6 +523,7 @@ impl AppView {
                                     .cursor_pointer()
                                     .when(on, |el| el.bg(theme::surface_strong()))
                                     .hover(|el| el.bg(theme::surface_raised()))
+                                    .active(|s| s.bg(theme::surface_strong()))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         if !busy {
                                             this.set_icon(
@@ -586,6 +587,7 @@ impl AppView {
                                     })
                                     .cursor_pointer()
                                     .hover(|el| el.bg(theme::surface_raised()))
+                                    .active(|s| s.bg(theme::surface_strong()))
                                     .tooltip(move |w, cx| {
                                         gpui_component::tooltip::Tooltip::new(tip.clone())
                                             .build(w, cx)
@@ -1107,6 +1109,7 @@ impl AppView {
                             .bg(theme::surface_raised())
                             .text_color(theme::primary())
                             .hover(|s| s.bg(theme::surface_strong()))
+                            .active(|s| s.bg(theme::surface_vivid()))
                             .child(crate::icons::ic("circle-question-mark").size_4())
                     } else {
                         el.text_color(theme::muted())

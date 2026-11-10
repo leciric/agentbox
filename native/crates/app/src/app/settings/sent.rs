@@ -307,7 +307,7 @@ impl AppView {
                     .items_center()
                     .justify_center()
                     .on_mouse_down(MouseButton::Left, close)
-                    .child(
+                    .child(crate::motion::pop_in(
                         v_flex()
                             .id("usage-sent-card")
                             .w(px(672.))
@@ -354,7 +354,8 @@ impl AppView {
                                     cx.notify();
                                 }),
                             ))),
-                    ),
+                        "usage-sent-in",
+                    )),
                 "idusage-sent-in",
             )
             .into_any_element(),

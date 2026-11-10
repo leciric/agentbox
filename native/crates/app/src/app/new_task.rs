@@ -221,7 +221,7 @@ impl AppView {
                             cx.notify();
                         }),
                     )
-                    .child(
+                    .child(crate::motion::pop_in(
                         v_flex()
                             .id("new-task-card")
                             .w(vp.width - px(32.))
@@ -313,7 +313,8 @@ impl AppView {
                                         "v2.newTask.hintDigit"
                                     })),
                             ),
-                    ),
+                        "new-task-in",
+                    )),
                 "idnew-task-in",
             )
             .into_any_element(),

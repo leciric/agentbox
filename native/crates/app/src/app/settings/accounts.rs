@@ -495,6 +495,7 @@ impl AppView {
             i.update(cx, |i, cx| {
                 i.set_value(name.clone(), window, cx);
                 i.focus(window, cx);
+                i.select_all(window, cx);
             });
         }
         self.settings_page.accounts.renaming = Some((card, name, provider));
@@ -1819,6 +1820,7 @@ impl AppView {
             .text_color(theme::muted())
             .cursor_pointer()
             .hover(|s| s.text_color(theme::primary()))
+            .active(|s| s.opacity(0.7))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 let p = &mut this.settings_page.accounts.pasting;
                 if !p.remove(card) {
@@ -1826,15 +1828,15 @@ impl AppView {
                 }
                 cx.notify();
             }))
-            .child(format!(
-                "{} {}",
-                if open { "▾" } else { "▸" },
-                t(if card == "github" {
-                    "settings.github.useToken"
-                } else {
-                    "settings.accounts.pasteToken"
-                })
-            ));
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(crate::motion::chevron("chev", open, Some(px(14.))))
+            .child(t(if card == "github" {
+                "settings.github.useToken"
+            } else {
+                "settings.accounts.pasteToken"
+            }));
         let mut col = v_flex().gap_2().child(h_flex().child(toggle));
         if open {
             let (intro, after) = if card == "github" {

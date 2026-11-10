@@ -691,7 +691,7 @@ impl DiffView {
                     .id("review-notes-earlier")
                     .gap_1()
                     .cursor_pointer()
-                    .child(crate::icons::of(if open { "▾" } else { "▸" }))
+                    .child(crate::motion::chevron("chev-694", open, None))
                     .child(heading(tv(
                         "review.notes.earlier",
                         &[("list", counts.into())],

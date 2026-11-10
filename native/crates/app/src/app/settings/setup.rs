@@ -706,6 +706,7 @@ impl AppView {
                                     .when(has_body && !is_next, |el| {
                                         el.cursor_pointer()
                                             .hover(|st| st.bg(theme::surface()))
+                                            .active(|s| s.bg(theme::surface_raised()))
                                             .on_click(cx.listener(
                                                 move |this, _: &ClickEvent, _, cx| {
                                                     let u = &mut this.settings_page.setup.unfolded;

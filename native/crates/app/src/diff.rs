@@ -879,7 +879,7 @@ impl DiffView {
                                 div()
                                     .flex_none()
                                     .w(px(10.))
-                                    .child(crate::icons::of(if folded { "▸" } else { "▾" })),
+                                    .child(crate::motion::chevron("chev-882", !folded, None)),
                             )
                             .child(div().min_w_0().truncate().child(name.clone()))
                             .into_any_element(),
@@ -909,6 +909,7 @@ impl DiffView {
                             .cursor_pointer()
                             .when(on, |el| el.bg(theme::surface_strong()))
                             .hover(|s| s.bg(theme::surface_raised()))
+                            .active(|s| s.bg(theme::surface_strong()))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 this.focus.focus(window, cx);
                                 this.select(ix, cx)
@@ -960,9 +961,7 @@ impl Render for DiffView {
             None => {
                 return div()
                     .p_6()
-                    .text_sm()
-                    .text_color(theme::faint())
-                    .child(t("common.loading"))
+                    .child(crate::motion::skeleton_lines("loading-diff-7", 4))
                     .into_any_element();
             }
             Some(Err(e)) => {
@@ -993,6 +992,7 @@ impl Render for DiffView {
                     el.text_color(theme::muted())
                         .cursor_pointer()
                         .hover(|s| s.text_color(theme::primary()))
+                        .active(|s| s.opacity(0.7))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.set_layout(layout, cx)
                         }))
@@ -1118,6 +1118,7 @@ impl Render for DiffView {
                         .text_xs()
                         .cursor_pointer()
                         .hover(|s| s.bg(theme::surface_strong()))
+                        .active(|s| s.bg(theme::surface_vivid()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.toggle_open(&path, cx)
                         }))
@@ -1126,7 +1127,7 @@ impl Render for DiffView {
                                 .flex_none()
                                 .w(px(10.))
                                 .text_color(theme::muted())
-                                .child(crate::icons::of(if open { "▾" } else { "▸" })),
+                                .child(crate::motion::chevron("chev-1129", open, None)),
                         )
                         .children(summary(f))
                         .into_any_element();

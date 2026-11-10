@@ -669,14 +669,17 @@ impl AppView {
                                 .child(label),
                         ),
                 )
-                .child(
+                .child(crate::app::controls::full_on_hover(
                     div()
                         .text_size(theme::text::CAPTION)
                         .line_height(rems(1.375))
                         .text_color(theme::subtle())
                         .line_clamp(2)
-                        .child(detail),
-                )
+                        .text_ellipsis()
+                        .child(detail.clone()),
+                    SharedString::from(format!("connector-about-{detail}")),
+                    detail,
+                ))
                 .into_any_element()
         };
         let mut tiles: Vec<AnyElement> = PRESETS

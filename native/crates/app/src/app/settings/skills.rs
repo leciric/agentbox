@@ -974,14 +974,17 @@ impl AppView {
                                         el.child(badge(t("skills.modelOnly"), theme::accent()))
                                     }),
                             )
-                            .child(
+                            .child(crate::app::controls::full_on_hover(
                                 div()
                                     .text_size(theme::text::UI)
                                     .line_height(rems(1.4))
                                     .text_color(if on { theme::muted() } else { theme::subtle() })
                                     .line_clamp(2)
+                                    .text_ellipsis()
                                     .child(k.description.clone()),
-                            )
+                                SharedString::from(format!("skill-about-{}", k.name)),
+                                k.description.clone(),
+                            ))
                             .child(
                                 div()
                                     .text_size(theme::text::CAPTION)
@@ -1258,6 +1261,7 @@ impl AppView {
                                         .when(!active, |el| {
                                             el.text_color(theme::muted())
                                                 .hover(|st| st.bg(theme::surface_strong()))
+                                                .active(|s| s.bg(theme::surface_vivid()))
                                         })
                                         .on_click(cx.listener(
                                             move |this, _: &ClickEvent, _, cx| {

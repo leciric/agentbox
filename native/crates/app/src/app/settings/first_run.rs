@@ -370,6 +370,7 @@ impl AppView {
                         .when(reachable, |el| {
                             el.cursor_pointer()
                                 .hover(|s| s.bg(theme::surface_strong()))
+                                .active(|s| s.bg(theme::surface_vivid()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.go_step(Some(s), cx)
                                 }))
@@ -853,6 +854,7 @@ impl AppView {
                                     } else {
                                         el.border_color(transparent_black())
                                             .hover(|s| s.bg(theme::surface_strong()))
+                                            .active(|s| s.bg(theme::surface_vivid()))
                                     }
                                 })
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {

@@ -607,6 +607,7 @@ impl AppView {
                         .text_color(theme::faint())
                         .cursor_pointer()
                         .hover(|s| s.text_color(theme::primary()))
+                        .active(|s| s.opacity(0.7))
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.side.dialog = None;
                             this.open_settings_at("accounts".into(), window, cx);
@@ -995,7 +996,7 @@ pub(super) fn form_modal(
             .items_center()
             .justify_center()
             .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
-            .child(
+            .child(crate::motion::pop_in(
                 v_flex()
                     .id(SharedString::from(format!("{id}-card")))
                     .w(px(580.))
@@ -1052,7 +1053,8 @@ pub(super) fn form_modal(
                                 on_confirm,
                             )),
                     ),
-            ),
+                "add-project-in",
+            )),
         "idsharedstringfromformatid-backdrop-in",
     )
     .into_any_element()

@@ -578,6 +578,7 @@ impl AppView {
                                     .when(!no_hub && !p.busy && !picked, |el| {
                                         el.cursor_pointer()
                                             .hover(|st| st.bg(theme::surface_raised()))
+                                            .active(|s| s.bg(theme::surface_strong()))
                                             .on_click(cx.listener(
                                                 move |this, _: &ClickEvent, _, cx| {
                                                     if named_unset {

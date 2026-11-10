@@ -1839,7 +1839,12 @@ impl AppView {
                                     theme::muted()
                                 })
                                 .hover(|st| st.text_color(theme::primary()))
-                                .child(format!("{} {summary}", if open { "▾" } else { "▸" }))
+                                .active(|s| s.opacity(0.7))
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .child(crate::motion::chevron("chev", open, Some(px(12.))))
+                                .child(summary)
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     let pp = &mut this.settings_page.project;
                                     pp.show_credentials = !pp.show_credentials;

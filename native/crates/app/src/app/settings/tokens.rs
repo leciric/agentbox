@@ -275,7 +275,8 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
                 .child(value),
         )
         .when(!hint.is_empty(), |el| {
-            el.child(
+            // Two lines of it, the whole of it on hover.
+            el.child(crate::app::controls::full_on_hover(
                 div()
                     .mt_0p5()
                     .text_size(theme::text::CAPTION)
@@ -283,8 +284,10 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
                     .line_clamp(2)
                     .text_ellipsis()
                     .text_color(theme::faint())
-                    .child(hint),
-            )
+                    .child(hint.clone()),
+                SharedString::from(format!("stat-hint-{hint}")),
+                hint,
+            ))
         })
         .into_any_element()
 }
@@ -456,6 +459,7 @@ impl AppView {
                             el.text_color(theme::muted())
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(theme::primary()))
+                                .active(|s| s.opacity(0.7))
                                 .on_click(move |_, window, cx| pick(p, window, cx))
                         })
                         .child(t(&format!("vm.tokens.period.{p}")))
@@ -968,6 +972,7 @@ impl AppView {
                         .text_xs()
                         .cursor_pointer()
                         .hover(|s| s.bg(theme::surface_raised()))
+                        .active(|s| s.bg(theme::surface_strong()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.unfold_agent(r2.clone(), cx)
                         }))
@@ -980,7 +985,7 @@ impl AppView {
                                 .child(
                                     div()
                                         .text_color(theme::faint())
-                                        .child(crate::icons::of(if open { "▾" } else { "▸" })),
+                                        .child(crate::motion::chevron("chev-983", open, None)),
                                 )
                                 .child(
                                     v_flex()
