@@ -181,4 +181,12 @@ export const enUSNative = {
   'native.window.maximize': 'Maximize',
   'native.window.restore': 'Restore',
   'native.window.close': 'Close',
+  'native.keepRunning.title': 'AgentBox is still running',
+  'native.keepRunning.body': 'Closing the window keeps it in the tray. To quit, press {keys} or choose Quit AgentBox in the tray icon\'s menu.',
+  'native.keepRunning.setting': 'Open the setting',
+  'native.quit.item': 'Quit AgentBox ({keys})',
+  'native.quit.keywords': 'quit exit close leave end stop app',
+  'native.tray.description': 'Closing the window hides it, and AgentBox stays in the tray (the menu bar on a Mac), where its icon counts the agents working and what waits for you. {keys} always quits, as does Quit AgentBox in the icon\'s menu and in the help menu.',
+  'native.tray.noIcon': 'No tray icon is shown on this desktop right now, so closing the window quits. GNOME shows tray icons with the AppIndicator extension.',
+  'native.tray.noMinimize': 'This desktop doesn\'t minimize windows, so closing the window quits.',
 };

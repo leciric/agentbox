@@ -20,6 +20,14 @@ thread_local! {
     static DRAG_FROM: std::cell::Cell<Option<Point<Pixels>>> = const { std::cell::Cell::new(None) };
     static CLIENT_DECORATIONS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static MAXIMIZED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static CAN_MINIMIZE: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// can_minimize is whether the desktop minimises windows when asked (a
+/// Wayland compositor says; sway and other tiling ones don't), as of the
+/// last frame: Settings says so beside "Keep running in the tray".
+pub(super) fn can_minimize() -> bool {
+    CAN_MINIMIZE.get()
 }
 
 /// set_decorations is what the window is drawn with, read before each frame
@@ -31,6 +39,7 @@ pub(super) fn set_decorations(window: &Window) {
         Decorations::Client { .. }
     ));
     MAXIMIZED.set(window.is_maximized());
+    CAN_MINIMIZE.set(window.window_controls().minimize);
 }
 
 fn client_decorations() -> bool {
@@ -332,7 +341,6 @@ impl AppView {
     /// window; what is clickable on it (these, the chips, Search) stops the
     /// press from reaching it.
     fn window_controls(&self, cx: &mut Context<Self>) -> AnyElement {
-        let has_tray = self.has_tray();
         let control = |id: &'static str, icon: &'static str, tip: String| {
             let tip: SharedString = tip.into();
             div()
@@ -353,7 +361,6 @@ impl AppView {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(crate::icons::ic(icon).size(px(14.)))
         };
-        let _ = cx;
         h_flex()
             .flex_none()
             .gap_1()
@@ -375,16 +382,11 @@ impl AppView {
                 .on_click(|_, window, _| window.zoom_window()),
             )
             .child(
-                control("window-close", "x", t("native.window.close")).on_click(
-                    move |_, window, cx| {
-                        super::alerts::close_window(
-                            has_tray,
-                            "the window's close button",
-                            window,
-                            cx,
-                        );
+                control("window-close", "x", t("native.window.close")).on_click(cx.listener(
+                    |this, _: &ClickEvent, window, cx| {
+                        this.close_window("the window's close button", window, cx);
                     },
-                ),
+                )),
             )
             .into_any_element()
     }

@@ -20,6 +20,12 @@ pub fn take_clicks() -> Vec<String> {
 /// Linux's notification servers as the "default" action, a Mac's and
 /// Windows' as the default response, so each goes where it points.
 pub fn show(id: String, title: String, body: String) {
+    show_with(id, title, body, agentbox_i18n::t("shell.app.view"));
+}
+
+/// show_with is show with the action's name given (Linux's servers draw it
+/// as a button).
+pub fn show_with(id: String, title: String, body: String, action: String) {
     std::thread::spawn(move || {
         #[cfg(target_os = "macos")]
         set_mac_application();
@@ -27,7 +33,7 @@ pub fn show(id: String, title: String, body: String) {
         n.appname("AgentBox").summary(&title).body(&body);
         #[cfg(target_os = "linux")]
         {
-            n.action("default", &agentbox_i18n::t("shell.app.view"));
+            n.action("default", &action);
             match n.show() {
                 Ok(handle) => handle.wait_for_action(|action| {
                     if action == "default" {
@@ -42,6 +48,7 @@ pub fn show(id: String, title: String, body: String) {
         // click on the notification's body as its default response.
         #[cfg(not(target_os = "linux"))]
         {
+            let _ = action;
             let clicked = move |r: &notify_rust::NotificationResponse| {
                 if matches!(r, notify_rust::NotificationResponse::Default) {
                     CLICKS.lock().unwrap_or_else(|e| e.into_inner()).push(id);
