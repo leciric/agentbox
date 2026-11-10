@@ -11,6 +11,7 @@
 //! FAKE_RELEASE=<release.json> (an api::UpdateRelease) answers GET /v1/update/release
 //! and makes GET /v1/update offer it, for testing the app's update in place;
 //! FAKE_IDLE=1 leaves no job running, which the update would wait for.
+//! FAKE_UPDATE_DELAY=<seconds> holds GET /v1/update/release that long (the app's checking state).
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -866,6 +867,15 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };
+    // FAKE_UPDATE_DELAY=<seconds> holds the update check that long, to see
+    // the app while it checks (its icon turning).
+    if parts.as_slice() == ["v1", "update", "release"]
+        && let Some(s) = std::env::var("FAKE_UPDATE_DELAY")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_secs(s)).await;
+    }
     let res = match (&method, parts.as_slice()) {
         (&Method::GET, ["v1", "events"]) => events(fake.clone()).await,
         // On its own, it's the daemon too: up, and set up with defaults.
