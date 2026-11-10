@@ -18,7 +18,7 @@ func TestContextWindowsFollowTheModel(t *testing.T) {
 		{"opus", 200_000, []int64{200_000, 1_000_000}},
 		{"sonnet", 150_000, []int64{150_000, 1_000_000}},
 		{"default", 200_000, []int64{200_000, 1_000_000}},
-		{"claude-fable-5-1", 200_000, []int64{200_000, 1_000_000}},
+		{"claude-fable-5-2", 200_000, []int64{200_000, 1_000_000}},
 		{"haiku", 200_000, []int64{200_000}},         // one window: no choice
 		{"opus", 0, []int64{1_000_000}},              // the installation already compacts at the whole window
 		{"something-new", 200_000, []int64{200_000}}, // unknown: the short window until a turn says otherwise

@@ -34,12 +34,12 @@ func settingsOf(t *testing.T, raw []byte) map[string]any {
 func TestWithClaudeModelKeepsEverythingElse(t *testing.T) {
 	t.Parallel()
 	existing := []byte(`{"skipDangerousModePermissionPrompt":true,"permissions":{"deny":["Bash","Write"]},"includeCoAuthoredBy":false}`)
-	merged, err := withClaudeModel(existing, "claude-fable-5-1")
+	merged, err := withClaudeModel(existing, "claude-fable-5-2")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := settingsOf(t, merged)
-	if got["model"] != "claude-fable-5-1" {
+	if got["model"] != "claude-fable-5-2" {
 		t.Errorf("model = %v", got["model"])
 	}
 	if got["skipDangerousModePermissionPrompt"] != true {
@@ -77,7 +77,7 @@ func TestWithClaudeModelStartsFromNothing(t *testing.T) {
 func TestWithClaudeModelLeavesNoKeyForNoChoice(t *testing.T) {
 	t.Parallel()
 	for _, model := range []string{"", "default"} {
-		merged, err := withClaudeModel([]byte(`{"model":"claude-fable-5-1","skipDangerousModePermissionPrompt":true}`), model)
+		merged, err := withClaudeModel([]byte(`{"model":"claude-fable-5-2","skipDangerousModePermissionPrompt":true}`), model)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -133,7 +133,7 @@ func TestPrepareLeadChatModelMergesInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := m.PrepareChatModel(t.Context(), a, "claude-fable-5-1", 200_000); err != nil {
+	if err := m.PrepareChatModel(t.Context(), a, "claude-fable-5-2", 200_000); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(path)
@@ -141,7 +141,7 @@ func TestPrepareLeadChatModelMergesInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := settingsOf(t, raw)
-	if got["model"] != "claude-fable-5-1" {
+	if got["model"] != "claude-fable-5-2" {
 		t.Errorf("model = %v", got["model"])
 	}
 	if got[compactWindowKey] != float64(200_000) {
@@ -201,7 +201,7 @@ func TestPrepareChatModelOnlyClaudeCodeHasAModel(t *testing.T) {
 			User:  image.User{Name: "dev", UID: 1000, GID: 1000},
 		}
 		a := state.Agent{Project: "hello-stack", Name: "agent-01", AI: ai, Instance: "ab-hello-stack-agent-01", Worktree: "/worktree"}
-		if err := m.PrepareChatModel(t.Context(), a, "claude-fable-5-1", 200_000); err != nil {
+		if err := m.PrepareChatModel(t.Context(), a, "claude-fable-5-2", 200_000); err != nil {
 			t.Errorf("PrepareChatModel(%s) = %v", ai, err)
 		}
 		if _, err := os.Stat(filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile)); !os.IsNotExist(err) {
@@ -299,13 +299,13 @@ func TestPrepareLeadChatModelReportsUnreadableSettings(t *testing.T) {
 func TestConfigureLeadKeepsTheChosenModel(t *testing.T) {
 	t.Parallel()
 	policy := leadSettings()
-	carryClaudeModel([]byte(`{"model":"claude-fable-5-1","autoCompactWindow":200000,"promptCacheTtl":"5m","permissions":{"deny":[]}}`), policy)
+	carryClaudeModel([]byte(`{"model":"claude-fable-5-2","autoCompactWindow":200000,"promptCacheTtl":"5m","permissions":{"deny":[]}}`), policy)
 	raw, err := json.Marshal(policy)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := settingsOf(t, raw)
-	if got["model"] != "claude-fable-5-1" {
+	if got["model"] != "claude-fable-5-2" {
 		t.Errorf("the chosen model didn't survive a rewrite: %v", got["model"])
 	}
 	if got[compactWindowKey] != float64(200_000) {
