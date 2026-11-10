@@ -95,7 +95,7 @@ What is shown is what the tool's adapter reports (`internal/chat/background.go`)
 | --- | --- | --- | --- |
 | Background commands | status, exit code, output read from the command's output file | status, and the output its tool call kept | not reported |
 | Monitors | status and summary, no output | n/a | n/a |
-| Subagents that outlive their turn | status, with a jump to the card | not listed | not reported |
+| Subagents that outlive their turn | status, with a jump to the card | status, with a jump to the card | not reported |
 
 The same list is `backgroundTasks` on `GET …/chat`, and `GET …/chat/background/{task}` returns one
 task with the end of its output (`?before=<offset>` for the piece before).
