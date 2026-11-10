@@ -345,7 +345,8 @@ pub fn background_tasks(since: SystemTime, subagent: Option<&str>) -> Vec<ChatBa
             exit_code: Some(2),
             started_at: ago(85),
             ended_at: Some(ago(64)),
-            summary: "Background command \"Build the release bundle\" failed with exit code 2".into(),
+            summary: "Background command \"Build the release bundle\" failed with exit code 2"
+                .into(),
             has_output: true,
             ..Default::default()
         },
@@ -399,15 +400,26 @@ pub fn background_detail(
     let text = match id {
         "b0" => {
             let mut s: String = (1..=1400)
-                .map(|i| format!("  • packaging  file={i:04}.asar.unpacked platform=linux arch=x64\n"))
+                .map(|i| {
+                    format!("  • packaging  file={i:04}.asar.unpacked platform=linux arch=x64\n")
+                })
                 .collect();
             s.push_str("  ⨯ cannot execute  cause=exit status 2\n    errorOut=fpm: no such file or directory: build/icons/512x512.png\n");
             s
         }
         "b1" => {
             let jobs = [
-                "title", "changes", "go test", "go vet", "golangci-lint", "desktop lint",
-                "desktop typecheck", "desktop test", "desktop build", "native build", "native test",
+                "title",
+                "changes",
+                "go test",
+                "go vet",
+                "golangci-lint",
+                "desktop lint",
+                "desktop typecheck",
+                "desktop test",
+                "desktop build",
+                "native build",
+                "native test",
             ];
             let n = now.duration_since(since).unwrap_or_default().as_secs() as usize / 2 + 3;
             let mut s = String::from(
@@ -415,7 +427,11 @@ pub fn background_detail(
             );
             for i in 0..n {
                 let name = jobs[i % jobs.len()];
-                let round = if i >= jobs.len() { format!(" ({})", i / jobs.len() + 1) } else { String::new() };
+                let round = if i >= jobs.len() {
+                    format!(" ({})", i / jobs.len() + 1)
+                } else {
+                    String::new()
+                };
                 if i + 1 < n {
                     s.push_str(&format!("✓ {name}{round} in {}s\n", 20 + (i * 7) % 40));
                 } else {
@@ -426,7 +442,11 @@ pub fn background_detail(
         }
         _ => String::new(),
     };
-    let end = if before > 0 && before < text.len() { before } else { text.len() };
+    let end = if before > 0 && before < text.len() {
+        before
+    } else {
+        text.len()
+    };
     let mut start = end.saturating_sub(64 * 1024);
     while !text.is_char_boundary(start) {
         start += 1;

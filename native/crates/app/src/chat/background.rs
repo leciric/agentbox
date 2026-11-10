@@ -337,9 +337,15 @@ impl ChatView {
     /// render_background is the opened task: a card over the whole window.
     pub(super) fn render_background(
         &mut self,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        // The dialog keeps the keyboard while it's open: a click on one of
+        // its buttons takes the focus, and Escape must still close it.
+        let focus = self.background.as_ref()?.focus.clone();
+        if !focus.contains_focused(window, cx) {
+            focus.focus(window, cx);
+        }
         let o = self.background.as_mut()?;
         // The list knows of its end before the dialog's own read does.
         if let Some(listed) = self
@@ -495,7 +501,10 @@ impl ChatView {
                 .into_any_element()
         } else {
             let say = match &o.error {
-                Some(e) => tv("chat.background.outputError", &[("error", e.clone().into())]),
+                Some(e) => tv(
+                    "chat.background.outputError",
+                    &[("error", e.clone().into())],
+                ),
                 None if !o.read => t("chat.background.reading"),
                 None if task.has_output => t("chat.background.empty"),
                 None => t("chat.background.noOutput"),
@@ -556,9 +565,11 @@ impl ChatView {
                             .text_color(theme::subtle())
                             .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
                             .child(crate::icons::ic("x").size(px(16.)))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.close_background(window, cx)
-                            })),
+                            .on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.close_background(window, cx)
+                                }),
+                            ),
                     ),
             )
             .child(fields)
