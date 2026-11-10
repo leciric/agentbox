@@ -872,7 +872,10 @@ impl ChatView {
         // own state replaces this as it arrives. A message to an agent from
         // the lead's chat leaves a notice here, and no turn.
         if to.is_empty() {
-            if !matches!(self.session.state.as_str(), "running" | "starting" | "waiting") {
+            if !matches!(
+                self.session.state.as_str(),
+                "running" | "starting" | "waiting"
+            ) {
                 let was = std::mem::replace(&mut self.session.state, "running".into());
                 let at = std::time::Instant::now();
                 self.unsent_state = Some((was, at));

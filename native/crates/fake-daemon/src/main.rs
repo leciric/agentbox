@@ -1697,7 +1697,9 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         // slept, so it says ready while it wakes (a few seconds, starting
         // for the last of them), then answers, as internal/chat's
         // stateNow reads a sleeping conversation.
-        (&Method::POST, ["v1", "projects", p, "chat", "messages"])
+        (&Method::POST,
+            ["v1", "projects", p, "chat", "messages"]
+            | ["v1", "projects", p, "sessions", "main", "chat", "messages"])
             if fake.opts.upstream.is_none() =>
         {
             let project = p.to_string();
