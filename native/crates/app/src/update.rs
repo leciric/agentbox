@@ -620,14 +620,50 @@ pub fn clean_up(support: &Support) {
     }
 }
 
+/// RESTART_LOCK is the variable naming the file the old app holds locked
+/// until it has exited, which the new one waits for ([`wait_for_previous`]).
+const RESTART_LOCK: &str = "AGENTBOX_NATIVE_RESTART_LOCK";
+
+/// WAIT_FOR_PREVIOUS is how long the new app waits for the old one to go;
+/// quitting ends it within quit.rs's GRACE.
+const WAIT_FOR_PREVIOUS: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The lock this app holds for the one it restarts into: taken once, and
+/// let go of only by exiting (the system drops it with the process).
+static HELD: std::sync::Mutex<Option<(PathBuf, std::fs::File)>> = std::sync::Mutex::new(None);
+
+fn hold_restart_lock() -> std::io::Result<PathBuf> {
+    let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((path, _)) = held.as_ref() {
+        return Ok(path.clone());
+    }
+    let path = std::env::temp_dir().join(format!(
+        "agentbox-native-restart-{}.lock",
+        std::process::id()
+    ));
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&path)?;
+    file.lock()?;
+    *held = Some((path.clone(), file));
+    Ok(path)
+}
+
 /// restart starts the new binary with this one's arguments, on its own;
-/// the caller quits.
+/// the caller quits. The new one waits until this one has exited before it
+/// opens a window ([`wait_for_previous`]): two copies never run at once.
 pub fn restart(relaunch: &Path) -> std::io::Result<()> {
+    let lock = hold_restart_lock()?;
     let mut cmd = std::process::Command::new(relaunch);
     cmd.args(std::env::args_os().skip(1))
+        .env(RESTART_LOCK, &lock)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stdout(std::process::Stdio::null());
+    // stderr is this one's: the new version's lines follow the old one's in
+    // the same log (main.rs says which version starts, and after what).
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
@@ -641,6 +677,39 @@ pub fn restart(relaunch: &Path) -> std::io::Result<()> {
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
     cmd.spawn().map(drop)
+}
+
+/// wait_for_previous is the first thing a restarted app does: it waits for
+/// the app that started it to exit (its lock to go), for up to
+/// WAIT_FOR_PREVIOUS. It says how long it waited, None when this app wasn't
+/// restarted into. Call it before any thread starts: it unsets the variable.
+pub fn wait_for_previous() -> Option<std::time::Duration> {
+    let path = std::env::var_os(RESTART_LOCK)?;
+    // SAFETY: main calls this before any other thread starts.
+    unsafe { std::env::remove_var(RESTART_LOCK) };
+    Some(wait_for_lock(Path::new(&path), WAIT_FOR_PREVIOUS))
+}
+
+fn wait_for_lock(path: &Path, limit: std::time::Duration) -> std::time::Duration {
+    let start = std::time::Instant::now();
+    let Ok(file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    else {
+        return start.elapsed();
+    };
+    while start.elapsed() < limit {
+        match file.try_lock() {
+            Err(std::fs::TryLockError::WouldBlock) => {
+                std::thread::sleep(std::time::Duration::from_millis(25))
+            }
+            _ => break,
+        }
+    }
+    drop(file);
+    let _ = std::fs::remove_file(path);
+    start.elapsed()
 }
 
 #[cfg(test)]
@@ -758,6 +827,61 @@ mod tests {
 
     /// The nightly's native jobs package the files the update asks for
     /// (scripts/native-package.sh), under the names asset_name gives them.
+    /// Each native build of the nightly is stamped with its version: without
+    /// it the app takes the daemon's for its own and offers again the update
+    /// it has just installed.
+    #[test]
+    fn the_nightly_stamps_each_native_build_with_its_version() {
+        let flow = include_str!("../../../../.github/workflows/nightly.yml");
+        let jobs: Vec<&str> = flow.split("\n  native-").skip(1).collect();
+        assert_eq!(jobs.len(), 3, "native-linux, native-windows, native-macos");
+        for job in jobs {
+            let job = job.split("\n  publish:").next().unwrap();
+            assert!(job.contains("cargo build --release"), "{job}");
+            assert!(
+                job.contains("AGENTBOX_VERSION: ${{ needs.resolve.outputs.version }}"),
+                "native-{} builds without AGENTBOX_VERSION",
+                job.lines().next().unwrap_or_default()
+            );
+        }
+    }
+
+    /// A restarted app waits for its lock while the old one holds it, and no
+    /// longer.
+    #[test]
+    fn a_restart_waits_for_the_old_app_to_let_go() {
+        let dir = std::env::temp_dir().join(format!("restart-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("held.lock");
+        let held = std::fs::File::create(&path).unwrap();
+        held.lock().unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            drop(held);
+        });
+        let waited = wait_for_lock(&path, std::time::Duration::from_secs(10));
+        release.join().unwrap();
+        assert!(
+            waited >= std::time::Duration::from_millis(250),
+            "{waited:?}"
+        );
+        assert!(waited < std::time::Duration::from_secs(5), "{waited:?}");
+        assert!(!path.exists(), "the lock file is removed");
+        // Nobody holding it, or no file at all: no wait.
+        std::fs::File::create(&path).unwrap();
+        assert!(
+            wait_for_lock(&path, std::time::Duration::from_secs(10))
+                < std::time::Duration::from_secs(1)
+        );
+        assert!(
+            wait_for_lock(&path, std::time::Duration::from_secs(10))
+                < std::time::Duration::from_secs(1)
+        );
+        // Taken twice by one app (a restart tried again), it's the same lock.
+        assert_eq!(hold_restart_lock().unwrap(), hold_restart_lock().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn release_files_match_the_packaging() {
         let script = include_str!("../../../../scripts/native-package.sh");

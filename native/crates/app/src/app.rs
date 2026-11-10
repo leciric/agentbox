@@ -1143,6 +1143,7 @@ impl Render for AppView {
         bench::mark("first-render");
         controls::set_viewport(window.viewport_size());
         controls::set_scale(window.scale_factor());
+        topbar::set_decorations(window);
         self.focus_tour(window, cx);
         // The tour's spotlight reads where its anchors were drawn last.
         crate::spot::measure(self.onboarding_touring());

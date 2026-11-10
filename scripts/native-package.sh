@@ -45,6 +45,18 @@
 # FFmpeg is linked statically (nightly.yml), so Arch and Debian 13 run it too.
 set -euo pipefail
 
+# stamped checks that the binary knows its version (AGENTBOX_VERSION at build
+# time): one that doesn't takes the daemon's for its own and keeps offering
+# the update it has just installed.
+stamped() {
+  local said
+  said=$("$1" --version) || { echo "$1 --version failed" >&2; exit 1; }
+  [ "$said" = "agentbox-native $version" ] || {
+    echo "$1 says \"$said\", not agentbox-native $version: build it with AGENTBOX_VERSION=$version" >&2
+    exit 1
+  }
+}
+
 os=${1:?usage: $0 linux|windows|mac <version> <out>}
 version=${2:?usage: $0 linux|windows|mac <version> <out>}
 out=${3:?usage: $0 linux|windows|mac <version> <out>}
@@ -86,6 +98,7 @@ case $os in
   linux)
     bin=$root/native/target/release/agentbox-native
     [ -x "$bin" ] || { echo "no $bin: build it first" >&2; exit 1; }
+    stamped "$bin"
     arch=$(dpkg --print-architecture) # amd64
     case $arch in amd64) uname=x86_64 ;; arm64) uname=aarch64 ;; *) uname=$arch ;; esac
 
@@ -225,6 +238,7 @@ DESK
   mac)
     bin=$root/native/target/release/agentbox-native
     [ -x "$bin" ] || { echo "no $bin: build it first" >&2; exit 1; }
+    stamped "$bin"
     arch=$(lipo -archs "$bin" | tr ' ' '-') # arm64
     app="$tmp/dmg/AgentBox Native (experimental).app"
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
