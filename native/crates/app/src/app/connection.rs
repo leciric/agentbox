@@ -1028,7 +1028,13 @@ esac
         bin
     }
 
+    /// One at a time: a test that forks while another has its script open
+    /// for writing hands that descriptor to its child, and the script's own
+    /// exec then fails with "Text file busy", leaving its log empty.
+    static ONE: Mutex<()> = Mutex::new(());
+
     fn run(power: &str, fail: bool, vm_power: bool, answered: bool) -> (StartRun, String) {
+        let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!(
             "agentbox-start-{}-{}",
             std::process::id(),
