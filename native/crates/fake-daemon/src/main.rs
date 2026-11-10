@@ -520,6 +520,13 @@ impl Fake {
                 ..Default::default()
             });
             items.extend(working_items());
+            // What it left in the background, the subagent's chip going to
+            // the last subagent card there is.
+            let card = items
+                .iter()
+                .rev()
+                .find(|i| i.kind == "subagent" && i.parent.is_empty())
+                .map(|i| i.id.clone());
             (
                 0,
                 ChatSession {
@@ -528,6 +535,7 @@ impl Fake {
                     options: chat_options(),
                     context_used: 84_200,
                     context_size: 200_000,
+                    background_tasks: chat::background_tasks(chat::started(), card.as_deref()),
                     ..Default::default()
                 },
                 items,
@@ -1621,6 +1629,21 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                     ..Default::default()
                 },
             )
+        }
+        (&Method::GET, ["v1", "agents", p, a, "chat", "background", id]) if fake.is_fake(p) => {
+            let before = req
+                .uri()
+                .query()
+                .unwrap_or("")
+                .split('&')
+                .find_map(|kv| kv.strip_prefix("before="))
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+            let tasks = fake.thread(&format!("{p}/{a}")).session.background_tasks;
+            match chat::background_detail(&tasks, id, before, chat::started(), std::time::SystemTime::now()) {
+                Some(d) => json(StatusCode::OK, &d),
+                None => not_found(req.uri().path()),
+            }
         }
         (&Method::GET, ["v1", "agents", p, a, "chat"]) if fake.is_fake(p) => {
             // A page, as internal/daemon/chat.go reads one: limit= items

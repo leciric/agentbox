@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
@@ -323,6 +324,26 @@ func (c *conversation) keepTail(ad *adapter, t *bgTask) {
 	})
 }
 
+// wholeRunes drops the bytes of a character cut in two at either end of a
+// piece that starts at offset start, so pieces join at character boundaries
+// and a reader can add up offsets in bytes.
+func wholeRunes(data []byte, start int64) ([]byte, int64) {
+	i := 0
+	for i < len(data) && i < utf8.UTFMax && !utf8.RuneStart(data[i]) {
+		i++
+	}
+	data, start = data[i:], start+int64(i)
+	for j := 1; j <= utf8.UTFMax && j <= len(data); j++ {
+		if utf8.RuneStart(data[len(data)-j]) {
+			if !utf8.FullRune(data[len(data)-j:]) {
+				data = data[:len(data)-j]
+			}
+			break
+		}
+	}
+	return data, start
+}
+
 // BackgroundTask is one of the background tasks of an agent's session, with
 // a piece of its output: its last limit bytes, or the limit bytes that end
 // at offset before. state.ErrNotFound when the session has no such task.
@@ -363,6 +384,7 @@ func (m *Manager) BackgroundTask(ctx context.Context, a state.Agent, id string, 
 		data, start, size, err := m.ReadOutput(ctx, a, path, before, limit)
 		switch {
 		case err == nil:
+			data, start = wholeRunes(data, start)
 			d.Output, d.OutputStart, d.OutputSize = string(data), start, size
 		case tail != "" && (before <= 0 || before >= tailSize):
 			// The file went with the command; this is what was read as it ended.

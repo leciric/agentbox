@@ -14,6 +14,7 @@ use gpui_component::{h_flex, v_flex};
 use crate::{bench, theme};
 use agentbox_i18n::{t, tv};
 
+mod background;
 mod composer;
 pub use composer::ReviewCard;
 mod evidence;
@@ -233,6 +234,8 @@ pub struct ChatView {
     /// Pictures in the conversation, read once each (None while on the way).
     images: HashMap<String, Option<Arc<Image>>>,
     pub zoom: Option<Zoom>,
+    /// The background task opened over the chat (chat/background.rs).
+    background: Option<background::Opened>,
     /// The conversation has items before those held, and a read of them is out.
     older: bool,
     loading_older: bool,
@@ -360,6 +363,7 @@ impl ChatView {
             checkpoints: Default::default(),
             images: Default::default(),
             zoom: None,
+            background: None,
             older: false,
             loading_older: false,
             newer: false,
@@ -1269,6 +1273,7 @@ impl Render for ChatView {
         let view = cx.entity();
         let working = self.working();
         let zoom = self.render_zoom(window, cx);
+        let background = self.render_background(window, cx);
         let gutter = crate::app::controls::list_overflows(&self.list);
         v_flex()
             .id("chat")
@@ -1372,5 +1377,6 @@ impl Render for ChatView {
                     .child(crate::spot::spot("composer")),
             )
             .children(zoom)
+            .children(background)
     }
 }

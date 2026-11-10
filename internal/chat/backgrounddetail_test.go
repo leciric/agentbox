@@ -183,3 +183,20 @@ func TestASubagentThatOutlivesItsTurnIsBackgroundWork(t *testing.T) {
 		t.Errorf("its detail = %+v, %v", d, err)
 	}
 }
+
+func TestWholeRunesCutsPiecesAtCharacterBoundaries(t *testing.T) {
+	t.Parallel()
+	all := []byte("aé€b")                  // 1 + 2 + 3 + 1 bytes
+	data, start := wholeRunes(all[2:5], 2) // the é's second byte, and two of the €'s three
+	if string(data) != "" || start != 3 {
+		t.Errorf("a piece of only halves = %q at %d", data, start)
+	}
+	data, start = wholeRunes(all[2:], 2)
+	if string(data) != "€b" || start != 3 {
+		t.Errorf("a piece starting mid-character = %q at %d", data, start)
+	}
+	data, start = wholeRunes(all[:2], 0)
+	if string(data) != "a" || start != 0 {
+		t.Errorf("a piece ending mid-character = %q at %d", data, start)
+	}
+}

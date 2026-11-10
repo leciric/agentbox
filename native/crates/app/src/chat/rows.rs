@@ -7,14 +7,21 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use agentbox_api::{ChatDiff, ChatItem, ChatSession, Checkpoint};
+use agentbox_api::{ChatBackgroundTask, ChatDiff, ChatItem, ChatSession, Checkpoint};
 use agentbox_i18n::{t, tv};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Row {
     User(usize),
     Woken(usize),
-    Background(Vec<String>),
+    /// What the session runs outside its turns: by description (names, all
+    /// an older daemon says), and item by item, each of which opens
+    /// (chat/background.rs). waiting is between turns with some running.
+    Background {
+        names: Vec<String>,
+        tasks: Vec<ChatBackgroundTask>,
+        waiting: bool,
+    },
     Assistant {
         ix: usize,
         last: bool,
@@ -417,11 +424,16 @@ pub fn rows(
             }
         }
     }
-    if !session.background.is_empty() && session.turn_started_at.is_none() {
+    let waiting = !session.background.is_empty() && session.turn_started_at.is_none();
+    if waiting || !session.background_tasks.is_empty() {
         push(
             &mut out,
             "background".into(),
-            Row::Background(session.background.clone()),
+            Row::Background {
+                names: session.background.clone(),
+                tasks: session.background_tasks.clone(),
+                waiting,
+            },
         );
     }
     out
@@ -473,7 +485,16 @@ fn signature(items: &[ChatItem], row: &Row) -> u64 {
             label, open, empty, ..
         } => (label, open, empty).hash(&mut h),
         Row::Working { since, stalled } => (since, stalled).hash(&mut h),
-        Row::Background(tasks) => tasks.hash(&mut h),
+        Row::Background {
+            names,
+            tasks,
+            waiting,
+        } => {
+            (names, waiting).hash(&mut h);
+            for t in tasks {
+                (&t.id, &t.title, &t.status, &t.kind).hash(&mut h);
+            }
+        }
         Row::Thinking => {}
         Row::Changes(files) => {
             for f in files {
