@@ -770,11 +770,11 @@ func ChoiceValues(raw string) []string {
 //
 // Alias is the short name Claude Code's own menu lists it by once the account
 // does offer it, like "fable": that entry is the same model, so the pinned
-// one would be a second "Fable 5.1" beside it.
+// one would be a second "Fable 5.2" beside it.
 type pinnedClaudeModel struct{ Value, Alias, Name string }
 
 var pinnedClaudeModels = []pinnedClaudeModel{
-	{Value: "claude-fable-5-1", Alias: "fable", Name: "Fable 5.1"},
+	{Value: "claude-fable-5-2", Alias: "fable", Name: "Fable 5.2"},
 }
 
 // offers reports whether a menu already has the pinned model, by its value,

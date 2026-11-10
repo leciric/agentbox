@@ -8,7 +8,7 @@
 //! - **Springs** (a drawer, a panel, a selection moving): GPUI's `with_spring`,
 //!   which keeps position and velocity across a retarget, so a drawer closed
 //!   halfway open turns back smoothly, and settles to no frames at all.
-//! - **Loops** (a working agent's pulse, a skeleton's shimmer): only while
+//! - **Loops** (a working agent's pulse, a skeleton's shimmer, a spinner): only while
 //!   something is actually happening, and at [`AMBIENT_FPS`], since every frame
 //!   repaints the window; nothing loops on an idle screen.
 //!
@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use gpui::{
     Animation, AnimationExt, App, ElementId, Hsla, IntoElement, Pixels, SpringAnimation,
-    SpringConfig, Styled, div, px,
+    SpringConfig, Styled, div, px, radians,
 };
 
 use crate::theme;
@@ -188,6 +188,18 @@ pub fn pulse<E: IntoElement + Styled + 'static>(
             let wave = (1. - (t * std::f32::consts::TAU).cos()) / 2.;
             el.opacity(1. - 0.6 * wave)
         },
+    )
+}
+
+/// spin turns a loader icon once a second (Tailwind's animate-spin). Loops:
+/// use it only on what is working right now.
+pub fn spin(icon: gpui_component::Icon, id: impl Into<ElementId>) -> impl IntoElement {
+    icon.with_animation(
+        id,
+        Animation::new(Duration::from_millis(1000))
+            .repeat()
+            .with_max_fps(AMBIENT_FPS),
+        |icon, t| icon.rotate(radians(t * std::f32::consts::TAU)),
     )
 }
 

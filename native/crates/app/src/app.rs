@@ -340,16 +340,25 @@ impl AppView {
                 let Ok(chat_ev) = serde_json::from_value::<ChatEvent>(ev.data) else {
                     return;
                 };
-                if let Some(s) = &chat_ev.session
-                    && self.side.apply_agent(&chat_ev.agent, None, Some(&s.state))
+                // While a message sent from the open chat waits for its turn,
+                // what its session says doesn't make it idle (shown_state).
+                let state = chat_ev.session.as_ref().map(|s| match &self.chat {
+                    Some(c) => c.read(cx).shown_state(&chat_ev.agent, s),
+                    None => s.state.clone(),
+                });
+                if let Some(state) = &state
+                    && self.side.apply_agent(&chat_ev.agent, None, Some(state))
                 {
                     self.check_agents(cx);
                     cx.notify();
                 }
-                if let Some(s) = &chat_ev.session {
+                if let Some(state) = &state {
+                    // A lead session's own state, before the daemon's next
+                    // read of where its sessions stand.
+                    self.apply_session_chat(&chat_ev.agent, state, cx);
                     // An agent's chat working is what the rail shows as busy.
                     if let Some(a) = self.fleet.iter_mut().find(|a| a.r#ref == chat_ev.agent) {
-                        a.busy = s.state == "running";
+                        a.busy = state == "running";
                         cx.notify();
                     }
                 }
@@ -872,6 +881,8 @@ impl AppView {
                 );
             }
             ChatAction::OpenAgent(r) => self.open_agent_ref(r, window, cx),
+            ChatAction::Sent(r) => self.mark_sent(&r, cx),
+            ChatAction::SendFailed(r) => self.unmark_sent(&r, cx),
             ChatAction::OpenProject(p) => self.select_project(p, window, cx),
             ChatAction::ReviewProject => {
                 if let Some(p) = self.project.clone() {
@@ -1195,6 +1206,7 @@ impl Render for AppView {
         bench::mark("first-render");
         controls::set_viewport(window.viewport_size());
         controls::set_scale(window.scale_factor());
+        topbar::set_decorations(window);
         self.focus_tour(window, cx);
         // The tour's spotlight reads where its anchors were drawn last.
         crate::spot::measure(self.onboarding_touring());
@@ -1325,14 +1337,15 @@ impl Render for AppView {
                 if ev.keystroke.key == "escape" && this.dismiss_top(cx) {
                     cx.stop_propagation();
                 }
-                // Ctrl+D folds the panel to its strip and back (a terminal's
-                // or a controlled desktop's own keys stop before here).
+                // Ctrl+D opens the panel on the agents' list, and folds it
+                // when it's there (panel_shortcut; a terminal's or a
+                // controlled desktop's own keys stop before here).
                 if ev.keystroke.modifiers.control
                     && ev.keystroke.key == "d"
                     && !this.is_home()
                     && this.project.is_some()
                 {
-                    this.toggle_panel(window, cx);
+                    this.panel_shortcut(window, cx);
                     cx.stop_propagation();
                 }
             }))

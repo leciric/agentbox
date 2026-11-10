@@ -51,7 +51,7 @@ export function ModelByName({ onPick, disabled }: { onPick: (value: string) => v
                 submit();
               }
             }}
-            placeholder="claude-fable-5-1"
+            placeholder="claude-fable-5-2"
             className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none disabled:opacity-50"
           />
           <button

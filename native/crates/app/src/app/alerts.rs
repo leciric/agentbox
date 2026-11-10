@@ -233,15 +233,13 @@ impl AppView {
             this.alerts.bounds_due = Some(Instant::now() + Duration::from_millis(500));
         });
         self.alerts._subs = vec![activation, bounds];
-        // Kept running in the tray, closing the window minimises it.
+        // Closing the window quits (quit.rs), or minimises it when it's
+        // kept running in the tray. The close button is the window
+        // manager's (WM_DELETE_WINDOW, xdg_toplevel close), or ours where
+        // the compositor draws none (topbar.rs, window_controls).
         let has_tray = self.alerts.tray.is_some();
-        window.on_window_should_close(cx, move |window, _| {
-            save_bounds(window);
-            if has_tray && prefs::tray_keep_running() {
-                window.minimize_window();
-                return false;
-            }
-            true
+        window.on_window_should_close(cx, move |window, cx| {
+            !close_window(has_tray, "the window was closed", window, cx)
         });
         self.alerts._poll = Some(cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -362,7 +360,7 @@ impl AppView {
                 self.draw_tray();
                 cx.notify();
             }
-            Action::Quit => cx.quit(),
+            Action::Quit => crate::quit::quit(cx, "the tray's Quit"),
         }
         self.alerts.tray_due = Some(Instant::now());
     }
@@ -684,6 +682,27 @@ impl AppView {
             );
         }
     }
+}
+
+impl AppView {
+    /// has_tray is whether the tray's icon is up (it can't be on a desktop
+    /// without one).
+    pub(super) fn has_tray(&self) -> bool {
+        self.alerts.tray.is_some()
+    }
+}
+
+/// close_window minimises the window when the tray keeps the app running,
+/// and quits otherwise, saving where the window was either way. It says
+/// whether the window stays.
+pub(super) fn close_window(has_tray: bool, why: &str, window: &mut Window, cx: &mut App) -> bool {
+    save_bounds(window);
+    if has_tray && prefs::tray_keep_running() {
+        window.minimize_window();
+        return true;
+    }
+    crate::quit::quit(cx, why);
+    false
 }
 
 /// save_bounds keeps the window's place for the next launch: a maximised or

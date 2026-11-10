@@ -1005,7 +1005,7 @@ const SHEET: &[(&str, &[Row])] = &[
     (
         "keys.group.panel",
         &[
-            (&["Ctrl", "D"], "keys.panel"),
+            (&["Ctrl", "D"], "native.keys.panel"),
             (&["F", "D", "T", "B", "P", "M"], "keys.launcher"),
             (&["Delete"], "keys.closeTab"),
         ],

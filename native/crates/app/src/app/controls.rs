@@ -736,8 +736,14 @@ pub fn settings_select_at(
     field_select(id, choices, current, disabled, on_pick, anchor, None)
 }
 
+/// SEARCH_AFTER is ui/select.tsx's searchThreshold: a menu of more choices
+/// than this opens with a search box over them; below it, one is noise.
+const SEARCH_AFTER: usize = 8;
+
 /// select_menu is a select's menu: every choice, grouped, the current one
-/// checked, each with what it means under it.
+/// checked, each with what it means under it. A long one opens with a
+/// search box (ui/select.tsx's) that narrows the choices as it's typed in;
+/// Enter picks the first left, Escape closes it.
 fn select_menu(
     choices: Vec<Choice>,
     current: &str,
@@ -750,72 +756,189 @@ fn select_menu(
 + 'static {
     let current = SharedString::from(current.to_string());
     let choices = Rc::new(choices);
-    move |menu, _, _| {
-        let mut menu = menu
+    move |menu, window, cx| {
+        let menu = menu
             .min_w(px(240.))
             .max_w(px(380.))
             .max_h(px(420.))
             .scrollable(true);
-        let mut group = String::new();
-        for c in choices.iter() {
-            if c.group != group {
-                group = c.group.clone();
-                menu = menu.separator();
-                if !group.is_empty() {
-                    menu = menu.label(group.clone());
-                }
-            }
-            // gpui-component's check is an icon, and this app ships no
-            // icon assets: the mark is text, in a column of its own.
-            let (name, about, on) = (c.label.clone(), c.description.clone(), c.value == current);
-            let item = PopupMenuItem::element(move |_, _| {
-                h_flex()
-                    .items_start()
-                    .gap_2()
-                    .child(
-                        div()
-                            .w(px(12.))
-                            .flex_none()
-                            .text_sm()
-                            .text_color(theme::accent())
-                            .child(crate::icons::of(if on { "✓" } else { "" })),
-                    )
-                    .child(
-                        v_flex()
-                            .py_0p5()
-                            // A long choice wraps inside the menu, where it
-                            // used to run off its edge.
-                            .child(
-                                div()
-                                    .max_w(px(320.))
-                                    .whitespace_normal()
-                                    .text_sm()
-                                    .child(name.clone()),
-                            )
-                            .when(!about.is_empty(), |el| {
-                                // Two lines of it at most, wrapped inside
-                                // the menu; the whole of it on hover.
-                                el.child(
-                                    clamped(
-                                        SharedString::from(format!("select-about-{name}")),
-                                        about.clone(),
-                                        2,
-                                    )
-                                    .max_w(px(320.))
-                                    .text_xs()
-                                    .text_color(theme::muted()),
-                                )
-                            }),
-                    )
-            });
-            let (pick, value) = (on_pick.clone(), c.value.clone());
-            menu = menu.item(
-                item.disabled(c.disabled)
-                    .on_click(move |_, window, cx| pick(&value, window, cx)),
-            );
+        if choices.len() <= SEARCH_AFTER {
+            return menu_items(menu, &choices, &current, &on_pick, "", None);
         }
-        menu
+        // The menu is built afresh each time it opens, so the query starts
+        // empty each time, as Electron's does.
+        let search = cx.new(|cx| {
+            gpui_component::input::InputState::new(window, cx).placeholder(t("common.search"))
+        });
+        let (c, cur, pick) = (choices.clone(), current.clone(), on_pick.clone());
+        cx.subscribe_in(
+            &search,
+            window,
+            move |menu, input, ev: &gpui_component::input::InputEvent, window, cx| {
+                use gpui_component::input::InputEvent;
+                let query = input.read(cx).value().to_string();
+                match ev {
+                    InputEvent::Change => {
+                        let (c, cur, pick, input) =
+                            (c.clone(), cur.clone(), pick.clone(), input.clone());
+                        menu.rebuild(window, cx, move |m, _, _| {
+                            menu_items(
+                                m.min_w(px(240.))
+                                    .max_w(px(380.))
+                                    .max_h(px(420.))
+                                    .scrollable(true),
+                                &c,
+                                &cur,
+                                &pick,
+                                &query,
+                                Some(input),
+                            )
+                        });
+                    }
+                    InputEvent::PressEnter { .. } => {
+                        if let Some(first) = matching(&c, &query).find(|c| !c.disabled) {
+                            pick(&first.value, window, cx);
+                            cx.emit(DismissEvent);
+                        }
+                    }
+                    _ => {}
+                }
+            },
+        )
+        .detach();
+        // The dropdown focuses the menu once it's built; the search takes
+        // the focus from it after that, so typing goes straight in.
+        let focus = search.read(cx).focus_handle(cx);
+        window.defer(cx, move |window, cx| focus.focus(window, cx));
+        menu_items(menu, &choices, &current, &on_pick, "", Some(search))
     }
+}
+
+/// matching is the choices whose label has query in it, any case.
+fn matching<'a>(choices: &'a [Choice], query: &str) -> impl Iterator<Item = &'a Choice> {
+    let q = query.trim().to_lowercase();
+    choices
+        .iter()
+        .filter(move |c| q.is_empty() || c.label.to_lowercase().contains(&q))
+}
+
+/// menu_items fills a select's menu: its search box when it has one, then
+/// the choices query matches, or a line saying none does.
+fn menu_items(
+    mut menu: gpui_component::menu::PopupMenu,
+    choices: &[Choice],
+    current: &SharedString,
+    on_pick: &Pick<str>,
+    query: &str,
+    search: Option<Entity<gpui_component::input::InputState>>,
+) -> gpui_component::menu::PopupMenu {
+    if let Some(search) = search {
+        // mb-1 rounded-lg bg-surface px-2.5 py-1.5, a Search icon before
+        // it; disabled, so a click in it doesn't count as a pick.
+        let item = PopupMenuItem::element(move |_, _| {
+            h_flex()
+                .flex_1()
+                .gap_2()
+                .mb_1()
+                .px_2p5()
+                .py_1p5()
+                .rounded_lg()
+                .bg(theme::surface())
+                .text_size(theme::text::UI)
+                .text_color(theme::primary())
+                .cursor_text()
+                .child(
+                    crate::icons::ic("search")
+                        .size(px(14.))
+                        .flex_none()
+                        .text_color(theme::subtle()),
+                )
+                .child(
+                    div().flex_1().min_w_0().child(
+                        gpui_component::input::Input::new(&search)
+                            .appearance(false)
+                            .xsmall(),
+                    ),
+                )
+        });
+        menu = menu.item(item.disabled(true));
+    }
+    let mut group = String::new();
+    let mut any = false;
+    for c in matching(choices, query) {
+        any = true;
+        if c.group != group {
+            group = c.group.clone();
+            menu = menu.separator();
+            if !group.is_empty() {
+                menu = menu.label(group.clone());
+            }
+        }
+        // gpui-component's check is an icon, and this app ships no
+        // icon assets: the mark is text, in a column of its own.
+        let (name, about, on) = (c.label.clone(), c.description.clone(), c.value == *current);
+        let item = PopupMenuItem::element(move |_, _| {
+            h_flex()
+                .items_start()
+                .gap_2()
+                .child(
+                    div()
+                        .w(px(12.))
+                        .flex_none()
+                        .text_sm()
+                        .text_color(theme::accent())
+                        .child(crate::icons::of(if on { "✓" } else { "" })),
+                )
+                .child(
+                    v_flex()
+                        .py_0p5()
+                        // A long choice wraps inside the menu, where it used
+                        // to run off its edge.
+                        .child(
+                            div()
+                                .max_w(px(320.))
+                                .whitespace_normal()
+                                .text_sm()
+                                .child(name.clone()),
+                        )
+                        .when(!about.is_empty(), |el| {
+                            // Two lines of it at most, wrapped inside the
+                            // menu; the whole of it on hover.
+                            el.child(
+                                clamped(
+                                    SharedString::from(format!("select-about-{name}")),
+                                    about.clone(),
+                                    2,
+                                )
+                                .max_w(px(320.))
+                                .text_xs()
+                                .text_color(theme::muted()),
+                            )
+                        }),
+                )
+        });
+        let (pick, value) = (on_pick.clone(), c.value.clone());
+        menu = menu.item(
+            item.disabled(c.disabled)
+                .on_click(move |_, window, cx| pick(&value, window, cx)),
+        );
+    }
+    if !any {
+        let none = agentbox_i18n::tv("shell.ui.noMatch", &[("query", query.trim().into())]);
+        menu = menu.item(
+            PopupMenuItem::element(move |_, _| {
+                div()
+                    .flex_1()
+                    .py_2()
+                    .text_center()
+                    .text_size(theme::text::CAPTION)
+                    .text_color(theme::subtle())
+                    .child(none.clone())
+            })
+            .disabled(true),
+        );
+    }
+    menu
 }
 
 /// range is Chromium's `<input type=range>` in the brand's accent (the chime's

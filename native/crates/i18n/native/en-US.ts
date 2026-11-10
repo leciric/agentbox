@@ -114,6 +114,7 @@ export const enUSNative = {
   'native.office.chat.close': 'Close the chat',
   'native.office.chat.openInApp': 'Open in the app',
   'native.office.help': 'Controls and legend',
+  'native.keys.panel': 'Show the agents’ list, or compact the panel when it’s already on it',
   'native.office.keys.back': 'Step back',
   'native.office.keys.click': 'Click',
   'native.office.keys.drag': 'Drag',
@@ -176,4 +177,8 @@ export const enUSNative = {
   'native.chat.options.modelTip': '{setup}: change the model, context window or effort',
   'native.chat.options.modeTip': '{mode}: change the permission mode, or plan first',
   'native.chat.options.moreTip': 'More settings: {settings}',
+  'native.window.minimize': 'Minimize',
+  'native.window.maximize': 'Maximize',
+  'native.window.restore': 'Restore',
+  'native.window.close': 'Close',
 };

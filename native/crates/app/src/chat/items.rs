@@ -1263,7 +1263,7 @@ impl ChatView {
                 .child(
                     card(theme::muted())
                         .child(
-                            h_flex().gap_2().child(crate::icons::of("⟳")).child(
+                            h_flex().gap_2().child(crate::icons::of("◌")).child(
                                 div()
                                     .text_color(theme::primary())
                                     .child(t("chat.compaction.running")),

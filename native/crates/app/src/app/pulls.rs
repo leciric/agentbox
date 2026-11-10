@@ -1476,8 +1476,10 @@ impl AppView {
         let wrap = |el: AnyElement| {
             div()
                 .id("pulls-panel")
-                .flex_1()
-                .min_h_0()
+                // size_full, not flex_1: the panel's body sits in a plain
+                // (non-flex) div, where flex_1 sizes nothing and the list
+                // grows past the window instead of scrolling.
+                .size_full()
                 .overflow_y_scroll()
                 .px_3()
                 .py_3()
@@ -1694,6 +1696,7 @@ impl AppView {
                         .pr_1()
                         .text_size(px(11.5))
                         .text_color(theme::faint())
+                        .when(refreshing, |el| el.child(crate::icons::spinner()))
                         .child(if refreshing {
                             t("memory.pulls.refreshing")
                         } else {
@@ -2189,10 +2192,11 @@ impl AppView {
                                                             div()
                                                                 .flex_none()
                                                                 .text_color(color)
-                                                                .child(
+                                                                .child(crate::icons::icon(
+                                                                    mark,
                                                                     crate::icons::ic(mark)
                                                                         .size(px(14.)),
-                                                                ),
+                                                                )),
                                                         )
                                                         .child(
                                                             div()
@@ -2454,6 +2458,9 @@ impl AppView {
                 .track_focus(&self.pulls.focus)
                 .absolute()
                 .inset_0()
+                // The backdrop takes every pointer event: nothing under it
+                // hovers, clicks or scrolls while the modal is open.
+                .occlude()
                 .flex()
                 .items_center()
                 .justify_center()

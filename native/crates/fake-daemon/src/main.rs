@@ -11,6 +11,7 @@
 //! FAKE_RELEASE=<release.json> (an api::UpdateRelease) answers GET /v1/update/release
 //! and makes GET /v1/update offer it, for testing the app's update in place;
 //! FAKE_IDLE=1 leaves no job running, which the update would wait for.
+//! FAKE_UPDATE_DELAY=<seconds> holds GET /v1/update/release that long (the app's checking state).
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -468,6 +469,31 @@ impl Fake {
         })
     }
 
+    /// every_media is the Media page's: the project's fixtures' media, and
+    /// two of those again for each neighbour's agent (--neighbours), so the
+    /// page's project and agent pickers have more than a few to choose from.
+    fn every_media(&self) -> Vec<MediaItem> {
+        let mut out = self.review.lock().unwrap().all_media(&self.opts.project);
+        let base = out.clone();
+        if base.is_empty() {
+            return out;
+        }
+        for (j, a) in self.neighbours().into_iter().enumerate() {
+            for k in 0..2 {
+                let mut m = base[(2 * j + k) % base.len()].clone();
+                // The file is found by the id's end (review.rs file).
+                m.id = format!("{}-{}-{}", a.project, a.name, m.id);
+                m.agent = a.r#ref.clone();
+                m.agent_name = a.name.clone();
+                m.agent_title = a.title.clone();
+                m.agent_gone = false;
+                out.push(m);
+            }
+        }
+        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out
+    }
+
     fn neighbour(&self, project: &str) -> bool {
         self.opts.neighbours.iter().any(|(p, _)| p == project)
     }
@@ -588,6 +614,29 @@ impl Fake {
             ev.session = Some(s.clone());
         });
         self.set_busy(&agent, false);
+    }
+
+    /// lead_status says where a lead's main session stands now, as the
+    /// daemon's lead.session.status does.
+    fn lead_status(&self, project: &str, chat: &str, status: &str) {
+        let s = LeadSession {
+            project: project.to_string(),
+            id: "main".into(),
+            r#ref: format!("{project}/lead"),
+            topic: "Main".into(),
+            chat: chat.into(),
+            status: status.into(),
+            created_at: now(),
+            active_at: now(),
+            ..Default::default()
+        };
+        self.emit(
+            EVENT_LEAD_SESSION_STATUS,
+            &LeadSessionStatusChange {
+                project: project.to_string(),
+                sessions: vec![s],
+            },
+        );
     }
 
     fn set_busy(&self, agent: &str, busy: bool) {
@@ -866,6 +915,15 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };
+    // FAKE_UPDATE_DELAY=<seconds> holds the update check that long, to see
+    // the app while it checks (its icon turning).
+    if parts.as_slice() == ["v1", "update", "release"]
+        && let Some(s) = std::env::var("FAKE_UPDATE_DELAY")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_secs(s)).await;
+    }
     let res = match (&method, parts.as_slice()) {
         (&Method::GET, ["v1", "events"]) => events(fake.clone()).await,
         // On its own, it's the daemon too: up, and set up with defaults.
@@ -947,6 +1005,8 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             let p = Project {
                 name: fake.opts.project.clone(),
                 display_name: fake.opts.project.clone(),
+                // Its pull requests are pulls.rs's fixtures.
+                pull_requests: true,
                 ..Default::default()
             };
             let mut all = vec![p];
@@ -1102,7 +1162,7 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         }
         // Every project's media (the Media page), a page at a time.
         (&Method::GET, ["v1", "media"]) if query.contains_key("limit") => {
-            let all = fake.review.lock().unwrap().all_media(&fake.opts.project);
+            let all = fake.every_media();
             let items = all
                 .into_iter()
                 .filter(|m| media_in(m, &query, true))
@@ -1115,17 +1175,22 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         // the scope's items, by kind, agent and project, and those the
         // kind and search keep.
         (&Method::GET, ["v1", "media", "counts"]) => {
-            let all = fake.review.lock().unwrap().all_media(&fake.opts.project);
+            // As media_list.go's writeMediaCounts: every project's count,
+            // the picked project's agents, then the picked agent's totals.
+            let all = fake.every_media();
+            let get = |k: &str| query.get(k).map(String::as_str).unwrap_or("");
             let mut c = MediaCounts::default();
-            for m in all.iter().filter(|m| media_in(m, &query, false)) {
-                c.total += 1;
-                c.bytes += m.size;
-                *c.kinds.entry(m.kind.clone()).or_default() += 1;
-                c.favorites += m.favorite as i64;
-                c.unseen += m.unseen as i64;
-                if media_in(m, &query, true) {
-                    c.matching += 1;
-                    c.matching_bytes += m.size;
+            for m in &all {
+                let project = m.agent.split_once('/').map_or("", |(p, _)| p);
+                match c.projects.iter_mut().find(|p| p.project == project) {
+                    Some(p) => p.count += 1,
+                    None => c.projects.push(MediaProjectCount {
+                        project: project.into(),
+                        count: 1,
+                    }),
+                }
+                if !get("project").is_empty() && get("project") != project {
+                    continue;
                 }
                 match c.agents.iter_mut().find(|a| a.agent == m.agent) {
                     Some(a) => {
@@ -1141,12 +1206,18 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                         bytes: m.size,
                     }),
                 }
-            }
-            if c.total > 0 {
-                c.projects.push(MediaProjectCount {
-                    project: fake.opts.project.clone(),
-                    count: c.total,
-                });
+                if !media_in(m, &query, false) {
+                    continue;
+                }
+                c.total += 1;
+                c.bytes += m.size;
+                *c.kinds.entry(m.kind.clone()).or_default() += 1;
+                c.favorites += m.favorite as i64;
+                c.unseen += m.unseen as i64;
+                if media_in(m, &query, true) {
+                    c.matching += 1;
+                    c.matching_bytes += m.size;
+                }
             }
             json(StatusCode::OK, &c)
         }
@@ -1669,6 +1740,52 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 ev.session = Some(s.clone());
             });
             json(StatusCode::OK, &serde_json::json!({}))
+        }
+        // On its own, a message to a lead's main session: the lead's tool
+        // slept, so it says ready while it wakes (a few seconds, starting
+        // for the last of them), then answers, as internal/chat's
+        // stateNow reads a sleeping conversation.
+        (&Method::POST,
+            ["v1", "projects", p, "chat", "messages"]
+            | ["v1", "projects", p, "sessions", "main", "chat", "messages"])
+            if fake.opts.upstream.is_none() =>
+        {
+            let project = p.to_string();
+            let agent = format!("{p}/lead");
+            let body = req
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            let msg: ChatMessageRequest = serde_json::from_slice(&body).unwrap_or_default();
+            let item = ChatItem {
+                id: format!("u{}", rand_id()),
+                kind: "user".into(),
+                text: msg.text.clone(),
+                created_at: now(),
+                updated_at: now(),
+                ..Default::default()
+            };
+            fake.chat_event(&agent, |ev, s, _| {
+                s.state = CHAT_READY.into();
+                s.turn_started_at = None;
+                ev.item = Some(item.clone());
+                ev.session = Some(s.clone());
+            });
+            let f = fake.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(3000)).await;
+                f.chat_event(&agent, |ev, s, _| {
+                    s.state = CHAT_STARTING.into();
+                    ev.session = Some(s.clone());
+                });
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                f.lead_status(&project, CHAT_RUNNING, "working");
+                f.clone().reply(agent, msg.text).await;
+                f.lead_status(&project, CHAT_READY, "idle");
+            });
+            json(StatusCode::OK, &item)
         }
         (&Method::POST, ["v1", "agents", p, a, "chat", "messages"]) if fake.is_fake(p) => {
             let agent = format!("{p}/{a}");

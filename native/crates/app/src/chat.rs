@@ -33,6 +33,10 @@ fn session_line(s: &ChatSession) -> String {
     tv(&key, &[("tool", (&tool_label(&s.tool)).into())])
 }
 
+/// UNSENT_HOLD is how long a sent message keeps its chat working while its
+/// session still says it's idle (shown_state).
+const UNSENT_HOLD: Duration = Duration::from_secs(20);
+
 /// A chat that isn't ready is asked for again this many times before it
 /// says so (lib/chat.ts's readyAttempts), and keeps being asked for after.
 const READY_TRIES: u32 = 6;
@@ -76,6 +80,13 @@ pub enum ChatAction {
     },
     /// Open an agent by its ref.
     OpenAgent(String),
+    /// A message to this chat (by its ref) went out: the sidebar, the panel
+    /// and the sessions show it working before the daemon says so
+    /// (Composer.tsx's setQueryData).
+    Sent(String),
+    /// That message didn't go, or no turn began for it in UNSENT_HOLD: what
+    /// they show is read again.
+    SendFailed(String),
     /// Open a project.
     OpenProject(String),
     /// Fork the lead's session into a new one, from an item on.
@@ -193,6 +204,10 @@ pub struct ChatView {
     items: Vec<ChatItem>,
     rows: Vec<rows::Keyed>,
     session: ChatSession,
+    /// unsent_state is the session's state before a message sent from here
+    /// marked it running, until the daemon says where it stands (or the
+    /// send fails, which puts it back).
+    unsent_state: Option<(String, Instant)>,
     seq: i64,
     loaded: bool,
     error: Option<SharedString>,
@@ -242,6 +257,33 @@ impl ChatView {
     /// status_line is what its session is doing, in words.
     pub fn status_line(&self) -> String {
         session_line(&self.session)
+    }
+
+    /// turn_pending is whether a message sent from here went out and its
+    /// session hasn't yet said where it stands.
+    pub fn turn_pending(&self) -> bool {
+        self.unsent_state
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() < UNSENT_HOLD)
+    }
+
+    /// shown_state is the state to show for a session's event: running while
+    /// a message sent from here waits for its turn. A lead whose tool slept
+    /// says ready (or off) until it has woken and the turn starts, which
+    /// takes a few seconds; past UNSENT_HOLD what it says stands.
+    pub fn shown_state(&self, agent: &str, s: &agentbox_api::ChatSession) -> String {
+        let held = agent == self.agent
+            && s.turn_started_at.is_none()
+            && matches!(s.state.as_str(), "ready" | "off" | "")
+            && self
+                .unsent_state
+                .as_ref()
+                .is_some_and(|(_, at)| at.elapsed() < UNSENT_HOLD);
+        if held {
+            "running".into()
+        } else {
+            s.state.clone()
+        }
     }
 
     /// working is whether a turn runs.
@@ -302,6 +344,7 @@ impl ChatView {
             items: Vec::new(),
             rows: Vec::new(),
             session: ChatSession::default(),
+            unsent_state: None,
             seq: 0,
             loaded: false,
             error: None,
@@ -869,7 +912,13 @@ impl ChatView {
             self.rows.clear();
             self.list.reset(0);
         }
-        if let Some(s) = ev.session {
+        if let Some(mut s) = ev.session {
+            // What it says stands once it isn't held (shown_state).
+            let shown = self.shown_state(&ev.agent, &s);
+            if shown == s.state {
+                self.unsent_state = None;
+            }
+            s.state = shown;
             let was_busy = self.session.turn_started_at.is_some();
             self.session = s;
             if was_busy && self.session.turn_started_at.is_none() {

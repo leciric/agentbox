@@ -85,6 +85,17 @@ fn glyph_button(
     pad: f32,
     tip: String,
 ) -> Stateful<Div> {
+    let ic = crate::icons::ic(glyph).size(px(icon));
+    glyph_button_with(id, crate::icons::icon(glyph, ic), pad, tip)
+}
+
+/// glyph_button_with is glyph_button around an icon already made (one turning).
+fn glyph_button_with(
+    id: impl Into<ElementId>,
+    icon: AnyElement,
+    pad: f32,
+    tip: String,
+) -> Stateful<Div> {
     let tip: SharedString = tip.into();
     div()
         .id(id)
@@ -98,7 +109,7 @@ fn glyph_button(
         .cursor_pointer()
         .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
         .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
-        .child(crate::icons::ic(glyph).size(px(icon)))
+        .child(icon)
 }
 
 impl AppView {
@@ -1529,7 +1540,14 @@ impl AppView {
         } else {
             t("v2.update.check")
         };
-        glyph_button("update-check", "refresh-cw", 16., 8., label)
+        // SidebarV2's RefreshCw turns while it checks.
+        let ic = crate::icons::ic("refresh-cw").size(px(16.));
+        let ic = if self.side.checking {
+            crate::icons::spin(ic)
+        } else {
+            ic.into_any_element()
+        };
+        glyph_button_with("update-check", ic, 8., label)
             .rounded_lg()
             .text_color(theme::muted())
             .when(self.side.checking, |el| el.opacity(0.5))
@@ -1593,6 +1611,10 @@ impl AppView {
                     return;
                 }
             };
+            crate::quit::log(format_args!(
+                "agentbox-native: updating to {} from {}",
+                plan.version, plan.url
+            ));
             // The download blocks: a thread of its own, saying how far it got.
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             std::thread::spawn(move || {
@@ -1609,6 +1631,10 @@ impl AppView {
                 let stop = this
                     .update(cx, |this, cx| match msg {
                         Ok(Phase::Ready { version, relaunch }) => {
+                            crate::quit::log(format_args!(
+                                "agentbox-native: update {version} installed at {}, restarting into it",
+                                relaunch.display()
+                            ));
                             this.side.app_update = Some(Phase::Ready {
                                 version: version.clone(),
                                 relaunch: relaunch.clone(),
@@ -1651,6 +1677,10 @@ impl AppView {
     /// update_failed says why the update stopped, offering the release page.
     fn update_failed(&mut self, f: crate::update::Failure, pinned: &str, cx: &mut Context<Self>) {
         self.side.app_update = None;
+        crate::quit::log(format_args!(
+            "agentbox-native: update failed: {}: {}",
+            f.code, f.detail
+        ));
         let count = f.detail.parse::<usize>().unwrap_or(0);
         let msg = tv(
             &format!("shell.update.error.{}", f.code),
@@ -1763,7 +1793,7 @@ fn update_hint(support: &crate::update::Support, version: &str) -> String {
 fn restart_into(relaunch: &std::path::Path, cx: &mut App) -> bool {
     match crate::update::restart(relaunch) {
         Ok(()) => {
-            cx.quit();
+            crate::quit::quit(cx, "restarting into the update");
             true
         }
         Err(e) => {

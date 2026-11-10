@@ -381,6 +381,7 @@ impl AppView {
                     return;
                 }
                 this.sessions.lists.insert(project.clone(), list);
+                this.keep_sent(cx);
                 if let Some(c) = closed {
                     this.sessions.closed.insert(project.clone(), c);
                 }
@@ -463,6 +464,7 @@ impl AppView {
                 }
             }
         }
+        self.keep_sent(cx);
         if let Some(s) = self.sessions.current(&project).cloned()
             && self.project.as_deref() == Some(project.as_str())
             && self.open == "lead"
@@ -2248,6 +2250,85 @@ impl AppView {
 
     /// project_sessions is how a project's sessions mark its row: any of
     /// them working, unread, or needing you.
+    /// mark_sent shows the chat a message just went to as working, before
+    /// its session's state comes back from the daemon (Composer.tsx's
+    /// setQueryData): its session in the list and the sidebar's lead row,
+    /// or the agent's row and its tile on the rail. What the daemon sends
+    /// next replaces it.
+    pub(super) fn mark_sent(&mut self, r#ref: &str, cx: &mut Context<Self>) {
+        self.mark_session_running(r#ref);
+        self.side.apply_agent(r#ref, None, Some("running"));
+        if let Some(a) = self.fleet.iter_mut().find(|a| a.r#ref == r#ref) {
+            a.busy = true;
+        }
+        cx.notify();
+    }
+
+    fn mark_session_running(&mut self, r#ref: &str) {
+        let project = r#ref.split('/').next().unwrap_or_default();
+        if let Some(s) = self
+            .sessions
+            .lists
+            .get_mut(project)
+            .and_then(|l| l.iter_mut().find(|s| s.r#ref == r#ref))
+            && !is_working(s)
+        {
+            s.chat = "running".into();
+            if s.status == "idle" {
+                s.status = "working".into();
+            }
+        }
+    }
+
+    /// keep_sent marks the open chat's session working again after a read
+    /// of the list, while its message is out and its session hasn't said
+    /// where it stands: a read made before its turn began says idle.
+    fn keep_sent(&mut self, cx: &mut Context<Self>) {
+        let pending = self
+            .chat
+            .as_ref()
+            .map(|c| c.read(cx))
+            .filter(|c| c.turn_pending())
+            .map(|c| c.agent.clone());
+        if let Some(r) = pending {
+            self.mark_session_running(&r);
+        }
+    }
+
+    /// apply_session_chat keeps a lead session's chat state current from its
+    /// chat's events; its status (what its row says) follows it between
+    /// working and idle, as the daemon's next read of the list will.
+    pub(super) fn apply_session_chat(&mut self, r#ref: &str, chat: &str, cx: &mut Context<Self>) {
+        let project = r#ref.split('/').next().unwrap_or_default();
+        let Some(s) = self
+            .sessions
+            .lists
+            .get_mut(project)
+            .and_then(|l| l.iter_mut().find(|s| s.r#ref == r#ref))
+        else {
+            return;
+        };
+        if s.chat == chat {
+            return;
+        }
+        s.chat = chat.to_string();
+        match (s.status.as_str(), is_working(s)) {
+            ("idle", true) => s.status = "working".into(),
+            ("working", false) => s.status = "idle".into(),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    /// unmark_sent reads again what mark_sent changed, the message not
+    /// having gone.
+    pub(super) fn unmark_sent(&mut self, r#ref: &str, cx: &mut Context<Self>) {
+        let project = r#ref.split('/').next().unwrap_or_default().to_string();
+        self.load_sessions(project, cx);
+        self.load_sidebar(cx);
+        self.load_fleet_now(cx);
+    }
+
     pub(super) fn project_sessions(&self, project: &str) -> (bool, bool, bool) {
         let list = self.sessions.lists.get(project);
         let active = self.project.as_deref() == Some(project);

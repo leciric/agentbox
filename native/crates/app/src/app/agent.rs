@@ -1193,11 +1193,11 @@ impl AppView {
                         .self_center()
                         .gap_1p5()
                         .when(self.agent.busy, |el| {
-                            el.child(
+                            el.child(crate::icons::spin(
                                 crate::icons::ic("loader-circle")
                                     .size(px(16.))
                                     .text_color(theme::subtle()),
-                            )
+                            ))
                         })
                         // Button size="sm" variant="primary": its Play, then the action.
                         .when_some(primary, |el, action| {

@@ -26,6 +26,7 @@ mod nightly;
 mod notices;
 mod office;
 mod prefs;
+mod quit;
 #[cfg(target_os = "linux")]
 mod snapshot;
 mod spot;
@@ -44,6 +45,8 @@ use gpui::{App, AppContext as _, WindowOptions, px, size};
 use gpui_component::Root;
 
 fn main() {
+    // Restarted into by an update: the old version goes first (update.rs).
+    let waited = update::wait_for_previous();
     bench::start();
     // Text as light as Chromium's: GPUI's greyscale text defaults to gamma
     // 1.8 with an enhanced contrast of 1, a touch heavier than Skia's
@@ -66,11 +69,33 @@ fn main() {
             "--socket" => socket = args.next().expect("--socket PATH").into(),
             "--play" => play = Some(std::path::PathBuf::from(args.next().expect("--play FILE"))),
             "--help" | "-h" => {
-                println!("agentbox-native [--socket PATH]");
+                println!("agentbox-native [--socket PATH] [--version]");
+                return;
+            }
+            // The version this build was stamped with (update.rs,
+            // AGENTBOX_VERSION): native-package.sh checks it, so a nightly
+            // can't ship a build that doesn't know its own version.
+            "--version" | "-V" => {
+                println!("agentbox-native {}", update::APP_VERSION);
                 return;
             }
             _ => {}
         }
+    }
+    // Which build is running, for the logs: after an update's restart, the
+    // new version's line follows the old one's.
+    quit::log(format_args!(
+        "agentbox-native {} (pid {}, {})",
+        update::APP_VERSION,
+        std::process::id(),
+        std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default()
+    ));
+    if let Some(waited) = waited {
+        quit::log(format_args!(
+            "agentbox-native: restarted by an update, after the old version exited ({waited:.1?})"
+        ));
     }
     let client = agentbox_api::Client::new(socket);
     webview::set_client(client.clone());
@@ -86,6 +111,7 @@ fn main() {
             theme::init(cx);
             motion::init(cx);
             webview::init(cx);
+            quit::init(cx);
             // Where it was last time, on a display there is now (alerts.rs).
             let options = WindowOptions {
                 window_bounds: Some(app::initial_bounds(cx)),
@@ -115,6 +141,8 @@ fn main() {
             .expect("open the window");
             cx.activate(true);
         });
+    // GPUI's loop has returned: the app has quit (quit.rs).
+    quit::exit();
 }
 
 #[cfg(test)]

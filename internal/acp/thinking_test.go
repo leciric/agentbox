@@ -10,7 +10,7 @@ func TestClaudeAdaptiveThinking(t *testing.T) {
 		"opus[1m]":                          true,
 		"haiku":                             true,
 		"fable":                             true,
-		"claude-fable-5-1":                  true,
+		"claude-fable-5-2":                  true,
 		"claude-mythos-5":                   true,
 		"claude-opus-5-5":                   true,
 		"claude-sonnet-5":                   true,

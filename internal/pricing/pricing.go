@@ -59,6 +59,7 @@ func anthropic(input, output, cacheRead float64) Price {
 var table = map[string]Price{
 	// Anthropic.
 	"claude-fable-5-1":  anthropic(10, 50, 0.25),
+	"claude-fable-5-2":  anthropic(10, 50, 0.25),
 	"claude-mythos-5-1": anthropic(10, 50, 0.25),
 	"claude-fable-5":    anthropic(10, 50, 1),
 	"claude-mythos-5":   anthropic(10, 50, 1),

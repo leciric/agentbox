@@ -1112,7 +1112,7 @@ impl Render for FileBrowser {
                         el.child(
                             icon_button(
                                 "files-ignored",
-                                if self.ignored { "◉" } else { "◌" },
+                                if self.ignored { "eye" } else { "eye-off" },
                                 t(if self.ignored {
                                     "files.panel.hideIgnored"
                                 } else {

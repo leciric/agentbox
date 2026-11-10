@@ -1009,17 +1009,17 @@ func TestSettingsAreAppliedToEverySession(t *testing.T) {
 	// the next session, because the tool resolves a model at launch against a
 	// wider catalogue than it validates against mid-session (D45). What has to
 	// hold is that it says when it takes effect rather than implying it's on.
-	named, err := m.SetOption(ctx, a, "model", "claude-fable-5-1")
+	named, err := m.SetOption(ctx, a, "model", "claude-fable-5-2")
 	if err != nil {
 		t.Errorf("naming a model outside the menu = %v", err)
 	}
-	if got := optionValue(named, "model"); got != "claude-fable-5-1" {
+	if got := optionValue(named, "model"); got != "claude-fable-5-2" {
 		t.Errorf("after naming a model, the session reports %q", got)
 	}
 	th = waitThread(t, m, a, "the notice", func(th api.ChatThread) bool {
 		return strings.Contains(find(th, "notice", 0).Text, "starts on it next time")
 	})
-	if !strings.Contains(find(th, "notice", 0).Text, "claude-fable-5-1") {
+	if !strings.Contains(find(th, "notice", 0).Text, "claude-fable-5-2") {
 		t.Errorf("the notice doesn't name the model: %q", find(th, "notice", 0).Text)
 	}
 	// It still refuses a value for a setting that isn't the model.
@@ -1190,15 +1190,15 @@ func TestPinnedClaudeModelsAreOfferedButNeverRemembered(t *testing.T) {
 	if !ok {
 		t.Fatal("no model option on a ready session")
 	}
-	if !slices.ContainsFunc(model.Choices, func(c api.ChatOptionChoice) bool { return c.Value == "claude-fable-5-1" }) {
+	if !slices.ContainsFunc(model.Choices, func(c api.ChatOptionChoice) bool { return c.Value == "claude-fable-5-2" }) {
 		t.Errorf("Fable isn't on the live model menu: %+v", model.Choices)
 	}
 
-	session, err := m.SetOption(ctx, a, "model", "claude-fable-5-1")
+	session, err := m.SetOption(ctx, a, "model", "claude-fable-5-2")
 	if err != nil {
-		t.Fatalf("SetOption(\"claude-fable-5-1\") on a running session = %v", err)
+		t.Fatalf("SetOption(\"claude-fable-5-2\") on a running session = %v", err)
 	}
-	if got := optionValue(session, "model"); got != "claude-fable-5-1" {
+	if got := optionValue(session, "model"); got != "claude-fable-5-2" {
 		t.Errorf("after picking a pinned model, the session reports %q", got)
 	}
 	th = waitThread(t, m, a, "the notice", func(th api.ChatThread) bool {
@@ -1220,7 +1220,7 @@ func TestPinnedClaudeModelsAreOfferedButNeverRemembered(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &choices); err != nil {
 		t.Fatalf("remembered model menu = %q: %v", raw, err)
 	}
-	if slices.ContainsFunc(choices, func(c api.ChatOptionChoice) bool { return c.Value == "claude-fable-5-1" }) {
+	if slices.ContainsFunc(choices, func(c api.ChatOptionChoice) bool { return c.Value == "claude-fable-5-2" }) {
 		t.Errorf("a pinned model was remembered as though the adapter sent it: %+v", choices)
 	}
 }
@@ -1338,15 +1338,15 @@ func TestModelChoiceBeforeFirstMessageAcceptsANamedModel(t *testing.T) {
 	ctx := context.Background()
 	remember(t, store, "sonnet", "opus", "haiku")
 	m := &Manager{Store: store}
-	session, err := m.SetOption(ctx, testAgent, "model", "claude-fable-5-1")
+	session, err := m.SetOption(ctx, testAgent, "model", "claude-fable-5-2")
 	if err != nil {
-		t.Fatalf("SetOption(\"claude-fable-5-1\") before Start = %v", err)
+		t.Fatalf("SetOption(\"claude-fable-5-2\") before Start = %v", err)
 	}
-	if got := optionValue(session, "model"); got != "claude-fable-5-1" {
+	if got := optionValue(session, "model"); got != "claude-fable-5-2" {
 		t.Errorf("the named model reports %q", got)
 	}
 	stored, err := store.Chat(ctx, testAgent.Project, testAgent.Name)
-	if err != nil || stored.Options["model"] != "claude-fable-5-1" {
+	if err != nil || stored.Options["model"] != "claude-fable-5-2" {
 		t.Errorf("stored model = %q, %v", stored.Options["model"], err)
 	}
 	// Only the model has the escape hatch. Every other setting is still

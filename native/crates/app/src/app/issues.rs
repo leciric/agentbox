@@ -320,16 +320,25 @@ impl AppView {
                     d.issues.len(),
                 ))
                 .child(div().flex_1())
-                .child(div().text_xs().text_color(theme::faint()).child(
-                    if self.issues.refreshing {
-                        t("memory.pulls.refreshing")
-                    } else {
-                        d.fetched_at
-                            .as_deref()
-                            .map(|w| tv("memory.pulls.readAgo", &[("when", time_ago(w).into())]))
-                            .unwrap_or_default()
-                    },
-                ))
+                .child(
+                    h_flex()
+                        .gap_1p5()
+                        .text_xs()
+                        .text_color(theme::faint())
+                        .when(self.issues.refreshing, |el| {
+                            el.child(crate::icons::spinner())
+                        })
+                        .child(if self.issues.refreshing {
+                            t("memory.pulls.refreshing")
+                        } else {
+                            d.fetched_at
+                                .as_deref()
+                                .map(|w| {
+                                    tv("memory.pulls.readAgo", &[("when", time_ago(w).into())])
+                                })
+                                .unwrap_or_default()
+                        }),
+                )
                 .child(
                     div()
                         .id("issues-refresh")

@@ -153,7 +153,7 @@ impl SettingsPage {
         let named = accounts::FIELDS.iter().map(|(n, p, m)| (*n, *p, *m)).chain(
             defaults::FIELDS.iter().map(|n| {
                 let p = if n.ends_with("model-name") {
-                    "claude-fable-5-1"
+                    "claude-fable-5-2"
                 } else {
                     ""
                 };
