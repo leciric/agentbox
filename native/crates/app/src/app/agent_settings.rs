@@ -400,7 +400,15 @@ impl AppView {
                         },
                         true,
                     ),
-                    (t("agent.overview.instance"), a.instance.clone(), true),
+                    (
+                        t("agent.overview.instance"),
+                        if a.instance.is_empty() {
+                            dash()
+                        } else {
+                            a.instance.clone()
+                        },
+                        true,
+                    ),
                     (
                         t("agent.overview.startedFrom"),
                         if a.source.is_empty() {
@@ -421,6 +429,9 @@ impl AppView {
                         .mt_2()
                         .gap_3()
                         .flex_wrap()
+                        // One height and one top: a longer hint made one
+                        // tile taller and centred the other against it.
+                        .items_stretch()
                         .child(metric(
                             "CPU".into(),
                             usage
@@ -652,14 +663,16 @@ impl AppView {
                     .flex_wrap()
                     .gap_3()
                     .items_end()
-                    .child(controls::labeled(
+                    // Each keeps a width it can be read at: beside the panel
+                    // they wrap to a row each, where they were 140px boxes.
+                    .child(div().flex_1().min_w(px(220.)).child(controls::labeled(
                         t("agent.secrets.name"),
                         Input::new(&s.name),
-                    ))
-                    .child(controls::labeled(
+                    )))
+                    .child(div().flex_1().min_w(px(220.)).child(controls::labeled(
                         t("agent.secrets.value"),
                         Input::new(&s.value).mask_toggle(),
-                    ))
+                    )))
                     .child(controls::button(
                         "secret-store",
                         t("agent.secrets.store"),
@@ -690,7 +703,7 @@ impl AppView {
         let mut own: Vec<AnyElement> = Vec::new();
         match &s.secrets {
             None => own.push(super::panel::loading("agent_settings")),
-            Some(Err(e)) => own.push(controls::note_in(e.clone(), theme::rose(300))),
+            Some(Err(e)) => own.push(controls::error_line(e.clone())),
             Some(Ok(_)) if mine.is_empty() => own.push(
                 div()
                     .text_xs()
@@ -712,7 +725,7 @@ impl AppView {
     fn settings_connectors(&self, cx: &mut Context<Self>) -> AnyElement {
         let list = match &self.agent_settings.connectors {
             None => return super::panel::loading("agent_settings"),
-            Some(Err(e)) => return controls::note_in(e.clone(), theme::rose(300)),
+            Some(Err(e)) => return controls::error_line(e.clone()),
             Some(Ok(l)) => l.clone(),
         };
         let (project, mine): (Vec<Connector>, Vec<Connector>) =

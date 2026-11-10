@@ -148,6 +148,8 @@ pub(crate) fn time_ago(time: &str) -> String {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     match s {
+        // A time never set (a zero date): nothing, not "9810d ago".
+        s if s > 15 * 365 * 86400 => String::new(),
         ..45 => t("common.justNow"),
         45..3600 => tv("common.minutesAgo", &[("n", ((s + 30) / 60).max(1).into())]),
         3600..86400 => tv("common.hoursAgo", &[("n", ((s + 1800) / 3600).into())]),
@@ -1788,7 +1790,7 @@ impl AppView {
         let st = &self.settings_page.stopped;
         let preview = match &st.loaded {
             None => v_flex().child(note(t("defaults.newAgent.removeStoppedChecking"))),
-            Some(Err(err)) => v_flex().child(note_in(err.clone(), theme::rose(300))),
+            Some(Err(err)) => v_flex().child(crate::app::controls::error_line(err.clone())),
             Some(Ok(m)) => {
                 let removable: Vec<_> =
                     m.machines.iter().filter(|m| !m.remove.is_empty()).collect();

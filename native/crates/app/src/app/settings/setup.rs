@@ -368,7 +368,7 @@ impl AppView {
                 ),
             )
             .when_some(job.filter(|j| !j.error.is_empty()), |el, j| {
-                el.child(note_in(j.error.clone(), theme::rose(300)))
+                el.child(crate::app::controls::error_line(j.error.clone()))
             })
             .when(!tail.is_empty(), |el| {
                 el.child(
@@ -504,7 +504,7 @@ impl AppView {
         let p = &self.settings_page.setup;
         let report = match &p.doctor {
             None => return note(t("doctor.checking")),
-            Some(Err(e)) => return note_in(e.clone(), theme::rose(300)),
+            Some(Err(e)) => return crate::app::controls::error_line(e.clone()),
             Some(Ok(r)) => r,
         };
         let list: Vec<_> = report
@@ -662,7 +662,7 @@ impl AppView {
             .id("checklist")
             .gap_2()
             .when_some(p.error.clone(), |el, e| {
-                el.child(note_in(e, theme::rose(300)))
+                el.child(crate::app::controls::error_line(e))
             })
             .when_some(p.said.clone(), |el, s| {
                 el.child(note_in(s, theme::emerald(300)))
@@ -706,6 +706,7 @@ impl AppView {
                                     .when(has_body && !is_next, |el| {
                                         el.cursor_pointer()
                                             .hover(|st| st.bg(theme::surface()))
+                                            .active(|s| s.bg(theme::surface_raised()))
                                             .on_click(cx.listener(
                                                 move |this, _: &ClickEvent, _, cx| {
                                                     let u = &mut this.settings_page.setup.unfolded;
@@ -883,7 +884,7 @@ impl AppView {
                                 .collect();
                             el.when(!words.is_empty(), |el| el.child(note(words.join(" · "))))
                                 .when(!im.error.is_empty(), |el| {
-                                    el.child(note_in(im.error.clone(), theme::rose(300)))
+                                    el.child(crate::app::controls::error_line(im.error.clone()))
                                 })
                         })
                         .children(self.image_downloads(cx))

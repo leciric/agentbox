@@ -16,7 +16,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, note_in};
+use super::super::controls::{Btn, button};
 use super::defaults::time_ago;
 use super::kit::enc;
 use super::kit::note;
@@ -244,9 +244,11 @@ fn card_box(icon: &'static str, title: String, description: String) -> Div {
 /// text-caption uppercase subtle, its value text-xl semibold, its hint two
 /// lines at most of text-caption leading-snug faint.
 fn stat(label: String, value: String, hint: String) -> AnyElement {
+    // Five abreast where there is room, and onto more rows where there
+    // isn't (beside the panel each was 85px of cut-off words).
     v_flex()
         .flex_1()
-        .flex_basis(px(0.))
+        .flex_basis(px(150.))
         .min_w_0()
         .p_3()
         .rounded_xl()
@@ -275,7 +277,8 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
                 .child(value),
         )
         .when(!hint.is_empty(), |el| {
-            el.child(
+            // Two lines of it, the whole of it on hover.
+            el.child(crate::app::controls::full_on_hover(
                 div()
                     .mt_0p5()
                     .text_size(theme::text::CAPTION)
@@ -283,8 +286,10 @@ fn stat(label: String, value: String, hint: String) -> AnyElement {
                     .line_clamp(2)
                     .text_ellipsis()
                     .text_color(theme::faint())
-                    .child(hint),
-            )
+                    .child(hint.clone()),
+                SharedString::from(format!("stat-hint-{hint}")),
+                hint,
+            ))
         })
         .into_any_element()
 }
@@ -456,6 +461,7 @@ impl AppView {
                             el.text_color(theme::muted())
                                 .cursor_pointer()
                                 .hover(|s| s.text_color(theme::primary()))
+                                .active(|s| s.opacity(0.7))
                                 .on_click(move |_, window, cx| pick(p, window, cx))
                         })
                         .child(t(&format!("vm.tokens.period.{p}")))
@@ -464,7 +470,7 @@ impl AppView {
         let body: AnyElement = match &tk.report {
             _ if tk.project != project => super::super::panel::loading("tokens"),
             None => super::super::panel::loading("tokens"),
-            Some(Err(e)) => note_in(e.clone(), theme::rose(300)),
+            Some(Err(e)) => crate::app::controls::error_line(e.clone()),
             Some(Ok(r)) if r.agents.is_empty() => super::kit::panel(v_flex())
                 .items_center()
                 .gap_1()
@@ -631,6 +637,7 @@ impl AppView {
         // grid-cols-2 md:grid-cols-5: five abreast in a window 768 wide.
         h_flex()
             .items_stretch()
+            .flex_wrap()
             .gap_3()
             .child(stat(
                 t("vm.tokens.tokens"),
@@ -899,7 +906,24 @@ impl AppView {
                             .items_end()
                             .gap(px(2.))
                             .children(columns),
-                    ),
+                    )
+                    // No column to draw: say so, where the columns would be.
+                    .when(peak == 0 || series.iter().all(|s| s.1.is_none()), |el| {
+                        el.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left(px(48.))
+                                .right_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(theme::text::CAPTION)
+                                .text_color(theme::faint())
+                                .child(t("vm.tokens.noneInStretch")),
+                        )
+                    }),
             )
             .child(
                 h_flex()
@@ -931,7 +955,7 @@ impl AppView {
             .text_xs()
             .font_weight(FontWeight::MEDIUM)
             .text_color(theme::muted())
-            .child(div().flex_1().min_w_0().child(t("vm.tokens.agent")))
+            .child(div().flex_1().min_w(px(120.)).child(t("vm.tokens.agent")))
             .child(head(t("vm.tokens.tokens"), 140.))
             .child(head(t("vm.tokens.cacheRead"), 56.))
             .child(head(t("vm.tokens.avgTPS"), 72.))
@@ -968,19 +992,20 @@ impl AppView {
                         .text_xs()
                         .cursor_pointer()
                         .hover(|s| s.bg(theme::surface_raised()))
+                        .active(|s| s.bg(theme::surface_strong()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.unfold_agent(r2.clone(), cx)
                         }))
                         .child(
                             h_flex()
                                 .flex_1()
-                                .min_w_0()
+                                .min_w(px(120.))
                                 .items_start()
                                 .gap_1p5()
                                 .child(
                                     div()
                                         .text_color(theme::faint())
-                                        .child(crate::icons::of(if open { "▾" } else { "▸" })),
+                                        .child(crate::motion::chevron("chev-983", open, None)),
                                 )
                                 .child(
                                     v_flex()
@@ -1064,8 +1089,18 @@ impl AppView {
                 .border_1()
                 .border_color(theme::line_faint())
                 .overflow_hidden()
-                .child(header)
-                .children(rows),
+                // Its columns keep their widths and the agent its name: a
+                // narrow page scrolls the table sideways.
+                .child(
+                    div().id("tokens-agents-scroll").overflow_x_scroll().child(
+                        v_flex()
+                            .w_full()
+                            .min_w(px(560.))
+                            .flex_none()
+                            .child(header)
+                            .children(rows),
+                    ),
+                ),
         )
         .into_any_element()
     }
@@ -1101,7 +1136,7 @@ impl AppView {
         });
         let turns: AnyElement = match self.settings_page.tokens.turns.get(&a.r#ref) {
             None => super::super::panel::loading("agent-tokens"),
-            Some(Err(e)) => note_in(e.clone(), theme::rose(300)),
+            Some(Err(e)) => crate::app::controls::error_line(e.clone()),
             Some(Ok(list)) if list.is_empty() => note(t("vm.tokens.noneInStretch")),
             Some(Ok(list)) => {
                 let col = |text: String, w: f32| {

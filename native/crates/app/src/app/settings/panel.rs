@@ -536,21 +536,15 @@ impl AppView {
                                         .text_color(theme::primary())
                                         .cursor_pointer()
                                         .hover(|s| s.text_color(theme::title()))
+                                        .active(|s| s.opacity(0.7))
                                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                             this.settings_page.panel_advanced =
                                                 !this.settings_page.panel_advanced;
                                             cx.notify();
                                         }))
-                                        .child(
-                                            div().text_color(theme::subtle()).child(
-                                                crate::icons::ic(if open {
-                                                    "chevron-down"
-                                                } else {
-                                                    "chevron-right"
-                                                })
-                                                .size(px(16.)),
-                                            ),
-                                        )
+                                        .child(div().text_color(theme::subtle()).child(
+                                            crate::motion::chevron("chev", open, Some(px(16.))),
+                                        ))
                                         .child(t("settings.page.advanced"))
                                         .child(
                                             div()

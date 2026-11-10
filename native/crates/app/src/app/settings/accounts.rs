@@ -495,6 +495,7 @@ impl AppView {
             i.update(cx, |i, cx| {
                 i.set_value(name.clone(), window, cx);
                 i.focus(window, cx);
+                i.select_all(window, cx);
             });
         }
         self.settings_page.accounts.renaming = Some((card, name, provider));
@@ -1150,7 +1151,7 @@ impl AppView {
                                 el.child(note_in(said.clone(), theme::emerald(300)))
                             })
                             .when_some(acc.errors.get(e.id), |el, err| {
-                                el.child(note_in(err.clone(), theme::rose(300)))
+                                el.child(crate::app::controls::error_line(err.clone()))
                             }),
                     ),
             )
@@ -1589,7 +1590,7 @@ impl AppView {
                     )
                     .when(failed, |el| {
                         el.when_some(st.as_ref().map(|s| s.error.clone()), |el, e| {
-                            el.child(note_in(e, theme::rose(300)))
+                            el.child(crate::app::controls::error_line(e))
                         })
                     })
                     .when_some(code_url.filter(|_| running), |el, code_url| {
@@ -1819,6 +1820,7 @@ impl AppView {
             .text_color(theme::muted())
             .cursor_pointer()
             .hover(|s| s.text_color(theme::primary()))
+            .active(|s| s.opacity(0.7))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 let p = &mut this.settings_page.accounts.pasting;
                 if !p.remove(card) {
@@ -1826,15 +1828,15 @@ impl AppView {
                 }
                 cx.notify();
             }))
-            .child(format!(
-                "{} {}",
-                if open { "▾" } else { "▸" },
-                t(if card == "github" {
-                    "settings.github.useToken"
-                } else {
-                    "settings.accounts.pasteToken"
-                })
-            ));
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(crate::motion::chevron("chev", open, Some(px(14.))))
+            .child(t(if card == "github" {
+                "settings.github.useToken"
+            } else {
+                "settings.accounts.pasteToken"
+            }));
         let mut col = v_flex().gap_2().child(h_flex().child(toggle));
         if open {
             let (intro, after) = if card == "github" {

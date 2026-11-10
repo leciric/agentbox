@@ -43,7 +43,7 @@ pub struct Sessions {
     /// Which list reads are still current, by project (Epochs).
     epochs: Epochs,
     output: HashMap<String, SessionOutput>,
-    renaming: Option<String>,
+    pub renaming: Option<String>,
     rename: Entity<InputState>,
     /// The projects whose snoozed sessions are open under their row.
     pub snoozed_open: HashSet<String>,
@@ -435,10 +435,10 @@ impl AppView {
                 .get::<SessionOutput>(&format!("/v1/projects/{project}/sessions/{id}/output"))
                 .await;
             this.update(cx, |this, cx| {
-                if let Ok(o) = res {
-                    this.sessions.output.insert(id, o);
-                    cx.notify();
-                }
+                // A failed read is no agents, not "Loading…" for good; the
+                // next status event asks again.
+                this.sessions.output.insert(id, res.unwrap_or_default());
+                cx.notify();
             })
             .ok();
         })
@@ -909,6 +909,7 @@ impl AppView {
         self.sessions.rename.update(cx, |i, cx| {
             i.set_value(topic, window, cx);
             i.focus(window, cx);
+            i.select_all(window, cx);
         });
         cx.notify();
     }
@@ -1010,14 +1011,19 @@ impl AppView {
         let closed = self.sessions.closed.get(&project).map_or(0, |c| c.len());
         let mut sorted: Vec<&LeadSession> = awake.clone();
         sorted.sort_by_key(|s| !s.pinned);
+        let tab_group = format!("session-tabs-{project}");
+        // A session just opened slides into the strip.
+        let tab_ids: Vec<String> = sorted.iter().map(|s| s.id.clone()).collect();
         let tabs = sorted.into_iter().map(|s| {
             let on = Some(&s.id) == current.as_ref();
             let unread = !on && self.sessions.unread(s);
             if self.sessions.renaming.as_ref() == Some(&s.id) {
                 return div()
-                    .w(px(200.))
+                    .w(px(168.))
                     .flex_none()
-                    .child(Input::new(&self.sessions.rename).small())
+                    // xsmall: the small box stood taller than the strip and
+                    // over the line under it.
+                    .child(Input::new(&self.sessions.rename).xsmall())
                     .into_any_element();
             }
             let (p, id) = (project.clone(), s.id.clone());
@@ -1129,6 +1135,7 @@ impl AppView {
                         } else {
                             t("sessions.pin")
                         })
+                        .icon(crate::icons::ic("pin"))
                         .on_click(move |_, _, cx| {
                             v1.update(cx, |this, cx| {
                                 this.patch_session(
@@ -1144,24 +1151,36 @@ impl AppView {
                             .ok();
                         }),
                     )
-                    .item(PopupMenuItem::new(t("sessions.rename")).on_click(
-                        move |_, window, cx| {
-                            v2.update(cx, |this, cx| this.rename_session(&s2, window, cx))
-                                .ok();
-                        },
-                    ))
+                    .item(
+                        PopupMenuItem::new(t("sessions.rename"))
+                            .icon(crate::icons::ic("pencil"))
+                            .on_click(move |_, window, cx| {
+                                v2.update(cx, |this, cx| this.rename_session(&s2, window, cx))
+                                    .ok();
+                            }),
+                    )
                     .separator()
                     .item(
-                        PopupMenuItem::new(t("sessions.close")).on_click(move |_, window, cx| {
-                            v3.update(cx, |this, cx| {
-                                this.close_session(s3.project.clone(), s3.id.clone(), window, cx)
-                            })
-                            .ok();
-                        }),
+                        PopupMenuItem::new(t("sessions.close"))
+                            .icon(crate::icons::ic("x"))
+                            .on_click(move |_, window, cx| {
+                                v3.update(cx, |this, cx| {
+                                    this.close_session(
+                                        s3.project.clone(),
+                                        s3.id.clone(),
+                                        window,
+                                        cx,
+                                    )
+                                })
+                                .ok();
+                            }),
                     )
                 })
                 .into_any_element()
         });
+        let tabs = tabs
+            .zip(tab_ids)
+            .map(|(tab, id)| crate::motion::arrive(div().flex_none().child(tab), &tab_group, &id));
         let view = cx.entity().downgrade();
         let p_snooze = project.clone();
         Some(
@@ -1231,6 +1250,7 @@ impl AppView {
                                                 )]
                                             )
                                         ))
+                                        .icon(crate::icons::ic("alarm-clock"))
                                         .on_click(
                                             move |_, window, cx| {
                                                 v.update(cx, |this, cx| {
@@ -1657,7 +1677,7 @@ impl AppView {
                             cx.notify();
                         }),
                     )
-                    .child(
+                    .child(crate::motion::pop_in(
                         v_flex()
                             .w(px(1024.))
                             .max_w(relative(0.94))
@@ -1768,9 +1788,10 @@ impl AppView {
                                             .child(match view {
                                                 None => div()
                                                     .p_4()
-                                                    .text_sm()
-                                                    .text_color(theme::faint())
-                                                    .child(t("common.loading"))
+                                                    .child(crate::motion::skeleton_lines(
+                                                        "loading-sessions-6",
+                                                        4,
+                                                    ))
                                                     .into_any_element(),
                                                 Some(Err(e)) => div()
                                                     .p_4()
@@ -1785,7 +1806,8 @@ impl AppView {
                                             })
                                     })),
                             ),
-                    ),
+                        "session-changes-in",
+                    )),
                 "idsession-changes-in",
             )
             .into_any_element(),
@@ -2063,13 +2085,15 @@ impl AppView {
                                     .text_size(caption)
                                     .line_height(px(18.))
                                     .text_color(theme::subtle())
-                                    .child(when(
-                                        Some("calendar-days"),
-                                        tv(
-                                            "sessions.activeAgo",
-                                            &[("when", time_ago(&s.active_at).into())],
-                                        ),
-                                    ))
+                                    .when(!time_ago(&s.active_at).is_empty(), |el| {
+                                        el.child(when(
+                                            Some("calendar-days"),
+                                            tv(
+                                                "sessions.activeAgo",
+                                                &[("when", time_ago(&s.active_at).into())],
+                                            ),
+                                        ))
+                                    })
                                     .when_some(s.closed_at.as_deref(), |el, c| {
                                         let key = if s.settled {
                                             "sessions.settledAgo"
@@ -2105,6 +2129,7 @@ impl AppView {
                                     .rounded_xl()
                                     .cursor_pointer()
                                     .hover(|el| el.bg(theme::surface_raised()))
+                                    .active(|s| s.bg(theme::surface_strong()))
                                     .on_click(cx.listener(
                                         move |this, _: &ClickEvent, window, cx| {
                                             this.read_closed(read.clone(), window, cx)
@@ -2166,7 +2191,7 @@ impl AppView {
                         .text_xs()
                         .text_color(theme::faint())
                         .hover(|el| el.bg(theme::surface_raised()).text_color(theme::muted()))
-                        .child(crate::icons::of(if open { "▾" } else { "▸" }))
+                        .child(crate::motion::chevron("chev-2167", open, None))
                         .child(crate::icons::of("⏰"))
                         .child(div().truncate().child(tv(
                             "sessions.snoozed.count",
@@ -2195,6 +2220,7 @@ impl AppView {
                             .cursor_pointer()
                             .text_xs()
                             .hover(|el| el.bg(theme::surface_raised()))
+                            .active(|s| s.bg(theme::surface_strong()))
                             .tooltip(|w, cx| {
                                 gpui_component::tooltip::Tooltip::new(t("sessions.snoozed.wake"))
                                     .build(w, cx)

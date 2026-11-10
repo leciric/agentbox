@@ -84,6 +84,8 @@ pub fn error(cx: &mut App, title: impl Into<SharedString>) {
 pub struct Toasts {
     items: Vec<(u64, Toast)>,
     next: u64,
+    /// The ones sliding out, about to be removed.
+    leaving: std::collections::HashSet<u64>,
 }
 
 struct Stack(Entity<Toasts>);
@@ -94,6 +96,7 @@ pub fn init(cx: &mut App) -> Entity<Toasts> {
     let stack = cx.new(|_| Toasts {
         items: Vec::new(),
         next: 0,
+        leaving: Default::default(),
     });
     cx.set_global(Stack(stack.clone()));
     stack
@@ -120,8 +123,27 @@ impl Toasts {
         cx.notify();
     }
 
+    /// dismiss takes a toast away: it slides out first (motion::leave),
+    /// then it's gone; with reduced motion it's gone at once.
     fn dismiss(&mut self, id: u64, cx: &mut Context<Self>) {
+        if cx.reduce_motion() || !self.items.iter().any(|(i, _)| *i == id) {
+            self.remove(id, cx);
+            return;
+        }
+        if !self.leaving.insert(id) {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(crate::motion::FAST).await;
+            this.update(cx, |this, cx| this.remove(id, cx)).ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn remove(&mut self, id: u64, cx: &mut Context<Self>) {
         self.items.retain(|(i, _)| *i != id);
+        self.leaving.remove(&id);
         cx.notify();
     }
 }
@@ -217,6 +239,7 @@ impl Render for Toasts {
                             .text_color(theme::faint())
                             .cursor_pointer()
                             .hover(|s| s.text_color(theme::primary()))
+                            .active(|s| s.opacity(0.7))
                             .on_click(
                                 cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.dismiss(id, cx)
@@ -224,7 +247,11 @@ impl Render for Toasts {
                             )
                             .child(crate::icons::of("✕")),
                     );
-                crate::motion::toast_in(el, ("toast-in", id), burst)
+                if self.leaving.contains(&id) {
+                    crate::motion::leave(el, ("toast-out", id)).into_any_element()
+                } else {
+                    crate::motion::toast_in(el, ("toast-in", id), burst).into_any_element()
+                }
             }))
             .into_any_element()
     }

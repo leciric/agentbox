@@ -735,6 +735,7 @@ impl AppView {
                     .when(!disabled, |el| {
                         el.cursor_pointer()
                             .hover(|s| s.bg(theme::surface_raised()))
+                            .active(|s| s.bg(theme::surface_strong()))
                             .on_click(click)
                     })
                     .child(
@@ -830,12 +831,13 @@ impl AppView {
                 .text_color(theme::muted())
                 .cursor_pointer()
                 .hover(|s| s.text_color(theme::primary()))
+                .active(|s| s.opacity(0.7))
                 .on_click(flip(|d| d.advanced = !d.advanced))
-                .child(format!(
-                    "{} {}",
-                    if d.advanced { "▾" } else { "▸" },
-                    t("project.newAgent.moreOptions")
-                ))
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(crate::motion::chevron("chev", d.advanced, Some(px(14.))))
+                .child(t("project.newAgent.moreOptions"))
                 .into_any_element(),
         );
         if d.advanced {
@@ -883,7 +885,7 @@ impl AppView {
             ));
         }
         if let Some(e) = &d.error {
-            body.push(controls::note_in(e.clone(), theme::error()));
+            body.push(controls::error_line(e.clone()));
         }
         // The same work on several agents at once, to compare.
         let compare = controls::button(
@@ -952,7 +954,9 @@ impl AppView {
             Some(field(
                 t("project.newAgent.fromLabel"),
                 Input::new(&d.from).into_any_element(),
-                selected.map(|p| {
+                // No "Default:" with nothing after it for a project whose
+                // branch isn't known.
+                selected.filter(|p| !p.branch.is_empty()).map(|p| {
                     tv(
                         "project.newAgent.fromHint",
                         &[("branch", p.branch.clone().into())],

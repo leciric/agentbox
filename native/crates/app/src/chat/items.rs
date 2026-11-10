@@ -76,14 +76,7 @@ fn chevron(open: bool) -> Div {
         .flex_none()
         .text_xs()
         .text_color(theme::faint())
-        .child(
-            crate::icons::ic(if open {
-                "chevron-down"
-            } else {
-                "chevron-right"
-            })
-            .size(px(12.)),
-        )
+        .child(crate::motion::chevron("chev", open, Some(px(12.))))
 }
 
 fn card(tint: Hsla) -> Div {
@@ -374,6 +367,7 @@ impl ChatView {
                             .text_sm()
                             .text_color(theme::muted())
                             .hover(|el| el.text_color(theme::primary()))
+                            .active(|s| s.opacity(0.7))
                             .on_click(move |_, _, cx| v.update(cx, |this, cx| this.toggle(&k2, cx)))
                             .child(chevron(open))
                             .child(tv(
@@ -469,6 +463,7 @@ impl ChatView {
                                     } else {
                                         t("chat.turn.rollBackHere")
                                     })
+                                    .icon(crate::icons::ic("undo-2"))
                                     .disabled(latest)
                                     .on_click(
                                         move |_, _, cx| {
@@ -482,16 +477,16 @@ impl ChatView {
                                     ),
                                 )
                                 .item(
-                                    PopupMenuItem::new(t("chat.turn.forkHere")).on_click(
-                                        move |_, _, cx| {
+                                    PopupMenuItem::new(t("chat.turn.forkHere"))
+                                        .icon(crate::icons::ic("git-fork"))
+                                        .on_click(move |_, _, cx| {
                                             fork.update(cx, |_, cx| {
                                                 cx.emit(ChatAction::Fork {
                                                     checkpoint: fid.clone(),
                                                     n,
                                                 })
                                             })
-                                        },
-                                    ),
+                                        }),
                                 )
                             }),
                     )
@@ -538,19 +533,26 @@ impl ChatView {
         let v = view.clone();
         el.context_menu(move |menu, _, _| {
             let text = text.clone();
-            let menu = menu.item(PopupMenuItem::new(t("chat.message.copy")).on_click(
-                move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.clone())),
-            ));
+            // The menu closes on the click: a toast says it copied (MessageMenu's).
+            let menu = menu.item(
+                PopupMenuItem::new(t("chat.message.copy"))
+                    .icon(crate::icons::ic("copy"))
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                        crate::toasts::info(cx, t("common.copied"));
+                    }),
+            );
             if !lead {
                 return menu;
             }
             let (v, id) = (v.clone(), id.clone());
-            menu.separator()
-                .item(
-                    PopupMenuItem::new(t("chat.message.fork")).on_click(move |_, _, cx| {
+            menu.separator().item(
+                PopupMenuItem::new(t("chat.message.fork"))
+                    .icon(crate::icons::ic("git-fork"))
+                    .on_click(move |_, _, cx| {
                         v.update(cx, |_, cx| cx.emit(ChatAction::ForkSession(id.clone())))
                     }),
-                )
+            )
         })
         .into_any_element()
     }
@@ -572,26 +574,12 @@ impl ChatView {
             } else {
                 &it.updated_at
             }))
-            .child(
-                div()
-                    .id(SharedString::from(format!("copy-{}", it.id)))
-                    .size_6()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|el| el.bg(theme::surface_raised()).text_color(theme::tertiary()))
-                    .child(crate::icons::ic("copy").size(px(14.)))
-                    .tooltip(|window, cx| {
-                        gpui_component::tooltip::Tooltip::new(t("chat.timeline.copyMessage"))
-                            .build(window, cx)
-                    })
-                    .on_click(move |_, _, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-                        crate::toasts::info(cx, t("common.copied"));
-                    }),
-            )
+            // Its icon turns to a tick (Timeline's Copy), with no toast.
+            .child(crate::app::controls::copy_button(
+                SharedString::from(format!("copy-{}", it.id)),
+                text,
+                t("chat.timeline.copyMessage"),
+            ))
             .into_any_element()
     }
 
@@ -895,6 +883,8 @@ impl ChatView {
                 })
                 .child(chevron(open))
         };
+        // Its steps fade up when it's opened, not when it scrolls back in.
+        let opened = crate::motion::changed(&format!("work-open-{key}"), &open);
         let list = || {
             v_flex()
                 .ml_3()
@@ -922,7 +912,9 @@ impl ChatView {
                     true,
                     (items.len() > 1).then(|| format!("+{}", items.len() - 1)),
                 ))
-                .when(open, |el| el.child(list()))
+                .when(open, |el| {
+                    el.child(crate::motion::unfolded(list(), opened, "work-steps-in"))
+                })
                 .children(thought)
                 .into_any_element();
         }
@@ -948,7 +940,9 @@ impl ChatView {
                 false,
                 failed.then(|| "!".to_string()),
             ))
-            .when(open, |el| el.child(list()))
+            .when(open, |el| {
+                el.child(crate::motion::unfolded(list(), opened, "work-steps-in"))
+            })
             .into_any_element()
     }
 
@@ -1022,6 +1016,7 @@ impl ChatView {
                 }
                 v.update(cx, |this, cx| this.toggle(&id, cx));
             });
+        let opened = crate::motion::changed(&format!("entry-open-{}", it.id), &open);
         v_flex()
             .w_full()
             .min_w_0()
@@ -1035,18 +1030,22 @@ impl ChatView {
                 )
             })
             .when(open, |el| {
-                el.children(detail.map(|d| {
-                    div()
-                        .ml_7()
-                        .mt_0p5()
-                        .mb_1p5()
-                        .rounded_lg()
-                        .border_1()
-                        .border_color(theme::line())
-                        .bg(theme::card())
-                        .overflow_hidden()
-                        .child(d)
-                }))
+                el.children(
+                    detail
+                        .map(|d| {
+                            div()
+                                .ml_7()
+                                .mt_0p5()
+                                .mb_1p5()
+                                .rounded_lg()
+                                .border_1()
+                                .border_color(theme::line())
+                                .bg(theme::card())
+                                .overflow_hidden()
+                                .child(d)
+                        })
+                        .map(|d| crate::motion::unfolded(d, opened, "entry-detail-in")),
+                )
             })
             .into_any_element()
     }
@@ -1147,6 +1146,7 @@ impl ChatView {
                             .cursor_pointer()
                             .rounded_xl()
                             .hover(|el| el.bg(theme::surface_raised()))
+                            .active(|s| s.bg(theme::surface_strong()))
                             .on_click(move |_, _, cx| v.update(cx, |this, cx| this.toggle(&id, cx)))
                             .child(icon("◆", theme::muted()))
                             .child(
@@ -1476,6 +1476,7 @@ impl ChatView {
                                 .text_xs()
                                 .text_color(theme::faint())
                                 .hover(|el| el.text_color(theme::primary()))
+                                .active(|s| s.opacity(0.7))
                                 .on_click(move |_, _, cx| {
                                     v.update(cx, |this, cx| this.toggle(&key, cx))
                                 })

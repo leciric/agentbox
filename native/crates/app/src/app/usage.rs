@@ -353,7 +353,7 @@ impl AppView {
                     anchored()
                         .offset(point(px(0.), px(28.)))
                         .snap_to_window_with_margin(px(8.))
-                        .child(p),
+                        .child(crate::motion::menu_in(div().child(p), "topbar-pop-in")),
                 )
             }))
             .into_any_element()
@@ -710,6 +710,7 @@ impl AppView {
                                     .text_color(theme::accent())
                                     .cursor_pointer()
                                     .hover(|s| s.bg(theme::surface_strong()))
+                                    .active(|s| s.bg(theme::surface_vivid()))
                                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                         this.topbar.pop = None;
                                         this.open_settings_at("resources".into(), window, cx)
@@ -775,6 +776,7 @@ impl AppView {
             })
             .when(kind != "running", |el| el.bg(color.opacity(0.1)))
             .hover(|s| s.bg(theme::surface_strong()))
+            .active(|s| s.bg(theme::surface_vivid()))
             .cursor_pointer()
             .text_xs()
             .child(div().size(px(6.)).rounded_full().bg(color))
@@ -955,13 +957,11 @@ fn limit_row(w: &ClaudeLimitWindow, now: i64, bar: Hsla) -> AnyElement {
                 .bg(theme::surface_raised())
                 .overflow_hidden()
                 .when(used.is_some(), |el| {
-                    el.child(
-                        div()
-                            .h_full()
-                            .w(relative((pct.max(2.) / 100.) as f32))
-                            .rounded_full()
-                            .bg(tone_color(tn, bar)),
-                    )
+                    el.child(crate::motion::progress(
+                        div().h_full().rounded_full().bg(tone_color(tn, bar)),
+                        SharedString::from(format!("limit-fill-{}", w.name)),
+                        (pct.max(2.) / 100.) as f32,
+                    ))
                 }),
         )
         .into_any_element()
@@ -1061,13 +1061,11 @@ fn disk_row(d: &agentbox_api::DiskGuardDisk) -> AnyElement {
                 .w_full()
                 .rounded_full()
                 .bg(theme::surface_raised())
-                .child(
-                    div()
-                        .h_full()
-                        .w(relative(used.max(0.02) as f32))
-                        .rounded_full()
-                        .bg(color),
-                )
+                .child(crate::motion::progress(
+                    div().h_full().rounded_full().bg(color),
+                    SharedString::from(format!("disk-fill-{}", d.path)),
+                    used.max(0.02) as f32,
+                ))
                 .child(
                     div()
                         .absolute()

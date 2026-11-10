@@ -356,6 +356,7 @@ pub(super) fn switch_item(id: &'static str, icon: &str, on: bool) -> Stateful<Di
             el.text_color(theme::subtle())
                 .cursor_pointer()
                 .hover(|s| s.text_color(theme::title()))
+                .active(|s| s.opacity(0.7))
         })
         .child(crate::icons::ic(icon).size(px(14.)).flex_none())
 }
@@ -1320,6 +1321,7 @@ impl AppView {
     /// render_panel_body is the panel at a width: its header and its view.
     pub(super) fn render_panel_body(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
         let whose = self.panel_whose();
+        crate::files::set_panel_width(width);
         if matches!(whose, Whose::Lead) && self.panel_settings.is_some() {
             let (header, body) = self.render_project_settings(cx);
             return v_flex()
@@ -1339,6 +1341,16 @@ impl AppView {
             Whose::Agent(r) => self.agent_panel_header(r, cx),
             Whose::Past(r) => self.past_panel_header(r, cx),
         };
+        // The view shown, for its fade as it takes another's place.
+        let body_key = SharedString::from(match &whose {
+            Whose::Lead => format!(
+                "panel-in-lead-{:?}",
+                std::mem::discriminant(&self.pulls.tab)
+            ),
+            Whose::List => "panel-in-list".to_string(),
+            Whose::Agent(r) => format!("panel-in-{r}-{}", self.panel.view_of(r).key()),
+            Whose::Past(r) => format!("panel-in-past-{r}"),
+        });
         let body: AnyElement = match &whose {
             Whose::Lead => match self.pulls.tab {
                 RailTab::Agents => self.render_list(cx),
@@ -1360,7 +1372,9 @@ impl AppView {
             .border_l_1()
             .border_color(theme::line())
             .child(header)
-            .child(div().flex_1().min_h_0().child(body))
+            .child(div().flex_1().min_h_0().min_w_0().overflow_hidden().child(
+                crate::motion::fade_in(div().size_full().child(body), body_key),
+            ))
             .into_any_element()
     }
 
@@ -1492,7 +1506,14 @@ impl AppView {
             "panel.machine.running"
         })
         .into();
+        // A panel as narrow as the list (the Files view's width) has no
+        // room for the lit view's name beside every icon: the icons alone,
+        // and the switch gives way before the close button is pushed out.
+        let roomy = self.panel_box().width >= 420.;
         let switch = h_flex()
+            .min_w_0()
+            .flex_shrink(1.)
+            .overflow_hidden()
             .p(px(2.))
             .rounded_lg()
             .border_1()
@@ -1501,6 +1522,7 @@ impl AppView {
             .children(shown.into_iter().map(|v| {
                 let on = v == view;
                 let r = r.to_string();
+                let lit_key = format!("panel-view-of-{r}");
                 let tip: SharedString = v.label().into();
                 h_flex()
                     .id(SharedString::from(format!("panel-view-{}", v.key())))
@@ -1540,6 +1562,7 @@ impl AppView {
                             .text_color(theme::subtle())
                             .cursor_pointer()
                             .hover(|s| s.text_color(theme::primary()))
+                            .active(|s| s.opacity(0.7))
                             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                             .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                                 this.set_view(&r, v, w, cx)
@@ -1550,7 +1573,7 @@ impl AppView {
                     .font_weight(FontWeight::MEDIUM)
                     .relative()
                     .child(crate::icons::ic(v.glyph()).size(px(14.)))
-                    .when(on, |el| el.child(v.label()))
+                    .when(on && roomy, |el| el.child(v.label()))
                     // Android, once its emulator has booted.
                     .when(v == PView::Android && booted, |el| {
                         el.child(
@@ -1562,6 +1585,14 @@ impl AppView {
                                 .rounded_full()
                                 .bg(theme::running()),
                         )
+                    })
+                    // The view just picked lights up as it opens out.
+                    .map(|el| {
+                        if on {
+                            crate::motion::lit(el, &lit_key, &v.key())
+                        } else {
+                            el.into_any_element()
+                        }
                     })
             }));
         self.header_row()
@@ -1656,14 +1687,7 @@ impl AppView {
                             this.panel.idle_open = !this.panel.idle_open;
                             cx.notify();
                         }))
-                        .child(
-                            crate::icons::ic(if open {
-                                "chevron-down"
-                            } else {
-                                "chevron-right"
-                            })
-                            .size(px(14.)),
-                        )
+                        .child(crate::motion::chevron("chev", open, Some(px(14.))))
                 })
                 .child(div().min_w_0().truncate().child(g.group_label()))
                 .child(
@@ -1691,12 +1715,21 @@ impl AppView {
                     .pt_1p5()
                     .child(head)
                     .when(open, |el| {
-                        el.child(
-                            v_flex().gap(px(1.)).children(
-                                mine.into_iter()
-                                    .map(|r| self.list_row(r, r.agent.name == active, cx)),
-                            ),
-                        )
+                        el.child(v_flex().gap(px(1.)).children(
+                            // One that has just come under this
+                            // heading (started, or its state turned)
+                            // slides into its place.
+                            mine.into_iter().map(|r| {
+                                crate::motion::arrive(
+                                    div().child(self.list_row(r, r.agent.name == active, cx)),
+                                    &format!(
+                                        "panel-list-{}",
+                                        self.project.as_deref().unwrap_or("")
+                                    ),
+                                    &format!("{}@{g:?}", r.agent.name),
+                                )
+                            }),
+                        ))
                     })
                     .into_any_element(),
             );
@@ -2140,6 +2173,7 @@ impl AppView {
                     .cursor_pointer()
                     .when(active, |el| el.bg(theme::surface_raised()))
                     .hover(|s| s.bg(theme::surface_strong()))
+                    .active(|s| s.bg(theme::surface_vivid()))
                     .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                     .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                         this.open_chat(name.clone(), w, cx)
@@ -2371,6 +2405,7 @@ impl AppView {
                     .when(connected, |el| {
                         el.cursor_pointer()
                             .hover(|s| s.bg(theme::surface_strong()))
+                            .active(|s| s.bg(theme::surface_vivid()))
                             .on_click(
                                 cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.toggle_recording(cx)
@@ -2550,6 +2585,7 @@ impl AppView {
                             .text_color(theme::muted())
                             .cursor_pointer()
                             .hover(|s| s.text_color(theme::primary()))
+                            .active(|s| s.opacity(0.7))
                             .on_click({
                                 let r = r.clone();
                                 cx.listener(move |this, _: &ClickEvent, w, cx| {
@@ -2837,6 +2873,7 @@ impl AppView {
                                     .text_xs()
                                     .cursor_pointer()
                                     .hover(|s| s.bg(theme::surface_strong()))
+                                    .active(|s| s.bg(theme::surface_vivid()))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         this.seek_player(at, cx)
                                     }))
@@ -2944,6 +2981,7 @@ impl AppView {
                                         .rounded_lg()
                                         .cursor_pointer()
                                         .hover(|s| s.bg(theme::surface_strong()))
+                                        .active(|s| s.bg(theme::surface_vivid()))
                                         // Read in the app's media viewer, as the
                                         // Media page opens them: a log or a file
                                         // as text, a folder report's page framed,
@@ -3186,6 +3224,9 @@ fn monitor(
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(if running { color } else { theme::faint() })
                 .child(crate::icons::of(mark));
+            // Any other turn (it asks, it failed, it's up for review) rings
+            // once in its new colour.
+            let turned = crate::motion::changed(&format!("monitor-st-{key}"), &(st as u8));
             match (st, finished) {
                 (St::Working, _) => crate::motion::breathe(
                     screen,
@@ -3199,7 +3240,15 @@ fn monitor(
                     theme::brand(400),
                 )
                 .into_any_element(),
-                _ => screen.into_any_element(),
+                _ => match turned {
+                    Some(n) => crate::motion::ring(
+                        screen,
+                        SharedString::from(format!("monitor-turn-{key}-{n}")),
+                        color,
+                    )
+                    .into_any_element(),
+                    None => screen.into_any_element(),
+                },
             }
         })
         .child(div().w(px(10.)).h(px(3.)).bg(theme::line()))

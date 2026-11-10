@@ -175,7 +175,9 @@ impl AppView {
                         })),
                     "nav-scrim-in",
                 ))
-                .child(
+                // It slides in from its edge, as the panel's drawer does
+                // from the other.
+                .child(crate::motion::drawer(
                     div()
                         .relative()
                         .flex()
@@ -190,7 +192,11 @@ impl AppView {
                             inset: false,
                         }])
                         .child(self.render_sidebar(cx)),
-                )
+                    "nav-drawer-slide",
+                    crate::motion::Side::Left,
+                    px(SIDEBAR + 24.),
+                    true,
+                ))
                 .into_any_element(),
         )
     }

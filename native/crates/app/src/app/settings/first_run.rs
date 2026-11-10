@@ -24,7 +24,7 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, note, note_in};
+use super::super::controls::{Btn, button, note};
 use super::Entry;
 use super::defaults::{ai_label, time_ago};
 use super::setup::{step_mark, step_title, usable};
@@ -370,6 +370,7 @@ impl AppView {
                         .when(reachable, |el| {
                             el.cursor_pointer()
                                 .hover(|s| s.bg(theme::surface_strong()))
+                                .active(|s| s.bg(theme::surface_vivid()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.go_step(Some(s), cx)
                                 }))
@@ -813,7 +814,7 @@ impl AppView {
         let words: Vec<&str> = query.split_whitespace().collect();
         let list: AnyElement = match &fr.repos {
             None => note(t("firstRun.project.loading")),
-            Some(Err(e)) => note_in(e.clone(), theme::error()),
+            Some(Err(e)) => crate::app::controls::error_line(e.clone()),
             Some(Ok(r)) if r.is_empty() && fr.repos.is_some() && query.is_empty() => {
                 note(t("firstRun.project.none"))
             }
@@ -853,6 +854,7 @@ impl AppView {
                                     } else {
                                         el.border_color(transparent_black())
                                             .hover(|s| s.bg(theme::surface_strong()))
+                                            .active(|s| s.bg(theme::surface_vivid()))
                                     }
                                 })
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -909,7 +911,7 @@ impl AppView {
             .child(Input::new(&fr.search))
             .child(list)
             .when_some(fr.error.clone(), |el, e| {
-                el.child(note_in(e, theme::error()))
+                el.child(crate::app::controls::error_line(e))
             })
             .child(h_flex().child(button(
                 "first-run-clone",

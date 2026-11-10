@@ -789,7 +789,7 @@ impl AppView {
         );
         match &s.list {
             None => body = body.child(super::panel::loading("schedules")),
-            Some(Err(e)) => body = body.child(controls::note_in(e.clone(), theme::error())),
+            Some(Err(e)) => body = body.child(controls::error_line(e.clone())),
             Some(Ok(list)) if list.is_empty() => {
                 body = body.child(
                     v_flex()
@@ -969,13 +969,16 @@ impl AppView {
                                         )
                                     }),
                             )
-                            .child(
+                            .child(super::controls::full_on_hover(
                                 div()
                                     .text_size(theme::text::UI)
                                     .text_color(theme::tertiary())
                                     .line_clamp(2)
+                                    .text_ellipsis()
                                     .child(s.task.clone()),
-                            )
+                                SharedString::from(format!("schedule-task-{}", s.id)),
+                                s.task.clone(),
+                            ))
                             .child(
                                 h_flex()
                                     .flex_wrap()
@@ -1294,6 +1297,7 @@ impl AppView {
                                         el.border_color(theme::line())
                                             .text_color(theme::subtle())
                                             .hover(|s| s.text_color(theme::primary()))
+                                            .active(|s| s.opacity(0.7))
                                     })
                                     .cursor_pointer()
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1548,7 +1552,7 @@ impl AppView {
             ));
         }
         if let Some(e) = &s.error {
-            body.push(controls::note_in(e.clone(), theme::error()));
+            body.push(controls::error_line(e.clone()));
         }
         let scroll = vec![
             div()

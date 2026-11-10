@@ -162,6 +162,9 @@ pub(crate) fn btn(
 }
 
 pub struct ChatView {
+    /// Counts the glides to the end and whatever else moves the chat on
+    /// purpose: a glide that isn't the latest stops where it is.
+    glide: u64,
     client: Client,
     /// The API prefix of this chat: /v1/projects/<p>[/sessions/<s>] (the
     /// lead) or /v1/agents/<p>/<a>.
@@ -361,6 +364,7 @@ impl ChatView {
             loading_older: false,
             newer: false,
             at_end: true,
+            glide: 0,
             find: None,
             focus: cx.focus_handle(),
             _tick: None,
@@ -811,6 +815,7 @@ impl ChatView {
     /// reveal shows an item: scrolled to where it's held, else read around it.
     pub fn reveal(&mut self, id: String, cx: &mut Context<Self>) {
         if let Some(ix) = self.row_of(&id) {
+            self.glide += 1;
             self.list.set_follow_mode(FollowMode::Normal);
             self.list.scroll_to_reveal_item(ix);
             self.at_end = false;
@@ -831,6 +836,64 @@ impl ChatView {
             self.read_page(format!("{}/chat?limit={PAGE}", self.prefix), None, cx);
             return;
         }
+        // The last screenful glides by (Electron's scrollTo smooth);
+        // anything further is skipped to, since a long chat would take
+        // seconds, and with reduced motion it all is.
+        let list = self.list.clone();
+        let left = |list: &ListState| {
+            f32::from(list.max_offset_for_scrollbar().y + list.scroll_px_offset_for_scrollbar().y)
+        };
+        let screen = f32::from(list.viewport_bounds().size.height).max(200.);
+        let far = left(&list) - screen;
+        if far > 0. {
+            list.scroll_by(px(far));
+        }
+        let total = left(&list).max(0.);
+        if cx.reduce_motion() || total < 1. {
+            self.land_at_end(cx);
+            return;
+        }
+        self.glide += 1;
+        let mine = self.glide;
+        cx.spawn(async move |this, cx| {
+            let (start, mut gone) = (std::time::Instant::now(), 0f32);
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(8))
+                    .await;
+                let t =
+                    (start.elapsed().as_secs_f32() / crate::motion::NORMAL.as_secs_f32()).min(1.);
+                let want = total * crate::motion::ease_out(t);
+                // Something else has moved the chat since (a message
+                // revealed, another glide): leave it where that put it.
+                let still = this.update(cx, |this, cx| {
+                    let still = this.glide == mine;
+                    if still {
+                        list.scroll_by(px(want - gone));
+                        cx.notify();
+                    }
+                    still
+                });
+                if !still.unwrap_or(false) {
+                    return;
+                }
+                gone = want;
+                if t >= 1. {
+                    break;
+                }
+            }
+            this.update(cx, |this, cx| {
+                if this.glide == mine {
+                    this.land_at_end(cx)
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// land_at_end puts the chat at its end, following what comes.
+    fn land_at_end(&mut self, cx: &mut Context<Self>) {
         self.list.set_follow_mode(FollowMode::Tail);
         self.list.scroll_to_end();
         self.at_end = true;
@@ -1127,25 +1190,38 @@ impl ChatView {
                 .right_0()
                 .flex()
                 .justify_center()
-                .child(
-                    div()
+                // ChatTab's pill: opaque, so the messages under it don't
+                // read through its words, and it fades in.
+                .child(crate::motion::enter(
+                    h_flex()
                         .id("chat-jump-latest")
+                        .gap_1p5()
                         .px_3()
-                        .py_1()
+                        .py_1p5()
                         .rounded_full()
                         .border_1()
-                        .border_color(theme::line())
-                        .bg(theme::surface_raised())
-                        .shadow_md()
+                        .border_color(theme::line_strong())
+                        .bg(theme::solid(theme::overlay()))
+                        .shadow(theme::shadow_pop())
                         .cursor_pointer()
-                        .text_xs()
-                        .text_color(theme::primary())
-                        .hover(|el| el.bg(theme::surface_strong()))
-                        .child(format!("↓  {}", t("chat.tab.jumpToLatest")))
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::tertiary())
+                        .hover(|el| el.text_color(theme::title()))
+                        .active(|s| {
+                            s.bg(theme::layered(&[theme::overlay(), theme::surface_strong()]))
+                        })
+                        .child(crate::icons::ic("arrow-down").size(px(14.)))
+                        .child(t(if self.newer {
+                            "chat.tab.jumpToLatest"
+                        } else {
+                            "chat.tab.scrollToEnd"
+                        }))
                         .on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| this.jump_to_latest(cx)),
                         ),
-                )
+                    "chat-jump-in",
+                    0,
+                ))
                 .into_any_element(),
         )
     }

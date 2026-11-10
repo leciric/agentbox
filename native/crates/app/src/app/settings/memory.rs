@@ -60,7 +60,7 @@ impl AppView {
         ]
     }
 
-    pub(super) fn load_global_memory(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::app) fn load_global_memory(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
             let res = client
@@ -121,7 +121,7 @@ impl AppView {
         .detach();
     }
 
-    pub(super) fn memory_card(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(in crate::app) fn memory_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let m = &self.settings_page.memory;
         let filter = self.field_value("memory-filter", cx).to_lowercase();
         let words: Vec<&str> = filter.split_whitespace().collect();
@@ -137,7 +137,7 @@ impl AppView {
             .id("global-memories")
             .gap_2()
             .when_some(m.error.clone(), |el, e| {
-                el.child(note_in(e, theme::rose(300)))
+                el.child(crate::app::controls::error_line(e))
             })
             .when_some(m.said.clone(), |el, s| {
                 el.child(note_in(s, theme::emerald(300)))

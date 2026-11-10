@@ -1194,7 +1194,7 @@ impl AppView {
                         .flex_none()
                         .text_size(px(16.))
                         .text_color(theme::subtle())
-                        .child(crate::icons::of(if show_advanced { "▾" } else { "▸" })),
+                        .child(crate::motion::chevron("chev-1197", show_advanced, None)),
                 )
                 .child(t("settings.page.advanced"))
                 .into_any_element(),
@@ -1319,6 +1319,7 @@ impl AppView {
                                     theme::subtle()
                                 })
                                 .hover(|st| st.text_color(theme::primary()))
+                                .active(|s| s.opacity(0.7))
                                 .child(
                                     div()
                                         .w(px(2.))
@@ -1535,6 +1536,7 @@ impl AppView {
                     .text_color(theme::primary())
                     .cursor_pointer()
                     .hover(|st| st.text_color(theme::title()))
+                    .active(|s| s.opacity(0.7))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.settings_page.advanced = !this.settings_page.advanced;
                         cx.notify();
@@ -1543,7 +1545,7 @@ impl AppView {
                         div()
                             .text_size(px(16.))
                             .text_color(theme::subtle())
-                            .child(crate::icons::of(if open { "▾" } else { "▸" })),
+                            .child(crate::motion::chevron("chev-1546", open, None)),
                     )
                     .child(t("settings.page.advanced"))
                     .child(
@@ -1579,6 +1581,7 @@ impl AppView {
                             })
                             .cursor_pointer()
                             .hover(|st| st.bg(theme::surface()))
+                            .active(|s| s.bg(theme::surface_raised()))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 this.open_settings_section(id.clone(), window, cx)
                             }))
@@ -1998,12 +2001,8 @@ impl AppView {
                                         .child(t("shell.env.local")),
                                 ),
                         )
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_color(theme::subtle())
-                                .child(crate::icons::ic("chevrons-up-down").size(px(14.))),
-                        )
+                        // No chevrons: it opens nothing, and with them it
+                        // read as a select that didn't answer.
                         .into_any_element(),
                 );
                 row

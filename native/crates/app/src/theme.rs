@@ -1326,7 +1326,7 @@ pub fn layered(colors: &[Hsla]) -> Hsla {
     base.into()
 }
 
-fn solid(color: Hsla) -> Hsla {
+pub fn solid(color: Hsla) -> Hsla {
     let base = ink().to_rgb();
     let top = color.to_rgb();
     let m = |b: f32, t: f32| b + (t - b) * top.a;

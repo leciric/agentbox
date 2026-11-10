@@ -999,6 +999,9 @@ impl ChatView {
         let (k1, k2) = (f.key, f.key);
         let (v1, v2) = (view.downgrade(), view.downgrade());
         v_flex()
+            .w_full()
+            .min_w_0()
+            .overflow_hidden()
             .px_4()
             .py_2()
             .items_end()
@@ -1016,24 +1019,39 @@ impl ChatView {
                     .text_color(theme::primary())
                     .child(f.text.clone()),
             )
+            // Why, on its own lines inside the column (the daemon's error
+            // can be a paragraph: three lines of it, the rest on hover),
+            // and what to do about it under that, where a long error can't
+            // push it off the page.
             .child(
                 h_flex()
-                    .max_w(relative(0.85))
-                    .flex_wrap()
+                    .w_full()
                     .justify_end()
-                    .items_center()
+                    .items_start()
                     .gap_2()
                     .text_xs()
                     .child(
                         div()
+                            .flex_none()
+                            .mt(px(1.))
                             .text_color(theme::error())
                             .child(crate::icons::ic("circle-alert")),
                     )
                     .child(
-                        div()
-                            .text_color(theme::error())
-                            .child(tv("chat.composer.notSent", &[("error", (&f.error).into())])),
-                    )
+                        crate::app::controls::clamped(
+                            ("failed-why", f.key as u64),
+                            tv("chat.composer.notSent", &[("error", (&f.error).into())]),
+                            3,
+                        )
+                        .max_w(relative(0.8))
+                        .text_color(theme::error()),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_none()
+                    .gap_1()
+                    .text_xs()
                     .child(crate::app::controls::button(
                         ("failed-retry", f.key as u64),
                         t("chat.sending.retry"),
@@ -1580,10 +1598,12 @@ impl ChatView {
                                                     .bg(theme::surface_raised())
                                                     .text_color(theme::primary())
                                                     .hover(|el| el.bg(theme::surface_strong()))
+                                                    .active(|s| s.bg(theme::surface_vivid()))
                                             } else {
                                                 el.bg(theme::brand(500))
                                                     .text_color(theme::on_brand())
                                                     .hover(|el| el.bg(theme::brand(600)))
+                                                    .active(|s| s.bg(theme::brand(700)))
                                             }
                                         })
                                         .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
@@ -1647,6 +1667,7 @@ impl ChatView {
                         .text_color(theme::title())
                         .cursor_pointer()
                         .hover(|el| el.bg(theme::surface_strong()))
+                        .active(|s| s.bg(theme::surface_vivid()))
                         .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
                             cx.emit(ChatAction::ReviewProject)
                         }))
@@ -2250,6 +2271,17 @@ impl ChatView {
         let meter = self.context_meter();
         let menu_el = (!menu.is_empty()).then(|| {
             let mention = !token.starts_with('/');
+            let skills = menu.iter().filter(|m| m.label.starts_with('$')).count();
+            let grouped = !mention && skills > 0 && skills < menu.len();
+            let head = |text: String| {
+                div()
+                    .px_2()
+                    .py_0p5()
+                    .text_xs()
+                    .text_color(theme::faint())
+                    .child(text)
+                    .into_any_element()
+            };
             v_flex()
                 .mb_1()
                 .p_1()
@@ -2258,32 +2290,43 @@ impl ChatView {
                 .border_color(theme::line())
                 .bg(theme::card())
                 .shadow_md()
-                .child(
-                    div()
-                        .px_2()
-                        .py_0p5()
-                        .text_xs()
-                        .text_color(theme::faint())
-                        .child(if token.starts_with('$') {
-                            t("chat.composer.skills")
-                        } else if mention {
-                            t("chat.composer.mentions")
-                        } else {
-                            t("chat.composer.commands")
-                        }),
-                )
-                .children(menu.iter().enumerate().map(|(i, m)| {
+                // "/" lists the chat's skills ($name) and then the tool's
+                // commands: each under its own head when there are both, as
+                // Electron's list, where they used to run on as one.
+                .when(!grouped, |el| {
+                    el.child(head(if token.starts_with('$') || skills == menu.len() {
+                        t("chat.composer.skills")
+                    } else if mention {
+                        t("chat.composer.mentions")
+                    } else {
+                        t("chat.composer.commands")
+                    }))
+                })
+                .children(menu.iter().enumerate().flat_map(|(i, m)| {
                     let (v, item) = (view.clone(), m.clone());
-                    h_flex()
+                    let skill = m.label.starts_with('$');
+                    let first = i == 0 || menu[i - 1].label.starts_with('$') != skill;
+                    let group = (grouped && first).then(|| {
+                        head(if skill {
+                            t("chat.composer.skills")
+                        } else {
+                            t("chat.composer.commandsGroup")
+                        })
+                    });
+                    let row = h_flex()
                         .id(SharedString::from(format!("menu-{i}")))
                         .gap_3()
                         .px_2()
-                        .py_1()
+                        // One height for every row: a mono name beside a
+                        // smaller hint made some a pixel taller.
+                        .h(px(28.))
+                        .flex_none()
                         .rounded_md()
                         .cursor_pointer()
                         .text_sm()
                         .when(i == ix, |el| el.bg(theme::surface_strong()))
                         .hover(|el| el.bg(theme::surface_strong()))
+                        .active(|s| s.bg(theme::surface_vivid()))
                         .on_click(move |_, window, cx| {
                             v.update(cx, |this, cx| this.pick(item.clone(), window, cx))
                         })
@@ -2302,6 +2345,8 @@ impl ChatView {
                                 .text_color(theme::faint())
                                 .child(m.hint.clone()),
                         )
+                        .into_any_element();
+                    group.into_iter().chain(Some(row))
                 }))
                 .into_any_element()
         });

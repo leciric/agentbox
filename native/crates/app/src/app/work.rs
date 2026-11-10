@@ -120,6 +120,11 @@ impl WorkView {
         }
     }
 
+    /// project is the project whose work is shown, "" for every one's.
+    pub fn project(&self) -> &str {
+        &self.project
+    }
+
     /// open_on shows another project or filter, as the sidebar's buttons ask.
     pub fn open_on(&mut self, project: String, filter: String, cx: &mut Context<Self>) {
         self.project = project;
@@ -298,6 +303,7 @@ impl WorkView {
                     .when(!on, |el| {
                         el.text_color(theme::subtle())
                             .hover(|s| s.text_color(theme::primary()))
+                            .active(|s| s.opacity(0.7))
                     })
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.filter = f.clone();
@@ -436,6 +442,7 @@ impl WorkView {
             .py_2p5()
             .cursor_pointer()
             .hover(|el| el.bg(theme::surface_faint()))
+            .active(|s| s.bg(theme::surface()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open(open.clone(), cx)))
             .child(
                 div()
@@ -727,11 +734,9 @@ impl Render for WorkView {
                                 .shadow(theme::shadow_card())
                                 .overflow_hidden()
                                 .map(|el| match (&self.error, &self.page) {
-                                    (Some(e), _) => el.child(
-                                        div()
-                                            .p_4()
-                                            .child(controls::note_in(e.clone(), theme::rose(300))),
-                                    ),
+                                    (Some(e), _) => {
+                                        el.child(div().p_4().child(controls::error_line(e.clone())))
+                                    }
                                     (None, None) => el.children(
                                         [0.33f32, 0.5, 0.25, 0.42, 0.3]
                                             .into_iter()

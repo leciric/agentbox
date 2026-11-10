@@ -149,6 +149,8 @@ impl AppView {
     ) {
         self.settings = false;
         self.work = None;
+        // The viewer is the page's it was opened on: it stayed over Jobs.
+        self.side.foot.viewing = None;
         self.side.page = Some(page);
         if page == FootPage::Media && self.side.foot.search.is_none() {
             let search = cx.new(|cx| {
@@ -742,6 +744,7 @@ impl AppView {
                                     .rounded_md()
                                     .cursor_pointer()
                                     .hover(|s| s.bg(theme::surface_strong()))
+                                    .active(|s| s.bg(theme::surface_vivid()))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         this.seek_media(at, cx)
                                     }))
@@ -893,6 +896,7 @@ impl AppView {
                                     .text_color(theme::muted())
                                     .cursor_pointer()
                                     .hover(|s| s.text_color(theme::primary()))
+                                    .active(|s| s.opacity(0.7))
                                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                         this.zoom_media(1., cx)
                                     }))
@@ -1426,7 +1430,12 @@ impl AppView {
                             )
                             .child(div().grid().grid_cols(cols).gap_3().children(
                                 list.into_iter().map(|e| match e {
-                                    Entry::Item(m) => self.media_card(m, col_w, &project_name, cx),
+                                    // Proof that has just come in slides in.
+                                    Entry::Item(m) => crate::motion::arrive(
+                                        div().child(self.media_card(m, col_w, &project_name, cx)),
+                                        "media-cards",
+                                        &m.id,
+                                    ),
                                     Entry::Page(p, a) => page_card(
                                         p,
                                         a,
@@ -1739,7 +1748,14 @@ impl AppView {
                     .border_color(theme::line())
                     .bg(theme::surface_faint())
                     .cursor_pointer()
-                    .hover(|el| el.border_color(theme::line_vivid()).bg(theme::surface()))
+                    // MediaCard's hover: the border and ground a step up, and
+                    // it lifts off the page (its shadow; GPUI can't move it).
+                    .hover(|el| {
+                        el.border_color(theme::line_vivid())
+                            .bg(theme::surface())
+                            .shadow(theme::shadow_pop())
+                    })
+                    .active(|el| el.bg(theme::surface_raised()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         let list = this.side.foot.media.clone();
                         this.open_media(item.clone(), list, String::new(), window, cx)
@@ -1851,6 +1867,7 @@ impl AppView {
                 .cursor_pointer()
                 .when(on, |el| el.bg(theme::surface_raised()))
                 .hover(|el| el.bg(theme::surface()))
+                .active(|s| s.bg(theme::surface_raised()))
                 .on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_job(id.clone(), cx)),
                 )
@@ -1883,6 +1900,7 @@ impl AppView {
                         .flex_none()
                         .w(px(56.))
                         .text_right()
+                        .whitespace_nowrap()
                         .text_size(theme::text::CAPTION)
                         .font_family(theme::MONO)
                         .text_color(theme::faint())
@@ -1948,6 +1966,17 @@ impl AppView {
                 )
                 .flex_basis(px(0.))
                 .flex_grow(1.1)
+                .relative()
+                // A log is for pasting somewhere: its Copy, in the corner.
+                .when(f.job.is_some() && !f.log.is_empty(), |el| {
+                    el.child(div().absolute().bottom(px(12.)).right(px(16.)).child(
+                        super::controls::copy_button(
+                            "job-log-copy",
+                            f.log.clone(),
+                            t("common.copy"),
+                        ),
+                    ))
+                })
                 .child(
                     div()
                         .id("job-log")
@@ -2513,6 +2542,11 @@ fn duration(from: &str, to: Option<&str>) -> String {
     let ms = end - start;
     if ms < 60_000 {
         format!("{:.1}s", ms as f64 / 1000.)
+    } else if ms >= 86_400_000 {
+        // Days and hours for one left running: not "2884m 5s".
+        format!("{}d {}h", ms / 86_400_000, ms % 86_400_000 / 3_600_000)
+    } else if ms >= 3_600_000 {
+        format!("{}h {}m", ms / 3_600_000, ms % 3_600_000 / 60_000)
     } else {
         format!(
             "{}m {}s",

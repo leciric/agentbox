@@ -607,6 +607,7 @@ impl AppView {
                         .text_color(theme::faint())
                         .cursor_pointer()
                         .hover(|s| s.text_color(theme::primary()))
+                        .active(|s| s.opacity(0.7))
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.side.dialog = None;
                             this.open_settings_at("accounts".into(), window, cx);
@@ -643,7 +644,7 @@ impl AppView {
         } else if let Some((e, c)) = &d.error
             && c != ERROR_BAD_REPO_URL
         {
-            body.push(controls::note_in(e.clone(), theme::error()));
+            body.push(controls::error_line(e.clone()));
         }
         let pending = busy;
         let label = match mode {
@@ -933,7 +934,7 @@ pub(super) fn job_log(lines: &[String], job: Option<&Job>) -> AnyElement {
     v_flex()
         .gap_1()
         .when_some(job.filter(|j| !j.error.is_empty()), |el, j| {
-            el.child(controls::note_in(j.error.clone(), theme::error()))
+            el.child(controls::error_line(j.error.clone()))
         })
         .child(
             div()
@@ -985,6 +986,16 @@ pub(super) fn form_modal(
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let backdrop = on_cancel.clone();
+    // The body's scroll position, kept by the form's id, for the scrollbar
+    // that says there is more of it below.
+    thread_local! {
+        static SCROLLS: std::cell::RefCell<std::collections::HashMap<&'static str, ScrollHandle>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+    }
+    let scroll = SCROLLS.with(|s| s.borrow_mut().entry(id).or_default().clone());
+    // Tab stays in the form, as in the small dialogs.
+    let (card, focus) =
+        super::agent::modal_trap(v_flex().id(SharedString::from(format!("{id}-card"))));
     crate::motion::scrim_in(
         div()
             .id(SharedString::from(format!("{id}-backdrop")))
@@ -994,11 +1005,11 @@ pub(super) fn form_modal(
             .flex()
             .items_center()
             .justify_center()
+            // The wheel is the form's, not the page's under it.
+            .occlude()
             .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
-            .child(
-                v_flex()
-                    .id(SharedString::from(format!("{id}-card")))
-                    .w(px(580.))
+            .child(crate::motion::pop_in(
+                card.w(px(580.))
                     .max_w(relative(0.94))
                     .max_h(relative(0.9))
                     .rounded_xl()
@@ -1018,15 +1029,25 @@ pub(super) fn form_modal(
                             .child(title),
                     )
                     .child(
-                        v_flex()
-                            .id(SharedString::from(format!("{id}-body")))
+                        div()
+                            .relative()
                             .flex_1()
                             .min_h_0()
-                            .overflow_y_scroll()
-                            .px_6()
-                            .pb_4()
-                            .gap_4()
-                            .children(body),
+                            .flex()
+                            .flex_col()
+                            .child(
+                                v_flex()
+                                    .id(SharedString::from(format!("{id}-body")))
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_y_scroll()
+                                    .track_scroll(&scroll)
+                                    .px_6()
+                                    .pb_4()
+                                    .gap_4()
+                                    .children(body),
+                            )
+                            .child(controls::scrollbar(&scroll, false)),
                     )
                     .child(
                         h_flex()
@@ -1037,22 +1058,25 @@ pub(super) fn form_modal(
                             .border_color(theme::line())
                             .children(left)
                             .child(div().flex_1())
-                            .child(controls::button(
+                            .child(controls::button_at(
                                 SharedString::from(format!("{id}-cancel")),
                                 t("common.cancel"),
                                 Btn::Ghost,
                                 false,
+                                focus.as_ref().map(|f| &f.0),
                                 move |_, w, cx| on_cancel(w, cx),
                             ))
-                            .child(controls::button(
+                            .child(controls::button_at(
                                 SharedString::from(format!("{id}-confirm")),
                                 confirm,
                                 Btn::Primary,
                                 disabled,
+                                focus.as_ref().map(|f| &f.1),
                                 on_confirm,
                             )),
                     ),
-            ),
+                "add-project-in",
+            )),
         "idsharedstringfromformatid-backdrop-in",
     )
     .into_any_element()

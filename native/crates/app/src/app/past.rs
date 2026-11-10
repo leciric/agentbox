@@ -329,6 +329,7 @@ impl AppView {
                                             .id("past-pr")
                                             .cursor_pointer()
                                             .hover(|s| s.text_color(theme::primary()))
+                                            .active(|s| s.opacity(0.7))
                                             .tooltip(move |w, cx| {
                                                 Tooltip::new(tip.clone()).build(w, cx)
                                             })
@@ -483,6 +484,7 @@ impl AppView {
                                     .text_color(theme::muted())
                                     .cursor_pointer()
                                     .hover(|s| s.text_color(theme::primary()))
+                                    .active(|s| s.opacity(0.7))
                                     .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                                         this.past.view = v;

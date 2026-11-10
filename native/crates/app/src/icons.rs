@@ -335,6 +335,13 @@ gpui_kit_assets::icon_assets!(
         Zap,
         ZoomIn,
         ZoomOut,
+        Clipboard,
+        Compass,
+        FolderMinus,
+        GitFork,
+        MessageCircle,
+        Split,
+        Undo2,
     ]
 );
 
@@ -467,7 +474,7 @@ pub fn spinner() -> AnyElement {
 
 /// spin turns an icon round (crate::motion::spin): a refresh while it fetches.
 pub fn spin(icon: Icon) -> AnyElement {
-    crate::motion::spin(icon).into_any_element()
+    crate::motion::spin(icon, "spin").into_any_element()
 }
 
 /// icon is `icon` (made from `name`, sized and coloured), turning when `name`

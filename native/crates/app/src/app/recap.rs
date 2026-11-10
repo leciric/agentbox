@@ -1054,7 +1054,7 @@ impl Render for RecapView {
                                     .child(crate::motion::skeleton("recap-skel-days", relative(1.), px(288.))),
                             )
                             .into_any_element(),
-                        Some(Err(e)) => controls::note_in(e.clone(), theme::rose(300)),
+                        Some(Err(e)) => controls::error_line(e.clone()),
                         Some(Ok(r)) => self.body(r),
                     })
                     .when(matches!(&self.recap, Some(Ok(r)) if r.work_seconds > 0 || r.agents > 0 || r.tokens > 0), |el| {

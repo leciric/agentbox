@@ -96,6 +96,7 @@ impl AppView {
                 .cursor_pointer()
                 .when(self.office_open, |el| el.bg(theme::surface_strong()))
                 .hover(|el| el.bg(theme::surface_raised()))
+                .active(|s| s.bg(theme::surface_strong()))
                 .on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.open_office(window, cx)),
                 )

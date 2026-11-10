@@ -578,7 +578,7 @@ impl AppView {
             .id("connectors")
             .gap_4()
             .when_some(c.error.clone(), |el, e| {
-                el.child(note_in(e, theme::rose(300)))
+                el.child(crate::app::controls::error_line(e))
             })
             .when_some(c.said.clone(), |el, s| {
                 el.child(note_in(s, theme::emerald(300)))
@@ -669,14 +669,17 @@ impl AppView {
                                 .child(label),
                         ),
                 )
-                .child(
+                .child(crate::app::controls::full_on_hover(
                     div()
                         .text_size(theme::text::CAPTION)
                         .line_height(rems(1.375))
                         .text_color(theme::subtle())
                         .line_clamp(2)
-                        .child(detail),
-                )
+                        .text_ellipsis()
+                        .child(detail.clone()),
+                    SharedString::from(format!("connector-about-{detail}")),
+                    detail,
+                ))
                 .into_any_element()
         };
         let mut tiles: Vec<AnyElement> = PRESETS
@@ -772,7 +775,7 @@ impl AppView {
                             .gap_1()
                             .child(self.input_small("connector-name"))
                             .child(if taken {
-                                note_in(t("project.connectors.nameTaken"), theme::rose(300))
+                                crate::app::controls::error_line(t("project.connectors.nameTaken"))
                             } else if self.field_value("connector-name", cx).is_empty()
                                 && !name.is_empty()
                             {
@@ -999,7 +1002,7 @@ impl AppView {
                     )),
             )
             .when(!x.error.is_empty(), |el| {
-                el.child(note_in(x.error.clone(), theme::rose(300)))
+                el.child(crate::app::controls::error_line(x.error.clone()))
             })
             .when(!facts.is_empty(), |el| {
                 el.child(
@@ -1066,7 +1069,7 @@ impl AppView {
                 el.child(note(t("project.connectors.importLooking")))
             })
             .when_some(c.scan.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                el.child(note_in(e.clone(), theme::rose(300)))
+                el.child(crate::app::controls::error_line(e.clone()))
             })
             .children(scan.into_iter().flat_map(|s| &s.unreadable).map(|u| {
                 note_in(

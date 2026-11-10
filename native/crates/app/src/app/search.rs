@@ -2168,14 +2168,12 @@ impl AppView {
             if p.asked.is_empty() && !typed && rows.is_empty() {
                 list.push(note(t("search.hint")));
             } else if let (Some(e), true) = (&p.error, rows.is_empty()) {
+                // The error line every other failed load draws.
                 list.push(
                     div()
                         .px_3()
-                        .py_8()
-                        .text_center()
-                        .text_size(theme::text::UI)
-                        .text_color(theme::rose(300))
-                        .child(e.clone())
+                        .py_3()
+                        .child(super::controls::error_line(e.clone()))
                         .into_any_element(),
                 );
             } else if rows.is_empty()
@@ -2250,6 +2248,7 @@ impl AppView {
                                         .rounded_sm()
                                         .cursor_pointer()
                                         .hover(|s| s.text_color(theme::title()))
+                                        .active(|s| s.opacity(0.7))
                                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                             if let Some(p) = this.side.palette.as_mut() {
                                                 p.newest = !p.newest;
@@ -2385,7 +2384,7 @@ impl AppView {
                     .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                         this.on_search_key(ev, window, cx)
                     }))
-                    .child(
+                    .child(crate::motion::pop_in(
                         v_flex()
                             .id("search-card")
                             .w(super::controls::viewport().width - px(32.))
@@ -2486,7 +2485,8 @@ impl AppView {
                                     .text_color(theme::subtle())
                                     .children(keys.into_iter().map(key_hint)),
                             ),
-                    ),
+                        "search-in",
+                    )),
                 "idsearch-palette-in",
             )
             .into_any_element(),

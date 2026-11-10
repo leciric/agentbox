@@ -1159,7 +1159,7 @@ impl AppView {
                     row.body.push(note_in(m.clone(), theme::emerald(300)));
                 }
                 if let Some(m) = pp.errors.get(&n) {
-                    row.body.push(note_in(m.clone(), theme::rose(300)));
+                    row.body.push(crate::app::controls::error_line(m.clone()));
                 }
                 row
             }
@@ -1821,7 +1821,7 @@ impl AppView {
                 let mut row = self.more_row(e, None, cx);
                 match pp.credentials.get(&n) {
                     None => row.body.push(note(t("common.loading"))),
-                    Some(Err(err)) => row.body.push(note_in(err.clone(), theme::rose(300))),
+                    Some(Err(err)) => row.body.push(crate::app::controls::error_line(err.clone())),
                     Some(Ok(list)) if list.is_empty() => {
                         row.body.push(note(t("project.accounts.runningOnNone")))
                     }
@@ -1839,7 +1839,12 @@ impl AppView {
                                     theme::muted()
                                 })
                                 .hover(|st| st.text_color(theme::primary()))
-                                .child(format!("{} {summary}", if open { "▾" } else { "▸" }))
+                                .active(|s| s.opacity(0.7))
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .child(crate::motion::chevron("chev", open, Some(px(12.))))
+                                .child(summary)
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     let pp = &mut this.settings_page.project;
                                     pp.show_credentials = !pp.show_credentials;
@@ -2348,7 +2353,7 @@ impl AppView {
             .id(SharedString::from(format!("secrets-{project}")))
             .gap_3()
             .when_some(pp.errors.get(project), |el, e| {
-                el.child(note_in(e.clone(), theme::rose(300)))
+                el.child(crate::app::controls::error_line(e.clone()))
             })
             .when_some(pp.said.get(project), |el, s| {
                 el.child(note_in(s.clone(), theme::emerald(300)))
@@ -2401,7 +2406,7 @@ impl AppView {
             })
             .child(match list {
                 None => super::super::panel::loading("secrets"),
-                Some(Err(e)) => note_in(e.clone(), theme::rose(300)),
+                Some(Err(e)) => crate::app::controls::error_line(e.clone()),
                 Some(Ok(l)) if l.is_empty() => note(t("agent.secrets.none")),
                 Some(Ok(l)) => v_flex()
                     .gap_2()

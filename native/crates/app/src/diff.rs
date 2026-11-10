@@ -707,6 +707,7 @@ pub fn table_with(
         };
         let code = matches!(l.kind, LineKind::Add | LineKind::Del | LineKind::Context);
         let lit_row = lit.is_some_and(|(a, b)| row >= a && row <= b);
+        let row_group = SharedString::from(format!("diff-row-{row}"));
         let plus = add.clone().filter(|_| code).map(|add| {
             div()
                 .id(ElementId::NamedInteger("note-add".into(), row as u64))
@@ -716,6 +717,10 @@ pub fn table_with(
                 .rounded_sm()
                 .text_color(theme::accent())
                 .cursor_pointer()
+                // On the row the pointer is over, as Electron's: a "+" on
+                // every line read as a column of additions.
+                .opacity(0.)
+                .group_hover(row_group.clone(), |s| s.opacity(1.))
                 .hover(|s| s.bg(theme::accent().opacity(0.2)))
                 .tooltip(|w, cx| {
                     gpui_component::tooltip::Tooltip::new(t("review.notes.addHint")).build(w, cx)
@@ -730,6 +735,7 @@ pub fn table_with(
         });
         let line = h_flex()
             .id(ElementId::NamedInteger("diff-row".into(), row as u64))
+            .group(row_group.clone())
             .when_some(drag.clone().filter(|_| code), |el, drag| {
                 let up = drag.clone();
                 el.on_mouse_move(move |ev: &MouseMoveEvent, window, cx| {
@@ -879,7 +885,7 @@ impl DiffView {
                                 div()
                                     .flex_none()
                                     .w(px(10.))
-                                    .child(crate::icons::of(if folded { "▸" } else { "▾" })),
+                                    .child(crate::motion::chevron("chev-882", !folded, None)),
                             )
                             .child(div().min_w_0().truncate().child(name.clone()))
                             .into_any_element(),
@@ -909,6 +915,7 @@ impl DiffView {
                             .cursor_pointer()
                             .when(on, |el| el.bg(theme::surface_strong()))
                             .hover(|s| s.bg(theme::surface_raised()))
+                            .active(|s| s.bg(theme::surface_strong()))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 this.focus.focus(window, cx);
                                 this.select(ix, cx)
@@ -960,9 +967,7 @@ impl Render for DiffView {
             None => {
                 return div()
                     .p_6()
-                    .text_sm()
-                    .text_color(theme::faint())
-                    .child(t("common.loading"))
+                    .child(crate::motion::skeleton_lines("loading-diff-7", 4))
                     .into_any_element();
             }
             Some(Err(e)) => {
@@ -993,6 +998,7 @@ impl Render for DiffView {
                     el.text_color(theme::muted())
                         .cursor_pointer()
                         .hover(|s| s.text_color(theme::primary()))
+                        .active(|s| s.opacity(0.7))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.set_layout(layout, cx)
                         }))
@@ -1118,6 +1124,7 @@ impl Render for DiffView {
                         .text_xs()
                         .cursor_pointer()
                         .hover(|s| s.bg(theme::surface_strong()))
+                        .active(|s| s.bg(theme::surface_vivid()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.toggle_open(&path, cx)
                         }))
@@ -1126,7 +1133,7 @@ impl Render for DiffView {
                                 .flex_none()
                                 .w(px(10.))
                                 .text_color(theme::muted())
-                                .child(crate::icons::of(if open { "▾" } else { "▸" })),
+                                .child(crate::motion::chevron("chev-1129", open, None)),
                         )
                         .children(summary(f))
                         .into_any_element();

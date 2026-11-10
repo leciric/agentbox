@@ -36,7 +36,7 @@ pub(super) fn set_decorations(window: &Window) {
 fn client_decorations() -> bool {
     CLIENT_DECORATIONS.get()
 }
-use super::controls::{Btn, button, note_in};
+use super::controls::{Btn, button};
 use crate::theme;
 
 #[derive(Default)]
@@ -503,7 +503,7 @@ impl AppView {
                 )
                 .child(self.job_progress(&i.job))
                 .when_some(self.topbar.retry_error.clone(), |el, e| {
-                    el.child(note_in(e, theme::error()))
+                    el.child(crate::app::controls::error_line(e))
                 })
                 .when(failed, |el| {
                     el.child(h_flex().justify_end().child(button(
@@ -540,7 +540,7 @@ impl AppView {
                         anchored()
                             .offset(point(px(0.), px(28.)))
                             .snap_to_window_with_margin(px(8.))
-                            .child(p),
+                            .child(crate::motion::menu_in(div().child(p), "topbar-pop-in")),
                     )
                 }))
                 .into_any_element(),

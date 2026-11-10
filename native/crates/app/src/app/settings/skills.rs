@@ -716,7 +716,7 @@ impl AppView {
             .id(SharedString::from(format!("skills-{scope}")))
             .gap_3()
             .when_some(s.error.get(scope), |el, e| {
-                el.child(note_in(e.clone(), theme::rose(300)))
+                el.child(crate::app::controls::error_line(e.clone()))
             })
             .when_some(s.said.get(scope), |el, m| {
                 el.child(note_in(m.clone(), theme::emerald(300)))
@@ -974,14 +974,17 @@ impl AppView {
                                         el.child(badge(t("skills.modelOnly"), theme::accent()))
                                     }),
                             )
-                            .child(
+                            .child(crate::app::controls::full_on_hover(
                                 div()
                                     .text_size(theme::text::UI)
                                     .line_height(rems(1.4))
                                     .text_color(if on { theme::muted() } else { theme::subtle() })
                                     .line_clamp(2)
+                                    .text_ellipsis()
                                     .child(k.description.clone()),
-                            )
+                                SharedString::from(format!("skill-about-{}", k.name)),
+                                k.description.clone(),
+                            ))
                             .child(
                                 div()
                                     .text_size(theme::text::CAPTION)
@@ -1258,6 +1261,7 @@ impl AppView {
                                         .when(!active, |el| {
                                             el.text_color(theme::muted())
                                                 .hover(|st| st.bg(theme::surface_strong()))
+                                                .active(|s| s.bg(theme::surface_vivid()))
                                         })
                                         .on_click(cx.listener(
                                             move |this, _: &ClickEvent, _, cx| {
@@ -1427,7 +1431,7 @@ impl AppView {
                     })
                     .when_some(waiting, |el, w| el.child(note(w)))
                     .when_some(s.scan.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
-                        el.child(note_in(e.clone(), theme::rose(300)))
+                        el.child(crate::app::controls::error_line(e.clone()))
                     })
                     .when(matches!(&s.scan, Some(Ok(l)) if l.is_empty()), |el| {
                         el.child(empty(

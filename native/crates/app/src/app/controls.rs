@@ -50,7 +50,12 @@ pub fn toggle(
             theme::line_vivid()
         })
         .when(disabled, |el| el.opacity(0.45))
-        .when(!disabled, |el| el.cursor_pointer().on_click(on_click))
+        .when(!disabled, |el| {
+            el.tab_index(0)
+                .focus_visible(|s| s.shadow(focus_ring()))
+                .cursor_pointer()
+                .on_click(on_click)
+        })
         .child(
             div()
                 .absolute()
@@ -117,12 +122,24 @@ fn segments(
                 })
                 .when(!on, |el| el.text_color(theme::muted()))
                 .when(disabled, |el| el.opacity(0.5))
-                .when(!disabled && !on, |el| {
-                    el.cursor_pointer()
-                        .hover(|s| s.text_color(theme::primary()))
-                        .on_click(move |_, window, cx| pick(&value, window, cx))
+                .when(!disabled && !on, {
+                    let value = value.clone();
+                    |el| {
+                        el.cursor_pointer()
+                            .hover(|s| s.text_color(theme::primary()))
+                            .active(|s| s.opacity(0.7))
+                            .on_click(move |_, window, cx| pick(&value, window, cx))
+                    }
                 })
                 .child(label)
+                // The one just picked lights up rather than switching on.
+                .map(|el| {
+                    if on {
+                        crate::motion::lit(el, id, &value)
+                    } else {
+                        el.into_any_element()
+                    }
+                })
         }))
 }
 
@@ -163,13 +180,24 @@ pub fn choices(
                         })
                         .when(!on, |el| el.text_color(theme::muted()))
                         .when(disabled, |el| el.opacity(0.5))
-                        .when(!disabled && !on, |el| {
-                            el.cursor_pointer()
-                                .hover(|s| s.text_color(theme::primary()))
-                                .on_click(move |_, window, cx| pick(&value, window, cx))
+                        .when(!disabled && !on, {
+                            let value = value.clone();
+                            |el| {
+                                el.cursor_pointer()
+                                    .hover(|s| s.text_color(theme::primary()))
+                                    .active(|s| s.opacity(0.7))
+                                    .on_click(move |_, window, cx| pick(&value, window, cx))
+                            }
                         })
                         .when_some(icon, |el, i| el.child(crate::icons::ic(i).size(px(15.))))
                         .child(label)
+                        .map(|el| {
+                            if on {
+                                crate::motion::lit(el, id, &value)
+                            } else {
+                                el.into_any_element()
+                            }
+                        })
                 })),
         )
         .into_any_element()
@@ -311,9 +339,28 @@ pub fn button(
     disabled: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
+    button_at(id, label, kind, disabled, None, on_click)
+}
+
+/// button_at is a button whose focus is the caller's to give and to ask
+/// after (a dialog's, which keeps Tab between its own).
+pub fn button_at(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    kind: Btn,
+    disabled: bool,
+    focus: Option<&FocusHandle>,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let label: SharedString = label.into();
+    // A button that is only a mark says what it does on hover.
+    let tip = glyph_tip(&label);
     div()
         .id(id)
         .flex_none()
+        .when_some(tip, |el, tip| {
+            el.tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(t(tip)).build(w, cx))
+        })
         // Electron's Button, size sm: 32 px tall, 13 px, rounded-lg; a
         // hover or press moves the fill a step rather than lighting it.
         .h(px(32.))
@@ -338,27 +385,61 @@ pub fn button(
         })
         .when(disabled, |el| el.opacity(0.45))
         .when(!disabled, |el| {
-            el.cursor_pointer()
-                .hover(move |s| match kind {
-                    Btn::Primary => s.bg(theme::brand(600)),
-                    Btn::Danger => s.bg(theme::destructive(1)),
-                    Btn::DangerQuiet => s
-                        .bg(theme::rose(400).opacity(0.1))
-                        .text_color(theme::rose(200)),
-                    Btn::Ghost => s.bg(theme::surface_raised()).text_color(theme::primary()),
-                    Btn::Secondary => s.bg(theme::surface_strong()),
-                })
-                .active(move |s| match kind {
-                    Btn::Primary => s.bg(theme::brand(700)),
-                    Btn::Danger => s.bg(theme::destructive(2)),
-                    Btn::DangerQuiet => s.bg(theme::rose(400).opacity(0.2)),
-                    Btn::Ghost => s.bg(theme::surface_strong()),
-                    Btn::Secondary => s.bg(theme::surface_vivid()),
-                })
-                .on_click(on_click)
+            // Reached with Tab and pressed with Enter or Space, wearing
+            // Electron's focus-visible ring while the keyboard is on it.
+            match focus {
+                Some(handle) => el.track_focus(handle),
+                None => el.tab_index(0),
+            }
+            .focus_visible(|s| s.shadow(focus_ring()))
+            .cursor_pointer()
+            .hover(move |s| match kind {
+                Btn::Primary => s.bg(theme::brand(600)),
+                Btn::Danger => s.bg(theme::destructive(1)),
+                Btn::DangerQuiet => s
+                    .bg(theme::rose(400).opacity(0.1))
+                    .text_color(theme::rose(200)),
+                Btn::Ghost => s.bg(theme::surface_raised()).text_color(theme::primary()),
+                Btn::Secondary => s.bg(theme::surface_strong()),
+            })
+            .active(move |s| match kind {
+                Btn::Primary => s.bg(theme::brand(700)),
+                Btn::Danger => s.bg(theme::destructive(2)),
+                Btn::DangerQuiet => s.bg(theme::rose(400).opacity(0.2)),
+                Btn::Ghost => s.bg(theme::surface_strong()),
+                Btn::Secondary => s.bg(theme::surface_vivid()),
+            })
+            .on_click(on_click)
         })
         .child(crate::icons::glyph(label))
         .into_any_element()
+}
+
+/// focus_ring is Electron's `focus-visible:ring-2 ring-brand-400`: two
+/// pixels of the brand around whatever the keyboard's focus is on, as a
+/// shadow, since GPUI draws no outline.
+pub fn focus_ring() -> Vec<BoxShadow> {
+    vec![BoxShadow {
+        color: theme::brand(400).opacity(0.7),
+        offset: point(px(0.), px(0.)),
+        blur_radius: px(0.),
+        spread_radius: px(2.),
+        inset: false,
+    }]
+}
+
+/// glyph_tip is what a button whose whole label is a mark does, as a
+/// translation's key: its tooltip, since a mark alone names nothing.
+fn glyph_tip(label: &str) -> Option<&'static str> {
+    Some(match label {
+        "✕" => "common.close",
+        "×" => "common.remove",
+        "‹" | "←" => "common.back",
+        "›" | "→" => "common.next",
+        "−" => "review.zoom.out",
+        "+" => "review.zoom.in",
+        _ => return None,
+    })
 }
 
 /// badge is a word in a pill beside a name: default, valid, optional.
@@ -452,7 +533,22 @@ pub fn select_at(
         .small()
         .min_w(px(160.))
         .max_w(px(280.))
-        .label(format!("{label}  ▾"))
+        // Its value, cut with an ellipsis when long (the whole of it is in
+        // the menu), and a real chevron where a text ▾ stood.
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .justify_between()
+                .child(div().min_w_0().truncate().child(label))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_color(theme::subtle())
+                        .child(crate::icons::ic("chevron-down").size(px(14.))),
+                ),
+        )
         .disabled(disabled)
         .dropdown_menu_with_anchor(anchor, select_menu(choices, current, on_pick));
     h_flex().child(button).into_any_element()
@@ -796,13 +892,27 @@ fn menu_items(
                 .child(
                     v_flex()
                         .py_0p5()
-                        .child(div().text_sm().child(name.clone()))
+                        // A long choice wraps inside the menu, where it used
+                        // to run off its edge.
+                        .child(
+                            div()
+                                .max_w(px(320.))
+                                .whitespace_normal()
+                                .text_sm()
+                                .child(name.clone()),
+                        )
                         .when(!about.is_empty(), |el| {
+                            // Two lines of it at most, wrapped inside the
+                            // menu; the whole of it on hover.
                             el.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme::muted())
-                                    .child(about.clone()),
+                                clamped(
+                                    SharedString::from(format!("select-about-{name}")),
+                                    about.clone(),
+                                    2,
+                                )
+                                .max_w(px(320.))
+                                .text_xs()
+                                .text_color(theme::muted()),
                             )
                         }),
                 )
@@ -929,6 +1039,34 @@ pub fn note_in(text: impl Into<SharedString>, color: Hsla) -> AnyElement {
         .into_any_element()
 }
 
+/// error_line is what went wrong, the same everywhere: a warning mark and
+/// the message in rose, wrapping in its column. Sections used to draw a
+/// failed load each their own way (rose text, a lighter rose, a muted box).
+pub fn error_line(text: impl Into<SharedString>) -> AnyElement {
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .items_start()
+        .gap_1p5()
+        .px_2p5()
+        .py_1p5()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme::rose(400).opacity(0.3))
+        .bg(theme::rose(400).opacity(0.08))
+        .text_size(theme::text::CAPTION)
+        .line_height(relative(1.5))
+        .text_color(theme::rose(300))
+        .child(
+            div()
+                .flex_none()
+                .pt(px(2.))
+                .child(crate::icons::ic("triangle-alert").size(px(12.))),
+        )
+        .child(div().min_w_0().flex_1().child(text.into()))
+        .into_any_element()
+}
+
 /// Row is one setting (SettingRow): its name, what it does, "More" for the
 /// rest of that when there is a rest, its control beside them and anything
 /// else under them; marked at its edge when it's changed from its default.
@@ -998,15 +1136,14 @@ impl Row {
                         ..Default::default()
                     };
                     let on_more = on_more.clone();
-                    words.child(
-                        InteractiveText::new(
-                            more_id.clone(),
-                            StyledText::new(text).with_highlights(vec![(range.clone(), style)]),
-                        )
-                        .on_click(vec![range], move |_, window, cx| {
-                            on_more(&ClickEvent::default(), window, cx)
-                        }),
-                    )
+                    // The whole description opens it: the link alone, a
+                    // range of an InteractiveText, didn't answer a click.
+                    words
+                        .id(more_id.clone())
+                        .cursor_pointer()
+                        .on_click(move |ev, window, cx| on_more(ev, window, cx))
+                        .child(StyledText::new(text).with_highlights(vec![(range, style)]))
+                        .into_any_element()
                 }
                 None => match self
                     .code
@@ -1039,9 +1176,11 @@ impl Row {
                                 .into_iter()
                                 .filter(|r| r.len > 0)
                                 .collect();
-                        words.child(StyledText::new(self.description.clone()).with_runs(runs))
+                        words
+                            .child(StyledText::new(self.description.clone()).with_runs(runs))
+                            .into_any_element()
                     }
-                    None => words.child(self.description.clone()),
+                    None => words.child(self.description.clone()).into_any_element(),
                 },
             }
         });
@@ -1169,38 +1308,143 @@ pub fn window_modal(
     let id: SharedString = id.into();
     let size = VIEWPORT.with(|v| v.get());
     deferred(
-        anchored().position(point(px(0.), px(0.))).child(
-            div()
-                .id(SharedString::from(format!("{id}-backdrop")))
-                .w(size.width)
-                .h(size.height)
-                .bg(theme::scrim())
-                .flex()
-                .items_center()
-                .justify_center()
-                .occlude()
-                .on_click(move |e, w, cx| on_backdrop(e, w, cx))
-                .child(crate::motion::pop_in(
-                    div()
-                        .id(SharedString::from(format!("{id}-card")))
-                        .w(width)
-                        .max_w(relative(0.92))
-                        .max_h(relative(0.88))
-                        .flex()
-                        .flex_col()
-                        .rounded(theme::radius::XXL)
-                        .bg(theme::card())
-                        .border_1()
-                        .border_color(theme::line_strong())
-                        .shadow(theme::shadow_modal())
-                        .overflow_hidden()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_click(|_, _, cx| cx.stop_propagation())
-                        .child(card),
-                    SharedString::from(format!("{id}-card-in")),
-                )),
-        ),
+        anchored()
+            .position(point(px(0.), px(0.)))
+            .child(crate::motion::scrim_in(
+                div()
+                    .id(SharedString::from(format!("{id}-backdrop")))
+                    .w(size.width)
+                    .h(size.height)
+                    .bg(theme::scrim())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .occlude()
+                    .on_click(move |e, w, cx| on_backdrop(e, w, cx))
+                    .child(crate::motion::pop_in(
+                        div()
+                            .id(SharedString::from(format!("{id}-card")))
+                            .w(width)
+                            .max_w(relative(0.92))
+                            .max_h(relative(0.88))
+                            .flex()
+                            .flex_col()
+                            .rounded(theme::radius::XXL)
+                            .bg(theme::card())
+                            .border_1()
+                            .border_color(theme::line_strong())
+                            .shadow(theme::shadow_modal())
+                            .overflow_hidden()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(|_, _, cx| cx.stop_propagation())
+                            .child(card),
+                        SharedString::from(format!("{id}-card-in")),
+                    )),
+                SharedString::from(format!("{id}-scrim-in")),
+            )),
     )
     .with_priority(2)
     .into_any_element()
+}
+
+/// clamped is text that may run long where there's room for a line or two (a
+/// choice's description in a menu, a note in a row): it stops at `lines` with
+/// an ellipsis, and the whole of it is the tooltip.
+pub fn clamped(
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+    lines: usize,
+) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    let tip = text.clone();
+    div()
+        .id(id)
+        .min_w_0()
+        .whitespace_normal()
+        .line_clamp(lines)
+        .text_ellipsis()
+        .child(text)
+        .tooltip(move |w, cx| long_tip(tip.clone(), w, cx))
+}
+
+/// long_tip is a tooltip holding a sentence or a paragraph: wrapped at a
+/// width that reads, where a plain one would run in a single line off the
+/// window.
+pub fn long_tip(text: SharedString, window: &mut Window, cx: &mut App) -> AnyView {
+    gpui_component::tooltip::Tooltip::element(move |_, _| {
+        div()
+            .max_w(px(360.))
+            .whitespace_normal()
+            .child(text.clone())
+    })
+    .build(window, cx)
+}
+
+/// copy_button is a small Copy button (Electron's size-6 one in a code
+/// block's head and a message's meta): it copies `text`, and its icon is a
+/// green tick for a moment afterwards, which says so where it was clicked.
+pub fn copy_button(
+    key: impl Into<SharedString>,
+    text: impl Into<SharedString>,
+    tip: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let (key, text, tip): (SharedString, SharedString, SharedString) =
+        (key.into(), text.into(), tip.into());
+    let copied = crate::motion::copied(&key);
+    let k = key.clone();
+    div()
+        .id(key.clone())
+        .size_6()
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_md()
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::surface_raised()).text_color(theme::secondary()))
+        .active(|s| s.bg(theme::surface_strong()))
+        .child(if copied {
+            crate::motion::swap_in(
+                div()
+                    .text_color(theme::emerald(400))
+                    .child(crate::icons::ic("check").size(px(14.))),
+                SharedString::from(format!("{key}-done")),
+            )
+            .into_any_element()
+        } else {
+            crate::icons::ic("copy").size(px(14.)).into_any_element()
+        })
+        .tooltip(move |w, cx| {
+            gpui_component::tooltip::Tooltip::new(if crate::motion::copied(&k) {
+                SharedString::from(t("common.copied"))
+            } else {
+                tip.clone()
+            })
+            .build(w, cx)
+        })
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            crate::motion::copy(&key, text.to_string(), window, cx)
+        })
+}
+
+/// danger_item is a menu's item that destroys something (the Electron menu's
+/// `destructive`): its label in rose, so it isn't picked for a neighbour.
+pub fn danger_item(label: impl Into<SharedString>) -> PopupMenuItem {
+    let label: SharedString = label.into();
+    PopupMenuItem::element(move |_, _| div().text_color(theme::rose(300)).child(label.clone()))
+        .icon(crate::icons::ic("trash").text_color(theme::rose(300)))
+}
+
+/// full_on_hover gives text that is cut short (a clamp, a truncate) its
+/// whole self as a tooltip, wrapped: `id` is the element's, `text` what it
+/// says.
+pub fn full_on_hover(
+    el: Div,
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    el.id(id)
+        .tooltip(move |w, cx| long_tip(text.clone(), w, cx))
 }

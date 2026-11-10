@@ -187,7 +187,7 @@ pub(super) struct Pulls {
     pub(super) confirm: Option<merge::Confirm>,
     viewing: Option<Viewing>,
     /// The label picker, open on this pull request.
-    picker: Option<i64>,
+    pub(super) picker: Option<i64>,
     /// Where it was opened: a row of the list, or the one open over the window.
     picker_at: &'static str,
     labels: Option<Result<Vec<Label>, String>>,
@@ -1328,9 +1328,12 @@ impl AppView {
                     )
                     .when(open, |el| {
                         el.child(deferred(
-                            anchored()
-                                .snap_to_window_with_margin(px(8.))
-                                .child(self.render_picker(number, cx)),
+                            anchored().snap_to_window_with_margin(px(8.)).child(
+                                crate::motion::menu_in(
+                                    div().child(self.render_picker(number, cx)),
+                                    "label-picker-in",
+                                ),
+                            ),
                         ))
                     }),
             )
@@ -1384,6 +1387,7 @@ impl AppView {
                         .rounded_md()
                         .cursor_pointer()
                         .hover(|s| s.bg(theme::surface()))
+                        .active(|s| s.bg(theme::surface_raised()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.toggle_label(number, label.clone(), !on, cx)
                         }))
@@ -1487,9 +1491,7 @@ impl AppView {
                 return wrap(
                     div()
                         .p_6()
-                        .text_sm()
-                        .text_color(theme::subtle())
-                        .child(t("common.loading"))
+                        .child(crate::motion::skeleton_lines("loading-pulls-1", 4))
                         .into_any_element(),
                 );
             }
@@ -1851,15 +1853,18 @@ impl AppView {
                                     .items_start()
                                     .gap_1p5()
                                     .min_w_0()
-                                    .child(
+                                    .child(super::controls::full_on_hover(
                                         div()
                                             .min_w_0()
                                             .text_size(theme::text::BODY)
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(theme::primary())
                                             .line_clamp(2)
+                                            .text_ellipsis()
                                             .child(pr.title.clone()),
-                                    )
+                                        SharedString::from(format!("pr-title-{}", pr.number)),
+                                        pr.title.clone(),
+                                    ))
                                     .child(
                                         div()
                                             .id(SharedString::from(format!("pull-gh-{number}")))
@@ -2093,6 +2098,7 @@ impl AppView {
                     .when(!on, |el| {
                         el.cursor_pointer()
                             .hover(|s| s.text_color(theme::primary()))
+                            .active(|s| s.opacity(0.7))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 if let Some(v) = &mut this.pulls.viewing {
                                     v.tab = to;
@@ -2117,9 +2123,7 @@ impl AppView {
                     )
                     .into_any_element(),
                     None => div()
-                        .text_size(theme::text::UI)
-                        .text_color(theme::subtle())
-                        .child(t("common.loading"))
+                        .child(crate::motion::skeleton_lines("loading-pulls-2", 4))
                         .into_any_element(),
                     Some(Ok(d)) => v_flex()
                         .gap_6()
@@ -2531,6 +2535,7 @@ impl AppView {
     /// many are open and how many of its agents are ready to review; Issues,
     /// Files, Evidence and Schedules. Only the lit one is named.
     pub(super) fn render_rail_switch(&self, agents: usize, cx: &mut Context<Self>) -> AnyElement {
+        let roomy = self.panel_box().width >= 380.;
         let (open, ready) = self.pull_counts();
         let tab = self.pulls.tab;
         let pulls_tab = self
@@ -2623,10 +2628,15 @@ impl AppView {
                             },
                         ))
                     })
-                    .when(!on || to == RailTab::Pulls, |el| {
+                    .when(!on || !roomy || to == RailTab::Pulls, |el| {
                         el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
                     })
-                    .when(on, |el| el.child(div().min_w_0().truncate().child(t(key))))
+                    // Its name when the panel has room for it: in the list's
+                    // width it was squeezed to "..", so there the icon and
+                    // the count say it, and the tooltip the rest.
+                    .when(on && roomy, |el| {
+                        el.child(div().min_w_0().truncate().child(t(key)))
+                    })
                     .when(to == RailTab::Agents && agents > 0, |el| {
                         el.child(count(agents.to_string()))
                     })
@@ -2655,6 +2665,14 @@ impl AppView {
                                     ready.to_string()
                                 }),
                         )
+                    })
+                    // The tab just picked lights up as it opens out.
+                    .map(|el| {
+                        if on {
+                            crate::motion::lit(el, "rail-tab", &key)
+                        } else {
+                            el.into_any_element()
+                        }
                     })
             }))
             .into_any_element()
@@ -2762,35 +2780,45 @@ impl AppView {
                     let mut menu = menu
                         .min_w(px(220.))
                         .label(display.clone())
-                        .item(PopupMenuItem::new(t("chat.tab.newChat")).on_click(act(
-                            |this, n, _, cx| {
-                                this.side.dialog =
-                                    Some(super::sidebar_dialogs::Dialog::NewChat { project: n });
-                                cx.notify();
-                            },
-                        )))
                         .item(
-                            PopupMenuItem::new(t("group.menu.fanOut")).on_click(act(
-                                |this, n, window, cx| this.open_fan_out(n, window, cx),
-                            )),
+                            PopupMenuItem::new(t("chat.tab.newChat"))
+                                .icon(crate::icons::ic("plus"))
+                                .on_click(act(|this, n, _, cx| {
+                                    this.side.dialog =
+                                        Some(super::sidebar_dialogs::Dialog::NewChat {
+                                            project: n,
+                                        });
+                                    cx.notify();
+                                })),
+                        )
+                        .item(
+                            PopupMenuItem::new(t("group.menu.fanOut"))
+                                .icon(crate::icons::ic("split"))
+                                .on_click(act(|this, n, window, cx| {
+                                    this.open_fan_out(n, window, cx)
+                                })),
                         );
                     if others {
-                        menu = menu.item(PopupMenuItem::new(t("v2.talk.button")).on_click(act(
-                            |this, n, _, cx| {
-                                this.side.dialog =
-                                    Some(super::sidebar_dialogs::Dialog::Talk { project: n });
-                                cx.notify();
-                            },
-                        )));
+                        menu = menu.item(
+                            PopupMenuItem::new(t("v2.talk.button"))
+                                .icon(crate::icons::ic("message-circle"))
+                                .on_click(act(|this, n, _, cx| {
+                                    this.side.dialog =
+                                        Some(super::sidebar_dialogs::Dialog::Talk { project: n });
+                                    cx.notify();
+                                })),
+                        );
                     }
                     menu = menu
-                        .item(PopupMenuItem::new(t("panel.view.pulls")).on_click(act(
-                            |this, _, _, cx| {
-                                this.pulls.tab = RailTab::Pulls;
-                                this.load_pulls(false, cx);
-                                cx.notify();
-                            },
-                        )))
+                        .item(
+                            PopupMenuItem::new(t("panel.view.pulls"))
+                                .icon(crate::icons::ic("git-pull-request"))
+                                .on_click(act(|this, _, _, cx| {
+                                    this.pulls.tab = RailTab::Pulls;
+                                    this.load_pulls(false, cx);
+                                    cx.notify();
+                                })),
+                        )
                         .separator()
                         .item(
                             PopupMenuItem::new(if pinned {
@@ -2798,44 +2826,55 @@ impl AppView {
                             } else {
                                 t("v2.sidebar.pin")
                             })
+                            .icon(crate::icons::ic("pin"))
                             .on_click(act(|this, n, _, cx| this.toggle_pin(&n, cx))),
                         )
                         .item(
-                            PopupMenuItem::new(t("v2.sidebar.projectSettings")).on_click(act(
-                                |this, n, window, cx| {
+                            PopupMenuItem::new(t("v2.sidebar.projectSettings"))
+                                .icon(crate::icons::ic("settings"))
+                                .on_click(act(|this, n, window, cx| {
                                     this.open_settings_at(format!("project:{n}"), window, cx)
-                                },
-                            )),
+                                })),
                         );
                     let (v, n, r) = (view.clone(), menu_project.clone(), root.clone());
                     menu.submenu(t("common.more"), window, cx, move |m, _, _| {
                         let (v1, v2, v3) = (v.clone(), v.clone(), v.clone());
                         let (n1, n2, n3, r) = (n.clone(), n.clone(), n.clone(), r.clone());
-                        m.item(PopupMenuItem::new(t("projectIcon.change")).on_click(
-                            move |_, window, cx| {
-                                let n = n1.clone();
-                                v1.update(cx, |this, cx| this.open_icon_dialog(n, window, cx))
-                                    .ok();
-                            },
-                        ))
-                        .item(PopupMenuItem::new(t("project.view.openFolder")).on_click(
-                            move |_, _, cx| cx.open_with_system(std::path::Path::new(&r)),
-                        ))
-                        .item(PopupMenuItem::new(t("v2.menu.agentYourself")).on_click(
-                            move |_, window, cx| {
-                                let n = n2.clone();
-                                v2.update(cx, |this, cx| this.open_new_agent(n, window, cx))
-                                    .ok();
-                            },
-                        ))
+                        m.item(
+                            PopupMenuItem::new(t("projectIcon.change"))
+                                .icon(crate::icons::ic("image"))
+                                .on_click(move |_, window, cx| {
+                                    let n = n1.clone();
+                                    v1.update(cx, |this, cx| this.open_icon_dialog(n, window, cx))
+                                        .ok();
+                                }),
+                        )
                         .item(
-                            PopupMenuItem::new(t("work.title")).on_click(move |_, window, cx| {
-                                let n = n3.clone();
-                                v3.update(cx, |this, cx| {
-                                    this.open_work(n, String::new(), window, cx)
-                                })
-                                .ok();
-                            }),
+                            PopupMenuItem::new(t("project.view.openFolder"))
+                                .icon(crate::icons::ic("folder-open"))
+                                .on_click(move |_, _, cx| {
+                                    cx.open_with_system(std::path::Path::new(&r))
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new(t("v2.menu.agentYourself"))
+                                .icon(crate::icons::ic("bot"))
+                                .on_click(move |_, window, cx| {
+                                    let n = n2.clone();
+                                    v2.update(cx, |this, cx| this.open_new_agent(n, window, cx))
+                                        .ok();
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new(t("work.title"))
+                                .icon(crate::icons::ic("list-todo"))
+                                .on_click(move |_, window, cx| {
+                                    let n = n3.clone();
+                                    v3.update(cx, |this, cx| {
+                                        this.open_work(n, String::new(), window, cx)
+                                    })
+                                    .ok();
+                                }),
                         )
                     })
                 }
@@ -2877,6 +2916,7 @@ impl AppView {
                     .text_color(theme::primary())
                     .cursor_pointer()
                     .hover(|s| s.bg(theme::surface_raised()))
+                    .active(|s| s.bg(theme::surface_strong()))
                     .tooltip(move |window, cx| Tooltip::new(root_tip.clone()).build(window, cx))
                     .map(|el| {
                         if lead {

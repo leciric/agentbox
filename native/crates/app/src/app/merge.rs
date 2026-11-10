@@ -214,7 +214,7 @@ pub fn confirm(
             .items_center()
             .justify_center()
             .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
-            .child(
+            .child(crate::motion::pop_in(
                 v_flex()
                     .id("merge-confirm-card")
                     .w(px(460.))
@@ -268,7 +268,8 @@ pub fn confirm(
                                 on_confirm,
                             )),
                     ),
-            ),
+                "merge-confirm-in",
+            )),
         "idmerge-confirm-in",
     )
     .into_any_element()

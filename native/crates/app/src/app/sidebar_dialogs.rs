@@ -479,9 +479,7 @@ impl AppView {
                 .into_any_element()
         };
         let error = |e: &Option<String>| -> Vec<AnyElement> {
-            e.iter()
-                .map(|e| controls::note_in(e.clone(), theme::error()))
-                .collect()
+            e.iter().map(|e| controls::error_line(e.clone())).collect()
         };
         Some(match d {
             Dialog::AddProject(d) => self.render_add_project(d, cancel, cx),
@@ -523,6 +521,7 @@ impl AppView {
                                     .cursor_pointer()
                                     .when(on, |el| el.bg(theme::surface_strong()))
                                     .hover(|el| el.bg(theme::surface_raised()))
+                                    .active(|s| s.bg(theme::surface_strong()))
                                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         if !busy {
                                             this.set_icon(
@@ -586,6 +585,7 @@ impl AppView {
                                     })
                                     .cursor_pointer()
                                     .hover(|el| el.bg(theme::surface_raised()))
+                                    .active(|s| s.bg(theme::surface_strong()))
                                     .tooltip(move |w, cx| {
                                         gpui_component::tooltip::Tooltip::new(tip.clone())
                                             .build(w, cx)
@@ -905,7 +905,13 @@ impl AppView {
                     .iter()
                     .find(|x| &x.name == project)
                     .map(label_of)
-                    .unwrap_or_else(|| project.clone());
+                    .unwrap_or_else(|| {
+                        if project == agentbox_api::HOME_PROJECT {
+                            t("shell.nav.home")
+                        } else {
+                            project.clone()
+                        }
+                    });
                 modal(
                     "new-chat",
                     t("chat.tab.newChatTitle"),
@@ -1107,6 +1113,7 @@ impl AppView {
                             .bg(theme::surface_raised())
                             .text_color(theme::primary())
                             .hover(|s| s.bg(theme::surface_strong()))
+                            .active(|s| s.bg(theme::surface_vivid()))
                             .child(crate::icons::ic("circle-question-mark").size_4())
                     } else {
                         el.text_color(theme::muted())

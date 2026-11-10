@@ -27,6 +27,21 @@ use crate::theme;
 /// The most lines the viewer lays out at once.
 const MAX_SHOWN: usize = 3000;
 
+thread_local! {
+    /// How wide the panel the browser is drawn in is, set by the panel as it
+    /// draws (a view doesn't know its own width before it is laid out).
+    static PANEL_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(f32::MAX) };
+}
+
+/// NARROW_PANEL is lib/files.ts narrowPanel: under it the tree and a file
+/// don't fit side by side, and the panel shows one or the other.
+const NARROW_PANEL: f32 = 560.;
+
+/// set_panel_width tells the browser how wide its panel is this frame.
+pub fn set_panel_width(width: f32) {
+    PANEL_WIDTH.with(|w| w.set(width));
+}
+
 pub struct FileBrowser {
     client: Client,
     /// The routes' base: /v1/agents/<p>/<a>/files or /v1/projects/<p>/files.
@@ -50,6 +65,8 @@ pub struct FileBrowser {
     /// Ignored files are listed too (a past agent's branch has none).
     ignored: bool,
     read_only: bool,
+    /// In a panel too narrow for both, the tree is shown over the open file.
+    narrow_tree: bool,
     /// The SQLite file shown: its table, offset and rows.
     sqlite: Option<(String, Result<SQLiteQuery, String>)>,
     /// The PDF shown, drawn, and the page on screen.
@@ -116,6 +133,7 @@ impl FileBrowser {
             all: None,
             ignored: !read_only && crate::prefs::get_bool("files.ignored", false),
             read_only,
+            narrow_tree: false,
             sqlite: None,
             pdf: None,
             page: 0,
@@ -284,6 +302,7 @@ impl FileBrowser {
         self.pdf = None;
         self.pdf_zoom = None;
         self.selected = Some(path.clone());
+        self.narrow_tree = false;
         self.content = None;
         self.image = None;
         self.show_diff = self
@@ -364,7 +383,10 @@ impl FileBrowser {
     fn render_tree(&self, cx: &mut Context<Self>) -> AnyElement {
         let root = self.dirs.get("");
         let body: AnyElement = match root {
-            None => note(t("common.loading")),
+            None => div()
+                .p_2()
+                .child(crate::motion::skeleton_lines("files-tree-loading", 6))
+                .into_any_element(),
             Some(Err(_)) => note(t("files.tree.unavailable")),
             Some(Ok(_)) if self.changes_only => self.render_changes(cx),
             Some(Ok(list)) => v_flex()
@@ -388,6 +410,7 @@ impl FileBrowser {
                         .text_xs()
                         .when(selected, |el| el.bg(theme::surface_strong()))
                         .hover(|el| el.bg(theme::surface_raised()))
+                        .active(|s| s.bg(theme::surface_strong()))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             if dir {
                                 this.toggle_dir(p.clone(), cx)
@@ -400,12 +423,8 @@ impl FileBrowser {
                                 .w(px(10.))
                                 .flex_none()
                                 .text_color(theme::faint())
-                                .child(if !dir {
-                                    ""
-                                } else if open {
-                                    "▾"
-                                } else {
-                                    "▸"
+                                .when(dir, |el| {
+                                    el.child(crate::motion::chevron("chev", open, Some(px(10.))))
                                 }),
                         )
                         .child(
@@ -470,6 +489,7 @@ impl FileBrowser {
                                 .text_xs()
                                 .when(selected, |el| el.bg(theme::surface_strong()))
                                 .hover(|el| el.bg(theme::surface_raised()))
+                                .active(|s| s.bg(theme::surface_strong()))
                                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.open_file(p.clone(), cx)
                                 }))
@@ -766,6 +786,7 @@ impl FileBrowser {
                     .text_xs()
                     .when(selected, |el| el.bg(theme::surface_strong()))
                     .hover(|el| el.bg(theme::surface_raised()))
+                    .active(|s| s.bg(theme::surface_strong()))
                     .when(!path.ends_with('/'), |el| {
                         el.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.open_file(p.clone(), cx)
@@ -1014,6 +1035,11 @@ impl FileBrowser {
 impl Render for FileBrowser {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.status.as_ref().map_or(0, |s| s.changes.len());
+        // FilePanel's narrow: the tree, or the file once one is opened, with
+        // a button back to the tree.
+        let narrow = PANEL_WIDTH.with(|w| w.get()) < NARROW_PANEL;
+        let show_file = !narrow || (self.selected.is_some() && !self.narrow_tree);
+        let show_tree = !narrow || !show_file;
         let base = self
             .status
             .as_ref()
@@ -1021,9 +1047,14 @@ impl Render for FileBrowser {
             .unwrap_or_default();
         v_flex()
             .size_full()
+            // Held to the panel's width: a wide diff or a long line scrolls
+            // inside its pane instead of pushing the panel off the window.
+            .min_w_0()
+            .overflow_hidden()
             .child(
                 h_flex()
                     .flex_none()
+                    .min_w_0()
                     .h(px(30.))
                     .px_2()
                     .gap_1p5()
@@ -1038,6 +1069,10 @@ impl Render for FileBrowser {
                             ),
                             self.changes_only,
                         )
+                        // The search box keeps its room; this gives way.
+                        .flex_shrink(1.)
+                        .min_w_0()
+                        .truncate()
                         .when(count > 0, |el| {
                             el.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.changes_only = !this.changes_only;
@@ -1053,6 +1088,26 @@ impl Render for FileBrowser {
                             .child(Input::new(&self.find).xsmall().cleanable(true)),
                     )
                     .child(div().flex_1())
+                    .when(narrow && self.selected.is_some(), |el| {
+                        el.child(
+                            icon_button(
+                                "files-tree-toggle",
+                                "folder-tree",
+                                t(if show_tree {
+                                    "files.panel.hideTree"
+                                } else {
+                                    "files.panel.showTree"
+                                }),
+                            )
+                            .when(show_tree, |el| el.text_color(theme::accent()))
+                            .on_click(cx.listener(
+                                |this, _: &ClickEvent, _, cx| {
+                                    this.narrow_tree = !this.narrow_tree;
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                    })
                     .when(!self.read_only, |el| {
                         el.child(
                             icon_button(
@@ -1079,26 +1134,36 @@ impl Render for FileBrowser {
                 h_flex()
                     .flex_1()
                     .min_h_0()
-                    .child(
-                        div()
-                            .w(px(210.))
-                            .flex_none()
-                            .h_full()
-                            .border_r_1()
-                            .border_color(theme::line())
-                            .child(if self.query.is_empty() {
-                                self.render_tree(cx)
-                            } else {
-                                self.render_found(cx)
-                            }),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .child(self.render_viewer(cx)),
-                    ),
+                    .min_w_0()
+                    .when(show_tree, |el| {
+                        el.child(
+                            div()
+                                .map(|el| {
+                                    if show_file {
+                                        el.w(px(210.)).flex_none().border_r_1()
+                                    } else {
+                                        el.flex_1().min_w_0()
+                                    }
+                                })
+                                .h_full()
+                                .border_color(theme::line())
+                                .child(if self.query.is_empty() {
+                                    self.render_tree(cx)
+                                } else {
+                                    self.render_found(cx)
+                                }),
+                        )
+                    })
+                    .when(show_file, |el| {
+                        el.child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .h_full()
+                                .overflow_hidden()
+                                .child(self.render_viewer(cx)),
+                        )
+                    }),
             )
     }
 }
@@ -1168,6 +1233,7 @@ fn chip(id: &'static str, label: String, on: bool) -> Stateful<Div> {
         .when(on, |el| el.bg(theme::accent().opacity(0.12)))
         .text_color(if on { theme::primary() } else { theme::muted() })
         .hover(|el| el.text_color(theme::primary()))
+        .active(|s| s.opacity(0.7))
         .child(label)
 }
 
@@ -1185,7 +1251,15 @@ fn icon_button(id: &'static str, glyph: &'static str, tip: String) -> Stateful<D
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
         })
-        .child(crate::icons::of(glyph))
+        // A mark the app drew before (↻), or an icon by its name.
+        .child(
+            if glyph.len() > 1 && glyph.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+                crate::icons::ic(glyph).into_any_element()
+            } else {
+                // A mark the app drew, or plain text (the PDF's + and −).
+                crate::icons::of(glyph)
+            },
+        )
 }
 
 /// encode escapes a query value.
