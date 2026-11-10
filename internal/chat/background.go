@@ -35,8 +35,10 @@ import (
 // (api.ChatSession.Background). Each is also listed with what the adapter
 // says of it (api.ChatSession.BackgroundTasks): its kind, how it ended, the
 // file its output goes to, which BackgroundTask reads from the tool's
-// machine. codex-acp reports its background terminals the same way, without
-// a summary or a file. A subagent still running when its turn ends is
+// machine. How one ended — its exit code — claude-agent-acp says only in
+// the description of the "turn" task that follows, the session's own woken
+// turn (endedWith). codex-acp reports its background terminals the same way,
+// without a summary or a file. A subagent still running when its turn ends is
 // listed too, pointing at its card.
 
 // wokenQuiet is how long a woken turn may go without a word from the adapter,
@@ -91,6 +93,13 @@ func (c *conversation) taskUpdate(ad *adapter, u acp.SessionUpdate) {
 	}
 	switch u.TaskType {
 	case "":
+	case "turn":
+		// The turn the session starts by itself as a task ends (wake), which
+		// claude-agent-acp reports as a task too. It is not background work,
+		// but it is where the adapter says how the task ended: "Background
+		// command "Watch CI" failed with exit code 2".
+		t.kind = taskTurn
+		ad.endedWith(t, u.Description)
 	case "shell", "local_bash":
 		t.kind = api.BackgroundCommand
 	case "monitor", "local_monitor":
@@ -113,14 +122,40 @@ func (c *conversation) taskUpdate(ad *adapter, u acp.SessionUpdate) {
 		if !t.done {
 			t.done = true
 			t.endedAt = c.m.now()
-			// What woke the session, for the woken turn that follows.
-			ad.woke = append(ad.woke, t.taskName())
-			c.keepTail(ad, t)
+			if t.kind != taskTurn {
+				// What woke the session, for the woken turn that follows.
+				ad.woke = append(ad.woke, t.taskName())
+				c.keepTail(ad, t)
+			}
 		}
 	case "running", "paused":
 		t.state, t.done, t.endedAt = u.State, false, time.Time{}
 	}
 	c.syncBackground(ad)
+}
+
+// taskTurn is the kind of a task that is the session's own woken turn.
+const taskTurn = "turn"
+
+// endedWith gives the task that just ended what the adapter said of its
+// end, which arrives as the description of the turn it woke: the task that
+// description names in quotes, the last to end of those with no summary.
+func (ad *adapter) endedWith(turn *bgTask, said string) {
+	if said == "" {
+		return
+	}
+	var ended *bgTask
+	for _, t := range ad.tasks {
+		if t == turn || !t.done || t.summary != "" || t.kind == taskTurn || !strings.Contains(said, `"`+t.taskName()+`"`) {
+			continue
+		}
+		if ended == nil || t.endedAt.After(ended.endedAt) {
+			ended = t
+		}
+	}
+	if ended != nil {
+		ended.summary = firstLine(said)
+	}
 }
 
 func (t *bgTask) taskName() string {
@@ -134,7 +169,8 @@ func (t *bgTask) taskName() string {
 func (ad *adapter) background() []string {
 	var names []string
 	for _, t := range ad.tasks {
-		if !t.done {
+		// Its own woken turn is no work it waits on, nor what wakes the next.
+		if !t.done && t.kind != taskTurn {
 			names = append(names, t.taskName())
 		}
 	}
@@ -232,7 +268,9 @@ func subagentTask(sa *subagent) api.ChatBackgroundTask {
 func (c *conversation) backgroundTasks(ad *adapter) []api.ChatBackgroundTask {
 	var tasks []api.ChatBackgroundTask
 	for _, t := range ad.tasks {
-		tasks = append(tasks, c.task(ad, t))
+		if t.kind != taskTurn {
+			tasks = append(tasks, c.task(ad, t))
+		}
 	}
 	for _, sa := range ad.subagents {
 		if sa.background {
@@ -294,6 +332,9 @@ func (m *Manager) Background(ref string) []string {
 	c := m.existing(ref)
 	if c == nil {
 		return nil
+	}
+	if l, ok := c.listingNow(); ok {
+		return slices.Clone(l.background)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

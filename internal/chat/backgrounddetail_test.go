@@ -90,7 +90,10 @@ func TestABackgroundCommandIsListedWithItsStatusAndOutput(t *testing.T) {
 
 	// It fails: listed still, with its exit code, and its output outlives
 	// the file.
-	f.update("session-1", `{"sessionUpdate":"async_task_state_update","asyncTaskId":"b1","state":"failed","summary":"Background command \"Watch CI run 42\" failed with exit code 2"}`)
+	// As claude-agent-acp 0.104 says it: the state alone, then how it ended
+	// as the description of the turn it woke, which is no background work.
+	f.update("session-1", `{"sessionUpdate":"async_task_state_update","asyncTaskId":"b1","state":"failed"}`)
+	f.update("session-1", `{"sessionUpdate":"async_task_spawned","asyncTaskId":"autonomous-turn-1","name":"Claude is working","taskType":"turn","description":"Background command \"Watch CI run 42\" failed with exit code 2"}`)
 	f.update("session-1", `{"sessionUpdate":"async_task_state_update","asyncTaskId":"m1","state":"failed","summary":"Monitor timed out after 30m"}`)
 	waitFor(t, "the ended command's output to be kept", func() bool {
 		c := m.existing(testAgent.Ref())
@@ -100,10 +103,13 @@ func TestABackgroundCommandIsListedWithItsStatusAndOutput(t *testing.T) {
 	})
 	th = waitThread(t, m, testAgent, "the tasks to end", func(th api.ChatThread) bool {
 		b, mo := taskOf(th, "b1"), taskOf(th, "m1")
-		return b != nil && mo != nil && b.EndedAt != nil && mo.EndedAt != nil
+		return b != nil && mo != nil && b.ExitCode != nil && mo.EndedAt != nil
 	})
 	b1, m1 = taskOf(th, "b1"), taskOf(th, "m1")
-	if b1.Status != api.BackgroundFailed || b1.ExitCode == nil || *b1.ExitCode != 2 {
+	if taskOf(th, "autonomous-turn-1") != nil {
+		t.Errorf("the woken turn is listed as background work: %+v", th.Session.BackgroundTasks)
+	}
+	if b1.Status != api.BackgroundFailed || b1.ExitCode == nil || *b1.ExitCode != 2 || b1.Summary == "" {
 		t.Errorf("the failed command = %+v", *b1)
 	}
 	if m1.Status != api.BackgroundTimedOut || m1.ExitCode != nil {

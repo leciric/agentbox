@@ -353,10 +353,9 @@ impl ChatView {
             .background_tasks
             .iter()
             .find(|task| task.id == o.id)
+            && (o.task.status == "running" || listed.status != "running")
         {
-            if o.task.status == "running" || listed.status != "running" {
-                o.task = listed.clone();
-            }
+            o.task = listed.clone();
         }
         // Follow the end until it's scrolled up from it: asked for on every
         // frame, as what was just read is laid out only after this.
@@ -639,7 +638,9 @@ impl ChatView {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // Not super::*: gpui's own #[test] would shadow the standard one.
+    use super::{with_earlier, with_tail};
+    use agentbox_api::ChatBackgroundDetail;
 
     fn read(output: &str, start: i64, size: i64) -> ChatBackgroundDetail {
         ChatBackgroundDetail {
