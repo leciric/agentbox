@@ -1251,11 +1251,18 @@ impl Render for OfficeView {
             .children(self.labels.iter().map(label_el))
             .child(self.top_bar(room_name, cx))
             .when(self.at.project.is_some() || !self.at.overview, |el| {
-                el.child(div().absolute().top_3().right_3().child(card().child(
-                    button("office-overview", t("native.office.overview")).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, _| this.send(In::Overview)),
-                    ),
-                )))
+                el.child(
+                    div()
+                        .absolute()
+                        .top_3()
+                        .right_3()
+                        .occlude()
+                        .child(card().child(
+                            button("office-overview", t("native.office.overview")).on_click(
+                                cx.listener(|this, _: &ClickEvent, _, _| this.send(In::Overview)),
+                            ),
+                        )),
+                )
             })
             .children(self.notice(cx))
             .child(self.tray_el(needs, working, to_review, cx))
@@ -1326,6 +1333,7 @@ impl Render for OfficeView {
                         .border_color(theme::line())
                         .shadow_lg()
                         // The chat's own keys and clicks stay its own.
+                        .occlude()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_key_down(|_, _, cx| cx.stop_propagation())
                         .on_scroll(|_, _, cx| cx.stop_propagation())
@@ -1422,7 +1430,7 @@ fn label_el(l: &Label) -> AnyElement {
 impl OfficeView {
     fn top_bar(&self, room: Option<String>, cx: &mut Context<Self>) -> impl IntoElement {
         let at = self.at.clone();
-        div().absolute().top_3().left_3().child(
+        div().absolute().top_3().left_3().occlude().child(
             card().child(
                 h_flex()
                     .p_1()
@@ -1532,7 +1540,7 @@ impl OfficeView {
                 .flex()
                 .justify_center()
                 .child(
-                    card().max_w(px(520.)).p_3().child(
+                    card().max_w(px(520.)).p_3().occlude().child(
                         h_flex()
                             .gap_2()
                             .items_start()
@@ -1597,7 +1605,7 @@ impl OfficeView {
         } else {
             Vec::new()
         };
-        div().absolute().bottom_3().left_3().child(
+        div().absolute().bottom_3().left_3().occlude().child(
             card().max_w(px(380.)).child(
                 v_flex()
                     .when(open, |el| {
@@ -1750,10 +1758,13 @@ impl OfficeView {
             12.
         };
         let no_chat = self.chat.is_none();
+        // A click on a card is the card's: occluded, it never reaches the
+        // floor under it, which would walk you there (and the card away).
         v_flex()
             .absolute()
             .bottom_3()
             .right(px(right))
+            .occlude()
             .items_end()
             .gap_2()
             .when(self.help, |el| el.child(self.help_card()))

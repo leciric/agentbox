@@ -85,6 +85,17 @@ fn glyph_button(
     pad: f32,
     tip: String,
 ) -> Stateful<Div> {
+    let ic = crate::icons::ic(glyph).size(px(icon));
+    glyph_button_with(id, crate::icons::icon(glyph, ic), pad, tip)
+}
+
+/// glyph_button_with is glyph_button around an icon already made (one turning).
+fn glyph_button_with(
+    id: impl Into<ElementId>,
+    icon: AnyElement,
+    pad: f32,
+    tip: String,
+) -> Stateful<Div> {
     let tip: SharedString = tip.into();
     div()
         .id(id)
@@ -98,7 +109,7 @@ fn glyph_button(
         .cursor_pointer()
         .hover(|el| el.bg(theme::surface_strong()).text_color(theme::primary()))
         .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
-        .child(crate::icons::ic(glyph).size(px(icon)))
+        .child(icon)
 }
 
 impl AppView {
@@ -1464,7 +1475,14 @@ impl AppView {
         } else {
             t("v2.update.check")
         };
-        glyph_button("update-check", "refresh-cw", 16., 8., label)
+        // SidebarV2's RefreshCw turns while it checks.
+        let ic = crate::icons::ic("refresh-cw").size(px(16.));
+        let ic = if self.side.checking {
+            crate::icons::spin(ic)
+        } else {
+            ic.into_any_element()
+        };
+        glyph_button_with("update-check", ic, 8., label)
             .rounded_lg()
             .text_color(theme::muted())
             .when(self.side.checking, |el| el.opacity(0.5))

@@ -456,11 +456,35 @@ pub fn ic(name: &str) -> Icon {
     Icon::empty().path(SharedString::from(format!("icons/{name}.svg")))
 }
 
+/// SPINNER is the icon that always turns (Electron's LoaderCircle, which is
+/// only ever drawn `animate-spin`).
+pub const SPINNER: &str = "loader-circle";
+
+/// spinner is the spinner, turning.
+pub fn spinner() -> AnyElement {
+    spin(ic(SPINNER))
+}
+
+/// spin turns an icon round (crate::motion::spin): a refresh while it fetches.
+pub fn spin(icon: Icon) -> AnyElement {
+    crate::motion::spin(icon).into_any_element()
+}
+
+/// icon is `icon` (made from `name`, sized and coloured), turning when `name`
+/// is the spinner: for helpers handed a name that may be either.
+pub fn icon(name: &str, icon: Icon) -> AnyElement {
+    if name == SPINNER {
+        spin(icon)
+    } else {
+        icon.into_any_element()
+    }
+}
+
 /// of is `g`'s icon, or `g` as text when it stands for none.
 pub fn of(g: impl Into<SharedString>) -> AnyElement {
     let g = g.into();
     match lucide(&g) {
-        Some(name) => ic(name).into_any_element(),
+        Some(name) => icon(name, ic(name)),
         None => g.into_any_element(),
     }
 }

@@ -2478,7 +2478,9 @@ pub(super) fn ui_badge(variant: Variant, icon: Option<&str>, text: impl Into<Sha
         .text_size(theme::text::CAPTION)
         .font_weight(FontWeight::MEDIUM)
         .text_color(fg)
-        .when_some(icon, |el, i| el.child(crate::icons::ic(i).size(px(12.))))
+        .when_some(icon, |el, i| {
+            el.child(crate::icons::icon(i, crate::icons::ic(i).size(px(12.))))
+        })
         .child(text.into())
 }
 

@@ -523,7 +523,7 @@ impl AppView {
                         .on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_pop("image", cx)),
                         )
-                        .child(crate::icons::of(if failed { "⚠" } else { "↻" }))
+                        .child(crate::icons::of(if failed { "⚠" } else { "◌" }))
                         .child(label)
                         .when(!failed && i.waiting > 0, |el| {
                             el.child(

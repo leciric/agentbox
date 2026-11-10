@@ -1195,6 +1195,15 @@ fn add_desk(
 // ---- Keeping up with the data ----
 
 impl Built {
+    /// working_in_view is whether a working agent was drawn last frame: it
+    /// types at its keyboard (and the monitor you're at blinks its cursor),
+    /// so the Office keeps drawing at rest too, slowly (engine.rs).
+    pub fn working_in_view(&self) -> bool {
+        self.desks
+            .iter()
+            .any(|d| d.tone == DeskTone::Working && d.frame.visible)
+    }
+
     /// update brings every desk and board up to date with the data: its tone,
     /// its monitor, its title, its flag, each board's notes.
     pub fn update(&mut self, input: &SceneInput, kit: &mut Kit) {

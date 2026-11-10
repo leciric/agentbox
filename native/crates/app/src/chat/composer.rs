@@ -1488,15 +1488,19 @@ impl ChatView {
                     h_flex()
                         .min_w_0()
                         .gap_2()
-                        .child(
-                            crate::icons::ic(if card.asked {
+                        .child({
+                            let name = if card.asked {
                                 "loader-circle"
                             } else {
                                 "circle-check"
-                            })
-                            .size(px(16.))
-                            .text_color(theme::subtle()),
-                        )
+                            };
+                            crate::icons::icon(
+                                name,
+                                crate::icons::ic(name)
+                                    .size(px(16.))
+                                    .text_color(theme::subtle()),
+                            )
+                        })
                         .child(
                             div()
                                 .flex_none()

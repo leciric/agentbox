@@ -3,7 +3,8 @@
 //! input and the data; it sends back frames, what happened (notes) and where
 //! the labels go. While nothing moves it sleeps on its channel: no frames,
 //! no CPU (#668 drew its robots' idle life a few times a second; the native
-//! Office draws only while something changes).
+//! Office draws only while something changes), unless a working agent is in
+//! view: it types, and the monitor you're at blinks, at #668's idle pace.
 
 use crate::desks::{Built, SceneInput};
 use crate::gpu::{self, Gpu, Instance, MeshId};
@@ -374,18 +375,28 @@ fn run(
     // CPU) never queues more up.
     let mut in_flight = 0u32;
     let mut busy = true;
+    // The next frame of the working agents' life, while nothing else moves;
+    // and when you last did something (or something last moved).
+    let mut life: Option<Instant> = None;
+    let mut active = Instant::now();
     let mut pace = Pace::new();
     loop {
         // Wait for something to do: while busy, only until the next frame's due.
         let wait = if busy && shown && in_flight < AHEAD {
             Some(Duration::from_millis(0))
         } else {
-            None
+            life.map(|at| at.saturating_duration_since(Instant::now()))
         };
         let first = match wait {
             Some(d) => match rx.recv_timeout(d) {
                 Ok(m) => Some(m),
-                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Timeout) => {
+                    // Time for the next frame of their life.
+                    if life.take().is_some() {
+                        st.sim.poke();
+                    }
+                    None
+                }
                 Err(RecvTimeoutError::Disconnected) => break,
             },
             None => match rx.recv() {
@@ -397,6 +408,18 @@ fn run(
         msgs.extend(rx.try_iter());
         let mut size = None;
         for m in msgs {
+            if !matches!(
+                m,
+                In::Painted(_)
+                    | In::Refresh(_)
+                    | In::Apply(_)
+                    | In::Shown(_)
+                    | In::Size { .. }
+                    | In::Cover(_)
+                    | In::Blur
+            ) {
+                active = Instant::now();
+            }
             match m {
                 In::Size { w, h, scale } => size = Some((w, h, scale)),
                 In::Apply(i) => st.apply(*i),
@@ -461,6 +484,15 @@ fn run(
             out(Out::Notes(notes));
         }
         busy = moving || st.sim.busy();
+        if busy {
+            active = now;
+        }
+        // At rest, a working agent in view still types and the monitor
+        // you're at blinks its cursor: drawn as #668 drew its idle life,
+        // 8 frames a second, 2 after a minute untouched (on a grid, so the
+        // half-second blink lands on a frame). Nobody working, no frames.
+        life = (!busy && st.sim.motion && st.built.as_ref().is_some_and(|b| b.working_in_view()))
+            .then(|| life_frame(now, active, st.start));
         if !(busy || st.sim.dirty) {
             pace.rest();
             continue;
@@ -504,6 +536,19 @@ struct Pace {
     last: Option<Instant>,
     /// How long a frame takes, its slowest lately (decaying).
     cost: Duration,
+}
+
+/// life_frame is when the next frame of the idle life is due, after `now`:
+/// every 125 ms for a minute after `active`, then every 500 ms, on a grid
+/// from `start` (the clock frames are drawn by).
+fn life_frame(now: Instant, active: Instant, start: Instant) -> Instant {
+    let every = if now.saturating_duration_since(active) < Duration::from_secs(60) {
+        0.125
+    } else {
+        0.5
+    };
+    let t = now.saturating_duration_since(start).as_secs_f64();
+    start + Duration::from_secs_f64(((t / every).floor() + 1.) * every)
 }
 
 /// How many frames may be on their way to the screen at once.
@@ -570,6 +615,21 @@ impl Pace {
 #[cfg(test)]
 mod pace_tests {
     use super::*;
+
+    #[test]
+    fn life_is_eight_a_second_then_two_on_a_grid() {
+        let start = Instant::now();
+        let at = |s: f64| start + Duration::from_secs_f64(s);
+        // Just touched: the next eighth of a second.
+        let next = life_frame(at(10.03), at(10.), start);
+        assert!((next - at(10.125)).as_secs_f64().abs() < 1e-6);
+        // A minute untouched: the next half second, where the cursor blinks.
+        let next = life_frame(at(80.03), at(10.), start);
+        assert!((next - at(80.5)).as_secs_f64().abs() < 1e-6);
+        // Never now: a frame drawn on the grid waits for the next.
+        let next = life_frame(at(80.5), at(10.), start);
+        assert!((next - at(81.)).as_secs_f64().abs() < 1e-6);
+    }
 
     #[test]
     fn frames_land_on_refreshes_and_step_by_them() {
