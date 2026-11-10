@@ -1472,8 +1472,10 @@ impl AppView {
         let wrap = |el: AnyElement| {
             div()
                 .id("pulls-panel")
-                .flex_1()
-                .min_h_0()
+                // size_full, not flex_1: the panel's body sits in a plain
+                // (non-flex) div, where flex_1 sizes nothing and the list
+                // grows past the window instead of scrolling.
+                .size_full()
                 .overflow_y_scroll()
                 .px_3()
                 .py_3()
@@ -2450,6 +2452,9 @@ impl AppView {
                 .track_focus(&self.pulls.focus)
                 .absolute()
                 .inset_0()
+                // The backdrop takes every pointer event: nothing under it
+                // hovers, clicks or scrolls while the modal is open.
+                .occlude()
                 .flex()
                 .items_center()
                 .justify_center()

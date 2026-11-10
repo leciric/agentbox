@@ -33,6 +33,8 @@ pub struct Foot {
     media: Vec<MediaItem>,
     next: String,
     project: String,
+    /// The agent picked within project (by name), "" for all of them.
+    agent: String,
     unseen: bool,
     favorites: bool,
     /// Screenshots fetched to disk, by media id.
@@ -181,6 +183,9 @@ impl AppView {
         let mut q = vec![format!("limit={PAGE}")];
         if !f.project.is_empty() {
             q.push(format!("project={}", f.project));
+            if !f.agent.is_empty() {
+                q.push(format!("agent={}", enc(&f.agent)));
+            }
         }
         if f.unseen {
             q.push("unseen=1".into());
@@ -192,6 +197,9 @@ impl AppView {
         let mut scope = Vec::new();
         if !f.project.is_empty() {
             scope.push(format!("project={}", enc(&f.project)));
+            if !f.agent.is_empty() {
+                scope.push(format!("agent={}", enc(&f.agent)));
+            }
         }
         if !f.kind.is_empty() && f.kind != PAGE_KIND {
             q.push(format!("only={}", f.kind));
@@ -1042,7 +1050,11 @@ impl AppView {
         let scope_pages: Vec<&(String, agentbox_api::Artifact)> = f
             .pages
             .iter()
-            .filter(|(p, _)| f.project.is_empty() || *p == f.project)
+            .filter(|(p, a)| {
+                f.project.is_empty()
+                    || (*p == f.project
+                        && (f.agent.is_empty() || a.agents.contains(&format!("{p}/{}", f.agent))))
+            })
             .collect();
         let shows_pages = (f.kind.is_empty() || f.kind == PAGE_KIND) && !f.favorites && !f.unseen;
         let words: Vec<String> =
@@ -1116,6 +1128,37 @@ impl AppView {
             let v = v.to_string();
             view.update(cx, |this, cx| {
                 this.side.foot.project = v;
+                this.side.foot.agent.clear();
+                this.load_all_media(false, cx);
+            })
+            .ok();
+        });
+
+        // The agent picker, once a project is picked: its agents' counts,
+        // and the one picked even when it has none (MediaView.tsx's).
+        let agent_choices = (!f.project.is_empty()).then(|| {
+            let mut choices = vec![Choice::new("", t("project.media.allAgents"))];
+            if !f.agent.is_empty() && !counts.agents.iter().any(|a| a.name == f.agent) {
+                choices.push(Choice::new(f.agent.clone(), format!("{} (0)", f.agent)));
+            }
+            choices.extend(counts.agents.iter().map(|a| {
+                let mut label = if a.title.is_empty() {
+                    a.name.clone()
+                } else {
+                    format!("{} · {}", a.name, a.title)
+                };
+                if a.gone {
+                    label = format!("{label} {}", t("project.media.removed"));
+                }
+                Choice::new(a.name.clone(), format!("{label} ({})", a.count))
+            }));
+            choices
+        });
+        let view = cx.entity().downgrade();
+        let pick_agent: controls::Pick<str> = Rc::new(move |v: &str, _, cx| {
+            let v = v.to_string();
+            view.update(cx, |this, cx| {
+                this.side.foot.agent = v;
                 this.load_all_media(false, cx);
             })
             .ok();
@@ -1280,6 +1323,18 @@ impl AppView {
                         Anchor::TopLeft,
                         None,
                     )))
+                    // w-60
+                    .when_some(agent_choices, |el, choices| {
+                        el.child(div().w(px(240.)).child(controls::field_select(
+                            "media-agent",
+                            choices,
+                            &f.agent,
+                            false,
+                            pick_agent,
+                            Anchor::TopLeft,
+                            None,
+                        )))
+                    })
                     .when_some(f.search.as_ref().filter(|_| total > 0), |el, search| {
                         el.child(media_search(
                             search,

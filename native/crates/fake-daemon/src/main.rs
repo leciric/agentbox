@@ -468,6 +468,31 @@ impl Fake {
         })
     }
 
+    /// every_media is the Media page's: the project's fixtures' media, and
+    /// two of those again for each neighbour's agent (--neighbours), so the
+    /// page's project and agent pickers have more than a few to choose from.
+    fn every_media(&self) -> Vec<MediaItem> {
+        let mut out = self.review.lock().unwrap().all_media(&self.opts.project);
+        let base = out.clone();
+        if base.is_empty() {
+            return out;
+        }
+        for (j, a) in self.neighbours().into_iter().enumerate() {
+            for k in 0..2 {
+                let mut m = base[(2 * j + k) % base.len()].clone();
+                // The file is found by the id's end (review.rs file).
+                m.id = format!("{}-{}-{}", a.project, a.name, m.id);
+                m.agent = a.r#ref.clone();
+                m.agent_name = a.name.clone();
+                m.agent_title = a.title.clone();
+                m.agent_gone = false;
+                out.push(m);
+            }
+        }
+        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out
+    }
+
     fn neighbour(&self, project: &str) -> bool {
         self.opts.neighbours.iter().any(|(p, _)| p == project)
     }
@@ -947,6 +972,8 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             let p = Project {
                 name: fake.opts.project.clone(),
                 display_name: fake.opts.project.clone(),
+                // Its pull requests are pulls.rs's fixtures.
+                pull_requests: true,
                 ..Default::default()
             };
             let mut all = vec![p];
@@ -1102,7 +1129,7 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         }
         // Every project's media (the Media page), a page at a time.
         (&Method::GET, ["v1", "media"]) if query.contains_key("limit") => {
-            let all = fake.review.lock().unwrap().all_media(&fake.opts.project);
+            let all = fake.every_media();
             let items = all
                 .into_iter()
                 .filter(|m| media_in(m, &query, true))
@@ -1115,17 +1142,22 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         // the scope's items, by kind, agent and project, and those the
         // kind and search keep.
         (&Method::GET, ["v1", "media", "counts"]) => {
-            let all = fake.review.lock().unwrap().all_media(&fake.opts.project);
+            // As media_list.go's writeMediaCounts: every project's count,
+            // the picked project's agents, then the picked agent's totals.
+            let all = fake.every_media();
+            let get = |k: &str| query.get(k).map(String::as_str).unwrap_or("");
             let mut c = MediaCounts::default();
-            for m in all.iter().filter(|m| media_in(m, &query, false)) {
-                c.total += 1;
-                c.bytes += m.size;
-                *c.kinds.entry(m.kind.clone()).or_default() += 1;
-                c.favorites += m.favorite as i64;
-                c.unseen += m.unseen as i64;
-                if media_in(m, &query, true) {
-                    c.matching += 1;
-                    c.matching_bytes += m.size;
+            for m in &all {
+                let project = m.agent.split_once('/').map_or("", |(p, _)| p);
+                match c.projects.iter_mut().find(|p| p.project == project) {
+                    Some(p) => p.count += 1,
+                    None => c.projects.push(MediaProjectCount {
+                        project: project.into(),
+                        count: 1,
+                    }),
+                }
+                if !get("project").is_empty() && get("project") != project {
+                    continue;
                 }
                 match c.agents.iter_mut().find(|a| a.agent == m.agent) {
                     Some(a) => {
@@ -1141,12 +1173,18 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                         bytes: m.size,
                     }),
                 }
-            }
-            if c.total > 0 {
-                c.projects.push(MediaProjectCount {
-                    project: fake.opts.project.clone(),
-                    count: c.total,
-                });
+                if !media_in(m, &query, false) {
+                    continue;
+                }
+                c.total += 1;
+                c.bytes += m.size;
+                *c.kinds.entry(m.kind.clone()).or_default() += 1;
+                c.favorites += m.favorite as i64;
+                c.unseen += m.unseen as i64;
+                if media_in(m, &query, true) {
+                    c.matching += 1;
+                    c.matching_bytes += m.size;
+                }
             }
             json(StatusCode::OK, &c)
         }
