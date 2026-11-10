@@ -1,5 +1,5 @@
-// Serves src/renderer/dev/preview.tsx — the standing preview of the rail and
-// sidebar under wide content — and, with --shots, drives it headlessly
+// Serves src/renderer/dev/preview.tsx — the standing preview of the sidebar
+// and the right-hand panel under wide content — and, with --shots, drives it headlessly
 // through Playwright and saves one screenshot per scenario in
 // src/renderer/dev/scenarios.json.
 //
@@ -117,7 +117,7 @@ function removeWorktree(desktop) {
 }
 
 // overflowing lists what sticks out of the page's fixed-width columns — the
-// rail and the sidebar are <aside>s — so a shot that breaks one says so
+// sidebar and the right-hand panel are <aside>s — so a shot that breaks one says so
 // without anybody having to spot it in the picture.
 function overflowing() {
   const scrolls = (el, until) => {
@@ -178,6 +178,9 @@ async function capture(baseUrl, outDir, lang, only) {
       const missing = [];
       const miss = (selector) => () => missing.push(selector);
       await page.goto(`${baseUrl}/dev/preview.html?${s.query}${lang ? `&lang=${lang}` : ''}`, { waitUntil: 'networkidle' });
+      // A scenario can wait, "wait": ms, for what a fixture makes as the page
+      // runs (a recording drawn in real time).
+      if (s.wait) await page.waitForTimeout(s.wait);
       // A scenario can click an element, to show a popover it opens.
       // Or a list of them, one after the other: a row in the popover.
       for (const click of s.click ? [s.click].flat() : []) {

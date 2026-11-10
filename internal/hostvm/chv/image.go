@@ -38,11 +38,15 @@ func debianImage(arch string) (file, url, sha512 string, err error) {
 		return "", "", "", fmt.Errorf("AgentBox's VM has no Debian image for %s", arch)
 	}
 	file = "debian-13-genericcloud-" + arch + "-" + debianBuild + ".tar.xz"
-	return file, "https://cloud.debian.org/images/cloud/trixie/" + debianBuild + "/" + file, sha512, nil
+	return file, debianURL + "/" + debianBuild + "/" + file, sha512, nil
 }
 
+// debianURL is where Debian's cloud images are; a test's server otherwise.
+var debianURL = "https://cloud.debian.org/images/cloud/trixie"
+
 // MakeDisks makes what the VM boots from, the parts not made yet: its root
-// disk from Debian's cloud image, its pool disk for Incus, and the
+// disk from the ready-made disk, or from Debian's cloud image when there's
+// none to fetch (vmdisk.go), its pool disk for Incus, and the
 // cloud-init seed that sets it up on first boot.
 func MakeDisks(ctx context.Context, c Config, l Layout, log io.Writer) error {
 	if err := os.MkdirAll(l.Dir(), 0o755); err != nil {
@@ -87,6 +91,23 @@ func makeRootDisk(ctx context.Context, l Layout, log io.Writer) error {
 	if err := os.MkdirAll(l.Cache(), 0o755); err != nil {
 		return err
 	}
+	err := readyMadeDisk(ctx, disksURL(), runtime.GOARCH, l.Cache(), l.RootDisk(), log)
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if errors.Is(err, errNoDisk) {
+		imageLogf(log, "No ready-made VM disk for this AgentBox: making it from Debian's cloud image, whose first boot installs what the VM needs\n")
+	} else {
+		imageLogf(log, "warning: the ready-made VM disk failed (%v): making it from Debian's cloud image instead, whose first boot installs what the VM needs\n", err)
+	}
+	return debianRootDisk(ctx, l, log)
+}
+
+// debianRootDisk makes the VM's system disk from Debian's cloud image.
+func debianRootDisk(ctx context.Context, l Layout, log io.Writer) error {
 	image, url, sha512, err := debianImage(runtime.GOARCH)
 	if err != nil {
 		return err
@@ -405,8 +426,8 @@ type cloudInitStatus struct {
 	RecoverableErrors map[string][]string `json:"recoverable_errors"`
 }
 
-// provisionTimeout is the longest the first boot's setup is waited for: it
-// installs packages, so it's as slow as the network.
+// provisionTimeout is the longest the first boot's setup is waited for: from
+// Debian's cloud image it installs packages, so it's as slow as the network.
 const provisionTimeout = 30 * time.Minute
 
 func waitCloudInit(ctx context.Context, run runInVM, log io.Writer, every time.Duration) error {

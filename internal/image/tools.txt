@@ -28,13 +28,17 @@
 # (internal/cursor/adapter.mjs), written into the agent as its chat starts:
 # what is pinned here is the SDK it runs on, which has no command of its own,
 # so its check looks for the package where mise's npm backend puts it.
+# Gemini CLI is its own ACP adapter, behind its --acp flag.
 #
 # A "host" line is AgentBox's own, not an agent's: no image has it. cloudflared
 # is the Cloudflare Tunnel the daemon starts so a phone can chat from anywhere
 # (internal/tunnel); moving it on means adding the new release's sha256 sums
-# to internal/tunnel/install.go as well.
+# to internal/tunnel/install.go as well. tailscale is the node the daemon
+# joins a hub's tailnet with, when the hub gives out Tailscale addresses
+# (internal/tunnel/tailscale.go); moving it on means adding the new tarballs'
+# sha256 sums to internal/tunnel/tailscale_install.go.
 
--        go@1.27.2                                         go version
+-        go@1.27.3                                         go version
 -        node@24.21.0                                      node --version
 -        pnpm@12.4.2                                       pnpm --version
 -        claude@2.1.311                                    claude --version
@@ -42,6 +46,7 @@
 -        npm:@playwright/mcp@0.0.79                        playwright-mcp --version && playwright-mcp --help | grep -q -- --cdp-endpoint
 -        npm:@agentclientprotocol/claude-agent-acp@0.102.0 command -v claude-agent-acp
 -        npm:@cursor/sdk@1.0.35                            d="$(mise where npm:@cursor/sdk)" && ls "$d"/node_modules/@cursor/sdk/package.json "$d"/lib/node_modules/@cursor/sdk/package.json 2>/dev/null | grep -q .
+-        npm:@google/gemini-cli@0.64.0                     gemini --version && gemini --help | grep -q -- --acp
 codex    codex@0.155.0                                     codex --version
 codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
 # OpenCode is pinned as `opencode`, not `npm:opencode-ai`: the npm package
@@ -51,3 +56,4 @@ codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
 # Its `acp --help` writes to stderr, so the check merges it into grep's pipe.
 opencode opencode@1.18.31                                  opencode --version && opencode acp --help 2>&1 | grep -q ACP
 host     cloudflared@2026.9.3                              cloudflared --version
+host     tailscale@1.104.2                                 tailscale version

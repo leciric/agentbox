@@ -9,12 +9,13 @@ Each project keeps one markdown file, `notes.md`, under its data directory
 the app, and added to by the lead under its own heading, `## From the lead`
 ([`internal/notes/notes.go`](../internal/notes/notes.go)).
 
-The lead's three MCP tools (`internal/cli/mcp.go`) all go through `Append()`/`AppendToFile()`:
+The lead's `notes` MCP tool (`internal/cli/mcp_families.go`) changes them through
+`Append()`/`AppendToFile()`, with one of three actions:
 
-- `append_note` — writes a new, dated entry under `## From the lead`, creating that section if
+- `append` — writes a new, dated entry under `## From the lead`, creating that section if
   it isn't there yet.
-- `edit_note` — changes an existing entry, matched by quoting it.
-- `remove_note` — removes an entry, matched the same way.
+- `edit` — changes an existing entry, matched by quoting it.
+- `remove` — removes an entry, matched the same way.
 
 The user's own notes, anywhere else in the file, are untouched by any of these — the lead only
 ever writes inside its own section.

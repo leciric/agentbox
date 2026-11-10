@@ -48,6 +48,7 @@ func TestMain(m *testing.M) {
 // test's turn function sends updates and asks for permission.
 type fakeTool struct {
 	resume      bool // offers session/resume
+	load        bool // offers session/load
 	steering    bool // takes a message into a running turn, like the real adapters
 	steerFails  bool // ...but the request errors
 	steerIdle   bool // ...or answers that no turn was running
@@ -58,6 +59,8 @@ type fakeTool struct {
 	embedded    bool // says it takes resource blocks in a prompt, as all three adapters do
 	plainOpus   bool // model choices are "opus", not "opus[1m]" — an account with no 1M-context entry
 	noKinds     bool // modes carry no _meta.kind, like claude-agent-acp 0.85 for a client that is not AIR
+	plan        bool // modes include plan, like Claude Code's
+	oldSonnet   bool // also offers Sonnet 4.5, which takes no adaptive thinking
 	// strictModel refuses a model that isn't literally one of its choices,
 	// the way claude-agent-acp answers an unresolvable one ("Invalid value for
 	// config option model: fable").
@@ -112,7 +115,7 @@ func newSteeringTool(turn func(f *fakeTool, sessionID, text string) acp.PromptRe
 func (f *fakeTool) launch(_ context.Context, a state.Agent, status func(string)) (*Process, error) {
 	status("Warming up")
 	f.mu.Lock()
-	f.accounts = append(f.accounts, a.ClaudeAccount)
+	f.accounts = append(f.accounts, runsOn(a))
 	f.mu.Unlock()
 	toTool, fromChat := io.Pipe()
 	toChat, fromTool := io.Pipe()
@@ -156,7 +159,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 		}
 		res := map[string]any{
 			"protocolVersion":   1,
-			"agentCapabilities": map[string]any{"loadSession": false, "sessionCapabilities": sessionCaps, "promptCapabilities": map[string]any{"image": f.images, "embeddedContext": f.embedded}},
+			"agentCapabilities": map[string]any{"loadSession": f.load, "sessionCapabilities": sessionCaps, "promptCapabilities": map[string]any{"image": f.images, "embeddedContext": f.embedded}},
 			"agentInfo":         map[string]any{"name": "fake", "title": "Fake Tool", "version": "1.0"},
 		}
 		if f.steering {
@@ -169,7 +172,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 		id := fmt.Sprintf("session-%d", f.sessions)
 		f.mu.Unlock()
 		reply(map[string]any{"sessionId": id, "configOptions": f.options()}, nil)
-	case acp.MethodSessionResume:
+	case acp.MethodSessionResume, acp.MethodSessionLoad:
 		if f.resumeFails {
 			reply(nil, &acp.Error{Code: -32002, Message: "no such session"})
 			return
@@ -265,6 +268,9 @@ func (f *fakeTool) options() []map[string]any {
 	} else {
 		modelChoices = append(modelChoices, map[string]any{"value": "opus[1m]", "name": "Opus 5", "description": "Opus 5 with 1M context"})
 	}
+	if f.oldSonnet {
+		modelChoices = append(modelChoices, map[string]any{"value": "claude-sonnet-4-5", "name": "Sonnet 4.5"})
+	}
 	modes := []map[string]any{
 		{"value": "default", "name": "Manual", "_meta": map[string]string{"kind": "standard"}},
 		{"value": "bypassPermissions", "name": "Bypass permissions", "_meta": map[string]string{"kind": "full_access"}},
@@ -272,6 +278,9 @@ func (f *fakeTool) options() []map[string]any {
 	if f.noKinds {
 		// claude-agent-acp 0.85 only sends _meta.kind to "AIR" clients.
 		modes = []map[string]any{{"value": "default", "name": "Manual"}, {"value": "bypassPermissions", "name": "Bypass permissions"}}
+	}
+	if f.plan {
+		modes = append(modes, map[string]any{"value": "plan", "name": "Plan Mode", "_meta": map[string]string{"kind": "plan"}})
 	}
 	options := []map[string]any{
 		{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": f.values["mode"], "options": modes},
@@ -299,14 +308,19 @@ func (f *fakeTool) update(sessionID, update string) {
 
 // ask requests permission for a tool call and returns the option chosen, or "cancelled".
 func (f *fakeTool) ask(sessionID, toolCall string) string {
+	return f.askWith(sessionID, toolCall, []map[string]string{
+		{"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
+		{"optionId": "reject", "name": "No", "kind": "reject_once"},
+	})
+}
+
+// askWith is ask with the request's own options.
+func (f *fakeTool) askWith(sessionID, toolCall string, options []map[string]string) string {
 	var out acp.RequestPermissionResponse
 	err := f.connection().Call(context.Background(), acp.MethodRequestPermission, map[string]any{
 		"sessionId": sessionID,
 		"toolCall":  json.RawMessage(toolCall),
-		"options": []map[string]string{
-			{"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
-			{"optionId": "reject", "name": "No", "kind": "reject_once"},
-		},
+		"options":   options,
 	}, &out)
 	switch {
 	case err != nil:
@@ -670,6 +684,134 @@ func TestATurnWithToolCallsAndAPermissionRequest(t *testing.T) {
 	}
 }
 
+// Claude Code's sessions ask for its thinking as summarized text, whether new,
+// resumed or loaded: without it current models stream none. They also turn
+// prompt suggestions off, which nothing shows. The other tools get no _meta.
+func TestClaudeSessionsAskForSummarizedThinking(t *testing.T) {
+	t.Parallel()
+	want := `"_meta":{"claudeCode":{"options":{"promptSuggestions":false,"thinking":{"display":"summarized","type":"adaptive"}}}}`
+	for _, tc := range []struct {
+		name, ai, method string
+		resume, load     bool
+	}{
+		{"claude, resumed", "claude", acp.MethodSessionResume, true, false},
+		{"claude, loaded", "claude", acp.MethodSessionLoad, false, true},
+		{"codex, resumed", "codex", acp.MethodSessionResume, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := openStore(t)
+			a := testAgent
+			a.AI = tc.ai
+			first := newFakeTool(answerHello)
+			m, _ := newManager(t, store, first)
+			if _, err := m.Send(a, "hi"); err != nil {
+				t.Fatal(err)
+			}
+			waitThread(t, m, a, "the first turn", turnsEnded(1))
+			m.Close()
+			second := newFakeTool(answerHello)
+			second.resume, second.load = tc.resume, tc.load
+			m2, _ := newManager(t, store, second)
+			if _, err := m2.Send(a, "hi again"); err != nil {
+				t.Fatal(err)
+			}
+			waitThread(t, m2, a, "the second turn", turnsEnded(2))
+			created, again := first.called(acp.MethodSessionNew), second.called(tc.method)
+			if len(created) != 1 || len(again) != 1 {
+				t.Fatalf("%d new sessions, %d calls to %s", len(created), len(again), tc.method)
+			}
+			for _, params := range [][]byte{created[0], again[0]} {
+				if got := strings.Contains(string(params), want); got != (tc.ai == "claude") {
+					t.Errorf("%s asked with %s", tc.ai, params)
+				}
+				if tc.ai != "claude" && strings.Contains(string(params), "_meta") {
+					t.Errorf("%s got a _meta: %s", tc.ai, params)
+				}
+			}
+		})
+	}
+}
+
+// A model older than adaptive thinking (Haiku 4.5, Sonnet 4.5) answers it
+// with a 400, so its sessions don't ask for it: neither one it starts on, nor
+// one moved to it mid-chat, which restarts the adapter on the next message
+// (claude-agent-acp reads _meta only as a session starts) and resumes the
+// session without it. Moving back asks for it again.
+func TestOlderClaudeModelsAreNotAskedForAdaptiveThinking(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	adaptive := `"thinking":{"display":"summarized","type":"adaptive"}`
+	noSuggestions := `"_meta":{"claudeCode":{"options":{"promptSuggestions":false}}}`
+	asks := func(params json.RawMessage) bool { return strings.Contains(string(params), adaptive) }
+
+	t.Run("started on it", func(t *testing.T) {
+		t.Parallel()
+		store := openStore(t)
+		if err := store.SaveChat(ctx, testAgent.Project, testAgent.Name, state.Chat{Options: map[string]string{"model": "claude-sonnet-4-5"}}); err != nil {
+			t.Fatal(err)
+		}
+		f := newFakeTool(answerHello)
+		f.oldSonnet = true
+		m, _ := newManager(t, store, f)
+		if _, err := m.Send(testAgent, "hi"); err != nil {
+			t.Fatal(err)
+		}
+		waitThread(t, m, testAgent, "the turn", turnsEnded(1))
+		if created := f.called(acp.MethodSessionNew); len(created) != 1 || asks(created[0]) || !strings.Contains(string(created[0]), noSuggestions) {
+			t.Errorf("Sonnet 4.5's session/new: %s", created)
+		}
+	})
+
+	t.Run("moved to it and back", func(t *testing.T) {
+		t.Parallel()
+		store := openStore(t)
+		// Sonnet 4.5 has Sonnet's window here, so the window doesn't move
+		// with the model and restart the adapter for a reason of its own.
+		if err := store.SetSetting(ctx, state.SettingClaudeModelWindows, `{"sonnet":1000000,"claude-sonnet-4-5":1000000}`); err != nil {
+			t.Fatal(err)
+		}
+		f := newFakeTool(answerHello)
+		f.oldSonnet, f.resume = true, true
+		m, _ := newManager(t, store, f)
+		turns := 0
+		send := func(text string) {
+			t.Helper()
+			if _, err := m.Send(testAgent, text); err != nil {
+				t.Fatal(err)
+			}
+			turns++
+			waitThread(t, m, testAgent, text, turnsEnded(turns))
+		}
+		setModel := func(model string) {
+			t.Helper()
+			if _, err := m.SetOption(ctx, testAgent, "model", model); err != nil {
+				t.Fatal(err)
+			}
+		}
+		send("hi")
+		if created := f.called(acp.MethodSessionNew); len(created) != 1 || !asks(created[0]) {
+			t.Fatalf("Sonnet's session/new: %s", created)
+		}
+		setModel("claude-sonnet-4-5")
+		send("on sonnet 4.5")
+		resumed := f.called(acp.MethodSessionResume)
+		if len(resumed) != 1 || asks(resumed[0]) {
+			t.Fatalf("after moving to Sonnet 4.5, session/resume: %s", resumed)
+		}
+		send("still on sonnet 4.5")
+		if n := len(f.called(acp.MethodSessionResume)); n != 1 {
+			t.Errorf("restarted again with no change: %d resumes", n)
+		}
+		setModel("sonnet")
+		send("back on sonnet")
+		resumed = f.called(acp.MethodSessionResume)
+		if len(resumed) != 2 || !asks(resumed[1]) {
+			t.Errorf("after moving back to Sonnet, session/resume: %s", resumed)
+		}
+	})
+}
+
 func TestTheSessionIsResumedByTheNextAdapter(t *testing.T) {
 	t.Parallel()
 	store := openStore(t)
@@ -807,6 +949,42 @@ func TestAutonomousAgentGetsFullAccessWithoutModeKinds(t *testing.T) {
 	th := waitThread(t, m, a, "the session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
 	if mode := optionValue(th.Session, "mode"); mode != "bypassPermissions" {
 		t.Errorf("an autonomous agent's mode is %q without _meta.kind", mode)
+	}
+}
+
+// TestProjectModeKindIsApplied: a permission mode the agent's project chose
+// by kind becomes the tool's own value, in place of full access for an
+// autonomous agent and of the tool's default for one that asks, and with or
+// without a plan mode beside it.
+func TestProjectModeKindIsApplied(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		kind       string
+		autonomous bool
+		plan       bool
+		want       string
+	}{
+		{kind: "standard", autonomous: true, want: "default"},
+		{kind: "standard", autonomous: true, plan: true, want: "default"},
+		{kind: "full_access", want: "bypassPermissions"},
+		{kind: "full_access", plan: true, want: "bypassPermissions"},
+	} {
+		store := openStore(t)
+		a := testAgent
+		a.Autonomous = c.autonomous
+		if err := store.SaveChat(context.Background(), a.Project, a.Name, state.Chat{Options: map[string]string{state.ChatOptionModeKind: c.kind}}); err != nil {
+			t.Fatal(err)
+		}
+		tool := newFakeTool(answerHello)
+		tool.plan = c.plan
+		m, _ := newManager(t, store, tool)
+		if _, err := m.Start(a); err != nil {
+			t.Fatal(err)
+		}
+		th := waitThread(t, m, a, "the session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
+		if mode := optionValue(th.Session, "mode"); mode != c.want {
+			t.Errorf("%+v: the mode is %q", c, mode)
+		}
 	}
 }
 
@@ -2003,6 +2181,7 @@ func TestAuthFailure(t *testing.T) {
 		"OAuth token has expired. Please obtain a new token or refresh your existing token.",
 		"Invalid API key · Please run /login",
 		"the agent exited: 401 Unauthorized",
+		`Internal error: Failed to authenticate: OAuth session expired and could not be refreshed: {"errorKind":"authentication_failed"}`,
 	}
 	fine := []string{
 		"Claude Code didn't start: exec: \"claude-agent-acp\": executable file not found in $PATH",
@@ -2165,8 +2344,8 @@ func TestTheContextWindowRestartsTheAdapterAndResumesTheSession(t *testing.T) {
 	if stored, _ := store.Chat(ctx, testAgent.Project, testAgent.Name); stored.Options[state.ChatOptionContextWindow] != "1000000" {
 		t.Errorf("stored %v", stored.Options)
 	}
-	if _, err := m.SetOption(ctx, testAgent, state.ChatOptionContextWindow, "300k"); err == nil {
-		t.Error("a window Sonnet doesn't offer here was accepted")
+	if _, err := m.SetOption(ctx, testAgent, state.ChatOptionContextWindow, "2m"); err == nil {
+		t.Error("a window above Sonnet's whole one was accepted")
 	}
 
 	if _, err := m.Send(testAgent, "and again"); err != nil {
@@ -2354,6 +2533,69 @@ func TestTheLeadStartsOnTheLeadDefaults(t *testing.T) {
 	}
 	if stored.Options[state.ChatOptionContextWindow] != "500000" {
 		t.Errorf("the lead's own choice was stored as %+v", stored.Options)
+	}
+}
+
+// TestTheLeadTakesItsEffortAndModeDefaults: the effort and permission mode in
+// Settings → Models reach a lead's chat whose composer chose neither, sent as
+// its session is set up, and the composer's own choice wins. An agent's chat
+// never reads them. The mode menu is remembered for Settings to offer.
+func TestTheLeadTakesItsEffortAndModeDefaults(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	ctx := context.Background()
+	for key, value := range map[string]string{
+		state.SettingDefaultLeadEffort: "high",
+		state.SettingDefaultLeadMode:   "bypassPermissions",
+	} {
+		if err := store.SetSetting(ctx, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lead := state.Agent{Project: "hello", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/hello"}
+	chose := state.Agent{Project: "chosen", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/chosen"}
+	if err := store.SaveChat(ctx, chose.Project, chose.Name, state.Chat{Options: map[string]string{"effort": "xhigh", "mode": "default"}}); err != nil {
+		t.Fatal(err)
+	}
+	// A default of plan, from before plan was a toggle, is no default at all.
+	planned := state.Agent{Project: "planned", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/planned"}
+	for _, c := range []struct {
+		a            state.Agent
+		effort, mode string
+	}{
+		{lead, "high", "bypassPermissions"},
+		{chose, "xhigh", "default"},
+		{testAgent, "default", "default"},
+		{planned, "high", "default"},
+	} {
+		if c.a.Project == planned.Project {
+			if err := store.SetSetting(ctx, state.SettingDefaultLeadMode, "plan"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f := newFakeTool(answerHello)
+		f.effort, f.plan = true, true
+		f.values["effort"], f.values["mode"] = "default", "default"
+		m, _ := newManager(t, store, f)
+		if _, err := m.Start(c.a); err != nil {
+			t.Fatal(err)
+		}
+		waitThread(t, m, c.a, c.a.Ref()+"'s effort and mode", func(th api.ChatThread) bool {
+			return th.Session.State == api.ChatReady && optionValue(th.Session, "effort") == c.effort && optionValue(th.Session, "mode") == c.mode
+		})
+		f.mu.Lock()
+		running := f.values["mode"]
+		f.mu.Unlock()
+		if running != c.mode {
+			t.Errorf("%s's tool runs mode %q, want %q", c.a.Ref(), running, c.mode)
+		}
+	}
+	menu, err := store.Setting(ctx, state.SettingClaudeModeChoices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.ChoiceValues(menu); !slices.Equal(got, []string{"default", "bypassPermissions"}) {
+		t.Errorf("the remembered mode menu = %v", got)
 	}
 }
 

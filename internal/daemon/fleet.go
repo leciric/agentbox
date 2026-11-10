@@ -2,10 +2,15 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -58,8 +63,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 		out.GitHub = repo.String()
 		out.GitHubError = s.githubErrorFrom(p, repo, entry.listErr)
 		out.PullsRefreshing = refreshing
-		if !entry.at.IsZero() {
-			at := entry.at
+		if at := entry.readAt(); !at.IsZero() {
 			out.PullsFetchedAt = &at
 		}
 		prs = entry.byAgent(heads)
@@ -67,10 +71,17 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 		out.GitHubError = s.githubErrorFor(p, repo, err)
 	}
 
-	changes := agentChanges(agents, changesOf)
+	changes := agentChanges(agents, prs, polledChangesOf(statuses))
+	topics := map[string]string{}
+	if sessions, err := s.store.LeadSessions(ctx, project); err == nil {
+		for _, ls := range sessions {
+			topics[ls.ID] = ls.Topic
+		}
+	}
 
 	for i, st := range statuses {
 		row := api.FleetAgent{Agent: s.agentInfo(st)}
+		row.SessionTopic = topics[row.LeadSession]
 		row.Changes = changes[i]
 		if items, err := s.store.Media(ctx, st.Project, st.Name); err == nil {
 			row.Media = len(items)
@@ -93,20 +104,22 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 	}
+	out.Remote = s.remoteAgents(ctx, project)
 	return writeJSON(w, http.StatusOK, out)
 }
 
 // agentChanges measures every agent's diff at once. Each one is a git process
 // or two against a different worktree, so they run concurrently: a project
 // with fifteen agents took as long as fifteen diffs in a row before, on every
-// poll of a tab that polls.
-func agentChanges(agents []state.Agent, measure func(state.Agent) api.AgentChanges) []api.AgentChanges {
+// poll of a tab that polls. Each is measured onto its pull request's base,
+// from prs, when it has one.
+func agentChanges(agents []state.Agent, prs map[string]*api.PullRequest, measure func(state.Agent, ...string) api.AgentChanges) []api.AgentChanges {
 	out := make([]api.AgentChanges, len(agents))
 	var g errgroup.Group
 	g.SetLimit(changesConcurrency)
 	for i, a := range agents {
 		g.Go(func() error {
-			out[i] = measure(a)
+			out[i] = measure(a, prBase(prs[a.Name])...)
 			return nil
 		})
 	}
@@ -114,41 +127,265 @@ func agentChanges(agents []state.Agent, measure func(state.Agent) api.AgentChang
 	return out
 }
 
-// changesOf measures an agent's diff against the commit it started from. A
-// worktree that has been removed, or an agent still being created, has none.
-func changesOf(a state.Agent) api.AgentChanges {
-	var out api.AgentChanges
-	stat, err := gitrepo.DiffWorktree(a.Worktree, a.BaseCommit, true)
+// prBase is the branch an agent's pull request would merge into, which its
+// changes are measured onto as GitHub measures the pull request's, or none
+// without one (gitrepo.DiffBase).
+func prBase(pr *api.PullRequest) []string {
+	if pr == nil || pr.BaseBranch == "" {
+		return nil
+	}
+	return []string{pr.BaseBranch}
+}
+
+// cachedPR is a's pull request as the project's cache has it, without
+// waiting on GitHub, or nil.
+func (s *Server) cachedPR(ctx context.Context, a state.Agent) *api.PullRequest {
+	p, err := s.store.Project(ctx, a.Project)
 	if err != nil {
+		return nil
+	}
+	_, entry, heads, _, err := s.projectPulls(p, []state.Agent{a})
+	if err != nil {
+		return nil
+	}
+	return entry.byAgent(heads)[a.Name]
+}
+
+// changesOf is an agent's diff against its base (gitrepo.DiffBase), onto its
+// pull request's base branch when given one (prBase), for showing: when git
+// can't read it now, the last it could, so a fleet doesn't flash every agent
+// to "no changes" while the machine is out of files. What decides anything
+// from the changes uses measureChanges, and its error.
+func changesOf(a state.Agent, onto ...string) api.AgentChanges {
+	out, err := measureChanges(a, onto...)
+	if err != nil {
+		if last, ok := knownChanges.Load(a.Worktree); ok {
+			return last.(api.AgentChanges)
+		}
 		return out
 	}
-	// The last line of --stat is " N files changed, N insertions(+), N deletions(-)".
-	lines := strings.Split(strings.TrimSpace(stat), "\n")
-	if len(lines) == 0 || lines[0] == "" {
-		return out
-	}
-	for _, part := range strings.Split(lines[len(lines)-1], ",") {
-		fields := strings.Fields(strings.TrimSpace(part))
-		if len(fields) < 2 {
-			continue
-		}
-		n, err := strconv.Atoi(fields[0])
-		if err != nil {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(fields[1], "file"):
-			out.Files = n
-		case strings.HasPrefix(fields[1], "insertion"):
-			out.Insertions = n
-		case strings.HasPrefix(fields[1], "deletion"):
-			out.Deletions = n
-		}
-	}
-	if dirty, err := gitrepo.Dirty(a.Worktree); err == nil {
-		out.Dirty = dirty
+	if a.Worktree != "" {
+		knownChanges.Store(a.Worktree, out)
 	}
 	return out
+}
+
+// polledChanges is changesOf for a list a tab polls. A worktree already being
+// measured, by a poll whose git hasn't returned yet, isn't measured again
+// alongside it but shown as last read: polls stacking up on a slow disk kept
+// git running nonstop.
+func polledChanges(a state.Agent, onto ...string) api.AgentChanges {
+	if a.Worktree != "" {
+		if _, busy := measuring.LoadOrStore(a.Worktree, true); busy {
+			if last, ok := knownChanges.Load(a.Worktree); ok {
+				return last.(api.AgentChanges)
+			}
+		} else {
+			defer measuring.Delete(a.Worktree)
+		}
+	}
+	return changesOf(a, onto...)
+}
+
+// polledChangesOf is polledChanges for a list of statuses: an agent whose
+// machine isn't running can't have changed its worktree, so it is shown as
+// last read, and measured (stoppedChanges) only when nothing was read yet,
+// when its HEAD, index or branch moved since, or when it ran since it was
+// last read. Every project's fleet is asked for whenever the app is
+// focused; stopped agents were most of the git it ran.
+func polledChangesOf(statuses []agent.Status) func(state.Agent, ...string) api.AgentChanges {
+	idle := make(map[string]agent.Status, len(statuses))
+	for _, st := range statuses {
+		if machineIdle(st) {
+			idle[st.Name] = st
+		}
+	}
+	return func(a state.Agent, onto ...string) api.AgentChanges {
+		if a.Worktree == "" {
+			return polledChanges(a, onto...)
+		}
+		st, ok := idle[a.Name]
+		if !ok {
+			ranSince.Store(a.Worktree, true)
+			return polledChanges(a, onto...)
+		}
+		if last, ok := idleCached(a, st.StartedAt, onto); ok {
+			return last
+		}
+		if _, busy := measuring.LoadOrStore(a.Worktree, true); busy {
+			if last, ok := knownChanges.Load(a.Worktree); ok {
+				return last.(api.AgentChanges)
+			}
+		} else {
+			defer measuring.Delete(a.Worktree)
+		}
+		out, err := stoppedChanges(a, st.StartedAt, onto...)
+		if err != nil {
+			if last, ok := knownChanges.Load(a.Worktree); ok {
+				return last.(api.AgentChanges)
+			}
+		}
+		return out
+	}
+}
+
+// machineIdle reports whether st's machine can't be changing its worktree:
+// stopped, or paused (frozen).
+func machineIdle(st agent.Status) bool { return st.State == "stopped" || st.State == "paused" }
+
+// changesFor is measureChanges for a sweep over a project's agents: a
+// stopped or paused agent's changes come from stoppedChanges, read again
+// only when its worktree moved or it ran since; a running one's are read,
+// and it is marked as having run.
+func changesFor(st agent.Status) (api.AgentChanges, error) {
+	if !machineIdle(st) || st.Worktree == "" {
+		if st.Worktree != "" {
+			ranSince.Store(st.Worktree, true)
+		}
+		return measureChanges(st.Agent)
+	}
+	return stoppedChanges(st.Agent, st.StartedAt)
+}
+
+// freshChanges is measureChanges for st read now, whatever was kept: for a
+// check right before removing it. A stopped one still waits its turn among
+// idleMeasureSlots, at the lowest priority.
+func freshChanges(st agent.Status) (api.AgentChanges, error) {
+	if machineIdle(st) {
+		return measureIdleChanges(st.Agent)
+	}
+	return measureChanges(st.Agent)
+}
+
+// Stopped agents' worktrees are measured once after they stop and then only
+// when they change. On 2026-11-06 the user's PC froze while `git add --all`
+// ran in every stopped worktree of a project at the same moment: the cleanup
+// pass (every 5 minutes) and the stopped-machines pass (hourly) each measured
+// every agent from scratch, every time, the stopped ones included. Now:
+//
+//   - a worktree's measurement is kept with its stamp (gitrepo.WorktreeStamp:
+//     its HEAD, index and branch, with its base, onto and when its machine
+//     last started), and read again only when that moved or it was seen
+//     running since;
+//   - at most idleMeasureSlots are measured at once, whoever asks, and their
+//     git runs at nice 19 and the lowest best-effort I/O priority
+//     (gitrepo.MeasureWorktree).
+//
+// What decides to remove an agent reads its changes fresh right before
+// doing it (cleanupFactsOf's fresh, the stopped judge's), still bounded.
+
+// idleMeasureSlots is how many idle worktrees are measured at once.
+const idleMeasureSlots = 2
+
+var idleMeasures = make(chan struct{}, idleMeasureSlots)
+
+// idleStamp is what an idle worktree's measurement is kept against; "" when
+// it can't be read.
+func idleStamp(a state.Agent, started time.Time, onto []string) string {
+	w := gitrepo.WorktreeStamp(a.Worktree)
+	if w == "" {
+		return ""
+	}
+	return w + "|" + a.BaseCommit + "|" + strings.Join(onto, ",") + "|" + strconv.FormatInt(started.UnixNano(), 10)
+}
+
+// idleCached is the measurement kept for an idle worktree, when nothing
+// moved since it was taken.
+func idleCached(a state.Agent, started time.Time, onto []string) (api.AgentChanges, bool) {
+	last, ok := knownChanges.Load(a.Worktree)
+	if !ok {
+		return api.AgentChanges{}, false
+	}
+	if _, ran := ranSince.Load(a.Worktree); ran {
+		return api.AgentChanges{}, false
+	}
+	at, ok := measuredAt.Load(a.Worktree)
+	if !ok || at != idleStamp(a, started, onto) {
+		return api.AgentChanges{}, false
+	}
+	return last.(api.AgentChanges), true
+}
+
+// stoppedChanges is measureChanges for an agent whose machine isn't
+// running (started being when it last started): the kept measurement when
+// nothing moved, else measured in the background and kept.
+func stoppedChanges(a state.Agent, started time.Time, onto ...string) (api.AgentChanges, error) {
+	if a.Worktree == "" || a.BaseCommit == "" {
+		return api.AgentChanges{}, nil
+	}
+	if last, ok := idleCached(a, started, onto); ok {
+		return last, nil
+	}
+	out, err := measureIdleChanges(a, onto...)
+	if err != nil {
+		return out, err
+	}
+	knownChanges.Store(a.Worktree, out)
+	// Taken after: git status refreshes the index it reads.
+	if stamp := idleStamp(a, started, onto); stamp != "" {
+		measuredAt.Store(a.Worktree, stamp)
+		ranSince.Delete(a.Worktree)
+	}
+	return out, nil
+}
+
+// measureIdleChanges is measureChanges in the background: one of
+// idleMeasureSlots, its git at the lowest priority.
+func measureIdleChanges(a state.Agent, onto ...string) (api.AgentChanges, error) {
+	idleMeasures <- struct{}{}
+	defer func() { <-idleMeasures }()
+	return measureWith(a, onto, measureIdleWorktree)
+}
+
+// measureIdleWorktree is gitrepo.MeasureWorktree, or a test's.
+var measureIdleWorktree = gitrepo.MeasureWorktree
+
+// measuredAt is the gitrepo.WorktreeStamp (with base and onto) of each
+// worktree's knownChanges, and ranSince the worktrees seen running since.
+var (
+	measuredAt sync.Map // worktree -> string
+	ranSince   sync.Map // worktree -> true
+)
+
+// knownChanges is the last changes measureChanges read for each worktree.
+var knownChanges sync.Map // worktree -> api.AgentChanges
+
+// measuring is the worktrees polledChanges is measuring now.
+var measuring sync.Map // worktree -> true
+
+// measureChanges measures an agent's diff against its base, onto the
+// branches in onto when given (gitrepo.DiffBase), and whether it has
+// uncommitted work. A worktree that has been removed, or an agent still
+// being created, has none. An error is git failing to read it (ENFILE, say),
+// and the changes are then unknown: never "none", and never "clean".
+func measureChanges(a state.Agent, onto ...string) (api.AgentChanges, error) {
+	return measureWith(a, onto, func(worktree, base string) (string, bool, error) {
+		stat, err := gitrepo.DiffWorktree(worktree, base, true)
+		if err != nil {
+			return "", false, err
+		}
+		dirty, err := gitrepo.Dirty(worktree)
+		return stat, dirty, err
+	})
+}
+
+// measureWith is measureChanges with measure reading the diff's --stat and
+// whether the worktree is dirty.
+func measureWith(a state.Agent, onto []string, measure func(worktree, base string) (string, bool, error)) (api.AgentChanges, error) {
+	var out api.AgentChanges
+	if a.Worktree == "" || a.BaseCommit == "" {
+		return out, nil
+	}
+	if _, err := os.Stat(a.Worktree); errors.Is(err, fs.ErrNotExist) {
+		return out, nil
+	}
+	stat, dirty, err := measure(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit, onto...))
+	if err != nil {
+		return api.AgentChanges{}, err
+	}
+	out = statOf(stat)
+	out.Dirty = dirty
+	return out, nil
 }
 
 // projectMedia is every agent's media for one project, newest first, each item
@@ -181,4 +418,33 @@ func (s *Server) agentTitles(ctx context.Context, project string) (map[string]st
 		titles[a.Name] = a.Title
 	}
 	return titles, nil
+}
+
+// statOf reads git's diff --stat or --shortstat, whose last line is
+// " N files changed, N insertions(+), N deletions(-)".
+func statOf(stat string) api.AgentChanges {
+	var out api.AgentChanges
+	lines := strings.Split(strings.TrimSpace(stat), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		return out
+	}
+	for _, part := range strings.Split(lines[len(lines)-1], ",") {
+		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) < 2 {
+			continue
+		}
+		n, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(fields[1], "file"):
+			out.Files = n
+		case strings.HasPrefix(fields[1], "insertion"):
+			out.Insertions = n
+		case strings.HasPrefix(fields[1], "deletion"):
+			out.Deletions = n
+		}
+	}
+	return out
 }

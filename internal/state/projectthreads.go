@@ -30,18 +30,24 @@ const (
 )
 
 // ProjectThread is a conversation between two projects' leads. Project
-// started it; Peer is the other.
+// started it; Peer is the other. A question from the Home chat is one too,
+// Project being HomeProject: ProjectSession is the Home chat's session that
+// asked and PeerSession the lead's session that was asked, pinned so the
+// answer comes from, and goes back to, those conversations. Threads between
+// two leads leave both empty.
 type ProjectThread struct {
-	ID        string
-	Project   string
-	Peer      string
-	Kind      string
-	Topic     string
-	Status    string
-	Summary   string
-	SettledBy string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             string
+	Project        string
+	Peer           string
+	ProjectSession string
+	PeerSession    string
+	Kind           string
+	Topic          string
+	Status         string
+	Summary        string
+	SettledBy      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Other is the project in the thread that isn't project.
@@ -50,6 +56,15 @@ func (t ProjectThread) Other(project string) string {
 		return t.Peer
 	}
 	return t.Project
+}
+
+// SessionOf is the session pinned for project's side of the thread, "" for
+// none.
+func (t ProjectThread) SessionOf(project string) string {
+	if t.Project == project {
+		return t.ProjectSession
+	}
+	return t.PeerSession
 }
 
 // Has reports whether project is one of the thread's two.
@@ -68,7 +83,7 @@ type ProjectMessage struct {
 	CreatedAt    time.Time
 }
 
-const threadColumns = `id, project, peer, kind, topic, status, summary, settled_by, created_at, updated_at`
+const threadColumns = `id, project, peer, kind, topic, status, summary, settled_by, created_at, updated_at, project_session, peer_session`
 
 // AddProjectThread starts a thread with its first message, in one transaction.
 func (s *Store) AddProjectThread(ctx context.Context, t ProjectThread, first ProjectMessage) error {
@@ -77,8 +92,9 @@ func (s *Store) AddProjectThread(ctx context.Context, t ProjectThread, first Pro
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO project_threads (`+threadColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Project, t.Peer, t.Kind, t.Topic, t.Status, t.Summary, t.SettledBy, t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO project_threads (`+threadColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Project, t.Peer, t.Kind, t.Topic, t.Status, t.Summary, t.SettledBy, t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(),
+		t.ProjectSession, t.PeerSession); err != nil {
 		return err
 	}
 	if err := addProjectMessage(ctx, tx, first); err != nil {
@@ -149,7 +165,7 @@ func (s *Store) queryThreads(ctx context.Context, where string, args ...any) ([]
 	for rows.Next() {
 		var t ProjectThread
 		var created, updated int64
-		if err := rows.Scan(&t.ID, &t.Project, &t.Peer, &t.Kind, &t.Topic, &t.Status, &t.Summary, &t.SettledBy, &created, &updated); err != nil {
+		if err := rows.Scan(&t.ID, &t.Project, &t.Peer, &t.Kind, &t.Topic, &t.Status, &t.Summary, &t.SettledBy, &created, &updated, &t.ProjectSession, &t.PeerSession); err != nil {
 			return nil, err
 		}
 		t.CreatedAt, t.UpdatedAt = time.UnixMilli(created), time.UnixMilli(updated)
@@ -177,28 +193,6 @@ func (s *Store) ProjectMessages(ctx context.Context, thread string) ([]ProjectMe
 		messages = append(messages, m)
 	}
 	return messages, rows.Err()
-}
-
-// ProjectMessagesSince counts the messages in a thread sent from since on.
-func (s *Store) ProjectMessagesSince(ctx context.Context, thread string, since time.Time) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM project_messages WHERE thread = ? AND created_at >= ?`,
-		thread, since.UnixMilli()).Scan(&n)
-	return n, err
-}
-
-// PairActivitySince counts what two projects' leads said to each other, either
-// way round, from since on: their messages, and the threads they started.
-func (s *Store) PairActivitySince(ctx context.Context, a, b string, since time.Time) (messages, threads int, err error) {
-	pair := `((project = ? AND peer = ?) OR (project = ? AND peer = ?)) AND created_at >= ?`
-	args := []any{a, b, b, a, since.UnixMilli()}
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM project_messages WHERE `+pair, args...).Scan(&messages); err != nil {
-		return 0, 0, err
-	}
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM project_threads WHERE `+pair, args...).Scan(&threads); err != nil {
-		return 0, 0, err
-	}
-	return messages, threads, nil
 }
 
 // LinkProjects records that the user let two projects' leads talk.

@@ -7,7 +7,9 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image } from 'expo-image';
+import { ScanQrCode, Smartphone } from 'lucide-react-native';
+import { Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isPlainHTTP, parsePairingLink } from '../../connection/pairing.ts';
 import { pair } from '../../connection/session.ts';
@@ -48,11 +50,9 @@ export function PairScreen() {
   const plain = parsePairingLink(link);
   const hl = (c: React.ReactNode) => <Text style={{ color: colors.primary }}>{c}</Text>;
   return (
-    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <View style={styles.root}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
-        <View style={styles.logo}>
-          <Text style={styles.logoText}>A</Text>
-        </View>
+        <Image source={require('../../../assets/icon.png')} style={styles.logo} accessibilityIgnoresInvertColors />
         <Text style={styles.title}>{t('mobile.pair.title')}</Text>
         <Text style={styles.body}>{t.rich('mobile.pair.steps', { hl })}</Text>
         <Text style={styles.body}>{t.rich('web.pair.terminal', { mono: (c) => <Text style={[mono, { color: colors.primary, fontSize: 13 }]}>{c}</Text> })}</Text>
@@ -75,7 +75,7 @@ export function PairScreen() {
           ) : (
             <View style={styles.gap}>
               {permission && !permission.canAskAgain && <Note tone="warning">{t('mobile.pair.cameraDenied')}</Note>}
-              <Button label={t('mobile.pair.scan')} onPress={() => void requestPermission()} disabled={permission?.canAskAgain === false} />
+              <Button label={t('mobile.pair.scan')} icon={ScanQrCode} onPress={() => void requestPermission()} disabled={permission?.canAskAgain === false} />
             </View>
           ))}
 
@@ -96,20 +96,19 @@ export function PairScreen() {
             onSubmitEditing={() => void tryPair(link)}
             accessibilityLabel={t('mobile.pair.paste')}
           />
-          <Button label={busy ? t('mobile.pair.pairing') : t('mobile.pair.connect')} busy={busy} disabled={!link.trim()} onPress={() => void tryPair(link)} />
+          <Button label={busy ? t('mobile.pair.pairing') : t('mobile.pair.connect')} icon={Smartphone} busy={busy} disabled={!link.trim()} onPress={() => void tryPair(link)} />
         </View>
         {error && <Note tone="error">{error}</Note>}
         {plain && isPlainHTTP(plain.origin) && <Text style={styles.small}>{t('web.pair.plainHTTP')}</Text>}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: 24, gap: 16, maxWidth: 480, width: '100%', alignSelf: 'center' },
-  logo: { width: 48, height: 48, borderRadius: 16, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
-  logoText: { color: colors.brand300, fontSize: 22, fontWeight: '700' },
+  logo: { width: 48, height: 48, borderRadius: 12 },
   title: { color: colors.title, fontSize: 22, fontWeight: '600' },
   body: { color: colors.muted, fontSize: 14, lineHeight: 21 },
   camera: { height: 260, borderRadius: 18, overflow: 'hidden', backgroundColor: '#000' },

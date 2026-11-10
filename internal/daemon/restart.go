@@ -85,8 +85,8 @@ func (s *Server) continueLead(ctx context.Context, rt state.RunningTurn) {
 	var a state.Agent
 	var err error
 	if rt.Kind == state.TurnOfHome {
-		a, err = m.EnsureHome(ctx)
-	} else if a, err = m.Lead(ctx, rt.Project); err == nil {
+		a, err = m.EnsureHomeSession(ctx, sessionOfName(rt.Agent))
+	} else if a, err = m.LeadSession(ctx, rt.Project, sessionOfName(rt.Agent)); err == nil {
 		// What a turn's start does (ensureLeadFromPath): the lead reads its
 		// branch as it is now.
 		a, err = m.SyncLead(ctx, a)
@@ -125,8 +125,7 @@ func (s *Server) continueAgent(ctx context.Context, rt state.RunningTurn) {
 		s.notResumed(ctx, rt, tooManyResumes(rt))
 		return
 	}
-	s.wakeMu.Lock()
-	defer s.wakeMu.Unlock()
+	defer s.wakes.lock(a.Ref())()
 	inst, err := s.cfg.Incus.Instance(ctx, a.Instance)
 	if err != nil {
 		s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be found (%v)", err))
@@ -142,12 +141,45 @@ func (s *Server) continueAgent(ctx context.Context, rt state.RunningTurn) {
 			s.notResumed(ctx, rt, err.Error())
 			return
 		}
+		if s.bootWaits() {
+			// Its boot waits its turn for memory, On hold (admission.go): the
+			// turn carries on once it boots, and the other agents' turns, and
+			// every message meanwhile, don't wait behind it.
+			go s.continueOnHold(context.WithoutCancel(ctx), a, rt)
+			return
+		}
 		if err := s.startMachine(ctx, s.manager(s.cfg.Log), a, "a turn to carry on after a restart"); err != nil {
 			s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be started (%v)", err))
 			return
 		}
 		s.refreshAgents(ctx)
 	}
+	s.resumeChat(a, rt)
+}
+
+// continueOnHold starts an agent's machine once admission lets it boot,
+// then carries on its turn.
+func (s *Server) continueOnHold(ctx context.Context, a state.Agent, rt state.RunningTurn) {
+	s.mu.Lock()
+	if s.waking == nil {
+		s.waking = map[string]bool{}
+	}
+	already := s.waking[a.Ref()]
+	s.waking[a.Ref()] = true
+	s.mu.Unlock()
+	if already {
+		return
+	}
+	defer func() {
+		s.mu.Lock()
+		delete(s.waking, a.Ref())
+		s.mu.Unlock()
+	}()
+	if err := s.startMachine(ctx, s.manager(s.cfg.Log), a, "a turn to carry on after a restart, its turn for memory come"); err != nil {
+		s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be started (%v)", err))
+		return
+	}
+	s.refreshAgents(ctx)
 	s.resumeChat(a, rt)
 }
 
@@ -189,7 +221,7 @@ func (s *Server) notResumed(ctx context.Context, rt state.RunningTurn, why strin
 	var err error
 	switch rt.Kind {
 	case state.TurnOfHome:
-		a = s.manager(nil).Home()
+		a = s.manager(nil).HomeSession(sessionOfName(rt.Agent))
 	default:
 		a, err = s.store.Agent(ctx, rt.Project, rt.Agent)
 	}

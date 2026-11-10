@@ -3,7 +3,8 @@ name: Nightly
 # Nightly builds: everything release.yml builds — the AppImage, .deb and
 # .pacman, the Windows installer and portable .exe, the command-line tool for
 # linux-amd64, linux-arm64, darwin-arm64 and darwin-amd64, and the Mac app —
-# from the head of release-please's PR, published as a GitHub prerelease with
+# from the head of release-please's PR (or main's tip when that head is behind
+# main), published as a GitHub prerelease with
 # SHA256SUMS. The PR's head is the next release as it stands (its commit
 # already bumps desktop/package.json), so a nightly is versioned <next
 # release>-nightly.<YYYYMMDD>.<run>: a semver prerelease, ordered by date then
@@ -19,7 +20,15 @@ name: Nightly
 # - workflow_dispatch, by hand: builds everything from the release PR's head
 #   (or `ref`), and publishes only when `publish` is on and no `ref` was given.
 #   Off, it is the dry run: every build job runs, SHA256SUMS is written into
-#   the run's artifacts, and nothing is tagged or released.
+#   the run's artifacts, and nothing is tagged or released. `native_only`
+#   builds just the native app's three jobs, for checking them without the
+#   Electron builds' minutes (the Mac's are billed 10x); it is always a dry run.
+#
+# The native app (native/, Rust and GPUI) rides along as an experimental
+# download: AgentBox-Native-experimental-<version>-linux-x86_64.tar.gz, an
+# -amd64.deb, a -windows-x64.zip and a -mac-arm64.dmg (scripts/native-package.sh). Their names match nothing the Electron app's update, install.sh or the
+# download page's button look for (scripts/r2-page.py lists them on their own),
+# and a native job that fails leaves the nightly to publish without them.
 #
 # Stable releasing is untouched: release.yml neither reads nor makes a nightly
 # tag. release-please finds its last release by the version in
@@ -44,6 +53,10 @@ on:
         description: "Build this ref instead of the release PR's head (never published)"
         type: string
         default: ''
+      native_only:
+        description: 'Build only the experimental native app (always a dry run)'
+        type: boolean
+        default: false
 
 # Tagging and releasing need contents: write; removing the label needs
 # pull-requests: write.
@@ -80,6 +93,7 @@ jobs:
       sha: ${{ steps.pick.outputs.sha }}
       pr: ${{ steps.pick.outputs.pr }}
       publish: ${{ steps.pick.outputs.publish }}
+      release: ${{ steps.version.outputs.release }}
       nightly: ${{ steps.version.outputs.nightly }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -90,6 +104,7 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       INPUT_PUBLISH: ${{ inputs.publish }}
       INPUT_REF: ${{ inputs.ref }}
+      INPUT_NATIVE_ONLY: ${{ inputs.native_only }}
     steps:
       # Removing it doesn't trigger or cancel anything: nothing here listens
       # for `unlabeled`.
@@ -100,13 +115,14 @@ jobs:
       - name: Pick the commit
         id: pick
         run: |
-          publish=true
+          publish=true release_sha=
           case $EVENT in
             pull_request)
               sha=$PR_SHA pr=$PR_NUMBER
               ;;
             workflow_dispatch)
               publish=$INPUT_PUBLISH
+              [ "$INPUT_NATIVE_ONLY" != true ] || publish=false
               if [ -n "$INPUT_REF" ]; then
                 sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$INPUT_REF" --jq .sha) pr=
                 publish=false
@@ -120,10 +136,32 @@ jobs:
               fi
               ;;
           esac
+          # The release PR's head only is the next release if it contains main's
+          # tip. release-please leaves its branch alone when a change adds no
+          # changelog line (a `ci:` one), so it can lag main, and a tag on a
+          # commit whose workflow files differ from main's is refused to
+          # GITHUB_TOKEN (no `workflows` permission). Then build main's tip.
+          if [ -n "$pr" ]; then
+            main=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$main...$sha" --jq .status)
+            case $status in
+              ahead|identical) ;;
+              *)
+                msg="Release PR #$pr (${sha:0:7}) doesn't contain main's tip (compare: $status), so this builds main at ${main:0:7} instead."
+                echo "::notice::$msg"
+                echo "$msg" >>"$GITHUB_STEP_SUMMARY"
+                # main's own desktop/package.json is still the last release,
+                # older than the nightlies of the next one: the version comes
+                # from the release PR's head, which bumped it.
+                release_sha=$sha sha=$main pr=
+                ;;
+            esac
+          fi
           {
             echo "build=true"
             echo "sha=$sha"
             echo "pr=$pr"
+            echo "release_sha=$release_sha"
             echo "publish=$publish"
           } >>"$GITHUB_OUTPUT"
           echo "Building $sha${pr:+ (release PR #$pr)}; publish: $publish"
@@ -146,19 +184,28 @@ jobs:
         if: steps.pick.outputs.build == 'true'
         run: scripts/chv-gpu/check-published.sh --download
 
-      # The version comes from the checkout's desktop/package.json and the
-      # date and run number: scripts/release-build.sh --check then refuses a
+      # The version comes from the checkout's desktop/package.json (the release
+      # PR head's, when main's tip is built instead: see "Pick the commit") and
+      # the date and run number: scripts/release-build.sh --check then refuses a
       # checkout that isn't clean, a package version that isn't a release,
       # and a tag that is already taken.
       - name: Version it and check it
         id: version
         if: steps.pick.outputs.build == 'true'
+        env:
+          RELEASE_SHA: ${{ steps.pick.outputs.release_sha }}
         run: |
           nightly=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
-          release=$(node -p "require('./desktop/package.json').version.split('-')[0]")
+          if [ -n "$RELEASE_SHA" ]; then
+            release=$(gh api "repos/$GITHUB_REPOSITORY/contents/desktop/package.json?ref=$RELEASE_SHA" \
+              -H 'Accept: application/vnd.github.raw+json' | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version.split('-')[0]")
+          else
+            release=$(node -p "require('./desktop/package.json').version.split('-')[0]")
+          fi
           version=$release-nightly.$nightly
-          scripts/release-build.sh --nightly "$nightly" --tag "v$version" --check
+          scripts/release-build.sh --nightly "$nightly" --release "$release" --tag "v$version" --check
           {
+            echo "release=$release"
             echo "nightly=$nightly"
             echo "version=$version"
             echo "tag=v$version"
@@ -169,12 +216,13 @@ jobs:
   linux:
     name: Linux build
     needs: resolve
-    if: needs.resolve.outputs.build == 'true'
+    if: needs.resolve.outputs.build == 'true' && inputs.native_only != true
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+      RELEASE: ${{ needs.resolve.outputs.release }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -209,7 +257,7 @@ jobs:
       - run: npm --prefix desktop ci
 
       - name: Build the Linux nightly
-        run: scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --linux
+        run: scripts/release-build.sh --nightly "$NIGHTLY" --release "$RELEASE" --tag "$TAG" --linux
 
       - uses: actions/upload-artifact@v7
         with:
@@ -220,12 +268,13 @@ jobs:
   windows:
     name: Windows build
     needs: resolve
-    if: needs.resolve.outputs.build == 'true'
+    if: needs.resolve.outputs.build == 'true' && inputs.native_only != true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+      RELEASE: ${{ needs.resolve.outputs.release }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -261,7 +310,7 @@ jobs:
       - run: npm --prefix desktop ci
 
       - name: Build the Windows nightly
-        run: scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --windows
+        run: scripts/release-build.sh --nightly "$NIGHTLY" --release "$RELEASE" --tag "$TAG" --windows
 
       - uses: actions/upload-artifact@v7
         with:
@@ -274,12 +323,13 @@ jobs:
   macos:
     name: Mac app
     needs: resolve
-    if: needs.resolve.outputs.build == 'true'
+    if: needs.resolve.outputs.build == 'true' && inputs.native_only != true
     runs-on: macos-15
     timeout-minutes: 40
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+      RELEASE: ${{ needs.resolve.outputs.release }}
       VERSION: ${{ needs.resolve.outputs.version }}
       CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
       CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
@@ -307,7 +357,7 @@ jobs:
       # version is stamped into desktop/package.json for it first.
       - name: Build the Mac app
         run: |
-          scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --stamp
+          scripts/release-build.sh --nightly "$NIGHTLY" --release "$RELEASE" --tag "$TAG" --stamp
           if [ -z "$CSC_LINK" ]; then
             echo "::warning::No signing certificate: building an ad hoc signed, unnotarized app"
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
@@ -334,7 +384,7 @@ jobs:
           else
             echo "::warning::No signing certificate: the command-line tool is signed ad hoc, and not notarized"
           fi
-          scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --mac-cli
+          scripts/release-build.sh --nightly "$NIGHTLY" --release "$RELEASE" --tag "$TAG" --mac-cli
           if [ -n "${MAC_SIGN_IDENTITY:-}" ] && [ -n "$APPLE_ID" ]; then
             for f in desktop/dist/release/"$TAG"/agentbox-*-darwin-*; do
               ditto -c -k "$f" "$RUNNER_TEMP/notarize.zip"
@@ -359,12 +409,212 @@ jobs:
           path: mac/
           if-no-files-found: error
 
+  # The native app, experimental: a release build of agentbox-native on the
+  # Ubuntu the Electron app builds on, with FFmpeg linked statically, packaged
+  # as an AppImage (the install that updates itself), a bare binary, a .tar.gz,
+  # a .pacman and a .deb whose Depends dpkg-shlibdeps works out (WebKitGTK 4.1, ...).
+  # The AppImage leaves WebKitGTK to the system: its helper processes don't
+  # bundle. Its failure doesn't hold the nightly back (see publish).
+  native-linux:
+    name: Native app, Linux (experimental)
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      # As ci.yml's native job: X11, Wayland and Vulkan for GPUI, FFmpeg for
+      # the video player (bindgen wants libclang), WebKitGTK for HTML
+      # previews, ALSA for the chime; dpkg-dev for dpkg-shlibdeps.
+      - run: >-
+          sudo apt-get -o Acquire::Retries=3 update -q && sudo apt-get -o Acquire::Retries=3 install -yq --no-install-recommends
+          libxkbcommon-x11-dev libwayland-dev libvulkan-dev libfontconfig-dev libfreetype-dev libx11-xcb-dev libxcb1-dev
+          libclang-dev pkg-config nasm
+          libwebkit2gtk-4.1-dev libgtk-3-dev libasound2-dev dpkg-dev
+
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      # Its own cache, apart from ci.yml's debug builds: the release profile's
+      # dependencies, kept until Cargo.lock or the toolchain changes (the
+      # workspace's own crates are left out by rust-cache).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          shared-key: nightly-native
+
+      # FFmpeg 8.1, only what recordings need (H.264 in MP4), built as static
+      # libraries (scripts/build-ffmpeg.sh) and linked in, so the binary asks
+      # the system for no libavcodec: it starts on Arch and Debian 13, whose
+      # FFmpeg isn't the 6.1 Ubuntu 24.04 has. Cached by the script's hash.
+      - uses: actions/cache@v6
+        id: ffmpeg
+        with:
+          path: ffmpeg-static
+          key: ffmpeg-static-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+      - if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: scripts/build-ffmpeg.sh ffmpeg-static
+
+      - name: Build it
+        working-directory: native
+        env:
+          FFMPEG_DIR: ${{ github.workspace }}/ffmpeg-static
+        run: cargo build --release --locked -p agentbox-native --features ffmpeg-next/static
+
+      # appimagetool 1.9.1, checked, for the AppImage the app updates itself as.
+      - name: Package it
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/appimagetool" https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  $RUNNER_TEMP/appimagetool" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          APPIMAGETOOL="$RUNNER_TEMP/appimagetool" scripts/native-package.sh linux "$VERSION" native-out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-native-linux
+          path: native-out/
+          if-no-files-found: error
+
+  # The native app for Windows, as a zipped .exe, on windows-latest (minutes
+  # billed 2x): GPUI's release build compiles its DirectX shaders with the
+  # Windows SDK's fxc.exe, which a cross build from Linux doesn't have.
+  # Without the video feature, whose FFmpeg Windows has no package of: agents'
+  # recordings don't play there.
+  native-windows:
+    name: Native app, Windows (experimental)
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          shared-key: nightly-native
+
+      - name: Build it
+        working-directory: native
+        run: cargo build --release --locked -p agentbox-native --no-default-features
+
+      - name: Package it
+        run: scripts/native-package.sh windows "$VERSION" native-out
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-native-windows
+          path: native-out/
+          if-no-files-found: error
+
+  # The native app for a Mac, Apple Silicon only, as a .app in a .dmg: one
+  # macos-15 runner (minutes billed 10x), no tests. An Intel or universal
+  # build would compile the app a second time for x86_64. Signed and
+  # notarized as the Mac job above does, with the same secrets, when the
+  # repository has them; ad hoc signed otherwise, which the release notes
+  # say how to open. Without the video feature: Homebrew's FFmpeg links
+  # against /opt/homebrew, which a downloaded app can't count on.
+  native-macos:
+    name: Native app, macOS (experimental)
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      signed: ${{ steps.package.outputs.signed }}
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+      CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          shared-key: nightly-native
+
+      - name: Build it
+        working-directory: native
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: cargo build --release --locked -p agentbox-native --no-default-features
+
+      # The keychain as the Mac job's command-line tool step makes it.
+      - name: Sign, package and notarize it
+        id: package
+        run: |
+          signed=false
+          if [ -n "$CSC_LINK" ]; then
+            keychain=$RUNNER_TEMP/agentbox.keychain-db
+            password=$(openssl rand -hex 16)
+            security create-keychain -p "$password" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$password" "$keychain"
+            echo "$CSC_LINK" | base64 --decode >"$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+            rm -f "$RUNNER_TEMP/cert.p12"
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+            # shellcheck disable=SC2046 # one keychain path a word, as release.yml does
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            MAC_SIGN_IDENTITY=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')
+            [ -n "$MAC_SIGN_IDENTITY" ] || { echo "::error::the certificate has no Developer ID Application identity"; exit 1; }
+            export MAC_SIGN_IDENTITY
+          else
+            echo "::warning::No signing certificate: the native app is signed ad hoc, and not notarized"
+          fi
+          scripts/native-package.sh mac "$VERSION" native-out
+          if [ -n "${MAC_SIGN_IDENTITY:-}" ] && [ -n "$APPLE_ID" ]; then
+            for dmg in native-out/*.dmg; do
+              xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+              xcrun stapler staple "$dmg"
+            done
+            signed=true
+          elif [ -n "${MAC_SIGN_IDENTITY:-}" ]; then
+            echo "::warning::No Apple ID: the native app is signed but not notarized"
+          fi
+          echo "signed=$signed" >>"$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-native-mac
+          path: native-out/
+          if-no-files-found: error
+
   # Once every build has succeeded: SHA256SUMS over the lot, and — unless this
   # is a dry run — the prerelease, tagged at the commit it was built from,
-  # never marked latest; then the nightlies past the newest $KEEP go.
+  # never marked latest; then the nightlies past the newest $KEEP go. It
+  # waits for the native jobs but doesn't need them to succeed: without their
+  # artifacts it publishes the Electron app alone, as before they existed.
   publish:
     name: Publish
-    needs: [resolve, linux, windows, macos]
+    needs: [resolve, linux, windows, macos, native-linux, native-windows, native-macos]
     if: >-
       always() &&
       needs.resolve.outputs.build == 'true' &&
@@ -380,6 +630,7 @@ jobs:
       SHA: ${{ needs.resolve.outputs.sha }}
       PR: ${{ needs.resolve.outputs.pr }}
       PUBLISH: ${{ needs.resolve.outputs.publish }}
+      NATIVE_MAC_SIGNED: ${{ needs.native-macos.outputs.signed }}
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -406,6 +657,12 @@ jobs:
         run: |
           short=${SHA:0:7}
           notes="A nightly build of what's coming in the next release, from ${PR:+the release PR #$PR, }commit $short. Not a release: it may break, and it is never marked latest. Pick **Nightly** under Settings → Update channel (or run \`agentbox version --channel nightly\`) to be offered the next one."
+          if compgen -G 'out/AgentBox-Native-experimental-*' >/dev/null; then
+            notes+=$'\n\n'"**Experimental: the native app.** The \`AgentBox-Native-experimental-*\` files are AgentBox's desktop app rewritten in Rust and GPUI: for Linux (an AppImage that updates itself for any distribution with WebKitGTK 4.1; a .pacman for Arch (\`sudo pacman -U\`); a .deb for Ubuntu 24.04 and distributions built on it; a .tar.gz), Windows (.zip) and Apple Silicon Macs (.dmg). It talks to the same AgentBox, so install AgentBox as usual and start \`agentbox-native\` (on a Mac, AgentBox Native) instead of the app. It updates itself (a .deb install: from the release page) and can't yet: show an agent's iOS simulator; resize or restart the VM, run host setup or install the command-line tool (it shows the command to run instead); hide to the tray (it minimises). On Wayland, HTML previews are a still picture; on Windows and macOS, recordings don't play. There is no Intel Mac build."
+            if compgen -G 'out/AgentBox-Native-experimental-*.dmg' >/dev/null && [ "$NATIVE_MAC_SIGNED" != true ]; then
+              notes+=" The Mac app isn't notarized: after copying it to Applications, run \`xattr -dr com.apple.quarantine \"/Applications/AgentBox Native (experimental).app\"\` once, or macOS says it is damaged."
+            fi
+          fi
           gh release create "$TAG" out/* -R "$GITHUB_REPOSITORY" --target "$SHA" \
             --prerelease --latest=false --title "AgentBox $VERSION" --notes "$notes"
           url=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json url --jq .url)

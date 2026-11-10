@@ -112,6 +112,12 @@ const (
 	ChatError    = "error"
 )
 
+// ChatOptionPlan is AgentBox's own boolean setting beside the permission
+// mode, for a tool whose modes include plan: the chat plans, and runs on the
+// mode chosen beside it once the plan is approved or Plan is turned off. The
+// mode setting doesn't offer plan as a choice then.
+const ChatOptionPlan = "plan"
+
 // ChatOption is a setting of the session, like the model or the permission mode.
 type ChatOption struct {
 	ID          string             `json:"id"`
@@ -146,13 +152,14 @@ type ChatItem struct {
 	ID string `json:"id"`
 	// Turn is the ID of the user message whose turn this item belongs to.
 	Turn string `json:"turn"`
-	Kind string `json:"kind"` // user, aside, assistant, thought, tool, plan, permission, subagent, compaction, notice or error
+	Kind string `json:"kind"` // user, aside, assistant, thought, tool, plan, permission, subagent, compaction, goal, notice or error
 	Text string `json:"text,omitempty"`
 	// Images, on a user message or an aside, are the pictures sent with it.
 	Images []ChatImage `json:"images,omitempty"`
 	// Files, on a user message or an aside, are the other files sent with it.
 	Files []ChatFile `json:"files,omitempty"`
-	// Delivery, on an aside, is how that message reached the AI tool.
+	// Delivery, on an aside, is how that message reached the AI tool; on a
+	// user item, only ChatAsideStarting, while its turn waits for the tool.
 	Delivery string `json:"delivery,omitempty"`
 	// Woken, on a user item, marks a turn nobody prompted: the AI tool's
 	// session started it by itself, because a background task or a monitor it
@@ -165,7 +172,12 @@ type ChatItem struct {
 	// and the turn that prose starts. The app leaves these out of the
 	// timeline and shows the AgentEvent recorded beside them instead; the
 	// lead's own answer, an ordinary assistant message, is what stays.
-	Hidden     bool            `json:"hidden,omitempty"`
+	Hidden bool `json:"hidden,omitempty"`
+	// To, on a notice in a project's chat, is the agent the user wrote Text to
+	// from its composer (ChatMessageRequest.To): the app shows it as the
+	// user's message to that agent, and the lead reads it as "User told
+	// agent-31: …" at the start of its next turn.
+	To         string          `json:"to,omitempty"`
 	Streaming  bool            `json:"streaming,omitempty"` // more text is coming
 	Tool       *ChatTool       `json:"tool,omitempty"`
 	Plan       []ChatPlanEntry `json:"plan,omitempty"`
@@ -177,6 +189,10 @@ type ChatItem struct {
 	// Compaction is set on a compaction's card (D73): the conversation being
 	// saved to the project's memory and carried on in a fresh session.
 	Compaction *ChatCompaction `json:"compaction,omitempty"`
+	// Goal is set on a goal row (kind goal): the
+	// agent's goal as it stood when it was set, checked, met, blocked or
+	// cleared. Text says what happened, in AgentBox's words.
+	Goal *AgentGoal `json:"goal,omitempty"`
 	// Handoff, on the notice a rollback or a fork leaves, is what the fresh
 	// session is told of the conversation before it: a context transfer the
 	// app lets you read, not a prompt hidden from you.
@@ -210,7 +226,7 @@ type ChatItem struct {
 }
 
 // ChatProjectMessage is a message one project's lead sent another's
-// (message_project, reply_project), or an alignment between them settled:
+// (message_project), or an alignment between them settled:
 // shown in both projects' chats, from each one's side.
 type ChatProjectMessage struct {
 	// Project is the other project: who sent it, or who it went to.
@@ -246,6 +262,10 @@ const (
 	ChatAsideLost     = "lost"     // the session ended before it could be delivered
 	ChatAsideHeld     = "held"     // sent while the chat compacted: it starts the fresh session's first turn
 	ChatAsideWaking   = "waking"   // sent to a stopped agent that waits for memory: it starts the turn once its machine does
+	// ChatAsideStarting is a message sent before the AI tool could take it:
+	// on a user item, its turn waits for the tool's session to start; on an
+	// aside, the agent's machine is still being made. It goes in once ready.
+	ChatAsideStarting = "starting"
 )
 
 // ChatCompaction is a compaction's card (D73). While it runs, the chat is
@@ -330,11 +350,15 @@ type ChatPermission struct {
 	Options []ChatPermissionOption `json:"options"`
 	Outcome string                 `json:"outcome,omitempty"` // the ID of the option chosen, or "cancelled"; empty while it waits
 	// Approval is set when AgentBox asks rather than the AI tool: what it
-	// is about ("skill", or "project" for a lead's first message to another
-	// project's), with Detail saying what would change and Diffs showing it.
+	// is about ("skill", "project" for a lead's first message to another
+	// project's, or "agent" for destroying an agent's uncommitted work), with Detail saying what would change and Diffs showing it.
 	Approval string     `json:"approval,omitempty"`
 	Detail   string     `json:"detail,omitempty"`
 	Diffs    []ChatDiff `json:"diffs,omitempty"`
+	// PlanApprove is set on a plan's approval (Claude Code's ExitPlanMode):
+	// the option that approves it and runs on the permission mode chosen
+	// beside Plan, bypass included.
+	PlanApprove string `json:"planApprove,omitempty"`
 }
 
 // ChatAgentPermission is an agent's permission request as its lead's chat
@@ -365,6 +389,9 @@ type ChatPermissionOption struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Kind string `json:"kind"` // allow_once, allow_always, reject_once or reject_always
+	// ModeKind is, for a plan's approval, the kind of permission mode the
+	// option runs the plan on, like full_access (ChatOptionChoice.Kind).
+	ModeKind string `json:"modeKind,omitempty"`
 }
 
 // ChatTurnResult is how a turn ended.
@@ -392,6 +419,12 @@ type ChatMessageRequest struct {
 	Text   string            `json:"text"`
 	Images []ChatImageUpload `json:"images,omitempty"`
 	Files  []ChatFileUpload  `json:"files,omitempty"`
+	// To, on a message to a project's chat, is one of the project's agents by
+	// name: the message goes to that agent's chat instead, as its own chat or
+	// tell_agent sends it, and the project's chat keeps it as a notice with
+	// ChatItem.To that the lead reads at its next turn, starting none. The
+	// answer is that notice.
+	To string `json:"to,omitempty"`
 }
 
 // ChatImage is a picture sent with a message. Its bytes are kept in a file
@@ -463,6 +496,9 @@ type ChatOptionRequest struct {
 // chatted with has nothing on disk, and Started is false.
 type ProjectChat struct {
 	Project string `json:"project"`
+	// Session is which of the chat's sessions this is (LeadSession.ID); ""
+	// when the project has none.
+	Session string `json:"session,omitempty"`
 	Ref     string `json:"ref"`     // the lead's agent ref, for the chat routes
 	Started bool   `json:"started"` // it has a worktree and a private HOME
 	// Worktree is where the lead reads the project, standing on BaseRef with a
@@ -473,6 +509,206 @@ type ProjectChat struct {
 	// Last is the chat's last message someone wrote, the user's or the
 	// lead's, for a list of the leads to show; absent before the first.
 	Last *ChatLine `json:"last,omitempty"`
+}
+
+// LeadSession is one of the sessions of a project's chat: a lead conversation
+// of its own on one topic, with its own context and the agents it made, whose
+// notices it hears. A project has as many as the user opens, or none. Notes,
+// memory, skills, schedules and the agent list are shared by all of them.
+type LeadSession struct {
+	Project string `json:"project"`
+	ID      string `json:"id"`  // for ?session= on the chat's routes
+	Ref     string `json:"ref"` // its lead's agent ref, which its chat events carry
+	Topic   string `json:"topic"`
+	// Untitled says Topic is a placeholder: the session was opened with none,
+	// and is named from its conversation once its lead's first turn ends,
+	// unless renamed first. The app shows its own word for it meanwhile.
+	Untitled bool `json:"untitled,omitempty"`
+	// Color is its pastel's name (rose, sky, lemon, mint, lilac, peach,
+	// teal, lime), which the app tints its tab and its agents with while
+	// the chat has more than one session; "" for none.
+	Color string `json:"color"`
+	// Chat is its conversation's state, as in ProjectChat.Chat.
+	Chat string `json:"chat"`
+	// Agents is how many of the project's agents are this session's.
+	Agents    int       `json:"agents"`
+	Last      *ChatLine `json:"last,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	// ActiveAt is its newest message's time, or CreatedAt: the most recently
+	// active session hears what belongs to no session.
+	ActiveAt time.Time `json:"activeAt"`
+	// ClosedAt is when a session in the chat's history was closed: it is read,
+	// reopened or continued from there, and starts no turn until reopened.
+	ClosedAt *time.Time `json:"closedAt,omitempty"`
+	// Status is where an open session stands, one of the Session* below:
+	// what its tab, its sidebar row and the phone's bar show, and what a
+	// notice is made from. "" for a closed one.
+	Status string `json:"status,omitempty"`
+	// NeedsYou is how many things wait on the user in it while Status is
+	// SessionNeedsYou: its own permission requests, the agents' it shows,
+	// and its agents' questions passed on to the user.
+	NeedsYou int `json:"needsYou,omitempty"`
+	// Questions is how many of NeedsYou are its agents' questions, which
+	// notify on their own (EventNotification); the rest are permission
+	// requests, which a notice about the session is for.
+	Questions int `json:"questions,omitempty"`
+	// AgentsWorking is how many of its agents are in a turn.
+	AgentsWorking int `json:"agentsWorking,omitempty"`
+	// SeenAt is when it was last on screen, in any window or on the phone
+	// (POST …/sessions/{session}/seen); nil when it never was.
+	SeenAt *time.Time `json:"seenAt,omitempty"`
+	// Unread says Last is newer than SeenAt, or, for one never seen, than
+	// CreatedAt: a new session isn't unread for being new.
+	Unread bool `json:"unread,omitempty"`
+	// Settled says a session in the history closed by itself: every pull
+	// request of its agents merged or closed, none of them working, and it
+	// idle for the project's SettleHours.
+	Settled bool `json:"settled,omitempty"`
+	// SnoozedUntil is when a snoozed session comes back among the tabs; it
+	// comes back sooner when one of its agents asks something or needs a
+	// permission. Absent when it isn't snoozed.
+	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
+	// Parent is the session it was forked or continued from, which the app
+	// links to; absent for a session opened afresh.
+	Parent *LeadSessionParent `json:"parent,omitempty"`
+	// Pinned keeps its tab before the others. The open sessions come in their
+	// tabs' order: pinned first, then as they were dragged, then as opened.
+	Pinned bool `json:"pinned,omitempty"`
+}
+
+// Where a chat session stands (LeadSession.Status), the first that applies.
+const (
+	// SessionNeedsYou: a permission request or a question waits on the user.
+	SessionNeedsYou = "needsYou"
+	// SessionFailed: its chat stopped on an error, or its turn stalled.
+	SessionFailed = "failed"
+	// SessionWorking: its lead is in a turn, or starting one.
+	SessionWorking = "working"
+	// SessionIdle: none of these.
+	SessionIdle = "idle"
+)
+
+// EventLeadSessionStatus carries a LeadSessionStatusChange when any open
+// session's Status, NeedsYou, AgentsWorking, Unread or SeenAt changes.
+const EventLeadSessionStatus = "lead.session.status"
+
+// LeadSessionStatusChange is a project's open sessions as they are now,
+// which a client puts in place of the list it holds.
+type LeadSessionStatusChange struct {
+	Project  string        `json:"project"`
+	Sessions []LeadSession `json:"sessions"`
+}
+
+// SeeLeadSessionRequest says when the session was on screen; zero is now.
+type SeeLeadSessionRequest struct {
+	At *time.Time `json:"at,omitempty"`
+}
+
+// LeadSessionParent is where a session came from: the session, and for a
+// fork the chat item of that session's it was cut at (Item; "" when it was
+// continued from all of it). Topic is the parent's now, "" once it has been
+// deleted, and Closed says it is in the chat's history.
+type LeadSessionParent struct {
+	Session string `json:"session"`
+	Item    string `json:"item,omitempty"`
+	Topic   string `json:"topic,omitempty"`
+	Closed  bool   `json:"closed,omitempty"`
+}
+
+// LeadSessionFork names a point in a session's conversation to fork a new
+// session from: the session, and the chat item the copy ends with.
+type LeadSessionFork struct {
+	Session string `json:"session"`
+	Item    string `json:"item"`
+}
+
+// LeadSessionSnooze snoozes a session until Until (POST
+// .../sessions/{session}/snooze), or with none brings it back now.
+type LeadSessionSnooze struct {
+	Until *time.Time `json:"until,omitempty"`
+}
+
+// EventSessionsSettled carries a SessionsSettled when sessions settle into
+// the history by themselves, for the app's Undo.
+const EventSessionsSettled = "lead.sessions.settled"
+
+// SessionsSettled is the sessions of a project that just settled.
+type SessionsSettled struct {
+	Project  string        `json:"project"`
+	Sessions []LeadSession `json:"sessions"`
+}
+
+// SessionOutput is what a session made (GET .../sessions/{session}/output):
+// its agents, the live ones first and then those retired, each with its pull
+// request.
+type SessionOutput struct {
+	Project string         `json:"project"`
+	Session string         `json:"session"`
+	Agents  []SessionAgent `json:"agents"`
+}
+
+// SessionAgent is one of a session's agents and its pull request.
+type SessionAgent struct {
+	Ref    string `json:"ref"`
+	Name   string `json:"name"`
+	Title  string `json:"title"`
+	Branch string `json:"branch"`
+	// Archived says its machine is gone (ArchivedAgent): its diff can't be
+	// read, its pull request still counts.
+	Archived bool `json:"archived,omitempty"`
+	// Working says it is busy: a turn running, a question waiting or a job
+	// going.
+	Working bool `json:"working,omitempty"`
+	// PR is its pull request as last read, without waiting on GitHub; absent
+	// when none is known.
+	PR *PullRequest `json:"pr,omitempty"`
+}
+
+// EventLeadSessions carries a LeadSessionsChange when a project's sessions
+// are opened, renamed or deleted, or an agent moves between them.
+const EventLeadSessions = "lead.sessions"
+
+// LeadSessionsChange names the project whose sessions changed.
+type LeadSessionsChange struct {
+	Project string `json:"project"`
+}
+
+// NewLeadSessionRequest opens a session on a topic, or with none: then it is
+// untitled (LeadSession.Untitled) until its first turn names it.
+type NewLeadSessionRequest struct {
+	Topic string `json:"topic,omitempty"`
+	// From is the session it is opened from, whose AI tool, model, permission
+	// mode and effort it starts on; absent, the one most recently active.
+	From string `json:"from,omitempty"`
+	// ContinueFrom is a session, usually one in the chat's history, that the
+	// new one picks up from: it is opened on that one's topic and settings,
+	// under an id of its own, with a notice of where that one left off.
+	ContinueFrom string `json:"continueFrom,omitempty"`
+	// ForkFrom opens the session as a fork of another at one of its
+	// messages: on that one's topic and settings, its conversation copied up
+	// to and including the message, and its lead told what was said there.
+	// The agents stay the other session's. Not with ContinueFrom.
+	ForkFrom *LeadSessionFork `json:"forkFrom,omitempty"`
+}
+
+// LeadSessionPatch renames a session, pins or unpins it, or both; what it
+// leaves out stays as it is.
+type LeadSessionPatch struct {
+	Topic  string `json:"topic,omitempty"`
+	Pinned *bool  `json:"pinned,omitempty"`
+}
+
+// LeadSessionOrder is PUT /v1/projects/{project}/sessions/order: the chat's
+// open sessions in the order their tabs were dragged into. One left out
+// goes after them; pinned ones stay first.
+type LeadSessionOrder struct {
+	IDs []string `json:"ids"`
+}
+
+// AgentSessionRequest hands an agent to a session of its project's chat,
+// whose notices it then goes to; "" leaves it to none.
+type AgentSessionRequest struct {
+	Session string `json:"session"`
 }
 
 // ChatLine is one message of a chat, cut to its first lines: who wrote it
@@ -490,6 +726,7 @@ type ChatLine struct {
 // to compact the conversation first. Only a Claude Code lead has one.
 type ChatCache struct {
 	Project string `json:"project"`
+	Session string `json:"session,omitempty"` // which session's (LeadSession.ID); "" for the Home chat
 	// IdleSince is when the last turn ended, which is the last time the model
 	// was called; absent when no turn has ended since the daemon started, or
 	// while one runs.

@@ -63,3 +63,15 @@ test('orderProjects without grouping keeps one stable list that activity never r
   const later = orderProjects(input({ groupIdle: false, active: new Set(['gamma']) }));
   assert.deepEqual(names(later.rest), ['alpha', 'beta', 'delta', 'gamma']);
 });
+
+test('a project with a draft stays out of Idle like an active one, and a pin keeps its place', () => {
+  const names = (ps: T.Project[]) => ps.map((p) => p.name);
+  let out = orderProjects(input({ active: new Set(['beta']), drafts: new Set(['delta']) }));
+  assert.deepEqual(names(out.rest).sort(), ['beta', 'delta']);
+  assert.deepEqual(names(out.idle).sort(), ['alpha', 'gamma']);
+  out = orderProjects(input({ active: new Set(), drafts: new Set(['alpha']), pins: ['gamma'] }));
+  assert.deepEqual(names(out.pinned), ['gamma']);
+  assert.deepEqual(names(out.rest), ['alpha']);
+  out = orderProjects(input({ active: new Set(), drafts: new Set() }));
+  assert.equal(out.rest.length, 0);
+});

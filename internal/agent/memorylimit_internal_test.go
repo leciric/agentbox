@@ -1,21 +1,29 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
-func TestMemoryLimitLeavesTheVMItsShare(t *testing.T) {
+func TestMemoryLimitIsTheAgentsShareOfTheVM(t *testing.T) {
 	t.Parallel()
-	for total, want := range map[int64]int64{
-		16 * gib: 14 * gib, // an eighth
-		4 * gib:  3 * gib,  // at least 1 GiB
-		2 * gib:  1 * gib,  // never below half
-		0:        0,        // unknown: none
+	for _, c := range []struct {
+		total int64
+		share int
+		want  int64
+	}{
+		{18 * gib, 0, 18 * gib / 100 * 50}, // half by default: 9 GiB, not 16
+		{16 * gib, 50, 16 * gib / 100 * 50},
+		{16 * gib, 75, 16 * gib / 100 * 75},
+		{16 * gib, 99, 16 * gib / 100 * 90}, // never more than 90%
+		{16 * gib, 1, 16 * gib / 100 * 10},  // nor less than 10%
+		{0, 50, 0},                          // unknown: none
 	} {
-		if got := MemoryLimit(total); got != want {
-			t.Errorf("MemoryLimit(%d GiB) = %d MiB, want %d MiB", total/gib, got>>20, want>>20)
+		if got := MemoryLimit(c.total, c.share); got != c.want {
+			t.Errorf("MemoryLimit(%d GiB, %d%%) = %d MiB, want %d MiB", c.total/gib, c.share, got>>20, c.want>>20)
 		}
 	}
 }
@@ -139,7 +147,7 @@ func TestFreezeReclaimAndPopulated(t *testing.T) {
 	if err := freezeRun(root, "m", "k", true, write); err != nil || len(wrote) != 0 {
 		t.Fatalf("freezing a run with no cgroup: %v, %v", wrote, err)
 	}
-	if err := reclaimRun(root, "m", "k", write); err != nil || len(wrote) != 0 {
+	if err := reclaimRun(t.Context(), root, "m", "k", func(_ context.Context, path, value string, _ time.Duration) error { return write(path, value) }); err != nil || len(wrote) != 0 {
 		t.Fatalf("reclaiming a run with no cgroup: %v, %v", wrote, err)
 	}
 	if runPopulated(root, "m", "k") {
@@ -152,16 +160,32 @@ func TestFreezeReclaimAndPopulated(t *testing.T) {
 	if err := freezeRun(root, "m", "k", true, write); err != nil {
 		t.Fatal(err)
 	}
-	if err := reclaimRun(root, "m", "k", func(path, value string) error {
+	if err := reclaimRun(t.Context(), root, "m", "k", func(_ context.Context, path, value string, _ time.Duration) error {
 		wrote = append(wrote, filepath.Base(path)+"="+value)
 		return errReclaimShort // the kernel got what it could
 	}); err != nil {
 		t.Fatalf("a short reclaim is an error: %v", err)
 	}
-	if len(wrote) != 2 || wrote[0] != "cgroup.freeze=1" || wrote[1] != "memory.reclaim=3221225472" {
+	if len(wrote) != 2 || wrote[0] != "cgroup.freeze=1" || wrote[1] != "memory.reclaim=134217728" { // one chunk, then it fell short
 		t.Errorf("wrote %v", wrote)
 	}
 	if !runPopulated(root, "m", "k") {
 		t.Error("a run with processes isn't populated")
+	}
+}
+
+func TestAMachineBeingFrozenReadsAsFrozenBeforeTheKernelIsDone(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "lxc.payload.agentbox-p-1")
+	// Asked to freeze, a task still stuck in reclaim: not "frozen 1" yet.
+	writeCgroupFile(t, filepath.Join(dir, "cgroup.events"), "populated 1\nfrozen 0\n")
+	writeCgroupFile(t, filepath.Join(dir, "cgroup.freeze"), "1\n")
+	if running, frozen := machineRunning(root, "agentbox-p-1"); !running || !frozen {
+		t.Fatalf("running %v, frozen %v: want a machine being frozen to read as frozen", running, frozen)
+	}
+	writeCgroupFile(t, filepath.Join(dir, "cgroup.freeze"), "0\n")
+	if _, frozen := machineRunning(root, "agentbox-p-1"); frozen {
+		t.Fatal("a thawed machine reads as frozen")
 	}
 }

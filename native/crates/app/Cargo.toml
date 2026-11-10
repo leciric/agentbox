@@ -1,0 +1,87 @@
+[package]
+name = "agentbox-native"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[features]
+# Playing agents' recordings needs FFmpeg's libraries; checks for other
+# platforms (CI's cross-target cargo check) build without it.
+default = ["video"]
+video = ["dep:ffmpeg-next"]
+
+[dependencies]
+agentbox-api.workspace = true
+gpui.workspace = true
+# Syntax colours in chat's code blocks (gpui-component's syntect backend),
+# the diff and the file viewer (highlight.rs, with the same syntect and
+# syntax set). Pure Rust, so the Windows check cross-compiles; tree-sitter's
+# grammars are C and added 7.5 MB against syntect's 1.2 MB.
+gpui-component = { workspace = true, features = ["syntect"] }
+syntect = { version = "5.3", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
+two-face = { version = "0.4.5", default-features = false, features = ["syntect-fancy"] }
+gpui_platform.workspace = true
+# Lucide's icons (the Electron app's lucide-react), as gpui-component ships
+# them; icons.rs builds in only those the app draws.
+gpui-kit-assets = "0.9.0"
+# The recap's share card, an SVG rasterised to the PNG that is copied and
+# saved (recap_card.rs): the resvg GPUI already draws its icons with.
+resvg = { version = "0.46", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+serde_json.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+# ```mermaid blocks in chat, drawn natively (no webview): Mermaid → SVG.
+mermaid-rs-renderer = { version = "0.3.1", default-features = false }
+# The Markdown AST gpui-component parses into, for custom blocks.
+markdown = "1"
+# Review's recordings (H.264 High in MP4): decoded by FFmpeg's own decoder.
+ffmpeg-next = { version = "8", default-features = false, features = ["codec", "format", "software-scaling"], optional = true }
+# The frame type GPUI's RenderImage takes (gpui-pre uses image 0.25).
+image = { version = "0.25", default-features = false }
+# ```html preview blocks: a webview (WebKitGTK, WKWebView, WebView2) as a
+# child of the GPUI window.
+wry = "0.57"
+raw-window-handle = "0.6"
+alacritty_terminal = "0.26"
+vnc-rs = "0.6"
+agentbox-i18n.workspace = true
+# The Office (#668), drawn natively: crates/office.
+agentbox-office = { path = "../office" }
+async-channel = "2"
+# Updating the app in place (update.rs): the release's files over HTTPS, and
+# their SHA256 against the release's SHA256SUMS.
+sha2 = "0.10"
+humantime = "2"
+# A file the viewer shows as an image comes base64 in its JSON (FileContent.data).
+base64 = "0.22"
+# PDFs in Files, drawn page by page in pure Rust (no runtime library).
+hayro = "=0.8.0"
+# Do not disturb ends at 8 tomorrow morning, the user's own time.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# The tray icon and its menu (muda), as Electron's Tray. On Linux it is an
+# AppIndicator (libayatana-appindicator3, loaded at run time) over the GTK
+# webview::init already pumps.
+tray-icon = { version = "0.21", default-features = false }
+# OS notifications: D-Bus on Linux (gpui-pre-linux already builds it),
+# Notification Center and WinRT toasts elsewhere.
+notify-rust = "4.18"
+# The chime, synthesised (no sound file): just an output stream, ALSA on
+# Linux, CoreAudio, WASAPI.
+cpal = { version = "0.16", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# rustls (pure Rust but ring) with Mozilla's roots on Linux, where there's
+# no one system TLS library; the system's own elsewhere (schannel,
+# Security.framework), which also cross-checks for Windows without a C
+# toolchain.
+ureq = { version = "~3.1", default-features = false, features = ["rustls"] }
+gtk = "0.18"
+# The launcher icon's count (Unity's LauncherEntry signal); notify-rust's zbus.
+zbus = "5"
+# The same WebKitGTK wry uses (pinned as wry pins it): pages drawn offscreen
+# for ```html preview where child webviews can't be made (Wayland).
+webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+ureq = { version = "~3.1", default-features = false, features = ["native-tls"] }

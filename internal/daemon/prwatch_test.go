@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,13 +31,68 @@ type fakeGraphQL struct {
 	// remaining is what rateLimit.remaining says; 5000 when unset.
 	remaining int
 	resetAt   time.Time
+	// What an event trigger's look reads besides (eventtriggers_test.go):
+	// the account's login, the default branch's head, and every issue,
+	// filtered by the labels the query names.
+	viewer string
+	head   map[string]any
+	issues []map[string]any
+	// rest, when on, answers the REST calls a merge makes (mergewhengreen_test.go):
+	// reading one pull request and merging it, each merge kept as "9:squash",
+	// or refused with refuse when it is set.
+	rest   bool
+	merges []string
+	refuse string
 }
+
+var restPull = regexp.MustCompile(`^/repos/acme/hello-stack/pulls/(\d+)(/merge)?$`)
+
+// serveREST is fakeGraphQL's REST half, for what restPull matches.
+func (f *fakeGraphQL) serveREST(w http.ResponseWriter, r *http.Request) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	m := restPull.FindStringSubmatch(r.URL.Path)
+	if !f.rest || m == nil {
+		return false
+	}
+	n, _ := strconv.Atoi(m[1])
+	pr, ok := f.prs[n]
+	if !ok {
+		http.NotFound(w, r)
+		return true
+	}
+	if m[2] == "" {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"number": n, "title": pr["title"], "state": strings.ToLower(pr["state"].(string)), "draft": pr["isDraft"], "html_url": pr["url"],
+			"base": map[string]any{"ref": pr["baseRefName"]}, "head": map[string]any{"ref": pr["headRefName"], "sha": pr["headRefOid"]},
+		})
+		return true
+	}
+	if f.refuse != "" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]any{"message": f.refuse})
+		return true
+	}
+	var body struct {
+		MergeMethod string `json:"merge_method"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	f.merges = append(f.merges, fmt.Sprintf("%d:%s", n, body.MergeMethod))
+	pr["state"] = "MERGED"
+	_, _ = w.Write([]byte(`{"merged":true}`))
+	return true
+}
+
+var askedLabels = regexp.MustCompile(`issues\(states: OPEN, labels: (\[[^\]]*\])`)
 
 var askedNumber = regexp.MustCompile(`pr(\d+): pullRequest\(number: (\d+)\)`)
 
 func newFakeGraphQL(t *testing.T, d testDaemon) *fakeGraphQL {
 	f := &fakeGraphQL{t: t, prs: map[int]map[string]any{}, remaining: 5000}
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if f.serveREST(w, r) {
+			return
+		}
 		if r.URL.Path != "/graphql" || r.Method != http.MethodPost {
 			// The REST calls are the pull request cache's, which a finish or
 			// a fleet read can start: not the watch's business.
@@ -83,10 +139,32 @@ func newFakeGraphQL(t *testing.T, d testDaemon) *fakeGraphQL {
 		if reset.IsZero() {
 			reset = time.Now().Add(time.Hour)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+		data := map[string]any{
 			"rateLimit":  map[string]any{"remaining": f.remaining, "resetAt": reset.UTC().Format(time.RFC3339)},
 			"repository": repo,
-		}})
+		}
+		if strings.Contains(body.Query, "viewer { login }") {
+			data["viewer"] = map[string]any{"login": f.viewer}
+		}
+		if strings.Contains(body.Query, "defaultBranchRef") {
+			repo["defaultBranchRef"] = map[string]any{"name": "main", "target": f.head}
+		}
+		if m := askedLabels.FindStringSubmatch(body.Query); m != nil {
+			var labels []string
+			_ = json.Unmarshal([]byte(m[1]), &labels)
+			var nodes []any
+			for _, is := range f.issues {
+				for _, l := range is["labels"].(map[string]any)["nodes"].([]any) {
+					name := l.(map[string]any)["name"].(string)
+					if slices.ContainsFunc(labels, func(x string) bool { return strings.EqualFold(x, name) }) {
+						nodes = append(nodes, is)
+						break
+					}
+				}
+			}
+			repo["issues"] = map[string]any{"nodes": nodes}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 	}))
 	t.Cleanup(stub.Close)
 	d.setGitHub(t, stub.URL)
@@ -158,7 +236,7 @@ func recordPRWatch(d testDaemon) *prWatchRecorder {
 		rec.agents = append(rec.agents, a.Name+": "+text)
 		return told{woke: rec.woke}, nil
 	}
-	d.srv.prLead = func(_ context.Context, _ string, notice string, act bool) {
+	d.srv.prLead = func(_ context.Context, _, _ string, notice string, act bool) {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		rec.leads = append(rec.leads, leadNotice{notice, act})
@@ -360,6 +438,10 @@ func TestPRWatchPacesItself(t *testing.T) {
 	head := commitOn(t, agents["agent-01"], "reminders.txt")
 	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 	d.srv.prWatch.now = func() time.Time { return now }
+	// Someone looks at the project throughout: the pace while nobody does is
+	// TestPRWatchBacksOffWhileNobodyLooks'.
+	d.srv.presence.ttl = 24 * time.Hour
+	d.srv.presence.renew(api.PresenceRequest{Client: "desktop", Views: []api.PresenceView{{Project: "hello-stack"}}})
 	wait := func() time.Duration {
 		d.srv.prWatch.mu.Lock()
 		defer d.srv.prWatch.mu.Unlock()

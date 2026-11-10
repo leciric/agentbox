@@ -1,6 +1,7 @@
 package hostwsl
 
 import (
+	"archive/tar"
 	"bufio"
 	"context"
 	"crypto/rand"
@@ -517,5 +518,57 @@ func TestImportWithoutVirtualization(t *testing.T) {
 	}
 	if n := hits.Load(); n != 0 {
 		t.Errorf("the image was requested %d times", n)
+	}
+}
+
+// TestCheckVirtualization: the probe archive is accepted by a WSL that refuses
+// an empty one, and only a virtualization failure is an error.
+func TestCheckVirtualization(t *testing.T) {
+	ctx := context.Background()
+	d := fakeDistro(t)
+	if err := os.MkdirAll(d.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d.Env = append(d.Env, "FAKEWSL_STRICT_TAR=1")
+	if err := d.checkVirtualization(ctx); err != nil {
+		t.Fatalf("strict WSL: checkVirtualization = %v, want nil", err)
+	}
+	if st := d.Status(ctx); st.Exists {
+		t.Error("the probe distro was left registered")
+	}
+
+	other := fakeDistro(t)
+	_ = os.MkdirAll(other.Dir, 0o755)
+	other.Env = append(other.Env, "FAKEWSL_IMPORT_FAIL=1")
+	if err := other.checkVirtualization(ctx); err != nil {
+		t.Errorf("unrelated failure: checkVirtualization = %v, want nil", err)
+	}
+
+	none := fakeDistro(t)
+	_ = os.MkdirAll(none.Dir, 0o755)
+	none.Env = append(none.Env, "FAKEWSL_NO_VMP=1")
+	if err := none.checkVirtualization(ctx); !errors.Is(err, ErrNoVirtualization) {
+		t.Errorf("no virtualization: checkVirtualization = %v", err)
+	}
+}
+
+func TestProbeTar(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "probe.tar")
+	if err := probeTar(p); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := os.Open(p)
+	defer func() { _ = f.Close() }()
+	tr := tar.NewReader(f)
+	found := false
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			break
+		}
+		found = found || h.Name == "etc/os-release"
+	}
+	if !found {
+		t.Error("probe tar has no etc/os-release")
 	}
 }
