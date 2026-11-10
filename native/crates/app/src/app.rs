@@ -1102,20 +1102,60 @@ impl AppView {
                             .child(tab(1, "activity", t("chat.home.tab.status"), cx))
                             .child(tab(2, "brain", t("chat.home.tab.memory"), cx)),
                     )
-                    .child(
-                        div()
-                            .id("home-menu")
-                            .flex_none()
-                            .size_8()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_lg()
-                            .text_color(theme::muted())
-                            .cursor_pointer()
-                            .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
-                            .child(crate::icons::ic("ellipsis").size(px(15.))),
-                    ),
+                    // ChatMenu, on the chat's tab: it was a button that did
+                    // nothing.
+                    .when(self.sessions.home_tab == 0, |el| {
+                        use gpui_component::button::{Button, ButtonVariants as _};
+                        use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+                        let view = cx.entity().downgrade();
+                        el.child(
+                            Button::new("home-menu")
+                                .ghost()
+                                .compact()
+                                .size(px(32.))
+                                .text_color(theme::muted())
+                                .icon(crate::icons::ic("ellipsis").size(px(15.)))
+                                .tooltip(t("chat.menu.label"))
+                                .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
+                                    let (v1, v2) = (view.clone(), view.clone());
+                                    menu.min_w(px(200.))
+                                        .item(
+                                            PopupMenuItem::new(t("chat.menu.find"))
+                                                .icon(crate::icons::ic("search"))
+                                                .on_click(move |_, window, cx| {
+                                                    v1.update(cx, |this, cx| {
+                                                        if let Some(chat) = this.chat.clone() {
+                                                            chat.update(cx, |c, cx| {
+                                                                c.find_text(
+                                                                    String::new(),
+                                                                    window,
+                                                                    cx,
+                                                                )
+                                                            });
+                                                        }
+                                                    })
+                                                    .ok();
+                                                }),
+                                        )
+                                        .item(
+                                            PopupMenuItem::new(t("chat.tab.newChat"))
+                                                .icon(crate::icons::ic("plus"))
+                                                .on_click(move |_, _, cx| {
+                                                    v2.update(cx, |this, cx| {
+                                                        this.side.dialog = Some(
+                                                            sidebar_dialogs::Dialog::NewChat {
+                                                                project: agentbox_api::HOME_PROJECT
+                                                                    .into(),
+                                                            },
+                                                        );
+                                                        cx.notify();
+                                                    })
+                                                    .ok();
+                                                }),
+                                        )
+                                }),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -1232,6 +1272,16 @@ impl Render for AppView {
                     && agent::modal_escape(window, cx)
                 {
                     cx.stop_propagation();
+                    return;
+                }
+                // Escape leaves a session tab's rename as it was (the text
+                // box itself has no cancel).
+                if ev.keystroke.key == "escape"
+                    && !ev.keystroke.modifiers.modified()
+                    && this.sessions.renaming.take().is_some()
+                {
+                    cx.stop_propagation();
+                    cx.notify();
                     return;
                 }
                 // Ctrl+/ lists the shortcuts from anywhere, a text box

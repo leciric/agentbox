@@ -2001,12 +2001,8 @@ impl AppView {
                                         .child(t("shell.env.local")),
                                 ),
                         )
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_color(theme::subtle())
-                                .child(crate::icons::ic("chevrons-up-down").size(px(14.))),
-                        )
+                        // No chevrons: it opens nothing, and with them it
+                        // read as a select that didn't answer.
                         .into_any_element(),
                 );
                 row

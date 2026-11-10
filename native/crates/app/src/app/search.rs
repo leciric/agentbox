@@ -2168,14 +2168,12 @@ impl AppView {
             if p.asked.is_empty() && !typed && rows.is_empty() {
                 list.push(note(t("search.hint")));
             } else if let (Some(e), true) = (&p.error, rows.is_empty()) {
+                // The error line every other failed load draws.
                 list.push(
                     div()
                         .px_3()
-                        .py_8()
-                        .text_center()
-                        .text_size(theme::text::UI)
-                        .text_color(theme::rose(300))
-                        .child(e.clone())
+                        .py_3()
+                        .child(super::controls::error_line(e.clone()))
                         .into_any_element(),
                 );
             } else if rows.is_empty()

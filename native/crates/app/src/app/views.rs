@@ -1125,17 +1125,21 @@ impl AppView {
             .border_color(theme::line())
             .text_xs()
             .text_color(theme::muted())
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .font_family(theme::mono())
-                    .child(if booted {
-                        status.as_ref().map(|s| s.image.clone()).unwrap_or_default()
-                    } else {
-                        String::new()
-                    }),
-            )
+            // The image's name gives way last and is whole on hover; in a
+            // narrow panel it was cut to "system-images;an…" by the hint.
+            .child({
+                let image = if booted {
+                    status.as_ref().map(|s| s.image.clone()).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                super::controls::full_on_hover(
+                    div().min_w(px(96.)).truncate().font_family(theme::mono()),
+                    "android-image",
+                    image.clone(),
+                )
+                .child(image)
+            })
             .when_some(gpu.filter(|_| booted), |el, (on, problem)| {
                 let tip: SharedString = if on {
                     t("agent.android.gpuTip")
@@ -1164,13 +1168,21 @@ impl AppView {
                 )
             })
             .child(div().flex_1())
-            .child(div().flex_none().child(if !booted {
-                String::new()
-            } else if control {
-                t("agent.android.controlOn")
-            } else {
-                t("agent.android.viewOnly")
-            }));
+            .child({
+                let hint = if !booted {
+                    String::new()
+                } else if control {
+                    t("agent.android.controlOn")
+                } else {
+                    t("agent.android.viewOnly")
+                };
+                super::controls::full_on_hover(
+                    div().min_w_0().truncate(),
+                    "android-hint",
+                    hint.clone(),
+                )
+                .child(hint)
+            });
         v_flex()
             .size_full()
             .child(toolbar)

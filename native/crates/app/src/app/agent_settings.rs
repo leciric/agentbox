@@ -429,6 +429,9 @@ impl AppView {
                         .mt_2()
                         .gap_3()
                         .flex_wrap()
+                        // One height and one top: a longer hint made one
+                        // tile taller and centred the other against it.
+                        .items_stretch()
                         .child(metric(
                             "CPU".into(),
                             usage
@@ -660,14 +663,16 @@ impl AppView {
                     .flex_wrap()
                     .gap_3()
                     .items_end()
-                    .child(controls::labeled(
+                    // Each keeps a width it can be read at: beside the panel
+                    // they wrap to a row each, where they were 140px boxes.
+                    .child(div().flex_1().min_w(px(220.)).child(controls::labeled(
                         t("agent.secrets.name"),
                         Input::new(&s.name),
-                    ))
-                    .child(controls::labeled(
+                    )))
+                    .child(div().flex_1().min_w(px(220.)).child(controls::labeled(
                         t("agent.secrets.value"),
                         Input::new(&s.value).mask_toggle(),
-                    ))
+                    )))
                     .child(controls::button(
                         "secret-store",
                         t("agent.secrets.store"),

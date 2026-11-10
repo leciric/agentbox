@@ -2528,6 +2528,7 @@ impl AppView {
     /// many are open and how many of its agents are ready to review; Issues,
     /// Files, Evidence and Schedules. Only the lit one is named.
     pub(super) fn render_rail_switch(&self, agents: usize, cx: &mut Context<Self>) -> AnyElement {
+        let roomy = self.panel_box().width >= 380.;
         let (open, ready) = self.pull_counts();
         let tab = self.pulls.tab;
         let pulls_tab = self
@@ -2620,10 +2621,15 @@ impl AppView {
                             },
                         ))
                     })
-                    .when(!on || to == RailTab::Pulls, |el| {
+                    .when(!on || !roomy || to == RailTab::Pulls, |el| {
                         el.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
                     })
-                    .when(on, |el| el.child(div().min_w_0().truncate().child(t(key))))
+                    // Its name when the panel has room for it: in the list's
+                    // width it was squeezed to "..", so there the icon and
+                    // the count say it, and the tooltip the rest.
+                    .when(on && roomy, |el| {
+                        el.child(div().min_w_0().truncate().child(t(key)))
+                    })
                     .when(to == RailTab::Agents && agents > 0, |el| {
                         el.child(count(agents.to_string()))
                     })

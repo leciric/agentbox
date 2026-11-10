@@ -147,6 +147,8 @@ impl AppView {
     ) {
         self.settings = false;
         self.work = None;
+        // The viewer is the page's it was opened on: it stayed over Jobs.
+        self.side.foot.viewing = None;
         self.side.page = Some(page);
         if page == FootPage::Media && self.side.foot.search.is_none() {
             let search = cx.new(|cx| {
@@ -1843,6 +1845,7 @@ impl AppView {
                         .flex_none()
                         .w(px(56.))
                         .text_right()
+                        .whitespace_nowrap()
                         .text_size(theme::text::CAPTION)
                         .font_family(theme::MONO)
                         .text_color(theme::faint())
@@ -1908,6 +1911,17 @@ impl AppView {
                 )
                 .flex_basis(px(0.))
                 .flex_grow(1.1)
+                .relative()
+                // A log is for pasting somewhere: its Copy, in the corner.
+                .when(f.job.is_some() && !f.log.is_empty(), |el| {
+                    el.child(div().absolute().bottom(px(12.)).right(px(16.)).child(
+                        super::controls::copy_button(
+                            "job-log-copy",
+                            f.log.clone(),
+                            t("common.copy"),
+                        ),
+                    ))
+                })
                 .child(
                     div()
                         .id("job-log")
@@ -2471,6 +2485,11 @@ fn duration(from: &str, to: Option<&str>) -> String {
     let ms = end - start;
     if ms < 60_000 {
         format!("{:.1}s", ms as f64 / 1000.)
+    } else if ms >= 86_400_000 {
+        // Days and hours for one left running: not "2884m 5s".
+        format!("{}d {}h", ms / 86_400_000, ms % 86_400_000 / 3_600_000)
+    } else if ms >= 3_600_000 {
+        format!("{}h {}m", ms / 3_600_000, ms % 3_600_000 / 60_000)
     } else {
         format!(
             "{}m {}s",

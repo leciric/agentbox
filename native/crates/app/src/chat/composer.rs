@@ -2254,7 +2254,7 @@ impl ChatView {
                 // commands: each under its own head when there are both, as
                 // Electron's list, where they used to run on as one.
                 .when(!grouped, |el| {
-                    el.child(head(if token.starts_with('$') {
+                    el.child(head(if token.starts_with('$') || skills == menu.len() {
                         t("chat.composer.skills")
                     } else if mention {
                         t("chat.composer.mentions")

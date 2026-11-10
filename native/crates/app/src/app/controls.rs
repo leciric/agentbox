@@ -1013,15 +1013,14 @@ impl Row {
                         ..Default::default()
                     };
                     let on_more = on_more.clone();
-                    words.child(
-                        InteractiveText::new(
-                            more_id.clone(),
-                            StyledText::new(text).with_highlights(vec![(range.clone(), style)]),
-                        )
-                        .on_click(vec![range], move |_, window, cx| {
-                            on_more(&ClickEvent::default(), window, cx)
-                        }),
-                    )
+                    // The whole description opens it: the link alone, a
+                    // range of an InteractiveText, didn't answer a click.
+                    words
+                        .id(more_id.clone())
+                        .cursor_pointer()
+                        .on_click(move |ev, window, cx| on_more(ev, window, cx))
+                        .child(StyledText::new(text).with_highlights(vec![(range, style)]))
+                        .into_any_element()
                 }
                 None => match self
                     .code
@@ -1054,9 +1053,11 @@ impl Row {
                                 .into_iter()
                                 .filter(|r| r.len > 0)
                                 .collect();
-                        words.child(StyledText::new(self.description.clone()).with_runs(runs))
+                        words
+                            .child(StyledText::new(self.description.clone()).with_runs(runs))
+                            .into_any_element()
                     }
-                    None => words.child(self.description.clone()),
+                    None => words.child(self.description.clone()).into_any_element(),
                 },
             }
         });

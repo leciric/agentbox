@@ -244,7 +244,10 @@ fn metric(m: Metric) -> AnyElement {
         .child(
             h_flex()
                 .min_w_0()
-                .items_baseline()
+                // Centred in one fixed line: on a baseline the legend sat
+                // 5px under the title and made its card taller.
+                .h(px(20.))
+                .items_center()
                 .gap_2()
                 .child(
                     div()
@@ -279,16 +282,18 @@ fn metric(m: Metric) -> AnyElement {
                         .child(m.value),
                 ),
         )
-        .when_some(m.detail, |el, d| {
-            el.child(
-                div()
-                    .flex()
-                    .justify_end()
-                    .text_xs()
-                    .text_color(theme::subtle())
-                    .child(d),
-            )
-        })
+        // The line under it is kept when a metric has nothing to say there,
+        // so the cards are one height.
+        .child(
+            div()
+                .h(px(16.))
+                .flex()
+                .justify_end()
+                .text_xs()
+                .line_height(px(16.))
+                .text_color(theme::subtle())
+                .children(m.detail),
+        )
         .child(trend_line(m.series, m.floor, m.end, m.window_ms))
         .into_any_element()
 }

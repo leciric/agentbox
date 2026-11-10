@@ -905,7 +905,13 @@ impl AppView {
                     .iter()
                     .find(|x| &x.name == project)
                     .map(label_of)
-                    .unwrap_or_else(|| project.clone());
+                    .unwrap_or_else(|| {
+                        if project == agentbox_api::HOME_PROJECT {
+                            t("shell.nav.home")
+                        } else {
+                            project.clone()
+                        }
+                    });
                 modal(
                     "new-chat",
                     t("chat.tab.newChatTitle"),

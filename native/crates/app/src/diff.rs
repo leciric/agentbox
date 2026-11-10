@@ -707,6 +707,7 @@ pub fn table_with(
         };
         let code = matches!(l.kind, LineKind::Add | LineKind::Del | LineKind::Context);
         let lit_row = lit.is_some_and(|(a, b)| row >= a && row <= b);
+        let row_group = SharedString::from(format!("diff-row-{row}"));
         let plus = add.clone().filter(|_| code).map(|add| {
             div()
                 .id(ElementId::NamedInteger("note-add".into(), row as u64))
@@ -716,6 +717,10 @@ pub fn table_with(
                 .rounded_sm()
                 .text_color(theme::accent())
                 .cursor_pointer()
+                // On the row the pointer is over, as Electron's: a "+" on
+                // every line read as a column of additions.
+                .opacity(0.)
+                .group_hover(row_group.clone(), |s| s.opacity(1.))
                 .hover(|s| s.bg(theme::accent().opacity(0.2)))
                 .tooltip(|w, cx| {
                     gpui_component::tooltip::Tooltip::new(t("review.notes.addHint")).build(w, cx)
@@ -730,6 +735,7 @@ pub fn table_with(
         });
         let line = h_flex()
             .id(ElementId::NamedInteger("diff-row".into(), row as u64))
+            .group(row_group.clone())
             .when_some(drag.clone().filter(|_| code), |el, drag| {
                 let up = drag.clone();
                 el.on_mouse_move(move |ev: &MouseMoveEvent, window, cx| {

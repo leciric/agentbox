@@ -43,7 +43,7 @@ pub struct Sessions {
     /// Which list reads are still current, by project (Epochs).
     epochs: Epochs,
     output: HashMap<String, SessionOutput>,
-    renaming: Option<String>,
+    pub renaming: Option<String>,
     rename: Entity<InputState>,
     /// The projects whose snoozed sessions are open under their row.
     pub snoozed_open: HashSet<String>,
@@ -1017,9 +1017,11 @@ impl AppView {
             let unread = !on && self.sessions.unread(s);
             if self.sessions.renaming.as_ref() == Some(&s.id) {
                 return div()
-                    .w(px(200.))
+                    .w(px(168.))
                     .flex_none()
-                    .child(Input::new(&self.sessions.rename).small())
+                    // xsmall: the small box stood taller than the strip and
+                    // over the line under it.
+                    .child(Input::new(&self.sessions.rename).xsmall())
                     .into_any_element();
             }
             let (p, id) = (project.clone(), s.id.clone());
@@ -2081,13 +2083,15 @@ impl AppView {
                                     .text_size(caption)
                                     .line_height(px(18.))
                                     .text_color(theme::subtle())
-                                    .child(when(
-                                        Some("calendar-days"),
-                                        tv(
-                                            "sessions.activeAgo",
-                                            &[("when", time_ago(&s.active_at).into())],
-                                        ),
-                                    ))
+                                    .when(!time_ago(&s.active_at).is_empty(), |el| {
+                                        el.child(when(
+                                            Some("calendar-days"),
+                                            tv(
+                                                "sessions.activeAgo",
+                                                &[("when", time_ago(&s.active_at).into())],
+                                            ),
+                                        ))
+                                    })
                                     .when_some(s.closed_at.as_deref(), |el, c| {
                                         let key = if s.settled {
                                             "sessions.settledAgo"

@@ -812,7 +812,9 @@ impl AppView {
         } else {
             // StepText: the step as a terminal would show it, in a font of
             // clamp(8px, 1.6cqw, 13px), leading-relaxed, padded 4%/3% of the width.
-            let size = (w * 0.016).clamp(8., 13.);
+            // Never under 11px here: in the agent's panel (about 540px)
+            // Electron's 8px floor can't be read.
+            let size = (w * 0.016).clamp(11., 13.);
             div()
                 .absolute()
                 .inset_0()

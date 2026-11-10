@@ -244,9 +244,11 @@ fn card_box(icon: &'static str, title: String, description: String) -> Div {
 /// text-caption uppercase subtle, its value text-xl semibold, its hint two
 /// lines at most of text-caption leading-snug faint.
 fn stat(label: String, value: String, hint: String) -> AnyElement {
+    // Five abreast where there is room, and onto more rows where there
+    // isn't (beside the panel each was 85px of cut-off words).
     v_flex()
         .flex_1()
-        .flex_basis(px(0.))
+        .flex_basis(px(150.))
         .min_w_0()
         .p_3()
         .rounded_xl()
@@ -635,6 +637,7 @@ impl AppView {
         // grid-cols-2 md:grid-cols-5: five abreast in a window 768 wide.
         h_flex()
             .items_stretch()
+            .flex_wrap()
             .gap_3()
             .child(stat(
                 t("vm.tokens.tokens"),
@@ -903,7 +906,24 @@ impl AppView {
                             .items_end()
                             .gap(px(2.))
                             .children(columns),
-                    ),
+                    )
+                    // No column to draw: say so, where the columns would be.
+                    .when(peak == 0 || series.iter().all(|s| s.1.is_none()), |el| {
+                        el.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left(px(48.))
+                                .right_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(theme::text::CAPTION)
+                                .text_color(theme::faint())
+                                .child(t("vm.tokens.noneInStretch")),
+                        )
+                    }),
             )
             .child(
                 h_flex()
@@ -935,7 +955,7 @@ impl AppView {
             .text_xs()
             .font_weight(FontWeight::MEDIUM)
             .text_color(theme::muted())
-            .child(div().flex_1().min_w_0().child(t("vm.tokens.agent")))
+            .child(div().flex_1().min_w(px(120.)).child(t("vm.tokens.agent")))
             .child(head(t("vm.tokens.tokens"), 140.))
             .child(head(t("vm.tokens.cacheRead"), 56.))
             .child(head(t("vm.tokens.avgTPS"), 72.))
@@ -979,7 +999,7 @@ impl AppView {
                         .child(
                             h_flex()
                                 .flex_1()
-                                .min_w_0()
+                                .min_w(px(120.))
                                 .items_start()
                                 .gap_1p5()
                                 .child(
@@ -1069,8 +1089,18 @@ impl AppView {
                 .border_1()
                 .border_color(theme::line_faint())
                 .overflow_hidden()
-                .child(header)
-                .children(rows),
+                // Its columns keep their widths and the agent its name: a
+                // narrow page scrolls the table sideways.
+                .child(
+                    div().id("tokens-agents-scroll").overflow_x_scroll().child(
+                        v_flex()
+                            .w_full()
+                            .min_w(px(560.))
+                            .flex_none()
+                            .child(header)
+                            .children(rows),
+                    ),
+                ),
         )
         .into_any_element()
     }

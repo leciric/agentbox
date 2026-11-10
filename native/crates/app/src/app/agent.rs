@@ -2128,6 +2128,22 @@ pub fn modal_frame(window: &mut Window, cx: &mut App) {
     }
 }
 
+/// modal_trap gives another dialog's card (the larger forms') the same
+/// Tab: the card with the trap on it, and the handles for its Cancel and
+/// its confirm.
+pub fn modal_trap(card: Stateful<Div>) -> (Stateful<Div>, Option<(FocusHandle, FocusHandle)>) {
+    match modal_focus() {
+        Some(f) => (
+            card.track_focus(&f.card)
+                .key_context(MODAL_KEYS)
+                .on_action(|_: &ModalTab, window, cx| modal_step(false, window, cx))
+                .on_action(|_: &ModalTabPrev, window, cx| modal_step(true, window, cx)),
+            Some((f.cancel, f.confirm)),
+        ),
+        None => (card, None),
+    }
+}
+
 /// modal_step is Tab (back, with Shift) in a modal: the next of its own
 /// fields and buttons, and round to the first after the last.
 fn modal_step(back: bool, window: &mut Window, cx: &mut App) {
@@ -2208,6 +2224,7 @@ pub fn modal(
             .flex()
             .items_center()
             .justify_center()
+            .occlude()
             .on_mouse_down(MouseButton::Left, move |_, window, cx| backdrop(window, cx))
             .child(crate::motion::pop_in(
                 v_flex()
