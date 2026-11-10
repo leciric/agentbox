@@ -336,6 +336,28 @@ impl AppView {
             )
         });
         let at = place_card(hole, size(px(400.), px(300.)), vp);
+        // The spotlight and the card glide from step to step (Tour.tsx's
+        // transition-all, 300 ms ease-out) rather than jump.
+        let glide = |key: &str, v: Pixels| {
+            px(crate::motion::tween(
+                key,
+                f32::from(v),
+                std::time::Duration::from_millis(300),
+            ))
+        };
+        let hole = hole.map(|h| {
+            Bounds::new(
+                point(
+                    glide("tour-hole-x", h.origin.x),
+                    glide("tour-hole-y", h.origin.y),
+                ),
+                size(
+                    glide("tour-hole-w", h.size.width),
+                    glide("tour-hole-h", h.size.height),
+                ),
+            )
+        });
+        let at = point(glide("tour-card-x", at.x), glide("tour-card-y", at.y));
         let skip = |el: Div| {
             el.on_mouse_down(
                 MouseButton::Left,

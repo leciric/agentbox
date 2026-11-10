@@ -618,7 +618,8 @@ pub(super) fn tiny_monitor(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // Not `super::*`: gpui's own `test` macro would come with it.
+    use super::{Screen, St, screen_of, typing_pace};
 
     #[test]
     fn the_pace_quickens_with_tool_calls_as_electron_s_does() {

@@ -131,7 +131,7 @@ mod tests {
         // AgentCharacter's phase(): h = h*31 + code, |h| % 7000 ms.
         assert_eq!(phase(""), Duration::ZERO);
         assert_eq!(phase("a"), Duration::from_millis(97));
-        assert_eq!(phase("ab"), Duration::from_millis((97 * 31 + 98) % 7000));
+        assert_eq!(phase("ab"), Duration::from_millis(97 * 31 + 98));
         assert!(phase("demo/agent-01") < Duration::from_secs(7));
     }
 

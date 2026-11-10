@@ -249,6 +249,61 @@ fn tick(after: Duration) {
     .detach();
 }
 
+struct Tween {
+    from: f32,
+    to: f32,
+    at: std::time::Instant,
+}
+
+thread_local! {
+    static TWEENS: std::cell::RefCell<std::collections::HashMap<String, Tween>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// tween is a CSS transition on a number: where the value called `key`
+/// stands now on its way to `target`, having set out (ease-out, over
+/// `duration`) from wherever it stood when `target` last changed. Its first
+/// value is where it starts, with nothing to ease from. Frames are asked for
+/// only while it moves. For what moves from place to place (the tour's
+/// spotlight and card), where a spring's overshoot would be wrong.
+pub fn tween(key: &str, target: f32, duration: Duration) -> f32 {
+    let now = std::time::Instant::now();
+    let at = |t: &Tween| {
+        let p =
+            (now.duration_since(t.at).as_secs_f32() / duration.as_secs_f32().max(0.001)).min(1.);
+        (
+            t.from + (t.to - t.from) * bezier(0., 0., 0.58, 1.)(p),
+            p < 1.,
+        )
+    };
+    TWEENS.with(|tweens| {
+        let mut tweens = tweens.borrow_mut();
+        if reduced() {
+            return target;
+        }
+        if tweens.len() > 1024 {
+            tweens.clear();
+        }
+        let tween = tweens.entry(key.to_string()).or_insert(Tween {
+            from: target,
+            to: target,
+            at: now,
+        });
+        if tween.to != target {
+            *tween = Tween {
+                from: at(tween).0,
+                to: target,
+                at: now,
+            };
+        }
+        let (value, moving) = at(tween);
+        if moving {
+            beat(60.);
+        }
+        value
+    })
+}
+
 /// few plays a loop of `period` only `turns` times, from when the thing
 /// first shows, and then rests: for what Electron loops for ever on
 /// something that isn't doing anything (a sleeping agent's "z"), which here
@@ -941,6 +996,17 @@ pub fn chevron(id: impl Into<ElementId>, open: bool, size: Option<Pixels>) -> gp
     .into_any_element()
 }
 
+/// flip is a chevron-down that turns to point up when its menu or section
+/// is open (Electron's `rotate-180` with a 150 ms transition).
+pub fn flip(icon: gpui_component::Icon, id: impl Into<ElementId>, open: bool) -> gpui::AnyElement {
+    icon.with_spring(
+        id,
+        SpringAnimation::new(SNAPPY).to(if open { 1f32 } else { 0. }),
+        |icon, t| icon.rotate(gpui::radians(std::f32::consts::PI * t.clamp(0., 1.05))),
+    )
+    .into_any_element()
+}
+
 /// progress is a bar's fill, as a fraction of its track: it fills from
 /// empty when the bar first appears and glides to each new value after,
 /// where it would otherwise jump.
@@ -1222,7 +1288,7 @@ mod tests {
         // ab-monitor-scroll's first two stretches: held, then up a line.
         let stops = [(0., 0.), (0.2, 0.), (0.25, 7.), (0.45, 7.)];
         assert_eq!(keyframes(0.1, &stops, linear), 0.);
-        assert_eq!(keyframes(0.225, &stops, linear), 3.5);
+        assert!((keyframes(0.225, &stops, linear) - 3.5).abs() < 0.001);
         assert_eq!(keyframes(0.3, &stops, linear), 7.);
         assert_eq!(
             keyframes(0.9, &stops, linear),
@@ -1240,6 +1306,18 @@ mod tests {
         assert!(on_screen("motion-test-never-watched"));
         SCREEN.with(|s| s.borrow_mut().insert("motion-test-off".into(), false));
         assert!(!on_screen("motion-test-off"));
+    }
+
+    #[test]
+    fn a_tween_starts_where_it_is_and_heads_for_its_target() {
+        let d = Duration::from_millis(300);
+        assert_eq!(tween("motion-test-tween", 10., d), 10., "its first value");
+        let v = tween("motion-test-tween", 20., d);
+        assert!((10. ..20.).contains(&v), "on its way: {v}");
+        TWEENS.with(|t| {
+            t.borrow_mut().get_mut("motion-test-tween").unwrap().at -= Duration::from_secs(1)
+        });
+        assert_eq!(tween("motion-test-tween", 20., d), 20., "arrived");
     }
 
     #[test]

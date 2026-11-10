@@ -2106,11 +2106,13 @@ impl ChatView {
                             })
                     })),
             )
-            .child(
-                crate::icons::ic(if open { "chevron-up" } else { "chevron-down" })
+            .child(crate::motion::flip(
+                crate::icons::ic("chevron-down")
                     .size(px(14.))
                     .text_color(theme::subtle()),
-            );
+                "composer-plan-chevron",
+                open,
+            ));
         let list = open.then(|| {
             v_flex().mt_2().gap_1().children(plan.plan.iter().map(|e| {
                 let (color, text) = match e.status.as_str() {
