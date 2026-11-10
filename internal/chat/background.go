@@ -1,8 +1,13 @@
 package chat
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,7 +31,12 @@ import (
 // declares the asyncTasks capability (acp.SubagentSessionsMeta): spawned when
 // a command is backgrounded or a monitor starts, a state update when it ends.
 // While any runs the session isn't done, whatever its turn says
-// (api.ChatSession.Background).
+// (api.ChatSession.Background). Each is also listed with what the adapter
+// says of it (api.ChatSession.BackgroundTasks): its kind, how it ended, the
+// file its output goes to, which BackgroundTask reads from the tool's
+// machine. codex-acp reports its background terminals the same way, without
+// a summary or a file. A subagent still running when its turn ends is
+// listed too, pointing at its card.
 
 // wokenQuiet is how long a woken turn may go without a word from the adapter,
 // with none of its tool calls running, before it is taken to have ended. The
@@ -35,9 +45,31 @@ const wokenQuiet = 10 * time.Minute
 
 // bgTask is one of an adapter's background tasks.
 type bgTask struct {
+	id          string
+	kind        string // api.BackgroundCommand, …
 	description string
-	done        bool
+	// callID is the tool call that started it, and outputPath the file on
+	// the tool's machine its output goes to, when the adapter said.
+	callID, outputPath string
+	state              string // the adapter's: running, paused, completed, failed or stopped
+	summary            string
+	done               bool
+	startedAt, endedAt time.Time
+	// tail is the end of its output as it was when it ended, starting at
+	// byte tailStart of tailSize: what there is to show once the file is gone.
+	tail                string
+	tailStart, tailSize int64
 }
+
+// How much of a task's output one read gives, and how much it may ask for.
+const (
+	outputChunk    = 64 << 10
+	outputChunkMax = 1 << 20
+	// endedTasksKept is how many ended tasks a session goes on listing.
+	endedTasksKept = 20
+)
+
+var exitCodeIn = regexp.MustCompile(`(?i)exit code:? (-?\d+)`)
 
 // taskUpdate takes an async_task_* update. The conversation is locked.
 func (c *conversation) taskUpdate(ad *adapter, u acp.SessionUpdate) {
@@ -50,21 +82,42 @@ func (c *conversation) taskUpdate(ad *adapter, u acp.SessionUpdate) {
 	}
 	t := ad.tasks[u.AsyncTaskID]
 	if t == nil {
-		t = &bgTask{}
+		t = &bgTask{id: u.AsyncTaskID, kind: api.BackgroundOther, state: "running", startedAt: c.m.now()}
 		ad.tasks[u.AsyncTaskID] = t
 	}
 	if d := firstLine(cmp(u.Description, u.Name)); d != "" {
 		t.description = d
 	}
+	switch u.TaskType {
+	case "":
+	case "shell", "local_bash":
+		t.kind = api.BackgroundCommand
+	case "monitor", "local_monitor":
+		t.kind = api.BackgroundMonitor
+	default:
+		t.kind = api.BackgroundOther
+	}
+	if u.ToolCallID != "" {
+		t.callID = u.ToolCallID
+	}
+	if u.OutputFilePath != "" {
+		t.outputPath = u.OutputFilePath
+	}
+	if u.Summary != "" {
+		t.summary = u.Summary
+	}
 	switch u.State {
 	case "completed", "failed", "stopped":
+		t.state = u.State
 		if !t.done {
 			t.done = true
+			t.endedAt = c.m.now()
 			// What woke the session, for the woken turn that follows.
 			ad.woke = append(ad.woke, t.taskName())
+			c.keepTail(ad, t)
 		}
 	case "running", "paused":
-		t.done = false
+		t.state, t.done, t.endedAt = u.State, false, time.Time{}
 	}
 	c.syncBackground(ad)
 }
@@ -88,17 +141,148 @@ func (ad *adapter) background() []string {
 	return names
 }
 
+// callItem is the conversation's tool call with this call id, the agent's own
+// or a subagent's: nil when it has none. The conversation is locked.
+func (c *conversation) callItem(ad *adapter, callID string) *api.ChatItem {
+	if callID == "" {
+		return nil
+	}
+	if it := c.tools[callID]; it != nil {
+		return it
+	}
+	for _, sa := range ad.subagents {
+		if it := sa.tools[callID]; it != nil {
+			return it
+		}
+	}
+	// A call of a turn that ended: its command went into the background.
+	for i := len(c.items) - 1; i >= 0 && i >= len(c.items)-2000; i-- {
+		if it := c.items[i]; it.Tool != nil && it.Tool.CallID == callID {
+			return it
+		}
+	}
+	return nil
+}
+
+// task is t as the API gives it. The conversation is locked.
+func (c *conversation) task(ad *adapter, t *bgTask) api.ChatBackgroundTask {
+	out := api.ChatBackgroundTask{
+		ID: t.id, Kind: t.kind, Title: t.taskName(), Summary: t.summary,
+		StartedAt: t.startedAt, HasOutput: t.outputPath != "" || t.tail != "",
+	}
+	if it := c.callItem(ad, t.callID); it != nil {
+		out.Item, out.Command = it.ID, it.Tool.Command
+		out.HasOutput = out.HasOutput || it.Tool.Output != ""
+	}
+	switch {
+	case !t.done:
+		out.Status = api.BackgroundRunning
+	case t.state == "completed":
+		out.Status = api.BackgroundDone
+	case t.state == "failed" && strings.Contains(strings.ToLower(t.summary), "timed out"):
+		out.Status = api.BackgroundTimedOut
+	case t.state == "failed":
+		out.Status = api.BackgroundFailed
+	default:
+		out.Status = api.BackgroundStopped
+	}
+	if t.done {
+		ended := t.endedAt
+		out.EndedAt = &ended
+		if m := exitCodeIn.FindStringSubmatch(t.summary); m != nil {
+			if code, err := strconv.Atoi(m[1]); err == nil {
+				out.ExitCode = &code
+			}
+		}
+	}
+	return out
+}
+
+// subagentTask is a subagent that outlived its turn, as a background task.
+func subagentTask(sa *subagent) api.ChatBackgroundTask {
+	card := sa.card
+	out := api.ChatBackgroundTask{
+		ID: "subagent-" + card.ID, Kind: api.BackgroundSubagent, Title: card.Subagent.Name,
+		Command: card.Subagent.Task, StartedAt: card.CreatedAt, Item: card.ID,
+	}
+	switch card.Subagent.State {
+	case subagentRunning:
+		out.Status = api.BackgroundRunning
+	case "completed":
+		out.Status = api.BackgroundDone
+	case "failed":
+		out.Status = api.BackgroundFailed
+	default: // cancelled, disconnected, stopped
+		out.Status = api.BackgroundStopped
+	}
+	if out.Status != api.BackgroundRunning {
+		ended := card.UpdatedAt
+		if !sa.endedAt.IsZero() {
+			ended = sa.endedAt
+		}
+		out.EndedAt = &ended
+	}
+	return out
+}
+
+// backgroundTasks is the adapter's background work item by item, oldest
+// first: all that runs, and the last endedTasksKept that ended. The
+// conversation is locked.
+func (c *conversation) backgroundTasks(ad *adapter) []api.ChatBackgroundTask {
+	var tasks []api.ChatBackgroundTask
+	for _, t := range ad.tasks {
+		tasks = append(tasks, c.task(ad, t))
+	}
+	for _, sa := range ad.subagents {
+		if sa.background {
+			tasks = append(tasks, subagentTask(sa))
+		}
+	}
+	slices.SortFunc(tasks, func(a, b api.ChatBackgroundTask) int {
+		if d := a.StartedAt.Compare(b.StartedAt); d != 0 {
+			return d
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	ended := 0
+	for _, t := range tasks {
+		if t.EndedAt != nil {
+			ended++
+		}
+	}
+	return slices.DeleteFunc(tasks, func(t api.ChatBackgroundTask) bool {
+		if t.EndedAt == nil || ended <= endedTasksKept {
+			return false
+		}
+		ended--
+		return true
+	})
+}
+
+// outliveTurn marks the subagents still running as a turn ends as background
+// work: from here on they are what the session does between turns. The
+// conversation is locked.
+func (c *conversation) outliveTurn(ad *adapter) {
+	for _, sa := range ad.subagents {
+		if sa.card.Subagent.State == subagentRunning {
+			sa.background = true
+		}
+	}
+	c.syncBackground(ad)
+}
+
 // syncBackground shows what the adapter has running on the session. The
 // conversation is locked.
 func (c *conversation) syncBackground(ad *adapter) {
 	var now []string
+	var tasks []api.ChatBackgroundTask
 	if ad != nil && c.adapter == ad {
-		now = ad.background()
+		now, tasks = ad.background(), c.backgroundTasks(ad)
 	}
-	if slices.Equal(now, c.session.Background) {
+	if slices.Equal(now, c.session.Background) && reflect.DeepEqual(tasks, c.session.BackgroundTasks) {
 		return
 	}
-	c.session.Background = now
+	c.session.Background, c.session.BackgroundTasks = now, tasks
 	c.markSession()
 	c.flush(true)
 }
@@ -110,12 +294,89 @@ func (m *Manager) Background(ref string) []string {
 	if c == nil {
 		return nil
 	}
-	if l, ok := c.listingNow(); ok {
-		return slices.Clone(l.background)
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Clone(c.session.Background)
+}
+
+// keepTail reads the end of an ended task's output while its file is still
+// there, off the lock. The conversation is locked.
+func (c *conversation) keepTail(ad *adapter, t *bgTask) {
+	if t.outputPath == "" || c.m.ReadOutput == nil {
+		return
+	}
+	agent, path := c.agent, t.outputPath
+	c.m.background.Go(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		data, start, size, err := c.m.ReadOutput(ctx, agent, path, 0, outputChunk)
+		if err != nil {
+			return
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		had := t.tail != ""
+		t.tail, t.tailStart, t.tailSize = string(data), start, size
+		if !had && t.tail != "" {
+			c.syncBackground(ad) // HasOutput
+		}
+	})
+}
+
+// BackgroundTask is one of the background tasks of an agent's session, with
+// a piece of its output: its last limit bytes, or the limit bytes that end
+// at offset before. state.ErrNotFound when the session has no such task.
+func (m *Manager) BackgroundTask(ctx context.Context, a state.Agent, id string, before, limit int64) (api.ChatBackgroundDetail, error) {
+	if limit <= 0 {
+		limit = outputChunk
+	}
+	limit = min(limit, outputChunkMax)
+	var d api.ChatBackgroundDetail
+	c := m.existing(a.Ref())
+	if c == nil {
+		return d, fmt.Errorf("%w: %s has no background task %q", state.ErrNotFound, a.Ref(), id)
+	}
+	c.mu.Lock()
+	var path, tail, toolOutput string
+	var tailStart, tailSize int64
+	found := false
+	if ad := c.adapter; ad != nil {
+		if t := ad.tasks[id]; t != nil {
+			found, d.Task = true, c.task(ad, t)
+			path, tail, tailStart, tailSize = t.outputPath, t.tail, t.tailStart, t.tailSize
+			if it := c.callItem(ad, t.callID); it != nil {
+				toolOutput = it.Tool.Output
+			}
+		}
+		for _, sa := range ad.subagents {
+			if sa.background && "subagent-"+sa.card.ID == id {
+				found, d.Task = true, subagentTask(sa)
+			}
+		}
+	}
+	c.mu.Unlock()
+	if !found {
+		return d, fmt.Errorf("%w: %s has no background task %q", state.ErrNotFound, a.Ref(), id)
+	}
+	switch {
+	case path != "" && m.ReadOutput != nil:
+		data, start, size, err := m.ReadOutput(ctx, a, path, before, limit)
+		switch {
+		case err == nil:
+			d.Output, d.OutputStart, d.OutputSize = string(data), start, size
+		case tail != "" && (before <= 0 || before >= tailSize):
+			// The file went with the command; this is what was read as it ended.
+			d.Output, d.OutputStart, d.OutputSize = tail, tailStart, tailSize
+		default:
+			d.OutputError = err.Error()
+		}
+	case toolOutput != "":
+		// No file to read (codex-acp): what the chat kept of the command's
+		// own card, which is its end.
+		d.Output, d.OutputSize = toolOutput, int64(len(toolOutput))
+	}
+	d.Output = strings.ToValidUTF8(d.Output, "\uFFFD")
+	return d, nil
 }
 
 // wakes says whether an update that arrived with no turn running is the

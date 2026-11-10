@@ -389,6 +389,10 @@ type SessionUpdate struct {
 	Description string `json:"description,omitempty"`
 	TaskType    string `json:"taskType,omitempty"`
 	Summary     string `json:"summary,omitempty"`
+	// OutputFilePath, on any of the three, is the file on the tool's machine
+	// the task's output goes to, when the adapter knows it (claude-agent-acp,
+	// for a command). The task's ToolCallID is the call that started it.
+	OutputFilePath string `json:"outputFilePath,omitempty"`
 
 	// usage_update: the context window, and — on the update that follows a
 	// model result — what the session has cost so far (see Cost)

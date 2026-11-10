@@ -171,6 +171,12 @@ type Manager struct {
 	// ImageDir is the directory that keeps the pictures sent in an agent's
 	// chat (images.go). With none, a message can't carry any.
 	ImageDir func(project, agent string) string
+	// ReadOutput reads a piece of a file on the machine a's AI tool runs on,
+	// for a background task's output: the limit bytes that end at offset
+	// before, or the file's last limit bytes when before is 0. It answers
+	// with where the piece starts and how long the file is. Optional:
+	// without it a task shows only what its tool call kept.
+	ReadOutput func(ctx context.Context, a state.Agent, path string, before, limit int64) (data []byte, start, size int64, err error)
 
 	mu    sync.Mutex
 	convs map[string]*conversation
@@ -2640,6 +2646,7 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	if c.adapter != nil && !t.cancelled {
 		// Work the turn left running: until it ends, the agent isn't done.
 		result.Background = c.adapter.background()
+		c.outliveTurn(c.adapter)
 	}
 	var resumeAt, until time.Time
 	if limited {
