@@ -62,6 +62,10 @@ struct File {
     lines: (i64, i64),
 }
 
+/// OLDER are closed and merged pull requests before the fixtures, so the
+/// list is longer than a window (each one of the fixtures again).
+const OLDER: std::ops::Range<i64> = 600..624;
+
 const FIXTURES: &[Fixture] = &[
     Fixture {
         number: 716,
@@ -374,7 +378,11 @@ impl Pulls {
     }
 
     fn fixture(number: i64) -> Option<&'static Fixture> {
-        FIXTURES.iter().find(|f| f.number == number)
+        FIXTURES.iter().find(|f| f.number == number).or_else(|| {
+            OLDER
+                .contains(&number)
+                .then(|| &FIXTURES[number as usize % FIXTURES.len()])
+        })
     }
 
     fn labels_of(&self, f: &Fixture) -> Vec<Label> {
@@ -420,24 +428,36 @@ impl Pulls {
     pub fn pr(&self, number: i64) -> Option<PullRequest> {
         let f = Self::fixture(number)?;
         let files = Self::files(f);
+        // An older one is a fixture again, closed long ago on its own branch.
+        let older = OLDER.contains(&number);
         Some(PullRequest {
-            number: f.number,
+            number,
             title: f.title.into(),
-            state: if self.merged.contains(&f.number) {
+            state: if self.merged.contains(&number) || (older && number % 3 != 0) {
                 "merged".into()
+            } else if older {
+                "closed".into()
             } else {
                 f.state.into()
             },
             checks: f.checks.into(),
-            url: format!("https://github.com/{REPO}/pull/{}", f.number),
+            url: format!("https://github.com/{REPO}/pull/{number}"),
             draft: f.draft,
             additions: files.iter().map(|(p, _)| p.additions).sum(),
             deletions: files.iter().map(|(p, _)| p.deletions).sum(),
             comments: f.comments,
-            updated_at: Some(self.ago(f.ago)),
-            base_branch: f.base.into(),
-            head_branch: f.head.into(),
-            head_sha: format!("{:040x}", f.number as u128 * 0x9e3779b97f4a7c15),
+            updated_at: Some(self.ago(if older {
+                f.ago + (700 - number as u64) * 600
+            } else {
+                f.ago
+            })),
+            base_branch: if older { "main".into() } else { f.base.into() },
+            head_branch: if older {
+                format!("agentbox/older-{number}")
+            } else {
+                f.head.into()
+            },
+            head_sha: format!("{:040x}", number as u128 * 0x9e3779b97f4a7c15),
             author: f.author.into(),
             agent: f.agent.into(),
             conflict: f.conflict,
@@ -455,7 +475,12 @@ impl Pulls {
             github: REPO.into(),
             github_account: "default".into(),
             github_login: "leciric".into(),
-            pull_requests: FIXTURES.iter().filter_map(|f| self.pr(f.number)).collect(),
+            pull_requests: FIXTURES
+                .iter()
+                .map(|f| f.number)
+                .chain(OLDER.rev())
+                .filter_map(|n| self.pr(n))
+                .collect(),
             can_merge: true,
             can_merge_known: true,
             merge_methods: vec!["squash".into(), "merge".into(), "rebase".into()],
