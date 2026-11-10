@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -171,6 +173,45 @@ func TestAnotherAppOverRemoteMCP(t *testing.T) {
 	}
 	if names := strings.Join(mcpToolNames(t, h.URL, full.Token), " "); !strings.HasSuffix(names, "message_lead lead_tools call_lead_tool") {
 		t.Errorf("a full pairing's tools = %s", names)
+	}
+
+	// The lead's tools are `agentbox mcp` on the project's chat socket, here
+	// a stand-in that says which socket it was given.
+	fake := filepath.Join(w.root, "fake-agentbox")
+	script := `#!/bin/sh
+while read -r line; do
+  case "$line" in
+    *'"id":2'*tools/list*) echo '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"list_agents"},{"name":"message_project"}]}}';;
+    *'"id":2'*) echo "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"called on $AGENTBOX_SOCKET\"}],\"isError\":false}}";;
+  esac
+done
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w.srv.cfg.Binary = fake
+	if text, failed := mcpTool(t, h.URL, full.Token, "lead_tools", map[string]any{"project": "hello-stack"}); failed || !strings.Contains(text, "list_agents") || !strings.Contains(text, "message_project") {
+		t.Errorf("lead_tools = %q, %v", text, failed)
+	}
+	if text, failed := mcpTool(t, h.URL, full.Token, "call_lead_tool", map[string]any{"project": "hello-stack", "tool": "list_agents"}); failed || !strings.Contains(text, "called on "+w.srv.leadSocketPath("hello-stack")) {
+		t.Errorf("call_lead_tool = %q, %v", text, failed)
+	}
+	if text, failed := mcpTool(t, h.URL, full.Token, "call_lead_tool", map[string]any{"project": "other-stack", "tool": "list_agents"}); failed || !strings.Contains(text, "called on "+w.srv.leadSocketPath("other-stack")) {
+		t.Errorf("call_lead_tool in another project = %q, %v", text, failed)
+	}
+	// A pairing for one project doesn't get the lead's way to other projects.
+	scoped, err := w.client.PairMCP(ctx, api.MCPPairRequest{Access: api.MCPAccessFull, Projects: []string{"hello-stack"}, Token: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, failed := mcpTool(t, h.URL, scoped.Token, "lead_tools", map[string]any{"project": "hello-stack"}); failed || strings.Contains(text, "message_project") {
+		t.Errorf("a scoped pairing's lead_tools = %q, %v", text, failed)
+	}
+	if text, failed := mcpTool(t, h.URL, scoped.Token, "call_lead_tool", map[string]any{"project": "hello-stack", "tool": "message_project", "arguments": map[string]any{"project": "other-stack"}}); !failed || !strings.Contains(text, "reaches other projects") {
+		t.Errorf("a scoped pairing's message_project = %q, %v", text, failed)
+	}
+	if err := w.client.RevokeMCPPairing(ctx, scoped.Pairing.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	list, err := w.client.MCPPairings(ctx)

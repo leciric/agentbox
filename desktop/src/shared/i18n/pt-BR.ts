@@ -722,7 +722,7 @@ export const ptBR: Messages = {
   'settings.entry.report-problem.keywords': 'bug problema feedback relatar logs suporte ajuda depurar issue report support help debug',
   'settings.section.phone.title': 'Celular',
   'settings.section.phone.description': 'Converse com seus projetos e agentes pelo celular: no app AgentBox, ou no navegador dele.',
-  'settings.section.apps.title': 'Usar o AgentBox em outro app',
+  'settings.section.apps.title': 'Outros apps',
   'settings.section.apps.description': 'Deixe um assistente como Claude, ChatGPT ou Poke ver seus projetos e falar com os leads deles, por MCP. Ele chega a este computador pelo seu hub, então nada é aberto na sua rede.',
   'settings.apps.keywords': 'mcp remoto conector claude chatgpt poke assistente app parear oauth token revogar outro externo lead',
   'settings.apps.pairedLabel': 'Apps pareados',

@@ -273,7 +273,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) error {
 	token := bearer(r)
 	if token == "" {
 		w.Header().Set("WWW-Authenticate", challenge)
-		return httpError{http.StatusUnauthorized, "pair this app with AgentBox first: in the AgentBox app, Settings, Use AgentBox in another app"}
+		return httpError{http.StatusUnauthorized, "pair this app with AgentBox first: in the AgentBox app, Settings, Other apps"}
 	}
 	invalid := func() error {
 		w.Header().Set("WWW-Authenticate", challenge+`, error="invalid_token"`)

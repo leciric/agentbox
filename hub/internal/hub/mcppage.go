@@ -68,8 +68,10 @@ func (s *Server) authorizePage(w http.ResponseWriter, r *http.Request) {
 	// and after that from this page's own form.
 	values := r.URL.Query()
 	if r.Method == http.MethodPost {
+		// A browser always says where a form was posted from. The page
+		// must not ask for "no-referrer": that makes the origin "null".
 		if r.Header.Get("Origin") == "" || !sameOrigin(r) {
-			render(http.StatusForbidden, authorizeData{Fatal: errOrigin.msg + "."})
+			render(http.StatusForbidden, authorizeData{Fatal: "The form was sent from another site, not from this page."})
 			return
 		}
 		values = r.PostForm

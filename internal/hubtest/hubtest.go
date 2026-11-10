@@ -49,7 +49,7 @@ type Hub struct {
 	envs     map[string]*environment // by ID
 	byToken  map[string]*environment
 	nextID   int
-	pairings map[string]*pairing // by code
+	pairings map[string]*pairing    // by code
 	mcp      map[string]*mcpPairing // by ID
 }
 

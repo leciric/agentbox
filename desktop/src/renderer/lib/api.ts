@@ -225,6 +225,10 @@ export const api = {
   lan: () => call<T.LANStatus>('GET', '/v1/lan'),
   updateLAN: (req: T.UpdateLANRequest) => call<T.LANStatus>('PATCH', '/v1/lan', req),
   pairLAN: () => call<T.LANPairing>('POST', '/v1/lan/pairings'),
+  mcpApps: () => call<T.MCPPairings>('GET', '/v1/remote/mcp'),
+  pairMCPApp: (req: T.MCPPairRequest) => call<T.MCPPairingSecret>('POST', '/v1/remote/mcp/pairings', req),
+  newMCPAppCode: (id: string) => call<T.MCPPairingSecret>('POST', `/v1/remote/mcp/pairings/${encodeURIComponent(id)}/code`),
+  revokeMCPApp: (id: string) => call<void>('DELETE', `/v1/remote/mcp/pairings/${encodeURIComponent(id)}`),
   removeLANPhone: (id: string) => call<void>('DELETE', `/v1/lan/phones/${encodeURIComponent(id)}`),
   updateLANPhone: (id: string, scopes: string[]) =>
     call<T.LANPhone>('PATCH', `/v1/lan/phones/${encodeURIComponent(id)}`, { scopes } satisfies T.UpdateLANPhoneRequest),

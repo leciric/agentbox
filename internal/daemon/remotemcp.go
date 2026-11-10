@@ -868,6 +868,14 @@ func (m *remoteMCP) leadMCP(ctx context.Context, project, method string, params 
 	return nil, errors.New("the lead's tools didn't answer")
 }
 
+// leadToolAllowed reports whether a pairing may call one of the lead's tools.
+// A pairing for some projects only doesn't get the one that talks to other
+// projects' leads: the lead may reach them, with the user's approval, but an
+// app that was given these projects wasn't given those.
+func (m *remoteMCP) leadToolAllowed(tool string) bool {
+	return len(m.pairing.Projects) == 0 || tool != "message_project"
+}
+
 func (m *remoteMCP) leadTools(ctx context.Context, project string) (string, error) {
 	project, err := m.project(project)
 	if err != nil {
@@ -883,6 +891,12 @@ func (m *remoteMCP) leadTools(ctx context.Context, project string) (string, erro
 	if err := json.Unmarshal(res, &list); err != nil {
 		return "", err
 	}
+	list.Tools = slices.DeleteFunc(list.Tools, func(raw json.RawMessage) bool {
+		var t struct {
+			Name string `json:"name"`
+		}
+		return json.Unmarshal(raw, &t) != nil || !m.leadToolAllowed(t.Name)
+	})
 	return compactJSON(list.Tools)
 }
 
@@ -893,6 +907,9 @@ func (m *remoteMCP) callLeadTool(ctx context.Context, project, tool string, args
 	}
 	if tool == "" {
 		return "", errors.New("say which tool: lead_tools lists them")
+	}
+	if !m.leadToolAllowed(tool) {
+		return "", fmt.Errorf("%s reaches other projects, and this app is paired with only some: lead_tools lists what it can call", tool)
 	}
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage("{}")

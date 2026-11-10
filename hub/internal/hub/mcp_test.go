@@ -302,6 +302,11 @@ func TestMCPAuthorizePageEscapes(t *testing.T) {
 	if regexp.MustCompile(`<script>alert`).Match(body) {
 		t.Errorf("the page runs what the app sent: %s", body)
 	}
+	// With "no-referrer" a browser posts the page's form with "Origin: null",
+	// which the page then refuses as another site's.
+	if strings.Contains(string(body), "no-referrer") || resp.Header.Get("Referrer-Policy") != "same-origin" {
+		t.Errorf("the page's referrer policy would make its own form's origin null")
+	}
 	if resp.Header.Get("X-Frame-Options") != "DENY" {
 		t.Error("the page can be framed")
 	}

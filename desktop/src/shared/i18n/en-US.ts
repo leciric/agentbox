@@ -721,7 +721,7 @@ export const enUS = {
   'settings.entry.report-problem.keywords': 'bug issue feedback report problem logs support help debug',
   'settings.section.phone.title': 'Phone',
   'settings.section.phone.description': 'Chat with your projects and agents from your phone: in the AgentBox app, or in its browser.',
-  'settings.section.apps.title': 'Use AgentBox in another app',
+  'settings.section.apps.title': 'Other apps',
   'settings.section.apps.description': 'Let an assistant such as Claude, ChatGPT or Poke see your projects and talk to their leads, over MCP. It reaches this computer through your hub, so nothing is opened on your network.',
   'settings.apps.keywords': 'mcp remote connector claude chatgpt poke assistant app pair oauth token revoke other outside lead',
   'settings.apps.pairedLabel': 'Paired apps',
