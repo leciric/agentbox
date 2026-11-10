@@ -1005,22 +1005,86 @@ export function asleepChat(ref: string): T.ChatThread {
 // it told agent-12 to push again: the credential cards come after it, drawn
 // from the project's questions rather than written into the conversation.
 // awaitingChat is agent-41's conversation: a turn that ended on a promise,
-// with the watch it started still running (ChatSession.background).
+// with the watch it started still running (ChatSession.background), and the
+// rest of what it left in the background, item by item
+// (ChatSession.backgroundTasks): a monitor, a subagent, a build that failed.
+const awaitingSince = Date.now();
+export function awaitingTasks(): T.ChatBackgroundTask[] {
+  const at = (ago: number) => new Date(awaitingSince - ago).toISOString();
+  return [
+    {
+      id: 'b0',
+      kind: 'command',
+      title: 'Build the release bundle',
+      command: 'npm --prefix desktop run dist -- --linux',
+      status: 'failed',
+      exitCode: 2,
+      startedAt: at(85_000),
+      endedAt: at(64_000),
+      summary: 'Background command "Build the release bundle" failed with exit code 2',
+      item: 'w1b',
+      hasOutput: true,
+    },
+    { id: 'b1', kind: 'command', title: 'Watch CI run 42', command: 'gh run watch 42 --exit-status --interval 30', status: 'running', startedAt: at(62_000), item: 'w1c', hasOutput: true },
+    { id: 'm1', kind: 'monitor', title: 'Errors in the deploy log', status: 'running', startedAt: at(61_500), summary: '2 events so far' },
+    { id: 'subagent-w1s', kind: 'subagent', title: 'general-purpose', command: 'Run the desktop test suite and report what fails', status: 'running', startedAt: at(70_000), item: 'w1s' },
+  ];
+}
+
+// awaitingOutput is what GET …/chat/background/{task} answers in the preview:
+// the watch's output grows a line every couple of seconds, as a live one does.
+export function awaitingOutput(id: string, before: number): T.ChatBackgroundDetail | undefined {
+  const task = awaitingTasks().find((t) => t.id === id);
+  if (!task) return undefined;
+  let text = '';
+  if (id === 'b0') {
+    text = Array.from({ length: 1400 }, (_, i) => `  • packaging  file=${String(i + 1).padStart(4, '0')}.asar.unpacked platform=linux arch=x64`).join('\n');
+    text += '\n  ⨯ cannot execute  cause=exit status 2\n    errorOut=fpm: no such file or directory: build/icons/512x512.png\n';
+  } else if (id === 'b1') {
+    const jobs = ['title', 'changes', 'go test', 'go vet', 'golangci-lint', 'desktop lint', 'desktop typecheck', 'desktop test', 'desktop build', 'native build', 'native test'];
+    const n = Math.floor((Date.now() - awaitingSince) / 2000) + 3;
+    text = 'Refreshing run status every 30 seconds. Press Ctrl+C to quit.\n\n* agentbox/release CI · 42\nTriggered via push about 1 minute ago\n\nJOBS\n';
+    text += Array.from({ length: n }, (_, i) => `${i < n - 1 ? '✓' : '*'} ${jobs[i % jobs.length]}${i >= jobs.length ? ` (${Math.floor(i / jobs.length) + 1})` : ''} ${i < n - 1 ? `in ${20 + ((i * 7) % 40)}s` : '(running)'}`).join('\n');
+    text += '\n';
+  }
+  const bytes = new TextEncoder().encode(text);
+  const end = before > 0 && before < bytes.length ? before : bytes.length;
+  const start = Math.max(0, end - 64 * 1024);
+  return { task, output: new TextDecoder().decode(bytes.subarray(start, end)), outputStart: start, outputSize: bytes.length };
+}
+
 export function awaitingChat(): T.ChatThread {
   const at = (ago: number) => new Date(Date.now() - ago).toISOString();
   return {
     agent: `${PROJECT}/agent-41`,
     seq: 1,
-    session: { state: 'ready', tool: 'claude', options: [], commands: [], background: ['Watch CI run 42'] },
+    session: { state: 'ready', tool: 'claude', options: [], commands: [], background: ['Errors in the deploy log', 'Watch CI run 42'], backgroundTasks: awaitingTasks() },
     items: [
       {
         id: 'w1',
         turn: 'w1',
         kind: 'user',
         text: 'Push the release branch and tell me when CI is green.',
-        result: { state: 'completed', stopReason: 'end_turn', endedAt: at(60_000), background: ['Watch CI run 42'] },
+        result: { state: 'completed', stopReason: 'end_turn', endedAt: at(60_000), background: ['Errors in the deploy log', 'Watch CI run 42'] },
         createdAt: at(90_000),
         updatedAt: at(60_000),
+      },
+      {
+        id: 'w1s',
+        turn: 'w1',
+        kind: 'subagent',
+        subagent: { name: 'general-purpose', task: 'Run the desktop test suite and report what fails', state: 'running' },
+        createdAt: at(70_000),
+        updatedAt: at(70_000),
+      },
+      {
+        id: 'w1st',
+        turn: 'w1',
+        kind: 'tool',
+        parent: 'w1s',
+        tool: { callId: 'sub-1', name: 'Bash', title: 'npm --prefix desktop test', kind: 'execute', status: 'in_progress', command: 'npm --prefix desktop test' },
+        createdAt: at(69_000),
+        updatedAt: at(69_000),
       },
       { id: 'w2', turn: 'w1', kind: 'assistant', text: "Pushed. CI is running; I'll report when it finishes.", createdAt: at(61_000), updatedAt: at(61_000) },
     ],
@@ -2571,6 +2635,12 @@ export function installDevBridge(): void {
       // The disk guard with room everywhere, so DiskGuardPill shows nothing
       // rather than reading the catch-all's answer as a guard.
       // A chat's AI tools for its composer's picker: Claude Code, ready.
+      // One of agent-41's background tasks, with its output (?chat=awaiting).
+      const bg = method === 'GET' ? /\/chat\/background\/([^/?]+)(?:\?before=(\d+))?$/.exec(path) : null;
+      if (bg) {
+        const detail = awaitingOutput(decodeURIComponent(bg[1]), Number(bg[2] ?? 0));
+        return detail ? { status: 200, body: JSON.stringify(detail), contentType: 'application/json' } : { status: 404, body: '{"error":"no such task"}', contentType: 'application/json' };
+      }
       if (method === 'GET' && /^\/v1\/projects\/[^/]+\/chat\/runners$/.test(path)) {
         const runners: T.LeadRunners = { tool: 'claude', account: 'default', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] };
         return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };

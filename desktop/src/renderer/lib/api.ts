@@ -363,6 +363,10 @@ export const api = {
   // kinds narrows it to items of those kinds (user, aside, assistant…).
   searchChat: (ref: string, query: string, kinds: string[] = []) =>
     call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query, ...(kinds.length ? { kinds: kinds.join(',') } : {}) })}`),
+  // One of a chat's background tasks with the end of its output, or the
+  // piece of it that ends at byte offset before.
+  chatBackgroundTask: (ref: string, task: string, before?: number) =>
+    call<T.ChatBackgroundDetail>('GET', `${chatBase(ref)}/background/${encodeURIComponent(task)}${before ? `?before=${before}` : ''}`),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
   // viewAgent says the app shows an agent: its builds go first while memory is
   // short, and one On hold after sitting idle starts again (daemon/viewing.go).
