@@ -97,14 +97,18 @@ fn choice_item(
                 !about.is_empty(),
                 |el| {
                     el.child(
-                        // A long one (plan's) wraps rather than
-                        // widening the menu past the window.
-                        div()
-                            .max_w(px(280.))
-                            .whitespace_normal()
-                            .text_xs()
-                            .text_color(theme::muted())
-                            .child(about.clone()),
+                        // A long one (plan's) wraps rather than widening
+                        // the menu past the window, and one that runs on (a
+                        // subagent's is a paragraph) stops at two lines, the
+                        // whole of it on hover.
+                        crate::app::controls::clamped(
+                            SharedString::from(format!("choice-about-{name}")),
+                            about.clone(),
+                            2,
+                        )
+                        .max_w(px(280.))
+                        .text_xs()
+                        .text_color(theme::muted()),
                     )
                 },
             ))
@@ -491,6 +495,7 @@ impl ChatView {
             })
             .when(!on, |el| el.text_color(theme::muted()))
             .hover(|el| el.bg(theme::surface_strong()))
+            .active(|s| s.bg(theme::surface_vivid()))
             .child(t("chat.options.plan"))
             .tooltip({
                 let tip = if on {

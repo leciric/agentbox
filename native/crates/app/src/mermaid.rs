@@ -84,6 +84,7 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
     };
     let overflows = OVERFLOWS.with(|o| o.borrow().get(&key).copied().unwrap_or(false));
     div()
+        .group("code")
         .w_full()
         .min_w_0()
         .rounded(px(12.))
@@ -112,7 +113,22 @@ pub fn code_block(lang: &str, text: &str) -> AnyElement {
                     } else {
                         lang.to_string()
                     },
-                )),
+                ))
+                // CodeBlock's Copy: there while the block is pointed at, and
+                // a tick for a moment once it has copied.
+                .child({
+                    let key = SharedString::from(format!("code-copy-{key:x}"));
+                    let shown = crate::motion::copied(&key);
+                    crate::app::controls::copy_button(
+                        key,
+                        text.trim_end_matches('\n').to_string(),
+                        agentbox_i18n::t("chat.markdown.copyCode"),
+                    )
+                    .when(!shown, |el| {
+                        el.text_color(gpui::transparent_black())
+                            .group_hover("code", |s| s.text_color(theme::subtle()))
+                    })
+                }),
         )
         .child(
             div()

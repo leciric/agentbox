@@ -185,6 +185,7 @@ impl ChatView {
                 .text_color(theme::faint())
                 .cursor_pointer()
                 .hover(|s| s.text_color(theme::primary()))
+                .active(|s| s.opacity(0.7))
                 .child(crate::icons::ic("git-merge"))
                 .child(if show {
                     t("evidence.hideMerged")
@@ -620,6 +621,7 @@ impl ChatView {
                                 .when(!disabled, |el| {
                                     el.cursor_pointer()
                                         .hover(|el| el.bg(theme::brand(600)))
+                                        .active(|s| s.bg(theme::brand(700)))
                                         .on_click(move |_, _, cx| {
                                             let project = project.clone();
                                             v.update(cx, |_, cx| {

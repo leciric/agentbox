@@ -963,6 +963,9 @@ impl ChatView {
         let (k1, k2) = (f.key, f.key);
         let (v1, v2) = (view.downgrade(), view.downgrade());
         v_flex()
+            .w_full()
+            .min_w_0()
+            .overflow_hidden()
             .px_4()
             .py_2()
             .items_end()
@@ -980,24 +983,39 @@ impl ChatView {
                     .text_color(theme::primary())
                     .child(f.text.clone()),
             )
+            // Why, on its own lines inside the column (the daemon's error
+            // can be a paragraph: three lines of it, the rest on hover),
+            // and what to do about it under that, where a long error can't
+            // push it off the page.
             .child(
                 h_flex()
-                    .max_w(relative(0.85))
-                    .flex_wrap()
+                    .w_full()
                     .justify_end()
-                    .items_center()
+                    .items_start()
                     .gap_2()
                     .text_xs()
                     .child(
                         div()
+                            .flex_none()
+                            .mt(px(1.))
                             .text_color(theme::error())
                             .child(crate::icons::ic("circle-alert")),
                     )
                     .child(
-                        div()
-                            .text_color(theme::error())
-                            .child(tv("chat.composer.notSent", &[("error", (&f.error).into())])),
-                    )
+                        crate::app::controls::clamped(
+                            ("failed-why", f.key as u64),
+                            tv("chat.composer.notSent", &[("error", (&f.error).into())]),
+                            3,
+                        )
+                        .max_w(relative(0.8))
+                        .text_color(theme::error()),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_none()
+                    .gap_1()
+                    .text_xs()
                     .child(crate::app::controls::button(
                         ("failed-retry", f.key as u64),
                         t("chat.sending.retry"),
@@ -1540,10 +1558,12 @@ impl ChatView {
                                                     .bg(theme::surface_raised())
                                                     .text_color(theme::primary())
                                                     .hover(|el| el.bg(theme::surface_strong()))
+                                                    .active(|s| s.bg(theme::surface_vivid()))
                                             } else {
                                                 el.bg(theme::brand(500))
                                                     .text_color(theme::on_brand())
                                                     .hover(|el| el.bg(theme::brand(600)))
+                                                    .active(|s| s.bg(theme::brand(700)))
                                             }
                                         })
                                         .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
@@ -1607,6 +1627,7 @@ impl ChatView {
                         .text_color(theme::title())
                         .cursor_pointer()
                         .hover(|el| el.bg(theme::surface_strong()))
+                        .active(|s| s.bg(theme::surface_vivid()))
                         .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
                             cx.emit(ChatAction::ReviewProject)
                         }))
@@ -2244,6 +2265,7 @@ impl ChatView {
                         .text_sm()
                         .when(i == ix, |el| el.bg(theme::surface_strong()))
                         .hover(|el| el.bg(theme::surface_strong()))
+                        .active(|s| s.bg(theme::surface_vivid()))
                         .on_click(move |_, window, cx| {
                             v.update(cx, |this, cx| this.pick(item.clone(), window, cx))
                         })
