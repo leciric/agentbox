@@ -624,6 +624,7 @@ impl AppView {
                     "common.close"
                 }),
                 false,
+                false,
                 move |_, w, cx| close(w, cx),
             );
         }
@@ -840,8 +841,15 @@ impl AppView {
                 .child(t("project.newAgent.moreOptions"))
                 .into_any_element(),
         );
+        // The body slides up when it has just been opened (Electron's slide-up).
+        let opened = crate::motion::changed("new-agent-more", &d.advanced);
         if d.advanced {
-            body.push(self.more_options(d, selected, &set, &flip));
+            let more = div().child(self.more_options(d, selected, &set, &flip));
+            body.push(match opened {
+                Some(n) => crate::motion::enter(more, ("new-agent-more-body", n as usize), 0)
+                    .into_any_element(),
+                None => more.into_any_element(),
+            });
         }
         let auth = d.auth.as_ref();
         let needs_login = auth.is_some_and(|a| match d.ai.as_str() {
@@ -916,6 +924,7 @@ impl AppView {
             cancel,
             t("project.newAgent.create"),
             d.project.is_empty() || d.busy,
+            d.busy,
             cx.listener(|this, _: &ClickEvent, _, cx| this.create_agent(cx)),
         )
     }

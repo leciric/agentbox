@@ -79,6 +79,8 @@ pub struct Sidebar {
     pub(super) hidden: HashSet<String>,
     activity: HashMap<String, ProjectActivity>,
     pub(super) agents: Vec<Agent>,
+    /// Whether the first list of agents has arrived (Home's skeleton rows until then).
+    pub(super) agents_loaded: bool,
     pub(super) questions: HashMap<String, Vec<Question>>,
     /// Each project's lead's last line (GET /v1/projects/<p>/lead).
     lines: HashMap<String, ChatLine>,
@@ -149,6 +151,7 @@ impl Sidebar {
             hidden: HashSet::new(),
             activity: HashMap::new(),
             agents: Vec::new(),
+            agents_loaded: false,
             questions: HashMap::new(),
             lines: HashMap::new(),
             review: Vec::new(),
@@ -245,6 +248,7 @@ impl AppView {
                 this.side.sections.sort_by_key(|s| s.position);
                 this.side.hidden = layout.hidden.into_iter().collect();
                 this.side.agents = agents;
+                this.side.agents_loaded = true;
                 this.check_agents(cx);
                 cx.notify();
             })
@@ -821,6 +825,8 @@ impl AppView {
         let line = self
             .line(HOME_PROJECT)
             .unwrap_or_else(|| t("v2.sidebar.homeHint"));
+        // Its chat in a turn: a spinner by its name.
+        let running = self.project_sessions(HOME_PROJECT).0;
         self.row("home", selected, cx)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.select_project(HOME_PROJECT.into(), window, cx)
@@ -842,12 +848,28 @@ impl AppView {
                     .min_w_0()
                     .flex_1()
                     .child(
-                        div()
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme::title())
-                            .truncate()
-                            .child(t("shell.nav.home")),
+                        h_flex()
+                            .min_w_0()
+                            .gap(px(6.))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .truncate()
+                                    .text_color(theme::title())
+                                    .child(t("shell.nav.home")),
+                            )
+                            .when(running, |el| {
+                                el.child(
+                                    div().flex_none().child(crate::motion::spin(
+                                        crate::icons::ic("loader-circle")
+                                            .size(px(12.))
+                                            .text_color(theme::subtle()),
+                                        "lead-spin-home",
+                                    )),
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -916,12 +938,13 @@ impl AppView {
             .or_else(|| self.line(&p.name))
             .unwrap_or_else(|| t("v2.sidebar.leadHint"));
         // ProjectLead (components/v2/SidebarV2.tsx), class for class.
-        let mut counts: Vec<(String, Hsla, bool)> = Vec::new();
+        let mut counts: Vec<(String, Hsla, bool, &str)> = Vec::new();
         if c.asks > 0 {
             counts.push((
                 tv("v2.count.needs", &[("count", c.asks.into())]),
                 theme::amber(300),
                 true,
+                "needs",
             ));
         }
         if c.failed > 0 {
@@ -929,6 +952,7 @@ impl AppView {
                 tv("v2.count.error", &[("count", c.failed.into())]),
                 theme::rose(300),
                 false,
+                "error",
             ));
         }
         if c.working > 0 {
@@ -936,6 +960,7 @@ impl AppView {
                 tv("v2.count.working", &[("count", c.working.into())]),
                 theme::subtle(),
                 false,
+                "working",
             ));
         }
         let working = c.working > 0 || s_working;
@@ -1152,10 +1177,24 @@ impl AppView {
                                 .flex_wrap()
                                 .gap_x_2()
                                 .text_size(theme::text::CAPTION)
-                                .children(counts.into_iter().map(|(s, c, strong)| {
-                                    div()
+                                .children(counts.into_iter().map(|(s, c, strong, st)| {
+                                    // StMark: amber asking, rose failed, a
+                                    // breathing neutral dot while working.
+                                    let dot = div().size(px(6.)).flex_none().rounded_full();
+                                    let mark = match st {
+                                        "needs" => dot.bg(theme::amber(400)).into_any_element(),
+                                        "error" => dot.bg(theme::rose(400)).into_any_element(),
+                                        _ => crate::motion::pulse_soft(
+                                            dot.bg(theme::secondary()),
+                                            SharedString::from(format!("count-dot-{}", p.name)),
+                                        )
+                                        .into_any_element(),
+                                    };
+                                    h_flex()
+                                        .gap_1()
                                         .text_color(c)
                                         .when(strong, |el| el.font_weight(FontWeight::MEDIUM))
+                                        .child(mark)
                                         .child(s)
                                 })),
                         )

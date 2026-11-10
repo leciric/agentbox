@@ -222,12 +222,14 @@ impl AppView {
         }
         self.draw_tray();
         self.alerts.active = window.is_window_active();
+        crate::motion::set_live(self.alerts.active);
         let activation = cx.observe_window_activation(window, |this, window, cx| {
             this.alerts.active = window.is_window_active();
-            if this.alerts.active {
-                // Back in front: what the toasts said is on screen.
-                cx.notify();
-            }
+            // Out of focus, what loops holds still; back in front, it plays
+            // again, and what the toasts said is on screen.
+            crate::motion::set_live(this.alerts.active);
+            window.refresh();
+            cx.notify();
         });
         let bounds = cx.observe_window_bounds(window, |this, _, _| {
             this.alerts.bounds_due = Some(Instant::now() + Duration::from_millis(500));

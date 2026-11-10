@@ -524,7 +524,17 @@ impl FileBrowser {
                     &[("error", e.into()), ("size", (&human_bytes(c.size)).into())],
                 ));
             }
-            _ => return note(t("common.loading")),
+            // SqliteView: one shimmering bar while the tables load.
+            _ => {
+                return div()
+                    .m_4()
+                    .child(crate::motion::skeleton(
+                        "sqlite-loading",
+                        gpui::relative(0.5),
+                        px(14.),
+                    ))
+                    .into_any_element();
+            }
         };
         if q.tables.is_empty() {
             return note(t("files.sqlite.empty"));
@@ -641,7 +651,30 @@ impl FileBrowser {
                     )))
                     .into_any_element();
             }
-            _ => return note(t("common.loading")),
+            // PdfView: a page-shaped shimmer (A4) until the document is read.
+            _ => {
+                return div()
+                    .flex()
+                    .justify_center()
+                    .p_4()
+                    .child(
+                        div()
+                            .relative()
+                            .w_full()
+                            .max_w(px(448.))
+                            .aspect_ratio(1. / 1.414)
+                            .rounded_sm()
+                            .overflow_hidden()
+                            .child(div().absolute().size_full().overflow_hidden().child(
+                                crate::motion::skeleton(
+                                    "pdf-loading",
+                                    gpui::relative(1.),
+                                    px(2000.),
+                                ),
+                            )),
+                    )
+                    .into_any_element();
+            }
         };
         let n = pages.pages.len();
         let page = self.page.min(n - 1);
@@ -885,7 +918,14 @@ impl FileBrowser {
                 )),
             );
         let body: AnyElement = match &self.content {
-            None => note(t("common.loading")),
+            // FileViewer: three shimmering lines until the file arrives.
+            None => v_flex()
+                .gap_2()
+                .p_4()
+                .children([2. / 3., 0.5, 0.6].into_iter().enumerate().map(|(i, w)| {
+                    crate::motion::skeleton(format!("file-loading-{i}"), gpui::relative(w), px(14.))
+                }))
+                .into_any_element(),
             Some(Err(_)) => note(t("files.viewer.gone")),
             Some(Ok(c)) => self.render_content(c, cx),
         };

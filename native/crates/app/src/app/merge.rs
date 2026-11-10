@@ -91,6 +91,7 @@ pub fn split(
     method: &str,
     methods: &[String],
     disabled: bool,
+    busy: bool,
     on_merge: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_pick: controls::Pick<str>,
     cx: &App,
@@ -152,6 +153,7 @@ pub fn split(
                         .hover(|s| s.opacity(0.9))
                         .on_click(on_merge)
                 })
+                .when(busy, |el| el.child(crate::icons::spinner()))
                 .child(text)
                 .children(hint),
         )

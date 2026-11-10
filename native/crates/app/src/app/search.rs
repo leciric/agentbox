@@ -881,6 +881,9 @@ impl AppView {
     fn run_command(&mut self, c: Cmd, other: bool, window: &mut Window, cx: &mut Context<Self>) {
         if c.setting {
             self.close_search(window, cx);
+            if let Some(id) = c.id.splitn(3, ':').nth(2) {
+                crate::motion::flash(format!("setting:{id}"));
+            }
             return self.open_setting(c.section, c.title, window, cx);
         }
         let current = match c.needs {
@@ -2103,6 +2106,7 @@ impl AppView {
         let query = p.input.read(cx).value().to_string();
         let (only, rest) = commands_only(&query);
         let typed = !rest.is_empty();
+        let querying = p.picking.is_none() && !only && query.trim() != p.asked;
         let mut list: Vec<AnyElement> = Vec::new();
         let mut side: Option<AnyElement> = None;
         let mut current_cmd: Option<Cmd> = None;
@@ -2411,12 +2415,20 @@ impl AppView {
                                     .px_4()
                                     .border_b_1()
                                     .border_color(theme::line())
-                                    .child(
+                                    .child(if querying {
+                                        // The query is out with the daemon: the icon turns.
+                                        div()
+                                            .flex_none()
+                                            .text_color(theme::subtle())
+                                            .child(crate::icons::spinner())
+                                            .into_any_element()
+                                    } else {
                                         crate::icons::ic("search")
                                             .size_4()
                                             .flex_none()
-                                            .text_color(theme::subtle()),
-                                    )
+                                            .text_color(theme::subtle())
+                                            .into_any_element()
+                                    })
                                     .children(picking_chip)
                                     .child(
                                         div()

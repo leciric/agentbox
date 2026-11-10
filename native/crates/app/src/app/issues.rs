@@ -378,7 +378,11 @@ impl AppView {
         let hand_tip: SharedString = tv("issues.handTip", &[("number", n.into())]).into();
         let agent_line = h.clone().map(|h| {
             let r = format!("{project}/{}", h.agent);
-            let mut el = h_flex().gap_1p5().child(crate::icons::of("◎"));
+            let mut el = h_flex().gap_1p5().child(if h.agent.is_empty() {
+                crate::icons::spinner()
+            } else {
+                crate::icons::of("◎")
+            });
             el = if h.agent.is_empty() {
                 el.child(t("issues.starting"))
             } else if !h.retired {
@@ -500,11 +504,11 @@ impl AppView {
                             div()
                                 .id(SharedString::from(format!("issue-hand-tip-{n}")))
                                 .tooltip(move |w, cx| Tooltip::new(hand_tip.clone()).build(w, cx))
-                                .child(controls::button(
+                                .child(controls::button_busy(
                                     SharedString::from(format!("issue-hand-{n}")),
                                     format!(
-                                        "{} {}",
-                                        if handing { "…" } else { "◎" },
+                                        "{}{}",
+                                        if handing { "" } else { "◎ " },
                                         t(if h.is_some() {
                                             "issues.handAgain"
                                         } else {
@@ -513,6 +517,7 @@ impl AppView {
                                     ),
                                     Btn::Secondary,
                                     handing,
+                                    false,
                                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         this.hand_issue(n, cx)
                                     }),

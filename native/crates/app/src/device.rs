@@ -412,7 +412,16 @@ impl Render for DeviceView {
                 )
             })
             .when_some(self.status.clone(), |el, s| {
-                el.child(div().text_sm().text_color(theme::muted()).child(s))
+                // Connecting is the one status that is a wait, not a failure.
+                let connecting = s.as_ref() == agentbox_i18n::t("device.connecting");
+                el.child(
+                    h_flex()
+                        .gap_2()
+                        .text_sm()
+                        .text_color(theme::muted())
+                        .when(connecting, |el| el.child(crate::icons::spinner()))
+                        .child(s),
+                )
             });
         let button =
             |id: &'static str, glyph: &'static str, key: &'static str, which: &'static str| {

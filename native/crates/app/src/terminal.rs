@@ -14,7 +14,7 @@ use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::v_flex;
+use gpui_component::{h_flex, v_flex};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::theme;
@@ -403,11 +403,15 @@ impl Render for TerminalView {
                     .children(self.render_rows()),
             )
             .when_some(self.status.clone(), |el, s| {
+                // Connecting is the one status that is a wait, not a failure.
+                let connecting = s.as_ref() == agentbox_i18n::t("device.connecting");
                 el.child(
-                    div()
+                    h_flex()
                         .pt_1()
+                        .gap_1p5()
                         .text_xs()
                         .text_color(theme::muted())
+                        .when(connecting, |el| el.child(crate::icons::spinner()))
                         .child(format!("{s} · {}×{}", size.cols, size.rows)),
                 )
             })

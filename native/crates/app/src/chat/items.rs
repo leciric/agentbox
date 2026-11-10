@@ -297,18 +297,21 @@ impl ChatView {
                             .text_color(theme::subtle())
                             .child(crate::icons::ic("brain").size(px(16.))),
                     )
-                    .child(if starting {
-                        if self.session.detail.is_empty() {
-                            tv(
-                                "chat.timeline.startingTool",
-                                &[("tool", super::tool_label(&self.session.tool).into())],
-                            )
+                    .child(crate::motion::shine(
+                        if starting {
+                            if self.session.detail.is_empty() {
+                                tv(
+                                    "chat.timeline.startingTool",
+                                    &[("tool", super::tool_label(&self.session.tool).into())],
+                                )
+                            } else {
+                                self.session.detail.clone()
+                            }
                         } else {
-                            self.session.detail.clone()
-                        }
-                    } else {
-                        t("chat.work.thinking")
-                    })
+                            t("chat.work.thinking")
+                        },
+                        "thinking-shine",
+                    ))
                     .into_any_element()
             }
             Row::Woken(i) => {
@@ -512,7 +515,12 @@ impl ChatView {
                     .max_w(px(896.))
                     .px_6()
                     .when(ix == 0, |el| el.pt_4())
-                    .child(body),
+                    // A search hit scrolled to is outlined for a moment.
+                    .child(crate::motion::revealed(
+                        div().rounded_lg().child(body),
+                        &r.key,
+                        crate::motion::Reveal::Hit,
+                    )),
             );
         match self.entering.get(&r.key) {
             Some(t) if t.elapsed() < std::time::Duration::from_millis(800) => {
@@ -653,7 +661,16 @@ impl ChatView {
                 )
             })
             .when_some(delivery, |el, (key, color)| {
-                el.child(div().pr_1().text_xs().text_color(color).child(t(&key)))
+                let label = div().pr_1().text_xs().text_color(color).child(t(&key));
+                // On its way, it says so only if that takes long enough to notice.
+                if it.delivery == "waiting" {
+                    el.child(crate::motion::appear_late(
+                        label,
+                        SharedString::from(format!("delivery-{}", it.id)),
+                    ))
+                } else {
+                    el.child(label)
+                }
             })
             .child(self.meta(it, true))
             .child({
@@ -861,17 +878,16 @@ impl ChatView {
                 .on_click(move |_, _, cx| v.update(cx, |this, cx| this.toggle(&k, cx)))
                 .line_height(relative(1.625))
                 .child(icon(g, theme::subtle()))
-                .child(
+                .child(if shine {
+                    crate::motion::shine(label, SharedString::from(format!("work-shine-{key}")))
+                } else {
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_color(if shine {
-                            theme::primary()
-                        } else {
-                            theme::subtle()
-                        })
-                        .child(label),
-                )
+                        .text_color(theme::subtle())
+                        .child(label)
+                        .into_any_element()
+                })
                 .when_some(extra, |el, e| {
                     el.child(
                         div()
@@ -977,7 +993,13 @@ impl ChatView {
                     theme::faint()
                 },
             ))
-            .child(
+            .child(if active && !failed {
+                // chat-shine while the call runs.
+                crate::motion::shine(
+                    rows::live_label(it),
+                    SharedString::from(format!("entry-shine-{}", it.id)),
+                )
+            } else {
                 div()
                     .min_w_0()
                     .truncate()
@@ -993,8 +1015,9 @@ impl ChatView {
                         rows::live_label(it)
                     } else {
                         rows::entry_label(it)
-                    }),
-            )
+                    })
+                    .into_any_element()
+            })
             .when(
                 it.tool.as_ref().is_some_and(|t| t.status == "stopped"),
                 |el| {
@@ -1178,12 +1201,18 @@ impl ChatView {
                                         div()
                                             .text_xs()
                                             .truncate()
-                                            .text_color(if running {
-                                                theme::primary()
+                                            .text_color(theme::faint())
+                                            .child(if running {
+                                                crate::motion::shine(
+                                                    summary,
+                                                    SharedString::from(format!(
+                                                        "sub-shine-{}",
+                                                        it.id
+                                                    )),
+                                                )
                                             } else {
-                                                theme::faint()
-                                            })
-                                            .child(summary),
+                                                summary.into_any_element()
+                                            }),
                                     ),
                             )
                             .child(state)
@@ -1262,13 +1291,12 @@ impl ChatView {
                 .mb_4()
                 .child(
                     card(theme::muted())
-                        .child(
-                            h_flex().gap_2().child(crate::icons::of("◌")).child(
-                                div()
-                                    .text_color(theme::primary())
-                                    .child(t("chat.compaction.running")),
+                        .child(h_flex().gap_2().child(crate::icons::of("◌")).child(
+                            crate::motion::shine(
+                                t("chat.compaction.running"),
+                                SharedString::from(format!("compaction-shine-{}", it.id)),
                             ),
-                        )
+                        ))
                         .when(c.waiting > 0, |el| {
                             el.child(div().text_color(theme::faint()).child(tv(
                                 "chat.compaction.waiting",
@@ -1896,6 +1924,7 @@ impl ChatView {
                                         .hover(|el| el.bg(theme::amber(200)))
                                         .on_click(answer(a.id.clone()))
                                 })
+                                .when(sending, |el| el.child(crate::icons::spinner()))
                                 .child(if sending {
                                     t("chat.permission.sending")
                                 } else {

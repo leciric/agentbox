@@ -1118,11 +1118,12 @@ impl AppView {
                                     .child(self.input_field("project-name")),
                             )
                             .when(changed, |el| {
-                                el.child(button(
+                                el.child(crate::app::controls::button_busy(
                                     "project-name-save",
                                     t("common.save"),
                                     Btn::Primary,
-                                    busy || draft.trim().is_empty(),
+                                    busy,
+                                    draft.trim().is_empty(),
                                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                                         this.save_project_name(a.clone(), cx)
                                     }),
@@ -1489,11 +1490,12 @@ impl AppView {
                         h_flex()
                             .gap_2()
                             .child(div().w(px(220.)).child(self.input_small("project-prefix")))
-                            .child(button(
+                            .child(crate::app::controls::button_busy(
                                 "project-prefix-save",
                                 t("common.save"),
                                 Btn::Secondary,
-                                busy || typed == p.branch_prefix,
+                                busy,
+                                typed == p.branch_prefix,
                                 cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     this.save_project_prefix(a.clone(), cx)
                                 }),
@@ -2392,11 +2394,12 @@ impl AppView {
                                         .min_w_0()
                                         .child(note(t("agent.secrets.note"))),
                                 )
-                                .child(button(
+                                .child(crate::app::controls::button_busy(
                                     "secret-store",
                                     t("agent.secrets.store"),
                                     Btn::Primary,
-                                    !ready || pp.busy,
+                                    pp.busy,
+                                    !ready,
                                     cx.listener(move |this, _: &ClickEvent, window, cx| {
                                         this.save_secret(a.clone(), window, cx)
                                     }),

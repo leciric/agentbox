@@ -10,6 +10,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod app;
 mod bench;
+mod character;
 mod chat;
 mod dates;
 #[cfg(feature = "video")]

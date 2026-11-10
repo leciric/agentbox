@@ -257,6 +257,19 @@ impl AppView {
             .border_color(theme::accent().opacity(0.5))
             .shadow_lg()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            // The progress bar: its fill glides to each step (300 ms in Electron).
+            .child(
+                div()
+                    .h(px(2.))
+                    .w_full()
+                    .rounded_full()
+                    .bg(theme::surface_raised())
+                    .child(crate::motion::progress(
+                        div().h_full().rounded_full().bg(theme::brand(400)),
+                        "tour-progress",
+                        (i + 1) as f32 / STEPS.len() as f32,
+                    )),
+            )
             .child(div().text_xs().text_color(theme::accent()).child(tv(
                 "tour.progress",
                 &[("step", (i + 1).into()), ("total", STEPS.len().into())],
@@ -378,9 +391,11 @@ impl AppView {
             }
             None => layer = layer.child(skip(div().absolute().inset_0().bg(dim))),
         }
-        layer
-            .child(div().absolute().left(at.x).top(at.y).child(card))
-            .into_any_element()
+        crate::motion::appear(
+            layer.child(div().absolute().left(at.x).top(at.y).child(card)),
+            "tour-overlay",
+        )
+        .into_any_element()
     }
 
     fn render_whats_new(&self, version: &str, cx: &mut Context<Self>) -> AnyElement {

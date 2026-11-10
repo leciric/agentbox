@@ -1495,19 +1495,27 @@ impl AppView {
                 .id(SharedString::from(format!("settings-group-{}", g.id)))
                 .gap_2p5()
                 .child(heading)
-                .children(g.entries.iter().map(|e| self.render_card(e, cx)))
+                .children(g.entries.iter().map(|e| {
+                    crate::motion::revealed(
+                        div().child(self.render_card(e, cx)),
+                        &format!("setting:{}", e.id),
+                        crate::motion::Reveal::Setting,
+                    )
+                }))
                 .into_any_element();
         }
         let mut rows = Vec::new();
         for (i, e) in g.entries.iter().enumerate() {
-            rows.push(
+            // The setting a search opened this section at is lit for a moment.
+            rows.push(crate::motion::revealed(
                 div()
                     .when(i > 0, |el| {
                         el.border_t_1().border_color(theme::line_faint())
                     })
-                    .child(self.render_entry(e, cx))
-                    .into_any_element(),
-            );
+                    .child(self.render_entry(e, cx)),
+                &format!("setting:{}", e.id),
+                crate::motion::Reveal::Setting,
+            ));
         }
         v_flex()
             .id(SharedString::from(format!("settings-group-{}", g.id)))

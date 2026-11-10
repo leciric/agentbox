@@ -18,7 +18,7 @@ use gpui_component::input::{Input, InputEvent, InputState, Textarea, TextareaSta
 use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
-use super::agent::{OnCancel, modal};
+use super::agent::{OnCancel, modal, modal_busy};
 use super::controls::{self, Btn};
 use super::sidebar::{data_image, shown_of};
 use super::sidebar_actions::label_of;
@@ -885,7 +885,7 @@ impl AppView {
                     controls::note(t("group.fanOut.how")),
                 ];
                 body.extend(error(err));
-                modal(
+                modal_busy(
                     "fan-out",
                     t("group.fanOut.title"),
                     Some(t("group.fanOut.description")),
@@ -894,6 +894,7 @@ impl AppView {
                     tv("group.fanOut.start", &[("count", n.into())]),
                     false,
                     *busy || task.read(cx).value().trim().is_empty() || n < 2,
+                    *busy,
                     cx.listener(|this, _: &ClickEvent, _, cx| this.start_fan_out(cx)),
                 )
             }

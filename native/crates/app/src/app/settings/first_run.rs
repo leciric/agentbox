@@ -752,11 +752,12 @@ impl AppView {
                 } else {
                     t("firstRun.check.goHome")
                 };
-                let go = button(
+                let go = crate::app::controls::button_busy(
                     "first-run-finish",
                     format!("{label} →"),
                     Btn::Primary,
                     fr.finishing,
+                    false,
                     cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.finish_first_run(window, cx)
                     }),
@@ -813,7 +814,13 @@ impl AppView {
         let query = fr.search.read(cx).value().to_lowercase();
         let words: Vec<&str> = query.split_whitespace().collect();
         let list: AnyElement = match &fr.repos {
-            None => note(t("firstRun.project.loading")),
+            None => h_flex()
+                .gap_2()
+                .text_sm()
+                .text_color(theme::subtle())
+                .child(crate::icons::spinner())
+                .child(t("firstRun.project.loading"))
+                .into_any_element(),
             Some(Err(e)) => crate::app::controls::error_line(e.clone()),
             Some(Ok(r)) if r.is_empty() && fr.repos.is_some() && query.is_empty() => {
                 note(t("firstRun.project.none"))

@@ -16,7 +16,7 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::super::AppView;
-use super::super::controls::{Btn, button, note_in, segmented};
+use super::super::controls::{Btn, note_in, segmented};
 use super::defaults::{human_bytes, time_ago};
 use super::kit::note;
 use super::kit::{card, link};
@@ -46,6 +46,8 @@ pub(super) struct Diagnostics {
     all: Vec<&'static str>,
     copied: Option<String>,
     polling: bool,
+    /// The five lists are being fetched.
+    fetching: bool,
 }
 
 /// format_ms is diagnostics.ts's formatMs: 0.42 ms, 12 ms, 1.50 s, 2m 3s.
@@ -381,6 +383,7 @@ impl AppView {
             d.window = "15m".into();
         }
         let (period, window) = (d.period.clone(), d.window.clone());
+        d.fetching = true;
         let client = self.client.clone();
         cx.spawn(async move |this, cx| {
             let spans = client
@@ -401,6 +404,7 @@ impl AppView {
             this.update(cx, |this, cx| {
                 let d = &mut this.settings_page.diagnostics;
                 let e = |e: anyhow::Error| e.to_string();
+                d.fetching = false;
                 d.spans = Some(spans.map_err(e));
                 d.stalls = Some(stalls.map_err(e));
                 d.files = Some(files.map_err(e));
@@ -476,10 +480,11 @@ impl AppView {
                             this.load_diagnostics(cx);
                         })),
                     ))
-                    .child(button(
+                    .child(crate::app::controls::button_busy(
                         "diag-refresh",
                         t("diagnostics.refresh"),
                         Btn::Ghost,
+                        d.fetching,
                         false,
                         cx.listener(|this, _: &ClickEvent, _, cx| this.load_diagnostics(cx)),
                     )),
