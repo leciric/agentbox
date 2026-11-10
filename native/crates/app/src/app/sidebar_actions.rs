@@ -1528,6 +1528,10 @@ impl AppView {
                     return;
                 }
             };
+            eprintln!(
+                "agentbox-native: updating to {} from {}",
+                plan.version, plan.url
+            );
             // The download blocks: a thread of its own, saying how far it got.
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             std::thread::spawn(move || {
@@ -1544,6 +1548,10 @@ impl AppView {
                 let stop = this
                     .update(cx, |this, cx| match msg {
                         Ok(Phase::Ready { version, relaunch }) => {
+                            eprintln!(
+                                "agentbox-native: update {version} installed at {}, restarting into it",
+                                relaunch.display()
+                            );
                             this.side.app_update = Some(Phase::Ready {
                                 version: version.clone(),
                                 relaunch: relaunch.clone(),
@@ -1586,6 +1594,7 @@ impl AppView {
     /// update_failed says why the update stopped, offering the release page.
     fn update_failed(&mut self, f: crate::update::Failure, pinned: &str, cx: &mut Context<Self>) {
         self.side.app_update = None;
+        eprintln!("agentbox-native: update failed: {}: {}", f.code, f.detail);
         let count = f.detail.parse::<usize>().unwrap_or(0);
         let msg = tv(
             &format!("shell.update.error.{}", f.code),
