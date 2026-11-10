@@ -38,7 +38,7 @@ pub fn init(cx: &mut App) {
     })
     .detach();
     cx.on_app_quit(|_| {
-        eprintln!("agentbox-native: quit handlers running");
+        log(format_args!("agentbox-native: quit handlers running"));
         async {}
     })
     .detach();
@@ -46,7 +46,7 @@ pub fn init(cx: &mut App) {
 
 /// quit quits the app, saying why in the log.
 pub fn quit(cx: &mut App, why: &str) {
-    eprintln!("agentbox-native: quitting: {why}");
+    log(format_args!("agentbox-native: quitting: {why}"));
     watchdog(GRACE);
     cx.quit();
 }
@@ -57,10 +57,19 @@ fn watchdog(grace: Duration) {
         .name("quit-watchdog".into())
         .spawn(move || {
             std::thread::sleep(grace);
-            eprintln!("agentbox-native: quitting took over {grace:?}, exiting");
+            log(format_args!(
+                "agentbox-native: quitting took over {grace:?}, exiting"
+            ));
             exit();
         })
         .ok();
+}
+
+/// log writes a line to stderr, ignoring a failed write: eprintln! panics
+/// on one (a closed pipe, a terminal gone), and quitting must not.
+pub fn log(line: std::fmt::Arguments) {
+    use std::io::Write as _;
+    let _ = writeln!(std::io::stderr(), "{line}");
 }
 
 /// exit ends the process now, with no destructors: the threads and children

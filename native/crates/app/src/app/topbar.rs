@@ -67,6 +67,8 @@ pub(super) fn chip(id: &'static str, color: Hsla) -> Stateful<Div> {
         .text_color(color)
         .cursor_pointer()
         .hover(move |s| s.bg(color.opacity(0.16)))
+        // Not the top bar's window drag (window_controls).
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 /// popover is a chip's card, under it, kept inside the window.
@@ -271,6 +273,7 @@ impl AppView {
                         .cursor_pointer()
                         .text_color(theme::muted())
                         .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.widths.nav = true;
                             cx.notify();
@@ -297,12 +300,11 @@ impl AppView {
                     .children(end),
             )
             .when(client_decorations(), |el| {
-                el.on_mouse_down(MouseButton::Left, |ev: &MouseDownEvent, window, _| {
-                    if ev.click_count == 2 {
-                        window.zoom_window();
-                    } else {
-                        DRAG_FROM.set(Some(ev.position));
-                    }
+                // Pressing on the bar and moving drags the window: the
+                // buttons on it stop the press from reaching here, and a
+                // click's jitter doesn't count.
+                el.on_mouse_down(MouseButton::Left, |ev: &MouseDownEvent, _, _| {
+                    DRAG_FROM.set(Some(ev.position));
                 })
                 .on_mouse_up(MouseButton::Left, |_, _, _| DRAG_FROM.set(None))
                 .on_mouse_move(|ev: &MouseMoveEvent, window, _| {
@@ -326,7 +328,9 @@ impl AppView {
     /// end, where the compositor draws no title bar for the window (GNOME's
     /// Wayland, which has no server-side decorations): without them the
     /// window has no close button at all. Close does what the window
-    /// manager's does (alerts.rs, close_window).
+    /// manager's does (alerts.rs, close_window). The bar itself drags the
+    /// window; what is clickable on it (these, the chips, Search) stops the
+    /// press from reaching it.
     fn window_controls(&self, cx: &mut Context<Self>) -> AnyElement {
         let has_tray = self.has_tray();
         let control = |id: &'static str, icon: &'static str, tip: String| {
@@ -403,6 +407,7 @@ impl AppView {
             .text_color(theme::muted())
             .cursor_pointer()
             .hover(|el| el.bg(theme::surface_raised()).text_color(theme::primary()))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_search(window, cx)))
             .child(crate::icons::ic("search").size(px(14.)))
             .child(theme::fit(

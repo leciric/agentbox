@@ -84,18 +84,18 @@ fn main() {
     }
     // Which build is running, for the logs: after an update's restart, the
     // new version's line follows the old one's.
-    eprintln!(
+    quit::log(format_args!(
         "agentbox-native {} (pid {}, {})",
         update::APP_VERSION,
         std::process::id(),
         std::env::current_exe()
             .map(|p| p.display().to_string())
             .unwrap_or_default()
-    );
+    ));
     if let Some(waited) = waited {
-        eprintln!(
+        quit::log(format_args!(
             "agentbox-native: restarted by an update, after the old version exited ({waited:.1?})"
-        );
+        ));
     }
     let client = agentbox_api::Client::new(socket);
     webview::set_client(client.clone());
