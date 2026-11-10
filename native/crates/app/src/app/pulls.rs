@@ -1692,6 +1692,7 @@ impl AppView {
                         .pr_1()
                         .text_size(px(11.5))
                         .text_color(theme::faint())
+                        .when(refreshing, |el| el.child(crate::icons::spinner()))
                         .child(if refreshing {
                             t("memory.pulls.refreshing")
                         } else {
@@ -2185,10 +2186,11 @@ impl AppView {
                                                             div()
                                                                 .flex_none()
                                                                 .text_color(color)
-                                                                .child(
+                                                                .child(crate::icons::icon(
+                                                                    mark,
                                                                     crate::icons::ic(mark)
                                                                         .size(px(14.)),
-                                                                ),
+                                                                )),
                                                         )
                                                         .child(
                                                             div()

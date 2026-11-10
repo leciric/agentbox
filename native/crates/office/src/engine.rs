@@ -374,18 +374,26 @@ fn run(
     // CPU) never queues more up.
     let mut in_flight = 0u32;
     let mut busy = true;
+    // When the monitor you're at next blinks, while nothing else moves.
+    let mut blink: Option<Instant> = None;
     let mut pace = Pace::new();
     loop {
         // Wait for something to do: while busy, only until the next frame's due.
         let wait = if busy && shown && in_flight < AHEAD {
             Some(Duration::from_millis(0))
         } else {
-            None
+            blink.map(|at| at.saturating_duration_since(Instant::now()))
         };
         let first = match wait {
             Some(d) => match rx.recv_timeout(d) {
                 Ok(m) => Some(m),
-                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Timeout) => {
+                    // The cursor's half second is up: one frame redraws it.
+                    if blink.take().is_some() {
+                        st.sim.poke();
+                    }
+                    None
+                }
                 Err(RecvTimeoutError::Disconnected) => break,
             },
             None => match rx.recv() {
@@ -461,6 +469,14 @@ fn run(
             out(Out::Notes(notes));
         }
         busy = moving || st.sim.busy();
+        // At rest beside a working agent, its monitor's cursor still blinks
+        // (#668 redrew it each half second): wake at the next half second.
+        blink = (!busy && st.sim.motion && st.built.as_ref().is_some_and(|b| b.blinking(&st.sim)))
+            .then(|| {
+                let t = now.saturating_duration_since(st.start).as_secs_f64();
+                let next = ((t * 2.).floor() + 1.) / 2.;
+                st.start + Duration::from_secs_f64(next)
+            });
         if !(busy || st.sim.dirty) {
             pace.rest();
             continue;

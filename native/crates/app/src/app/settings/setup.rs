@@ -97,7 +97,7 @@ pub(super) fn step_mark(status: &str) -> AnyElement {
         "ok" => ("✓", theme::running()),
         "optional" => ("○", theme::faint()),
         "checking" => ("…", theme::faint()),
-        s if background(s) => ("↻", theme::accent()),
+        s if background(s) => ("loader-circle", theme::accent()),
         _ => ("!", theme::starting()),
     };
     div()

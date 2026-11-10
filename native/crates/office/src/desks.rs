@@ -1195,6 +1195,18 @@ fn add_desk(
 // ---- Keeping up with the data ----
 
 impl Built {
+    /// blinking is whether the monitor you're at shows a cursor blinking
+    /// (a working agent's): the Office then wakes twice a second, at rest
+    /// too, to turn it on and off.
+    pub fn blinking(&self, sim: &Sim) -> bool {
+        let Some(near) = sim.near.as_deref() else {
+            return false;
+        };
+        self.desks
+            .iter()
+            .any(|d| d.r#ref == near && d.tone == DeskTone::Working && d.screen.is_some())
+    }
+
     /// update brings every desk and board up to date with the data: its tone,
     /// its monitor, its title, its flag, each board's notes.
     pub fn update(&mut self, input: &SceneInput, kit: &mut Kit) {

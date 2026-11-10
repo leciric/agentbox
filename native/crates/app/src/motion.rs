@@ -8,7 +8,7 @@
 //! - **Springs** (a drawer, a panel, a selection moving): GPUI's `with_spring`,
 //!   which keeps position and velocity across a retarget, so a drawer closed
 //!   halfway open turns back smoothly, and settles to no frames at all.
-//! - **Loops** (a working agent's pulse, a skeleton's shimmer): only while
+//! - **Loops** (a working agent's pulse, a skeleton's shimmer, a spinner): only while
 //!   something is actually happening, and at [`AMBIENT_FPS`], since every frame
 //!   repaints the window; nothing loops on an idle screen.
 //!
@@ -271,6 +271,19 @@ pub fn toast_in<E: IntoElement + Styled + 'static>(
                 _ => el,
             }
         },
+    )
+}
+
+/// spin turns an icon round once a second, Electron's `animate-spin` (a
+/// spinner, a refresh while it fetches). A loop: use it only while something
+/// is under way. Every spinner is the one animation, so they turn together.
+pub fn spin(icon: gpui_component::Icon) -> impl IntoElement {
+    icon.with_animation(
+        "spin",
+        Animation::new(Duration::from_secs(1))
+            .repeat()
+            .with_max_fps(AMBIENT_FPS),
+        |icon, t| icon.transform(gpui::Transformation::rotate(gpui::percentage(t))),
     )
 }
 
