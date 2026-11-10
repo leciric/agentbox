@@ -259,6 +259,7 @@ impl AppView {
             })
             .cursor_pointer()
             .hover(|el| el.text_color(theme::title()))
+            .active(|s| s.opacity(0.7))
             .tooltip(|w, cx| Tooltip::new(t("v2.filters.button")).build(w, cx))
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.side.filter_open = !this.side.filter_open;
@@ -294,7 +295,10 @@ impl AppView {
                             .anchor(Anchor::TopLeft)
                             .offset(point(px(-236.), px(38.)))
                             .snap_to_window_with_margin(px(8.))
-                            .child(self.filter_popover(cx)),
+                            .child(crate::motion::menu_in(
+                                div().child(self.filter_popover(cx)),
+                                "filter-popover-in",
+                            )),
                     )),
                 )
             });
@@ -366,6 +370,7 @@ impl AppView {
                                         .cursor_pointer()
                                         .text_color(theme::faint())
                                         .hover(|el| el.text_color(theme::primary()))
+                                        .active(|s| s.opacity(0.7))
                                         .tooltip(move |w, cx| {
                                             Tooltip::new(remove.clone()).build(w, cx)
                                         })
@@ -390,6 +395,7 @@ impl AppView {
                                 .text_color(theme::faint())
                                 .cursor_pointer()
                                 .hover(|el| el.text_color(theme::primary()))
+                                .active(|s| s.opacity(0.7))
                                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.side.st.clear();
                                     this.side.only.clear();
@@ -429,6 +435,7 @@ impl AppView {
                 .text_color(if on { theme::primary() } else { theme::muted() })
                 .cursor_pointer()
                 .hover(|el| el.text_color(theme::primary()))
+                .active(|s| s.opacity(0.7))
                 .when(on, |el| el.child(crate::icons::of("✓")))
                 .child(div().max_w(px(180.)).truncate().child(label))
                 .when_some(count, |el, n| {
@@ -587,19 +594,21 @@ impl AppView {
             )
             .separator()
             .item(
-                PopupMenuItem::new(t("shell.sidebar.deleteSection")).on_click(move |_, _, cx| {
-                    let s3 = s3.clone();
-                    v3.update(cx, |this, cx| {
-                        let count = this.projects.iter().filter(|p| p.section == s3.id).count();
-                        this.side.dialog = Some(Dialog::DeleteSection {
-                            id: s3.id.clone(),
-                            name: s3.name.clone(),
-                            count,
-                        });
-                        cx.notify();
-                    })
-                    .ok();
-                }),
+                super::controls::danger_item(t("shell.sidebar.deleteSection")).on_click(
+                    move |_, _, cx| {
+                        let s3 = s3.clone();
+                        v3.update(cx, |this, cx| {
+                            let count = this.projects.iter().filter(|p| p.section == s3.id).count();
+                            this.side.dialog = Some(Dialog::DeleteSection {
+                                id: s3.id.clone(),
+                                name: s3.name.clone(),
+                                count,
+                            });
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                ),
             )
         };
         let drag = DragSection {
@@ -638,7 +647,7 @@ impl AppView {
                 let id = id.clone();
                 move |this, d: &DragSection, _, cx| this.move_section(&d.id, &id, cx)
             }))
-            .child(crate::icons::of(if collapsed { "▸" } else { "▾" }))
+            .child(crate::motion::chevron("chev-641", !collapsed, None))
             .child(
                 div()
                     .min_w_0()
@@ -1319,7 +1328,17 @@ impl AppView {
                     theme::subtle()
                 })
                 .when(on, |el| el.bg(theme::surface_raised()))
-                .hover(|el| el.bg(theme::surface()))
+                // Electron's hover:bg-surface hover:text-primary: the icon
+                // lights too, which on this ground is what shows.
+                .hover(move |el| {
+                    let el = el.bg(theme::surface());
+                    if on {
+                        el
+                    } else {
+                        el.text_color(theme::primary())
+                    }
+                })
+                .active(|s| s.bg(theme::surface_raised()))
                 .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
                 .child(crate::icons::ic(crate::icons::lucide(glyph).unwrap_or(glyph)).size(px(16.)))
         };

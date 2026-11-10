@@ -632,6 +632,7 @@ impl AppView {
                                         .text_color(theme::muted())
                                         .cursor_pointer()
                                         .hover(|el| el.text_color(theme::primary()))
+                                        .active(|s| s.opacity(0.7))
                                         .on_click(cx.listener(
                                             |this, _: &ClickEvent, window, cx| {
                                                 this.open_add_project(window, cx)
@@ -805,7 +806,7 @@ impl AppView {
                 toggle(&mut this.side);
                 cx.notify();
             }))
-            .child(crate::icons::of(if open { "▾" } else { "▸" }))
+            .child(crate::motion::chevron("chev-808", open, None))
             .child(label)
     }
 
@@ -1103,7 +1104,9 @@ impl AppView {
                             .when(to_review > 0, |el| {
                                 // "N to review" opens Work on what waits.
                                 let project = p.name.clone();
-                                el.child(
+                                // More to review than a moment ago: it rings.
+                                let ring_key = format!("to-review-count-{project}");
+                                el.child(crate::motion::on_change(
                                     review_chip(
                                         format!("to-review-{project}"),
                                         tv("v2.review.toReview", &[("count", to_review.into())]),
@@ -1120,7 +1123,10 @@ impl AppView {
                                             )
                                         },
                                     )),
-                                )
+                                    &ring_key,
+                                    &to_review,
+                                    theme::brand(400),
+                                ))
                             }),
                     )
                     .when(!counts.is_empty(), |el| {

@@ -230,12 +230,14 @@ fn stat(
                     .overflow_hidden()
                     .bg(theme::surface_raised())
                     .when_some(percent, |el, p| {
-                        el.child(div().h_full().w(relative(p / 100.)).rounded_full().bg(
-                            linear_gradient(
+                        el.child(crate::motion::progress(
+                            div().h_full().rounded_full().bg(linear_gradient(
                                 90.,
                                 linear_color_stop(theme::brand(400), 0.),
                                 linear_color_stop(theme::sky(400), 1.),
-                            ),
+                            )),
+                            "home-progress-fill",
+                            p / 100.,
                         ))
                     }),
             )
@@ -376,6 +378,7 @@ impl AppView {
                         el.bg(theme::brand(500))
                             .text_color(theme::on_brand())
                             .hover(|s| s.bg(theme::brand(600)))
+                            .active(|s| s.bg(theme::brand(700)))
                     } else {
                         el.text_color(theme::muted())
                             .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
@@ -725,6 +728,7 @@ impl AppView {
                     el.border_t_1().border_color(theme::line_faint())
                 })
                 .hover(|s| s.bg(theme::surface()))
+                .active(|s| s.bg(theme::surface_raised()))
                 .when(quiet, |el| el.opacity(0.55))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     this.select_project(proj.clone(), window, cx);

@@ -427,7 +427,7 @@ impl AppView {
                         anchored()
                             .offset(point(px(0.), px(28.)))
                             .snap_to_window_with_margin(px(8.))
-                            .child(p),
+                            .child(crate::motion::menu_in(div().child(p), "topbar-pop-in")),
                     )
                 }))
                 .into_any_element(),

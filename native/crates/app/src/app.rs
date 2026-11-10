@@ -1125,6 +1125,7 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         theme::keep_text_system(window);
+        agent::modal_keys_reset();
         self.panel.track(&self.fleet);
         self.sync_chat_review(cx);
         self.pulls_gone();
@@ -1175,6 +1176,26 @@ impl Render for AppView {
             && self.project.as_ref().is_some_and(|p| {
                 self.sessions.lists.contains_key(p) && self.sessions.current(p).is_none()
             });
+        // What the page is, for its fade: the kind of page and whose.
+        let page_key = SharedString::from(format!(
+            "page-in-{}-{}-{}-{:?}-{:?}-{}{}{}",
+            self.project.as_deref().unwrap_or(""),
+            self.open,
+            if self.settings {
+                "settings"
+            } else if self.work.is_some() {
+                "work"
+            } else if self.side.page.is_some() {
+                "foot"
+            } else {
+                "chat"
+            },
+            self.agent.page.as_ref().map(std::mem::discriminant),
+            self.side.page.as_ref().map(std::mem::discriminant),
+            u8::from(self.sessions.history && lead_view),
+            u8::from(no_session),
+            u8::from(full_page),
+        ));
         h_flex()
             .id("app")
             .track_focus(&self.side.root_focus)
@@ -1182,6 +1203,32 @@ impl Render for AppView {
             // Ctrl+N anywhere opens New task.
             // A session's keys go first: Ctrl+Tab and Ctrl+W are a text box's too.
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                // A confirmation open over the page hears Escape before
+                // whatever text box still has the focus under it.
+                if ev.keystroke.key == "escape"
+                    && !ev.keystroke.modifiers.modified()
+                    && agent::modal_escape(window, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
+                // Tab stays put while a plain one is open: the buttons it
+                // would walk to are the page's, under the dialog.
+                if ev.keystroke.key == "tab" && agent::modal_holds_tab() {
+                    cx.stop_propagation();
+                    return;
+                }
+                // Ctrl+/ lists the shortcuts from anywhere, a text box
+                // included (where the key is otherwise the editor's own).
+                if ev.keystroke.modifiers.control
+                    && ev.keystroke.key == "/"
+                    && this.side.dialog.is_none()
+                {
+                    this.side.dialog = Some(sidebar_dialogs::Dialog::Keys);
+                    cx.notify();
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.session_key(ev, window, cx) {
                     cx.stop_propagation();
                 }
@@ -1204,6 +1251,12 @@ impl Render for AppView {
                 }
                 if ev.keystroke.modifiers.control && ev.keystroke.key == "," {
                     this.open_settings(window, cx);
+                    cx.stop_propagation();
+                }
+                // Escape closes whatever is open over the page and has no
+                // text box of its own to hear it: the shortcut sheet, a
+                // confirmation, a popover.
+                if ev.keystroke.key == "escape" && this.dismiss_top(cx) {
                     cx.stop_propagation();
                 }
                 if ev.keystroke.modifiers.control && ev.keystroke.key == "/" {
@@ -1294,62 +1347,89 @@ impl Render for AppView {
                                                 .relative()
                                                 .flex_1()
                                                 .min_h_0()
-                                                .child(match &self.chat {
-                                                    _ if self.cut_off() => {
-                                                        self.render_unreachable(cx)
-                                                    }
-                                                    _ if self.first_run_open() => {
-                                                        self.render_first_run(cx)
-                                                    }
-                                                    _ if self.settings => self.render_settings(cx),
-                                                    _ if self.work.is_some() => {
-                                                        self.render_work(cx)
-                                                    }
-                                                    _ if self.side.page.is_some() => {
-                                                        self.render_foot_page(cx)
-                                                    }
-                                                    Some(_)
-                                                        if lead_view && self.sessions.history =>
-                                                    {
-                                                        self.render_history(cx)
-                                                    }
-                                                    Some(_) if no_session => {
-                                                        self.render_no_session(cx)
-                                                    }
-                                                    Some(_)
-                                                        if self.open != "lead"
-                                                            && self.agent.page
-                                                                == Some(agent::Page::Snapshots) =>
-                                                    {
-                                                        self.render_snapshots(cx)
-                                                    }
-                                                    Some(_)
-                                                        if self.open != "lead"
-                                                            && self.agent.page
-                                                                == Some(agent::Page::Settings) =>
-                                                    {
-                                                        self.render_agent_settings(cx)
-                                                    }
-                                                    Some(chat) => chat.clone().into_any_element(),
-                                                    None => div()
-                                                        .size_full()
-                                                        .flex()
-                                                        .items_center()
-                                                        .justify_center()
-                                                        .text_color(theme::faint())
-                                                        .when(self.projects.is_empty(), |el| {
-                                                            el.child(t("shell.sidebar.addFirst"))
-                                                        })
-                                                        .into_any_element(),
-                                                })
+                                                // A page taking another's place fades
+                                                // up (Electron's animate-fade-in per view).
+                                                .child(crate::motion::fade_in(
+                                                    div().size_full().child(match &self.chat {
+                                                        _ if self.cut_off() => {
+                                                            self.render_unreachable(cx)
+                                                        }
+                                                        _ if self.first_run_open() => {
+                                                            self.render_first_run(cx)
+                                                        }
+                                                        _ if self.settings => {
+                                                            self.render_settings(cx)
+                                                        }
+                                                        _ if self.work.is_some() => {
+                                                            self.render_work(cx)
+                                                        }
+                                                        _ if self.side.page.is_some() => {
+                                                            self.render_foot_page(cx)
+                                                        }
+                                                        Some(_)
+                                                            if lead_view
+                                                                && self.sessions.history =>
+                                                        {
+                                                            self.render_history(cx)
+                                                        }
+                                                        Some(_) if no_session => {
+                                                            self.render_no_session(cx)
+                                                        }
+                                                        Some(_)
+                                                            if self.open != "lead"
+                                                                && self.agent.page
+                                                                    == Some(
+                                                                        agent::Page::Snapshots,
+                                                                    ) =>
+                                                        {
+                                                            self.render_snapshots(cx)
+                                                        }
+                                                        Some(_)
+                                                            if self.open != "lead"
+                                                                && self.agent.page
+                                                                    == Some(
+                                                                        agent::Page::Settings,
+                                                                    ) =>
+                                                        {
+                                                            self.render_agent_settings(cx)
+                                                        }
+                                                        Some(chat) => {
+                                                            chat.clone().into_any_element()
+                                                        }
+                                                        None => div()
+                                                            .size_full()
+                                                            .flex()
+                                                            .items_center()
+                                                            .justify_center()
+                                                            .text_color(theme::faint())
+                                                            .when(self.projects.is_empty(), |el| {
+                                                                el.child(t(
+                                                                    "shell.sidebar.addFirst",
+                                                                ))
+                                                            })
+                                                            .into_any_element(),
+                                                    }),
+                                                    page_key,
+                                                ))
                                                 .children(self.render_media_viewer(cx)),
                                             cx,
                                         ),
                                     ),
                             )
                             // Home has no panel (its agents are its Status tab).
+                            // Nor have Settings, Media, Jobs or everyone's Work
+                            // (chatOf: a project's page or an agent's only);
+                            // an agent's panel beside them was just in the way.
                             .when(
-                                !full_page && !self.is_home() && self.project.is_some(),
+                                !full_page
+                                    && !self.is_home()
+                                    && self.project.is_some()
+                                    && !self.settings
+                                    && self.side.page.is_none()
+                                    && self
+                                        .work
+                                        .as_ref()
+                                        .is_none_or(|w| !w.read(cx).project().is_empty()),
                                 |el| el.child(self.render_panel(cx)),
                             ),
                     ),
@@ -1374,6 +1454,32 @@ impl Render for AppView {
             .child(self.toasts.clone())
             .child(crate::webview::pages_end())
             .into_any_element()
+    }
+}
+
+impl AppView {
+    /// dismiss_top closes the one thing open over the page that Escape
+    /// should close, the nearest first, and says whether there was one.
+    fn dismiss_top(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.side.dialog.is_some() {
+            self.side.dialog = None;
+        } else if self.topbar.pop.is_some() {
+            self.topbar.pop = None;
+        } else if self.side.filter_open {
+            self.side.filter_open = false;
+        } else if self.pulls.picker.is_some() {
+            self.pulls.picker = None;
+        } else if self.agent.info.is_some() {
+            self.agent.info = None;
+        } else if self.settings {
+            // Settings' own Escape hears the key only with the focus inside
+            // it; after a click on the page the focus is the window's.
+            self.settings = false;
+        } else {
+            return false;
+        }
+        cx.notify();
+        true
     }
 }
 

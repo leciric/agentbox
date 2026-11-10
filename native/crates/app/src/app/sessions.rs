@@ -907,6 +907,7 @@ impl AppView {
         self.sessions.rename.update(cx, |i, cx| {
             i.set_value(topic, window, cx);
             i.focus(window, cx);
+            i.select_all(window, cx);
         });
         cx.notify();
     }
@@ -1008,6 +1009,9 @@ impl AppView {
         let closed = self.sessions.closed.get(&project).map_or(0, |c| c.len());
         let mut sorted: Vec<&LeadSession> = awake.clone();
         sorted.sort_by_key(|s| !s.pinned);
+        let tab_group = format!("session-tabs-{project}");
+        // A session just opened slides into the strip.
+        let tab_ids: Vec<String> = sorted.iter().map(|s| s.id.clone()).collect();
         let tabs = sorted.into_iter().map(|s| {
             let on = Some(&s.id) == current.as_ref();
             let unread = !on && self.sessions.unread(s);
@@ -1160,6 +1164,9 @@ impl AppView {
                 })
                 .into_any_element()
         });
+        let tabs = tabs
+            .zip(tab_ids)
+            .map(|(tab, id)| crate::motion::arrive(div().flex_none().child(tab), &tab_group, &id));
         let view = cx.entity().downgrade();
         let p_snooze = project.clone();
         Some(
@@ -1655,7 +1662,7 @@ impl AppView {
                             cx.notify();
                         }),
                     )
-                    .child(
+                    .child(crate::motion::pop_in(
                         v_flex()
                             .w(px(1024.))
                             .max_w(relative(0.94))
@@ -1766,9 +1773,10 @@ impl AppView {
                                             .child(match view {
                                                 None => div()
                                                     .p_4()
-                                                    .text_sm()
-                                                    .text_color(theme::faint())
-                                                    .child(t("common.loading"))
+                                                    .child(crate::motion::skeleton_lines(
+                                                        "loading-sessions-6",
+                                                        4,
+                                                    ))
                                                     .into_any_element(),
                                                 Some(Err(e)) => div()
                                                     .p_4()
@@ -1783,7 +1791,8 @@ impl AppView {
                                             })
                                     })),
                             ),
-                    ),
+                        "session-changes-in",
+                    )),
                 "idsession-changes-in",
             )
             .into_any_element(),
@@ -2103,6 +2112,7 @@ impl AppView {
                                     .rounded_xl()
                                     .cursor_pointer()
                                     .hover(|el| el.bg(theme::surface_raised()))
+                                    .active(|s| s.bg(theme::surface_strong()))
                                     .on_click(cx.listener(
                                         move |this, _: &ClickEvent, window, cx| {
                                             this.read_closed(read.clone(), window, cx)
@@ -2164,7 +2174,7 @@ impl AppView {
                         .text_xs()
                         .text_color(theme::faint())
                         .hover(|el| el.bg(theme::surface_raised()).text_color(theme::muted()))
-                        .child(crate::icons::of(if open { "▾" } else { "▸" }))
+                        .child(crate::motion::chevron("chev-2167", open, None))
                         .child(crate::icons::of("⏰"))
                         .child(div().truncate().child(tv(
                             "sessions.snoozed.count",
@@ -2193,6 +2203,7 @@ impl AppView {
                             .cursor_pointer()
                             .text_xs()
                             .hover(|el| el.bg(theme::surface_raised()))
+                            .active(|s| s.bg(theme::surface_strong()))
                             .tooltip(|w, cx| {
                                 gpui_component::tooltip::Tooltip::new(t("sessions.snoozed.wake"))
                                     .build(w, cx)

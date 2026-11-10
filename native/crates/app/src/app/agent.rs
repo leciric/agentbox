@@ -498,10 +498,13 @@ impl AppView {
                 m
             });
             let d = a.clone();
-            menu.separator().item(item(
-                t("agent.view.destroy"),
-                Rc::new(move |this, _, cx| this.start_destroy(&d, cx)),
-            ))
+            let view = view.clone();
+            menu.separator()
+                .item(
+                    controls::danger_item(t("agent.view.destroy")).on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| this.start_destroy(&d, cx)).ok();
+                    }),
+                )
         }
     }
 
@@ -618,9 +621,11 @@ impl AppView {
             .agent_by_ref(&r#ref)
             .map(|a| a.title.clone())
             .unwrap_or_default();
-        self.agent
-            .title_input
-            .update(cx, |s, cx| s.set_value(title, window, cx));
+        self.agent.title_input.update(cx, |s, cx| {
+            s.set_value(title, window, cx);
+            // The name is there to type over, or to keep with one key.
+            s.select_all(window, cx);
+        });
         self.agent.rename = Some(r#ref);
         let focus = self.agent.title_input.read(cx).focus_handle(cx);
         focus.focus(window, cx);
@@ -1013,12 +1018,17 @@ impl AppView {
                     this.open_info(info_ref.clone(), cx);
                 }
             }))
-            .child(
+            // Its state turning (running, stopped, failed) rings the dot
+            // once in the new colour.
+            .child(crate::motion::on_change(
                 div()
                     .size(px(6.))
                     .rounded_full()
                     .bg(theme::state_color(&a.state)),
-            )
+                &format!("agent-state-dot-{}", a.r#ref),
+                &a.state,
+                theme::state_color(&a.state),
+            ))
             .child(theme::fit(text, px(12.), FontWeight::MEDIUM, false))
             .child(
                 div()
@@ -1030,7 +1040,10 @@ impl AppView {
                     anchored()
                         .offset(point(px(0.), px(26.)))
                         .snap_to_window_with_margin(px(8.))
-                        .child(self.info_card(&a, cx)),
+                        .child(crate::motion::menu_in(
+                            div().child(self.info_card(&a, cx)),
+                            "agent-info-in",
+                        )),
                 ))
             });
         // Chip (mono): the pull request, or else the branch.
@@ -1162,6 +1175,7 @@ impl AppView {
                                     .when(!busy, |el| {
                                         el.cursor_pointer()
                                             .hover(|el| el.bg(theme::brand(600)))
+                                            .active(|s| s.bg(theme::brand(700)))
                                             .on_click(cx.listener(
                                                 move |this, _: &ClickEvent, _, cx| {
                                                     this.run_action(r.clone(), action, cx)
@@ -1581,14 +1595,20 @@ impl AppView {
                     .gap_4()
                     .flex_wrap()
                     .items_end()
-                    .child(controls::labeled(
-                        t("agent.snapshots.name"),
-                        div()
-                            .w(px(256.))
-                            .child(Input::new(&self.agent.snapshot_name).small()),
-                    ))
+                    // Neither gives way to the other: a narrow page wraps
+                    // the row, where it used to squash the name's box.
+                    .child(
+                        div().flex_none().child(controls::labeled(
+                            t("agent.snapshots.name"),
+                            div()
+                                .w(px(256.))
+                                .child(Input::new(&self.agent.snapshot_name).small()),
+                        )),
+                    )
                     .child(
                         h_flex()
+                            .flex_none()
+                            .h(px(32.))
                             .gap_2()
                             .child(controls::toggle(
                                 "snapshot-consistent",
@@ -1702,7 +1722,7 @@ impl AppView {
                 ))
                 .child(controls::button(
                     SharedString::from(format!("snap-delete-{}", s.name)),
-                    "✕",
+                    "×",
                     Btn::Ghost,
                     false,
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1973,21 +1993,60 @@ impl AppView {
             let close = cancel(|this| this.agent.info = None);
             let backdrop = close.clone();
             return Some(
-                div()
-                    .id("agent-info-dialog")
-                    .absolute()
-                    .inset_0()
-                    .bg(theme::scrim())
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .on_mouse_down(MouseButton::Left, move |_, w, cx| backdrop(w, cx))
-                    .child(self.info_card(&a, cx))
-                    .into_any_element(),
+                crate::motion::scrim_in(
+                    div()
+                        .id("agent-info-dialog")
+                        .absolute()
+                        .inset_0()
+                        .bg(theme::scrim())
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .on_mouse_down(MouseButton::Left, move |_, w, cx| backdrop(w, cx))
+                        .child(crate::motion::pop_in(
+                            div().child(self.info_card(&a, cx)),
+                            "agent-info-dialog-card-in",
+                        )),
+                    "agent-info-dialog-in",
+                )
+                .into_any_element(),
             );
         }
         None
     }
+}
+
+thread_local! {
+    /// The cancel of the modal drawn this frame, if one was.
+    static MODAL_CANCEL: std::cell::RefCell<Option<OnCancel>> =
+        const { std::cell::RefCell::new(None) };
+    /// Whether that modal is a plain question, with no form in it.
+    static MODAL_PLAIN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// modal_keys_reset forgets the last frame's modal, before a frame is drawn.
+pub fn modal_keys_reset() {
+    MODAL_CANCEL.with(|k| *k.borrow_mut() = None);
+}
+
+/// modal_holds_tab says whether a plain confirmation is open: Tab then
+/// stays put, since the buttons it would walk to are the page's, under the
+/// dialog. A dialog with a form keeps Tab, for its fields.
+pub fn modal_holds_tab() -> bool {
+    MODAL_CANCEL.with(|k| k.borrow().is_some()) && MODAL_PLAIN.with(|p| p.get())
+}
+
+/// modal_escape cancels the modal that is open, and says whether one was:
+/// Escape closes a dialog whatever has the focus under or in it. (Enter is
+/// left to the button that has the focus, reached with Tab.)
+pub fn modal_escape(window: &mut Window, cx: &mut App) -> bool {
+    let Some(cancel) = MODAL_CANCEL.with(|k| k.borrow().clone()) else {
+        return false;
+    };
+    // Once the key's own handler has returned: a cancel updates the view
+    // that is being updated while it hears the key.
+    window.defer(cx, move |window, cx| cancel(window, cx));
+    true
 }
 
 /// modal is a dialog over the window: a title, what it does, its body, and
@@ -2005,6 +2064,8 @@ pub fn modal(
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let backdrop = on_cancel.clone();
+    MODAL_CANCEL.with(|k| *k.borrow_mut() = Some(on_cancel.clone()));
+    MODAL_PLAIN.with(|p| p.set(body.is_empty()));
     crate::motion::scrim_in(
         div()
             .id(SharedString::from(format!("{id}-backdrop")))
