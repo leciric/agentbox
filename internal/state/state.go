@@ -1620,6 +1620,20 @@ var migrations = []string{
 	// when. '' is not on hold.
 	`ALTER TABLE agents ADD COLUMN hold TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE agents ADD COLUMN hold_at INTEGER NOT NULL DEFAULT 0`,
+
+	// Other apps paired over remote MCP (mcppairings.go, daemon/remotemcp.go):
+	// what each may do, and in which projects ('[]' is all of them). The hub
+	// holds their tokens; this is what the machine itself allows.
+	`CREATE TABLE mcp_pairings (
+		id           TEXT PRIMARY KEY,
+		hub          TEXT NOT NULL,
+		label        TEXT NOT NULL,
+		client       TEXT NOT NULL DEFAULT '',
+		access       TEXT NOT NULL,
+		projects     TEXT NOT NULL DEFAULT '[]',
+		created_at   INTEGER NOT NULL,
+		last_used_at INTEGER NOT NULL DEFAULT 0
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

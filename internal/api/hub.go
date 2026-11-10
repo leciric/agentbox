@@ -150,3 +150,37 @@ func (h HubClient) DeleteEnvironment(ctx context.Context, id string) error {
 func (h HubClient) Environment(id string) *Client {
 	return NewRemoteClient(strings.TrimRight(h.URL, "/")+hubapi.EnvironmentAPI(url.PathEscape(id)), h.Token)
 }
+
+// HubEnvironmentClient talks to a hub as the environment itself, with its
+// token: what a machine asks of its own hub.
+type HubEnvironmentClient struct {
+	URL   string
+	Token string // the environment's token
+}
+
+func (h HubEnvironmentClient) client() *Client {
+	return NewRemoteClient(strings.TrimRight(h.URL, "/"), h.Token)
+}
+
+// MCPPairings lists the environment's pairings with other apps.
+func (h HubEnvironmentClient) MCPPairings(ctx context.Context) ([]HubMCPPairing, error) {
+	var out []HubMCPPairing
+	return out, h.client().do(ctx, http.MethodGet, hubapi.PathMCPPairings, nil, &out)
+}
+
+// CreateMCPPairing pairs an app: its code, and its token when asked for,
+// are in the answer and only there.
+func (h HubEnvironmentClient) CreateMCPPairing(ctx context.Context, req HubMCPPairingRequest) (HubMCPPairing, error) {
+	var out HubMCPPairing
+	return out, h.client().do(ctx, http.MethodPost, hubapi.PathMCPPairings, req, &out)
+}
+
+// RenewMCPCode gives a pairing a new code.
+func (h HubEnvironmentClient) RenewMCPCode(ctx context.Context, id string) (HubMCPPairing, error) {
+	var out HubMCPPairing
+	return out, h.client().do(ctx, http.MethodPost, hubapi.PathMCPPairings+"/"+url.PathEscape(id)+"/code", nil, &out)
+}
+
+func (h HubEnvironmentClient) DeleteMCPPairing(ctx context.Context, id string) error {
+	return h.client().do(ctx, http.MethodDelete, hubapi.PathMCPPairings+"/"+url.PathEscape(id), nil, nil)
+}

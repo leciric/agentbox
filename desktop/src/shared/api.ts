@@ -2539,6 +2539,42 @@ export interface RemotePairing {
   error?: string;
 }
 
+export interface MCPPairing {
+  id: string;
+  label: string;
+  client: string;
+  access: string;
+  projects: string[];
+  createdAt: string;
+  lastUsedAt?: string;
+  apps?: string[];
+}
+
+export interface MCPPairings {
+  available: boolean;
+  reason?: string;
+  error?: string;
+  hub?: string;
+  url?: string;
+  pairings: MCPPairing[];
+}
+
+export interface MCPPairRequest {
+  label: string;
+  client?: string;
+  access: string;
+  projects?: string[];
+  token?: boolean;
+}
+
+export interface MCPPairingSecret {
+  pairing: MCPPairing;
+  url: string;
+  code: string;
+  codeExpiresAt: string;
+  token?: string;
+}
+
 export interface UsageStatsPending {
   on: boolean;
   usageUrl: string;

@@ -3878,6 +3878,8 @@ type (
 	HubLoginRequest             = hubapi.HubLoginRequest
 	HubSetupRequest             = hubapi.HubSetupRequest
 	HubSession                  = hubapi.HubSession
+	HubMCPPairing               = hubapi.HubMCPPairing
+	HubMCPPairingRequest        = hubapi.HubMCPPairingRequest
 	HubPairRequest              = hubapi.HubPairRequest
 	HubPairing                  = hubapi.HubPairing
 	HubPairTokenRequest         = hubapi.HubPairTokenRequest
@@ -3900,6 +3902,77 @@ type RemoteStatus struct {
 	// /v1/remote/pair), until it's approved and the machine connects, or it
 	// fails.
 	Pairing *RemotePairing `json:"pairing,omitempty"`
+}
+
+// What an app paired over remote MCP may do. Each level includes the ones
+// before it. They are hubapi's MCPAccess* values.
+const (
+	MCPAccessRead = "read" // see projects, agents, pull requests and the lead's chat
+	MCPAccessChat = "chat" // and send messages to a project's lead
+	MCPAccessFull = "full" // and call the lead's own tools
+)
+
+// The apps the wizard knows how to set up; anything else is MCPClientOther.
+const (
+	MCPClientClaude  = "claude"
+	MCPClientChatGPT = "chatgpt"
+	MCPClientPoke    = "poke"
+	MCPClientOther   = "other"
+)
+
+// MCPPairing lets another app — Claude, ChatGPT, Poke — use this machine's
+// AgentBox over remote MCP, through the hub. The machine keeps and enforces
+// Access and Projects; revoking it is deleting it.
+type MCPPairing struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Client string `json:"client"` // an MCPClient* value: which instructions to show
+	Access string `json:"access"` // an MCPAccess* value
+	// Projects are the projects it covers, by name; none is all of them,
+	// including those added later.
+	Projects   []string  `json:"projects"`
+	CreatedAt  time.Time `json:"createdAt"`
+	LastUsedAt time.Time `json:"lastUsedAt,omitzero,omitempty"`
+	// Apps are the OAuth clients signed in with it, by the name each gave
+	// the hub, when the hub could be asked.
+	Apps []string `json:"apps,omitempty"`
+}
+
+// MCPPairings is GET /v1/remote/mcp: whether other apps can be paired, and
+// those that are.
+type MCPPairings struct {
+	// Available is false when this machine has no hub to be reached
+	// through, or its hub is too old; Reason is "no-hub", "offline" (the
+	// hub can't be reached now) or "old-hub", and Error what the hub said.
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Hub       string `json:"hub,omitempty"`
+	// URL is the MCP endpoint apps are given: the hub's.
+	URL      string       `json:"url,omitempty"`
+	Pairings []MCPPairing `json:"pairings"`
+}
+
+// MCPPairRequest is POST /v1/remote/mcp/pairings.
+type MCPPairRequest struct {
+	Label    string   `json:"label"`
+	Client   string   `json:"client,omitempty"`
+	Access   string   `json:"access"`
+	Projects []string `json:"projects,omitempty"`
+	// Token asks for a bearer token as well as a code, for an app that
+	// takes an API key instead of signing in with OAuth.
+	Token bool `json:"token,omitempty"`
+}
+
+// MCPPairingSecret is a pairing with what its app is given, shown once: the
+// URL, the code to type when the app signs in (which works once, until
+// CodeExpiresAt), and the bearer token when one was asked for.
+type MCPPairingSecret struct {
+	Pairing       MCPPairing `json:"pairing"`
+	URL           string     `json:"url"`
+	Code          string     `json:"code"`
+	CodeExpiresAt time.Time  `json:"codeExpiresAt"`
+	Token         string     `json:"token,omitempty"`
 }
 
 // RemoteConnectRequest connects to a hub with an environment's token.

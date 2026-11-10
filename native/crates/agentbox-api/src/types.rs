@@ -4229,6 +4229,64 @@ pub struct RemotePairing {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct MCPPairing {
+    pub id: String,
+    pub label: String,
+    pub client: String,
+    pub access: String,
+    #[serde(deserialize_with = "nullable")]
+    pub projects: Vec<String>,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "lastUsedAt", skip_serializing_if = "is_empty")]
+    pub last_used_at: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub apps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MCPPairings {
+    pub available: bool,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub reason: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub error: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub hub: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub url: String,
+    #[serde(deserialize_with = "nullable")]
+    pub pairings: Vec<MCPPairing>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MCPPairRequest {
+    pub label: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub client: String,
+    pub access: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub projects: Vec<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub token: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MCPPairingSecret {
+    pub pairing: MCPPairing,
+    pub url: String,
+    pub code: String,
+    #[serde(rename = "codeExpiresAt")]
+    pub code_expires_at: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UsageStatsPending {
     pub on: bool,
     #[serde(rename = "usageUrl")]
