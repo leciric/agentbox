@@ -590,6 +590,29 @@ impl Fake {
         self.set_busy(&agent, false);
     }
 
+    /// lead_status says where a lead's main session stands now, as the
+    /// daemon's lead.session.status does.
+    fn lead_status(&self, project: &str, chat: &str, status: &str) {
+        let s = LeadSession {
+            project: project.to_string(),
+            id: "main".into(),
+            r#ref: format!("{project}/lead"),
+            topic: "Main".into(),
+            chat: chat.into(),
+            status: status.into(),
+            created_at: now(),
+            active_at: now(),
+            ..Default::default()
+        };
+        self.emit(
+            EVENT_LEAD_SESSION_STATUS,
+            &LeadSessionStatusChange {
+                project: project.to_string(),
+                sessions: vec![s],
+            },
+        );
+    }
+
     fn set_busy(&self, agent: &str, busy: bool) {
         let mut fleet = self.fleet.lock().unwrap();
         if let Some(a) = fleet.iter_mut().find(|a| a.r#ref == agent) {
@@ -1669,6 +1692,50 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                 ev.session = Some(s.clone());
             });
             json(StatusCode::OK, &serde_json::json!({}))
+        }
+        // On its own, a message to a lead's main session: the lead's tool
+        // slept, so it says ready while it wakes (a few seconds, starting
+        // for the last of them), then answers, as internal/chat's
+        // stateNow reads a sleeping conversation.
+        (&Method::POST, ["v1", "projects", p, "chat", "messages"])
+            if fake.opts.upstream.is_none() =>
+        {
+            let project = p.to_string();
+            let agent = format!("{p}/lead");
+            let body = req
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes())
+                .unwrap_or_default();
+            let msg: ChatMessageRequest = serde_json::from_slice(&body).unwrap_or_default();
+            let item = ChatItem {
+                id: format!("u{}", rand_id()),
+                kind: "user".into(),
+                text: msg.text.clone(),
+                created_at: now(),
+                updated_at: now(),
+                ..Default::default()
+            };
+            fake.chat_event(&agent, |ev, s, _| {
+                s.state = CHAT_READY.into();
+                s.turn_started_at = None;
+                ev.item = Some(item.clone());
+                ev.session = Some(s.clone());
+            });
+            let f = fake.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(3000)).await;
+                f.chat_event(&agent, |ev, s, _| {
+                    s.state = CHAT_STARTING.into();
+                    ev.session = Some(s.clone());
+                });
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                f.lead_status(&project, CHAT_RUNNING, "working");
+                f.clone().reply(agent, msg.text).await;
+                f.lead_status(&project, CHAT_READY, "idle");
+            });
+            json(StatusCode::OK, &item)
         }
         (&Method::POST, ["v1", "agents", p, a, "chat", "messages"]) if fake.is_fake(p) => {
             let agent = format!("{p}/{a}");

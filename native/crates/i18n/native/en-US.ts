@@ -114,6 +114,7 @@ export const enUSNative = {
   'native.office.chat.close': 'Close the chat',
   'native.office.chat.openInApp': 'Open in the app',
   'native.office.help': 'Controls and legend',
+  'native.keys.panel': 'Show the agents’ list, or compact the panel when it’s already on it',
   'native.office.keys.back': 'Step back',
   'native.office.keys.click': 'Click',
   'native.office.keys.drag': 'Drag',

@@ -449,6 +449,41 @@ impl AppView {
         cx.notify();
     }
 
+    /// panel_shortcut is Ctrl+D: from another tab, or from the panel folded
+    /// (or its drawer shut), it opens on the agents' list (the lead's Agents
+    /// tab, or the list in place of an agent); on that list it folds the
+    /// panel to its strip, and the next press opens it on the list again.
+    /// A past agent has no list beside it, so there it only folds and unfolds.
+    pub(super) fn panel_shortcut(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let whose = self.panel_whose();
+        let on_list = match &whose {
+            Whose::Lead => self.pulls.tab == RailTab::Agents,
+            Whose::List => true,
+            Whose::Agent(_) => false,
+            Whose::Past(_) => return self.toggle_panel(window, cx),
+        };
+        let narrow = self.narrow();
+        let open = if narrow {
+            self.widths.drawer
+        } else {
+            !self.panel.folded
+        };
+        if open && on_list {
+            return self.toggle_panel(window, cx);
+        }
+        match whose {
+            Whose::Lead => self.pulls.tab = RailTab::Agents,
+            Whose::Agent(_) => self.panel.list_beside = true,
+            _ => {}
+        }
+        if narrow {
+            self.widths.drawer = true;
+        }
+        self.panel.folded = false;
+        self.panel_sync(window, cx);
+        cx.notify();
+    }
+
     /// panel_sync reads and makes what the panel shows now needs.
     pub(super) fn panel_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.project.clone() else {
