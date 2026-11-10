@@ -535,6 +535,7 @@ impl Fake {
                     options: chat_options(),
                     context_used: 84_200,
                     context_size: 200_000,
+                    background: vec!["Errors in the deploy log".into(), "Watch CI run 42".into()],
                     background_tasks: chat::background_tasks(chat::started(), card.as_deref()),
                     ..Default::default()
                 },

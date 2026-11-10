@@ -181,9 +181,9 @@ function BackgroundTaskDialog({ chatRef, task: listed, onClose }: { chatRef: str
           )}
         </dl>
         <div className="min-w-0">
-          <div className="mb-1.5 flex items-center gap-2 text-ui text-subtle">
+          <div className="mb-1.5 flex items-baseline gap-2 text-ui text-subtle">
             <span>{t('chat.background.output')}</span>
-            {running && buf && <span className="chat-shine text-caption">{t('chat.background.live')}</span>}
+            {running && !!buf?.text && <span className="chat-shine text-caption">{t('chat.background.live')}</span>}
             {buf && buf.start > 0 && (
               <Button variant="ghost" size="sm" className="ml-auto h-6 px-2 text-caption" disabled={loadingEarlier} onClick={earlier} data-background-earlier>
                 {t('chat.background.earlier')}

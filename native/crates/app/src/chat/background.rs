@@ -160,11 +160,6 @@ impl ChatView {
             let v = view.clone();
             let task2 = task.clone();
             let to_card = task.kind == "subagent" && !task.item.is_empty();
-            let tip = if to_card {
-                "chat.background.openSubagent"
-            } else {
-                "chat.background.open"
-            };
             h_flex()
                 .id(SharedString::from(format!("bg-task-{}", task.id)))
                 .min_w_0()
@@ -184,7 +179,6 @@ impl ChatView {
                         .bg(theme::surface_raised())
                         .text_color(theme::primary())
                 })
-                .tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(t(tip)).build(w, cx))
                 .on_click(move |_, window, cx| {
                     let task = task2.clone();
                     v.update(cx, |this, cx| {
@@ -228,7 +222,7 @@ impl ChatView {
         cx: &mut Context<Self>,
     ) {
         let focus = cx.focus_handle();
-        focus.focus(window);
+        focus.focus(window, cx);
         let id = task.id.clone();
         let client = self.client.clone();
         let path = format!(
@@ -358,13 +352,10 @@ impl ChatView {
                 o.task = listed.clone();
             }
         }
-        // Follow the end until it's scrolled up from it.
-        let (off, max) = (o.scroll.offset(), o.scroll.max_offset());
-        if max.height > px(0.) {
-            let at_end = max.height + off.y < px(24.);
-            if o.follow && !at_end {
-                o.scroll.scroll_to_bottom();
-            }
+        // Follow the end until it's scrolled up from it: asked for on every
+        // frame, as what was just read is laid out only after this.
+        if o.follow {
+            o.scroll.scroll_to_bottom();
         }
         let task = o.task.clone();
         let running = task.status == "running";
@@ -473,7 +464,7 @@ impl ChatView {
                 .min_h(px(96.))
                 .overflow_y_scroll()
                 .track_scroll(&o.scroll)
-                .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, window, cx| {
+                .on_scroll(cx.listener(|this, ev: &ScrollEvent, window, cx| {
                     let Some(o) = this.background.as_mut() else {
                         return;
                     };
@@ -482,7 +473,7 @@ impl ChatView {
                         o.follow = false;
                     } else {
                         let (off, max) = (o.scroll.offset(), o.scroll.max_offset());
-                        o.follow = max.height + off.y + dy < px(24.);
+                        o.follow = max.y + off.y + dy < px(24.);
                     }
                     cx.notify();
                 }))

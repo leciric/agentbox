@@ -2645,6 +2645,11 @@ export function installDevBridge(): void {
         const runners: T.LeadRunners = { tool: 'claude', account: 'default', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] };
         return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };
       }
+      // The app's lists nothing here fills, empty: the catch-all's answer is
+      // an object, and a view that maps over one takes the whole preview down.
+      if (method === 'GET' && ['/v1/project-activity', '/v1/groups', '/v1/sections', '/v1/jobs', '/v1/limits'].includes(path)) {
+        return { status: 200, body: '[]', contentType: 'application/json' };
+      }
       if (method === 'GET' && path === '/v1/snaps') return { status: 200, body: '[]', contentType: 'application/json' };
       // The search palette's answer, from the fixtures' projects and agents,
       // so its content rows can be seen beside the actions and settings.
