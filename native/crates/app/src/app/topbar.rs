@@ -14,6 +14,28 @@ use gpui::*;
 use gpui_component::{h_flex, v_flex};
 
 use super::AppView;
+
+thread_local! {
+    /// Where a press on the top bar began, while it may yet become a drag.
+    static DRAG_FROM: std::cell::Cell<Option<Point<Pixels>>> = const { std::cell::Cell::new(None) };
+    static CLIENT_DECORATIONS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static MAXIMIZED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// set_decorations is what the window is drawn with, read before each frame
+/// (app.rs's render): the top bar carries the window's controls when the
+/// app, not the compositor, has to draw them.
+pub(super) fn set_decorations(window: &Window) {
+    CLIENT_DECORATIONS.set(matches!(
+        window.window_decorations(),
+        Decorations::Client { .. }
+    ));
+    MAXIMIZED.set(window.is_maximized());
+}
+
+fn client_decorations() -> bool {
+    CLIENT_DECORATIONS.get()
+}
 use super::controls::{Btn, button, note_in};
 use crate::theme;
 
@@ -273,6 +295,92 @@ impl AppView {
                     .child(self.search_button(cx))
                     .child(self.render_top_chips(cx))
                     .children(end),
+            )
+            .when(client_decorations(), |el| {
+                el.on_mouse_down(MouseButton::Left, |ev: &MouseDownEvent, window, _| {
+                    if ev.click_count == 2 {
+                        window.zoom_window();
+                    } else {
+                        DRAG_FROM.set(Some(ev.position));
+                    }
+                })
+                .on_mouse_up(MouseButton::Left, |_, _, _| DRAG_FROM.set(None))
+                .on_mouse_move(|ev: &MouseMoveEvent, window, _| {
+                    // A move, not a click's jitter, drags the window.
+                    if let Some(from) = DRAG_FROM.get() {
+                        let d = ev.position - from;
+                        if ev.pressed_button != Some(MouseButton::Left) {
+                            DRAG_FROM.set(None);
+                        } else if f32::from(d.x).abs() + f32::from(d.y).abs() > 4. {
+                            DRAG_FROM.set(None);
+                            window.start_window_move();
+                        }
+                    }
+                })
+                .child(self.window_controls(cx))
+            })
+            .into_any_element()
+    }
+
+    /// window_controls are minimise, maximise and close, at the top bar's
+    /// end, where the compositor draws no title bar for the window (GNOME's
+    /// Wayland, which has no server-side decorations): without them the
+    /// window has no close button at all. Close does what the window
+    /// manager's does (alerts.rs, close_window).
+    fn window_controls(&self, cx: &mut Context<Self>) -> AnyElement {
+        let has_tray = self.has_tray();
+        let control = |id: &'static str, icon: &'static str, tip: String| {
+            let tip: SharedString = tip.into();
+            div()
+                .id(id)
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(28.))
+                .rounded_full()
+                .text_color(theme::muted())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::surface_raised()).text_color(theme::primary()))
+                .tooltip(move |w, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(w, cx)
+                })
+                // Not the bar's drag.
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(crate::icons::ic(icon).size(px(14.)))
+        };
+        let _ = cx;
+        h_flex()
+            .flex_none()
+            .gap_1()
+            .ml(px(-8.))
+            .child(
+                control("window-minimize", "minus", t("native.window.minimize"))
+                    .on_click(|_, window, _| window.minimize_window()),
+            )
+            .child(
+                control(
+                    "window-maximize",
+                    "square",
+                    t(if MAXIMIZED.get() {
+                        "native.window.restore"
+                    } else {
+                        "native.window.maximize"
+                    }),
+                )
+                .on_click(|_, window, _| window.zoom_window()),
+            )
+            .child(
+                control("window-close", "x", t("native.window.close")).on_click(
+                    move |_, window, cx| {
+                        super::alerts::close_window(
+                            has_tray,
+                            "the window's close button",
+                            window,
+                            cx,
+                        );
+                    },
+                ),
             )
             .into_any_element()
     }

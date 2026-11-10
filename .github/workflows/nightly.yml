@@ -423,6 +423,9 @@ jobs:
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
+      # update.rs's APP_VERSION: without it the app has no version of its own,
+      # takes the daemon's, and keeps offering the update it just installed.
+      AGENTBOX_VERSION: ${{ needs.resolve.outputs.version }}
       CARGO_INCREMENTAL: '0'
       CARGO_TERM_COLOR: always
     steps:
@@ -494,6 +497,9 @@ jobs:
     timeout-minutes: 60
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
+      # update.rs's APP_VERSION: without it the app has no version of its own,
+      # takes the daemon's, and keeps offering the update it just installed.
+      AGENTBOX_VERSION: ${{ needs.resolve.outputs.version }}
       CARGO_INCREMENTAL: '0'
       CARGO_TERM_COLOR: always
     defaults:
@@ -541,6 +547,9 @@ jobs:
       signed: ${{ steps.package.outputs.signed }}
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
+      # update.rs's APP_VERSION: without it the app has no version of its own,
+      # takes the daemon's, and keeps offering the update it just installed.
+      AGENTBOX_VERSION: ${{ needs.resolve.outputs.version }}
       CARGO_INCREMENTAL: '0'
       CARGO_TERM_COLOR: always
       CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}

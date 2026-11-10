@@ -174,4 +174,8 @@ export const ptBRNative = {
   'native.chat.options.modelTip': '{setup}: trocar o modelo, a janela de contexto ou o esforço',
   'native.chat.options.modeTip': '{mode}: trocar o modo de permissão, ou planejar antes',
   'native.chat.options.moreTip': 'Mais configurações: {settings}',
+  'native.window.minimize': 'Minimizar',
+  'native.window.maximize': 'Maximizar',
+  'native.window.restore': 'Restaurar',
+  'native.window.close': 'Fechar',
 };

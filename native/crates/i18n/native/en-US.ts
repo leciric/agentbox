@@ -176,4 +176,8 @@ export const enUSNative = {
   'native.chat.options.modelTip': '{setup}: change the model, context window or effort',
   'native.chat.options.modeTip': '{mode}: change the permission mode, or plan first',
   'native.chat.options.moreTip': 'More settings: {settings}',
+  'native.window.minimize': 'Minimize',
+  'native.window.maximize': 'Maximize',
+  'native.window.restore': 'Restore',
+  'native.window.close': 'Close',
 };

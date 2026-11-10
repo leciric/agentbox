@@ -1698,7 +1698,7 @@ fn update_hint(support: &crate::update::Support, version: &str) -> String {
 fn restart_into(relaunch: &std::path::Path, cx: &mut App) -> bool {
     match crate::update::restart(relaunch) {
         Ok(()) => {
-            cx.quit();
+            crate::quit::quit(cx, "restarting into the update");
             true
         }
         Err(e) => {
