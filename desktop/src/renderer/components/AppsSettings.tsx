@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Blocks, Check, Copy, KeyRound, LoaderCircle } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
@@ -175,6 +175,10 @@ function AppWizard({ secret: initial, projects, onClose }: { secret?: T.MCPPairi
   const [all, setAll] = useState(true);
   const [chosen, setChosen] = useState<string[]>([]);
   const projectList = useRef<HTMLUListElement>(null);
+  // The list opens below the fold of a short window: bring all of it into view once it's there.
+  useEffect(() => {
+    if (!all) projectList.current?.scrollIntoView({ block: 'end' });
+  }, [all]);
   const pair = useMutation({
     mutationFn: () =>
       api.pairMCPApp({
@@ -247,11 +251,7 @@ function AppWizard({ secret: initial, projects, onClose }: { secret?: T.MCPPairi
               <ChoiceRow
                 checked={!all}
                 name="projects"
-                onSelect={() => {
-                  setAll(false);
-                  // The list opens below the fold of a short window: bring it into view.
-                  requestAnimationFrame(() => projectList.current?.scrollIntoView({ block: 'nearest' }));
-                }}
+                onSelect={() => setAll(false)}
                 title={t('settings.apps.wizard.projectsSome')}
               />
               {!all && (

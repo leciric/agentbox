@@ -10,6 +10,7 @@
 //! live on this computer (crate::prefs). A section opens at its top, and
 //! reads what it shows as it opens (load_section).
 mod accounts;
+mod apps;
 pub(super) mod connectors;
 pub(super) mod defaults;
 mod diagnostics;
@@ -77,6 +78,7 @@ const MORE_FIELDS: &[(&str, &str, bool)] = &[
     ("transfer-import-pass", "transfer.passphrase.label", true),
     ("tunnel-hostname", "chat.example.com", false),
     ("tunnel-token", "eyJhIjoi…", true),
+    (apps::NAME, "settings.apps.wizard.namePlaceholder", false),
     ("project-name", "", false),
     ("project-prefix", "defaults.project.noPrefix", false),
     ("secret-name", "API_KEY", false),
@@ -110,6 +112,7 @@ pub struct SettingsPage {
     tokens: tokens::Tokens,
     transfer: transfer::Transfer,
     phone: phone::Phone,
+    apps: apps::Apps,
     project: project::ProjectPage,
     /// skill_draft is the SKILL.md being written or edited.
     skill_draft: Entity<gpui_component::input::TextareaState>,
@@ -210,6 +213,7 @@ impl SettingsPage {
             tokens: Default::default(),
             transfer: Default::default(),
             phone: Default::default(),
+            apps: Default::default(),
             project: Default::default(),
             skill_draft: cx.new(|cx| gpui_component::input::TextareaState::new(window, cx)),
             scroll: ScrollHandle::new(),
@@ -858,6 +862,7 @@ impl AppView {
             // given once this app notifies.
             section("notifications", None, self.notify_groups()),
             section("phone", None, self.phone_groups()),
+            section("apps", None, self.apps_groups()),
             section("experimental", None, experimental),
             section("accounts", ai, self.accounts_groups()),
             section("models", ai, self.models_groups()),
@@ -1490,11 +1495,14 @@ impl AppView {
                         .child(g.description.clone()),
                 )
             });
+        // A section that is one group has the section's own heading for it
+        // (Use AgentBox in another app).
+        let heading = (!g.title.is_empty()).then_some(heading);
         if g.cards {
             return v_flex()
                 .id(SharedString::from(format!("settings-group-{}", g.id)))
                 .gap_2p5()
-                .child(heading)
+                .children(heading)
                 .children(g.entries.iter().map(|e| self.render_card(e, cx)))
                 .into_any_element();
         }
@@ -1512,7 +1520,7 @@ impl AppView {
         v_flex()
             .id(SharedString::from(format!("settings-group-{}", g.id)))
             .gap_2p5()
-            .child(heading)
+            .children(heading)
             .child(kit::panel(v_flex()).children(rows))
             .into_any_element()
     }
@@ -1811,6 +1819,7 @@ impl AppView {
             "setup" => self.load_setup(cx),
             "transfer" => self.load_transfer_preview(cx),
             "phone" => self.load_lan(cx),
+            "apps" => self.load_apps(cx),
             _ => {}
         }
     }
@@ -1822,6 +1831,7 @@ impl AppView {
             n if n.starts_with("connector-") => self.add_connector(cx),
             "transfer-import-path" | "transfer-import-pass" => self.inspect_import(cx),
             "tunnel-hostname" | "tunnel-token" => self.save_tunnel(cx),
+            apps::NAME => self.apps_pair(cx),
             "project-name" | "project-prefix" | "secret-name" | "secret-value" => {
                 if let Some(p) = self.open_project_name() {
                     match name {
@@ -1841,6 +1851,7 @@ impl AppView {
             .or_else(|| self.setup_entry(e, cx))
             .or_else(|| self.transfer_entry(e, cx))
             .or_else(|| self.phone_entry(e, cx))
+            .or_else(|| self.apps_entry(e, cx))
             .or_else(|| self.project_entry(e, cx))
         {
             return el;
