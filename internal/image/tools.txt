@@ -7,7 +7,7 @@
 #
 # Every tool is pinned: two builds of the same image then install the same
 # thing, and a release that breaks agents can't arrive on its own. These were
-# the current stable versions on 2026-09-18, except Claude Code (2.1.311 on
+# the current stable versions on 2026-09-18, except Claude Code (2.1.322 on
 # 2026-11-10) and its ACP adapter (0.102.0, whose SDK knows claude-fable-5-2).
 #
 # Once a tool has a shim, mise auto-installs whatever version a project pins
@@ -41,7 +41,7 @@
 -        go@1.27.3                                         go version
 -        node@24.21.0                                      node --version
 -        pnpm@12.4.2                                       pnpm --version
--        claude@2.1.311                                    claude --version
+-        claude@2.1.322                                    claude --version
 -        gh@2.101.0                                        gh --version
 -        npm:@playwright/mcp@0.0.79                        playwright-mcp --version && playwright-mcp --help | grep -q -- --cdp-endpoint
 -        npm:@agentclientprotocol/claude-agent-acp@0.102.0 command -v claude-agent-acp
