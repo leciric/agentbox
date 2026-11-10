@@ -64,7 +64,7 @@ func localTail(path string, before, limit int64) ([]byte, int64, int64, error) {
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil {
 		return nil, 0, 0, err
