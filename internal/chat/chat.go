@@ -2373,7 +2373,7 @@ func (c *conversation) wanted(id string) (api.ChatOption, string, bool) {
 		// A model absent from option.Choices (Fable, at the time of writing)
 		// isn't necessarily unusable by this account at all: confirmed live,
 		// this account's raw /v1/messages inference and the bare `claude`
-		// CLI's explicit --model override both run claude-fable-5-1 fine —
+		// CLI's explicit --model override both run claude-fable-5-2 fine —
 		// but Claude Code's own mid-session picker doesn't offer it (the
 		// interactive /model list is the same four entries set_config_option
 		// validates against and refuses anything outside). set_config_option

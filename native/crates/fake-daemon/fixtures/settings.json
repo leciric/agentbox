@@ -9,13 +9,13 @@
  "defaultLeadMode": "",
  "claudeModelChoices": [
   {
-   "value": "claude-fable-5-1",
-   "name": "Fable 5.1",
+   "value": "claude-fable-5-2",
+   "name": "Fable 5.2",
    "description": "may not be enabled for this account"
   }
  ],
  "claudeContextWindows": {
-  "claude-fable-5-1": [
+  "claude-fable-5-2": [
    500000,
    1000000
   ],
