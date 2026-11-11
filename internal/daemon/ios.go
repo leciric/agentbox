@@ -298,6 +298,10 @@ func (s *Server) iosForward(w http.ResponseWriter, r *http.Request, a state.Agen
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
+	// The list is read under the lock iosRevoke takes, so a forward meets
+	// the newest one or is stopped by the revoke.
+	s.iosSim.forwardMu.Lock()
+	defer s.iosSim.forwardMu.Unlock()
 	if !req.Stop && len(req.Ports) > 0 {
 		p, err := s.store.Project(r.Context(), a.Project)
 		if err != nil {
@@ -309,8 +313,6 @@ func (s *Server) iosForward(w http.ResponseWriter, r *http.Request, a state.Agen
 			}
 		}
 	}
-	s.iosSim.forwardMu.Lock()
-	defer s.iosSim.forwardMu.Unlock()
 	ctx, c := r.Context(), s.iosClient()
 	one := iossim.ForwardRequest{Project: a.Project, Agent: a.Name}
 	if req.Stop && len(req.Ports) == 0 {
