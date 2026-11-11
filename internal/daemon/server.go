@@ -1269,6 +1269,12 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/remote", s.connectRemote)
 	h("DELETE /v1/remote", s.disconnectRemote)
 	h("POST /v1/remote/pair", s.pairRemote)
+	// Other apps paired over remote MCP (remotemcp.go). Like the rest of
+	// /v1/remote, these answer on this machine only (remoteHandler).
+	h("GET /v1/remote/mcp", s.getRemoteMCP)
+	h("POST /v1/remote/mcp/pairings", s.pairRemoteMCP)
+	h("POST /v1/remote/mcp/pairings/{id}/code", s.renewRemoteMCPCode)
+	h("DELETE /v1/remote/mcp/pairings/{id}", s.revokeRemoteMCP)
 	// Chatting from a phone on the local network (lan.go).
 	h("GET /v1/lan", s.getLAN)
 	h("PATCH /v1/lan", s.updateLAN)

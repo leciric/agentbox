@@ -36,6 +36,7 @@ mod desktop;
 mod notify;
 mod panel;
 mod pulls;
+mod remote;
 mod resources;
 mod review;
 mod setup;
@@ -934,6 +935,10 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         Err(req) => *req,
     };
     let req = match notify::route(&fake, req, &query).await {
+        Ok(res) => return Ok(res),
+        Err(req) => *req,
+    };
+    let req = match remote::route(&fake, req).await {
         Ok(res) => return Ok(res),
         Err(req) => *req,
     };

@@ -102,6 +102,9 @@ func fakeEnvironment() http.Handler {
 		_, _ = fmt.Fprintf(w, `{"version":"fake","path":%q,"query":%q,"authorization":%q,"cookie":%q,"peer":%q,"peerName":%q}`, r.URL.Path, r.URL.RawQuery,
 			r.Header.Get("Authorization"), r.Header.Get("Cookie"), r.Header.Get(hubapi.HeaderPeer), r.Header.Get(hubapi.HeaderPeerName))
 	})
+	mux.HandleFunc(hubapi.EnvironmentMCPPath, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"pairing":%q,"method":%q,"authorization":%q,"peer":%q}`, r.Header.Get(hubapi.HeaderMCPPairing), r.Method, r.Header.Get("Authorization"), r.Header.Get(hubapi.HeaderPeer))
+	})
 	mux.HandleFunc("GET /v1/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = fmt.Fprint(w, "event: usage\ndata: {\"cpu\":1}\n\n")

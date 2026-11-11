@@ -23,6 +23,7 @@ export const sectionTitles: Record<string, MessageKey> = {
   notifications: 'settings.section.notifications.title',
   experimental: 'settings.section.experimental.title',
   phone: 'settings.section.phone.title',
+  apps: 'settings.section.apps.title',
   accounts: 'settings.section.accounts.title',
   models: 'settings.section.models.title',
   agents: 'settings.section.agents.title',

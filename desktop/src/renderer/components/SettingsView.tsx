@@ -33,6 +33,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
+  Blocks,
   Sparkles,
   SquareTerminal,
   Sun,
@@ -97,6 +98,7 @@ import { ConnectorsTab } from "./ConnectorsTab";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { IdleReclaim } from "./IdleReclaim";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
+import { appsGroups } from "./AppsSettings";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, openSettingsSection, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
@@ -1202,6 +1204,17 @@ function InstalledSettings({
           },
         ]
       : []),
+    ...(local
+      ? [
+          {
+            id: "apps",
+            title: t("settings.section.apps.title"),
+            description: t("settings.section.apps.description"),
+            scope: "installation" as const,
+            groups: appsGroups(),
+          },
+        ]
+      : []),
     {
       id: "experimental",
       title: t("settings.section.experimental.title"),
@@ -1909,6 +1922,7 @@ const sectionIcons: SectionIcons = {
   connectors: Plug,
   memory: Brain,
   phone: Smartphone,
+  apps: Blocks,
   agents: Bot,
   resources: Cpu,
   accounts: KeyRound,

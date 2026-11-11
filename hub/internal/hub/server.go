@@ -58,6 +58,10 @@ type Server struct {
 	tunnels  map[string]*tunnel // connected environments, by ID
 	failures map[string][]time.Time
 	pairings map[string]*pairing // waiting, approved or denied, by code
+	// Remote MCP (mcp.go): pairings' codes waiting to be typed, by code, and
+	// authorization codes waiting to be exchanged, by hash.
+	mcpCodes   map[string]mcpCode
+	oauthCodes map[string]oauthCode
 }
 
 type tunnel struct {
@@ -131,6 +135,7 @@ func (s *Server) Handler() http.Handler {
 	h(hubapi.EnvironmentAPI("{id}")+"/{path...}", s.proxy)
 	h(http.MethodGet+" "+hubapi.PathPeers, s.listPeers)
 	h(hubapi.PeerAPI("{id}")+"/{path...}", s.peerProxy)
+	s.mcpRoutes(mux, h)
 	s.pages(mux)
 	if s.Web != nil {
 		mux.Handle("/", webApp(s.Web))
@@ -528,6 +533,13 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) error {
 			// Who a peer is, the hub says (peerProxy), and nobody else.
 			pr.Out.Header.Del(hubapi.HeaderPeer)
 			pr.Out.Header.Del(hubapi.HeaderPeerName)
+			// Nor which app a call over MCP came from (mcp), which goes to
+			// the one path that serves them.
+			pr.Out.Header.Del(hubapi.HeaderMCPPairing)
+			if id, ok := pr.In.Context().Value(mcpKey{}).(string); ok {
+				pr.Out.URL.Path = hubapi.EnvironmentMCPPath
+				pr.Out.Header.Set(hubapi.HeaderMCPPairing, id)
+			}
 			if p, ok := pr.In.Context().Value(peerKey{}).(Environment); ok {
 				pr.Out.Header.Set(hubapi.HeaderPeer, p.ID)
 				pr.Out.Header.Set(hubapi.HeaderPeerName, p.Name)

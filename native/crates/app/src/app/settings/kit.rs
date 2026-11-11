@@ -46,6 +46,7 @@ pub(crate) fn section_icon(id: &str) -> &'static str {
         "connectors" => "plug",
         "memory" => "brain",
         "phone" => "smartphone",
+        "apps" => "share-2",
         "agents" => "bot",
         "resources" => "cpu",
         "accounts" => "key-round",

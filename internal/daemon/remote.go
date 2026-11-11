@@ -223,6 +223,10 @@ func (s *Server) connectRemote(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Server) disconnectRemote(w http.ResponseWriter, r *http.Request) error {
 	s.stopPairing()
+	// The apps paired through this hub go with it.
+	if cfg := s.readRemoteConfig(); cfg != nil {
+		s.revokeAllRemoteMCP(r.Context(), cfg)
+	}
 	if err := os.Remove(s.remoteConfigPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}

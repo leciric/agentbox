@@ -148,7 +148,7 @@ agentbox env add.`,
 			return nil
 		},
 	}
-	cmd.AddCommand(connect, status, disconnect)
+	cmd.AddCommand(connect, status, disconnect, newRemoteAppCmd(a))
 	return cmd
 }
 

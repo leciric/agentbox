@@ -35,6 +35,7 @@ import {
   Settings,
   SlidersHorizontal,
   Smartphone,
+  Blocks,
   Sparkles,
   Square,
   SquareTerminal,
@@ -61,6 +62,7 @@ import { setSheetOpen } from '../lib/shortcuts';
 import type { AgentPlaceName } from '../lib/tabs';
 import { startTour, welcomeTour } from '../lib/tours';
 import { errorMessage } from '../lib/utils';
+import { appsGroups } from './AppsSettings';
 import { phoneGroups } from './PhoneSettings';
 import { projectSettingGroups } from './ProjectSettings';
 import { openSettingsSection } from './SettingsPage';
@@ -281,7 +283,7 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
   const sectionName = (id: string) => (sectionTitles[id] ? t(sectionTitles[id]) : id);
   const settings: PaletteSetting[] = [
     ...catalog
-      .filter((s) => s.section !== 'phone' || local)
+      .filter((s) => (s.section !== 'phone' && s.section !== 'apps') || local)
       .map(
         (s): PaletteSetting => ({
           id: `setting:${s.section}:${s.id}`,
@@ -295,6 +297,7 @@ export function usePaletteCommands(ctx: PaletteContext, queryClient: QueryClient
         }),
       ),
     ...[
+      ...(local ? appsGroups().map((g) => ({ g, section: 'apps', where: `${t('settings.section.apps.title')} · ${g.title}`, icon: Blocks })) : []),
       ...(local ? phoneGroups().map((g) => ({ g, section: 'phone', where: `${t('settings.section.phone.title')} · ${g.title}`, icon: Smartphone })) : []),
       ...(projects.data ?? []).flatMap((p) =>
         projectSettingGroups(p).map((g) => ({ g, section: `project:${p.name}`, where: `${projectLabel(p.name, projects.data)} · ${g.title}`, icon: FolderGit2 })),

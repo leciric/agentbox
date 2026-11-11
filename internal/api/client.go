@@ -1471,6 +1471,29 @@ func (c *Client) DisconnectRemote(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/v1/remote", nil, nil)
 }
 
+// MCPPairings lists the apps paired with this machine over remote MCP.
+func (c *Client) MCPPairings(ctx context.Context) (MCPPairings, error) {
+	var out MCPPairings
+	return out, c.do(ctx, http.MethodGet, "/v1/remote/mcp", nil, &out)
+}
+
+// PairMCP pairs another app; the answer carries what to give it, once.
+func (c *Client) PairMCP(ctx context.Context, req MCPPairRequest) (MCPPairingSecret, error) {
+	var out MCPPairingSecret
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings", req, &out)
+}
+
+// RenewMCPCode gives a pairing a new code, for signing its app in again.
+func (c *Client) RenewMCPCode(ctx context.Context, id string) (MCPPairingSecret, error) {
+	var out MCPPairingSecret
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings/"+url.PathEscape(id)+"/code", nil, &out)
+}
+
+// RevokeMCPPairing ends an app's access.
+func (c *Client) RevokeMCPPairing(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/remote/mcp/pairings/"+url.PathEscape(id), nil, nil)
+}
+
 // Self asks the in-agent API which agent this is.
 func (c *Client) Self(ctx context.Context) (Self, error) {
 	var out Self

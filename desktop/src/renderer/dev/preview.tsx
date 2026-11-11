@@ -1516,6 +1516,13 @@ function settingsBridge(): void {
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && /^\/v1\/usage(\?|$)/.test(path) && queryClient.getQueryData(['usage'])) return answer(queryClient.getQueryData(['usage']));
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
+    if (method === 'GET' && path === '/v1/remote/mcp') {
+      const pairings: T.MCPPairing[] = [
+        { id: 'm1', label: 'Claude', client: 'claude', access: 'chat', projects: [], createdAt: '2026-11-01T10:00:00Z', lastUsedAt: '2026-11-09T18:30:00Z', apps: ['Claude'] },
+        { id: 'm2', label: 'Poke on my phone', client: 'poke', access: 'read', projects: ['agentbox'], createdAt: '2026-11-05T10:00:00Z' },
+      ];
+      return answer({ available: true, hub: 'hub.example.com', url: 'https://hub.example.com/mcp/abc', pairings } satisfies T.MCPPairings);
+    }
     if (method === 'GET' && lists.test(path)) return answer([]);
     if (phone && method === 'PATCH' && path === '/v1/lan') {
       const req = (typeof body === 'string' ? JSON.parse(body) : body) as T.UpdateLANRequest;
