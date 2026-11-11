@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, ChevronUp, KeyRound, LoaderCircle, Plug, Plus, X } from 'lucide-react';
+import { Ban, Check, ChevronUp, KeyRound, LoaderCircle, Plug, Plus, Smartphone, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
@@ -33,10 +33,12 @@ export function CredentialCard({ question, group = [question], bare = false }: {
     <div className="mt-1.5 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" data-thread-credential={question.id}>
       {!bare && (
         <p className="flex items-center gap-1.5 text-[13px] font-medium text-secondary">
-          <KeyRound className="size-3.5 shrink-0 text-subtle" />
+          {question.kind === A.CredentialIOSPorts ? <Smartphone className="size-3.5 shrink-0 text-subtle" /> : <KeyRound className="size-3.5 shrink-0 text-subtle" />}
           <span className="min-w-0 break-words">
             {question.kind === A.CredentialSecret ? (
               t.rich('chat.credential.needsSecret', { name: <code className="font-mono text-[12px]">${question.secretName}</code> })
+            ) : question.kind === A.CredentialIOSPorts ? (
+              t.rich('chat.credential.needsIOSPorts', { ports: <code className="font-mono text-[12px]">{(question.ports ?? []).join(', ')}</code> })
             ) : (
               t('chat.credential.needsGitHub')
             )}
@@ -130,7 +132,7 @@ function RequestRow({ group, title, onClose }: { group: T.Question[]; title?: st
   const [open, setOpen] = useState(false);
   const q = group[0];
   const waiting = isOpen(q);
-  const Icon = q.kind === RequestConnector ? Plug : KeyRound;
+  const Icon = q.kind === RequestConnector ? Plug : q.kind === A.CredentialIOSPorts ? Smartphone : KeyRound;
   return (
     <div className="min-w-0 rounded-xl border border-line bg-surface-faint" data-project-credential={q.id} data-request-group={group.map((x) => x.id).join(' ')}>
       <div className="flex min-w-0 items-center gap-2 py-1.5 pr-1.5 pl-3">
@@ -176,6 +178,7 @@ function requestSummary(t: Translate, group: readonly T.Question[]) {
     return t.rich('chat.request.connector', { agents, count, name: <span className="font-mono text-[12px] text-secondary">{req?.preset?.label ?? req?.name ?? '?'}</span> });
   }
   if (q.kind === A.CredentialSecret) return t.rich('chat.request.secret', { agents, count, name: <span className="font-mono text-[12px] text-secondary">${q.secretName}</span> });
+  if (q.kind === A.CredentialIOSPorts) return t.rich('chat.request.iosPorts', { agents, count, ports: <span className="font-mono text-[12px] text-secondary">{(q.ports ?? []).join(', ')}</span> });
   return t.rich('chat.request.github', { agents, count });
 }
 
@@ -184,6 +187,7 @@ function requestSummary(t: Translate, group: readonly T.Question[]) {
 function answeredLine(q: T.Question): string {
   if (q.answer?.startsWith('refused')) return t('chat.credential.refusedLine');
   if (q.kind === RequestConnector) return t('chat.credential.connectorLine');
+  if (q.kind === A.CredentialIOSPorts) return t('chat.credential.iosPortsLine');
   return q.kind === A.CredentialSecret ? t('chat.credential.secretLine', { name: `$${q.secretName}` }) : t('chat.credential.githubLine');
 }
 
@@ -198,6 +202,14 @@ function CredentialAnswer({ question, group }: { question: T.Question; group: re
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
       {question.kind === A.CredentialSecret ? (
         <SecretForm question={question} busy={answer.isPending} onGive={(value) => answer.mutate({ value })} />
+      ) : question.kind === A.CredentialIOSPorts ? (
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
+          <p className="text-[12px] leading-relaxed text-faint">{t('chat.credential.iosPortsHint')}</p>
+          <Button size="sm" variant="primary" className="justify-self-end" disabled={answer.isPending} onClick={() => answer.mutate({ allow: true })} data-credential-allow>
+            {answer.isPending ? <LoaderCircle className="animate-spin" /> : <Check />}
+            {t('chat.credential.allow')}
+          </Button>
+        </div>
       ) : (
         <GitHubForm busy={answer.isPending} onGive={(githubAccount) => answer.mutate({ githubAccount })} />
       )}

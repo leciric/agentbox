@@ -1472,8 +1472,11 @@ func describeQuestions(questions []api.Question, leadManaged map[string]bool) st
 
 // credentialWanted names what a credential request asks for.
 func credentialWanted(q api.Question) string {
-	if q.Kind == api.CredentialSecret {
+	switch q.Kind {
+	case api.CredentialSecret:
 		return "the secret $" + q.SecretName
+	case api.CredentialIOSPorts:
+		return "leave to forward ports to the Mac"
 	}
 	return "a GitHub account"
 }

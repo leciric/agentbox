@@ -2389,6 +2389,9 @@ type Question struct {
 	// project's connector's, or the one the agent gave for a new one.
 	Connector    string `json:"connector,omitempty"`
 	ConnectorURL string `json:"url,omitempty"`
+	// Ports are the ports a CredentialIOSPorts request asks the user to let
+	// the project's agents forward to the Mac.
+	Ports []int `json:"ports,omitempty"`
 	// Question is what is asked; on a credential request, the agent's reason.
 	Question string `json:"question"`
 	Context  string `json:"context,omitempty"` // what the agent was doing
@@ -2416,6 +2419,10 @@ type AnswerQuestionRequest struct {
 const (
 	CredentialGitHub = "github"
 	CredentialSecret = "secret"
+	// CredentialIOSPorts is agentbox ios forward asking the user to let the
+	// project's agents forward Ports to the Mac's localhost, answered with
+	// Allow or a refusal.
+	CredentialIOSPorts = "ios_ports"
 )
 
 // CredentialRequest is an agent asking the user for a credential it lacks.
@@ -2446,6 +2453,8 @@ type AnswerCredentialRequest struct {
 	Connector     string `json:"connector,omitempty"`
 	Refuse        bool   `json:"refuse,omitempty"`
 	Reason        string `json:"reason,omitempty"` // why it was refused, for the agent
+	// Allow answers an iOS ports request: the ports join the project's.
+	Allow bool `json:"allow,omitempty"`
 }
 
 // EscalateQuestionRequest passes a question to the user.

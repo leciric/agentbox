@@ -1639,6 +1639,9 @@ var migrations = []string{
 	// Mac's localhost for the iOS Simulator, comma-separated: none until the
 	// user names them.
 	`ALTER TABLE projects ADD COLUMN ios_forward_ports TEXT NOT NULL DEFAULT ''`,
+	// questions.ports are the ports an iOS ports request asks the user to
+	// let the project's agents forward to the Mac, comma-separated.
+	`ALTER TABLE questions ADD COLUMN ports TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

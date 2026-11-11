@@ -298,22 +298,47 @@ func (s *Server) iosForward(w http.ResponseWriter, r *http.Request, a state.Agen
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	// The list is read under the lock iosRevoke takes, so a forward meets
-	// the newest one or is stopped by the revoke.
-	s.iosSim.forwardMu.Lock()
-	defer s.iosSim.forwardMu.Unlock()
+	ctx, c := r.Context(), s.iosClient()
 	if !req.Stop && len(req.Ports) > 0 {
-		p, err := s.store.Project(r.Context(), a.Project)
+		for _, port := range req.Ports {
+			if port < 1024 || port > 65535 {
+				return fmt.Errorf("%d isn't a port the Mac can forward: use 1024 to 65535", port)
+			}
+		}
+		// Ports the project doesn't allow yet are the user's to allow: the
+		// call waits for them, without the lock.
+		p, err := s.store.Project(ctx, a.Project)
 		if err != nil {
 			return err
 		}
-		for _, port := range req.Ports {
-			if !slices.Contains(p.IOSForwardPorts, port) {
-				return fmt.Errorf("%s doesn't let its agents forward port %d (it allows %s): the user names the ports in the project's settings, under iOS Simulator", a.Project, port, portList(p.IOSForwardPorts))
+		if missing := missingPorts(p.IOSForwardPorts, req.Ports); len(missing) > 0 {
+			q := state.Question{
+				ID: newID(), Project: a.Project, Agent: a.Name, Kind: state.QuestionIOSPorts, Ports: missing,
+				Text:   fmt.Sprintf("To reach its Metro or API from an app in the iOS Simulator, %s wants to forward %s to your Mac's localhost.", a.Name, portsWords(missing)),
+				Status: state.QuestionEscalated, CreatedAt: time.Now(),
+			}
+			answered, err := s.askUser(ctx, a, q)
+			if err != nil {
+				return err
+			}
+			if answered.Answer != iosPortsAllowed {
+				return fmt.Errorf("the user %s", answered.Answer)
 			}
 		}
 	}
-	ctx, c := r.Context(), s.iosClient()
+	// The list is read again under the lock iosRevoke takes, so a forward
+	// meets the newest one or is stopped by the revoke.
+	s.iosSim.forwardMu.Lock()
+	defer s.iosSim.forwardMu.Unlock()
+	if !req.Stop && len(req.Ports) > 0 {
+		p, err := s.store.Project(ctx, a.Project)
+		if err != nil {
+			return err
+		}
+		if missing := missingPorts(p.IOSForwardPorts, req.Ports); len(missing) > 0 {
+			return fmt.Errorf("%s no longer lets its agents forward %s", a.Project, portsWords(missing))
+		}
+	}
 	one := iossim.ForwardRequest{Project: a.Project, Agent: a.Name}
 	if req.Stop && len(req.Ports) == 0 {
 		if _, err := c.Forward(ctx, one, true); err != nil {
@@ -414,4 +439,45 @@ func (s *Server) iosRevoke(ctx context.Context, project string, allowed []int) e
 		}
 	}
 	return nil
+}
+
+// iosPortsAllowed is what an agent waiting on an iOS ports request is told
+// when the user allows them.
+const iosPortsAllowed = "allowed the ports: they are this project's now, and the forward goes ahead."
+
+func missingPorts(allowed, wanted []int) []int {
+	var missing []int
+	for _, p := range wanted {
+		if !slices.Contains(allowed, p) && !slices.Contains(missing, p) {
+			missing = append(missing, p)
+		}
+	}
+	return missing
+}
+
+// allowIOSPorts adds ports to those the project's agents may forward.
+func (s *Server) allowIOSPorts(ctx context.Context, project string, ports []int) error {
+	p, err := s.store.Project(ctx, project)
+	if err != nil {
+		return err
+	}
+	all := append(slices.Clone(p.IOSForwardPorts), missingPorts(p.IOSForwardPorts, ports)...)
+	slices.Sort(all)
+	if err := s.store.SetProjectIOSForwardPorts(ctx, project, all); err != nil {
+		return err
+	}
+	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
+	return nil
+}
+
+// portsWords names ports in a sentence: "port 8081", "ports 8081 and 5236".
+func portsWords(ports []int) string {
+	parts := make([]string, len(ports))
+	for i, p := range ports {
+		parts[i] = strconv.Itoa(p)
+	}
+	if len(parts) == 1 {
+		return "port " + parts[0]
+	}
+	return "ports " + strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }

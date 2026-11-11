@@ -169,7 +169,7 @@ This project builds an Android app, and this machine can run its own emulator, s
 
 The Mac runs the iOS Simulator, shown in AgentBox's iOS tab: `agentbox ios open`, then `ios screenshot --name <name>`, `ios tap <x> <y>` (in screenshot pixels), `ios swipe`, `ios type`, `ios button home`, `ios install <path>.app` (a simulator build in your worktree) and `ios launch <bundle id>`.
 You can't build for iOS here (no Xcode), but a dev build already on the simulator (React Native, Expo) runs your code: start
-Metro and your API here on {{with .IOSPorts}}the ports the user lets you forward ({{range $i, $p := .}}{{if $i}}, {{end}}{{$p}}{{end}}){{else}}ports the user lets you forward (none yet: ask them to name them in the project's settings){{end}},
+Metro and your API here ({{with .IOSPorts}}ports already allowed: {{range $i, $p := .}}{{if $i}}, {{end}}{{$p}}{{end}}; others{{else}}any port{{end}} wait for the user to allow them in the app),
 `agentbox ios forward <metro port> <api port>`, point the app's API at `http://localhost:<api port>`, and open it
 on `http://localhost:<metro port>` (Expo: `ios openurl "exp+<scheme>://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<metro port>"`).
 The simulator reaches nothing else of yours: not your IP, not the preview proxy. An AgentBox update ends the forwards: forward again if the app stops loading. A native change needs a new build on the Mac: ask the user.

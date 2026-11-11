@@ -796,6 +796,22 @@ if (appView) {
   stubProjectChats();
   // &ios=…, after seedV2's projects: the project is an iOS one.
   if (iosScenario) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, ios: true } : p)));
+  // and an agent asks to forward ports to the Mac (agentbox ios forward).
+  if (iosScenario)
+    queryClient.setQueryData<T.Question[]>(['questions', PROJECT], (qs) => [
+      ...(qs ?? []),
+      {
+        id: 'q-ios',
+        project: PROJECT,
+        agent: 'agent-96',
+        ref: `${PROJECT}/agent-96`,
+        kind: 'ios_ports',
+        ports: [8081, 5236],
+        question: 'To reach its Metro or API from an app in the iOS Simulator, agent-96 wants to forward ports 8081 and 5236 to your Mac’s localhost.',
+        status: 'escalated',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
   setGroupIdle(params.get('groupidle') === '1');
   seedEvidence(queryClient);
   // &stale=1: idle-1 has unseen questions from agents that no longer exist.
