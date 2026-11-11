@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // The subset of the protocol AgentBox uses, from ACP's schema (version 1).
@@ -13,6 +14,7 @@ const ProtocolVersion = 1
 // Methods the client calls.
 const (
 	MethodInitialize      = "initialize"
+	MethodAuthenticate    = "authenticate"
 	MethodSessionNew      = "session/new"
 	MethodSessionLoad     = "session/load"
 	MethodSessionResume   = "session/resume"
@@ -31,6 +33,14 @@ const (
 	MethodSessionUpdate     = "session/update"
 	MethodRequestPermission = "session/request_permission"
 )
+
+// AuthenticateRequest signs the agent in with one of the methods its
+// initialize offered. Meta carries what the method needs, such as Gemini
+// CLI's API key.
+type AuthenticateRequest struct {
+	MethodID string         `json:"methodId"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+}
 
 type InitializeRequest struct {
 	ProtocolVersion    int                `json:"protocolVersion"`
@@ -132,15 +142,17 @@ type EnvVariable struct {
 }
 
 type NewSessionRequest struct {
-	Cwd        string      `json:"cwd"`
-	McpServers []McpServer `json:"mcpServers"`
+	Cwd        string         `json:"cwd"`
+	McpServers []McpServer    `json:"mcpServers"`
+	Meta       map[string]any `json:"_meta,omitempty"`
 }
 
 // ResumeSessionRequest is for session/resume and session/load, which take the same fields.
 type ResumeSessionRequest struct {
-	SessionID  string      `json:"sessionId"`
-	Cwd        string      `json:"cwd"`
-	McpServers []McpServer `json:"mcpServers"`
+	SessionID  string         `json:"sessionId"`
+	Cwd        string         `json:"cwd"`
+	McpServers []McpServer    `json:"mcpServers"`
+	Meta       map[string]any `json:"_meta,omitempty"`
 }
 
 // SessionResponse answers session/new (with a session ID), session/resume and session/load.
@@ -229,6 +241,9 @@ var modeKinds = map[string]string{
 	"read-only":         "standard",
 	"agent":             "auto_review",
 	"agent-full-access": "full_access",
+	// Gemini CLI's; its autoEdit approves edits only, which is none of the
+	// kinds.
+	"yolo": "full_access",
 }
 
 // inferKinds fills in a mode's kinds from its values when the adapter sent
@@ -374,6 +389,10 @@ type SessionUpdate struct {
 	Description string `json:"description,omitempty"`
 	TaskType    string `json:"taskType,omitempty"`
 	Summary     string `json:"summary,omitempty"`
+	// OutputFilePath, on any of the three, is the file on the tool's machine
+	// the task's output goes to, when the adapter knows it (claude-agent-acp,
+	// for a command). The task's ToolCallID is the call that started it.
+	OutputFilePath string `json:"outputFilePath,omitempty"`
 
 	// usage_update: the context window, and — on the update that follows a
 	// model result — what the session has cost so far (see Cost)
@@ -400,7 +419,53 @@ type SessionUpdate struct {
 		Origin *struct {
 			Kind string `json:"kind"`
 		} `json:"_claude/origin,omitempty"`
+		// Goal rides on a session_info_update from codex-acp: the thread's
+		// goal (GoalSnapshot), or null once it is cleared.
+		Goal json.RawMessage `json:"goal,omitempty"`
+		// JetBrains carries claude-agent-acp's goal, which it sends only to
+		// a client that declares _meta.jetbrains.air, as AgentBox does: the
+		// session's /goal, or null once it is cleared.
+		JetBrains struct {
+			Air struct {
+				Goal json.RawMessage `json:"goal,omitempty"`
+			} `json:"air"`
+		} `json:"jetbrains"`
 	} `json:"_meta"`
+}
+
+// GoalSnapshot is a session's goal as an adapter reports it on a
+// session_info_update: claude-agent-acp's (goal-extension.js) and codex-acp's
+// (ThreadGoalSnapshot) share the fields AgentBox reads. Status is "active"
+// from Claude Code, whose goal is cleared once its check finds it met; Codex
+// says "active", "paused", "blocked", "complete" or "limited".
+type GoalSnapshot struct {
+	Objective string `json:"objective"`
+	Status    string `json:"status"`
+	// Iterations and LastReason are Claude Code's: how many times its check
+	// found the goal not yet met, and why it said so the last time.
+	Iterations int    `json:"iterations,omitempty"`
+	LastReason string `json:"lastReason,omitempty"`
+}
+
+// Goal is the goal a session_info_update reports: ok is false when it says
+// nothing of one, and snap is nil when it says the goal was cleared.
+func (u SessionUpdate) Goal() (snap *GoalSnapshot, ok bool) {
+	raw := u.Meta.JetBrains.Air.Goal
+	if len(raw) == 0 {
+		raw = u.Meta.Goal
+	}
+	if u.SessionUpdate != "session_info_update" || len(raw) == 0 {
+		return nil, false
+	}
+	if string(raw) == "null" {
+		return nil, true
+	}
+	var g GoalSnapshot
+	if json.Unmarshal(raw, &g) != nil || strings.TrimSpace(g.Objective) == "" {
+		return nil, false
+	}
+	g.Objective = strings.TrimSpace(g.Objective)
+	return &g, true
 }
 
 // Text returns the text of a message chunk.

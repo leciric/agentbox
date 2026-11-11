@@ -19,7 +19,7 @@ out() { echo "$1=$2"; }
 
 # A change to how CI decides, or to the tools' versions, runs everything.
 if has '^(\.github/workflows/ci\.yml|scripts/ci-changes\.sh)$'; then
-  for k in go desktop mobile vuln macos windows; do out "$k" true; done
+  for k in go desktop mobile native hub vuln macos windows; do out "$k" true; done
   exit 0
 fi
 
@@ -27,20 +27,33 @@ fi
 # but the paths below, which nothing in Go embeds, opens or runs. Each Go
 # package's own directory is Go whatever it holds (go:embed takes .md, .sh,
 # .tmpl and .txt files, and tests read testdata/). desktop/src/shared/api.ts
-# is Go's too: TestTypeScriptTypesAreUpToDate reads it.
-not_go='^(desktop/|mobile/|docs/|promo/|packaging/|scripts/|\.github/|[^/]+\.md$|LICENSE$|\.gitignore$|\.release-please-manifest\.json$)'
-go_too='^(desktop/src/shared/api\.ts|scripts/check-coverage\.sh|\.github/coverage-floor\.txt)$'
+# is Go's too: TestTypeScriptTypesAreUpToDate reads it, as
+# TestRustTypesAreUpToDate reads the native app's types.rs.
+not_go='^(desktop/|mobile/|native/|docs/|promo/|packaging/|scripts/|\.github/|[^/]+\.md$|LICENSE$|\.gitignore$|\.release-please-manifest\.json$|hub/(npm/|scripts/|[^/]+\.md$))'
+go_too='^(desktop/src/shared/api\.ts|native/crates/agentbox-api/src/types\.rs|scripts/check-coverage\.sh|\.github/coverage-floor\.txt)$'
 go=false
 if grep -qvE "$not_go" "$files" || has "$go_too"; then go=true; fi
 
-# The desktop app, and the vnc.js its build writes into the Go tree.
+# The desktop app, the vnc.js its build writes into the Go tree, and the
+# feature catalogue its tests hold to the app's tabs (lib/features.test.ts).
 desktop=false
-if has '^(desktop/|internal/machinesweb/static/vnc\.js$|mise\.toml$)'; then desktop=true; fi
+if has '^(desktop/|internal/machinesweb/static/vnc\.js$|internal/features/features\.json$|mise\.toml$)'; then desktop=true; fi
 
 # The phone app, and what it imports of the desktop's: the API's types and
 # the text's catalogs.
 mobile=false
 if has '^(mobile/|desktop/src/shared/(api\.ts|i18n/)|mise\.toml$)'; then mobile=true; fi
+
+# The native app (native/, Rust): Linux only, as macOS and Windows aren't
+# built for it yet. Its build compiles in the desktop's text catalogs.
+native=false
+if has '^(native/|desktop/src/shared/i18n/)'; then native=true; fi
+
+# The hub's npm packages (npx agentbox-hub): its Go, the protocol it imports,
+# its launcher and build script, and the toolchain that builds them. Its Go
+# tests run with everyone's, in the Go jobs.
+hub=false
+if has '^(hub/(cmd|internal|npm|scripts)/|hubapi/|go\.(mod|sum)$|mise\.toml$)'; then hub=true; fi
 
 vuln=false
 if has '^go\.(mod|sum)$'; then vuln=true; fi
@@ -60,7 +73,7 @@ if [ "${PLATFORMS:-false}" = true ] && $go; then
     # the package it belongs to (its embedded files, its testdata/).
     pkgdirs=$(git ls-files '*.go' | sed -E 's#/[^/]+$##; /\.go$/s#.*#.#' | sort -u)
     deps() { go list -deps -test -f '{{if not .Standard}}{{.Dir}}{{end}}' "$@" | sed "s#^$root/##; s#^$root\$#.#" | sort -u; }
-    if ! mac_deps=$(GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 deps ./internal/hostvm/... ./internal/paths ./internal/api) \
+    if ! mac_deps=$(GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 deps ./internal/hostvm/... ./internal/paths ./internal/api ./internal/iossim) \
       || ! win_deps=$(GOOS=windows GOARCH=amd64 deps ./internal/hostos ./internal/hostwsl/...); then
       echo "go list failed: running macOS and Windows" >&2
       macos=true windows=true
@@ -71,7 +84,7 @@ if [ "${PLATFORMS:-false}" = true ] && $go; then
           scripts/mac-sign.sh | scripts/agentbox.entitlements) macos=true; continue ;;
         esac
         case "$f" in
-          desktop/src/shared/api.ts) f=internal/api/api.ts ;; # read by internal/api's test
+          desktop/src/shared/api.ts | native/crates/agentbox-api/src/types.rs) f=internal/api/api.ts ;; # read by internal/api's test
           scripts/check-coverage.sh | .github/coverage-floor.txt) continue ;;
         esac
         grep -qE "$not_go" <<<"$f" && continue
@@ -100,6 +113,8 @@ fi
 out go "$go"
 out desktop "$desktop"
 out mobile "$mobile"
+out native "$native"
+out hub "$hub"
 out vuln "$vuln"
 out macos "$macos"
 out windows "$windows"

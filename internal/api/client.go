@@ -163,6 +163,13 @@ func (c *Client) StartHeavy(ctx context.Context, req HeavyRequest) (HeavyStart, 
 	return out, c.do(ctx, http.MethodPost, "/v1/self/heavy", req, &out)
 }
 
+// TestPolicy says, inside an agent, whether its whole test suites are
+// refused, and what its branch started from.
+func (c *Client) TestPolicy(ctx context.Context) (TestPolicy, error) {
+	var out TestPolicy
+	return out, c.do(ctx, http.MethodGet, "/v1/self/tests", nil, &out)
+}
+
 // JoinHeavy puts a process of the agent's in a started heavy command's
 // cgroup, so pausing the command pauses it and what it starts.
 func (c *Client) JoinHeavy(ctx context.Context, key string, pid int) error {
@@ -539,12 +546,33 @@ func (c *Client) ProjectPullRequests(ctx context.Context, project string) (Proje
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/pulls", nil, &out)
 }
 
+// ProjectIssues lists a project repository's open issues.
+func (c *Client) ProjectIssues(ctx context.Context, project string) (ProjectIssues, error) {
+	var out ProjectIssues
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/issues", nil, &out)
+}
+
 // MergePullRequest merges one of a project repository's pull requests with
 // the given method: "merge", "squash" or "rebase".
 func (c *Client) MergePullRequest(ctx context.Context, project string, number int, method string) (PullRequest, error) {
 	var out PullRequest
 	path := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/merge"
 	return out, c.do(ctx, http.MethodPost, path, MergePullRequestRequest{Method: method}, &out)
+}
+
+// MergeWhenGreen resolves an agent's work and has the daemon merge its pull
+// request once the checks pass.
+func (c *Client) MergeWhenGreen(ctx context.Context, project string, number int, req MergeWhenGreenRequest) (MergeWhenGreen, error) {
+	var out MergeWhenGreen
+	path := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/merge-when-green"
+	return out, c.do(ctx, http.MethodPost, path, req, &out)
+}
+
+// CancelMergeWhenGreen cancels a pull request's merge when green, or
+// dismisses one that was given up.
+func (c *Client) CancelMergeWhenGreen(ctx context.Context, project string, number int) error {
+	path := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/merge-when-green"
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }
 
 // ProjectLabels lists the labels of a project's repository.
@@ -569,6 +597,24 @@ func (c *Client) SaveGitHubToken(ctx context.Context, account, token string) (st
 	}
 	err := c.do(ctx, http.MethodPost, "/v1/auth/github", GitHubTokenRequest{Token: token, Account: account}, &out)
 	return out.User, err
+}
+
+// StartGitHubLogin starts a device-flow GitHub sign-in for an account, as a job.
+func (c *Client) StartGitHubLogin(ctx context.Context, account string) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/auth/github/login", GitHubLoginRequest{Account: account}, &out)
+}
+
+// GitHubRepos lists the repositories the default GitHub account can push to.
+func (c *Client) GitHubRepos(ctx context.Context) ([]GitHubRepo, error) {
+	var out []GitHubRepo
+	return out, c.do(ctx, http.MethodGet, "/v1/github/repos", nil, &out)
+}
+
+// GitHubLogin is how far the device-flow sign-in running as job has got.
+func (c *Client) GitHubLogin(ctx context.Context, job string) (GitHubLogin, error) {
+	var out GitHubLogin
+	return out, c.do(ctx, http.MethodGet, "/v1/auth/github/login/"+url.PathEscape(job), nil, &out)
 }
 
 // SaveCursorKey signs agents in to Cursor with an API key, once Cursor says
@@ -688,6 +734,25 @@ func (c *Client) ClaudeLogin(ctx context.Context, job string) (ClaudeLogin, erro
 	return login, c.do(ctx, http.MethodGet, "/v1/auth/claude/login/"+url.PathEscape(job), nil, &login)
 }
 
+// StartGeminiLogin runs Gemini CLI's Google sign-in on the daemon's machine,
+// as a job: the page to approve comes back from GeminiLogin as CodeURL, and
+// the sign-in is stored under the account when it finishes.
+func (c *Client) StartGeminiLogin(ctx context.Context, account string) (Job, error) {
+	var job Job
+	return job, c.do(ctx, http.MethodPost, "/v1/auth/gemini/login", ClaudeLoginRequest{Account: account}, &job)
+}
+
+// GeminiLogin is how far a Gemini CLI sign-in has got.
+func (c *Client) GeminiLogin(ctx context.Context, job string) (ClaudeLogin, error) {
+	var login ClaudeLogin
+	return login, c.do(ctx, http.MethodGet, "/v1/auth/gemini/login/"+url.PathEscape(job), nil, &login)
+}
+
+// GeminiLoginCode hands a running Gemini CLI sign-in the code its page ended on.
+func (c *Client) GeminiLoginCode(ctx context.Context, job, code string) error {
+	return c.do(ctx, http.MethodPost, "/v1/auth/gemini/login/"+url.PathEscape(job)+"/code", ClaudeLoginCodeRequest{Code: code}, nil)
+}
+
 // ClaudeLoginCode hands a running login the code from its fallback page.
 func (c *Client) ClaudeLoginCode(ctx context.Context, job, code string) error {
 	return c.do(ctx, http.MethodPost, "/v1/auth/claude/login/"+url.PathEscape(job)+"/code", ClaudeLoginCodeRequest{Code: code}, nil)
@@ -740,11 +805,21 @@ func (c *Client) MediaItem(ctx context.Context, id string) (MediaItem, error) {
 // checked there by the caller), and only the caller's own on the in-agent API
 // (ref ""). The caller closes it.
 func (c *Client) MediaFile(ctx context.Context, ref, id string) (io.ReadCloser, error) {
+	return c.mediaFile(ctx, ref, id, "")
+}
+
+// RawMediaFile opens an edited recording's original, unedited, as
+// MediaFile opens its file.
+func (c *Client) RawMediaFile(ctx context.Context, ref, id string) (io.ReadCloser, error) {
+	return c.mediaFile(ctx, ref, id, "?raw=1")
+}
+
+func (c *Client) mediaFile(ctx context.Context, ref, id, query string) (io.ReadCloser, error) {
 	path := "/v1/media/" + url.PathEscape(id) + "/file"
 	if ref == "" {
 		path = "/v1/self/media/" + url.PathEscape(id) + "/file"
 	}
-	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	resp, err := c.request(ctx, http.MethodGet, path+query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -913,6 +988,59 @@ func (c *Client) InstallAPK(ctx context.Context, ref string, req AndroidInstallR
 	return result, c.androidDo(ctx, http.MethodPost, ref, "/install", req, &result)
 }
 
+// IOSPath is where an agent's iOS Simulator endpoints are: /v1/self/ios for
+// an agent's own (ref ""), and under the agent otherwise.
+func IOSPath(ref string) (string, error) {
+	if ref == "" {
+		return "/v1/self/ios", nil
+	}
+	path, err := AgentPath(ref)
+	return path + "/ios", err
+}
+
+func (c *Client) iosDo(ctx context.Context, method, ref, suffix string, body, out any) error {
+	path, err := IOSPath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, method, path+suffix, body, out)
+}
+
+func (c *Client) IOS(ctx context.Context, ref string) (IOSStatus, error) {
+	var status IOSStatus
+	return status, c.iosDo(ctx, http.MethodGet, ref, "", nil, &status)
+}
+
+// OpenIOS boots a simulator, waits until it has, and makes it the agent's.
+func (c *Client) OpenIOS(ctx context.Context, ref string, req IOSDeviceRequest) (IOSStatus, error) {
+	var status IOSStatus
+	return status, c.iosDo(ctx, http.MethodPost, ref, "/open", req, &status)
+}
+
+// CloseIOS shuts a simulator down.
+func (c *Client) CloseIOS(ctx context.Context, ref string, req IOSDeviceRequest) (IOSStatus, error) {
+	var status IOSStatus
+	return status, c.iosDo(ctx, http.MethodPost, ref, "/close", req, &status)
+}
+
+func (c *Client) IOSInput(ctx context.Context, ref string, in IOSInput) error {
+	return c.iosDo(ctx, http.MethodPost, ref, "/input", in, nil)
+}
+
+func (c *Client) InstallIOSApp(ctx context.Context, ref string, req IOSInstallRequest) (IOSResult, error) {
+	var result IOSResult
+	return result, c.iosDo(ctx, http.MethodPost, ref, "/install", req, &result)
+}
+
+func (c *Client) LaunchIOSApp(ctx context.Context, ref string, req IOSLaunchRequest) (IOSResult, error) {
+	var result IOSResult
+	return result, c.iosDo(ctx, http.MethodPost, ref, "/launch", req, &result)
+}
+
+func (c *Client) OpenIOSURL(ctx context.Context, ref string, req IOSOpenURLRequest) error {
+	return c.iosDo(ctx, http.MethodPost, ref, "/openurl", req, nil)
+}
+
 func (c *Client) Preview(ctx context.Context) (PreviewInfo, error) {
 	var info PreviewInfo
 	return info, c.do(ctx, http.MethodGet, "/v1/preview", nil, &info)
@@ -940,6 +1068,11 @@ func (c *Client) UsageStatsPending(ctx context.Context) (UsageStatsPending, erro
 	return out, c.do(ctx, http.MethodGet, "/v1/usage-stats/pending", nil, &out)
 }
 
+// ReportSetupFunnel hands the daemon the steps of Setup taken before it was up.
+func (c *Client) ReportSetupFunnel(ctx context.Context, r SetupFunnelReport) error {
+	return c.do(ctx, http.MethodPost, "/v1/usage-events/setup", r, nil)
+}
+
 // LatestRelease is the update channel's latest release, as the release list has it now.
 func (c *Client) LatestRelease(ctx context.Context) (UpdateRelease, error) {
 	var out UpdateRelease
@@ -958,6 +1091,13 @@ func (c *Client) Projects(ctx context.Context) ([]Project, error) {
 func (c *Client) AddProject(ctx context.Context, req AddProjectRequest) (Project, error) {
 	var out Project
 	return out, c.do(ctx, http.MethodPost, "/v1/projects", req, &out)
+}
+
+// CloneProject starts the job that clones a repository and adds it as a
+// project: the finished job's Result is the Project.
+func (c *Client) CloneProject(ctx context.Context, req CloneProjectRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/clone", req, &out)
 }
 
 func (c *Client) Project(ctx context.Context, name string) (Project, error) {
@@ -988,7 +1128,15 @@ func (c *Client) ProjectIcon(ctx context.Context, project string) (ProjectIcon, 
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/icon", nil, &out)
 }
 
-// SetProjectIcon chooses a project's icon: an emoji or an image.
+// ProjectIconCandidates returns the icons found in a project's repository,
+// best first, to choose from.
+func (c *Client) ProjectIconCandidates(ctx context.Context, project string) ([]ProjectIconCandidate, error) {
+	var out []ProjectIconCandidate
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/icon/candidates", nil, &out)
+}
+
+// SetProjectIcon chooses a project's icon: an emoji, an image, or one of
+// its candidates.
 func (c *Client) SetProjectIcon(ctx context.Context, project string, req SetProjectIconRequest) (ProjectIcon, error) {
 	var out ProjectIcon
 	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/icon", req, &out)
@@ -1056,6 +1204,19 @@ func (c *Client) Agents(ctx context.Context, project string) ([]Agent, error) {
 func (c *Client) Agent(ctx context.Context, ref string) (Agent, error) {
 	var out Agent
 	return out, c.agentDo(ctx, http.MethodGet, ref, "", nil, &out)
+}
+
+// SetGoal sets or changes an existing agent's goal, from its
+// "<project>/<agent>" ref, and sends it to work towards it.
+func (c *Client) SetGoal(ctx context.Context, ref string, spec GoalSpec) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodPut, ref, "/goal", spec, &out)
+}
+
+// ClearGoal clears an agent's goal: AgentBox stops checking it.
+func (c *Client) ClearGoal(ctx context.Context, ref string) (GoalResult, error) {
+	var out GoalResult
+	return out, c.agentDo(ctx, http.MethodDelete, ref, "/goal", nil, &out)
 }
 
 func (c *Client) CreateAgent(ctx context.Context, req CreateAgentRequest) (Job, error) {
@@ -1155,15 +1316,50 @@ func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)
 }
 
+// TrimDisk trims AgentBox's VM's disks now, giving the host's disk back the
+// space the VM freed, and says how much.
+func (c *Client) TrimDisk(ctx context.Context) (DiskTrim, error) {
+	var out DiskTrim
+	return out, c.do(ctx, http.MethodPost, "/v1/usage/disk/trim", nil, &out)
+}
+
 // AgentDisk is one agent's machine and worktree sizes, as its info card shows them.
 func (c *Client) AgentDisk(ctx context.Context, project, name string) (AgentDisk, error) {
 	var out AgentDisk
 	return out, c.do(ctx, http.MethodGet, "/v1/agents/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/disk", nil, &out)
 }
 
+// StoppedMachines lists the agents holding a stopped machine, in project or
+// in every project when it is "". check adds what "remove stopped agents'
+// machines" would do with each, which reads git and GitHub.
+func (c *Client) StoppedMachines(ctx context.Context, project string, check bool) (StoppedMachines, error) {
+	q := url.Values{}
+	if project != "" {
+		q.Set("project", project)
+	}
+	if check {
+		q.Set("check", "1")
+	}
+	var out StoppedMachines
+	return out, c.do(ctx, http.MethodGet, "/v1/stopped-machines?"+q.Encode(), nil, &out)
+}
+
+// RemoveStopped removes the stopped machines of the agents in req that are
+// still safe to remove.
+func (c *Client) RemoveStopped(ctx context.Context, req RemoveStoppedRequest) (RemoveStoppedResult, error) {
+	var out RemoveStoppedResult
+	return out, c.do(ctx, http.MethodPost, "/v1/stopped-machines/remove", req, &out)
+}
+
 func (c *Client) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 	var out MemoryUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/memory", nil, &out)
+}
+
+// HostMemory is the daemon's machine's memory and CPUs, from /proc/meminfo.
+func (c *Client) HostMemory(ctx context.Context) (HostMemory, error) {
+	var out HostMemory
+	return out, c.do(ctx, http.MethodGet, "/v1/usage/host", nil, &out)
 }
 
 func (c *Client) CPUUsage(ctx context.Context, interval time.Duration) (CPUUsage, error) {
@@ -1263,8 +1459,39 @@ func (c *Client) ConnectRemote(ctx context.Context, req RemoteConnectRequest) (R
 	return out, c.do(ctx, http.MethodPut, "/v1/remote", req, &out)
 }
 
+// PairRemote asks a hub to approve this machine as an environment, and
+// answers at once: the pairing is in RemoteStatus.Pairing, and the machine
+// connects by itself when it's approved.
+func (c *Client) PairRemote(ctx context.Context, req RemotePairRequest) (RemoteStatus, error) {
+	var out RemoteStatus
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/pair", req, &out)
+}
+
 func (c *Client) DisconnectRemote(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/v1/remote", nil, nil)
+}
+
+// MCPPairings lists the apps paired with this machine over remote MCP.
+func (c *Client) MCPPairings(ctx context.Context) (MCPPairings, error) {
+	var out MCPPairings
+	return out, c.do(ctx, http.MethodGet, "/v1/remote/mcp", nil, &out)
+}
+
+// PairMCP pairs another app; the answer carries what to give it, once.
+func (c *Client) PairMCP(ctx context.Context, req MCPPairRequest) (MCPPairingSecret, error) {
+	var out MCPPairingSecret
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings", req, &out)
+}
+
+// RenewMCPCode gives a pairing a new code, for signing its app in again.
+func (c *Client) RenewMCPCode(ctx context.Context, id string) (MCPPairingSecret, error) {
+	var out MCPPairingSecret
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/mcp/pairings/"+url.PathEscape(id)+"/code", nil, &out)
+}
+
+// RevokeMCPPairing ends an app's access.
+func (c *Client) RevokeMCPPairing(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/remote/mcp/pairings/"+url.PathEscape(id), nil, nil)
 }
 
 // Self asks the in-agent API which agent this is.
@@ -1316,4 +1543,32 @@ func (c *Client) TerminalTails(ctx context.Context, project string, agents []str
 		path += "&lines=" + strconv.Itoa(lines)
 	}
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
+// DebugStats reads the daemon's process and memory figures (socket only).
+func (c *Client) DebugStats(ctx context.Context) (DebugStats, error) {
+	var out DebugStats
+	return out, c.do(ctx, http.MethodGet, "/debug/stats", nil, &out)
+}
+
+// Profile copies one of the daemon's Go profiles (net/http/pprof, served on
+// its socket only) to w: "heap", "goroutine", "allocs"; query is pprof's own,
+// "gc=1" or "debug=1".
+func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) error {
+	path := "/debug/pprof/" + url.PathEscape(name)
+	if query != "" {
+		path += "?" + query
+	}
+	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, err = io.Copy(w, resp.Body)
+	return err
+}
+
+// PutHostLoad reports the user's computer's load (internal/hostload).
+func (c *Client) PutHostLoad(ctx context.Context, load HostLoad) error {
+	return c.do(ctx, http.MethodPut, "/v1/host/load", load, nil)
 }

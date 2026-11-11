@@ -8,6 +8,46 @@ import { api, isProjectChat } from './api.ts';
 
 export const chatKey = (ref: string) => ['chat', ref];
 
+// A load that failed because the daemon couldn't be reached (the app's own
+// answer, status 503 or 0) is tried again a few times, slowing down, rather
+// than kept as the chat's error: it's usually a connection that was dropped
+// and is back a moment later. The connection coming back reloads everything
+// anyway (connectEvents).
+const loadAttempts = 4;
+export function retryLoad(failures: number, err: unknown): boolean {
+  const status = (err as { status?: number } | undefined)?.status;
+  return failures < loadAttempts && (status === 503 || status === 0);
+}
+export const retryLoadDelay = (failures: number) => Math.min(500 * 2 ** failures, 4000);
+export const chatLoadRetry = { retry: retryLoad, retryDelay: retryLoadDelay };
+
+// A project's chat — its sessions, and the session shown — can be asked about
+// before the daemon has it ready: the app opens a project the moment adding it
+// answers, while its other queries (the sidebar's, the panel's) are already on
+// their way, and a project the daemon doesn't have yet is a 404. That isn't
+// the chat being unavailable, only not there yet, so a not-found is waited
+// for like a dropped connection, a little longer; and what still fails is
+// asked again every few seconds rather than kept until the project is opened
+// again, which was the only way out of "The chat is unavailable.".
+const readyAttempts = 6;
+export function retryChatReady(failures: number, err: unknown): boolean {
+  const status = (err as { status?: number } | undefined)?.status;
+  return failures < readyAttempts && (status === 404 || status === 503 || status === 0);
+}
+export const chatReadyRetryEvery = 5_000;
+export const chatReadyRetry = {
+  retry: retryChatReady,
+  retryDelay: retryLoadDelay,
+  refetchInterval: (query: { state: { status: string } }) => (query.state.status === 'error' ? chatReadyRetryEvery : false),
+} as const;
+
+// loadErrorMessage is what a chat that couldn't load says: a readable line for
+// a daemon that couldn't be reached, instead of the errno it came with.
+export function loadErrorMessage(err: unknown, fallback: string): string {
+  const status = (err as { status?: number } | undefined)?.status;
+  return status === 503 || status === 0 ? t('chat.connectionLost') : fallback;
+}
+
 // The latest chat events of each agent. A thread that was being fetched while
 // they arrived applies the ones it doesn't include yet.
 const recent = new Map<string, T.ChatEvent[]>();
@@ -41,6 +81,14 @@ export async function fetchThread(queryClient: QueryClient, ref: string, from?: 
   const next = advance(thread, recent.get(ref) ?? []);
   const now = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
   return keepHeld(next === 'gap' ? thread : next, now);
+}
+
+// forgetThread lets go of what the app holds of ref's chat, for a session
+// just made or deleted: a deleted session's id goes to the next new one, and
+// its old thread, held under the same ref, would open in its place.
+export function forgetThread(queryClient: QueryClient, ref: string): void {
+  queryClient.removeQueries({ queryKey: chatKey(ref), exact: true });
+  queryClient.removeQueries({ queryKey: chatWindowKey(ref), exact: true });
 }
 
 // peekThread reads only a chat's latest message, with its turn — what it is
@@ -335,7 +383,7 @@ function indexOf(items: T.ChatItem[], id: string): number {
 export type Row =
   | { type: 'user'; key: string; item: T.ChatItem }
   | { type: 'woken'; key: string; item: T.ChatItem }
-  | { type: 'background'; key: string; tasks: string[] }
+  | { type: 'background'; key: string; tasks: string[]; items: T.ChatBackgroundTask[]; waiting: boolean }
   | { type: 'assistant'; key: string; item: T.ChatItem; final: boolean }
   | { type: 'work'; key: string; items: T.ChatItem[]; live: boolean }
   | { type: 'fold'; key: string; turn: string; label: string; open: boolean; empty?: boolean }
@@ -344,6 +392,7 @@ export type Row =
   | { type: 'note'; key: string; item: T.ChatItem }
   | { type: 'subagent'; key: string; item: T.ChatItem; children: T.ChatItem[] }
   | { type: 'compaction'; key: string; item: T.ChatItem }
+  | { type: 'goal'; key: string; item: T.ChatItem }
   | { type: 'credential'; key: string; item: T.ChatItem }
   | { type: 'changes'; key: string; files: ChangedFile[] }
   | { type: 'turn'; key: string; checkpoint: T.Checkpoint };
@@ -393,7 +442,8 @@ export function agentPermissionState(p: T.ChatPermission): AgentPermissionState 
 export const isWork = (it: T.ChatItem) => it.kind === 'tool' || it.kind === 'thought' || (it.kind === 'permission' && !!it.permission?.outcome);
 // A compaction's card ([D73]) reads like a notice: it marks where the session
 // changed, so a settled turn's fold never hides it.
-const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error' || it.kind === 'compaction';
+// So does a goal's row (agent goals, components/GoalChip.tsx).
+const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error' || it.kind === 'compaction' || it.kind === 'goal';
 const isAside = (it: T.ChatItem) => it.kind === 'aside';
 
 // isCredentialRequest is the agent calling request_credential (D95), or
@@ -446,6 +496,13 @@ export function sessionShown(session: Pick<T.ChatSession, 'state' | 'background'
 
 export const asleep = (agent: Pick<T.Agent, 'ref' | 'state'>): 'stopped' | 'paused' | undefined =>
   isProjectChat(agent.ref) ? undefined : agent.state === 'stopped' || agent.state === 'paused' ? agent.state : undefined;
+
+// takesMessages says whether a chat's composer sends: never blocked because
+// something is still starting. A machine being made or queued has no AI tool
+// yet, and the daemon holds what you send until it has (tellAgentMessage); a
+// session still starting queues it the same way; a sleeping one wakes to it.
+export const takesMessages = (agent: Pick<T.Agent, 'ref' | 'state'>): boolean =>
+  agent.state === 'running' || agent.state === 'initializing' || agent.state === 'queued' || asleep(agent) !== undefined;
 
 export function isActive(it: T.ChatItem | undefined): boolean {
   return (
@@ -529,6 +586,10 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
         rows.push({ type: 'compaction', key: it.id, item: it });
         continue;
       }
+      if (it.kind === 'goal' && it.goal) {
+        rows.push({ type: 'goal', key: it.id, item: it });
+        continue;
+      }
       rows.push(it.kind === 'assistant' ? { type: 'assistant', key: it.id, item: it, final: settled && it === final } : { type: 'note', key: it.id, item: it });
     }
     endGroup(running);
@@ -548,8 +609,12 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
     }
   }
   // Between turns, what the session still has running: its end wakes it.
+  // Item by item when the daemon says (backgroundTasks), and then also what
+  // ended, and during a turn: each can be opened.
   const background = thread.session?.background ?? [];
-  if (background.length > 0 && !thread.session?.turnStartedAt) rows.push({ type: 'background', key: 'background', tasks: background });
+  const items = thread.session?.backgroundTasks ?? [];
+  const waiting = background.length > 0 && !thread.session?.turnStartedAt;
+  if (waiting || items.length > 0) rows.push({ type: 'background', key: 'background', tasks: background, items, waiting });
   return rows;
 }
 

@@ -1,0 +1,201 @@
+From: AgentBox
+Subject: [PATCH] venus: present and run GLES 3 layers on a renderer without dma-buf
+
+On a macOS host (krunkit, MoltenVK) the renderer has no dma-buf, sync_fd,
+image modifiers or foreign queue, so Venus exposes no VK_KHR_swapchain and
+ANGLE can't start. Without dma-buf:
+
+- common wsi runs in software mode: frames are blitted to a host-visible
+  buffer and presented from the CPU, and acquired images are signaled with an
+  empty submit instead of an imported sync fd;
+- VK_EXT_provoking_vertex is exposed with provokingVertexLast and kept from
+  the renderer, which ANGLE requires for GLES 3 (flat varyings may differ);
+- lazily allocated memory is hidden: ANGLE makes multisampled color images
+  transient once it exists, which MoltenVK can't back with it.
+
+---
+diff --git a/src/virtio/vulkan/vn_device.c b/src/virtio/vulkan/vn_device.c
+--- a/src/virtio/vulkan/vn_device.c
++++ b/src/virtio/vulkan/vn_device.c
+@@ -269,7 +269,12 @@
+    const bool has_wsi =
+       app_exts->KHR_swapchain || app_exts->ANDROID_native_buffer ||
+       app_exts->ANDROID_external_memory_android_hardware_buffer;
+-   if (has_wsi) {
++   /* common wsi's software path (no dma-buf, see vn_wsi_init) presents
++    * from a buffer it blits to: no modifiers and no foreign queue
++    */
++   const bool sw_wsi =
++      !physical_dev->base.base.supported_extensions.EXT_external_memory_dma_buf;
++   if (has_wsi && !sw_wsi) {
+       if (!app_exts->EXT_image_drm_format_modifier) {
+          extra_exts[extra_count++] =
+             VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME;
+@@ -285,7 +290,8 @@
+          extra_exts[extra_count++] =
+             VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME;
+       }
+-
++   }
++   if (has_wsi) {
+       if (app_exts->KHR_swapchain) {
+          /* see vn_physical_device_get_native_extensions */
+          block_exts[block_count++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+@@ -328,7 +334,7 @@
+    }
+ 
+    /* see vn_queue_submission_count_batch_semaphores */
+-   if (!app_exts->KHR_external_semaphore_fd && has_wsi) {
++   if (!app_exts->KHR_external_semaphore_fd && has_wsi && !sw_wsi) {
+       assert(physical_dev->renderer_sync_fd.semaphore_importable);
+       extra_exts[extra_count++] = VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME;
+    }
+@@ -342,6 +348,12 @@
+          VK_EXT_EXTERNAL_MEMORY_ACQUIRE_UNMODIFIED_EXTENSION_NAME;
+    }
+ 
++   if (app_exts->EXT_provoking_vertex &&
++       !physical_dev->renderer_extensions.EXT_provoking_vertex) {
++      /* see vn_physical_device_get_native_extensions */
++      block_exts[block_count++] = VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME;
++   }
++
+    if (app_exts->EXT_device_memory_report) {
+       /* see vn_physical_device_get_native_extensions */
+       block_exts[block_count++] = VK_EXT_DEVICE_MEMORY_REPORT_EXTENSION_NAME;
+@@ -470,8 +482,29 @@
+    if (group && group->physicalDeviceCount)
+       dev->device_mask = (1 << group->physicalDeviceCount) - 1;
+ 
++   /* see vn_physical_device_get_native_extensions: the renderer has no
++    * provoking vertex features, so they are unlinked while it creates the
++    * device and put back after
++    */
++   VkBaseOutStructure *pv_prev = NULL, *pv = NULL;
++   if (!physical_dev->renderer_extensions.EXT_provoking_vertex) {
++      for (VkBaseOutStructure *s = (VkBaseOutStructure *)create_info;
++           s->pNext; s = s->pNext) {
++         if (s->pNext->sType ==
++             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT) {
++            pv_prev = s;
++            pv = s->pNext;
++            pv_prev->pNext = pv->pNext;
++            break;
++         }
++      }
++   }
++
+    result = vn_call_vkCreateDevice(dev->primary_ring, physical_dev_handle,
+                                    create_info, NULL, &dev_handle);
++
++   if (pv)
++      pv_prev->pNext = pv;
+ 
+    /* free the fixed extensions here since no longer needed below */
+    if (create_info == &local_create_info)
+diff --git a/src/virtio/vulkan/vn_physical_device.c b/src/virtio/vulkan/vn_physical_device.c
+--- a/src/virtio/vulkan/vn_physical_device.c
++++ b/src/virtio/vulkan/vn_physical_device.c
+@@ -312,6 +312,9 @@
+     * See vn_physical_device_get_native_extensions.
+     */
+    VN_SET_CORE_VALUE(feats, deviceMemoryReport, true);
++   if (!exts->EXT_provoking_vertex &&
++       physical_dev->base.base.supported_extensions.EXT_provoking_vertex)
++      VN_SET_CORE_VALUE(feats, provokingVertexLast, true);
+ 
+    /* Disable unsupported ExtendedDynamicState3Features */
+    if (exts->EXT_extended_dynamic_state3) {
+@@ -750,6 +753,18 @@
+       props->memoryTypes[first_coherent].propertyFlags |=
+          VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+    }
++
++   /* A macOS renderer (no dma-buf) has lazily allocated memory that only
++    * some transient images can use, while GLES layers (ANGLE) make every
++    * multisampled image transient once it exists: without it they get
++    * memory that always works.
++    */
++   if (!physical_dev->base.base.supported_extensions
++           .EXT_external_memory_dma_buf) {
++      for (uint32_t i = 0; i < props->memoryTypeCount; i++)
++         props->memoryTypes[i].propertyFlags &=
++            ~VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT;
++   }
+ }
+ 
+ static void
+@@ -956,6 +971,18 @@
+       exts->KHR_incremental_present = true;
+       exts->KHR_swapchain = true;
+       exts->KHR_swapchain_mutable_format = true;
++   } else if (!can_external_mem) {
++      /* No dma-buf (a macOS host): common wsi's software path renders to
++       * an image, copies it to a host-visible buffer and presents that.
++       */
++      exts->KHR_incremental_present = true;
++      exts->KHR_swapchain = true;
++
++      /* GLES 3 on Vulkan (ANGLE) requires it. A renderer without it keeps
++       * its own provoking vertex: only flat varyings can differ.
++       */
++      if (!physical_dev->renderer_extensions.EXT_provoking_vertex)
++         exts->EXT_provoking_vertex = true;
+    }
+ 
+    /* VK_EXT_pci_bus_info is required by common wsi to decide whether native
+diff --git a/src/virtio/vulkan/vn_wsi.c b/src/virtio/vulkan/vn_wsi.c
+--- a/src/virtio/vulkan/vn_wsi.c
++++ b/src/virtio/vulkan/vn_wsi.c
+@@ -77,17 +77,21 @@
+ {
+    const VkAllocationCallbacks *alloc =
+       &physical_dev->instance->base.base.alloc;
++   const bool sw =
++      !physical_dev->base.base.supported_extensions.EXT_external_memory_dma_buf;
+    VkResult result = wsi_device_init(
+       &physical_dev->wsi_device, vn_physical_device_to_handle(physical_dev),
+       vn_wsi_proc_addr, alloc, -1, &physical_dev->instance->dri_options,
+       &(struct wsi_device_options){
+-         .sw_device = false,
++         .sw_device = sw,
+          .extra_xwayland_image = true,
+       });
+    if (result != VK_SUCCESS)
+       return result;
+ 
+-   physical_dev->wsi_device.supports_modifiers = true;
++   physical_dev->wsi_device.supports_modifiers = !sw;
++   if (sw && VN_DEBUG(WSI))
++      vn_log(physical_dev->instance, "software wsi: the renderer has no dma-buf");
+    physical_dev->base.base.wsi_device = &physical_dev->wsi_device;
+ 
+    return VK_SUCCESS;
+@@ -330,8 +334,25 @@
+              vk_Result_to_str(result));
+    }
+ 
+-   /* XXX this relies on implicit sync */
+-   if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
++   /* software wsi: the image was read on the CPU before it could be
++    * acquired again, so it is idle; signal on the queue instead of through
++    * a sync fd the renderer can't import
++    */
++   if ((result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) &&
++       dev->physical_device->wsi_device.sw &&
++       (pAcquireInfo->semaphore || pAcquireInfo->fence)) {
++      const VkSubmitInfo submit = {
++         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
++         .signalSemaphoreCount = pAcquireInfo->semaphore ? 1 : 0,
++         .pSignalSemaphores = &pAcquireInfo->semaphore,
++      };
++      const VkResult signal_result =
++         vn_QueueSubmit(vn_queue_to_handle(&dev->queues[0]), 1, &submit,
++                        pAcquireInfo->fence);
++      if (signal_result != VK_SUCCESS)
++         result = signal_result;
++   } else if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
++      /* XXX this relies on implicit sync */
+       struct vn_semaphore *sem =
+          vn_semaphore_from_handle(pAcquireInfo->semaphore);
+       if (sem)

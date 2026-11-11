@@ -51,11 +51,18 @@ var ChatAdapters = map[string]ChatAdapter{
 The versions are the ones the base image pins, in
 [`internal/image/tools.txt`](../internal/image/tools.txt).
 
+OpenCode has two releases and an installation chooses between them
+(`state.SettingOpenCodeVersion`, `internal/opencode/version.go`). OpenCode 1 is the `opencode`
+the tools pin. OpenCode 2 is not part of the image: it is installed on demand, beside it, as `opencode2`, because both
+releases carry a command called `opencode`; `openCodeAdapter` swaps the command and drops the
+mise package for 2, which runs by name. The ACP side is the same `acp` subcommand in both.
+
 Claude Code and Codex don't speak ACP themselves, so AgentBox runs a separate adapter package in
 front of each (`claude-agent-acp`, `codex-acp`) that wraps the tool's own protocol in ACP. OpenCode
 speaks ACP natively through its own `acp` subcommand, so there's no wrapper — the adapter is just
 `opencode acp`. All three are installed with `mise install` and launched with `mise exec` inside
-the agent's container.
+the agent's container, except OpenCode 2, which each agent installs from its npm package at its first OpenCode 2 start
+(`ensureOpenCode2InAgent`) and links into its `~/.local/bin`.
 
 ## The chat manager
 
@@ -71,6 +78,27 @@ A subagent spawned mid-turn (Claude Code's Task tool, for example) is announced 
 with a `subagent_spawned` ACP notification and represented as its own `ChatItem` of kind
 `"subagent"`; whatever it says nests underneath by `Parent`, so the transcript reads as a tree
 rather than a flat log (`internal/chat/subagents.go`).
+
+## Background work
+
+Claude Code can leave work running after its turn ends: a command run in the background, a
+Monitor, a subagent. While any runs the agent shows as **Awaiting**, and the session wakes by
+itself when one finishes. The end of the chat lists each one as a chip with its status (running,
+done, failed, timed out, stopped). Click a chip to see its command, when it started and ended, its
+exit code, and its output, which follows the command live and loads earlier output on request; a
+subagent's chip goes to its card in the conversation instead. Ended work stays listed until the
+session's AI tool restarts.
+
+What is shown is what the tool's adapter reports (`internal/chat/background.go`):
+
+| | Claude Code | Codex | OpenCode, Cursor, Gemini CLI |
+| --- | --- | --- | --- |
+| Background commands | status, exit code, output read from the command's output file | status, and the output its tool call kept | not reported |
+| Monitors | status and summary, no output | n/a | n/a |
+| Subagents that outlive their turn | status, with a jump to the card | status, with a jump to the card | not reported |
+
+The same list is `backgroundTasks` on `GET …/chat`, and `GET …/chat/background/{task}` returns one
+task with the end of its output (`?before=<offset>` for the piece before).
 
 ## The token ledger
 

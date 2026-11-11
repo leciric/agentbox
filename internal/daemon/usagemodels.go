@@ -31,6 +31,7 @@ var usageModels = map[string]string{
 	"opus": "opus", "sonnet": "sonnet", "haiku": "haiku", "fable": "fable",
 	// Claude.
 	"claude_fable_5_1":  "fable_5_1",
+	"claude_fable_5_2":  "fable_5_2",
 	"claude_opus_5_5":   "opus_5_5",
 	"claude_sonnet_5_5": "sonnet_5_5",
 	"claude_opus_5":     "opus_5",
@@ -157,7 +158,7 @@ func usageWindow(tokens int64) string {
 
 // usageTool is the AI tool's part of a key, the same as agentFeature's.
 func usageTool(ai string) string {
-	return agentFeature(ai, "claude", "codex", "opencode", "cursor")
+	return agentFeature(ai, "claude", "codex", "opencode", "cursor", "gemini")
 }
 
 // countModelUse counts the model, effort and window something ran with, under

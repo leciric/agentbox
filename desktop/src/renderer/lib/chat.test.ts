@@ -8,6 +8,7 @@ import {
   agentPermissionState,
   applyChatEvent,
   asleep,
+  takesMessages,
   changedFiles,
   chatKey,
   contextHint,
@@ -20,7 +21,13 @@ import {
   isMessage,
   isSilent,
   isWork,
+  retryLoad,
+  retryLoadDelay,
+  chatReadyRetry,
+  retryChatReady,
+  loadErrorMessage,
   fetchThread,
+  forgetThread,
   lineCounts,
   liveLabel,
   loadOlder,
@@ -44,6 +51,7 @@ import {
   toolsReload,
   workSummary,
 } from './chat.ts';
+import { withSending, type Sending } from './sending.ts';
 
 let seq = 0;
 const item = (over: Partial<T.ChatItem>): T.ChatItem =>
@@ -212,6 +220,16 @@ test('timelineRows turns a settled turn with tool calls into a fold and a work r
   assert.deepEqual(kinds, ['user', 'fold', 'assistant']);
 });
 
+test('timelineRows keeps a goal row out of a settled turn\'s fold', () => {
+  const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const goal = { objective: 'CI green', source: 'agentbox', status: 'active', checked: 0, updatedAt: '' } as T.AgentGoal;
+  const set = item({ kind: 'goal', turn: user.id, goal });
+  const call = item({ kind: 'tool', turn: user.id, tool: tool({ status: 'completed' }) });
+  const met = item({ kind: 'goal', turn: user.id, goal: { ...goal, status: 'met' } });
+  const rows = timelineRows(thread([user, set, call, item({ kind: 'assistant', turn: user.id }), met]), new Set());
+  assert.deepEqual(rows.map((r) => r.type), ['user', 'fold', 'goal', 'assistant', 'goal']);
+});
+
 test('timelineRows says a turn stopped before it did anything was stopped', () => {
   const user = item({ kind: 'user', result: { state: 'cancelled', endedAt: '2026-01-01T00:00:05Z' } as T.ChatTurnResult });
   const rows = timelineRows(thread([user]), new Set());
@@ -252,9 +270,18 @@ test('timelineRows shows a message from another project\'s lead, and hides the n
 test('timelineRows says what the session waits on between turns, and not while one runs', () => {
   const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
   const waiting = { ...thread([user]), session: { background: ['Watch CI run 42'] } as T.ChatSession };
-  assert.deepEqual(timelineRows(waiting, new Set()).at(-1), { type: 'background', key: 'background', tasks: ['Watch CI run 42'] });
+  assert.deepEqual(timelineRows(waiting, new Set()).at(-1), { type: 'background', key: 'background', tasks: ['Watch CI run 42'], items: [], waiting: true });
   const running = { ...waiting, session: { ...waiting.session, turnStartedAt: '2026-01-01T00:02:00Z' } };
   assert.ok(!timelineRows(running, new Set()).some((r) => r.type === 'background'));
+});
+
+test('timelineRows lists background tasks item by item, during a turn and after they ended too', () => {
+  const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const ended = { id: 'b1', kind: 'command', title: 'Watch CI run 42', status: 'failed', startedAt: '2026-01-01T00:00:30Z', endedAt: '2026-01-01T00:01:30Z' } as T.ChatBackgroundTask;
+  const idle = { ...thread([user]), session: { backgroundTasks: [ended] } as T.ChatSession };
+  assert.deepEqual(timelineRows(idle, new Set()).at(-1), { type: 'background', key: 'background', tasks: [], items: [ended], waiting: false });
+  const running = { ...idle, session: { ...idle.session, turnStartedAt: '2026-01-01T00:02:00Z' } };
+  assert.ok(timelineRows(running, new Set()).some((r) => r.type === 'background'));
 });
 
 test('timelineRows keeps every message of a settled turn in view, folding only the work', () => {
@@ -638,6 +665,12 @@ test('asleep is a stopped or paused agent, whose chat stays readable and wakes i
   assert.equal(asleep({ ref: 'p/lead', state: 'stopped' }), undefined);
 });
 
+test('the composer sends while anything is still starting, and only a machine that is gone refuses', () => {
+  for (const state of ['running', 'initializing', 'queued', 'stopped', 'paused']) assert.equal(takesMessages({ ref: 'p/a', state }), true, state);
+  for (const state of ['incomplete', 'missing']) assert.equal(takesMessages({ ref: 'p/a', state }), false, state);
+  assert.equal(takesMessages({ ref: 'p/lead', state: 'running' }), true);
+});
+
 test('toolsReload is ready only for an idle running session', () => {
   const session = (over: Partial<T.ChatSession>) => ({ state: 'ready', tool: 'claude', options: [], commands: [], ...over }) as T.ChatSession;
   assert.equal(toolsReload(undefined), 'off');
@@ -708,4 +741,75 @@ test('agentPermissionState reads an agent request a lead shows as its outcome fo
   assert.equal(agentPermissionState(p('always')), 'approvedAlways');
   assert.equal(agentPermissionState(p('reject')), 'denied');
   assert.equal(agentPermissionState(p('cancelled')), 'gone');
+});
+
+test('a load is retried a few times when the daemon could not be reached, and never for other errors', () => {
+  const unreachable = { status: 503 };
+  assert.equal(retryLoad(0, unreachable), true);
+  assert.equal(retryLoad(3, { status: 0 }), true);
+  assert.equal(retryLoad(4, unreachable), false);
+  assert.equal(retryLoad(0, { status: 404 }), false);
+  assert.ok(retryLoadDelay(0) < retryLoadDelay(2) && retryLoadDelay(10) <= 4000);
+});
+
+test('a chat that could not load says the connection was lost, not the errno', () => {
+  assert.equal(loadErrorMessage({ status: 503, message: 'read ECONNRESET' }, 'other'), 'Lost the connection to AgentBox. Trying again…');
+  assert.equal(loadErrorMessage({ status: 500 }, 'other'), 'other');
+});
+
+// A deleted session's id goes to the next new one. The app held the deleted
+// session's thread under that ref, at its last event's number, and the new
+// conversation counted from 1 again: every event up to that number was
+// skipped as one already seen, the first message, queued while the tool
+// started, among them. Its later changes then landed after the answer, and
+// the message on its way stayed pending at the end until they did.
+test('the first message of a session that reuses a deleted one\'s id is in the chat before its answer', async (t) => {
+  const ref = 'p/lead.session-3';
+  const at = '2026-10-30T12:00:00Z';
+  const session = (state: string) => ({ state, tool: 'claude', options: [], commands: [] }) as unknown as T.ChatSession;
+  const deleted: T.ChatThread = { agent: ref, seq: 14, session: session('ready'), items: [item({ id: 'old-u', kind: 'user', turn: 'old-u', text: 'about cats' }), item({ id: 'old-a', turn: 'old-u', text: 'Cats sleep a lot.' })] };
+
+  // Held, the old thread takes the new conversation's events, numbered on
+  // past a gap by the daemon, as a gap: it is read again, not added to.
+  const held = new QueryClient();
+  held.setQueryData(chatKey(ref), deleted);
+  applyChatEvent(held, { agent: ref, seq: 16, session: session('starting') });
+  assert.equal(held.getQueryData<T.ChatThread>(chatKey(ref)), deleted);
+  assert.equal(held.getQueryState(chatKey(ref))!.isInvalidated, true);
+
+  // Made, the session forgets it, and opens on its own chat.
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(chatKey(ref), deleted);
+  forgetThread(queryClient, ref);
+  assert.equal(queryClient.getQueryData(chatKey(ref)), undefined);
+
+  const user = item({ id: 'u1', kind: 'user', turn: 'u1', text: 'about dogs', createdAt: at, delivery: 'starting' });
+  t.mock.method(api, 'chat', async () => ({ agent: ref, seq: 17, session: session('starting'), items: [user] }));
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  // The message waits for the tool, then goes in, and the answer follows it.
+  applyChatEvent(queryClient, { agent: ref, seq: 18, item: { ...user, delivery: undefined } });
+  applyChatEvent(queryClient, { agent: ref, seq: 19, session: session('running') });
+  applyChatEvent(queryClient, { agent: ref, seq: 20, item: item({ id: 'a1', turn: 'u1', text: 'Dogs know words.', createdAt: at, streaming: true }) });
+  const live = queryClient.getQueryData<T.ChatThread>(chatKey(ref))!;
+  assert.deepEqual(live.items.map((it) => it.id), ['u1', 'a1']);
+
+  // What the composer showed while it was on its way is gone: the chat has it.
+  const onItsWay: Sending = { key: 'sending-1', ref, text: 'about dogs', attachments: [], at, send: async () => user };
+  const shown = withSending(live, [onItsWay]);
+  assert.deepEqual(shown.items.map((it) => it.id), ['u1', 'a1']);
+  assert.deepEqual(
+    timelineRows(shown, new Set()).filter((r) => r.type === 'user' || r.type === 'assistant').map((r) => r.key),
+    ['u1', 'a1'],
+  );
+});
+
+test('a project chat waits for a project that is not there yet, and for the connection, but not for other errors', () => {
+  assert.equal(retryChatReady(0, { status: 404 }), true);
+  assert.equal(retryChatReady(0, { status: 503 }), true);
+  assert.equal(retryChatReady(5, { status: 0 }), true);
+  assert.equal(retryChatReady(6, { status: 404 }), false);
+  assert.equal(retryChatReady(0, { status: 400 }), false);
+  const interval = chatReadyRetry.refetchInterval;
+  assert.equal(interval({ state: { status: 'error' } }), 5_000);
+  assert.equal(interval({ state: { status: 'success' } }), false);
 });

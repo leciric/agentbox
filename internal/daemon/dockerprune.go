@@ -14,10 +14,27 @@ import (
 // every agent at once. Destroy doesn't, as it deletes the machine, Docker and
 // all. The disk guard pauses rather than stops, and a paused machine can't
 // run a prune.
-func (s *Server) stopAgent(ctx context.Context, m *agent.Manager, a state.Agent) error {
+//
+// It stops the agent's chat first, saying why. Until the machine has
+// stopped, a message for the agent waits (waitStopped): told while the
+// machine still runs, it would go to a chat about to die with it and be lost
+// without an error, as the pull request watch's fix messages were.
+func (s *Server) stopAgent(ctx context.Context, m *agent.Manager, a state.Agent, why string) error {
+	done := s.markStopping(a.Ref())
+	defer done()
+	s.chat.Stop(a.Ref(), why)
+	// A frozen process can't take the prune's docker nor the stop's signal.
+	s.wakeIdle(a.Ref())
 	s.pruneDocker(ctx, m, a)
 	err := m.Stop(ctx, a)
 	s.dropHeavy(ctx, a.Ref())
+	// Stopped on purpose, whatever held it before; idle reclaim marks its
+	// own stops On hold again after this (stopFinishedIdle).
+	if err == nil && a.Hold != "" {
+		if herr := s.store.SetHold(ctx, a.Project, a.Name, ""); herr != nil {
+			s.logf("%s: taking it off hold: %v", a.Ref(), herr)
+		}
+	}
 	return err
 }
 

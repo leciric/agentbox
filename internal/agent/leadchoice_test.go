@@ -8,7 +8,7 @@ import "testing"
 func TestModelTier(t *testing.T) {
 	for model, want := range map[string]int{
 		"haiku": 1, "claude-haiku-4-5-20251001": 1, "sonnet": 2, "sonnet[1m]": 2,
-		"opus": 3, "opus[1m]": 3, "claude-opus-5-5": 3, "claude-fable-5-1": 4,
+		"opus": 3, "opus[1m]": 3, "claude-opus-5-5": 3, "claude-fable-5-2": 4,
 		"default": 0, "something-new": 0,
 	} {
 		if got := modelTier(model); got != want {

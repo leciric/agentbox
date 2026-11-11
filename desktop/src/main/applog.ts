@@ -8,6 +8,7 @@
 // errors as a section of their own. The daemon redacts both, with the rest of
 // the report (internal/report): nothing here needs to.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs';
+import { appendFile } from 'node:fs/promises';
 import { release } from 'node:os';
 import { dirname, join } from 'node:path';
 import { format } from 'node:util';
@@ -15,7 +16,7 @@ import { describeError } from '../shared/errors.ts';
 
 export interface AppError {
   at: string; // ISO time
-  where: 'main' | 'window';
+  where: 'main' | 'window' | 'process'; // 'process': one of Chromium's that died (processgone.ts)
   name: string;
   message: string;
   stack?: string;
@@ -44,19 +45,69 @@ export class AppLog {
 
   // write appends one line, rotating the file first when it would grow past
   // maxBytes. Logging never throws: a disk that's full or gone loses lines.
+  // It never waits on the disk either: a line is written aside (flush), as a
+  // synchronous append on a disk the VM's builds keep busy can hold the main
+  // process, and every window with it, for seconds. Uncaught errors, which
+  // may be the last thing the process does, are written at once (flushSync).
   write(level: string, text: string): void {
-    const line = `${new Date().toISOString()} ${level} ${text.replace(/\n(?!$)/g, '\n  ')}\n`;
-    try {
-      if (this.size < 0) {
-        mkdirSync(dirname(this.file), { recursive: true });
-        this.size = existsSync(this.file) ? statSync(this.file).size : 0;
-      }
-      if (this.size > 0 && this.size + line.length > maxBytes) {
-        renameSync(this.file, `${this.file}.1`);
-        this.size = 0;
-      }
-      appendFileSync(this.file, line);
+    this.pending.push(`${new Date().toISOString()} ${level} ${text.replace(/\n(?!$)/g, '\n  ')}\n`);
+    if (!this.scheduled && !this.inflight) {
+      this.scheduled = true;
+      setImmediate(() => {
+        this.scheduled = false;
+        void this.flush();
+      });
+    }
+  }
+
+  private pending: string[] = [];
+  private scheduled = false;
+  private inflight: Promise<void> | null = null;
+
+  // take is what's pending, up to where the file would pass maxBytes,
+  // rotating it first when it's full; '' when nothing is.
+  private take(): string {
+    if (this.pending.length === 0) return '';
+    if (this.size < 0) {
+      mkdirSync(dirname(this.file), { recursive: true });
+      this.size = existsSync(this.file) ? statSync(this.file).size : 0;
+    }
+    if (this.size > 0 && this.size + this.pending[0].length > maxBytes) {
+      renameSync(this.file, `${this.file}.1`);
+      this.size = 0;
+    }
+    let n = 0;
+    let text = '';
+    for (const line of this.pending) {
+      if (this.size > 0 && this.size + line.length > maxBytes) break;
+      text += line;
       this.size += Buffer.byteLength(line);
+      n++;
+    }
+    this.pending.splice(0, n);
+    return text;
+  }
+
+  // flush writes what's pending without blocking the process; the one
+  // under way, with what's written meanwhile, when there is one.
+  flush(): Promise<void> {
+    this.inflight ??= (async () => {
+      try {
+        for (let text = this.take(); text; text = this.take()) await appendFile(this.file, text);
+      } catch {
+        // nowhere to say so
+      } finally {
+        this.inflight = null;
+      }
+    })();
+    return this.inflight;
+  }
+
+  // flushSync writes what's pending now: before the process ends, and for
+  // what a report reads.
+  flushSync(): void {
+    try {
+      for (let text = this.take(); text; text = this.take()) appendFileSync(this.file, text);
     } catch {
       // nowhere to say so
     }
@@ -75,15 +126,22 @@ export class AppLog {
     this.record({ at: new Date().toISOString(), where: 'window', name: String(e.name), message: String(e.message), stack: e.stack ? String(e.stack) : undefined });
   }
 
+  // processGone records one of Chromium's processes dying.
+  processGone(line: string): void {
+    this.record({ at: new Date().toISOString(), where: 'process', name: 'ProcessGone', message: line });
+  }
+
   private record(e: AppError): void {
     this.errors.push(e);
     if (this.errors.length > maxErrors) this.errors.shift();
     this.write('UNCAUGHT', `${e.where}: ${e.name}: ${e.message}${e.stack ? `\n${e.stack}` : ''}`);
+    this.flushSync();
   }
 
   // tail is the last bytes of the log, from main.log.1 too when main.log
   // alone is shorter.
   tail(bytes = reportTail): string {
+    this.flushSync();
     const read = (f: string) => {
       try {
         return readFileSync(f, 'utf8');
@@ -100,7 +158,7 @@ export class AppLog {
 // errorsText is the recent uncaught errors, newest last, as a report shows them.
 export function errorsText(errors: AppError[]): string {
   return errors
-    .map((e) => `${e.at} in the ${e.where === 'main' ? 'main process' : 'window'}: ${e.name}: ${e.message}${e.stack ? `\n  ${e.stack.split('\n').join('\n  ')}` : ''}`)
+    .map((e) => `${e.at} in ${{ main: 'the main process', window: 'the window', process: "Chromium's processes" }[e.where]}: ${e.name}: ${e.message}${e.stack ? `\n  ${e.stack.split('\n').join('\n  ')}` : ''}`)
     .join('\n\n');
 }
 

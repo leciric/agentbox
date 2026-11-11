@@ -3,10 +3,12 @@ package hostvm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -35,6 +37,10 @@ import (
 //   - Reporting only returns free memory, and Linux keeps what it has read
 //     cached until it runs short, so the VM drops its caches when it's quiet
 //     (the krunkit provision script in agentbox.yaml).
+//   - Lima runs its krunkit driver as a process of its own, with the VM's
+//     user-mode network in it, and limactl create ends by killing it: a VM
+//     started while it's being made loses its network, which initLima's lock
+//     prevents.
 //   - The rest is Lima's and works as with vz: the home share is virtiofs
 //     (libkrun's own), the disk a raw file, ssh and the daemon's socket go
 //     over Lima's user-mode network, its guest agent over vsock.
@@ -47,12 +53,33 @@ type KrunkitCheck struct {
 	// Missing is what isn't installed when it's not available: "krunkit", or
 	// "driver" for a Lima without lima-driver-krunkit.
 	Missing string `json:"missing,omitempty"`
+	// Brew is whether Homebrew can install what's missing, which `agentbox vm
+	// krunkit` does: krunkit from its tap, and the driver with a newer Lima
+	// when Lima is Homebrew's (its formula builds the driver from Lima 2.0).
+	Brew bool `json:"brew,omitempty"`
 }
 
-// krunkitCheck asks Lima whether it has a krunkit driver, and looks for
-// krunkit itself. nil when this isn't a Mac with Apple Silicon, or Lima won't
-// say.
-func (v *VM) krunkitCheck(ctx context.Context) *KrunkitCheck {
+// krunkitHost is what this Mac has of what a krunkit VM needs.
+type krunkitHost struct {
+	krunkit bool   // krunkit is installed
+	driver  bool   // Lima has lima-driver-krunkit
+	brew    string // Homebrew's brew, "" without it
+	// limaBrew is whether the limactl in use is Homebrew's, which brew can
+	// upgrade to one with the driver.
+	limaBrew bool
+}
+
+// krunkitHost asks Lima whether it has a krunkit driver, and looks for
+// krunkit and Homebrew. nil when this isn't a Mac with Apple Silicon, or Lima
+// won't say. A Mac with no Lima has the driver as far as this goes: the Lima
+// EnsureLima downloads comes with it.
+func (v *VM) krunkitHost(ctx context.Context) *krunkitHost {
+	if v.Limactl == "" {
+		if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
+			return nil
+		}
+		return &krunkitHost{krunkit: findKrunkit() != "", driver: true, brew: findBrew()}
+	}
 	out, err := v.lima(ctx, nil, "info")
 	if err != nil {
 		return nil
@@ -65,30 +92,88 @@ func (v *VM) krunkitCheck(ctx context.Context) *KrunkitCheck {
 	if json.Unmarshal([]byte(out), &info) != nil || info.HostOS != "darwin" || info.HostArch != "aarch64" {
 		return nil
 	}
-	switch {
-	case findKrunkit() == "":
-		return &KrunkitCheck{Missing: "krunkit"}
-	case info.VMTypesEx[krunkitVMType] == nil:
-		return &KrunkitCheck{Missing: "driver"}
-	}
-	return &KrunkitCheck{Available: true}
+	h := &krunkitHost{krunkit: findKrunkit() != "", driver: info.VMTypesEx[krunkitVMType] != nil, brew: findBrew()}
+	h.limaBrew = h.brew != "" && brewInstalled(h.brew, v.Limactl)
+	return h
 }
 
-// krunkitDirs are where Homebrew puts krunkit, looked in after PATH.
+// check is the KrunkitCheck for Setup.
+func (h *krunkitHost) check() *KrunkitCheck {
+	if h == nil {
+		return nil
+	}
+	c := &KrunkitCheck{Available: h.krunkit && h.driver, Brew: len(h.brewSteps()) > 0}
+	switch {
+	case !h.krunkit:
+		c.Missing = "krunkit"
+	case !h.driver:
+		c.Missing = "driver"
+	}
+	return c
+}
+
+// brewSteps are the brew commands that install what's missing, nil when
+// nothing is or Homebrew can't: krunkit from its tap (Lima's documentation,
+// plus brew trust, without which Homebrew now refuses krunkit and the formulae
+// it needs from the same tap, gvproxy and libkrun), and a Lima with the
+// driver, which only Homebrew's Lima gets that way.
+func (h *krunkitHost) brewSteps() [][]string {
+	if h.brew == "" || (!h.driver && !h.limaBrew) {
+		return nil
+	}
+	var steps [][]string
+	if !h.krunkit {
+		steps = append(steps, []string{"tap", "slp/krun"}, []string{"trust", "slp/krun"}, []string{"install", "krunkit"})
+	}
+	if !h.driver {
+		steps = append(steps, []string{"upgrade", "lima"})
+	}
+	return steps
+}
+
+// krunkitCheck is krunkitHost's KrunkitCheck: nil on a machine krunkit
+// doesn't run on.
+func (v *VM) krunkitCheck(ctx context.Context) *KrunkitCheck {
+	return v.krunkitHost(ctx).check()
+}
+
+// krunkitDirs are where Homebrew puts krunkit, and itself, looked in after
+// PATH.
 var krunkitDirs = []string{"/opt/homebrew/bin", "/usr/local/bin"}
 
 // findKrunkit is the krunkit binary, or "" when it isn't installed.
-func findKrunkit() string {
-	if p, err := exec.LookPath("krunkit"); err == nil {
+func findKrunkit() string { return findBrewed("krunkit") }
+
+// findBrew is Homebrew's brew, or "" when there's no Homebrew.
+func findBrew() string { return findBrewed("brew") }
+
+// findBrewed is name on PATH or where Homebrew puts it: an app opened from the
+// Finder has only the system's PATH.
+func findBrewed(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
 		return p
 	}
 	for _, dir := range krunkitDirs {
-		p := filepath.Join(dir, "krunkit")
+		p := filepath.Join(dir, name)
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
 			return p
 		}
 	}
 	return ""
+}
+
+// brewInstalled reports whether bin is a formula of brew's Homebrew: a link
+// into its Cellar, which is beside the bin directory brew is in.
+func brewInstalled(brew, bin string) bool {
+	real, err := filepath.EvalSymlinks(bin)
+	if err != nil {
+		return false
+	}
+	prefix := filepath.Dir(filepath.Dir(brew))
+	if p, err := filepath.EvalSymlinks(prefix); err == nil {
+		prefix = p
+	}
+	return strings.HasPrefix(real, filepath.Join(prefix, "Cellar")+string(filepath.Separator))
 }
 
 // krunkitOnPath puts krunkit's directory on this process's PATH, and so on
@@ -113,17 +198,21 @@ const krunkitInstall = "brew tap slp/krun && brew trust slp/krun && brew install
 // it's making it with krunkit, or why not and what that costs. "" when there
 // is nothing to say.
 func krunkitNote(c *KrunkitCheck) string {
+	brew := ""
+	if c != nil && c.Brew {
+		brew = "      agentbox vm krunkit installs it with Homebrew, and a VM made with it has a GPU for agents too.\n"
+	}
 	switch {
 	case c == nil:
 		return ""
 	case c.Available:
-		return "==> Making the VM with krunkit, so it gives the memory it stops using back to your Mac\n"
+		return "==> Making the VM with krunkit, so it gives the memory it stops using back to your Mac, and has a GPU for agents\n"
 	case c.Missing == "driver":
 		return "note: this Lima has no krunkit driver (lima-driver-krunkit), so the VM is made with Apple's Virtualization framework\n" +
-			"      and keeps the memory it has used until it stops. Made with krunkit, it gives it back as it stops using it.\n"
+			"      and keeps the memory it has used until it stops. Made with krunkit, it gives it back as it stops using it.\n" + brew
 	}
 	return "note: krunkit isn't installed, so the VM is made with Apple's Virtualization framework and keeps the memory it has\n" +
-		"      used until it stops. With krunkit installed first (" + krunkitInstall + "), it gives it back as the VM stops using it.\n"
+		"      used until it stops. With krunkit installed first (" + krunkitInstall + "), it gives it back as the VM stops using it.\n" + brew
 }
 
 // createVM is Create for `vm init`, choosing the VM type when AGENTBOX_VM_TYPE
@@ -178,4 +267,143 @@ func (v *VM) checkReporting(ctx context.Context, st State) {
 	}
 	_, _ = fmt.Fprintln(v.Log, "note: the VM runs with krunkit, but its balloon doesn't report free memory, so it can't give memory back to your Mac:\n"+
 		"      that needs libkrun 1.19 or later. brew upgrade krunkit, then agentbox vm stop and agentbox vm start.")
+}
+
+// errNoKrunkit is InstallKrunkit's on a Mac krunkit doesn't run on.
+var errNoKrunkit = errors.New("krunkit runs only on a Mac with Apple Silicon, with Lima installed")
+
+// InstallKrunkit installs with Homebrew what a krunkit VM needs and this Mac
+// lacks (krunkitHost.brewSteps), printing brew's output to the log as it
+// goes, and checks that a new VM would be made with krunkit afterwards.
+// Nothing when it would already; an error that says what to run when Homebrew
+// can't install it.
+func (v *VM) InstallKrunkit(ctx context.Context) error {
+	h := v.krunkitHost(ctx)
+	switch {
+	case h == nil:
+		return errNoKrunkit
+	case h.krunkit && h.driver:
+		_, _ = fmt.Fprintln(v.Log, "==> krunkit and Lima's krunkit driver are installed")
+		return nil
+	}
+	steps := h.brewSteps()
+	if steps == nil {
+		return errors.New(krunkitManual(h))
+	}
+	for _, args := range steps {
+		_, _ = fmt.Fprintf(v.Log, "$ brew %s\n", strings.Join(args, " "))
+		cmd := exec.CommandContext(ctx, h.brew, args...)
+		cmd.Stdout, cmd.Stderr = v.Log, v.Log
+		// brew runs what it installs from its own bin, which an app opened
+		// from the Finder doesn't have on PATH.
+		cmd.Env = append(os.Environ(), "PATH="+filepath.Dir(h.brew)+string(os.PathListSeparator)+os.Getenv("PATH"), "HOMEBREW_NO_ENV_HINTS=1")
+		if err := cmd.Run(); err != nil {
+			// A Homebrew from before brew trust has no such command, and
+			// installs from the tap without it.
+			if args[0] == "trust" {
+				_, _ = fmt.Fprintf(v.Log, "==> brew trust failed (%v): installing without it\n", err)
+				continue
+			}
+			return fmt.Errorf("brew %s: %w", strings.Join(args, " "), err)
+		}
+	}
+	krunkitOnPath()
+	if h = v.krunkitHost(ctx); h == nil || !h.krunkit || !h.driver {
+		return errors.New("brew finished, but " + krunkitManual(h))
+	}
+	_, _ = fmt.Fprintln(v.Log, "==> krunkit is installed: a VM made now is made with it")
+	return nil
+}
+
+// krunkitManual says what's still missing for a krunkit VM, and how to
+// install it by hand.
+func krunkitManual(h *krunkitHost) string {
+	if h == nil {
+		return errNoKrunkit.Error()
+	}
+	var missing []string
+	switch {
+	case !h.krunkit && h.brew == "":
+		missing = append(missing, "krunkit isn't installed, and there's no Homebrew to install it with: install Homebrew (https://brew.sh), then "+krunkitInstall)
+	case !h.krunkit:
+		missing = append(missing, "krunkit isn't installed: "+krunkitInstall)
+	}
+	switch {
+	case h.driver:
+	case h.limaBrew:
+		missing = append(missing, "this Lima has no krunkit driver (lima-driver-krunkit): brew upgrade lima")
+	default:
+		missing = append(missing, "this Lima has no krunkit driver (lima-driver-krunkit), and isn't Homebrew's: install Homebrew's (brew install lima), or Lima 2.0 or later with its krunkit driver")
+	}
+	if len(missing) == 0 {
+		return "krunkit is installed"
+	}
+	return strings.Join(missing, "; ")
+}
+
+// remakeWithKrunkit is `agentbox vm krunkit --remake`: krunkit installed,
+// then the VM, whichever driver made it, deleted and made again by Lima with
+// krunkit, at its size. Nothing is deleted when krunkit can't be installed,
+// and nothing is remade when the VM is krunkit's already. newVM is New, which
+// the tests replace.
+func remakeWithKrunkit(ctx context.Context, newVM func() (*VM, error)) error {
+	vm, err := newVM()
+	if vm == nil || (vm.CHV == nil && err != nil) {
+		return err
+	}
+	size := DefaultSize()
+	if c := vm.CHV; c != nil {
+		// The vz driver's VM: Lima installs nothing for it, but has to
+		// have the driver for the one that replaces it.
+		limactl, err := FindLimactl()
+		if err != nil {
+			return err
+		}
+		if err := (&VM{Limactl: limactl, Log: vm.Log}).InstallKrunkit(ctx); err != nil {
+			return err
+		}
+		size = Size{CPUs: max(c.Config.CPUs, 1), Memory: sizeString(c.Config.MemoryCap, size.Memory), Disk: sizeString(c.Config.Disk, size.Disk)}
+		_, _ = fmt.Fprintln(vm.Log, "==> Deleting the VM (the vz driver's), and every agent's machine in it")
+		if err := vm.Delete(ctx); err != nil {
+			return err
+		}
+		// Lima's from here on: New finds no vz driver's VM any more.
+		if vm, err = newVM(); err != nil {
+			return err
+		}
+	} else {
+		st, err := vm.State(ctx)
+		if err != nil {
+			return err
+		}
+		if st.Exists && st.VMType == krunkitVMType {
+			_, _ = fmt.Fprintln(vm.Log, "==> The VM is made with krunkit already")
+			return nil
+		}
+		if err := vm.InstallKrunkit(ctx); err != nil {
+			return err
+		}
+		if st.Exists {
+			size = Size{CPUs: max(st.CPUs, 1), Memory: sizeString(st.Memory, size.Memory), Disk: sizeString(st.Disk, size.Disk)}
+			_, _ = fmt.Fprintln(vm.Log, "==> Deleting the VM (Apple's Virtualization framework), and every agent's machine in it")
+			if err := vm.Delete(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	if err := vm.initLima(ctx, size); err != nil {
+		return err
+	}
+	if st, err := vm.State(ctx); err == nil && st.VMType != krunkitVMType {
+		return errors.New("the VM was made with Apple's Virtualization framework after all (Lima refused krunkit, see above), so its agents have no GPU")
+	}
+	return nil
+}
+
+// sizeString is bytes as whole GiB, like 8GiB, or def when it isn't known.
+func sizeString(bytes int64, def string) string {
+	if bytes < 1<<30 {
+		return def
+	}
+	return fmt.Sprintf("%dGiB", bytes>>30)
 }

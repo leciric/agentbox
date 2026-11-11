@@ -120,13 +120,13 @@ export function CompareView({ id, onSelect }: { id: string; onSelect: (view: Vie
       <div className="flex flex-col gap-3 border-b border-line px-5 py-4">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <Split className="size-5 shrink-0 text-brand-300" />
-          <h1 className="min-w-0 truncate text-[17px] font-semibold text-title">{g.title}</h1>
-          <span className={cn('rounded-full px-2 py-0.5 text-[11.5px] font-medium', ready(g) ? 'bg-brand-500/15 text-brand-200' : settled ? 'bg-surface-strong text-subtle' : 'bg-surface-strong text-secondary')} data-compare-status>
+          <h1 className="min-w-0 truncate text-heading font-semibold text-title">{g.title}</h1>
+          <span className={cn('rounded-full px-2 py-0.5 text-caption font-medium', ready(g) ? 'bg-brand-500/15 text-brand-200' : settled ? 'bg-surface-strong text-subtle' : 'bg-surface-strong text-secondary')} data-compare-status>
             {status}
           </span>
-          <span className="text-[12px] text-faint">{t('group.byWho', { who: g.byLead ? t('group.byLead') : t('group.byYou'), count: g.members.length })}</span>
+          <span className="text-caption text-faint">{t('group.byWho', { who: g.byLead ? t('group.byLead') : t('group.byYou'), count: g.members.length })}</span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 text-[12.5px] text-secondary">
+            <label className="flex items-center gap-2 text-ui text-secondary">
               <Switch checked={sync} onCheckedChange={setSync} data-compare-sync />
               {t('group.sync')}
             </label>
@@ -148,11 +148,11 @@ export function CompareView({ id, onSelect }: { id: string; onSelect: (view: Vie
             )}
           </div>
         </div>
-        <p className="line-clamp-2 max-w-4xl text-[13px] leading-relaxed text-secondary" title={g.task}>
+        <p className="line-clamp-2 max-w-4xl text-ui leading-relaxed text-secondary" title={g.task}>
           {g.task}
         </p>
         {g.judging && !settled && (
-          <p className="flex max-w-4xl items-center gap-2 text-[12.5px] text-subtle" data-compare-judging>
+          <p className="flex max-w-4xl items-center gap-2 text-ui text-subtle" data-compare-judging>
             <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
             {t('group.judgingHint')}
             <button type="button" className="font-medium text-brand-200 hover:underline" onClick={() => onSelect({ kind: 'project', project: g.project, tab: 'chat' })}>
@@ -161,7 +161,7 @@ export function CompareView({ id, onSelect }: { id: string; onSelect: (view: Vie
           </p>
         )}
         {recommended && (
-          <div className="flex max-w-4xl items-start gap-2.5 rounded-xl border border-brand-400/30 bg-brand-500/[0.07] px-3.5 py-2.5 text-[13px]" data-compare-recommendation={recommended.agent}>
+          <div className="flex max-w-4xl items-start gap-2.5 rounded-xl border border-brand-400/30 bg-brand-500/[0.07] px-3.5 py-2.5 text-ui" data-compare-recommendation={recommended.agent}>
             <Sparkles className="mt-0.5 size-4 shrink-0 text-brand-300" />
             <p className="min-w-0 leading-relaxed text-primary">
               <span className="font-medium text-title">{t('group.recommends', { label: recommended.label, agent: recommended.agent ?? '' })}</span> {g.recommendation}
@@ -286,21 +286,21 @@ function MemberColumn({
       data-compare-st={st}
     >
       <div className="flex min-w-0 items-center gap-2 border-b border-line px-3 py-2.5">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-strong font-mono text-[13px] font-semibold text-title">{m.label}</span>
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-strong font-mono text-ui font-semibold text-title">{m.label}</span>
         <AIIcon ai={m.ai} className="size-4 shrink-0 text-subtle" />
         <span className="grid min-w-0 flex-1">
-          <span className="truncate text-[13px] font-medium text-title" title={m.model || toolName(m.ai)}>
+          <span className="truncate text-ui font-medium text-title" title={m.model || toolName(m.ai)}>
             {toolName(m.ai)}
             {m.model && <span className="text-secondary"> · {m.model}</span>}
           </span>
-          <span className="truncate font-mono text-[11px] text-faint">{m.agent ?? t('group.member.notYet')}</span>
+          <span className="truncate font-mono text-caption text-faint">{m.agent ?? t('group.member.notYet')}</span>
         </span>
         {recommended && (
-          <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-brand-200" title={t('group.recommendedTip')}>
+          <span className="inline-flex shrink-0 items-center gap-1 text-caption font-medium text-brand-200" title={t('group.recommendedTip')}>
             <Sparkles className="size-3.5" />
           </span>
         )}
-        <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium', stTone[st])} data-compare-member-st={st}>
+        <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-caption font-medium', stTone[st])} data-compare-member-st={st}>
           {st === 'working' && m.busy === false && !m.finishedAt ? t('group.st.idle') : t(`group.st.${st}`)}
         </span>
       </div>
@@ -325,7 +325,7 @@ function MemberColumn({
             <img src={mediaUrl(shots[0])} alt={shots[0].name} draggable={false} className="size-full object-contain" />
           </button>
         ) : (
-          <div className="flex size-full items-center justify-center px-4 text-center text-[12px] text-faint">
+          <div className="flex size-full items-center justify-center px-4 text-center text-caption text-faint">
             {st === 'creating' || st === 'working' ? t('group.member.noProofYet') : st === 'failed' ? (m.error ?? '') : t('group.member.noProof')}
           </div>
         )}
@@ -340,7 +340,7 @@ function MemberColumn({
         </div>
       )}
 
-      <dl className="grid gap-1.5 px-3 py-2.5 text-[12.5px]">
+      <dl className="grid gap-1.5 px-3 py-2.5 text-ui">
         <Stat icon={Clock} label={t('group.stat.time')} best={fastest ? t('group.best.fastest') : undefined}>
           {took !== undefined ? (m.finishedAt ? duration(took) : t('group.stat.sofar', { time: duration(took) })) : '—'}
         </Stat>
@@ -397,7 +397,7 @@ function MemberColumn({
         </Stat>
       </dl>
       {m.reportSummary && (
-        <p className="line-clamp-5 border-t border-line px-3 py-2.5 text-[12px] leading-relaxed text-secondary" title={m.reportSummary} data-compare-report>
+        <p className="line-clamp-5 border-t border-line px-3 py-2.5 text-caption leading-relaxed text-secondary" title={m.reportSummary} data-compare-report>
           {m.reportSummary.replace(/[*_`#>]/g, '')}
         </p>
       )}
@@ -407,7 +407,7 @@ function MemberColumn({
           {t('group.member.open')}
         </Button>
         {st === 'kept' ? (
-          <span className="ml-auto inline-flex h-8 items-center gap-1.5 px-2 text-[12.5px] font-medium text-brand-200">
+          <span className="ml-auto inline-flex h-8 items-center gap-1.5 px-2 text-ui font-medium text-brand-200">
             <Trophy className="size-4" />
             {t('group.st.kept')}
           </span>
@@ -431,7 +431,7 @@ function Stat({ icon: Icon, label, best, children }: { icon: typeof Clock; label
       <dt className="w-20 shrink-0 text-subtle">{label}</dt>
       <dd className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-primary">
         <span className="min-w-0 truncate">{children}</span>
-        {best && <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 text-[10.5px] font-medium text-emerald-200">{best}</span>}
+        {best && <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 text-caption font-medium text-emerald-200">{best}</span>}
       </dd>
     </div>
   );

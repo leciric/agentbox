@@ -56,6 +56,7 @@ func TestPackageCacheEnvNamesTheCachesOnlyWhenTheyreThere(t *testing.T) {
 		"PLAYWRIGHT_BROWSERS_PATH":   dir + "/cache/ms-playwright",
 		"PLAYWRIGHT_SKIP_BROWSER_GC": "1",
 		"COREPACK_HOME":              dir + "/cache/corepack",
+		"electron_config_cache":      dir + "/cache/electron",
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)
@@ -101,5 +102,47 @@ func TestPackageCacheSetupPointsPnpmAndYarnAtTheCachesOnce(t *testing.T) {
 	}
 	if info, err := os.Stat(filepath.Join(dir, "cache")); err != nil || !info.IsDir() {
 		t.Errorf("the caches' directory wasn't made: %v", err)
+	}
+}
+
+func TestPackageCacheSetupLinksCargosRegistryAndLocks(t *testing.T) {
+	t.Parallel()
+	m := &Manager{User: image.User{Name: "dev", UID: os.Getuid(), GID: os.Getgid()}}
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	// What the agent's Cargo downloaded before the caches were shared goes.
+	old := filepath.Join(home, ".cargo", "registry", "cache", "serde-1.0.0.crate")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, ".cargo", "bin", "cargo-nextest")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := inSandbox(m.packageCacheSetup(), dir)
+	for range 2 {
+		cmd := exec.Command("sh", "-c", script)
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+	}
+	for _, name := range []string{"registry", "git", ".package-cache", ".package-cache-mutate"} {
+		got, err := os.Readlink(filepath.Join(home, ".cargo", name))
+		if want := filepath.Join(dir, "cache", "cargo", name); err != nil || got != want {
+			t.Errorf("~/.cargo/%s links to %q (%v), want %q", name, got, err, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cache", "cargo", ".package-cache")); err != nil {
+		t.Errorf("the shared lock file wasn't made: %v", err)
+	}
+	if _, err := os.Stat(bin); err != nil {
+		t.Errorf("an installed binary of the agent's own went: %v", err)
 	}
 }

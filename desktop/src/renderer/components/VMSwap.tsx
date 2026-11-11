@@ -16,6 +16,9 @@ const GiB = 1024 ** 3;
 // `agentbox vm swap on` makes (hostvm.MinSwap).
 const defaultGiB = 8;
 const minGiB = 0.5;
+// How much of the swapfile in use counts as memory being out
+// (pressure.DiskSwapTolerance).
+const diskSwapTolerance = 256 * 1024 ** 2;
 
 function gib(bytes: number): string {
   return String(Math.round((bytes / GiB) * 10) / 10);
@@ -68,6 +71,7 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
   const sizeOk = form.trim() !== '' && Number.isFinite(gibs) && gibs >= minGiB;
   const changed = on ? Math.abs(gibs * GiB - size) >= GiB / 20 : size > 0;
   const busy = apply.isPending;
+  const diskUsed = swap?.diskUsed ?? 0;
   const inUse = swap && swap.total > 0 ? t('vm.swap.inUse', { used: gibText(swap.used), total: gibText(swap.total) }) : null;
 
   return (
@@ -75,15 +79,15 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <label htmlFor="vm-swap" className="text-[13px] font-medium text-primary">
+            <label htmlFor="vm-swap" className="text-ui font-medium text-primary">
               {t('vm.swap.label')}
             </label>
-            <div className="text-[12px] text-subtle" data-vm-swap-current>
+            <div className="text-caption text-subtle" data-vm-swap-current>
               {size > 0 ? t('vm.swap.current', { size: gibText(size) }) : t('common.off')}
               {running && inUse ? ` · ${inUse}` : ''}
             </div>
           </div>
-          <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
+          <p className="mt-0.5 text-caption leading-relaxed text-subtle">
             {t('vm.swap.description')}
           </p>
         </div>
@@ -104,7 +108,11 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
         />
       </div>
 
-      {!running && <p className="text-[12px] text-subtle">{t('vm.swap.vmOff')}</p>}
+      {running && diskUsed >= diskSwapTolerance && (
+        <Notice tone="warning">{t('vm.swap.inUseWarning', { used: gibText(diskUsed) })}</Notice>
+      )}
+
+      {!running && <p className="text-caption text-subtle">{t('vm.swap.vmOff')}</p>}
 
       {running && on && (
         <form
@@ -130,7 +138,7 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
                   // Steps count from min: 1 would make 8 invalid, and the form
                   // wouldn't submit.
                   step={minGiB}
-                  className="h-8 pl-8 font-mono text-[12.5px]"
+                  className="h-8 pl-8 font-mono text-ui"
                   disabled={busy}
                   value={form}
                   onChange={(e) => {

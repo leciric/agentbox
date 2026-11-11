@@ -101,3 +101,41 @@ test('a pulls event refetches the tab, and the fleet only when something moved',
   await settle();
   assert.equal(stale('fleet'), true);
 });
+
+// A project just added announces itself once its chat has its first session:
+// a session list read before that, empty or not found, is read again.
+test('a project announced reads its chat sessions again', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  connectEvents(client);
+  let fetches = 0;
+  const observer = new QueryObserver(client, { queryKey: ['leadSessions', 'fresh'], queryFn: async () => (++fetches === 1 ? [] : [{ id: 'main' }]) });
+  const unsubscribe = observer.subscribe(() => {});
+  await settle();
+  assert.deepEqual(observer.getCurrentResult().data, []);
+  emit({ type: 'project', data: { name: 'fresh' } satisfies T.ProjectChange });
+  await settle();
+  await settle();
+  assert.deepEqual(observer.getCurrentResult().data, [{ id: 'main' }]);
+  emit({ type: 'project', data: { name: 'fresh', removed: true } satisfies T.ProjectChange });
+  await settle();
+  assert.equal(fetches, 2, 'a project removed reads nothing again');
+  unsubscribe();
+  client.clear();
+});
+
+test('a live resource sample lands on the agent history, and the window slides', async () => {
+  const { appendResourcePoint } = await import('./events.ts');
+  const client = new QueryClient();
+  connectEvents(client);
+  const point = (s: number, cpu: number): T.AgentResourcePoint => ({ at: new Date(Date.UTC(2026, 10, 6, 12, 0, s)).toISOString(), cpu, memory: 1, swap: 0, diskRead: 0, diskWrite: 0 });
+  // No history fetched (the view isn't open): nothing is made up.
+  emit({ type: 'agent-resources', data: { ref: 'p/a', point: point(2, 10) } });
+  assert.equal(client.getQueryData(['agentResources', 'p/a']), undefined);
+  client.setQueryData<T.AgentResourceHistory>(['agentResources', 'p/a'], { ref: 'p/a', intervalSeconds: 2, windowSeconds: 10, sampling: true, points: [point(0, 5)] });
+  emit({ type: 'agent-resources', data: { ref: 'p/a', point: point(2, 10) } });
+  emit({ type: 'agent-resources', data: { ref: 'p/a', point: point(2, 10) } }); // the same one twice
+  emit({ type: 'agent-resources', data: { ref: 'p/a', point: point(11, 20) } });
+  const h = client.getQueryData<T.AgentResourceHistory>(['agentResources', 'p/a']);
+  assert.deepEqual(h?.points.map((p) => p.cpu), [10, 20]);
+  assert.equal(appendResourcePoint(h!, point(1, 1)), h, 'an older sample changes nothing');
+});

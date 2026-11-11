@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -193,5 +194,88 @@ func TestAWaitingCallEndsWhenCancelled(t *testing.T) {
 	}
 	if n := strings.Count(out.String(), "\n"); n != 3 {
 		t.Errorf("%d answers, want one for each request:\n%s", n, out.String())
+	}
+}
+
+// A server whose tools are slow to make answers initialize at once, since a
+// client that waits too long for it gives up on the server for good, and
+// lists its tools once they are made.
+func TestInitializeDoesNotWaitForLoadTools(t *testing.T) {
+	release := make(chan struct{})
+	s := &mcp.Server{Name: "agentbox", Version: "test", LoadTools: func() []mcp.Tool {
+		<-release
+		return server().Tools
+	}}
+	in, feed := io.Pipe()
+	answers, out := io.Pipe()
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(in, out) }()
+	lines := make(chan string)
+	go func() {
+		scanner := bufio.NewScanner(answers)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		close(lines)
+	}()
+	next := func() string {
+		select {
+		case line := <-lines:
+			return line
+		case <-time.After(5 * time.Second):
+			t.Fatal("no answer")
+			return ""
+		}
+	}
+	send := func(line string) {
+		if _, err := io.WriteString(feed, line+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
+	if got := next(); !strings.Contains(got, `"protocolVersion"`) {
+		t.Fatalf("initialize answered %s", got)
+	}
+	send(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
+	close(release)
+	if got := next(); !strings.Contains(got, `"echo"`) {
+		t.Fatalf("tools/list answered %s", got)
+	}
+	_ = feed.Close()
+	if err := <-served; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A call cancelled while the tools are still being made is still cancelled:
+// the cancellation is read once they are, right after the call starts.
+func TestACallCancelledWhileToolsLoadEnds(t *testing.T) {
+	release := make(chan struct{})
+	ended := make(chan struct{})
+	s := &mcp.Server{Name: "agentbox", Version: "test", LoadTools: func() []mcp.Tool {
+		<-release
+		return []mcp.Tool{{Name: "wait", Wait: func(ctx context.Context, _ json.RawMessage) (string, error) {
+			<-ctx.Done()
+			close(ended)
+			return "", errors.New("gone")
+		}}}
+	}}
+	in, feed := io.Pipe()
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(in, io.Discard) }()
+	go func() {
+		_, _ = io.WriteString(feed, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wait","arguments":{}}}`+"\n"+
+			`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}`+"\n")
+	}()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a call cancelled while the tools loaded went on waiting")
+	}
+	_ = feed.Close()
+	if err := <-served; err != nil {
+		t.Fatal(err)
 	}
 }

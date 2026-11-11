@@ -2,11 +2,13 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
@@ -16,11 +18,36 @@ import (
 
 // The chat: each agent's AI tool behind its ACP adapter, run by package chat.
 
-// launchChat starts an ACP adapter: inside the agent, or on the host for a
-// project's lead, which has no machine of its own.
+// launchChat starts an ACP adapter: inside the agent, beside the daemon for a
+// project's lead, which has no machine of its own, and for the Home chat on
+// the user's computer when it can (launchHome).
 func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(string)) (*chat.Process, error) {
 	// The daemon's log, so what a failing chat did is recoverable afterwards.
 	m := s.manager(s.cfg.Log)
+	var where placed
+	if a.IsHome() {
+		var proc *chat.Process
+		if proc, where = s.launchHome(ctx, m, a, status); proc != nil {
+			return proc, nil
+		}
+	}
+	auth, err := m.ChatAuth(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	if !a.IsLead() {
+		stderr := chat.NewTail()
+		p, err := m.ChatStart(ctx, a, status, stderr)
+		if err != nil {
+			return nil, err
+		}
+		if p != nil {
+			proc := chat.StartRemote(p.Stdin, p.Stdout, p, stderr)
+			proc.Notice, proc.Moved, proc.Auth = where.notice, where.moved, auth
+			return proc, nil
+		}
+		// The incus command stands in for Incus (tests): ChatCommand below.
+	}
 	launch := m.ChatCommand
 	if a.IsLead() {
 		launch = m.LeadChatCommand
@@ -29,7 +56,14 @@ func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(stri
 	if err != nil {
 		return nil, err
 	}
-	return chat.StartCommand(cmd)
+	proc, err := chat.StartCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	// Its AI tool runs again: a turn that dies from here on is a failure.
+	s.agentBack(a.Ref())
+	proc.Notice, proc.Moved, proc.Auth = where.notice, where.moved, auth
+	return proc, nil
 }
 
 // prepareChatModel writes the model a chat should start on, and the context it
@@ -49,7 +83,10 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	if st.State == "initializing" || st.State == state.AgentQueued {
 		// Still being made: whatever its chat, outcome or memory says is
 		// noise from the machine coming up, not news. It reads as starting
-		// in every client until the create job is done.
+		// in every client until the create job is done, or as waiting for
+		// the memory to boot its machine.
+		info.Memory = s.machineHold(info.Ref)
+		info.WaitingForImage = s.waitingOnImage(info.Ref)
 		return info
 	}
 	info.Chat = s.chat.State(info.Ref)
@@ -62,6 +99,9 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	}
 	info.ChangesRequested = s.changesRequested(context.Background(), info.Project, info.Name, info.Chat)
 	info.Memory = s.memoryHold(info.Ref)
+	info.Reclaimed = s.reclaimedOf(info.Ref, info.State)
+	info.Hold = holdOfInfo(info.Hold, info.State)
+	info.Goal = s.goalOf(context.Background(), info.Project, info.Name)
 	if p, ok := s.chat.Progress(info.Ref); ok {
 		info.StalledSince = p.Stalled
 	}
@@ -165,13 +205,23 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		if err := readJSON(r, &req); err != nil {
 			return err
 		}
+		if req.To != "" {
+			if !a.IsLead() {
+				return errors.New("to is for a project's chat: write in the agent's own chat")
+			}
+			item, err := s.sendToAgent(r.Context(), a, req)
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusAccepted, item)
+		}
 		t, err := s.tellAgentMessage(r.Context(), a, req)
 		if err != nil {
 			return err
 		}
 		item := t.item
 		if a.IsLead() {
-			s.countFeature(agentFeature(a.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode, api.FeatureLeadTurnCursor))
+			s.countFeature(agentFeature(a.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode, api.FeatureLeadTurnCursor, api.FeatureLeadTurnGemini))
 		} else {
 			s.countFeature(api.FeatureAgentTurn)
 		}
@@ -224,6 +274,36 @@ func (s *Server) chatFile(from agentFrom) func(http.ResponseWriter, *http.Reques
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeFile(w, r, path)
 		return nil
+	}
+}
+
+// chatBackgroundTask is one of a chat's background tasks with the end of its
+// output, or with ?before=<offset> the piece that ends there (?limit= bytes).
+func (s *Server) chatBackgroundTask(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := from(r)
+		if err != nil {
+			return err
+		}
+		q := r.URL.Query()
+		var before, limit int64
+		if v := q.Get("before"); v != "" {
+			if before, err = strconv.ParseInt(v, 10, 64); err != nil || before < 0 {
+				return fmt.Errorf("before must be an offset into the output, not %q", v)
+			}
+		}
+		if v := q.Get("limit"); v != "" {
+			if limit, err = strconv.ParseInt(v, 10, 64); err != nil || limit < 0 {
+				return fmt.Errorf("limit must be a number of bytes, not %q", v)
+			}
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		detail, err := s.chat.BackgroundTask(ctx, a, r.PathValue("task"), before, limit)
+		if err != nil {
+			return err
+		}
+		return writeJSON(w, http.StatusOK, detail)
 	}
 }
 
@@ -318,7 +398,7 @@ func (s *Server) clearChat(from agentFrom) func(http.ResponseWriter, *http.Reque
 		}
 		// A new chat has no cache to lose.
 		if a.IsLead() {
-			s.settleLeadCache(a.Project, true)
+			s.settleLeadCache(a.Ref(), true)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return nil

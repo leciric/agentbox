@@ -1,0 +1,30 @@
+[package]
+name = "agentbox-office"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The same wgpu GPUI draws with (gpui-pre-wgpu), so there is one in the tree.
+wgpu = { version = "30", default-features = false, features = ["std", "wgsl", "vulkan", "metal", "dx12"] }
+gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
+glam = { version = "0.30", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+png = "0.17"
+pollster = "0.4"
+anyhow.workspace = true
+# Textures drawn in code (canvas.rs): an SVG rasterised by the resvg the app
+# already has (its recap card; GPUI's icons).
+resvg = { version = "0.46", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+agentbox-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# model.rs's `plain` uses a lookahead and a backreference, as the JS regexes do.
+fancy-regex = "0.16"
+
+[dev-dependencies]
+gpui.workspace = true
+gpui_platform.workspace = true
+async-channel = "2"
+image = { version = "0.25", default-features = false }

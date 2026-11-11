@@ -150,7 +150,8 @@ func (s *Store) SaveChatItems(ctx context.Context, project, agent string, items 
 	}
 	defer func() { _ = tx.Rollback() }()
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO chat_items (project, agent, id, position, data) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (project, agent, id) DO UPDATE SET position = excluded.position, data = excluded.data`)
+		ON CONFLICT (project, agent, id) DO UPDATE SET position = excluded.position, data = excluded.data
+		WHERE chat_items.position IS NOT excluded.position OR chat_items.data IS NOT excluded.data`)
 	if err != nil {
 		return err
 	}
@@ -223,12 +224,18 @@ func (s *Store) TruncateChatItems(ctx context.Context, project, agent string, ke
 
 // removeChat deletes everything kept about an agent's conversation, with the agent.
 func removeChat(ctx context.Context, db *sql.DB, project, agent string) error {
-	if _, err := db.ExecContext(ctx, `DELETE FROM chat_items WHERE project = ? AND agent = ?`, project, agent); err != nil {
-		return err
-	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM running_turns WHERE project = ? AND agent = ?`, project, agent); err != nil {
+	if err := removeChatItems(ctx, db, project, agent); err != nil {
 		return err
 	}
 	_, err := db.ExecContext(ctx, `DELETE FROM chats WHERE project = ? AND agent = ?`, project, agent)
+	return err
+}
+
+// removeChatItems is removeChat keeping the chat's settings (Chat).
+func removeChatItems(ctx context.Context, db *sql.DB, project, agent string) error {
+	if _, err := db.ExecContext(ctx, `DELETE FROM chat_items WHERE project = ? AND agent = ?`, project, agent); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, `DELETE FROM running_turns WHERE project = ? AND agent = ?`, project, agent)
 	return err
 }

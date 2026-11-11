@@ -13,6 +13,10 @@ import (
 type broker struct {
 	mu   sync.Mutex
 	subs map[chan api.Event]struct{}
+	// observe, when set before the first publish, is shown every event as
+	// it is published, before it is encoded: for what the daemon works out
+	// from its own events (sessionstatus.go). It must return at once.
+	observe func(typ string, data any)
 }
 
 func newBroker() *broker { return &broker{subs: map[chan api.Event]struct{}{}} }
@@ -30,6 +34,9 @@ func (b *broker) subscribe() (<-chan api.Event, func()) {
 }
 
 func (b *broker) publish(typ string, data any) {
+	if b.observe != nil {
+		b.observe(typ, data)
+	}
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return
