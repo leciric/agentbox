@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/testutil"
 )
 
 // shimDirs lays out a shim directory with go and cargo linked to the shim,
@@ -24,17 +25,15 @@ func shimDirs(t *testing.T) (shims, real string) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(shims, "agentbox-shim"), []byte(agent.ShimScript()), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// Not os.WriteFile: a parallel test's fork could hold the file open and
+	// running it would fail with "text file busy".
+	testutil.WriteExecutable(t, filepath.Join(shims, "agentbox-shim"), []byte(agent.ShimScript()))
 	for _, name := range []string{"go", "cargo"} {
 		if err := os.Symlink("agentbox-shim", filepath.Join(shims, name)); err != nil {
 			t.Fatal(err)
 		}
 		fake := "#!/bin/sh\necho real " + name + " \"$@\"\n"
-		if err := os.WriteFile(filepath.Join(real, name), []byte(fake), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		testutil.WriteExecutable(t, filepath.Join(real, name), []byte(fake))
 	}
 	return shims, real
 }
