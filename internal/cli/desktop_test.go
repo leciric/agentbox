@@ -73,8 +73,9 @@ func TestHostCommandInsideAgentStartsNoDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTBOX_IN_AGENT_MARKER", marker)
-	t.Setenv("PATH", t.TempDir()) // no incus: not a nesting agent
-	t.Setenv("AGENTBOX_ENV", "")  // this machine's daemon, not a hub's
+	t.Setenv("PATH", t.TempDir())   // no incus: not a nesting agent
+	t.Setenv("AGENTBOX_ENV", "")    // this machine's daemon, not a hub's
+	t.Setenv("AGENTBOX_SOCKET", "") // nor one a running daemon's socket names
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))

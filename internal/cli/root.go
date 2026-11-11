@@ -56,11 +56,16 @@ func (a *app) client(cmd *cobra.Command) (*api.Client, error) {
 	// An agent has no daemon of its own, and one started here would be
 	// empty: every project and agent "not found". Only a nesting agent, which
 	// has its own Incus, runs one for real.
-	inAgent := insideAgent()
+	// The marker or the agent's socket, not insideAgent's hostname fallback,
+	// which any host named ab-… would match.
+	inAgent := onAgentMachine()
 	c := api.NewClient(a.paths.Socket())
 	autostart := os.Getenv("AGENTBOX_NO_AUTOSTART") == ""
 	if info, err := c.Version(cmd.Context()); err == nil {
-		if inAgent && (info.Incus == nil || !*info.Incus) {
+		// One that runs Incus is a nesting agent's; one that doesn't is used
+		// only when this process reaches Incus, which restartIfStale then
+		// restarts it to see (or one too old to say).
+		if inAgent && (info.Incus == nil || !*info.Incus) && !(incus.Client{}).Reachable() {
 			return nil, errInAgent()
 		}
 		if autostart {
