@@ -58,8 +58,8 @@ func (a *app) client(cmd *cobra.Command) (*api.Client, error) {
 	// has its own Incus, runs one for real.
 	if insideAgent() && !(incus.Client{}).Reachable() {
 		return nil, errors.New("this runs inside an agent, where commands about the host's projects and agents " +
-			"(chat, exec, list, …) don't work: to reach the project's chat, use agentbox ask for a decision, " +
-			"or the memory server's report tool when you finish")
+			"(chat, exec, list, …) don't work. To reach the project's chat: agentbox ask for a decision, or end " +
+			"your turn saying what it should do, since it reads your last message when you finish")
 	}
 	c := api.NewClient(a.paths.Socket())
 	autostart := os.Getenv("AGENTBOX_NO_AUTOSTART") == ""
