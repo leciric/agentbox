@@ -55,6 +55,8 @@ pub struct Project {
     pub section: String,
     pub position: i64,
     pub nesting: bool,
+    #[serde(rename = "iosForwardPorts", deserialize_with = "nullable")]
+    pub ios_forward_ports: Vec<i64>,
     #[serde(rename = "agentPRs")]
     pub agent_p_rs: bool,
     #[serde(rename = "prWatch")]
@@ -231,6 +233,8 @@ pub struct UpdateProjectRequest {
     pub consolidation_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nesting: Option<bool>,
+    #[serde(rename = "iosForwardPorts", skip_serializing_if = "Option::is_none")]
+    pub ios_forward_ports: Option<Vec<i64>>,
     #[serde(rename = "agentPRs", skip_serializing_if = "Option::is_none")]
     pub agent_p_rs: Option<bool>,
     #[serde(rename = "prWatch", skip_serializing_if = "Option::is_none")]
