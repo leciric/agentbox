@@ -614,6 +614,8 @@ pub const SIZE: u32 = if cfg!(target_os = "macos") {
 pub struct Tray {
     icon: tray_icon::TrayIcon,
     actions: HashMap<String, Action>,
+    /// How many menus were made: part of an entry's id (entry_id).
+    generation: u64,
     drawn: Option<(Tone, String, String)>,
     /// The menu on screen: made again only when it changes, since a menu
     /// replaced while it's open takes the click with it.
@@ -638,6 +640,7 @@ impl Tray {
             Ok(Ok(icon)) => Some(Self {
                 icon,
                 actions: HashMap::new(),
+                generation: 0,
                 drawn: None,
                 entries: Vec::new(),
             }),
@@ -682,9 +685,10 @@ impl Tray {
         }
         self.entries = entries.clone();
         self.actions.clear();
+        self.generation += 1;
         let m = tray_icon::menu::Menu::new();
         for (ix, entry) in entries.into_iter().enumerate() {
-            let id = format!("tray-{ix}");
+            let id = entry_id(&entry, self.generation, ix);
             let _ = match entry {
                 Entry::Separator => m.append(&tray_icon::menu::PredefinedMenuItem::separator()),
                 Entry::Item {
@@ -735,6 +739,26 @@ impl Tray {
     }
 }
 
+/// entry_id names a menu entry for its click. The app's own actions keep one
+/// id for good, and the rest are of their menu only: a click is taken a
+/// moment after it's made (alerts.rs polls), and by then the menu may have
+/// been made again with other entries. Numbered by place alone, a click on
+/// Quit could land on its neighbour, "Keep running".
+fn entry_id(entry: &Entry, generation: u64, ix: usize) -> String {
+    let action = match entry {
+        Entry::Separator => None,
+        Entry::Item { action, .. } => action.as_ref(),
+        Entry::Check { action, .. } => Some(action),
+    };
+    match action {
+        Some(Action::Open) => "tray-open".into(),
+        Some(Action::PauseAll) => "tray-pause-all".into(),
+        Some(Action::KeepRunning) => "tray-keep-running".into(),
+        Some(Action::Quit) => "tray-quit".into(),
+        Some(Action::Go(_)) | None => format!("tray-{generation}-{ix}"),
+    }
+}
+
 /// mnemonic_safe keeps an & in a label: Windows and Linux take one for a
 /// mnemonic.
 fn mnemonic_safe(label: &str) -> String {
@@ -742,6 +766,123 @@ fn mnemonic_safe(label: &str) -> String {
         label.to_string()
     } else {
         label.replace('&', "&&")
+    }
+}
+
+/// HOST is whether something draws tray icons right now (Linux; watch_host).
+static HOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// shown is whether the icon is on screen, as far as can be told. Having
+/// made it isn't enough on Linux: the icon is an offer to whatever draws
+/// tray icons (a StatusNotifierItem host, or an X11 system tray), and on a
+/// desktop with neither (GNOME without its AppIndicator extension, a bare
+/// window manager) nothing takes it. A Mac's menu bar and Windows' tray are
+/// always there.
+pub fn shown() -> bool {
+    !cfg!(target_os = "linux") || HOST.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// watch_host keeps HOST current: panels start after the app, get restarted
+/// and extensions get switched on, so it is asked again every few seconds
+/// (two small requests on a thread of its own). Until the first answer
+/// there is no host: closing the window quits.
+pub fn watch_host() {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::thread::Builder::new()
+            .name("tray-host".into())
+            .spawn(|| {
+                let mut bus = None;
+                loop {
+                    let on = host::sni(&mut bus) || host::xembed();
+                    HOST.store(on, std::sync::atomic::Ordering::Relaxed);
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                }
+            });
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod host {
+    use zbus::blocking::Connection;
+
+    const WATCHER: &str = "org.kde.StatusNotifierWatcher";
+
+    /// sni is whether a StatusNotifierItem host is registered with the
+    /// session's watcher (KDE's panel, waybar, GNOME's AppIndicator
+    /// extension): what libayatana-appindicator hands the icon to.
+    pub fn sni(bus: &mut Option<Connection>) -> bool {
+        if bus.is_none() {
+            *bus = Connection::session().ok();
+        }
+        let Some(conn) = bus.as_ref() else {
+            return false;
+        };
+        let answer = ask(conn);
+        if answer.is_none() {
+            // The bus may be gone (a session restarted): connect again next time.
+            *bus = None;
+        }
+        answer.unwrap_or(false)
+    }
+
+    fn ask(conn: &Connection) -> Option<bool> {
+        // Asked for by name first: a call to a name nobody owns could start
+        // a service for it.
+        let owned: bool = conn
+            .call_method(
+                Some("org.freedesktop.DBus"),
+                "/org/freedesktop/DBus",
+                Some("org.freedesktop.DBus"),
+                "NameHasOwner",
+                &(WATCHER,),
+            )
+            .ok()?
+            .body()
+            .deserialize()
+            .ok()?;
+        if !owned {
+            return Some(false);
+        }
+        let reply = conn
+            .call_method(
+                Some(WATCHER),
+                "/StatusNotifierWatcher",
+                Some("org.freedesktop.DBus.Properties"),
+                "Get",
+                &(WATCHER, "IsStatusNotifierHostRegistered"),
+            )
+            .ok()?;
+        let value: zbus::zvariant::OwnedValue = reply.body().deserialize().ok()?;
+        Some(bool::try_from(value).unwrap_or(false))
+    }
+
+    /// xembed is whether an X11 system tray is up (i3bar, polybar,
+    /// stalonetray, Xfce's panel), which libayatana-appindicator falls back
+    /// to when there is no watcher. Only in an X11 session: GTK draws no
+    /// such icon on Wayland.
+    pub fn xembed() -> bool {
+        if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()) {
+            return false;
+        }
+        use x11rb::protocol::xproto::ConnectionExt as _;
+        let Ok((conn, screen)) = x11rb::connect(None) else {
+            return false;
+        };
+        let name = format!("_NET_SYSTEM_TRAY_S{screen}");
+        let owner = || {
+            let atom = conn
+                .intern_atom(true, name.as_bytes())
+                .ok()?
+                .reply()
+                .ok()?
+                .atom;
+            if atom == x11rb::NONE {
+                return None;
+            }
+            Some(conn.get_selection_owner(atom).ok()?.reply().ok()?.owner)
+        };
+        owner().is_some_and(|w| w != x11rb::NONE)
     }
 }
 
@@ -853,6 +994,44 @@ mod tests {
             Target::Url("https://github.com/x/y/pull/7".into())
         );
         assert_eq!(status(None), OFFLINE);
+    }
+
+    /// A click is read after the menu may have been made again: Quit and
+    /// its neighbours must mean the same in every menu, and an entry of one
+    /// menu must not be taken for another's.
+    #[test]
+    fn a_click_on_an_old_menu_never_lands_on_another_entry() {
+        let busy = menu(&status(Some(&data())), false);
+        let quiet = menu(&status(None), false);
+        assert_ne!(busy.len(), quiet.len());
+        let ids = |m: &[Entry], generation| -> Vec<(String, Option<Action>)> {
+            m.iter()
+                .enumerate()
+                .map(|(ix, e)| {
+                    let action = match e {
+                        Entry::Separator => None,
+                        Entry::Item { action, .. } => action.clone(),
+                        Entry::Check { action, .. } => Some(action.clone()),
+                    };
+                    (entry_id(e, generation, ix), action)
+                })
+                .collect()
+        };
+        let (old, new) = (ids(&busy, 1), ids(&quiet, 2));
+        for (id, action) in &old {
+            for (other, theirs) in &new {
+                if id == other {
+                    assert_eq!(action, theirs, "{id}");
+                }
+            }
+        }
+        let quit = |m: &[(String, Option<Action>)]| {
+            m.iter()
+                .find(|(_, a)| *a == Some(Action::Quit))
+                .map(|(id, _)| id.clone())
+        };
+        assert_eq!(quit(&old), Some("tray-quit".to_string()));
+        assert_eq!(quit(&old), quit(&new));
     }
 
     #[test]

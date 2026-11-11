@@ -956,6 +956,7 @@ const SHEET: &[(&str, &[Row])] = &[
             (&["Ctrl", "N"], "keys.newTask"),
             (&["Ctrl", ","], "keys.settings"),
             (&["Ctrl", "/"], "keys.sheet"),
+            (&["Ctrl", "Q"], "main.tray.quit"),
             (&["Alt", "←"], "keys.backToLead"),
             (&["F6"], "keys.f6"),
             (&["Shift", "F6"], "keys.f6back"),

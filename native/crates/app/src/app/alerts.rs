@@ -44,7 +44,36 @@ pub enum Go {
     ProjectChat(String),
     /// One of a project's chat sessions.
     Session(String, String),
+    /// Settings, at "Keep running in the tray".
+    KeepRunning,
 }
+
+/// Close is what closing the window does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Close {
+    Quit,
+    /// Out of the way, the app still running in the tray.
+    Hide,
+}
+
+/// on_close decides it. Keeping the app running is only kept to where the
+/// user can get it back and quit it: the setting on, the tray's icon really
+/// on screen (tray::shown) and a desktop that takes the window away when
+/// asked. Anything less and closing quits: a window whose close button does
+/// nothing visible, or an app left running with no icon to reach it by, is
+/// an app that can't be closed.
+pub fn on_close(keep_running: bool, icon_shown: bool, can_minimize: bool) -> Close {
+    if keep_running && icon_shown && can_minimize {
+        Close::Hide
+    } else {
+        Close::Quit
+    }
+}
+
+/// KEPT_TOAST is how long after the window was closed its "still running"
+/// toast waits for the window to be in front: at once where the desktop
+/// left it there, and when the user comes back to it otherwise.
+const KEPT_TOAST: Duration = Duration::from_millis(600);
 
 /// POLL is how often the window takes the tray's and the notifications'
 /// clicks; SETTLE how long after an event the tray reads again.
@@ -65,6 +94,8 @@ pub struct Alerts {
     active: bool,
     /// Where each OS notification shown goes, by its id.
     pending: HashMap<String, Go>,
+    /// When to say in the window that the app is still running (kept_running).
+    kept_due: Option<Instant>,
     /// Each agent's chat state, as last seen (None before the first list).
     chats: Option<HashMap<String, String>>,
     errored: Option<HashSet<String>>,
@@ -92,6 +123,7 @@ impl Default for Alerts {
             reading: false,
             active: true,
             pending: HashMap::new(),
+            kept_due: None,
             chats: None,
             errored: None,
             ready: None,
@@ -220,6 +252,9 @@ impl AppView {
         if std::env::var_os("AGENTBOX_NATIVE_NO_TRAY").is_none() {
             self.alerts.tray = Tray::new();
         }
+        if self.alerts.tray.is_some() {
+            tray::watch_host();
+        }
         self.draw_tray();
         self.alerts.active = window.is_window_active();
         let activation = cx.observe_window_activation(window, |this, window, cx| {
@@ -237,9 +272,18 @@ impl AppView {
         // kept running in the tray. The close button is the window
         // manager's (WM_DELETE_WINDOW, xdg_toplevel close), or ours where
         // the compositor draws none (topbar.rs, window_controls).
-        let has_tray = self.alerts.tray.is_some();
+        let view = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
-            !close_window(has_tray, "the window was closed", window, cx)
+            let stays = view.update(cx, |this, cx| {
+                this.close_window("the window was closed", window, cx)
+            });
+            match stays {
+                Ok(stays) => !stays,
+                Err(_) => {
+                    crate::quit::quit(cx, "the window was closed");
+                    true
+                }
+            }
         });
         self.alerts._poll = Some(cx.spawn_in(window, async move |this, cx| {
             loop {
@@ -260,6 +304,18 @@ impl AppView {
             if let Some(go) = self.alerts.pending.remove(&id) {
                 self.go(go, window, cx);
             }
+        }
+        if self.alerts.kept_due.is_some_and(|d| d <= now) && window.is_window_active() {
+            self.alerts.kept_due = None;
+            let view = cx.entity().downgrade();
+            let (title, body) = kept_text();
+            Toast::new(Kind::Info, title)
+                .description(body)
+                .action(t("native.keepRunning.setting"), move |window, cx| {
+                    view.update(cx, |this, cx| this.go(Go::KeepRunning, window, cx))
+                        .ok();
+                })
+                .show(cx);
         }
         if self.alerts.tray.is_some() {
             let (chosen, clicked) = tray::events();
@@ -356,7 +412,11 @@ impl AppView {
             Action::Go(target) => self.go(Go::To(target), window, cx),
             Action::PauseAll => self.pause_all(cx),
             Action::KeepRunning => {
-                prefs::set_bool(prefs::TRAY_KEEP_RUNNING, !prefs::tray_keep_running());
+                let on = !prefs::tray_keep_running();
+                crate::quit::log(format_args!(
+                    "agentbox-native: keep running in the tray set to {on} from the tray's menu"
+                ));
+                prefs::set_bool(prefs::TRAY_KEEP_RUNNING, on);
                 self.draw_tray();
                 cx.notify();
             }
@@ -411,6 +471,16 @@ impl AppView {
             }
             Go::To(Target::Project(p)) | Go::ProjectChat(p) => self.go_project_chat(p, window, cx),
             Go::Session(p, id) => self.select_session(p, id, window, cx),
+            Go::KeepRunning => {
+                let setting = self
+                    .palette_settings(cx)
+                    .into_iter()
+                    .find(|s| s.id == "tray");
+                match setting {
+                    Some(s) => self.open_setting(s.section, s.label, window, cx),
+                    None => self.open_settings(window, cx),
+                }
+            }
         }
         cx.notify();
     }
@@ -685,24 +755,70 @@ impl AppView {
 }
 
 impl AppView {
-    /// has_tray is whether the tray's icon is up (it can't be on a desktop
-    /// without one).
-    pub(super) fn has_tray(&self) -> bool {
-        self.alerts.tray.is_some()
+    /// tray_shown is whether the tray's icon is on screen: made (it can't be
+    /// without libayatana-appindicator3) and taken by something that draws
+    /// tray icons (tray::shown).
+    pub(super) fn tray_shown(&self) -> bool {
+        self.alerts.tray.is_some() && tray::shown()
+    }
+
+    /// close_window is the window's close button, the window manager's
+    /// (WM_DELETE_WINDOW, xdg_toplevel close) or ours (topbar.rs): it quits,
+    /// or minimises the window when the tray keeps the app running
+    /// (on_close), saving where the window was either way. It says whether
+    /// the window stays.
+    pub(super) fn close_window(
+        &mut self,
+        why: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        save_bounds(window);
+        let close = on_close(
+            prefs::tray_keep_running(),
+            self.tray_shown(),
+            window.window_controls().minimize,
+        );
+        if close == Close::Quit {
+            crate::quit::quit(cx, why);
+            return false;
+        }
+        window.minimize_window();
+        self.kept_running();
+        true
+    }
+
+    /// kept_running says, the first time closing the window left the app
+    /// running, that it did and how to quit: as a notification, since the
+    /// window has just gone, and as a toast for when it's back (or at once,
+    /// where the desktop didn't take it away after all). Each leads to the
+    /// setting. Once only: after that it's what the user knows the close
+    /// button does.
+    fn kept_running(&mut self) {
+        if prefs::get_bool(prefs::TRAY_KEEP_RUNNING_TOLD, false) {
+            return;
+        }
+        prefs::set_bool(prefs::TRAY_KEEP_RUNNING_TOLD, true);
+        crate::quit::log(format_args!(
+            "agentbox-native: the window was closed and the app keeps running in the tray"
+        ));
+        let (title, body) = kept_text();
+        let id = format!("keep-running:{}", millis());
+        self.alerts.pending.insert(id.clone(), Go::KeepRunning);
+        notices::show_with(id, title, body, t("native.keepRunning.setting"));
+        self.alerts.kept_due = Some(Instant::now() + KEPT_TOAST);
     }
 }
 
-/// close_window minimises the window when the tray keeps the app running,
-/// and quits otherwise, saving where the window was either way. It says
-/// whether the window stays.
-pub(super) fn close_window(has_tray: bool, why: &str, window: &mut Window, cx: &mut App) -> bool {
-    save_bounds(window);
-    if has_tray && prefs::tray_keep_running() {
-        window.minimize_window();
-        return true;
-    }
-    crate::quit::quit(cx, why);
-    false
+/// kept_text is what kept_running says: its title and its line.
+fn kept_text() -> (String, String) {
+    (
+        t("native.keepRunning.title"),
+        tv(
+            "native.keepRunning.body",
+            &[("keys", crate::quit::QUIT_KEYS.into())],
+        ),
+    )
 }
 
 /// save_bounds keeps the window's place for the next launch: a maximised or
@@ -850,6 +966,22 @@ fn rect_of(b: Bounds<Pixels>) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The close button leaves the app running only where it can be got
+    /// back and quit: the setting alone must never strand it.
+    #[::core::prelude::v1::test]
+    fn closing_hides_only_with_the_setting_an_icon_and_a_desktop_that_minimises() {
+        assert_eq!(on_close(true, true, true), Close::Hide);
+        // No tray icon on screen (GNOME without its extension): quit.
+        assert_eq!(on_close(true, false, true), Close::Quit);
+        // A desktop that ignores minimise (sway): quit.
+        assert_eq!(on_close(true, true, false), Close::Quit);
+        for icon in [true, false] {
+            for minimise in [true, false] {
+                assert_eq!(on_close(false, icon, minimise), Close::Quit);
+            }
+        }
+    }
 
     fn session(id: &str, status: &str, needs: i64) -> LeadSession {
         LeadSession {

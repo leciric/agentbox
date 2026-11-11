@@ -269,6 +269,7 @@ fn cmd_icon(c: &Cmd) -> &'static str {
         "jobs" => "briefcase",
         "past-agents" => "bot",
         "shortcuts" => "keyboard",
+        "quit" => "power",
         "dnd-off" => "bell-ring",
         "dnd-on" => "bell-off",
         "report-problem" => "bug",
@@ -597,6 +598,17 @@ impl AppView {
         out.extend(
             ["report-problem", "diagnostics", "whats-new", "tour"].map(|id| action(id, None, "")),
         );
+        // Native only, so not in the shared catalogs' palette.*.
+        out.push(Cmd {
+            id: "quit".into(),
+            setting: false,
+            title: t("main.tray.quit"),
+            keywords: t("native.quit.keywords"),
+            place: String::new(),
+            needs: None,
+            keys: crate::quit::QUIT_KEYS,
+            section: String::new(),
+        });
         for s in self.palette_settings(cx) {
             out.push(Cmd {
                 id: format!("setting:{}:{}", s.section, s.id),
@@ -1099,6 +1111,7 @@ impl AppView {
             "all-media" => self.open_foot_page(super::foot::FootPage::Media, window, cx),
             "past-agents" => self.open_work(String::new(), String::new(), window, cx),
             "settings" => self.open_settings(window, cx),
+            "quit" => crate::quit::quit(cx, "the palette's Quit"),
             "shortcuts" => {
                 self.side.dialog = Some(super::sidebar_dialogs::Dialog::Keys);
             }
