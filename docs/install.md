@@ -241,7 +241,9 @@ VM made without krunkit has none.
 With Xcode installed, agents on a Mac can use the **iOS Simulator**, which runs on the Mac itself,
 beside the VM: an agent's panel has an iOS view to pick a simulator, boot it, and watch and use its
 screen, and agents drive it with `agentbox ios` (open, tap, swipe, type, screenshot, install a `.app`
-built for the simulator, launch). The simulators are the Mac's, shared by every agent. A small helper,
+built for the simulator, launch). An agent can't build for iOS, but a dev build already on the simulator runs its code:
+`agentbox ios forward 8081 <api port>` makes its Metro and API reach the Mac at `http://localhost:<port>`.
+The simulators are the Mac's, shared by every agent. A small helper,
 `agentbox ios-helper`, runs on the Mac for it, started by any `agentbox` command there (the app runs
 them); it listens on the Mac's `127.0.0.1` only, with a token in AgentBox's config, and the VM's
 daemon reaches it there. It doesn't run with the experimental vz driver below, and hasn't been tried

@@ -1041,6 +1041,13 @@ func (c *Client) OpenIOSURL(ctx context.Context, ref string, req IOSOpenURLReque
 	return c.iosDo(ctx, http.MethodPost, ref, "/openurl", req, nil)
 }
 
+// ForwardIOS makes the agent's ports reach the Mac's localhost, or with
+// Stop gives them back, and lists every agent's forwards.
+func (c *Client) ForwardIOS(ctx context.Context, ref string, req IOSForwardRequest) ([]IOSForward, error) {
+	var forwards []IOSForward
+	return forwards, c.iosDo(ctx, http.MethodPost, ref, "/forward", req, &forwards)
+}
+
 func (c *Client) Preview(ctx context.Context) (PreviewInfo, error) {
 	var info PreviewInfo
 	return info, c.do(ctx, http.MethodGet, "/v1/preview", nil, &info)

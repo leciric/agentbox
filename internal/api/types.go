@@ -3854,6 +3854,29 @@ type IOSOpenURLRequest struct {
 	URL    string `json:"url"`
 }
 
+// IOSForwardRequest makes ports of an agent's machine reach the Mac's
+// 127.0.0.1 at the same numbers, so an app in the iOS Simulator reaches
+// the agent's servers at http://localhost:<port>: a plain http:// host that
+// App Transport Security lets through, where the preview proxy's
+// *.localhost names aren't. No ports lists them; Stop gives them back (all
+// of the agent's, with no ports).
+type IOSForwardRequest struct {
+	Ports []int `json:"ports,omitempty"`
+	Stop  bool  `json:"stop,omitempty"`
+}
+
+// IOSForward is a port of the Mac's 127.0.0.1 that goes to an agent's.
+type IOSForward struct {
+	Port  int    `json:"port"`
+	Agent string `json:"agent"` // project/agent
+}
+
+// PreviewHeader routes a request through the preview proxy to
+// <port>.<agent>.<project> when its Host can't say so: the iOS Simulator's
+// forwards (internal/iossim) keep Host as localhost:<port>, which the
+// agent's servers then build their URLs from.
+const PreviewHeader = "X-AgentBox-Preview"
+
 // IOSResult is what a simulator command printed, when it printed anything.
 type IOSResult struct {
 	Output string `json:"output,omitempty"`

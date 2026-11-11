@@ -159,6 +159,22 @@ func (c *Client) Input(ctx context.Context, udid string, in api.IOSInput) error 
 	return c.post(ctx, udid, "input", in, nil)
 }
 
+// Forward makes a port of the Mac's 127.0.0.1 go to an agent's, or with stop
+// gives it back (port 0: all of the agent's), and lists every forward.
+func (c *Client) Forward(ctx context.Context, req ForwardRequest, stop bool) ([]api.IOSForward, error) {
+	path := "/v1/forwards"
+	if stop {
+		path += "/stop"
+	}
+	var out []api.IOSForward
+	return out, c.do(ctx, http.MethodPost, path, req, &out)
+}
+
+func (c *Client) Forwards(ctx context.Context) ([]api.IOSForward, error) {
+	var out []api.IOSForward
+	return out, c.do(ctx, http.MethodGet, "/v1/forwards", nil, &out)
+}
+
 // Screenshot is a PNG of a simulator's screen.
 func (c *Client) Screenshot(ctx context.Context, udid string) ([]byte, error) {
 	path, err := devicePath(udid, "screenshot")

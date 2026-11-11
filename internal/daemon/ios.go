@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -29,6 +31,9 @@ type iosState struct {
 	client  *iossim.Client
 	mu      sync.Mutex
 	devices map[string]string // agent ref → UDID
+	// forwardMu makes one forward at a time, so two agents can't both find
+	// a port free.
+	forwardMu sync.Mutex
 }
 
 func (s *Server) iosClient() *iossim.Client {
@@ -148,7 +153,7 @@ func iosAppPath(a state.Agent, path string) (string, error) {
 }
 
 // iosActions are the POST routes under an agent's /ios.
-var iosActions = []string{"open", "close", "input", "install", "launch", "openurl"}
+var iosActions = []string{"open", "close", "input", "install", "launch", "openurl", "forward"}
 
 // ios serves an agent's simulator endpoints, on the agent's own socket and
 // under the agent for the app and the CLI alike.
@@ -234,6 +239,8 @@ func (s *Server) ios(action string, agentOf func(*http.Request) (state.Agent, er
 				return err
 			}
 			return writeJSON(w, http.StatusOK, struct{}{})
+		case "forward":
+			return s.iosForward(w, r, a)
 		}
 		return writeJSON(w, http.StatusOK, s.iosStatus(ctx, a))
 	}
@@ -280,4 +287,86 @@ func (s *Server) iosView(w http.ResponseWriter, r *http.Request) error {
 	}
 	_ = viewer.Close(websocket.StatusNormalClosure, "")
 	return nil
+}
+
+// iosForward makes the agent's ports reach the Mac's localhost, through the
+// helper and the preview proxy, or gives them back, and lists its project's.
+// One at a time: a port another running agent holds is refused.
+func (s *Server) iosForward(w http.ResponseWriter, r *http.Request, a state.Agent) error {
+	var req api.IOSForwardRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	for _, port := range req.Ports {
+		if port < 1024 || port > 65535 {
+			return fmt.Errorf("%d isn't a port the Mac can forward: use 1024 to 65535", port)
+		}
+	}
+	s.iosSim.forwardMu.Lock()
+	defer s.iosSim.forwardMu.Unlock()
+	ctx, c := r.Context(), s.iosClient()
+	one := iossim.ForwardRequest{Project: a.Project, Agent: a.Name}
+	if req.Stop && len(req.Ports) == 0 {
+		if _, err := c.Forward(ctx, one, true); err != nil {
+			return err
+		}
+	}
+	if !req.Stop && len(req.Ports) > 0 {
+		forwards, err := c.Forwards(ctx)
+		if err != nil {
+			return err
+		}
+		for _, f := range forwards {
+			if slices.Contains(req.Ports, f.Port) && f.Agent != a.Ref() && s.iosRunning(ctx, f.Agent) {
+				return fmt.Errorf("port %d of the Mac is %s's, which is running: use another port, or it gives the port back with agentbox ios forward --stop", f.Port, f.Agent)
+			}
+		}
+	}
+	for _, port := range req.Ports {
+		one.Port = port
+		if _, err := c.Forward(ctx, one, req.Stop); err != nil {
+			return err
+		}
+	}
+	forwards, err := c.Forwards(ctx)
+	if err != nil {
+		return err
+	}
+	// Other projects' agents aren't this agent's to know of.
+	ours := []api.IOSForward{}
+	for _, f := range forwards {
+		if strings.HasPrefix(f.Agent, a.Project+"/") {
+			ours = append(ours, f)
+		}
+	}
+	return writeJSON(w, http.StatusOK, ours)
+}
+
+// iosRunning is whether the agent a forward is for may still be running: a
+// port of a stopped or removed one is free to take. Unsure is running.
+func (s *Server) iosRunning(ctx context.Context, ref string) bool {
+	project, name, _ := strings.Cut(ref, "/")
+	a, err := s.store.Agent(ctx, project, name)
+	if errors.Is(err, state.ErrNotFound) {
+		return false
+	} else if err != nil {
+		return true
+	}
+	info, err := s.describe(ctx, a)
+	return err != nil || info.State == "running"
+}
+
+// iosUnforward gives a removed agent's ports on the Mac back, in the
+// background: the helper may not answer.
+func (s *Server) iosUnforward(a state.Agent) {
+	if hostos.OS() != "darwin" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.iosSim.forwardMu.Lock()
+		defer s.iosSim.forwardMu.Unlock()
+		_, _ = s.iosClient().Forward(ctx, iossim.ForwardRequest{Project: a.Project, Agent: a.Name}, true)
+	}()
 }

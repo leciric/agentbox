@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
 	"agentbox/internal/iossim"
+	"agentbox/internal/state"
 )
 
 // fakeMacSimulators is the Mac's simulator helper with xcrun faked: two
@@ -174,5 +176,41 @@ func TestIOSOnAMac(t *testing.T) {
 
 	if _, err := d.client.CloseIOS(ctx, ref, api.IOSDeviceRequest{}); err != nil || !sims.ranLike("xcrun simctl shutdown 0A1B2C3D-0000-4000-8000-00000000000A") {
 		t.Errorf("close: %v", err)
+	}
+}
+
+// A port of the Mac is one agent's while it runs: another agent is refused
+// it, and takes it once that agent has stopped.
+func TestIOSForwardKeepsARunningAgentsPort(t *testing.T) {
+	t.Setenv(hostos.Env, "darwin")
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	running := addTestAgent(t, d) // its instance runs
+	repo := d.fixtureRepo(t, "hello-stack")
+	stopped := addAgent(t, d, repo, "hello-stack", "agent-02", "")
+	withMacSimulators(t, d, d.paths.Worktrees())
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	t.Cleanup(func() {
+		_, _ = d.client.ForwardIOS(ctx, running.Ref(), api.IOSForwardRequest{Stop: true})
+		_, _ = d.client.ForwardIOS(ctx, stopped.Ref(), api.IOSForwardRequest{Stop: true})
+	})
+
+	forward := func(a state.Agent) ([]api.IOSForward, error) {
+		return d.client.ForwardIOS(ctx, a.Ref(), api.IOSForwardRequest{Ports: []int{port}})
+	}
+	if _, err := forward(stopped); err != nil {
+		t.Fatal(err)
+	}
+	list, err := forward(running)
+	if err != nil || len(list) != 1 || list[0].Agent != running.Ref() {
+		t.Fatalf("the running agent didn't take the stopped one's port: %+v, %v", list, err)
+	}
+	if _, err := forward(stopped); err == nil || !strings.Contains(err.Error(), running.Ref()+"'s, which is running") {
+		t.Errorf("a running agent's port was taken: %v", err)
 	}
 }
