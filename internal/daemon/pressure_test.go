@@ -359,7 +359,7 @@ func TestOOMKillTold(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("%d oom_kill events, want 1", len(events))
 	}
-	for _, want := range []string{`"process":"go"`, `"pid":4242`, `"limit":15032385536`, `"own_limit":true`} {
+	for _, want := range []string{`"process":"go"`, `"pid":4242`, `"limit":15032385536`, `"own_limit":true`, `"cause":"own"`} {
 		if !strings.Contains(string(events[0].Payload), want) {
 			t.Errorf("the event %s lacks %s", events[0].Payload, want)
 		}
@@ -370,7 +370,25 @@ func TestOOMKillTold(t *testing.T) {
 	mu.Unlock()
 	p.srv.watchMemory(ctx)
 	waitFor(t, "the second kill to be told", func() bool { return len(oomEvents()) > 1 })
-	if events := oomEvents(); !strings.Contains(string(events[0].Payload), `"own_limit":false`) {
+	if events := oomEvents(); !strings.Contains(string(events[0].Payload), `"own_limit":false`) || !strings.Contains(string(events[0].Payload), `"cause":"vm"`) {
 		t.Errorf("the VM's kill reads %s", events[0].Payload)
+	}
+	// A cgroup nested in the machine: it reached its own smaller limit.
+	mu.Lock()
+	counts.Kills = 6
+	counts.Nested = map[string]agent.NestedLimit{"docker/abc": {Limit: 512 << 20, Reached: 1}}
+	mu.Unlock()
+	p.srv.watchMemory(ctx) // the first look at it: a kill before this isn't news
+	mu.Lock()
+	counts.Kills = 7
+	counts.Nested = map[string]agent.NestedLimit{"docker/abc": {Limit: 512 << 20, Reached: 2}}
+	mu.Unlock()
+	p.srv.watchMemory(ctx)
+	waitFor(t, "the nested kill to be told", func() bool { return len(oomEvents()) > 2 })
+	events = oomEvents()
+	for _, want := range []string{`"cause":"nested"`, `"cgroup":"docker/abc"`, `"cgroup_limit":536870912`, `"own_limit":false`} {
+		if !strings.Contains(string(events[0].Payload), want) {
+			t.Errorf("the nested kill reads %s, lacks %s", events[0].Payload, want)
+		}
 	}
 }

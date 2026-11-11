@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -61,8 +62,13 @@ func TestMemoryEventsReadsKillsAndTheLimit(t *testing.T) {
 	writeCgroupFile(t, filepath.Join(dir, "memory.events"), "low 0\nhigh 0\nmax 12\noom 3\noom_kill 5\noom_group_kill 0\n")
 	writeCgroupFile(t, filepath.Join(dir, "memory.events.local"), "low 0\nhigh 0\nmax 12\noom 2\noom_kill 0\noom_group_kill 0\n")
 	writeCgroupFile(t, filepath.Join(dir, "memory.max"), "15032385536\n")
+	writeCgroupFile(t, filepath.Join(dir, "docker", "abc", "memory.max"), "536870912\n")
+	writeCgroupFile(t, filepath.Join(dir, "docker", "abc", "memory.events.local"), "oom 4\noom_kill 4\n")
+	writeCgroupFile(t, filepath.Join(dir, "docker", "memory.max"), "max\n")
 	got, ok := memoryEvents(dir)
-	if want := (MemoryCounts{Kills: 5, OwnLimit: 2, Limit: 15032385536}); !ok || got != want {
+	want := MemoryCounts{Kills: 5, OwnLimit: 2, Limit: 15032385536,
+		Nested: map[string]NestedLimit{"docker/abc": {Limit: 512 << 20, Reached: 4}}}
+	if !ok || !reflect.DeepEqual(got, want) {
 		t.Errorf("memoryEvents = %+v, %v; want %+v", got, ok, want)
 	}
 	if _, ok := memoryEvents(filepath.Join(dir, "gone")); ok {
