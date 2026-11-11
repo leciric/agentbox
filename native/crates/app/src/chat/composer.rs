@@ -1279,7 +1279,10 @@ impl ChatView {
         cx.spawn(async move |this, cx| {
             let res = client.get::<LeadRunners>(&path).await;
             this.update(cx, |this, cx| {
-                this.composer.runners = res.ok();
+                // A read that failed leaves the empty answer in place: None
+                // would have the next frame ask again, and the one after,
+                // for as long as it fails.
+                this.composer.runners = Some(res.unwrap_or_default());
                 cx.notify();
             })
             .ok();
@@ -1969,7 +1972,7 @@ impl ChatView {
                                     this.choose_cache(false, window, cx)
                                 }),
                             ))
-                            .child(super::btn(
+                            .child(super::btn_busy(
                                 "cache-compact",
                                 if busy {
                                     t("chat.cache.compacting")
@@ -1978,6 +1981,7 @@ impl ChatView {
                                 },
                                 true,
                                 busy,
+                                false,
                                 cx.listener(|this, _: &ClickEvent, window, cx| {
                                     this.choose_cache(true, window, cx)
                                 }),
@@ -2102,11 +2106,13 @@ impl ChatView {
                             })
                     })),
             )
-            .child(
-                crate::icons::ic(if open { "chevron-up" } else { "chevron-down" })
+            .child(crate::motion::flip(
+                crate::icons::ic("chevron-down")
                     .size(px(14.))
                     .text_color(theme::subtle()),
-            );
+                "composer-plan-chevron",
+                open,
+            ));
         let list = open.then(|| {
             v_flex().mt_2().gap_1().children(plan.plan.iter().map(|e| {
                 let (color, text) = match e.status.as_str() {
@@ -2496,7 +2502,12 @@ impl ChatView {
                     .children(menu_el)
                     .children(review)
                     .children(tasks)
-                    .children(above)
+                    // Attached's slide-up, on whichever banner waits.
+                    .children(
+                        above.map(|el| {
+                            crate::motion::enter(v_flex().child(el), "composer-banner", 0)
+                        }),
+                    )
                     .child(
                         v_flex()
                             .id("composer")

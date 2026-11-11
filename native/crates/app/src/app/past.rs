@@ -372,7 +372,7 @@ impl AppView {
             .ok();
         });
         if self.past.continuing {
-            return Some(super::agent::modal(
+            return Some(super::agent::modal_busy(
                 "past-continue",
                 tv("pastAgents.continueTitle", &[("name", (&name).into())]),
                 Some(t("pastAgents.continueDescription")),
@@ -391,6 +391,7 @@ impl AppView {
                 cancel,
                 t("pastAgents.continue"),
                 false,
+                busy,
                 busy,
                 cx.listener(|this, _: &ClickEvent, _, cx| this.continue_past(cx)),
             ));

@@ -1515,7 +1515,7 @@ impl AppView {
                     t("settings.accounts.account"),
                     self.input(&format!("{flow}-login-account")),
                 ))
-                .child(button(
+                .child(crate::app::controls::button_busy(
                     SharedString::from(format!("{flow}-login")),
                     if running {
                         format!("{}…", t(if any { add } else { log_in }))
@@ -1524,6 +1524,7 @@ impl AppView {
                     },
                     Btn::Primary,
                     running,
+                    false,
                     cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.start_login(flow, window, cx)
                     }),
@@ -1653,7 +1654,7 @@ impl AppView {
                         t("settings.accounts.account"),
                         self.input("github-login-account"),
                     ))
-                    .child(button(
+                    .child(crate::app::controls::button_busy(
                         "github-login",
                         if running {
                             format!("{label}…")
@@ -1662,6 +1663,7 @@ impl AppView {
                         },
                         Btn::Primary,
                         running,
+                        false,
                         cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.start_login("github", window, cx)
                         }),
@@ -1945,11 +1947,12 @@ impl AppView {
             .child(
                 h_flex()
                     .gap_3()
-                    .child(button(
+                    .child(crate::app::controls::button_busy(
                         "cursor-login",
                         t("settings.cursor.signIn"),
                         Btn::Secondary,
                         waiting,
+                        false,
                         cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.start_cursor_login(window, cx)
                         }),
@@ -1965,11 +1968,18 @@ impl AppView {
                     }),
             )
             .when(waiting, |el| {
-                el.child(note(t(if state == "waiting" {
-                    "settings.cursor.waiting"
-                } else {
-                    "settings.cursor.starting"
-                })))
+                el.child(
+                    h_flex()
+                        .gap_2()
+                        .text_size(theme::text::CAPTION)
+                        .text_color(theme::subtle())
+                        .child(crate::icons::spinner())
+                        .child(t(if state == "waiting" {
+                            "settings.cursor.waiting"
+                        } else {
+                            "settings.cursor.starting"
+                        })),
+                )
             })
             .when(state == "failed", |el| {
                 let e = st.as_ref().map(|s| s.error.clone()).unwrap_or_default();

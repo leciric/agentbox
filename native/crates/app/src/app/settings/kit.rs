@@ -61,7 +61,8 @@ pub(crate) fn section_icon(id: &str) -> &'static str {
 
 /// empty is EmptyState: a title and a line under it, in a card.
 pub(super) fn empty(id: &str, title: String, body: String) -> AnyElement {
-    card(SharedString::from(format!("empty-{id}")))
+    let key = SharedString::from(format!("empty-{id}"));
+    let el = card(key.clone())
         .items_center()
         .py_8()
         .child(
@@ -81,8 +82,8 @@ pub(super) fn empty(id: &str, title: String, body: String) -> AnyElement {
                     .text_color(theme::muted())
                     .child(body),
             )
-        })
-        .into_any_element()
+        });
+    crate::motion::enter(el, SharedString::from(format!("enter-{key}")), 0).into_any_element()
 }
 
 /// ask is ConfirmDialog drawn where the thing it asks about is: the
@@ -134,7 +135,7 @@ pub(super) fn ask(
                     false,
                     move |e, w, cx| no(e, w, cx),
                 ))
-                .child(button(
+                .child(crate::app::controls::button_busy(
                     SharedString::from(format!("ask-{id}-yes")),
                     confirm,
                     if destructive {
@@ -143,6 +144,7 @@ pub(super) fn ask(
                         Btn::Primary
                     },
                     busy,
+                    false,
                     on_yes,
                 )),
         );

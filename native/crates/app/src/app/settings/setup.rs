@@ -503,7 +503,15 @@ impl AppView {
     pub(super) fn doctor_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = &self.settings_page.setup;
         let report = match &p.doctor {
-            None => return note(t("doctor.checking")),
+            None => {
+                return h_flex()
+                    .gap_2()
+                    .text_sm()
+                    .text_color(theme::subtle())
+                    .child(crate::icons::spinner())
+                    .child(t("doctor.checking"))
+                    .into_any_element();
+            }
             Some(Err(e)) => return crate::app::controls::error_line(e.clone()),
             Some(Ok(r)) => r,
         };
@@ -619,11 +627,12 @@ impl AppView {
                         |el| {
                             let check = c.id.clone();
                             let asking = self.asking_home.as_deref() == Some(c.id.as_str());
-                            el.child(h_flex().child(button(
+                            el.child(h_flex().child(crate::app::controls::button_busy(
                                 SharedString::from(format!("doctor-home-{}", c.id)),
                                 t("doctor.askHome"),
                                 Btn::Secondary,
                                 asking,
+                                false,
                                 cx.listener(move |this, _: &ClickEvent, window, cx| {
                                     this.ask_home(check.clone(), window, cx)
                                 }),

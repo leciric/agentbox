@@ -342,6 +342,20 @@ pub fn button(
     button_at(id, label, kind, disabled, None, on_click)
 }
 
+/// button_busy is a button that shows its work: while `busy` it can't be
+/// pressed and a spinner turns before its label (Electron's
+/// `<Loader2 className="animate-spin" />` in a pending button).
+pub fn button_busy(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    kind: Btn,
+    busy: bool,
+    disabled: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    button_full(id, label, kind, disabled || busy, busy, None, on_click)
+}
+
 /// button_at is a button whose focus is the caller's to give and to ask
 /// after (a dialog's, which keeps Tab between its own).
 pub fn button_at(
@@ -349,6 +363,18 @@ pub fn button_at(
     label: impl Into<SharedString>,
     kind: Btn,
     disabled: bool,
+    focus: Option<&FocusHandle>,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    button_full(id, label, kind, disabled, false, focus, on_click)
+}
+
+fn button_full(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    kind: Btn,
+    disabled: bool,
+    busy: bool,
     focus: Option<&FocusHandle>,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
@@ -410,6 +436,11 @@ pub fn button_at(
                 Btn::Secondary => s.bg(theme::surface_vivid()),
             })
             .on_click(on_click)
+        })
+        .when(busy, |el| {
+            el.child(crate::icons::spin(
+                crate::icons::ic(crate::icons::SPINNER).size(px(14.)),
+            ))
         })
         .child(crate::icons::glyph(label))
         .into_any_element()

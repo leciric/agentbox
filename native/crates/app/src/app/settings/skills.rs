@@ -829,7 +829,18 @@ impl AppView {
             .gap_3()
             .child(head)
             .when(all.is_none() && !s.error.contains_key(scope), |el| {
-                el.child(super::super::panel::loading(&format!("skills-{scope}")))
+                // SkillsPanel: four pulsing 132px cards in the loaded ones' place.
+                el.children((0..4).map(|i| {
+                    crate::motion::pulse_soft(
+                        div()
+                            .h(px(132.))
+                            .rounded(theme::radius::XXL)
+                            .border_1()
+                            .border_color(theme::line())
+                            .bg(theme::surface()),
+                        SharedString::from(format!("skills-loading-{scope}-{i}")),
+                    )
+                }))
             })
             .when(!list.is_empty(), |el| {
                 el.child(
@@ -1313,7 +1324,7 @@ impl AppView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(button(
+                            .child(crate::app::controls::button_busy(
                                 "skill-save",
                                 if creating {
                                     t("skills.create")
@@ -1321,7 +1332,8 @@ impl AppView {
                                     t("common.save")
                                 },
                                 Btn::Primary,
-                                s.busy || !name_ok,
+                                s.busy,
+                                !name_ok,
                                 cx.listener(|this, _: &ClickEvent, window, cx| {
                                     this.save_skill(window, cx)
                                 }),
@@ -1376,6 +1388,8 @@ impl AppView {
             }),
             _ => None,
         };
+        // The source is asked about and nothing is back yet.
+        let looking = s.source.is_some() && s.scan.is_none();
         v_flex()
             .gap_3()
             .child(self.back_to_skills(cx))
@@ -1415,10 +1429,11 @@ impl AppView {
                                 } else {
                                     "skills-folder"
                                 })))
-                                .child(button(
+                                .child(crate::app::controls::button_busy(
                                     "skills-look",
                                     t("skills.look"),
                                     Btn::Secondary,
+                                    looking,
                                     false,
                                     cx.listener(|this, _: &ClickEvent, _, cx| this.skills_look(cx)),
                                 )),
@@ -1429,7 +1444,21 @@ impl AppView {
                             t("skills.folderHint")
                         }))
                     })
-                    .when_some(waiting, |el, w| el.child(note(w)))
+                    .when_some(waiting, |el, w| {
+                        el.child(if looking {
+                            h_flex()
+                                .gap_2()
+                                .justify_center()
+                                .py_6()
+                                .text_sm()
+                                .text_color(theme::subtle())
+                                .child(crate::icons::spinner())
+                                .child(w)
+                                .into_any_element()
+                        } else {
+                            note(w)
+                        })
+                    })
                     .when_some(s.scan.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
                         el.child(crate::app::controls::error_line(e.clone()))
                     })
@@ -1514,11 +1543,12 @@ impl AppView {
                             }),
                         )
                     }))
-                    .child(h_flex().gap_2().child(button(
+                    .child(h_flex().gap_2().child(crate::app::controls::button_busy(
                         "skills-import-go",
                         tv("skills.importCount", &[("count", picked.into())]),
                         Btn::Primary,
-                        picked == 0 || s.busy,
+                        s.busy,
+                        picked == 0,
                         cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.import_skills(window, cx)
                         }),
