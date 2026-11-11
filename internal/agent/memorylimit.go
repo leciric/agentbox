@@ -106,6 +106,19 @@ type MemoryCounts struct {
 	OwnLimit int64
 	// Limit is its memory.max, 0 for none.
 	Limit int64
+	// Nested is each cgroup below the machine's (a container's --memory, a
+	// systemd slice) that has a memory.max of its own, by path from the
+	// machine's cgroup, with how many times it reached that limit. A kill
+	// there is for that limit, not the machine's or the VM's.
+	Nested map[string]NestedLimit
+}
+
+// NestedLimit is a cgroup inside an agent's machine with a memory limit.
+type NestedLimit struct {
+	// Limit is its memory.max.
+	Limit int64
+	// Reached is its memory.events.local oom count.
+	Reached int64
 }
 
 // MemoryEvents reads an agent's machine's MemoryCounts; ok is false when its
@@ -127,7 +140,37 @@ func memoryEvents(dir string) (MemoryCounts, bool) {
 	if b, err := os.ReadFile(filepath.Join(dir, "memory.max")); err == nil {
 		out.Limit, _ = strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
 	}
+	out.Nested = nestedLimits(dir)
 	return out, true
+}
+
+// nestedLimits finds the cgroups below dir that have a memory.max.
+func nestedLimits(dir string) map[string]NestedLimit {
+	var out map[string]NestedLimit
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() || path == dir {
+			return nil
+		}
+		b, err := os.ReadFile(filepath.Join(path, "memory.max"))
+		if err != nil {
+			return nil
+		}
+		limit, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+		if err != nil || limit <= 0 { // "max": no limit
+			return nil
+		}
+		var reached int64
+		if b, err := os.ReadFile(filepath.Join(path, "memory.events.local")); err == nil {
+			reached = eventCount(b, "oom")
+		}
+		rel, _ := filepath.Rel(dir, path)
+		if out == nil {
+			out = map[string]NestedLimit{}
+		}
+		out[rel] = NestedLimit{Limit: limit, Reached: reached}
+		return nil
+	})
+	return out
 }
 
 // eventCount is one count of a memory.events file.

@@ -754,10 +754,16 @@ func (s *Server) watchMemory(ctx context.Context) {
 		// The first look at a machine counts what was killed before this
 		// daemon was there to tell anyone.
 		if known && now.Kills > seen.Kills {
-			// Its own limit, when it reached it since; else the VM ran out.
-			own := now.OwnLimit > seen.OwnLimit
+			// A limit nested in the machine, when one reached it since; else
+			// its own, when it did; else the VM ran out.
+			k := killCause{limit: now.Limit, own: now.OwnLimit > seen.OwnLimit}
+			for path, n := range now.Nested {
+				if n.Reached > seen.Nested[path].Reached && (k.nestedPath == "" || path < k.nestedPath) {
+					k.nestedPath, k.nestedLimit = path, n.Limit
+				}
+			}
 			s.countOOMKills(now.Kills - seen.Kills)
-			go s.tellKilled(context.WithoutCancel(ctx), a, now.Kills-seen.Kills, now.Limit, own)
+			go s.tellKilled(context.WithoutCancel(ctx), a, now.Kills-seen.Kills, k)
 		}
 	}
 }
@@ -868,9 +874,19 @@ func (s *Server) logOnce(key, msg string) {
 	}
 }
 
+// killCause is whose memory limit a kill was for: a cgroup nested in the
+// machine (nestedPath, from the machine's cgroup, with nestedLimit), the
+// machine's own memory.max (own, limit), or neither, the VM's.
+type killCause struct {
+	limit       int64
+	own         bool
+	nestedPath  string
+	nestedLimit int64
+}
+
 // tellKilled tells an agent that n of its processes were killed for memory,
-// for its own memory.max, limit, or for the VM's, and records it.
-func (s *Server) tellKilled(ctx context.Context, a state.Agent, n, limit int64, own bool) {
+// for a nested cgroup's limit, its own memory.max, or the VM's, and records it.
+func (s *Server) tellKilled(ctx context.Context, a state.Agent, n int64, k killCause) {
 	v, found := s.oomVictim(a.Instance)
 	what := "A process in your machine was"
 	if n > 1 {
@@ -882,8 +898,14 @@ func (s *Server) tellKilled(ctx context.Context, a state.Agent, n, limit int64, 
 			what = fmt.Sprintf("%d processes in your machine were, the last `%s` (pid %d, using %s),", n, v.Name, v.PID, agent.HumanBytes(v.RSS))
 		}
 	}
-	why := fmt.Sprintf("your machine reached its limit of %s, all one agent can have in this VM", agent.HumanBytes(limit))
-	if !own {
+	var why string
+	switch {
+	case k.nestedPath != "":
+		why = fmt.Sprintf("it was in a cgroup inside your machine, /%s, whose memory limit is %s (a container started with --memory, or a systemd slice); your machine and the VM had memory to spare, so raise that limit or run it without one",
+			k.nestedPath, agent.HumanBytes(k.nestedLimit))
+	case k.own:
+		why = fmt.Sprintf("your machine reached its limit of %s, all one agent can have in this VM", agent.HumanBytes(k.limit))
+	default:
 		why = "the VM ran out of memory, with every agent's work together"
 	}
 	text := fmt.Sprintf("%s killed for memory: %s. "+
@@ -893,7 +915,17 @@ func (s *Server) tellKilled(ctx context.Context, a state.Agent, n, limit int64, 
 	if _, err := s.tellUnlessRetired(ctx, a, text); err != nil {
 		s.logf("memory: telling %s a process was killed: %v", a.Ref(), err)
 	}
-	payload := map[string]any{"kills": n, "limit": limit, "own_limit": own}
+	cause := "vm"
+	switch {
+	case k.nestedPath != "":
+		cause = "nested"
+	case k.own:
+		cause = "own"
+	}
+	payload := map[string]any{"kills": n, "limit": k.limit, "own_limit": k.own && k.nestedPath == "", "cause": cause}
+	if k.nestedPath != "" {
+		payload["cgroup"], payload["cgroup_limit"] = k.nestedPath, k.nestedLimit
+	}
 	if found {
 		payload["process"], payload["pid"], payload["rss"] = v.Name, v.PID, v.RSS
 	}
