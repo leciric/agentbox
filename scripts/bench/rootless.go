@@ -79,9 +79,12 @@ func (d *rootlessDriver) container(agent string) string {
 func (d *rootlessDriver) worktree(agent string) string { return filepath.Join(d.work, "wt", agent) }
 
 // podman runs podman with its temporary files on disk: an import of the base
-// image writes 3 GiB of them, and /tmp is often a tmpfs.
+// image writes 3 GiB of them, and /tmp is often a tmpfs. And in that
+// directory: when the kernel kills a process of an exec session for memory,
+// conmon leaves an empty file named oom where it was started.
 func (d *rootlessDriver) podman(ctx context.Context, args ...string) (string, error) {
-	return d.r.run(ctx, "", append([]string{"env", "TMPDIR=" + filepath.Join(d.work, "tmp"), "podman"}, args...)...)
+	tmp := filepath.Join(d.work, "tmp")
+	return d.r.run(ctx, "", append([]string{"env", "-C", tmp, "TMPDIR=" + tmp, "podman"}, args...)...)
 }
 
 func (d *rootlessDriver) describe() map[string]any {
@@ -260,7 +263,10 @@ func (d *rootlessDriver) setup(ctx context.Context, m *modeRun) error {
 	if note != "" {
 		m.note("setup.total", note)
 	}
-	if _, err := m.setupStep(ctx, "import it into Podman", func(ctx context.Context) error { return d.importImage(ctx, tarball) }); err != nil {
+	if _, err := d.podmanQuiet(ctx, "image", "exists", d.image); err == nil {
+		m.recordStep("setup.step", "import it into Podman", 0, "not timed")
+		m.note("setup.total", "the image was already in Podman, kept by --keep-image: its import, a minute or two, isn't in this time")
+	} else if _, err := m.setupStep(ctx, "import it into Podman", func(ctx context.Context) error { return d.importImage(ctx, tarball) }); err != nil {
 		return err
 	}
 	return m.step0(ctx, "clone the repository the agents build", func(ctx context.Context) error {
