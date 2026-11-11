@@ -580,6 +580,9 @@ func New(cfg Config) (*Server, error) {
 		GoalChanged:       s.goalFromTool,
 		Version:           Version,
 		ImageDir:          cfg.Paths.ChatImages,
+		ReadOutput: func(ctx context.Context, a state.Agent, path string, before, limit int64) ([]byte, int64, int64, error) {
+			return s.manager(io.Discard).FileTail(ctx, a, path, before, limit)
+		},
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
@@ -1016,6 +1019,7 @@ func (s *Server) routes() http.Handler {
 	sessionRoute("POST /v1/projects/{project}/chat/messages", s.sendChat(s.leadForMessage))
 	sessionRoute("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
 	sessionRoute("GET /v1/projects/{project}/chat/files/{file}", s.chatFile(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/background/{task}", s.chatBackgroundTask(s.leadFromPath))
 	sessionRoute("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
 	sessionRoute("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
 	sessionRoute("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
@@ -1177,6 +1181,7 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/agents/{project}/{agent}/goal", s.deleteGoal(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/images/{image}", s.chatImage(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/files/{file}", s.chatFile(s.agentOrArchivedFromPath))
+	h("GET /v1/agents/{project}/{agent}/chat/background/{task}", s.chatBackgroundTask(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/cancel", s.cancelChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/publish", s.publishRender(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))

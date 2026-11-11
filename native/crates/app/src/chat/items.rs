@@ -332,17 +332,11 @@ impl ChatView {
                     })
                     .into_any_element()
             }
-            Row::Background(tasks) => h_flex()
-                .mb_3()
-                .gap_2()
-                .text_sm()
-                .text_color(theme::faint())
-                .child(crate::icons::of("⌛"))
-                .child(tv(
-                    "chat.timeline.background",
-                    &[("tasks", tasks.join(", ").into())],
-                ))
-                .into_any_element(),
+            Row::Background {
+                names,
+                tasks,
+                waiting,
+            } => self.render_background_row(names, tasks, *waiting, &view),
             Row::Note(i) => self.render_note(*i, &view),
             Row::Subagent { ix, children } => self.render_subagent(*ix, children, &view),
             Row::Compaction(i) => self.render_compaction(*i),

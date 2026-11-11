@@ -263,7 +263,7 @@ export const SubagentCard = memo(
     const current = running ? children.findLast((it) => isActive(it)) : undefined;
     const summary = current ? liveLabel(current) : work.length > 0 ? workSummary(work) : running ? t('chat.subagent.starting') : t('chat.subagent.didNothing');
     return (
-      <div className="pb-2" data-chat-subagent={sub.state}>
+      <div className="pb-2" data-chat-subagent={sub.state} data-chat-id={item.id}>
         <div className="rounded-xl border border-line-faint bg-surface-faint">
           <button className={cn(rowClass, 'items-start gap-2 rounded-xl px-2 py-1.5 hover:bg-surface-faint')} aria-expanded={open} onClick={() => setOpen(!open)}>
             <span className="mt-px flex size-6 shrink-0 items-center justify-center text-subtle">

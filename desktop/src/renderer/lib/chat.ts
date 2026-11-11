@@ -383,7 +383,7 @@ function indexOf(items: T.ChatItem[], id: string): number {
 export type Row =
   | { type: 'user'; key: string; item: T.ChatItem }
   | { type: 'woken'; key: string; item: T.ChatItem }
-  | { type: 'background'; key: string; tasks: string[] }
+  | { type: 'background'; key: string; tasks: string[]; items: T.ChatBackgroundTask[]; waiting: boolean }
   | { type: 'assistant'; key: string; item: T.ChatItem; final: boolean }
   | { type: 'work'; key: string; items: T.ChatItem[]; live: boolean }
   | { type: 'fold'; key: string; turn: string; label: string; open: boolean; empty?: boolean }
@@ -609,8 +609,12 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
     }
   }
   // Between turns, what the session still has running: its end wakes it.
+  // Item by item when the daemon says (backgroundTasks), and then also what
+  // ended, and during a turn: each can be opened.
   const background = thread.session?.background ?? [];
-  if (background.length > 0 && !thread.session?.turnStartedAt) rows.push({ type: 'background', key: 'background', tasks: background });
+  const items = thread.session?.backgroundTasks ?? [];
+  const waiting = background.length > 0 && !thread.session?.turnStartedAt;
+  if (waiting || items.length > 0) rows.push({ type: 'background', key: 'background', tasks: background, items, waiting });
   return rows;
 }
 

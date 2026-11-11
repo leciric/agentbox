@@ -2704,6 +2704,7 @@ export interface ChatSession {
   resumeAt?: string;
   noImages?: boolean;
   background?: string[];
+  backgroundTasks?: ChatBackgroundTask[];
   toolsChanged?: boolean;
   noResume?: boolean;
 }
@@ -2775,6 +2776,28 @@ export interface ChatTool {
   output?: string;
   diffs?: ChatDiff[];
   page?: ChatPage;
+}
+
+export interface ChatBackgroundTask {
+  id: string;
+  kind: string;
+  title: string;
+  command?: string;
+  status: string;
+  exitCode?: number;
+  startedAt: string;
+  endedAt?: string;
+  summary?: string;
+  item?: string;
+  hasOutput?: boolean;
+}
+
+export interface ChatBackgroundDetail {
+  task: ChatBackgroundTask;
+  output: string;
+  outputStart: number;
+  outputSize: number;
+  outputError?: string;
 }
 
 export interface ChatPage {
