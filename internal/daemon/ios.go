@@ -416,13 +416,29 @@ func portList(ports []int) string {
 	return strings.Join(parts, ", ")
 }
 
-// iosRevoke stops the project's forwards on ports it no longer allows.
-func (s *Server) iosRevoke(ctx context.Context, project string, allowed []int) error {
+// setIOSPorts changes the ports the project's agents may forward and stops
+// its forwards on ports no longer among them, under the lock forwards are
+// checked under: a forward meets the new list or is stopped, and two changes
+// don't write over each other.
+func (s *Server) setIOSPorts(ctx context.Context, project string, change func(cur []int) []int) error {
+	s.iosSim.forwardMu.Lock()
+	defer s.iosSim.forwardMu.Unlock()
+	p, err := s.store.Project(ctx, project)
+	if err != nil {
+		return err
+	}
+	ports := change(slices.Clone(p.IOSForwardPorts))
+	if err := s.store.SetProjectIOSForwardPorts(ctx, project, ports); err != nil {
+		return err
+	}
+	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
 	if hostos.OS() != "darwin" {
 		return nil
 	}
-	s.iosSim.forwardMu.Lock()
-	defer s.iosSim.forwardMu.Unlock()
+	// Saved, the list is the user's word: its forwards stop even if the
+	// request that changed it is gone.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
 	c := s.iosClient()
 	forwards, err := c.Forwards(ctx)
 	if errors.Is(err, iossim.ErrUnavailable) {
@@ -432,7 +448,7 @@ func (s *Server) iosRevoke(ctx context.Context, project string, allowed []int) e
 	}
 	for _, f := range forwards {
 		p, name, _ := strings.Cut(f.Agent, "/")
-		if p == project && !slices.Contains(allowed, f.Port) {
+		if p == project && !slices.Contains(ports, f.Port) {
 			if _, err := c.Forward(ctx, iossim.ForwardRequest{Project: p, Agent: name, Port: f.Port}, true); err != nil {
 				return err
 			}
@@ -457,17 +473,11 @@ func missingPorts(allowed, wanted []int) []int {
 
 // allowIOSPorts adds ports to those the project's agents may forward.
 func (s *Server) allowIOSPorts(ctx context.Context, project string, ports []int) error {
-	p, err := s.store.Project(ctx, project)
-	if err != nil {
-		return err
-	}
-	all := append(slices.Clone(p.IOSForwardPorts), missingPorts(p.IOSForwardPorts, ports)...)
-	slices.Sort(all)
-	if err := s.store.SetProjectIOSForwardPorts(ctx, project, all); err != nil {
-		return err
-	}
-	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
-	return nil
+	return s.setIOSPorts(ctx, project, func(cur []int) []int {
+		all := append(cur, missingPorts(cur, ports)...)
+		slices.Sort(all)
+		return all
+	})
 }
 
 // portsWords names ports in a sentence: "port 8081", "ports 8081 and 5236".

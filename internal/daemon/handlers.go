@@ -514,13 +514,10 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 				return fmt.Errorf("%d isn't a port the Mac can forward: use 1024 to 65535", port)
 			}
 		}
-		if err := s.store.SetProjectIOSForwardPorts(r.Context(), p.Name, ports); err != nil {
+		if err := s.setIOSPorts(r.Context(), p.Name, func([]int) []int { return ports }); err != nil {
 			return err
 		}
 		p.IOSForwardPorts = ports
-		if err := s.iosRevoke(r.Context(), p.Name, ports); err != nil {
-			return err
-		}
 	}
 	if req.AgentPRs != nil {
 		if err := s.store.SetProjectAgentPRs(r.Context(), p.Name, *req.AgentPRs); err != nil {

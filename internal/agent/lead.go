@@ -542,7 +542,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		PRWatch:              prWatch,
 		VM:                   hostos.InVM(),
 		Host:                 hostos.Name(),
-		IOS:                  hostos.OS() == "darwin" && iossim.IsProject(a.Worktree),
+		IOS:                  hostos.OS() == "darwin" && iossim.IsProject(root),
 		Project:              a.Project,
 		ProjectName:          p.DisplayName,
 		Root:                 root,
