@@ -518,6 +518,9 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		p.IOSForwardPorts = ports
+		if err := s.iosRevoke(r.Context(), p.Name, ports); err != nil {
+			return err
+		}
 	}
 	if req.AgentPRs != nil {
 		if err := s.store.SetProjectAgentPRs(r.Context(), p.Name, *req.AgentPRs); err != nil {

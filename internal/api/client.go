@@ -414,6 +414,9 @@ func (c *Client) SetNesting(ctx context.Context, project string, on bool) (Proje
 // SetIOSForwardPorts sets the ports a project's agents may forward to the
 // Mac's localhost for the iOS Simulator.
 func (c *Client) SetIOSForwardPorts(ctx context.Context, project string, ports []int) (Project, error) {
+	if ports == nil {
+		ports = []int{} // none, where null would change nothing
+	}
 	var out Project
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{IOSForwardPorts: &ports}, &out)
 }

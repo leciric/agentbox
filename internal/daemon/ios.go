@@ -388,3 +388,28 @@ func portList(ports []int) string {
 	}
 	return strings.Join(parts, ", ")
 }
+
+// iosRevoke stops the project's forwards on ports it no longer allows.
+func (s *Server) iosRevoke(ctx context.Context, project string, allowed []int) error {
+	if hostos.OS() != "darwin" {
+		return nil
+	}
+	s.iosSim.forwardMu.Lock()
+	defer s.iosSim.forwardMu.Unlock()
+	c := s.iosClient()
+	forwards, err := c.Forwards(ctx)
+	if errors.Is(err, iossim.ErrUnavailable) {
+		return nil // no helper, no forwards
+	} else if err != nil {
+		return err
+	}
+	for _, f := range forwards {
+		p, name, _ := strings.Cut(f.Agent, "/")
+		if p == project && !slices.Contains(allowed, f.Port) {
+			if _, err := c.Forward(ctx, iossim.ForwardRequest{Project: p, Agent: name, Port: f.Port}, true); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

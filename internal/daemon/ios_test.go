@@ -224,4 +224,11 @@ func TestIOSForwardKeepsARunningAgentsPort(t *testing.T) {
 	if _, err := forward(stopped); err == nil || !strings.Contains(err.Error(), running.Ref()+"'s, which is running") {
 		t.Errorf("a running agent's port was taken: %v", err)
 	}
+	// Taken off the list, the port is given back at once.
+	if _, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", nil); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := d.client.ForwardIOS(ctx, running.Ref(), api.IOSForwardRequest{}); err != nil || len(list) != 0 {
+		t.Errorf("after the project took the port back, the forwards = %+v, %v", list, err)
+	}
 }
