@@ -863,7 +863,7 @@ impl AppView {
                                 el.child(note(t("project.connectors.browserOpens")))
                             }),
                     )
-                    .child(button(
+                    .child(crate::app::controls::button_busy(
                         "connector-add",
                         if auth == CONNECTOR_O_AUTH {
                             t("project.connectors.addAndConnect")
@@ -871,7 +871,8 @@ impl AppView {
                             t("common.add")
                         },
                         Btn::Primary,
-                        !ready || c.busy,
+                        c.busy,
+                        !ready,
                         cx.listener(|this, _: &ClickEvent, _, cx| this.add_connector(cx)),
                     )),
             )
@@ -973,7 +974,7 @@ impl AppView {
                     .when(
                         oauth && (x.status == CONNECTOR_CONNECTED || waiting),
                         |el| {
-                            el.child(button(
+                            el.child(crate::app::controls::button_busy(
                                 SharedString::from(format!("connector-disconnect-{}", x.name)),
                                 if waiting {
                                     t("common.cancel")
@@ -981,6 +982,7 @@ impl AppView {
                                     t("project.connectors.disconnect")
                                 },
                                 Btn::Ghost,
+                                waiting,
                                 c.busy,
                                 cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     let path =
@@ -1066,7 +1068,14 @@ impl AppView {
                 t("project.connectors.importScopeWide")
             )))
             .when(c.scan.is_none(), |el| {
-                el.child(note(t("project.connectors.importLooking")))
+                el.child(
+                    h_flex()
+                        .gap_2()
+                        .text_sm()
+                        .text_color(theme::subtle())
+                        .child(crate::icons::spinner())
+                        .child(t("project.connectors.importLooking")),
+                )
             })
             .when_some(c.scan.as_ref().and_then(|r| r.as_ref().err()), |el, e| {
                 el.child(crate::app::controls::error_line(e.clone()))
@@ -1176,14 +1185,15 @@ impl AppView {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(button(
+                    .child(crate::app::controls::button_busy(
                         "connectors-import-go",
                         tv(
                             "project.connectors.importCount",
                             &[("count", picked.into())],
                         ),
                         Btn::Primary,
-                        picked == 0 || c.busy,
+                        c.busy,
+                        picked == 0,
                         cx.listener(|this, _: &ClickEvent, _, cx| this.import_connectors(cx)),
                     ))
                     .child(button(

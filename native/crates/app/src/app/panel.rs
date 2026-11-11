@@ -34,7 +34,10 @@ use crate::theme;
 use crate::toasts::{self, Kind, Toast};
 use crate::vnc::VncView;
 
+mod monitor;
 mod timeline;
+
+use monitor::{Screen, agent_monitor, screen_of, tiny_monitor};
 
 /// An agent's views on the panel's switch, in its order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -132,6 +135,8 @@ pub struct Panel {
     /// model and context, for the row's tooltip.
     peeked: HashMap<String, agentbox_api::ChatSession>,
     peeking: HashSet<String>,
+    /// Each working agent's typing pace on its monitor, and when it was read.
+    pace: HashMap<String, (f32, std::time::Instant)>,
     host_memory: i64,
     /// Each agent's last report: when, and what it said.
     reports: HashMap<String, (String, String)>,
@@ -158,6 +163,8 @@ pub struct Panel {
     browser: Option<BrowserStatus>,
     pub(super) recording: Option<RecordingStatus>,
     shooting: bool,
+    /// Start desktop was pressed and has not answered.
+    starting_desktop: bool,
     files: Option<Entity<FileBrowser>>,
     /// The desktop asked for last: only that one connects (see connect_desktop).
     desktop_gen: u64,
@@ -222,6 +229,7 @@ impl Panel {
             usage: HashMap::new(),
             peeked: HashMap::new(),
             peeking: HashSet::new(),
+            pace: HashMap::new(),
             host_memory: 0,
             reports: HashMap::new(),
             disk: HashMap::new(),
@@ -242,6 +250,7 @@ impl Panel {
             browser: None,
             recording: None,
             shooting: false,
+            starting_desktop: false,
             files: None,
             desktop_gen: 0,
             desktop_full: false,
@@ -1080,6 +1089,8 @@ impl AppView {
         let Some(a) = self.open_agent() else { return };
         let (p, n) = (a.project.clone(), a.name.clone());
         let client = self.client.clone();
+        self.panel.starting_desktop = true;
+        cx.notify();
         cx.spawn(async move |this, cx| {
             let res = client
                 .post::<_, BrowserStatus>(
@@ -1088,6 +1099,7 @@ impl AppView {
                 )
                 .await;
             this.update(cx, |this, cx| {
+                this.panel.starting_desktop = false;
                 match res {
                     Ok(b) => {
                         this.panel.browser = Some(b);
@@ -1614,19 +1626,19 @@ impl AppView {
                     .px_1p5()
                     .py_1()
                     .tooltip(move |w, cx| Tooltip::new(dot_tip.clone()).build(w, cx))
-                    .child(
-                        div()
-                            .size(px(8.))
-                            .rounded_full()
-                            .bg(if asleep {
-                                theme::faint()
-                            } else {
-                                theme::running()
-                            })
-                            .when(busy, |el| {
-                                el.border_1().border_color(theme::primary().opacity(0.5))
-                            }),
-                    ),
+                    .child({
+                        let dot = div().size(px(8.)).rounded_full().bg(if asleep {
+                            theme::faint()
+                        } else {
+                            theme::running()
+                        });
+                        // StatusDot: animate-pulse while the agent is busy.
+                        if busy {
+                            crate::motion::pulse_soft(dot, "panel-machine-dot").into_any_element()
+                        } else {
+                            dot.into_any_element()
+                        }
+                    }),
             )
             .child(switch)
             .child(self.render_more_views(r, hidden, cx))
@@ -1820,10 +1832,78 @@ impl AppView {
                         this.panel.peeked.insert(r, t.session);
                         cx.notify();
                     }
-                    // Read again on the next hover.
+                    // Read again later: every row asks as it is drawn, so
+                    // forgetting at once would ask again each frame for as
+                    // long as the read fails.
                     Err(_) => {
-                        this.panel.peeking.remove(&r);
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor()
+                                .timer(Duration::from_secs(30))
+                                .await;
+                            this.update(cx, |this, _| this.panel.peeking.remove(&r))
+                                .ok();
+                        })
+                        .detach();
                     }
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// pace_of is how fast a working agent's monitor types
+    /// (monitor::typing_pace), from the tool calls its chat made in the last
+    /// two minutes; read again every quarter of a minute while its row is
+    /// drawn, and slow until the first read returns.
+    fn pace_of(&self, r: &str, cx: &mut Context<Self>) -> f32 {
+        const EVERY: Duration = Duration::from_secs(15);
+        let known = self.panel.pace.get(r).copied();
+        if known.is_none_or(|(_, at)| at.elapsed() > EVERY) && crate::motion::looping() {
+            let r = r.to_string();
+            let me = cx.entity();
+            cx.defer(move |cx| me.update(cx, |this, cx| this.read_pace(r, cx)));
+        }
+        known.map_or(monitor::SLOW, |(pace, _)| pace)
+    }
+
+    fn read_pace(&mut self, r: String, cx: &mut Context<Self>) {
+        let Some((p, a)) = r.split_once('/') else {
+            return;
+        };
+        // Marked read now, so the frames drawn meanwhile don't ask again.
+        let was = self.panel.pace.get(&r).map_or(monitor::SLOW, |p| p.0);
+        self.panel
+            .pace
+            .insert(r.clone(), (was, std::time::Instant::now()));
+        let path = format!("/v1/agents/{p}/{a}/chat?limit=60");
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(thread) = client.get::<agentbox_api::ChatThread>(&path).await else {
+                return;
+            };
+            let now = chrono::Utc::now();
+            let calls = thread
+                .items
+                .iter()
+                .filter(|it| it.tool.is_some())
+                .filter_map(|it| chrono::DateTime::parse_from_rfc3339(&it.created_at).ok())
+                .filter(|at| {
+                    let ago = now.signed_duration_since(at);
+                    ago >= chrono::TimeDelta::zero()
+                        && ago.to_std().is_ok_and(|d| d <= monitor::PACE_WINDOW)
+                })
+                .count();
+            this.update(cx, |this, cx| {
+                let pace = monitor::typing_pace(calls);
+                if this
+                    .panel
+                    .pace
+                    .insert(r, (pace, std::time::Instant::now()))
+                    .map(|p| p.0)
+                    != Some(pace)
+                {
+                    cx.notify();
                 }
             })
             .ok();
@@ -1936,15 +2016,21 @@ impl AppView {
                         .build(w, cx)
                     })
                     .pt_0p5()
-                    .child(agent_monitor(
-                        &a.ai,
-                        if !a.hold.is_empty() && a.state != "running" && a.state != "paused" {
-                            // On hold, its machine stopped: its screen is off.
-                            Screen::Idle
+                    .child({
+                        let screen =
+                            if !a.hold.is_empty() && a.state != "running" && a.state != "paused" {
+                                // On hold, its machine stopped: its screen is off.
+                                Screen::Idle
+                            } else {
+                                screen_of(r.st)
+                            };
+                        let pace = if screen == Screen::Working {
+                            self.pace_of(&a.r#ref, cx)
                         } else {
-                            screen_of(r.st)
-                        },
-                    )),
+                            monitor::SLOW
+                        };
+                        agent_monitor(&a.r#ref, &a.ai, screen, pace, cx)
+                    }),
             )
             // AgentLine's lines: the title row (leading-[18px]), why it's
             // where it is (12px, leading-4, in its state's tone), then what it
@@ -2178,12 +2264,17 @@ impl AppView {
                     .on_click(cx.listener(move |this, _: &ClickEvent, w, cx| {
                         this.open_chat(name.clone(), w, cx)
                     }))
-                    .child(monitor(
+                    .child(tiny_monitor(
                         &r.agent.r#ref,
-                        &r.agent.ai,
-                        r.st,
-                        r.agent.state == "running",
-                        Some(label),
+                        if !r.agent.hold.is_empty()
+                            && r.agent.state != "running"
+                            && r.agent.state != "paused"
+                        {
+                            Screen::Idle
+                        } else {
+                            screen_of(r.st)
+                        },
+                        label,
                         active,
                         r.finished,
                     ))
@@ -2276,10 +2367,11 @@ impl AppView {
                         &[("view", (&view.label().to_lowercase()).into())],
                     )),
             )
-            .child(controls::button(
+            .child(controls::button_busy(
                 "panel-wake",
                 format!(
-                    "▶ {}",
+                    "{}{}",
+                    if self.agent_busy() { "" } else { "▶ " },
                     t(if paused {
                         "panel.stopped.resume"
                     } else {
@@ -2288,6 +2380,7 @@ impl AppView {
                 ),
                 Btn::Primary,
                 self.agent_busy(),
+                false,
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.run_action(
                         r.clone(),
@@ -2356,7 +2449,10 @@ impl AppView {
                         .text_color(theme::on_bright())
                         .text_xs()
                         .font_weight(FontWeight::BOLD)
-                        .child(div().size(px(5.)).rounded_full().bg(theme::on_bright()))
+                        .child(crate::motion::pulse_soft(
+                            div().size(px(5.)).rounded_full().bg(theme::on_bright()),
+                            "panel-live-dot",
+                        ))
                         .child(t("panel.live")),
                 )
             })
@@ -2385,11 +2481,11 @@ impl AppView {
                     })
                     .when(!connected || self.panel.shooting, |el| el.opacity(0.4))
                     .tooltip(move |w, cx| Tooltip::new(shot_tip.clone()).build(w, cx))
-                    .child(crate::icons::of(if self.panel.shooting {
-                        "…"
+                    .child(if self.panel.shooting {
+                        crate::icons::spinner()
                     } else {
-                        "⌾"
-                    })),
+                        crate::icons::of("⌾")
+                    }),
             )
             .child(self.render_pick_button(a, connected, cx))
             .child(
@@ -2414,13 +2510,16 @@ impl AppView {
                     })
                     .when(!connected, |el| el.opacity(0.4))
                     .tooltip(move |w, cx| Tooltip::new(rec_tip.clone()).build(w, cx))
-                    .child(div().size(px(9.)).bg(theme::error()).map(|el| {
+                    .child({
+                        let mark = div().size(px(9.)).bg(theme::error());
                         if recording.is_some() {
-                            el.rounded_sm()
+                            // The square breathes while it records.
+                            crate::motion::pulse_soft(mark.rounded_sm(), "panel-record-mark")
+                                .into_any_element()
                         } else {
-                            el.rounded_full()
+                            mark.rounded_full().into_any_element()
                         }
-                    }))
+                    })
                     .when_some(elapsed, |el, s| {
                         el.child(
                             div()
@@ -2496,7 +2595,7 @@ impl AppView {
             })
             .bg(theme::pitch())
             .map(|el| match (up, &self.desktop) {
-                (Some(false), _) => el.child(
+                (Some(false), _) => el.child(crate::motion::enter(
                     v_flex()
                         .size_full()
                         .items_center()
@@ -2515,14 +2614,21 @@ impl AppView {
                                 .text_color(theme::muted())
                                 .child(tv("panel.desktop.off", &[("name", (&a.name).into())])),
                         )
-                        .child(controls::button(
+                        .child(controls::button_busy(
                             "desktop-start",
-                            format!("▶ {}", t("agent.browser.startDesktop")),
+                            if self.panel.starting_desktop {
+                                t("agent.browser.startDesktop")
+                            } else {
+                                format!("▶ {}", t("agent.browser.startDesktop"))
+                            },
                             Btn::Primary,
+                            self.panel.starting_desktop,
                             false,
                             cx.listener(|this, _: &ClickEvent, _, cx| this.start_desktop(cx)),
                         )),
-                ),
+                    "desktop-off-card",
+                    0,
+                )),
                 (_, Some(_)) if full => el.child(
                     v_flex()
                         .size_full()
@@ -2547,7 +2653,15 @@ impl AppView {
                         )),
                 ),
                 (_, Some(d)) => el.child(d.clone()),
-                _ => el.child(note(t("agent.browser.connecting"))),
+                _ => el.child(
+                    h_flex()
+                        .gap_2()
+                        .p_4()
+                        .text_xs()
+                        .text_color(theme::faint())
+                        .child(crate::icons::spinner())
+                        .child(t("agent.browser.connecting")),
+                ),
             });
         // The latest twelve screenshots and recordings; the rest are in Evidence.
         let captures: Vec<MediaItem> = if self.panel.media_for == a.r#ref {
@@ -3168,305 +3282,6 @@ fn st_color(st: St) -> Hsla {
         St::Done => theme::muted(),
         _ => theme::primary().opacity(0.8),
     }
-}
-
-/// monitor is an agent's tiny computer acting out its state (AgentMonitor):
-/// its screen lit by what it does, its AI tool's mark or its tile's label.
-/// monitor is an agent's little screen: its tool's mark in its standing's
-/// colour. Working, its edge breathes; the moment it finishes, a ring of
-/// the brand bursts out from it once.
-fn monitor(
-    key: &str,
-    ai: &str,
-    st: St,
-    running: bool,
-    label: Option<String>,
-    active: bool,
-    finished: Option<std::time::Instant>,
-) -> AnyElement {
-    let color = match st {
-        St::Needs => theme::starting(),
-        St::Error => theme::error(),
-        St::Review => theme::accent(),
-        St::Working => theme::running(),
-        St::Done => theme::faint(),
-    };
-    let mark = label.unwrap_or_else(|| {
-        ai.chars()
-            .next()
-            .map(|c| c.to_uppercase().to_string())
-            .unwrap_or_default()
-    });
-    v_flex()
-        .flex_none()
-        .items_center()
-        .mt_0p5()
-        .child({
-            let screen = div()
-                .w(px(36.))
-                .h(px(25.))
-                .rounded_md()
-                .border_2()
-                .border_color(if active {
-                    theme::accent()
-                } else {
-                    color.opacity(0.8)
-                })
-                .bg(if running {
-                    color.opacity(0.14)
-                } else {
-                    theme::ink()
-                })
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(if running { color } else { theme::faint() })
-                .child(crate::icons::of(mark));
-            // Any other turn (it asks, it failed, it's up for review) rings
-            // once in its new colour.
-            let turned = crate::motion::changed(&format!("monitor-st-{key}"), &(st as u8));
-            match (st, finished) {
-                (St::Working, _) => crate::motion::breathe(
-                    screen,
-                    SharedString::from(format!("monitor-work-{key}")),
-                    color,
-                )
-                .into_any_element(),
-                (_, Some(t)) => crate::motion::celebrate(
-                    screen,
-                    SharedString::from(format!("monitor-done-{key}-{:?}", t)),
-                    theme::brand(400),
-                )
-                .into_any_element(),
-                _ => match turned {
-                    Some(n) => crate::motion::ring(
-                        screen,
-                        SharedString::from(format!("monitor-turn-{key}-{n}")),
-                        color,
-                    )
-                    .into_any_element(),
-                    None => screen.into_any_element(),
-                },
-            }
-        })
-        .child(div().w(px(10.)).h(px(3.)).bg(theme::line()))
-        .into_any_element()
-}
-
-/// Screen is what an agent's monitor shows (shared/monitor.ts MonitorScreen).
-#[derive(Clone, Copy, PartialEq)]
-enum Screen {
-    Working,
-    Needs,
-    Error,
-    Review,
-    Idle,
-}
-
-fn screen_of(st: St) -> Screen {
-    match st {
-        St::Needs => Screen::Needs,
-        St::Error => Screen::Error,
-        St::Review => Screen::Review,
-        St::Working => Screen::Working,
-        St::Done => Screen::Idle,
-    }
-}
-
-/// mix is CSS's color-mix in srgb: `a` at `amount`, the rest `b`.
-fn mix(a: Hsla, b: Hsla, amount: f32) -> Hsla {
-    let (a, b) = (a.to_rgb(), b.to_rgb());
-    let m = |x: f32, y: f32| x * amount + y * (1. - amount);
-    Rgba {
-        r: m(a.r, b.r),
-        g: m(a.g, b.g),
-        b: m(a.b, b.b),
-        a: 1.,
-    }
-    .into()
-}
-
-/// agent_monitor is the monitor a row of the list leads with (AgentMonitor,
-/// not tiny): a w-28 screen on a stand acting out the agent's state, still
-/// (the motion is Electron's CSS; here each screen holds its still).
-fn agent_monitor(ai: &str, screen: Screen) -> AnyElement {
-    let mark = |size: f32, opacity: f32, grey: bool| {
-        div()
-            .flex_none()
-            .opacity(opacity)
-            .child(crate::icons::tool_mark_grey(
-                ai,
-                px(size),
-                theme::brand(300),
-                grey,
-            ))
-    };
-    let glyph = |name: &'static str, color: Hsla| crate::icons::bold(name, 3., px(20.), color);
-    let content: AnyElement = match screen {
-        Screen::Working => h_flex()
-            .size_full()
-            .gap_2()
-            .px_2p5()
-            .py_2()
-            .child(mark(24., 1., false))
-            .child(
-                // Lines of light: four bars over the one that types.
-                div()
-                    .relative()
-                    .min_w_0()
-                    .flex_1()
-                    .h_full()
-                    .overflow_hidden()
-                    .child(
-                        v_flex()
-                            .absolute()
-                            .left_0()
-                            .right_0()
-                            .bottom(px(11.))
-                            .gap(px(4.))
-                            .children([0.78, 0.52, 0.90, 0.64].map(|w| {
-                                div()
-                                    .h(px(3.))
-                                    .w(relative(w))
-                                    .rounded_full()
-                                    .bg(theme::brand(400).opacity(0.45))
-                            })),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .bottom(px(3.))
-                            .h(px(3.))
-                            .w(relative(0.7))
-                            .rounded_full()
-                            .bg(theme::brand(300).opacity(0.8)),
-                    ),
-            )
-            .into_any_element(),
-        Screen::Error => h_flex()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .gap_1p5()
-            .child(mark(20., 0.6, false))
-            .child(glyph("x", theme::rose(300)))
-            .into_any_element(),
-        Screen::Review => h_flex()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .gap_1p5()
-            .child(mark(20., 0.7, false))
-            .child(glyph("check", theme::emerald(300)))
-            .into_any_element(),
-        Screen::Needs | Screen::Idle => h_flex()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .child(if screen == Screen::Idle {
-                mark(28., 0.4, true)
-            } else {
-                mark(28., 1., false)
-            })
-            .into_any_element(),
-    };
-    let border = match screen {
-        Screen::Needs => theme::amber(400).opacity(0.7),
-        Screen::Error => theme::rose(400).opacity(0.6),
-        Screen::Review => theme::emerald(400).opacity(0.45),
-        _ => theme::line_strong(),
-    };
-    let ground = match screen {
-        Screen::Error => theme::rose(400).opacity(0.25),
-        Screen::Review => theme::emerald(400).opacity(0.1),
-        Screen::Idle => mix(theme::term_background(), theme::term_foreground(), 0.86),
-        _ => theme::term_background(),
-    };
-    // The inner screen is 16:9 of the frame's inside (112 − 2 − 6).
-    let inner_w = 112. - 2. - 6.;
-    v_flex()
-        .flex_none()
-        .w(px(112.))
-        .items_center()
-        .child(
-            div()
-                .relative()
-                .w_full()
-                .p(px(3.))
-                .rounded_md()
-                .border_1()
-                .border_color(border)
-                .bg(theme::surface_strong())
-                .when(screen == Screen::Needs, |el| {
-                    el.shadow(vec![BoxShadow {
-                        color: theme::amber(400).opacity(0.55),
-                        offset: point(px(0.), px(0.)),
-                        blur_radius: px(12.),
-                        spread_radius: px(1.),
-                        inset: false,
-                    }])
-                })
-                .when(screen == Screen::Working || screen == Screen::Idle, |el| {
-                    el.group_hover("list-row", |s| {
-                        s.border_color(theme::brand(500).opacity(0.6))
-                    })
-                })
-                .child(
-                    div()
-                        .relative()
-                        .w_full()
-                        .h(px(inner_w * 9. / 16.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .overflow_hidden()
-                        .rounded(px(3.))
-                        .bg(ground)
-                        .text_color(theme::term_foreground())
-                        .when(screen == Screen::Idle, |el| el.opacity(0.7))
-                        .child(content)
-                        .when(screen == Screen::Idle, |el| {
-                            el.child(
-                                div()
-                                    .absolute()
-                                    .right_2()
-                                    .top_1()
-                                    .text_size(px(13.))
-                                    .line_height(px(13.))
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(theme::muted())
-                                    .child("z"),
-                            )
-                        }),
-                )
-                .when(screen == Screen::Needs, |el| {
-                    el.child(
-                        div()
-                            .absolute()
-                            .right(px(-6.))
-                            .top(px(-8.))
-                            .size_5()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_full()
-                            .border_1()
-                            .border_color(theme::amber(400).opacity(0.7))
-                            .bg(theme::sunken())
-                            .text_size(px(12.))
-                            .line_height(px(12.))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(theme::amber(300))
-                            .child("?"),
-                    )
-                }),
-        )
-        .child(div().h(px(5.)).w_4().bg(theme::ghost()))
-        .child(div().h(px(3.)).w_10().rounded_full().bg(theme::ghost()))
-        .into_any_element()
 }
 
 fn count_pill(n: usize) -> AnyElement {

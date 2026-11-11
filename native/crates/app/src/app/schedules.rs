@@ -1014,14 +1014,15 @@ impl AppView {
                     .gap_1()
                     .flex_wrap()
                     .items_center()
-                    .child(controls::button(
+                    .child(controls::button_busy(
                         SharedString::from(format!("schedule-run-{}", s.id)),
                         format!(
-                            "{} {}",
-                            if running { "…" } else { "▶" },
+                            "{}{}",
+                            if running { "" } else { "▶ " },
                             t("schedules.runNow")
                         ),
                         Btn::Ghost,
+                        running,
                         self.schedules.running.is_some(),
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.run_schedule(s2.id.clone(), s2.title.clone(), cx)
@@ -1562,7 +1563,7 @@ impl AppView {
                 .child(v_flex().gap_4().pr_1().children(body))
                 .into_any_element(),
         ];
-        Some(super::agent::modal(
+        Some(super::agent::modal_busy(
             "schedule-dialog",
             t(if f.id.is_some() {
                 "schedules.dialog.edit"
@@ -1578,6 +1579,7 @@ impl AppView {
                 "schedules.create"
             }),
             false,
+            s.saving,
             s.saving,
             cx.listener(|this, _: &ClickEvent, _, cx| this.save_schedule(cx)),
         ))

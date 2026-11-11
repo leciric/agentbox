@@ -131,25 +131,147 @@ pub fn ai_icon(ai: &str, size: Pixels, color: Hsla) -> AnyElement {
         .into_any_element()
 }
 
-/// character is a tool's character at rest, as Electron's AgentCharacter
-/// draws it in the idle mood (components/AgentCharacter.tsx): Claude's
-/// Clawd, Codex's cloud, OpenCode's frame. None for a tool with none.
-fn character(ai: &str) -> Option<String> {
+/// Pose is how a tool's character holds itself (styles.css's .ab-char): its
+/// eyes' height, its arm's turn and lift, crossed eyes, Codex's cursor.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Pose {
+    /// The eyes' height, 1 open: a blink goes to 0.12, sleep is 0.15.
+    pub eyes: f32,
+    /// The arm's turn in degrees about the shoulder (12 asleep, −40 raised).
+    pub arm: f32,
+    /// The arm lifted to the shoulder (asking).
+    pub lift: bool,
+    /// ✕ for eyes (error).
+    pub crossed: bool,
+    /// Codex's cursor's opacity.
+    pub cursor: f32,
+    /// How far the whole character is lifted, in its own heights (the bob).
+    pub rise: f32,
+}
+
+impl Pose {
+    /// REST is the idle mood: eyes open, arm down.
+    pub const REST: Pose = Pose {
+        eyes: 1.,
+        arm: 0.,
+        lift: false,
+        crossed: false,
+        cursor: 1.,
+        rise: 0.,
+    };
+    /// ASLEEP is the sleeping mood: eyes shut, the arm drooping.
+    pub const ASLEEP: Pose = Pose {
+        eyes: 0.15,
+        arm: 12.,
+        ..Pose::REST
+    };
+    /// ASKING is a hand up.
+    pub const ASKING: Pose = Pose {
+        arm: -40.,
+        lift: true,
+        ..Pose::REST
+    };
+    /// BROKEN is the error mood.
+    pub const BROKEN: Pose = Pose {
+        crossed: true,
+        ..Pose::REST
+    };
+
+    /// blink is the eyes' height `t` through ab-blink's moving part (its
+    /// last 5%: shut at the middle, to 0.12).
+    pub fn blink(t: f32) -> f32 {
+        let half = if t < 0.5 { t * 2. } else { (1. - t) * 2. };
+        1. - 0.88 * crate::motion::ease_in_out(half)
+    }
+
+    /// wave is the raised arm's turn `t` through ab-wave (a small wave about
+    /// the raised pose, then a rest with the hand still up).
+    pub fn wave(t: f32) -> f32 {
+        crate::motion::keyframes(
+            t,
+            &[
+                (0., 0.),
+                (0.12, 12.),
+                (0.24, -12.),
+                (0.35, 8.),
+                (0.45, 0.),
+                (1., 0.),
+            ],
+            crate::motion::ease_in_out,
+        )
+    }
+}
+
+/// character is a tool's character in `pose`, as Electron's AgentCharacter
+/// draws it (components/AgentCharacter.tsx): Claude's Clawd, Codex's cloud,
+/// OpenCode's frame. None for a tool with none. Electron moves each part as a
+/// box of its own; here a pose is a picture, drawn once and kept.
+fn character(ai: &str, pose: Pose) -> Option<String> {
     let light = crate::theme::look() == crate::theme::Look::Light;
     let (frame, inner) = if light {
         ("#3a3535", "#d6d4d3")
     } else {
         ("#e4dede", "#5a5454")
     };
-    let body = match ai {
-        "claude" => r##"<path fill="#DE8A6E" d="M3 5h18v12.08h-1.49V20H18v-2.92h-1.49V20H15v-2.92H9V20H7.49v-2.92H6V20H4.49v-2.92H3v-3.03H0v-3.1h3z"/><rect x="18.5" y="10.95" width="5.5" height="3.1" fill="#DE8A6E"/><g fill="#3D2B25"><rect x="6.15" y="8.5" width="1.2" height="2.1" rx="0.3"/><rect x="16.66" y="8.5" width="1.2" height="2.1" rx="0.3"/></g>"##.to_string(),
-        "codex" => r##"<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="12" x2="12" y1="3" y2="21"><stop stop-color="#C9C2FF"/><stop offset=".5" stop-color="#97B2FF"/><stop offset="1" stop-color="#6670FF"/></linearGradient></defs><rect x="17" y="11.2" width="6.6" height="2.5" rx="1.25" fill="#97B2FF"/><path fill="url(#g)" d="M9.064 3.344a4.578 4.578 0 012.285-.312c1 .115 1.891.54 2.673 1.275.01.01.024.017.037.021a.09.09 0 00.043 0 4.55 4.55 0 013.046.275l.047.022.116.057a4.581 4.581 0 012.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 01-.134 1.223.123.123 0 00.03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 01-2.201 1.388.123.123 0 00-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 00-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 01-1.945-.466 4.544 4.544 0 01-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 01-.37-.961 4.582 4.582 0 01-.014-2.298.124.124 0 00.006-.056.085.085 0 00-.027-.048 4.467 4.467 0 01-1.034-1.651 3.896 3.896 0 01-.251-1.192 5.189 5.189 0 01.141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 00.065-.066 4.51 4.51 0 01.829-1.615 4.535 4.535 0 011.837-1.388z"/><g stroke="#fff" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M8.2 10.15l1 1.9-1 1.85"/><path d="M12.9 14.2h2.9"/></g>"##.to_string(),
-        "opencode" => format!(r##"<rect x="8" y="10" width="8" height="8" fill="{inner}"/><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z" fill-rule="evenodd" fill="{frame}"/><rect x="17.5" y="12" width="5.8" height="3" fill="{frame}"/><g fill="{frame}"><rect x="9.8" y="12.4" width="1.2" height="1.9" rx="0.3"/><rect x="13" y="12.4" width="1.2" height="1.9" rx="0.3"/></g>"##),
+    // (eyes' origin, arm's origin, arm's lift), in the 24-unit box:
+    // --ab-eye-origin, --ab-arm-origin and --ab-arm-lift.
+    let ((ex, ey), (ax, ay), lift) = match ai {
+        "claude" => ((12., 9.552), (21., 12.504), -6.),
+        "codex" => ((8.712, 12.048), (19.512, 12.456), -4.08),
+        "opencode" => ((12., 13.344), (19.992, 13.512), -6.),
         _ => return None,
     };
+    let (body, arm, eyes, xeyes, cursor) = match ai {
+        "claude" => (
+            r##"<path fill="#DE8A6E" d="M3 5h18v12.08h-1.49V20H18v-2.92h-1.49V20H15v-2.92H9V20H7.49v-2.92H6V20H4.49v-2.92H3v-3.03H0v-3.1h3z"/>"##.to_string(),
+            r##"<rect x="18.5" y="10.95" width="5.5" height="3.1" fill="#DE8A6E"/>"##.to_string(),
+            r##"<g fill="#3D2B25"><rect x="6.15" y="8.5" width="1.2" height="2.1" rx="0.3"/><rect x="16.66" y="8.5" width="1.2" height="2.1" rx="0.3"/></g>"##.to_string(),
+            r##"<path d="M5.95 8.75l1.6 1.6M7.55 8.75l-1.6 1.6M16.46 8.75l1.6 1.6M18.06 8.75l-1.6 1.6" stroke="#3D2B25" stroke-width="0.7" stroke-linecap="round"/>"##.to_string(),
+            String::new(),
+        ),
+        "codex" => (
+            r##"<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="12" x2="12" y1="3" y2="21"><stop stop-color="#C9C2FF"/><stop offset=".5" stop-color="#97B2FF"/><stop offset="1" stop-color="#6670FF"/></linearGradient></defs><path fill="url(#g)" d="M9.064 3.344a4.578 4.578 0 012.285-.312c1 .115 1.891.54 2.673 1.275.01.01.024.017.037.021a.09.09 0 00.043 0 4.55 4.55 0 013.046.275l.047.022.116.057a4.581 4.581 0 012.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 01-.134 1.223.123.123 0 00.03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 01-2.201 1.388.123.123 0 00-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 00-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 01-1.945-.466 4.544 4.544 0 01-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 01-.37-.961 4.582 4.582 0 01-.014-2.298.124.124 0 00.006-.056.085.085 0 00-.027-.048 4.467 4.467 0 01-1.034-1.651 3.896 3.896 0 01-.251-1.192 5.189 5.189 0 01.141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 00.065-.066 4.51 4.51 0 01.829-1.615 4.535 4.535 0 011.837-1.388z"/>"##.to_string(),
+            r##"<rect x="17" y="11.2" width="6.6" height="2.5" rx="1.25" fill="#97B2FF"/>"##.to_string(),
+            r##"<path d="M8.2 10.15l1 1.9-1 1.85" stroke="#fff" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"##.to_string(),
+            r##"<path d="M7.9 11.25l1.6 1.6M9.5 11.25l-1.6 1.6" stroke="#fff" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"##.to_string(),
+            format!(r##"<path d="M12.9 14.2h2.9" stroke="#fff" stroke-width="1" stroke-linecap="round" fill="none" opacity="{:.2}"/>"##, pose.cursor),
+        ),
+        _ => (
+            format!(r##"<rect x="8" y="10" width="8" height="8" fill="{inner}"/><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z" fill-rule="evenodd" fill="{frame}"/>"##),
+            format!(r##"<rect x="17.5" y="12" width="5.8" height="3" fill="{frame}"/>"##),
+            format!(r##"<g fill="{frame}"><rect x="9.8" y="12.4" width="1.2" height="1.9" rx="0.3"/><rect x="13" y="12.4" width="1.2" height="1.9" rx="0.3"/></g>"##),
+            format!(r##"<path d="M9.65 12.6l1.5 1.5M11.15 12.6l-1.5 1.5M12.85 12.6l1.5 1.5M14.35 12.6l-1.5 1.5" stroke="{frame}" stroke-width="0.7" stroke-linecap="round"/>"##),
+            String::new(),
+        ),
+    };
+    let arm = format!(
+        r##"<g transform="translate(0 {:.2}) rotate({:.1} {ax} {ay})">{arm}</g>"##,
+        if pose.lift { lift } else { 0. },
+        pose.arm,
+    );
+    let face = if pose.crossed {
+        xeyes
+    } else {
+        format!(
+            r##"<g transform="translate({ex} {ey}) scale(1 {:.3}) translate(-{ex} -{ey})">{eyes}</g>"##,
+            pose.eyes
+        )
+    };
+    // Codex's arm is behind its cloud; the others' is in front.
+    let parts = if ai == "codex" {
+        format!("{arm}{body}{face}{cursor}")
+    } else {
+        format!("{body}{arm}{face}{cursor}")
+    };
     Some(format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 24 24">{body}</svg>"##
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 24 24" overflow="visible"><g transform="translate(0 {:.3})">{parts}</g></svg>"##,
+        -24. * pose.rise
     ))
+}
+
+/// has_character is whether a tool has a character (Electron's hasCharacter).
+pub fn has_character(ai: &str) -> bool {
+    matches!(ai, "" | "claude" | "codex" | "opencode")
 }
 
 /// tool_mark is Electron's ToolMark: a tool's character where it has one,
@@ -161,14 +283,28 @@ pub fn tool_mark(ai: &str, size: Pixels, color: Hsla) -> AnyElement {
 /// tool_mark_grey is tool_mark, its character in grey when `grey` (CSS's
 /// grayscale, as an idle monitor's).
 pub fn tool_mark_grey(ai: &str, size: Pixels, color: Hsla, grey: bool) -> AnyElement {
+    tool_mark_posed(ai, size, color, grey, Pose::REST)
+}
+
+/// tool_mark_posed is tool_mark with its character in `pose`. A pose is
+/// rounded to a few steps (a sixteenth of the eyes, two degrees of the arm),
+/// so a loop draws from a small set of pictures, each made once.
+pub fn tool_mark_posed(ai: &str, size: Pixels, color: Hsla, grey: bool, pose: Pose) -> AnyElement {
     let ai = if ai.is_empty() { "claude" } else { ai };
     let light = crate::theme::look() == crate::theme::Look::Light;
-    let key = (format!("char:{ai}:{light}"), 0);
+    let pose = Pose {
+        eyes: (pose.eyes * 16.).round() / 16.,
+        arm: (pose.arm / 2.).round() * 2.,
+        cursor: (pose.cursor * 4.).round() / 4.,
+        rise: (pose.rise * 200.).round() / 200.,
+        ..pose
+    };
+    let key = (format!("char:{ai}:{light}:{pose:?}"), 0);
     let Some(image) = CACHE.with(|c| {
         if let Some(i) = c.borrow().get(&key) {
             return Some(i.clone());
         }
-        let svg = character(ai)?;
+        let svg = character(ai, pose)?;
         let i = Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()));
         c.borrow_mut().insert(key.clone(), i.clone());
         Some(i)

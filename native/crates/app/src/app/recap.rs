@@ -341,8 +341,21 @@ impl RecapView {
                             .overflow_hidden()
                             .bg(theme::surface_strong())
                             .shadow(theme::shadow_modal())
-                            .when_some(card, |el, c| {
-                                el.child(img(c).size_full().object_fit(ObjectFit::Contain))
+                            .relative()
+                            .map(|el| match card {
+                                Some(c) => {
+                                    el.child(img(c).size_full().object_fit(ObjectFit::Contain))
+                                }
+                                // The card is drawn on a thread: a shimmer fills its place.
+                                None => {
+                                    el.child(div().absolute().size_full().overflow_hidden().child(
+                                        crate::motion::skeleton(
+                                            "recap-card-skel",
+                                            gpui::relative(1.),
+                                            px(2000.),
+                                        ),
+                                    ))
+                                }
                             }),
                     ),
             )

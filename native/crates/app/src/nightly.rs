@@ -92,17 +92,18 @@ pub fn sky(h: f32) -> impl IntoElement {
             .bg(star_color().opacity(fade(y)));
         layer = layer.child(if twinkle {
             // nightly-twinkle: 5 s ease-in-out alternate between 25% and 100%.
-            dot.with_animation(
+            // A slow fade: a few frames a second draw it as well as thirty.
+            motion::looped_at(
+                dot,
                 SharedString::from(format!("nightly-star-{i}")),
-                Animation::new(Duration::from_millis(5000))
-                    .repeat()
-                    .with_max_fps(motion::AMBIENT_FPS),
+                Duration::from_millis(10_000),
+                0.5,
+                8.,
                 |el, t| {
-                    let wave = (1. - (t * std::f32::consts::TAU).cos()) / 2.;
-                    el.opacity(0.25 + 0.75 * wave)
+                    let half = if t < 0.5 { t * 2. } else { (1. - t) * 2. };
+                    el.opacity(0.25 + 0.75 * motion::ease_in_out(half))
                 },
             )
-            .into_any_element()
         } else {
             dot.into_any_element()
         });

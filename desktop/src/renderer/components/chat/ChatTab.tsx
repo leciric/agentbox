@@ -341,7 +341,7 @@ export function ChatTab({
                   {loadingOlder ? t('chat.tab.loadingOlder') : ''}
                 </div>
               )}
-              <Timeline agent={agent} thread={view} onOpenAgent={onOpenAgent} />
+              <Timeline agent={agent} thread={view} onOpenAgent={onOpenAgent} onReveal={reveal} />
               {view.newer && (
                 <div className="flex h-8 items-center justify-center gap-1.5 pt-4 text-caption text-subtle" data-chat-newer>
                   {loadingNewer && <LoaderCircle className="size-3.5 animate-spin" />}

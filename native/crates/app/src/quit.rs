@@ -4,7 +4,9 @@
 //!
 //! - closing the last window quits (GPUI keeps running with none, so a
 //!   closed window left an invisible process behind), unless the tray's
-//!   "keep running" minimises it instead (app/alerts.rs);
+//!   "keep running" minimises it instead (app/alerts.rs, on_close), which
+//!   only the close button heeds: the shortcut, the tray's Quit and the
+//!   app's own Quit entries (the help menu, the palette) always quit;
 //! - once GPUI's loop returns, main exits the process at once ([`exit`]):
 //!   what is still running then (the I/O runtime, the tray's GTK thread,
 //!   a webview, a video's decoder) must not hold it open;
@@ -25,6 +27,13 @@ const QUIT_KEY: &str = if cfg!(target_os = "macos") {
     "cmd-q"
 } else {
     "ctrl-q"
+};
+
+/// QUIT_KEYS is the shortcut as the app writes it for the user.
+pub const QUIT_KEYS: &str = if cfg!(target_os = "macos") {
+    "⌘Q"
+} else {
+    "Ctrl+Q"
 };
 
 pub fn init(cx: &mut App) {

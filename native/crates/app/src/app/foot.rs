@@ -1372,28 +1372,49 @@ impl AppView {
         }
         let body: AnyElement =
             if f.loaded && total == 0 && !filtered {
-                v_flex()
-                    .py_12()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        crate::icons::ic("images")
-                            .size(px(24.))
-                            .text_color(theme::faint()),
-                    )
-                    .child(
+                crate::motion::enter(
+                    v_flex()
+                        .py_12()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            crate::icons::ic("images")
+                                .size(px(24.))
+                                .text_color(theme::faint()),
+                        )
+                        .child(
+                            div()
+                                .text_color(theme::primary())
+                                .child(t("project.media.emptyTitle")),
+                        )
+                        .child(
+                            div()
+                                .max_w(px(420.))
+                                .text_sm()
+                                .text_center()
+                                .text_color(theme::muted())
+                                .child(t("shell.allMedia.emptyBody")),
+                        ),
+                    "media-empty",
+                    0,
+                )
+                .into_any_element()
+            } else if !f.loaded && entries.is_empty() {
+                // Six 4:3 tiles until the first page arrives.
+                div()
+                    .grid()
+                    .grid_cols(cols)
+                    .gap_3()
+                    .children((0..6).map(|i| {
                         div()
-                            .text_color(theme::primary())
-                            .child(t("project.media.emptyTitle")),
-                    )
-                    .child(
-                        div()
-                            .max_w(px(420.))
-                            .text_sm()
-                            .text_center()
-                            .text_color(theme::muted())
-                            .child(t("shell.allMedia.emptyBody")),
-                    )
+                            .rounded_xl()
+                            .overflow_hidden()
+                            .child(crate::motion::skeleton(
+                                format!("media-skel-{i}"),
+                                col_w,
+                                col_w * 0.75,
+                            ))
+                    }))
                     .into_any_element()
             } else if f.loaded && entries.is_empty() {
                 v_flex()
@@ -1829,25 +1850,29 @@ impl AppView {
     fn render_jobs(&self, cx: &mut Context<Self>) -> AnyElement {
         let f = &self.side.foot;
         if f.loaded && f.jobs.is_empty() {
-            return v_flex()
-                .size_full()
-                .items_center()
-                .justify_center()
-                .gap_2()
-                .child(
-                    div()
-                        .text_color(theme::primary())
-                        .child(t("shell.jobs.emptyTitle")),
-                )
-                .child(
-                    div()
-                        .max_w(px(420.))
-                        .text_sm()
-                        .text_center()
-                        .text_color(theme::muted())
-                        .child(t("shell.jobs.emptyBody")),
-                )
-                .into_any_element();
+            return crate::motion::enter(
+                v_flex()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_color(theme::primary())
+                            .child(t("shell.jobs.emptyTitle")),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(420.))
+                            .text_sm()
+                            .text_center()
+                            .text_color(theme::muted())
+                            .child(t("shell.jobs.emptyBody")),
+                    ),
+                "jobs-empty",
+                0,
+            )
+            .into_any_element();
         }
         let current = f
             .job

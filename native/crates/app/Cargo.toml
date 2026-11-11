@@ -79,6 +79,8 @@ ureq = { version = "~3.1", default-features = false, features = ["rustls"] }
 gtk = "0.18"
 # The launcher icon's count (Unity's LauncherEntry signal); notify-rust's zbus.
 zbus = "5"
+# Whether an X11 system tray is up (tray.rs); GPUI's own x11rb.
+x11rb = "0.13"
 # The same WebKitGTK wry uses (pinned as wry pins it): pages drawn offscreen
 # for ```html preview where child webviews can't be made (Wayland).
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }

@@ -216,6 +216,8 @@ pub struct ReviewView {
     changing: bool,
     changes: Entity<TextareaState>,
     busy: bool,
+    /// The work in flight is a merge, not a verdict.
+    merging: bool,
     error: Option<SharedString>,
     /// M was pressed once: a second press merges.
     armed: bool,
@@ -292,6 +294,7 @@ impl ReviewView {
             changing: false,
             changes,
             busy: false,
+            merging: false,
             error: None,
             armed: false,
             _sub: sub,
@@ -923,6 +926,7 @@ impl ReviewView {
         let client = self.client.clone();
         let method = self.method();
         self.busy = true;
+        self.merging = true;
         self.armed = false;
         self.error = None;
         cx.spawn(async move |this, cx| {
@@ -950,6 +954,7 @@ impl ReviewView {
             }
             this.update(cx, |this, cx| {
                 this.busy = false;
+                this.merging = false;
                 match res {
                     Ok(merged) => {
                         let base = if merged.base_branch.is_empty() {
@@ -2683,11 +2688,12 @@ impl ReviewView {
                             this.close_changes(window, cx)
                         }),
                     ))
-                    .child(controls::button(
+                    .child(controls::button_busy(
                         "changes-send",
                         t("review.changesSend"),
                         Btn::Primary,
                         self.busy,
+                        false,
                         cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.send_changes(window, cx)
                         }),
@@ -2782,7 +2788,7 @@ impl ReviewView {
         };
         // Request changes and Mark reviewed: Electron's secondary Button,
         // its icon, its label and its key.
-        let secondary = |id: &'static str, icon: &'static str| {
+        let secondary = |id: &'static str, icon: &'static str, busy: bool| {
             h_flex()
                 .id(id)
                 .flex_none()
@@ -2799,7 +2805,11 @@ impl ReviewView {
                 .cursor_pointer()
                 .hover(|s| s.bg(theme::surface_strong()))
                 .active(|s| s.bg(theme::surface_vivid()))
-                .child(crate::icons::ic(icon).size(px(14.)))
+                .child(if busy {
+                    crate::icons::spinner()
+                } else {
+                    crate::icons::ic(icon).size(px(14.)).into_any_element()
+                })
         };
         h_flex()
             .flex_wrap()
@@ -2830,7 +2840,7 @@ impl ReviewView {
                     );
                 }
                 el.child(
-                    secondary("review-changes", "message-square")
+                    secondary("review-changes", "message-square", false)
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.open_changes(window, cx)
                         }))
@@ -2838,7 +2848,7 @@ impl ReviewView {
                         .child(hint("C")),
                 )
                 .child(
-                    secondary("review-done", "check")
+                    secondary("review-done", "check", self.busy && !self.merging)
                         .when(self.busy, |el| el.opacity(0.45))
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.mark_reviewed(cx)))
                         .child(t("review.markReviewed"))
@@ -2875,6 +2885,7 @@ impl ReviewView {
                     &self.method(),
                     &self.methods(),
                     block.is_some() || self.busy,
+                    self.busy && self.merging,
                     cx.listener(|this, _: &ClickEvent, _, cx| this.merge(cx)),
                     std::rc::Rc::new(cx.listener(|this, m: &str, _, cx| {
                         merge::remember(&this.item.item.project, m);

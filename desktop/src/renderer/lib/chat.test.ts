@@ -270,9 +270,18 @@ test('timelineRows shows a message from another project\'s lead, and hides the n
 test('timelineRows says what the session waits on between turns, and not while one runs', () => {
   const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
   const waiting = { ...thread([user]), session: { background: ['Watch CI run 42'] } as T.ChatSession };
-  assert.deepEqual(timelineRows(waiting, new Set()).at(-1), { type: 'background', key: 'background', tasks: ['Watch CI run 42'] });
+  assert.deepEqual(timelineRows(waiting, new Set()).at(-1), { type: 'background', key: 'background', tasks: ['Watch CI run 42'], items: [], waiting: true });
   const running = { ...waiting, session: { ...waiting.session, turnStartedAt: '2026-01-01T00:02:00Z' } };
   assert.ok(!timelineRows(running, new Set()).some((r) => r.type === 'background'));
+});
+
+test('timelineRows lists background tasks item by item, during a turn and after they ended too', () => {
+  const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const ended = { id: 'b1', kind: 'command', title: 'Watch CI run 42', status: 'failed', startedAt: '2026-01-01T00:00:30Z', endedAt: '2026-01-01T00:01:30Z' } as T.ChatBackgroundTask;
+  const idle = { ...thread([user]), session: { backgroundTasks: [ended] } as T.ChatSession };
+  assert.deepEqual(timelineRows(idle, new Set()).at(-1), { type: 'background', key: 'background', tasks: [], items: [ended], waiting: false });
+  const running = { ...idle, session: { ...idle.session, turnStartedAt: '2026-01-01T00:02:00Z' } };
+  assert.ok(timelineRows(running, new Set()).some((r) => r.type === 'background'));
 });
 
 test('timelineRows keeps every message of a settled turn in view, folding only the work', () => {

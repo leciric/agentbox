@@ -14,6 +14,7 @@ use gpui_component::{h_flex, v_flex};
 use crate::{bench, theme};
 use agentbox_i18n::{t, tv};
 
+mod background;
 mod composer;
 pub use composer::ReviewCard;
 mod evidence;
@@ -133,8 +134,23 @@ pub(crate) fn btn(
     disabled: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    div()
+    btn_busy(id, label, primary, false, disabled, on_click)
+}
+
+/// btn_busy is `btn` with a spinner before its label while `busy` (its work
+/// is running; it is disabled then too).
+pub(crate) fn btn_busy(
+    id: &'static str,
+    label: String,
+    primary: bool,
+    busy: bool,
+    disabled: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let disabled = disabled || busy;
+    h_flex()
         .id(id)
+        .gap_1p5()
         .flex_none()
         .px_2p5()
         .py_1()
@@ -157,6 +173,7 @@ pub(crate) fn btn(
                 .hover(|s| s.opacity(0.85))
                 .on_click(on_click)
         })
+        .when(busy, |el| el.child(crate::icons::spinner()))
         .child(label)
         .into_any_element()
 }
@@ -233,6 +250,8 @@ pub struct ChatView {
     /// Pictures in the conversation, read once each (None while on the way).
     images: HashMap<String, Option<Arc<Image>>>,
     pub zoom: Option<Zoom>,
+    /// The background task opened over the chat (chat/background.rs).
+    background: Option<background::Opened>,
     /// The conversation has items before those held, and a read of them is out.
     older: bool,
     loading_older: bool,
@@ -360,6 +379,7 @@ impl ChatView {
             checkpoints: Default::default(),
             images: Default::default(),
             zoom: None,
+            background: None,
             older: false,
             loading_older: false,
             newer: false,
@@ -756,6 +776,7 @@ impl ChatView {
                             Some(ix) => {
                                 this.list.set_follow_mode(FollowMode::Normal);
                                 this.list.scroll_to_reveal_item(ix);
+                                crate::motion::flash(this.rows[ix].key.clone());
                                 this.at_end = false;
                             }
                             None => {
@@ -818,6 +839,7 @@ impl ChatView {
             self.glide += 1;
             self.list.set_follow_mode(FollowMode::Normal);
             self.list.scroll_to_reveal_item(ix);
+            crate::motion::flash(self.rows[ix].key.clone());
             self.at_end = false;
             cx.notify();
             return;
@@ -1104,48 +1126,55 @@ impl ChatView {
         } else {
             self.session.tool.as_str()
         };
+        // The slide-up lifts the inner box: `enter` makes its element relative.
         Some(
             div()
                 .absolute()
                 .top_0()
                 .left_0()
                 .right_0()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .mt_6()
-                .min_h(window.viewport_size().height * 0.42)
-                .pt_6()
-                .child(
+                .child(crate::motion::enter(
                     div()
-                        .mb_5()
-                        .size_12()
+                        .w_full()
                         .flex()
+                        .flex_col()
                         .items_center()
                         .justify_center()
-                        .rounded_2xl()
-                        .border_1()
-                        .border_color(theme::line_strong())
-                        .bg(theme::overlay())
-                        .child(crate::icons::ai_icon(tool, px(20.), theme::brand(300))),
-                )
-                .child(
-                    div()
-                        .text_size(theme::text::DISPLAY)
-                        .text_color(theme::primary())
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .mt_2()
-                        .max_w(theme::balanced_width(window, &line, px(14.), px(448.)))
-                        .text_center()
-                        .text_size(theme::text::BODY)
-                        .line_height(relative(1.625))
-                        .text_color(theme::subtle())
-                        .child(line),
-                )
+                        .mt_6()
+                        .min_h(window.viewport_size().height * 0.42)
+                        .pt_6()
+                        .child(
+                            div()
+                                .mb_5()
+                                .size_12()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_2xl()
+                                .border_1()
+                                .border_color(theme::line_strong())
+                                .bg(theme::overlay())
+                                .child(crate::icons::ai_icon(tool, px(20.), theme::brand(300))),
+                        )
+                        .child(
+                            div()
+                                .text_size(theme::text::DISPLAY)
+                                .text_color(theme::primary())
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .mt_2()
+                                .max_w(theme::balanced_width(window, &line, px(14.), px(448.)))
+                                .text_center()
+                                .text_size(theme::text::BODY)
+                                .line_height(relative(1.625))
+                                .text_color(theme::subtle())
+                                .child(line),
+                        ),
+                    "chat-hero",
+                    0,
+                ))
                 .into_any_element(),
         )
     }
@@ -1164,16 +1193,35 @@ impl ChatView {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(self.title.clone()),
             )
-            .child(
-                div()
+            .child({
+                // ChatStatus: a dot of the state's hue (pulsing while it
+                // runs), or a spinner while the tool starts.
+                let line = session_line(&self.session);
+                let state = self.session.state.as_str();
+                let dot = |color: Hsla| div().size(px(6.)).flex_none().rounded_full().bg(color);
+                h_flex()
+                    .gap_2()
+                    .min_w_0()
                     .text_xs()
                     .text_color(if working {
                         theme::starting()
                     } else {
                         theme::faint()
                     })
-                    .child(session_line(&self.session)),
-            )
+                    .when(!line.is_empty(), |el| match state {
+                        "starting" => el.child(crate::icons::spinner()),
+                        "running" => el.child(crate::motion::pulse(
+                            dot(theme::sky(400)),
+                            "chat-status-dot",
+                        )),
+                        "ready" => el.child(dot(theme::emerald(400))),
+                        "waiting" => el.child(dot(theme::amber(400))),
+                        "awaiting" => el.child(dot(theme::violet(400))),
+                        "error" => el.child(dot(theme::rose(400))),
+                        _ => el.child(dot(theme::faint())),
+                    })
+                    .child(line)
+            })
             .child(div().flex_1())
             .into_any_element()
     }
@@ -1269,6 +1317,7 @@ impl Render for ChatView {
         let view = cx.entity();
         let working = self.working();
         let zoom = self.render_zoom(window, cx);
+        let background = self.render_background(window, cx);
         let gutter = crate::app::controls::list_overflows(&self.list);
         v_flex()
             .id("chat")
@@ -1372,5 +1421,6 @@ impl Render for ChatView {
                     .child(crate::spot::spot("composer")),
             )
             .children(zoom)
+            .children(background)
     }
 }

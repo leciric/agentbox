@@ -269,6 +269,7 @@ fn cmd_icon(c: &Cmd) -> &'static str {
         "jobs" => "briefcase",
         "past-agents" => "bot",
         "shortcuts" => "keyboard",
+        "quit" => "power",
         "dnd-off" => "bell-ring",
         "dnd-on" => "bell-off",
         "report-problem" => "bug",
@@ -597,6 +598,17 @@ impl AppView {
         out.extend(
             ["report-problem", "diagnostics", "whats-new", "tour"].map(|id| action(id, None, "")),
         );
+        // Native only, so not in the shared catalogs' palette.*.
+        out.push(Cmd {
+            id: "quit".into(),
+            setting: false,
+            title: t("main.tray.quit"),
+            keywords: t("native.quit.keywords"),
+            place: String::new(),
+            needs: None,
+            keys: crate::quit::QUIT_KEYS,
+            section: String::new(),
+        });
         for s in self.palette_settings(cx) {
             out.push(Cmd {
                 id: format!("setting:{}:{}", s.section, s.id),
@@ -881,6 +893,9 @@ impl AppView {
     fn run_command(&mut self, c: Cmd, other: bool, window: &mut Window, cx: &mut Context<Self>) {
         if c.setting {
             self.close_search(window, cx);
+            if let Some(id) = c.id.splitn(3, ':').nth(2) {
+                crate::motion::flash(format!("setting:{id}"));
+            }
             return self.open_setting(c.section, c.title, window, cx);
         }
         let current = match c.needs {
@@ -1099,6 +1114,7 @@ impl AppView {
             "all-media" => self.open_foot_page(super::foot::FootPage::Media, window, cx),
             "past-agents" => self.open_work(String::new(), String::new(), window, cx),
             "settings" => self.open_settings(window, cx),
+            "quit" => crate::quit::quit(cx, "the palette's Quit"),
             "shortcuts" => {
                 self.side.dialog = Some(super::sidebar_dialogs::Dialog::Keys);
             }
@@ -2103,6 +2119,7 @@ impl AppView {
         let query = p.input.read(cx).value().to_string();
         let (only, rest) = commands_only(&query);
         let typed = !rest.is_empty();
+        let querying = p.picking.is_none() && !only && query.trim() != p.asked;
         let mut list: Vec<AnyElement> = Vec::new();
         let mut side: Option<AnyElement> = None;
         let mut current_cmd: Option<Cmd> = None;
@@ -2411,12 +2428,20 @@ impl AppView {
                                     .px_4()
                                     .border_b_1()
                                     .border_color(theme::line())
-                                    .child(
+                                    .child(if querying {
+                                        // The query is out with the daemon: the icon turns.
+                                        div()
+                                            .flex_none()
+                                            .text_color(theme::subtle())
+                                            .child(crate::icons::spinner())
+                                            .into_any_element()
+                                    } else {
                                         crate::icons::ic("search")
                                             .size_4()
                                             .flex_none()
-                                            .text_color(theme::subtle()),
-                                    )
+                                            .text_color(theme::subtle())
+                                            .into_any_element()
+                                    })
                                     .children(picking_chip)
                                     .child(
                                         div()

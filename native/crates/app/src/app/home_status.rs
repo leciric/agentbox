@@ -4,6 +4,7 @@
 //! every agent as AllAgentsPanel's dense list; and the recent jobs.
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::time::Duration;
 
 use agentbox_api::{Agent, HostUsage, Job};
 use agentbox_i18n::{t, tv};
@@ -16,6 +17,7 @@ use super::AppView;
 use super::agent_status::{self as st, St, Tone};
 use super::controls::{self, Choice};
 use super::settings::defaults::time_ago;
+use crate::character::Mood;
 use crate::files::human_bytes;
 use crate::theme;
 
@@ -25,6 +27,8 @@ use crate::theme;
 pub(super) struct HomeStatus {
     pub project: String,
     pub jobs: Vec<Job>,
+    /// Whether the jobs were fetched once (skeleton rows until then).
+    pub jobs_loaded: bool,
     pub scroll: ScrollHandle,
 }
 
@@ -50,16 +54,6 @@ fn meter_percent(used: f64, total: f64) -> Option<f32> {
 
 /// STALL is utils.ts's stallPressure.
 const STALL: f64 = 10.;
-
-/// Mood is state.tsx's useMood, for an Agent.
-#[derive(PartialEq, Clone, Copy)]
-enum Mood {
-    Working,
-    Idle,
-    Asking,
-    Sleeping,
-    Error,
-}
 
 fn mood(a: &Agent, asking: bool) -> Mood {
     let s = a.state.as_str();
@@ -91,7 +85,7 @@ fn mood(a: &Agent, asking: bool) -> Mood {
 /// avatar is LiveAgentAvatar at size-10 (state.tsx AgentAvatar): a rounded
 /// tile tinted by its mood, the tool's character in it (asleep in grey,
 /// with its z's), its state's dot at the corner.
-fn avatar(a: &Agent, asking: bool) -> AnyElement {
+fn avatar(a: &Agent, asking: bool, cx: &mut App) -> AnyElement {
     let size = 40.;
     let m = mood(a, asking);
     let border = match m {
@@ -111,16 +105,38 @@ fn avatar(a: &Agent, asking: bool) -> AnyElement {
     } else {
         theme::brand(200)
     };
-    let z = |right: f32, top: f32, s: f32| {
-        div()
+    // ab-zzz: each "z" rises 4px and drifts 2px as it fades in and out,
+    // 5 s a turn, a third of a turn apart.
+    let zref = a.r#ref.clone();
+    let z = move |i: usize, right: f32, top: f32, s: f32| {
+        let z = div()
             .absolute()
-            .right(relative(right))
-            .top(relative(top))
             .text_size(px(size * s))
             .line_height(relative(1.))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(theme::subtle())
-            .child("z")
+            .child("z");
+        crate::motion::few(
+            z,
+            SharedString::from(format!("avatar-z-{zref}-{i}")),
+            Duration::from_secs(5),
+            3,
+            i as f32 / 3.,
+            move |el, t| {
+                let el = el.right(relative(right)).top(relative(top));
+                let Some(t) = t else {
+                    return el;
+                };
+                let glide = crate::motion::ease_in_out(t);
+                el.mr(px(-2. * glide))
+                    .mt(px(1. - 4. * glide))
+                    .opacity(crate::motion::keyframes(
+                        t,
+                        &[(0., 0.), (0.35, 0.9), (0.6, 0.9), (1., 0.)],
+                        crate::motion::ease_in_out,
+                    ))
+            },
+        )
     };
     div()
         .relative()
@@ -140,17 +156,22 @@ fn avatar(a: &Agent, asking: bool) -> AnyElement {
         .child(
             div()
                 .when(sleeping, |el| el.opacity(0.45))
-                .child(crate::icons::tool_mark_grey(
+                .child(crate::character::character(
+                    SharedString::from(format!("avatar-char-{}", a.r#ref)),
                     &a.ai,
-                    px((size * 0.58).round()),
+                    m,
+                    &a.r#ref,
+                    (size * 0.58).round(),
                     color,
                     sleeping,
+                    true,
+                    cx,
                 )),
         )
         .when(sleeping, |el| {
-            el.child(z(0.16, 0.30, 0.14))
-                .child(z(0.09, 0.17, 0.16))
-                .child(z(0.02, 0.04, 0.19))
+            el.child(z(0, 0.16, 0.30, 0.14))
+                .child(z(1, 0.09, 0.17, 0.16))
+                .child(z(2, 0.02, 0.04, 0.19))
         })
         .child(
             div()
@@ -319,7 +340,21 @@ fn pill(text: String, tone: Tone) -> AnyElement {
         .line_height(px(16.))
         .font_weight(FontWeight::MEDIUM)
         .text_color(theme::secondary())
-        .child(div().flex_none().size(px(6.)).rounded_full().bg(dot))
+        .child(if matches!(tone, Tone::Urgent | Tone::Live) {
+            // animate-pulse on the dots that ask for a look.
+            crate::motion::pulse_soft(
+                div().flex_none().size(px(6.)).rounded_full().bg(dot),
+                SharedString::from(format!("pill-dot-{text}")),
+            )
+            .into_any_element()
+        } else {
+            div()
+                .flex_none()
+                .size(px(6.))
+                .rounded_full()
+                .bg(dot)
+                .into_any_element()
+        })
         .child(text)
         .into_any_element()
 }
@@ -393,7 +428,7 @@ impl AppView {
             .flex_wrap()
             .items_center()
             .gap_4()
-            .child(
+            .child(if self.side.agents_loaded {
                 div()
                     .text_size(theme::text::BODY)
                     .line_height(px(20.))
@@ -405,8 +440,15 @@ impl AppView {
                             ("total", all.len().into()),
                             ("projects", self.projects.len().into()),
                         ],
-                    )),
-            )
+                    ))
+            } else {
+                // The count waits for the first list of agents.
+                div().mt_2().child(crate::motion::skeleton(
+                    "home-summary-skel",
+                    px(256.),
+                    px(14.),
+                ))
+            })
             .child(
                 h_flex()
                     .ml_auto()
@@ -655,6 +697,78 @@ impl AppView {
                     x.to_lowercase().cmp(&y.to_lowercase())
                 })
         });
+        if !self.side.agents_loaded {
+            // AgentFleetRowSkeleton: each row's height and columns.
+            let lg = controls::viewport().width >= px(1024.);
+            let md = controls::viewport().width >= px(768.);
+            let name_w = px(if lg {
+                160.
+            } else if md {
+                128.
+            } else {
+                96.
+            });
+            let bar =
+                |id: String, w: f32, h: f32| crate::motion::skeleton(id, gpui::relative(w), px(h));
+            return panel()
+                .overflow_hidden()
+                .children(
+                    [0.75_f32, 0.5, 0.667, 0.4]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, w)| {
+                            h_flex()
+                                .items_center()
+                                .gap_3()
+                                .py_2()
+                                .pl_4()
+                                .pr_3()
+                                .when(i > 0, |el| {
+                                    el.border_t_1().border_color(theme::line_faint())
+                                })
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .size_10()
+                                        .rounded_xl()
+                                        .overflow_hidden()
+                                        .child(bar(format!("fleet-skel-{i}-a"), 1., 40.)),
+                                )
+                                .when(controls::viewport().width >= px(640.), |el| {
+                                    el.child(div().w(name_w).flex_none().child(bar(
+                                        format!("fleet-skel-{i}-n"),
+                                        0.75,
+                                        12.,
+                                    )))
+                                })
+                                .child(div().min_w_0().flex_1().child(bar(
+                                    format!("fleet-skel-{i}-b"),
+                                    w,
+                                    14.,
+                                )))
+                                .child(div().w(px(if lg { 176. } else { 124. })).flex_none().child(
+                                    crate::motion::skeleton(
+                                        format!("fleet-skel-{i}-s"),
+                                        px(80.),
+                                        px(12.),
+                                    ),
+                                ))
+                                .when(md, |el| {
+                                    el.child(div().w(px(200.)).flex_none().child(
+                                        crate::motion::skeleton(
+                                            format!("fleet-skel-{i}-c"),
+                                            px(128.),
+                                            px(12.),
+                                        ),
+                                    ))
+                                })
+                                .when(controls::viewport().width >= px(640.), |el| {
+                                    el.child(div().w_4().flex_none())
+                                })
+                        }),
+                )
+                .into_any_element();
+        }
         if all.is_empty() {
             return panel()
                 .flex()
@@ -736,7 +850,7 @@ impl AppView {
                     this.select_project(proj.clone(), window, cx);
                     this.open_chat(name.clone(), window, cx)
                 }))
-                .child(avatar(a, asking.contains(&a.r#ref)))
+                .child(avatar(a, asking.contains(&a.r#ref), cx))
                 .when(by_project, |el| {
                     el.child(
                         h_flex()
@@ -816,7 +930,14 @@ impl AppView {
                                         .text_color(theme::subtle()),
                                     _ => el.text_color(theme::subtle()),
                                 })
-                                .child(status),
+                                .child(if tone == Tone::Live {
+                                    crate::motion::shine(
+                                        status.clone(),
+                                        SharedString::from(format!("fleet-shine-{}", a.r#ref)),
+                                    )
+                                } else {
+                                    status.clone().into_any_element()
+                                }),
                         ),
                 )
                 .child(
@@ -870,7 +991,33 @@ impl AppView {
                             .child(time_ago(&j.created_at)),
                     )
             }))
-            .when(jobs.is_empty(), |el| {
+            .when(!self.home_status.jobs_loaded, |el| {
+                // Three placeholder rows until the first answer.
+                el.children([160_f32, 112., 144.].into_iter().enumerate().map(|(i, w)| {
+                    h_flex()
+                        .items_center()
+                        .gap_3()
+                        .px_4()
+                        .py_3()
+                        .when(i > 0, |el| {
+                            el.border_t_1().border_color(theme::line_faint())
+                        })
+                        .child(div().flex_none().rounded_full().overflow_hidden().child(
+                            crate::motion::skeleton(format!("jobs-skel-{i}-a"), px(64.), px(16.)),
+                        ))
+                        .child(crate::motion::skeleton(
+                            format!("jobs-skel-{i}-b"),
+                            px(w),
+                            px(12.),
+                        ))
+                        .child(div().ml_auto().child(crate::motion::skeleton(
+                            format!("jobs-skel-{i}-c"),
+                            px(48.),
+                            px(12.),
+                        )))
+                }))
+            })
+            .when(self.home_status.jobs_loaded && jobs.is_empty(), |el| {
                 el.child(
                     div()
                         .px_4()

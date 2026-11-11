@@ -322,3 +322,144 @@ pub fn search(items: &[ChatItem], q: &str) -> ChatSearch {
         more: false,
     }
 }
+
+/// started is when this fake daemon first made a chat: what its background
+/// tasks' times and the watch's growing output count from.
+pub fn started() -> SystemTime {
+    static AT: std::sync::OnceLock<SystemTime> = std::sync::OnceLock::new();
+    *AT.get_or_init(SystemTime::now)
+}
+
+/// background_tasks is what a fake agent's session has in the background
+/// (ChatSession.backgroundTasks): a build that failed, a CI watch whose
+/// output grows, a monitor, and a subagent, whose chip goes to its card.
+pub fn background_tasks(since: SystemTime, subagent: Option<&str>) -> Vec<ChatBackgroundTask> {
+    let ago = |s: u64| at(since - Duration::from_secs(s));
+    let mut tasks = vec![
+        ChatBackgroundTask {
+            id: "b0".into(),
+            kind: "command".into(),
+            title: "Build the release bundle".into(),
+            command: "npm --prefix desktop run dist -- --linux".into(),
+            status: "failed".into(),
+            exit_code: Some(2),
+            started_at: ago(85),
+            ended_at: Some(ago(64)),
+            summary: "Background command \"Build the release bundle\" failed with exit code 2"
+                .into(),
+            has_output: true,
+            ..Default::default()
+        },
+        ChatBackgroundTask {
+            id: "b1".into(),
+            kind: "command".into(),
+            title: "Watch CI run 42".into(),
+            command: "gh run watch 42 --exit-status --interval 30".into(),
+            status: "running".into(),
+            started_at: ago(62),
+            has_output: true,
+            ..Default::default()
+        },
+        ChatBackgroundTask {
+            id: "m1".into(),
+            kind: "monitor".into(),
+            title: "Errors in the deploy log".into(),
+            status: "running".into(),
+            started_at: ago(61),
+            summary: "2 events so far".into(),
+            ..Default::default()
+        },
+    ];
+    if let Some(item) = subagent {
+        tasks.push(ChatBackgroundTask {
+            id: format!("subagent-{item}"),
+            kind: "subagent".into(),
+            title: "Explore".into(),
+            command: "Find where the chat's events are sent".into(),
+            status: "done".into(),
+            started_at: ago(70),
+            ended_at: Some(ago(66)),
+            item: item.into(),
+            ..Default::default()
+        });
+    }
+    tasks
+}
+
+/// background_detail is one of them with a piece of its output, as GET
+/// …/chat/background/{task} answers: its last 64 KiB, or the 64 KiB ending
+/// at before. The watch prints a line every two seconds.
+pub fn background_detail(
+    tasks: &[ChatBackgroundTask],
+    id: &str,
+    before: usize,
+    since: SystemTime,
+    now: SystemTime,
+) -> Option<ChatBackgroundDetail> {
+    let task = tasks.iter().find(|t| t.id == id)?.clone();
+    let text = match id {
+        "b0" => {
+            let mut s: String = (1..=1400)
+                .map(|i| {
+                    format!("  • packaging  file={i:04}.asar.unpacked platform=linux arch=x64\n")
+                })
+                .collect();
+            s.push_str("  ⨯ cannot execute  cause=exit status 2\n    errorOut=fpm: no such file or directory: build/icons/512x512.png\n");
+            s
+        }
+        "b1" => {
+            let jobs = [
+                "title",
+                "changes",
+                "go test",
+                "go vet",
+                "golangci-lint",
+                "desktop lint",
+                "desktop typecheck",
+                "desktop test",
+                "desktop build",
+                "native build",
+                "native test",
+            ];
+            let n = now.duration_since(since).unwrap_or_default().as_secs() as usize / 2 + 3;
+            let mut s = String::from(
+                "Refreshing run status every 30 seconds. Press Ctrl+C to quit.\n\n* agentbox/release CI · 42\nTriggered via push about 1 minute ago\n\nJOBS\n",
+            );
+            for i in 0..n {
+                let name = jobs[i % jobs.len()];
+                let round = if i >= jobs.len() {
+                    format!(" ({})", i / jobs.len() + 1)
+                } else {
+                    String::new()
+                };
+                if i + 1 < n {
+                    s.push_str(&format!("✓ {name}{round} in {}s\n", 20 + (i * 7) % 40));
+                } else {
+                    s.push_str(&format!("* {name}{round} (running)\n"));
+                }
+            }
+            s
+        }
+        _ => String::new(),
+    };
+    let end = if before > 0 && before < text.len() {
+        before
+    } else {
+        text.len()
+    };
+    let mut start = end.saturating_sub(64 * 1024);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    let mut end = end;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    Some(ChatBackgroundDetail {
+        task,
+        output: text[start..end].to_string(),
+        output_start: start as i64,
+        output_size: text.len() as i64,
+        ..Default::default()
+    })
+}

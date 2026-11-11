@@ -178,6 +178,7 @@ impl AppView {
                 m.host = usage.map(|u| u.host);
                 if let Some(j) = jobs {
                     this.home_status.jobs = j;
+                    this.home_status.jobs_loaded = true;
                 }
                 let m = &mut this.meters;
                 if let Some(a) = agents {
@@ -779,7 +780,20 @@ impl AppView {
             .active(|s| s.bg(theme::surface_vivid()))
             .cursor_pointer()
             .text_xs()
-            .child(div().size(px(6.)).rounded_full().bg(color))
+            .child(if kind == "starting" {
+                // Electron's busy tone is a turning loader.
+                div()
+                    .flex_none()
+                    .text_color(color)
+                    .child(crate::icons::spinner())
+                    .into_any_element()
+            } else {
+                div()
+                    .size(px(6.))
+                    .rounded_full()
+                    .bg(color)
+                    .into_any_element()
+            })
             // All well, the dot says so; the words wait for a wide window.
             .when(kind != "running" || self.widths.window >= 1536., |el| {
                 el.child(div().text_color(theme::muted()).child(sentence.clone()))

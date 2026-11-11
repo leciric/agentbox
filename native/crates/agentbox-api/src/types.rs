@@ -4555,6 +4555,12 @@ pub struct ChatSession {
     pub no_images: bool,
     #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
     pub background: Vec<String>,
+    #[serde(
+        rename = "backgroundTasks",
+        deserialize_with = "nullable",
+        skip_serializing_if = "is_empty"
+    )]
+    pub background_tasks: Vec<ChatBackgroundTask>,
     #[serde(rename = "toolsChanged", skip_serializing_if = "is_empty")]
     pub tools_changed: bool,
     #[serde(rename = "noResume", skip_serializing_if = "is_empty")]
@@ -4678,6 +4684,42 @@ pub struct ChatTool {
     pub diffs: Vec<ChatDiff>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<ChatPage>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChatBackgroundTask {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub command: String,
+    pub status: String,
+    #[serde(rename = "exitCode", skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    #[serde(rename = "startedAt")]
+    pub started_at: String,
+    #[serde(rename = "endedAt", skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub summary: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub item: String,
+    #[serde(rename = "hasOutput", skip_serializing_if = "is_empty")]
+    pub has_output: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChatBackgroundDetail {
+    pub task: ChatBackgroundTask,
+    pub output: String,
+    #[serde(rename = "outputStart")]
+    pub output_start: i64,
+    #[serde(rename = "outputSize")]
+    pub output_size: i64,
+    #[serde(rename = "outputError", skip_serializing_if = "is_empty")]
+    pub output_error: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

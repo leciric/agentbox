@@ -162,6 +162,17 @@ impl AppView {
                                 .ok();
                             }),
                     )
+                    // The app's own way out, whatever the close button
+                    // does (alerts.rs, on_close) and wherever the tray is.
+                    .separator()
+                    .item(
+                        PopupMenuItem::new(tv(
+                            "native.quit.item",
+                            &[("keys", crate::quit::QUIT_KEYS.into())],
+                        ))
+                        .icon(crate::icons::ic("power"))
+                        .on_click(|_, _, cx| crate::quit::quit(cx, "the help menu's Quit")),
+                    )
             });
         let app_version = crate::update::app_version();
         let nightly = crate::nightly::is_nightly(self.conn.version.as_deref())

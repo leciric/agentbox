@@ -28,6 +28,7 @@ use super::agent_status::{self as st, Action, Tone};
 use super::controls::{self, Btn};
 use super::panel::PView;
 use super::settings::defaults::time_ago;
+use crate::character::Mood;
 use crate::theme;
 use crate::toasts::{self, Kind, Toast};
 
@@ -1176,7 +1177,7 @@ impl AppView {
                 .gap_x_3()
                 .px_6()
                 .py(px(10.))
-                .child(avatar(&a, asking, 40.))
+                .child(avatar(&a, asking, 40., cx))
                 .child(
                     h_flex()
                         .min_w_0()
@@ -1671,12 +1672,12 @@ impl AppView {
                             ),
                     )
                     .child(div().flex_1())
-                    .child(controls::button(
+                    .child(controls::button_busy(
                         "snapshot-take",
                         t("agent.snapshots.take"),
                         Btn::Primary,
-                        self.agent.busy
-                            || matches!(a.state.as_str(), "incomplete" | "initializing"),
+                        self.agent.busy,
+                        matches!(a.state.as_str(), "incomplete" | "initializing"),
                         cx.listener(|this, _: &ClickEvent, _, cx| this.take_snapshot(cx)),
                     )),
             );
@@ -2200,6 +2201,35 @@ pub fn modal(
     disabled: bool,
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
+    modal_busy(
+        id,
+        title,
+        description,
+        body,
+        on_cancel,
+        confirm,
+        destructive,
+        disabled,
+        false,
+        on_confirm,
+    )
+}
+
+/// modal_busy is `modal` whose confirm button shows a spinner while `busy`
+/// (its work is running; it is disabled then too).
+#[allow(clippy::too_many_arguments)]
+pub fn modal_busy(
+    id: &'static str,
+    title: String,
+    description: Option<String>,
+    body: Vec<AnyElement>,
+    on_cancel: OnCancel,
+    confirm: String,
+    destructive: bool,
+    disabled: bool,
+    busy: bool,
+    on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     let backdrop = on_cancel.clone();
     MODAL_CANCEL.with(|k| *k.borrow_mut() = Some(on_cancel.clone()));
     // Just opened, and a plain question: the focus goes to the answer that
@@ -2266,34 +2296,39 @@ pub fn modal(
                                 focus.as_ref().map(|f| &f.cancel),
                                 move |_, w, cx| on_cancel(w, cx),
                             ))
-                            .child(controls::button_at(
-                                SharedString::from(format!("{id}-confirm")),
-                                confirm,
-                                if destructive {
-                                    Btn::Danger
-                                } else {
-                                    Btn::Primary
-                                },
-                                disabled,
-                                focus.as_ref().map(|f| &f.confirm),
-                                on_confirm,
-                            )),
+                            .child(if busy {
+                                controls::button_busy(
+                                    SharedString::from(format!("{id}-confirm")),
+                                    confirm,
+                                    if destructive {
+                                        Btn::Danger
+                                    } else {
+                                        Btn::Primary
+                                    },
+                                    true,
+                                    disabled,
+                                    on_confirm,
+                                )
+                            } else {
+                                controls::button_at(
+                                    SharedString::from(format!("{id}-confirm")),
+                                    confirm,
+                                    if destructive {
+                                        Btn::Danger
+                                    } else {
+                                        Btn::Primary
+                                    },
+                                    disabled,
+                                    focus.as_ref().map(|f| &f.confirm),
+                                    on_confirm,
+                                )
+                            }),
                     ),
                 "dialog-card-in",
             )),
         "dialog-backdrop-in",
     )
     .into_any_element()
-}
-
-/// Mood is how an agent's avatar looks (lib/agentStatus.ts avatarMood).
-#[derive(Clone, Copy, PartialEq)]
-enum Mood {
-    Working,
-    Idle,
-    Asking,
-    Sleeping,
-    Error,
 }
 
 fn mood(a: &FleetAgent, asking: bool) -> Mood {
@@ -2326,7 +2361,7 @@ fn mood(a: &FleetAgent, asking: bool) -> Mood {
 /// avatar is LiveAgentAvatar (components/state.tsx AgentAvatar): a rounded
 /// tile tinted by its mood, the tool's character at rest in it (asleep in
 /// grey, with its z's), its state's dot at the corner.
-fn avatar(a: &FleetAgent, asking: bool, size: f32) -> AnyElement {
+fn avatar(a: &FleetAgent, asking: bool, size: f32, cx: &mut App) -> AnyElement {
     let m = mood(a, asking);
     let border = match m {
         Mood::Asking => theme::amber(400).opacity(0.45),
@@ -2347,16 +2382,38 @@ fn avatar(a: &FleetAgent, asking: bool, size: f32) -> AnyElement {
     } else {
         theme::brand(200)
     };
-    let z = |right: f32, top: f32, s: f32| {
-        div()
+    // ab-zzz: each "z" rises 4px and drifts 2px as it fades in and out,
+    // 5 s a turn, a third of a turn apart.
+    let zref = a.r#ref.clone();
+    let z = move |i: usize, right: f32, top: f32, s: f32| {
+        let z = div()
             .absolute()
-            .right(relative(right))
-            .top(relative(top))
             .text_size(px(size * s))
             .line_height(relative(1.))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(theme::subtle())
-            .child("z")
+            .child("z");
+        crate::motion::few(
+            z,
+            SharedString::from(format!("head-z-{zref}-{i}")),
+            Duration::from_secs(5),
+            3,
+            i as f32 / 3.,
+            move |el, t| {
+                let el = el.right(relative(right)).top(relative(top));
+                let Some(t) = t else {
+                    return el;
+                };
+                let glide = crate::motion::ease_in_out(t);
+                el.mr(px(-2. * glide))
+                    .mt(px(1. - 4. * glide))
+                    .opacity(crate::motion::keyframes(
+                        t,
+                        &[(0., 0.), (0.35, 0.9), (0.6, 0.9), (1., 0.)],
+                        crate::motion::ease_in_out,
+                    ))
+            },
+        )
     };
     div()
         .relative()
@@ -2376,17 +2433,22 @@ fn avatar(a: &FleetAgent, asking: bool, size: f32) -> AnyElement {
         .child(
             div()
                 .when(sleeping, |el| el.opacity(0.45))
-                .child(crate::icons::tool_mark_grey(
+                .child(crate::character::character(
+                    SharedString::from(format!("head-char-{}", a.r#ref)),
                     &a.ai,
-                    px((size * 0.58).round()),
+                    m,
+                    &a.r#ref,
+                    (size * 0.58).round(),
                     color,
                     sleeping,
+                    true,
+                    cx,
                 )),
         )
         .when(sleeping, |el| {
-            el.child(z(0.16, 0.30, 0.14))
-                .child(z(0.09, 0.17, 0.16))
-                .child(z(0.02, 0.04, 0.19))
+            el.child(z(0, 0.16, 0.30, 0.14))
+                .child(z(1, 0.09, 0.17, 0.16))
+                .child(z(2, 0.02, 0.04, 0.19))
         })
         .child(
             div()

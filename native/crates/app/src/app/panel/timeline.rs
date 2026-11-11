@@ -750,7 +750,10 @@ impl AppView {
                                 .pl(px(6.))
                                 .text_size(px(12.))
                                 .text_color(theme::subtle())
-                                .child(div().size_2().rounded_full().bg(theme::emerald(400)))
+                                .child(crate::motion::pulse(
+                                    div().size_2().rounded_full().bg(theme::emerald(400)),
+                                    "timeline-working-dot",
+                                ))
                                 .child(t("timeline.working")),
                         )
                     }),

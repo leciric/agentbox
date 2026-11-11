@@ -151,6 +151,10 @@ pub fn tray_keep_running() -> bool {
     get_bool(TRAY_KEEP_RUNNING, false)
 }
 
+/// TRAY_KEEP_RUNNING_TOLD is whether the user was told, the first time
+/// closing the window left the app running, that it did (alerts.rs).
+pub const TRAY_KEEP_RUNNING_TOLD: &str = "trayKeepRunningTold";
+
 /// WINDOW is the window's place and size and whether it was maximised
 /// (Electron's window.json): {x, y, width, height, maximized}.
 pub const WINDOW: &str = "window";

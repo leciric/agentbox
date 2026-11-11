@@ -752,6 +752,9 @@ impl AppView {
                             "settings.tray.description",
                             "settings.entry.tray.keywords",
                         )
+                        // On the page Settings opens on: what the close
+                        // button does shouldn't take a search to find.
+                        .essential()
                         .modified(prefs::tray_keep_running()),
                     ],
                 ),
@@ -1503,19 +1506,27 @@ impl AppView {
                 .id(SharedString::from(format!("settings-group-{}", g.id)))
                 .gap_2p5()
                 .children(heading)
-                .children(g.entries.iter().map(|e| self.render_card(e, cx)))
+                .children(g.entries.iter().map(|e| {
+                    crate::motion::revealed(
+                        div().child(self.render_card(e, cx)),
+                        &format!("setting:{}", e.id),
+                        crate::motion::Reveal::Setting,
+                    )
+                }))
                 .into_any_element();
         }
         let mut rows = Vec::new();
         for (i, e) in g.entries.iter().enumerate() {
-            rows.push(
+            // The setting a search opened this section at is lit for a moment.
+            rows.push(crate::motion::revealed(
                 div()
                     .when(i > 0, |el| {
                         el.border_t_1().border_color(theme::line_faint())
                     })
-                    .child(self.render_entry(e, cx))
-                    .into_any_element(),
-            );
+                    .child(self.render_entry(e, cx)),
+                &format!("setting:{}", e.id),
+                crate::motion::Reveal::Setting,
+            ));
         }
         v_flex()
             .id(SharedString::from(format!("settings-group-{}", g.id)))
@@ -2021,11 +2032,39 @@ impl AppView {
             "tray" => {
                 let on = prefs::tray_keep_running();
                 let mut row = self.more_row(e, None, cx);
+                row.description = tv(
+                    "native.tray.description",
+                    &[("keys", crate::quit::QUIT_KEYS.into())],
+                );
+                // Why the switch does nothing here, when it doesn't
+                // (alerts.rs, on_close).
+                let unmet = if !self.tray_shown() {
+                    Some("native.tray.noIcon")
+                } else if !super::topbar::can_minimize() {
+                    Some("native.tray.noMinimize")
+                } else {
+                    None
+                };
+                if let Some(key) = unmet {
+                    row.body.push(
+                        div()
+                            .id("tray-unmet")
+                            .text_size(theme::text::CAPTION)
+                            .line_height(px(18.))
+                            .text_color(theme::amber(300))
+                            .child(t(key))
+                            .into_any_element(),
+                    );
+                }
                 row.control = Some(toggle(
                     "switch-tray",
                     on,
                     false,
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        crate::quit::log(format_args!(
+                            "agentbox-native: keep running in the tray set to {} in Settings",
+                            !on
+                        ));
                         prefs::set_bool(prefs::TRAY_KEEP_RUNNING, !on);
                         this.tray_changed();
                         cx.notify();

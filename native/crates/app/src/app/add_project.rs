@@ -675,6 +675,7 @@ impl AppView {
             cancel,
             label,
             empty || pending,
+            pending,
             cx.listener(|this, _: &ClickEvent, _, cx| this.submit_add_project(cx)),
         )
     }
@@ -983,6 +984,7 @@ pub(super) fn form_modal(
     on_cancel: OnCancel,
     confirm: String,
     disabled: bool,
+    busy: bool,
     on_confirm: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let backdrop = on_cancel.clone();
@@ -1066,14 +1068,26 @@ pub(super) fn form_modal(
                                 focus.as_ref().map(|f| &f.0),
                                 move |_, w, cx| on_cancel(w, cx),
                             ))
-                            .child(controls::button_at(
-                                SharedString::from(format!("{id}-confirm")),
-                                confirm,
-                                Btn::Primary,
-                                disabled,
-                                focus.as_ref().map(|f| &f.1),
-                                on_confirm,
-                            )),
+                            .child(if busy {
+                                // Busy is disabled, so it needs no focus: a spinner before the label.
+                                controls::button_busy(
+                                    SharedString::from(format!("{id}-confirm")),
+                                    confirm,
+                                    Btn::Primary,
+                                    true,
+                                    disabled,
+                                    on_confirm,
+                                )
+                            } else {
+                                controls::button_at(
+                                    SharedString::from(format!("{id}-confirm")),
+                                    confirm,
+                                    Btn::Primary,
+                                    disabled,
+                                    focus.as_ref().map(|f| &f.1),
+                                    on_confirm,
+                                )
+                            }),
                     ),
                 "add-project-in",
             )),

@@ -1346,11 +1346,13 @@ impl AppView {
         let applied = self.applied(number);
         let shown = self.picker_matches(cx);
         let body = match &self.pulls.labels {
-            None => div()
+            None => h_flex()
                 .px_2()
                 .py_2()
+                .gap_1p5()
                 .text_size(theme::text::CAPTION)
                 .text_color(theme::subtle())
+                .child(crate::icons::spinner())
                 .child(t("memory.pulls.labels.loading"))
                 .into_any_element(),
             Some(Err(e)) => div()
@@ -1998,15 +2000,12 @@ impl AppView {
                                         .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                             cx.stop_propagation()
                                         })
-                                        .child(controls::button(
+                                        .child(controls::button_busy(
                                             SharedString::from(format!("pull-merge-{number}")),
-                                            if running {
-                                                format!("… {}", t("memory.pulls.merge"))
-                                            } else {
-                                                t("memory.pulls.merge")
-                                            },
+                                            t("memory.pulls.merge"),
                                             Btn::Secondary,
-                                            running || blocked.is_some(),
+                                            running,
+                                            blocked.is_some(),
                                             cx.listener(move |this, _: &ClickEvent, _, cx| {
                                                 cx.stop_propagation();
                                                 this.request_merge(number, cx)
@@ -2438,15 +2437,12 @@ impl AppView {
             ))
             .when(offer, |el| {
                 el.when_some(blocked.clone(), |el, b| el.child(merge_blocked(b)))
-                    .child(controls::button(
+                    .child(controls::button_busy(
                         "pull-detail-merge",
-                        if running {
-                            format!("… {}", t("memory.pulls.merge"))
-                        } else {
-                            t("memory.pulls.merge")
-                        },
+                        t("memory.pulls.merge"),
                         Btn::Primary,
-                        running || blocked.is_some(),
+                        running,
+                        blocked.is_some(),
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.request_merge(number, cx)
                         }),

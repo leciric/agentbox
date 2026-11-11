@@ -1038,7 +1038,11 @@ impl AppView {
                             .items_center()
                             .justify_center()
                             .text_color(theme::muted())
-                            .child(crate::icons::of(if starting { "…" } else { "▯" })),
+                            .child(if starting {
+                                crate::icons::spinner()
+                            } else {
+                                crate::icons::of("▯")
+                            }),
                     );
                 if !running {
                     col = col.child(div().text_sm().text_color(theme::muted()).child(tv(
@@ -1112,7 +1116,7 @@ impl AppView {
                     .items_center()
                     .justify_center()
                     .p_6()
-                    .child(col)
+                    .child(crate::motion::enter(col, "android-off-card", 0))
                     .into_any_element()
             };
         let gpu = status.as_ref().map(|s| (s.gpu, s.gpu_problem.clone()));
@@ -1206,7 +1210,12 @@ impl AppView {
             .justify_center()
             .text_sm()
             .text_color(theme::muted())
-            .child(t("agent.browser.connecting"))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(crate::icons::spinner())
+                    .child(t("agent.browser.connecting")),
+            )
             .into_any_element()
     }
 
@@ -1332,7 +1341,13 @@ impl AppView {
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_pick(cx)))
             })
             .tooltip(move |w, cx| Tooltip::new(tip.clone()).build(w, cx))
-            .child(crate::icons::of("⬚"))
+            .child(if picking {
+                // The icon breathes while it waits for a click.
+                crate::motion::pulse_soft(div().child(crate::icons::of("⬚")), "desktop-pick-icon")
+                    .into_any_element()
+            } else {
+                crate::icons::of("⬚").into_any_element()
+            })
             .into_any_element()
     }
 }

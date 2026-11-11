@@ -1654,7 +1654,15 @@ impl OfficeView {
                                 h_flex()
                                     .gap_1p5()
                                     .items_center()
-                                    .child(dot(0xf59e0b))
+                                    .child(if needs > 0 {
+                                        crate::motion::pulse_soft(
+                                            dot(0xf59e0b),
+                                            "office-tray-needs",
+                                        )
+                                        .into_any_element()
+                                    } else {
+                                        dot(0xf59e0b).into_any_element()
+                                    })
                                     .child(
                                         div()
                                             .font_weight(FontWeight::SEMIBOLD)
@@ -1840,7 +1848,14 @@ impl OfficeView {
                     .gap_2()
                     .text_xs()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(div().size_2().rounded_full().bg(tone_color(d.tone)))
+                    .child({
+                        let dot = div().size_2().rounded_full().bg(tone_color(d.tone));
+                        if d.tone == DeskTone::Needs {
+                            crate::motion::pulse_soft(dot, "office-desk-dot").into_any_element()
+                        } else {
+                            dot.into_any_element()
+                        }
+                    })
                     .child(
                         div()
                             .text_color(theme::muted())

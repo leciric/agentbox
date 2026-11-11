@@ -62,7 +62,7 @@ fn blocks(id: &str, text: &str) -> AnyElement {
             .text_color(theme::primary());
             let block = div().w_full().min_w_0().child(view);
             if k == last {
-                motion::enter(block, SharedString::from(format!("block-in-{id}-{k}")), 0)
+                motion::stream_in(block, SharedString::from(format!("block-in-{id}-{k}")))
                     .into_any_element()
             } else {
                 block.into_any_element()

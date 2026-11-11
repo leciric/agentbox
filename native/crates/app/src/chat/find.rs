@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use agentbox_api::{ChatSearch, ChatSearchHit};
 use agentbox_i18n::{t, tv};
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::h_flex;
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -140,6 +141,9 @@ impl ChatView {
                 ],
             )
         };
+        // A question is out and nothing is shown yet.
+        let typed = f.input.read(cx).value().trim().to_string();
+        let searching = !typed.is_empty() && typed != f.searched && f.hits.is_empty();
         let snippet: Option<String> = f
             .hits
             .get(f.ix)
@@ -180,10 +184,12 @@ impl ChatView {
                         .child(Input::new(&f.input).small()),
                 )
                 .child(
-                    div()
+                    h_flex()
                         .flex_none()
+                        .gap_1()
                         .text_xs()
                         .text_color(theme::faint())
+                        .when(searching, |el| el.child(crate::icons::spinner()))
                         .child(count),
                 )
                 .child(arrow("find-older", "↑", t("chat.find.older"), true))

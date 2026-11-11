@@ -10,6 +10,8 @@
 //!
 //! FAKE_RELEASE=<release.json> (an api::UpdateRelease) answers GET /v1/update/release
 //! and makes GET /v1/update offer it, for testing the app's update in place;
+//! FAKE_MOODS=1 holds the agents in one of every state their cards' monitors act out
+//! (working, asking, failed, ready, stopped), on each tool that has a character.
 //! FAKE_IDLE=1 leaves no job running, which the update would wait for.
 //! FAKE_UPDATE_DELAY=<seconds> holds GET /v1/update/release that long (the app's checking state).
 use std::collections::HashMap;
@@ -193,6 +195,11 @@ fn still() -> bool {
     std::env::var_os("FAKE_STILL").is_some()
 }
 
+/// moods says FAKE_MOODS is set: the agents hold one of every state.
+fn moods() -> bool {
+    std::env::var_os("FAKE_MOODS").is_some()
+}
+
 fn now() -> String {
     humantime::format_rfc3339_millis(crate::clock()).to_string()
 }
@@ -360,6 +367,24 @@ impl Fake {
                     }
                 };
                 agents::fleet_extras(&mut a, &opts.worktree, i);
+                // FAKE_MOODS: one agent in each state a card's monitor acts
+                // out, on each tool with a character, and nothing churning.
+                if moods() {
+                    a.ai = ["claude", "codex", "opencode"][i % 3].into();
+                    a.state = "running".into();
+                    a.outcome = String::new();
+                    a.chat = match i % 5 {
+                        0 | 1 => "running",
+                        2 => "waiting",
+                        3 => "error",
+                        _ => "ready",
+                    }
+                    .into();
+                    if i % 5 == 4 && i % 2 == 1 {
+                        a.state = "stopped".into();
+                        a.chat = String::new();
+                    }
+                }
                 a
             })
             .collect();
@@ -521,6 +546,13 @@ impl Fake {
                 ..Default::default()
             });
             items.extend(working_items());
+            // What it left in the background, the subagent's chip going to
+            // the last subagent card there is.
+            let card = items
+                .iter()
+                .rev()
+                .find(|i| i.kind == "subagent" && i.parent.is_empty())
+                .map(|i| i.id.clone());
             (
                 0,
                 ChatSession {
@@ -529,6 +561,8 @@ impl Fake {
                     options: chat_options(),
                     context_used: 84_200,
                     context_size: 200_000,
+                    background: vec!["Errors in the deploy log".into(), "Watch CI run 42".into()],
+                    background_tasks: chat::background_tasks(chat::started(), card.as_deref()),
                     ..Default::default()
                 },
                 items,
@@ -660,7 +694,7 @@ impl Fake {
                 }
                 let len = fleet.len();
                 // The first two keep still, for showing their actions.
-                if len < 3 {
+                if len < 3 || moods() {
                     continue;
                 }
                 let a = &mut fleet[2 + (n * 7) % (len - 2)];
@@ -1626,6 +1660,21 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
                     ..Default::default()
                 },
             )
+        }
+        (&Method::GET, ["v1", "agents", p, a, "chat", "background", id]) if fake.is_fake(p) => {
+            let before = req
+                .uri()
+                .query()
+                .unwrap_or("")
+                .split('&')
+                .find_map(|kv| kv.strip_prefix("before="))
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+            let tasks = fake.thread(&format!("{p}/{a}")).session.background_tasks;
+            match chat::background_detail(&tasks, id, before, chat::started(), std::time::SystemTime::now()) {
+                Some(d) => json(StatusCode::OK, &d),
+                None => not_found(req.uri().path()),
+            }
         }
         (&Method::GET, ["v1", "agents", p, a, "chat"]) if fake.is_fake(p) => {
             // A page, as internal/daemon/chat.go reads one: limit= items

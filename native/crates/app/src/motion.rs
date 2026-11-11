@@ -12,6 +12,11 @@
 //!   something is actually happening, and at [`AMBIENT_FPS`], since every frame
 //!   repaints the window; nothing loops on an idle screen.
 //!
+//! A loop also holds still while the window isn't the one in front
+//! ([`set_live`], as Electron's `html[data-blurred]` pauses its endless
+//! animations) and, for what watches its place ([`watch`], [`on_screen`]),
+//! while it is scrolled out of view: an unwatched window costs no frames.
+//!
 //! Everything honours reduced motion: GPUI renders a one-shot at its end and a
 //! loop at its start when `cx.reduce_motion()` is set, which `init` sets from
 //! the platform's own setting (or `AGENTBOX_REDUCE_MOTION=1`).
@@ -61,7 +66,357 @@ fn delayed(delay: f32, easing: fn(f32) -> f32) -> impl Fn(f32) -> f32 {
 
 /// init reads the platform's reduced-motion setting once, at start.
 pub fn init(cx: &mut App) {
-    cx.set_reduce_motion(platform_reduces_motion());
+    let reduce = platform_reduces_motion();
+    REDUCED.with(|r| r.set(reduce));
+    APP.with(|a| *a.borrow_mut() = Some(cx.to_async()));
+    cx.set_reduce_motion(reduce);
+}
+
+thread_local! {
+    static REDUCED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// reduced is whether motion is reduced (what `init` read), for what draws a
+/// still of its own rather than a loop's first frame.
+pub fn reduced() -> bool {
+    REDUCED.with(|r| r.get())
+}
+
+/// set_live says whether the window is the one in front. Out of focus, every
+/// loop holds still (Electron's `html[data-blurred]`): each one, however
+/// light, has the window drawn again many times a second.
+/// `AGENTBOX_MOTION_UNFOCUSED=1` keeps them playing (a recording of a window
+/// that never gets the focus).
+pub fn set_live(live: bool) {
+    let always = std::env::var_os("AGENTBOX_MOTION_UNFOCUSED").is_some();
+    LIVE.with(|l| l.set(live || always));
+}
+
+/// looping is whether a loop may play now: the window in front and motion
+/// not reduced.
+pub fn looping() -> bool {
+    LIVE.with(|l| l.get()) && !reduced()
+}
+
+/// bezier is CSS's cubic-bezier(x1, y1, x2, y2) as an easing.
+pub fn bezier(x1: f32, y1: f32, x2: f32, y2: f32) -> impl Fn(f32) -> f32 + Copy {
+    move |x| {
+        if x <= 0. {
+            return 0.;
+        }
+        if x >= 1. {
+            return 1.;
+        }
+        let at = |a: f32, b: f32, t: f32| {
+            let u = 1. - t;
+            3. * u * u * t * a + 3. * u * t * t * b + t * t * t
+        };
+        // Bisect for the curve's parameter at x: x(t) only rises.
+        let (mut lo, mut hi) = (0f32, 1f32);
+        for _ in 0..20 {
+            let mid = (lo + hi) / 2.;
+            if at(x1, x2, mid) < x {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        at(y1, y2, (lo + hi) / 2.)
+    }
+}
+
+/// ease is CSS's `ease`, what a keyframe's stretch eases with when it names
+/// no timing function.
+pub fn ease(t: f32) -> f32 {
+    bezier(0.25, 0.1, 0.25, 1.)(t)
+}
+
+/// ease_in_out is CSS's `ease-in-out`.
+pub fn ease_in_out(t: f32) -> f32 {
+    bezier(0.42, 0., 0.58, 1.)(t)
+}
+
+/// back_out is cubic-bezier(0.34, 1.56, 0.64, 1): a pop that overshoots.
+pub fn back_out(t: f32) -> f32 {
+    bezier(0.34, 1.56, 0.64, 1.)(t)
+}
+
+/// keyframes reads a CSS @keyframes at `t` (0 to 1): `stops` are (offset,
+/// value) in order, each stretch between two eased by `easing`, as CSS eases
+/// each one and not the whole.
+pub fn keyframes(t: f32, stops: &[(f32, f32)], easing: fn(f32) -> f32) -> f32 {
+    let Some(&(first, mut value)) = stops.first() else {
+        return 0.;
+    };
+    if t <= first {
+        return value;
+    }
+    for pair in stops.windows(2) {
+        let ((a, from), (b, to)) = (pair[0], pair[1]);
+        if t <= b {
+            if b <= a {
+                return to;
+            }
+            return from + (to - from) * easing((t - a) / (b - a));
+        }
+        value = to;
+    }
+    value
+}
+
+/// steps is `keyframes` with `steps(1, end)`: each value holds until the
+/// next stop, with nothing in between (a cursor's blink, a glitch).
+pub fn steps(t: f32, stops: &[(f32, f32)]) -> f32 {
+    stops
+        .iter()
+        .rev()
+        .find(|(at, _)| t >= *at)
+        .or(stops.first())
+        .map_or(0., |s| s.1)
+}
+
+/// looped plays `f` over and over, `period` a turn, while a loop may play
+/// (`looping`), and otherwise draws `f` at `still`, with no frames asked for.
+/// Loops of one period keep step with each other (two parts of one thing,
+/// drawn apart). The one place a loop is started: every endless animation
+/// goes through it.
+pub fn looped<E: IntoElement + 'static>(
+    el: E,
+    id: impl Into<ElementId>,
+    period: Duration,
+    still: f32,
+    f: impl Fn(E, f32) -> E + 'static,
+) -> gpui::AnyElement {
+    looped_at(el, id, period, still, AMBIENT_FPS, f)
+}
+
+/// looped_at is `looped` at `fps` frames a second, for a loop slow enough to
+/// be drawn with fewer than [`AMBIENT_FPS`].
+pub fn looped_at<E: IntoElement + 'static>(
+    el: E,
+    id: impl Into<ElementId>,
+    period: Duration,
+    still: f32,
+    fps: f32,
+    f: impl Fn(E, f32) -> E + 'static,
+) -> gpui::AnyElement {
+    // Not GPUI's own repeating animation: each of those keeps a timer of its
+    // own, and a screenful of them draws the window many more times a second
+    // than any one asks for. Here every loop reads the one clock and asks
+    // for the one next beat (`beat`), so thirty loops cost what one does.
+    let _ = id.into();
+    if !looping() || period.is_zero() {
+        return f(el, still).into_any_element();
+    }
+    beat(fps);
+    let (_, t) = cycle(period, Duration::ZERO);
+    f(el, t).into_any_element()
+}
+
+thread_local! {
+    static APP: std::cell::RefCell<Option<gpui::AsyncApp>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// beat has the windows drawn again a frame from now, at `fps`: what every
+/// loop asks for each time it is drawn, all of them getting the same frame.
+fn beat(fps: f32) {
+    tick(Duration::from_secs_f32(1. / fps.clamp(1., 60.)));
+}
+
+/// tick has the windows drawn once more, `after` from now, unless a draw is
+/// already on its way sooner: many asks become the earliest one.
+fn tick(after: Duration) {
+    let now = std::time::Instant::now();
+    let at = now + after;
+    if WAKE.with(|w| w.get()).is_some_and(|p| p <= at && p > now) {
+        return;
+    }
+    let Some(app) = APP.with(|a| a.borrow().clone()) else {
+        return;
+    };
+    WAKE.with(|w| w.set(Some(at)));
+    app.spawn(async move |cx| {
+        cx.background_executor().timer(after).await;
+        WAKE.with(|w| {
+            if w.get() == Some(at) {
+                w.set(None)
+            }
+        });
+        cx.update(|cx| cx.refresh_windows());
+    })
+    .detach();
+}
+
+struct Tween {
+    from: f32,
+    to: f32,
+    at: std::time::Instant,
+}
+
+thread_local! {
+    static TWEENS: std::cell::RefCell<std::collections::HashMap<String, Tween>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// tween is a CSS transition on a number: where the value called `key`
+/// stands now on its way to `target`, having set out (ease-out, over
+/// `duration`) from wherever it stood when `target` last changed. Its first
+/// value is where it starts, with nothing to ease from. Frames are asked for
+/// only while it moves. For what moves from place to place (the tour's
+/// spotlight and card), where a spring's overshoot would be wrong.
+pub fn tween(key: &str, target: f32, duration: Duration) -> f32 {
+    let now = std::time::Instant::now();
+    let at = |t: &Tween| {
+        let p =
+            (now.duration_since(t.at).as_secs_f32() / duration.as_secs_f32().max(0.001)).min(1.);
+        (
+            t.from + (t.to - t.from) * bezier(0., 0., 0.58, 1.)(p),
+            p < 1.,
+        )
+    };
+    TWEENS.with(|tweens| {
+        let mut tweens = tweens.borrow_mut();
+        if reduced() {
+            return target;
+        }
+        if tweens.len() > 1024 {
+            tweens.clear();
+        }
+        let tween = tweens.entry(key.to_string()).or_insert(Tween {
+            from: target,
+            to: target,
+            at: now,
+        });
+        if tween.to != target {
+            *tween = Tween {
+                from: at(tween).0,
+                to: target,
+                at: now,
+            };
+        }
+        let (value, moving) = at(tween);
+        if moving {
+            beat(60.);
+        }
+        value
+    })
+}
+
+/// few plays a loop of `period` only `turns` times, from when the thing
+/// first shows, and then rests: for what Electron loops for ever on
+/// something that isn't doing anything (a sleeping agent's "z"), which here
+/// would keep an idle window drawing. `f` gets how far through a turn it is
+/// (`offset` of a turn ahead), or None at rest.
+pub fn few<E: IntoElement + 'static>(
+    el: E,
+    id: impl Into<ElementId>,
+    period: Duration,
+    turns: u32,
+    offset: f32,
+    f: impl Fn(E, Option<f32>) -> E + 'static,
+) -> gpui::AnyElement {
+    if !looping() {
+        return f(el, None).into_any_element();
+    }
+    el.with_animation(
+        id,
+        Animation::new(period * turns).with_max_fps(AMBIENT_FPS),
+        move |el, t| {
+            if t >= 1. {
+                f(el, None)
+            } else {
+                f(el, Some((t * turns as f32 + offset).fract()))
+            }
+        },
+    )
+    .into_any_element()
+}
+
+thread_local! {
+    static SCREEN: std::cell::RefCell<std::collections::HashMap<String, bool>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    static WAKE: std::cell::Cell<Option<std::time::Instant>> =
+        const { std::cell::Cell::new(None) };
+    static EPOCH: std::time::Instant = std::time::Instant::now();
+}
+
+/// on_screen is whether the thing called `key` was in view when last drawn
+/// (true until its `watch` has said otherwise): a card scrolled out of a
+/// list doesn't loop (Electron's `[data-paused]`, AgentList's useSeenRows).
+pub fn on_screen(key: &str) -> bool {
+    SCREEN.with(|s| s.borrow().get(key).copied().unwrap_or(true))
+}
+
+/// watch goes inside the thing called `key`, filling it, and notes each
+/// frame whether any of it shows through what clips it; the frame after it
+/// comes into view or leaves is drawn again, for `on_screen` to be read.
+pub fn watch(key: impl Into<String>) -> impl IntoElement {
+    let key = key.into();
+    gpui::canvas(
+        move |bounds, window, _| {
+            let seen = bounds.intersects(&window.content_mask().bounds);
+            let was = SCREEN.with(|s| {
+                let mut s = s.borrow_mut();
+                if s.len() > 4096 {
+                    s.clear();
+                }
+                s.insert(key, seen)
+            });
+            if was.unwrap_or(true) != seen {
+                window.request_animation_frame();
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+}
+
+/// cycle is where the app's clock stands in a loop of `period` started
+/// `offset` early: which turn it is, and how far through it (0 to 1). For a
+/// sparse loop (a blink every twelve seconds), which reads the clock when
+/// drawn and asks to be drawn again with `wake`, rather than have the window
+/// drawn thirty times a second to move for a quarter of one.
+pub fn cycle(period: Duration, offset: Duration) -> (u64, f32) {
+    let elapsed = EPOCH.with(|e| e.elapsed()) + offset;
+    let p = period.as_secs_f64().max(0.001);
+    let turns = elapsed.as_secs_f64() / p;
+    (turns as u64, turns.fract() as f32)
+}
+
+/// wake has the windows drawn once more, `after` from now: the next frame of
+/// a sparse loop, or the moment its next burst starts. Many asks become the
+/// earliest one. Nothing is asked while loops don't play.
+pub fn wake(after: Duration, cx: &mut App) {
+    if !looping() {
+        return;
+    }
+    let _ = cx;
+    tick(after);
+}
+
+/// sparse is a loop that moves for only the last `active` of each `period`
+/// (a blink, a glitch): None while it rests, having asked to be woken when
+/// it next moves, else how far through the moving part it is (0 to 1),
+/// having asked for the next frame. `offset` keeps a column of them out of
+/// step.
+pub fn sparse(period: Duration, active: f32, offset: Duration, cx: &mut App) -> Option<f32> {
+    if !looping() {
+        return None;
+    }
+    let (_, t) = cycle(period, offset);
+    let rest = 1. - active;
+    if t < rest {
+        wake(period.mul_f32(rest - t), cx);
+        None
+    } else {
+        wake(Duration::from_secs_f32(1. / AMBIENT_FPS), cx);
+        Some(((t - rest) / active).min(1.))
+    }
 }
 
 fn platform_reduces_motion() -> bool {
@@ -129,9 +484,13 @@ pub fn pop_in<E: IntoElement + Styled + 'static>(
     el: E,
     id: impl Into<ElementId>,
 ) -> impl IntoElement {
-    el.with_animation(id, Animation::new(NORMAL).with_easing(ease_out), |el, t| {
-        el.opacity(0.4 + 0.6 * t).relative().top(px(10. * (1. - t)))
-    })
+    // Electron's pop-in: 180 ms, from nothing and 2% of its height low (its
+    // 3% of scale is left out: GPUI doesn't scale a box).
+    el.with_animation(
+        id,
+        Animation::new(Duration::from_millis(180)).with_easing(ease_out),
+        |el, t| el.opacity(t).relative().top(px(10. * (1. - t))),
+    )
 }
 
 /// scrim_in fades a dialog's backdrop in under it.
@@ -179,53 +538,30 @@ pub fn pulse<E: IntoElement + Styled + 'static>(
     el: E,
     id: impl Into<ElementId>,
 ) -> impl IntoElement {
-    el.with_animation(
-        id,
-        Animation::new(Duration::from_millis(1800))
-            .repeat()
-            .with_max_fps(AMBIENT_FPS),
-        |el, t| {
-            let wave = (1. - (t * std::f32::consts::TAU).cos()) / 2.;
-            el.opacity(1. - 0.6 * wave)
-        },
-    )
+    looped(el, id, Duration::from_millis(1800), 0., |el, t| {
+        let wave = (1. - (t * std::f32::consts::TAU).cos()) / 2.;
+        el.opacity(1. - 0.6 * wave)
+    })
+}
+
+/// pulse_soft is Tailwind's animate-pulse (a placeholder, a dot that waits):
+/// down to half and back over 2 s, on cubic-bezier(0.4, 0, 0.6, 1).
+pub fn pulse_soft<E: IntoElement + Styled + 'static>(
+    el: E,
+    id: impl Into<ElementId>,
+) -> impl IntoElement {
+    looped(el, id, Duration::from_millis(2000), 0., |el, t| {
+        let half = if t < 0.5 { t * 2. } else { (1. - t) * 2. };
+        el.opacity(1. - 0.5 * bezier(0.4, 0., 0.6, 1.)(half))
+    })
 }
 
 /// spin turns a loader icon once a second (Tailwind's animate-spin). Loops:
 /// use it only on what is working right now.
 pub fn spin(icon: gpui_component::Icon, id: impl Into<ElementId>) -> impl IntoElement {
-    icon.with_animation(
-        id,
-        Animation::new(Duration::from_millis(1000))
-            .repeat()
-            .with_max_fps(AMBIENT_FPS),
-        |icon, t| icon.rotate(radians(t * std::f32::consts::TAU)),
-    )
-}
-
-/// breathe is a working thing's glow: a soft ring of its colour swelling and
-/// easing back (the loop Electron's working dot plays, given to the edge).
-pub fn breathe<E: IntoElement + Styled + 'static>(
-    el: E,
-    id: impl Into<ElementId>,
-    color: Hsla,
-) -> impl IntoElement {
-    el.with_animation(
-        id,
-        Animation::new(Duration::from_millis(1800))
-            .repeat()
-            .with_max_fps(AMBIENT_FPS),
-        move |el, t| {
-            let wave = (1. - (t * std::f32::consts::TAU).cos()) / 2.;
-            el.shadow(vec![gpui::BoxShadow {
-                color: color.opacity(0.1 + 0.3 * wave),
-                offset: gpui::point(px(0.), px(0.)),
-                blur_radius: px(4. + 6. * wave),
-                spread_radius: px(0.),
-                inset: false,
-            }])
-        },
-    )
+    looped(icon, id, Duration::from_millis(1000), 0., |icon, t| {
+        icon.rotate(radians(t * std::f32::consts::TAU))
+    })
 }
 
 /// celebrate is the one moment an agent finishing or a pull request merging
@@ -305,21 +641,100 @@ pub fn skeleton(
     width: impl Into<gpui::DefiniteLength>,
     height: Pixels,
 ) -> impl IntoElement {
-    div()
+    use gpui::ParentElement;
+    let bar = div()
         .w(width.into())
         .h(height)
+        .flex()
         .rounded(theme::radius::SM)
-        .bg(theme::surface_strong())
-        .with_animation(
-            id,
-            Animation::new(Duration::from_millis(1600))
-                .repeat()
-                .with_max_fps(AMBIENT_FPS),
-            |el, t| {
-                let wave = (1. - (t * std::f32::consts::TAU).cos()) / 2.;
-                el.opacity(0.55 + 0.45 * wave)
-            },
-        )
+        .overflow_hidden()
+        .bg(theme::surface_faint());
+    // Electron's .skeleton: a gradient faint, strong, faint, twice the bar's
+    // width and repeating, sliding left four widths in 1.6 s; so the bar
+    // shows half a wave of it, and the same picture every 0.8 s. Drawn as
+    // the two straight stretches either side of the wave's turn.
+    looped(bar, id, Duration::from_millis(800), 0.25, |bar, u| {
+        let wave = |p: f32| 1. - (2. * p.fract() - 1.).abs();
+        let shade = |v: f32| mix(theme::surface_strong(), theme::surface_faint(), v);
+        let (turn, at) = if u < 0.5 {
+            (1., 1. - 2. * u)
+        } else {
+            (0., 2. * (1. - u))
+        };
+        let stretch = |w: f32, from: f32, to: f32| {
+            div()
+                .h_full()
+                .w(gpui::relative(w))
+                .bg(gpui::linear_gradient(
+                    90.,
+                    gpui::linear_color_stop(shade(from), 0.),
+                    gpui::linear_color_stop(shade(to), 1.),
+                ))
+        };
+        bar.child(stretch(at, wave(u), turn))
+            .child(stretch(1. - at, turn, wave(u + 0.5)))
+    })
+}
+
+/// shine is a label with a highlight sweeping across it: what's happening
+/// right now (Electron's .chat-shine: the words in subtle, and a 4.5rem band
+/// of the title's colour crossing them every 2.2 s). The band is laid over
+/// the letters themselves, a letter at a time. At rest, or out of focus,
+/// the words are plain; under reduced motion they are muted, as there.
+pub fn shine(text: impl Into<gpui::SharedString>, id: impl Into<ElementId>) -> gpui::AnyElement {
+    use gpui::ParentElement;
+    let text: gpui::SharedString = text.into();
+    let holder = div().min_w_0().truncate();
+    if reduced() {
+        return holder
+            .text_color(theme::muted())
+            .child(text)
+            .into_any_element();
+    }
+    let (base, lit) = (theme::subtle(), theme::title().opacity(0.9));
+    looped(
+        holder.text_color(base),
+        id,
+        Duration::from_millis(2200),
+        -1.,
+        move |el, t| {
+            if t < 0. {
+                return el.child(text.clone());
+            }
+            // The band is some ten letters wide (4.5rem of 14px text).
+            const HALF: f32 = 5.;
+            let n = text.chars().count() as f32;
+            let centre = -HALF + (n + 2. * HALF) * t;
+            let lights = text.char_indices().enumerate().filter_map(|(i, (at, c))| {
+                let glow = 1. - ((i as f32 + 0.5) - centre).abs() / HALF;
+                (glow > 0.).then(|| {
+                    (
+                        at..at + c.len_utf8(),
+                        gpui::HighlightStyle {
+                            color: Some(mix(lit, base, glow)),
+                            ..Default::default()
+                        },
+                    )
+                })
+            });
+            el.child(
+                gpui::StyledText::new(text.clone()).with_highlights(lights.collect::<Vec<_>>()),
+            )
+        },
+    )
+}
+
+/// mix is CSS's color-mix in srgb: `a` at `amount`, the rest `b`, alpha too.
+pub fn mix(a: Hsla, b: Hsla, amount: f32) -> Hsla {
+    let (a, b) = (a.to_rgb(), b.to_rgb());
+    let m = |x: f32, y: f32| x * amount + y * (1. - amount);
+    gpui::Rgba {
+        r: m(a.r, b.r),
+        g: m(a.g, b.g),
+        b: m(a.b, b.b),
+        a: m(a.a, b.a),
+    }
+    .into()
 }
 
 /// skeleton_rows is a list's worth of skeletons: a dot and two lines a row.
@@ -435,6 +850,116 @@ pub fn unfolded<E: IntoElement + Styled + 'static>(
     }
 }
 
+/// appear is Electron's animate-fade-in: 160 ms ease-out from nothing, with
+/// no movement (an overlay, a menu of ours, a hint).
+pub fn appear<E: IntoElement + Styled + 'static>(
+    el: E,
+    id: impl Into<ElementId>,
+) -> impl IntoElement {
+    el.with_animation(
+        id,
+        Animation::new(Duration::from_millis(160)).with_easing(bezier(0., 0., 0.58, 1.)),
+        |el, t| el.opacity(t),
+    )
+}
+
+/// appear_late shows something only once it has been there long enough to
+/// matter (Electron's .appear-late: nothing for 0.8 s, then a 0.2 s fade),
+/// like a message still on its way after most have arrived.
+pub fn appear_late<E: IntoElement + Styled + 'static>(
+    el: E,
+    id: impl Into<ElementId>,
+) -> impl IntoElement {
+    el.with_animation(id, Animation::new(Duration::from_millis(1000)), |el, t| {
+        el.opacity(bezier(0., 0., 0.58, 1.)(((t - 0.8) / 0.2).clamp(0., 1.)))
+    })
+}
+
+/// stream_in is a block of a streaming reply arriving (Electron's
+/// .chat-stream blocks): a 600 ms ease-out fade from nothing, with no lift.
+pub fn stream_in<E: IntoElement + Styled + 'static>(
+    el: E,
+    id: impl Into<ElementId>,
+) -> impl IntoElement {
+    el.with_animation(
+        id,
+        Animation::new(Duration::from_millis(600)).with_easing(bezier(0., 0., 0.58, 1.)),
+        |el, t| el.opacity(t),
+    )
+}
+
+thread_local! {
+    static FLASHED: std::cell::RefCell<Option<(String, std::time::Instant, u64)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// flash marks the thing called `key` as just revealed (a search's hit
+/// scrolled to, a setting a search opened its section at): `revealed` lights
+/// it for a moment so the eye finds it.
+pub fn flash(key: impl Into<String>) {
+    FLASHED.with(|f| {
+        let n = f.borrow().as_ref().map_or(0, |f| f.2 + 1);
+        *f.borrow_mut() = Some((key.into(), std::time::Instant::now(), n));
+    });
+}
+
+/// Reveal is which of Electron's two highlights a revealed thing wears.
+#[derive(Clone, Copy)]
+pub enum Reveal {
+    /// ab-revealed: 2.4 s, a brand outline and halo held to 45%, then gone.
+    Hit,
+    /// setting-revealed: 1.6 s, a brand wash and inner ring held to 40%.
+    Setting,
+}
+
+/// revealed lights `el` if it is the thing `flash` named a moment ago, and
+/// is `el` otherwise.
+pub fn revealed<E: IntoElement + Styled + 'static>(
+    el: E,
+    key: &str,
+    kind: Reveal,
+) -> gpui::AnyElement {
+    let (total, hold) = match kind {
+        Reveal::Hit => (Duration::from_millis(2400), 0.45),
+        Reveal::Setting => (Duration::from_millis(1600), 0.4),
+    };
+    let n = FLASHED.with(|f| {
+        f.borrow()
+            .as_ref()
+            .filter(|(k, at, _)| k == key && at.elapsed() < total)
+            .map(|f| f.2)
+    });
+    let Some(n) = n else {
+        return el.into_any_element();
+    };
+    el.with_animation(
+        ElementId::Name(format!("revealed-{key}-{n}").into()),
+        Animation::new(total),
+        move |el, t| {
+            if t >= 1. {
+                return el;
+            }
+            let left = 1. - bezier(0., 0., 0.58, 1.)(((t - hold) / (1. - hold)).clamp(0., 1.));
+            let brand = theme::brand(400);
+            let ring = |spread: f32, alpha: f32| gpui::BoxShadow {
+                color: brand.opacity(alpha * left),
+                offset: gpui::point(px(0.), px(0.)),
+                blur_radius: px(0.),
+                spread_radius: px(spread),
+                inset: false,
+            };
+            match kind {
+                // The outline, 2px at 3px out, over its 6px halo.
+                Reveal::Hit => el.shadow(vec![ring(5., 1.), ring(9., 0.18)]),
+                Reveal::Setting => el
+                    .bg(brand.opacity(0.14 * left))
+                    .shadow(vec![ring(1., 0.55)]),
+            }
+        },
+    )
+    .into_any_element()
+}
+
 /// menu_in is a menu, popover or picker we draw ourselves opening: the same
 /// rise and fade gpui-component gives its own dropdowns (150 ms, 4 px), so
 /// ours and its are told apart by nothing.
@@ -467,6 +992,17 @@ pub fn chevron(id: impl Into<ElementId>, open: bool, size: Option<Pixels>) -> gp
                 std::f32::consts::FRAC_PI_2 * t.clamp(0., 1.1),
             ))
         },
+    )
+    .into_any_element()
+}
+
+/// flip is a chevron-down that turns to point up when its menu or section
+/// is open (Electron's `rotate-180` with a 150 ms transition).
+pub fn flip(icon: gpui_component::Icon, id: impl Into<ElementId>, open: bool) -> gpui::AnyElement {
+    icon.with_spring(
+        id,
+        SpringAnimation::new(SNAPPY).to(if open { 1f32 } else { 0. }),
+        |icon, t| icon.rotate(gpui::radians(std::f32::consts::PI * t.clamp(0., 1.05))),
     )
     .into_any_element()
 }
@@ -732,6 +1268,64 @@ mod tests {
         let d = delayed(0.5, ease_out);
         assert_eq!(d(0.25), 0., "holds through its delay");
         assert_eq!(d(1.), 1.);
+    }
+
+    #[test]
+    fn a_bezier_is_css_s() {
+        // CSS's ease at its middle, to three places.
+        assert!((ease(0.5) - 0.8024).abs() < 0.002, "{}", ease(0.5));
+        assert!((ease_in_out(0.5) - 0.5).abs() < 0.001);
+        assert_eq!(ease(0.), 0.);
+        assert_eq!(ease(1.), 1.);
+        assert!(back_out(0.6) > 1., "a pop overshoots");
+    }
+
+    #[test]
+    fn keyframes_hold_ease_and_step() {
+        fn linear(t: f32) -> f32 {
+            t
+        }
+        // ab-monitor-scroll's first two stretches: held, then up a line.
+        let stops = [(0., 0.), (0.2, 0.), (0.25, 7.), (0.45, 7.)];
+        assert_eq!(keyframes(0.1, &stops, linear), 0.);
+        assert!((keyframes(0.225, &stops, linear) - 3.5).abs() < 0.001);
+        assert_eq!(keyframes(0.3, &stops, linear), 7.);
+        assert_eq!(
+            keyframes(0.9, &stops, linear),
+            7.,
+            "past the last, it holds"
+        );
+        // term-cursor: steps(1, end), lit then dark.
+        let blink = [(0., 1.), (0.5, 0.)];
+        assert_eq!(steps(0.49, &blink), 1.);
+        assert_eq!(steps(0.5, &blink), 0.);
+    }
+
+    #[test]
+    fn something_unwatched_is_taken_to_be_on_screen() {
+        assert!(on_screen("motion-test-never-watched"));
+        SCREEN.with(|s| s.borrow_mut().insert("motion-test-off".into(), false));
+        assert!(!on_screen("motion-test-off"));
+    }
+
+    #[test]
+    fn a_tween_starts_where_it_is_and_heads_for_its_target() {
+        let d = Duration::from_millis(300);
+        assert_eq!(tween("motion-test-tween", 10., d), 10., "its first value");
+        let v = tween("motion-test-tween", 20., d);
+        assert!((10. ..20.).contains(&v), "on its way: {v}");
+        TWEENS.with(|t| {
+            t.borrow_mut().get_mut("motion-test-tween").unwrap().at -= Duration::from_secs(1)
+        });
+        assert_eq!(tween("motion-test-tween", 20., d), 20., "arrived");
+    }
+
+    #[test]
+    fn a_cycle_runs_from_nought_to_one() {
+        let (_, t) = cycle(Duration::from_secs(12), Duration::from_secs(3));
+        assert!((0. ..1.).contains(&t));
+        let (n, _) = cycle(Duration::from_secs(1), Duration::from_secs(5));
+        assert!(n >= 5);
     }
 
     #[test]

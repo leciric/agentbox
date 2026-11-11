@@ -166,6 +166,7 @@ dependencies = [
  "vnc-rs",
  "webkit2gtk",
  "wry",
+ "x11rb",
  "zbus",
 ]
 

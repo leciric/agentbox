@@ -179,4 +179,12 @@ export const ptBRNative = {
   'native.window.maximize': 'Maximizar',
   'native.window.restore': 'Restaurar',
   'native.window.close': 'Fechar',
+  'native.keepRunning.title': 'O AgentBox continua em execução',
+  'native.keepRunning.body': 'Fechar a janela o mantém na bandeja. Para sair, pressione {keys} ou escolha Sair do AgentBox no menu do ícone da bandeja.',
+  'native.keepRunning.setting': 'Abrir a configuração',
+  'native.quit.item': 'Sair do AgentBox ({keys})',
+  'native.quit.keywords': 'sair fechar encerrar terminar quit exit',
+  'native.tray.description': 'Fechar a janela a esconde, e o AgentBox fica na bandeja (a barra de menus no Mac), onde o ícone conta os agentes trabalhando e o que espera por você. {keys} sempre encerra, assim como Sair do AgentBox no menu do ícone e no menu de ajuda.',
+  'native.tray.noIcon': 'Nenhum ícone de bandeja aparece neste ambiente agora, então fechar a janela encerra o app. O GNOME mostra ícones de bandeja com a extensão AppIndicator.',
+  'native.tray.noMinimize': 'Este ambiente não minimiza janelas, então fechar a janela encerra o app.',
 };
