@@ -53,6 +53,14 @@ func (a *app) client(cmd *cobra.Command) (*api.Client, error) {
 		}
 		return api.HubClient{URL: h.URL, Token: h.Token}.Environment(e.ID), nil
 	}
+	// An agent has no daemon of its own, and one started here would be
+	// empty: every project and agent "not found". Only a nesting agent, which
+	// has its own Incus, runs one for real.
+	if insideAgent() && !(incus.Client{}).Reachable() {
+		return nil, errors.New("this runs inside an agent, where commands about the host's projects and agents " +
+			"(chat, exec, list, …) don't work: to reach the project's chat, use agentbox ask for a decision, " +
+			"or the memory server's report tool when you finish")
+	}
 	c := api.NewClient(a.paths.Socket())
 	autostart := os.Getenv("AGENTBOX_NO_AUTOSTART") == ""
 	if info, err := c.Version(cmd.Context()); err == nil {
