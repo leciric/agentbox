@@ -54,6 +54,7 @@ func TestRender(t *testing.T) {
 			VM:       true,
 			Host:     "a Mac",
 			IOS:      true,
+			IOSPorts: []int{5236, 8081},
 		},
 		"nesting": {
 			Project:  "agentbox",
@@ -844,6 +845,18 @@ func TestRenderLeadShellByHost(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("%s: the lead's brief doesn't say %q", host, want)
 		}
+	}
+}
+
+// An iOS agent whose project names no ports to forward is told to ask the
+// user for them, not to forward anyway.
+func TestRenderIOSWithNoPorts(t *testing.T) {
+	got, err := brief.Render(brief.Data{Project: "pawly", Agent: "agent-08", Worktree: "/w", Branch: "b", BaseRef: "main", VM: true, Host: "a Mac", IOS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "none yet: ask them to name them in the project's settings") {
+		t.Errorf("the brief doesn't say the project allows no ports yet:\n%s", got)
 	}
 }
 

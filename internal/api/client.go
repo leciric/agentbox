@@ -411,6 +411,13 @@ func (c *Client) SetNesting(ctx context.Context, project string, on bool) (Proje
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{Nesting: &on}, &out)
 }
 
+// SetIOSForwardPorts sets the ports a project's agents may forward to the
+// Mac's localhost for the iOS Simulator.
+func (c *Client) SetIOSForwardPorts(ctx context.Context, project string, ports []int) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{IOSForwardPorts: &ports}, &out)
+}
+
 // SetAgentPRs sets whether a project's agents push their own branch and open
 // their own pull request when they finish.
 func (c *Client) SetAgentPRs(ctx context.Context, project string, on bool) (Project, error) {

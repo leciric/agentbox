@@ -302,6 +302,26 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
       ],
     },
+    // The ports an iOS project's agents may forward to the Mac, for the
+    // simulator's apps: none until the user names them.
+    ...(project.ios
+      ? [
+          {
+            id: 'ios',
+            title: t('defaults.project.groupIOS'),
+            entries: [
+              {
+                id: 'ios-ports',
+                description: t('defaults.project.iosPortsDescription'),
+                label: t('defaults.project.iosPortsLabel'),
+                keywords: t('defaults.project.iosPortsKeywords'),
+                modified: project.iosForwardPorts.length > 0,
+                render: () => <IOSPortsField key={project.iosForwardPorts.join(',')} project={project} />,
+              },
+            ],
+          },
+        ]
+      : []),
     {
       id: 'testing',
       title: t('defaults.project.groupTesting'),
@@ -780,6 +800,84 @@ function BranchPrefixField({ project }: { project: T.Project }) {
             </>
           )}
         </div>
+        {save.error && <SettingNote tone="error">{errorMessage(save.error)}</SettingNote>}
+      </form>
+    </SettingRow>
+  );
+}
+
+// IOSPortsField sets the ports this project's agents may forward to the Mac's
+// localhost, where an app in the iOS Simulator reaches their Metro and API
+// (agentbox ios forward). Such a port is the browser's localhost too, so
+// agents get none until the user names them here.
+function IOSPortsField({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const saved = project.iosForwardPorts.join(', ');
+  const [draft, setDraft] = useState(saved);
+  const save = useMutation({
+    mutationFn: (ports: number[]) => api.updateProject(project.name, { iosForwardPorts: ports }),
+    onSuccess: async (updated) => {
+      toast(
+        updated.iosForwardPorts.length > 0
+          ? t('defaults.project.iosPortsToast', { name: projectLabel(updated), ports: updated.iosForwardPorts.join(', ') })
+          : t('defaults.project.iosPortsNoneToast', { name: projectLabel(updated) }),
+      );
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+  const words = draft.split(/[\s,]+/).filter(Boolean);
+  const ports = words.map(Number);
+  const valid = ports.every((p) => Number.isInteger(p));
+  const changed = draft.trim() !== saved;
+
+  return (
+    <SettingRow
+      label={t('defaults.project.iosPortsLabel')}
+      htmlFor="project-ios-ports"
+      description={t('defaults.project.iosPortsDescription')}
+      details={t('defaults.project.iosPortsDetails')}
+    >
+      <form
+        className="grid gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (changed && valid) save.mutate(ports);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && changed && !save.isPending) {
+            setDraft(saved);
+            save.reset();
+          }
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            id="project-ios-ports"
+            data-project-ios-ports
+            className="min-w-0 flex-1 font-mono text-ui sm:max-w-sm"
+            placeholder={t('defaults.project.iosPortsPlaceholder')}
+            spellCheck={false}
+            value={draft}
+            disabled={save.isPending}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              save.reset();
+            }}
+          />
+          {changed && (
+            <>
+              <Button type="submit" variant="primary" size="sm" disabled={save.isPending || !valid}>
+                {save.isPending && <LoaderCircle className="animate-spin" />}
+                {t('common.save')}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={save.isPending} onClick={() => (setDraft(saved), save.reset())}>
+                {t('common.cancel')}
+              </Button>
+            </>
+          )}
+        </div>
+        {!valid && <SettingNote tone="error">{t('defaults.project.iosPortsInvalid')}</SettingNote>}
         {save.error && <SettingNote tone="error">{errorMessage(save.error)}</SettingNote>}
       </form>
     </SettingRow>

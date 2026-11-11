@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -297,9 +298,15 @@ func (s *Server) iosForward(w http.ResponseWriter, r *http.Request, a state.Agen
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	for _, port := range req.Ports {
-		if port < 1024 || port > 65535 {
-			return fmt.Errorf("%d isn't a port the Mac can forward: use 1024 to 65535", port)
+	if !req.Stop && len(req.Ports) > 0 {
+		p, err := s.store.Project(r.Context(), a.Project)
+		if err != nil {
+			return err
+		}
+		for _, port := range req.Ports {
+			if !slices.Contains(p.IOSForwardPorts, port) {
+				return fmt.Errorf("%s doesn't let its agents forward port %d (it allows %s): the user names the ports in the project's settings, under iOS Simulator", a.Project, port, portList(p.IOSForwardPorts))
+			}
 		}
 	}
 	s.iosSim.forwardMu.Lock()
@@ -369,4 +376,15 @@ func (s *Server) iosUnforward(a state.Agent) {
 		defer s.iosSim.forwardMu.Unlock()
 		_, _ = s.iosClient().Forward(ctx, iossim.ForwardRequest{Project: a.Project, Agent: a.Name}, true)
 	}()
+}
+
+func portList(ports []int) string {
+	if len(ports) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(ports))
+	for i, p := range ports {
+		parts[i] = strconv.Itoa(p)
+	}
+	return strings.Join(parts, ", ")
 }

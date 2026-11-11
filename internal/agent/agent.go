@@ -1700,6 +1700,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		Secrets:        secretNames,
 		Android:        android.IsProject(a.Worktree),
 		IOS:            hostos.OS() == "darwin" && iossim.IsProject(a.Worktree),
+		IOSPorts:       p.IOSForwardPorts,
 		GitHub:         m.Creds.HasGitHubLogin(),
 		VM:             hostos.InVM(),
 		Host:           hostos.Name(),

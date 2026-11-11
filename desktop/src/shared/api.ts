@@ -30,6 +30,7 @@ export interface Project {
   section: string;
   position: number;
   nesting: boolean;
+  iosForwardPorts: number[];
   agentPRs: boolean;
   prWatch: string;
   syncBase: boolean;
@@ -121,6 +122,7 @@ export interface UpdateProjectRequest {
   consolidation?: number;
   consolidationModel?: string;
   nesting?: boolean;
+  iosForwardPorts?: number[];
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;

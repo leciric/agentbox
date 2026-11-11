@@ -139,6 +139,11 @@ type Project struct {
 	// touch agent machines for real. Off by default: it costs isolation, and
 	// needs the base image built with Incus.
 	Nesting bool `json:"nesting"`
+	// IOSForwardPorts are the ports this project's agents may forward to the
+	// Mac's localhost for the iOS Simulator (agentbox ios forward): none
+	// until the user names them, since such a port is their browser's
+	// localhost too.
+	IOSForwardPorts []int `json:"iosForwardPorts"`
 	// AgentPRs is whether this project's agents push their own branch and
 	// open their own pull request when they finish. Off by default: a push
 	// publishes, with the user's GitHub token.
@@ -384,6 +389,9 @@ type UpdateProjectRequest struct {
 	// daemon of their own, inside their own container. It needs the base
 	// image built with Incus (Setup's image.components.incus).
 	Nesting *bool `json:"nesting,omitempty"`
+	// IOSForwardPorts replaces the ports this project's agents may forward
+	// to the Mac's localhost; an empty list allows none.
+	IOSForwardPorts *[]int `json:"iosForwardPorts,omitempty"`
 	// AgentPRs turns on or off whether this project's agents push their own
 	// branch and open their own pull request, in place of the lead.
 	AgentPRs *bool `json:"agentPRs,omitempty"`

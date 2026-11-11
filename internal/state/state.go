@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1634,6 +1635,10 @@ var migrations = []string{
 		created_at   INTEGER NOT NULL,
 		last_used_at INTEGER NOT NULL DEFAULT 0
 	)`,
+	// projects.ios_forward_ports are the ports its agents may forward to the
+	// Mac's localhost for the iOS Simulator, comma-separated: none until the
+	// user names them.
+	`ALTER TABLE projects ADD COLUMN ios_forward_ports TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1910,6 +1915,11 @@ type Project struct {
 	// them works, before it settles into the history by itself: 0 for
 	// DefaultSettleHours, below 0 for never (SettleAfter).
 	SettleHours int
+	// IOSForwardPorts are the ports this project's agents may forward to the
+	// Mac's localhost (agentbox ios forward), which the user names: a port
+	// there is the user's browser's localhost too, its cookies and sign-in
+	// callbacks included.
+	IOSForwardPorts []int
 	// FullTestSuite is whether this project's agents may run a whole test
 	// suite (`go test ./...`, a bare `npm test`) while the installation
 	// blocks them (SettingBlockFullSuite); it means nothing otherwise.
@@ -2164,7 +2174,7 @@ func (s *Store) SetProjectAgentDefaults(ctx context.Context, name string, d Proj
 	return err
 }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, gemini_account, settle_hours`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, gemini_account, settle_hours, ios_forward_ports`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -2252,11 +2262,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.GeminiAccount, p.SettleHours)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.GeminiAccount, p.SettleHours, joinPorts(p.IOSForwardPorts))
 	return err
 }
 
@@ -2373,16 +2383,17 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 	for rows.Next() {
 		var p Project
 		var created int64
-		var allowed, opencode string
+		var allowed, opencode, ports string
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &ports, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
 		p.ClaudeAccounts = splitAccounts(allowed)
 		p.OpenCodeAccounts = ParseAccountMap(opencode)
+		p.IOSForwardPorts = splitPorts(ports)
 		projects = append(projects, p)
 	}
 	return projects, rows.Err()
@@ -2752,6 +2763,37 @@ func (s *Store) SetProjectNesting(ctx context.Context, name string, on bool) err
 	return nil
 }
 
+// SetProjectIOSForwardPorts sets the ports this project's agents may forward
+// to the Mac's localhost.
+func (s *Store) SetProjectIOSForwardPorts(ctx context.Context, name string, ports []int) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET ios_forward_ports = ? WHERE name = ?`, joinPorts(ports), name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+func joinPorts(ports []int) string {
+	parts := make([]string, len(ports))
+	for i, p := range ports {
+		parts[i] = strconv.Itoa(p)
+	}
+	return strings.Join(parts, ",")
+}
+
+func splitPorts(s string) []int {
+	var ports []int
+	for _, f := range strings.Split(s, ",") {
+		if p, err := strconv.Atoi(strings.TrimSpace(f)); err == nil {
+			ports = append(ports, p)
+		}
+	}
+	return ports
+}
+
 // SetProjectFullTestSuite sets whether this project's agents may run a whole
 // test suite while the installation blocks them.
 func (s *Store) SetProjectFullTestSuite(ctx context.Context, name string, on bool) error {
@@ -2934,14 +2976,15 @@ func (s *Store) SetProjectConsolidationModel(ctx context.Context, name, model st
 func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Project, error) {
 	var p Project
 	var created int64
-	var allowed, opencode string
+	var allowed, opencode, ports string
 	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.GeminiAccount, &p.SettleHours, &ports, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
+	p.IOSForwardPorts = splitPorts(ports)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound
 	}

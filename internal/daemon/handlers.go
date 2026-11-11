@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -63,12 +64,19 @@ func (s *Server) projectSettings(ctx context.Context, p state.Project) api.Proje
 		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, SettleHours: int(p.SettleAfter() / time.Hour), FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, IOSForwardPorts: nonNilPorts(p.IOSForwardPorts), AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, SettleHours: int(p.SettleAfter() / time.Hour), FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
 	}
 	return info
+}
+
+func nonNilPorts(ports []int) []int {
+	if ports == nil {
+		return []int{}
+	}
+	return ports
 }
 
 // nonNil keeps an empty list a list in JSON, which the app's types promise.
@@ -496,6 +504,20 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		p.Nesting = *req.Nesting
+	}
+	if req.IOSForwardPorts != nil {
+		ports := slices.Clone(*req.IOSForwardPorts)
+		slices.Sort(ports)
+		ports = slices.Compact(ports)
+		for _, port := range ports {
+			if port < 1024 || port > 65535 {
+				return fmt.Errorf("%d isn't a port the Mac can forward: use 1024 to 65535", port)
+			}
+		}
+		if err := s.store.SetProjectIOSForwardPorts(r.Context(), p.Name, ports); err != nil {
+			return err
+		}
+		p.IOSForwardPorts = ports
 	}
 	if req.AgentPRs != nil {
 		if err := s.store.SetProjectAgentPRs(r.Context(), p.Name, *req.AgentPRs); err != nil {

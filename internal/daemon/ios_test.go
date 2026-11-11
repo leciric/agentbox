@@ -203,6 +203,17 @@ func TestIOSForwardKeepsARunningAgentsPort(t *testing.T) {
 	forward := func(a state.Agent) ([]api.IOSForward, error) {
 		return d.client.ForwardIOS(ctx, a.Ref(), api.IOSForwardRequest{Ports: []int{port}})
 	}
+	// None until the user names them, and only those.
+	if _, err := forward(stopped); err == nil || !strings.Contains(err.Error(), "it allows none") {
+		t.Fatalf("a port the project doesn't allow was forwarded: %v", err)
+	}
+	if _, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", []int{port, 80}); err == nil {
+		t.Error("the project allowed port 80")
+	}
+	p, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", []int{port, port})
+	if err != nil || len(p.IOSForwardPorts) != 1 || p.IOSForwardPorts[0] != port {
+		t.Fatalf("the project's ports = %v, %v", p.IOSForwardPorts, err)
+	}
 	if _, err := forward(stopped); err != nil {
 		t.Fatal(err)
 	}
