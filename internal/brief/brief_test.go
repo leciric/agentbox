@@ -847,6 +847,28 @@ func TestRenderLeadShellByHost(t *testing.T) {
 	}
 }
 
+// An iOS project's lead on a Mac knows its agents drive the Mac's iOS
+// Simulator, so it creates one instead of sending the user to the Mac.
+func TestRenderLeadIOS(t *testing.T) {
+	render := func(ios bool) string {
+		t.Helper()
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/Users/dev/pawly", Worktree: "/w", BaseRef: "main",
+			Autonomy: "ask", CanSpawn: true, VM: true, Host: "a Mac", IOS: ios,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := render(false); strings.Contains(got, "iOS Simulator") {
+		t.Errorf("a project with no iOS app gets the iOS Simulator:\n%s", got)
+	}
+	if got := render(true); !strings.Contains(got, "so a job that needs it is an agent's") {
+		t.Errorf("an iOS project's lead isn't told agents drive the simulator:\n%s", got)
+	}
+}
+
 // The recheck is only in the lead's brief when it's on, and comes with its
 // one hard rule; nothing speaks of a queue or slots, which are gone.
 func TestRenderLeadRecheck(t *testing.T) {

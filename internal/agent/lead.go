@@ -17,6 +17,7 @@ import (
 	"agentbox/internal/brief"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
+	"agentbox/internal/iossim"
 	"agentbox/internal/memory"
 	"agentbox/internal/notes"
 	"agentbox/internal/opencode"
@@ -541,6 +542,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		PRWatch:              prWatch,
 		VM:                   hostos.InVM(),
 		Host:                 hostos.Name(),
+		IOS:                  hostos.OS() == "darwin" && iossim.IsProject(a.Worktree),
 		Project:              a.Project,
 		ProjectName:          p.DisplayName,
 		Root:                 root,

@@ -208,6 +208,9 @@ type LeadData struct {
 	// the Mac's home through Lima's mount (D92).
 	VM   bool
 	Host string
+	// IOS is Data's: the project builds an iOS app and the user's computer is
+	// a Mac, whose iOS Simulator its agents drive, though the lead can't.
+	IOS bool
 	// Notes are the project's notes, the same ones its agents are given.
 	Notes string
 	// PRWatch is whether AgentBox watches this project's agents' pull
