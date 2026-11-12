@@ -1265,6 +1265,17 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
             json(StatusCode::OK, &c)
         }
         // The jobs the fake agents' creation and a snapshot ran (the Jobs page).
+        // A daemon of FAKE_VERSION with nothing newer to offer.
+        (&Method::GET, ["v1", "update"]) if std::env::var_os("FAKE_VERSION").is_some() => json(
+            StatusCode::OK,
+            &UpdateStatus {
+                current: std::env::var("FAKE_VERSION").unwrap_or_default(),
+                enabled: true,
+                channel: "stable".into(),
+                checked_at: Some(now()),
+                ..Default::default()
+            },
+        ),
         (&Method::GET, ["v1", "jobs"]) => json(StatusCode::OK, &fake_jobs()),
         // As the daemon does: it answers, then goes.
         (&Method::POST, ["v1", "shutdown"]) if fake.opts.upstream.is_none() => {

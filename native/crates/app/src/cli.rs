@@ -116,7 +116,7 @@ pub fn keep_current(
             return Ok(Kept::Left(theirs));
         }
         write(bundled.cli, &dst)?;
-        write(ME.as_bytes(), &dir.join(OWNER))?;
+        std::fs::write(dir.join(OWNER), ME)?;
         kept = Kept::Written;
     }
     if let Some(linux) = bundled.linux {
