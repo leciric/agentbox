@@ -60,13 +60,13 @@ export function DiffTable({ path, lines, tokens }: { path: string; lines: DiffLi
   const noted = (line: DiffLine) => open.some((n) => inNote(line, n));
   const columns = notes ? 5 : 4;
 
-  let code = 0;
+  const codeLine = { n: 0 };
   return (
     <table className={cn('w-full border-collapse font-mono text-caption leading-[1.55]', drag && 'select-none')}>
       <tbody>
         {lines.map((line, i) => {
           const lineIsCode = isCode(line);
-          const lineTokens = lineIsCode ? tokens?.[code++] : undefined;
+          const lineTokens = lineIsCode ? tokens?.[codeLine.n++] : undefined;
           const lit = swept(i) || (composing && inNote(line, composing));
           const marked = !lit && noted(line);
           return [
@@ -165,12 +165,12 @@ export function useHighlighted(lines: DiffLine[] | null, lang: string | undefine
   const [out, setOut] = useState<{ code: string; look: string; tokens: ThemedToken[][] } | null>(null);
   useEffect(() => {
     if (!lang || code === undefined) return;
-    let current = true;
+    const run = { current: true };
     highlight(code, lang)
-      .then((tokens) => current && setOut({ code, look, tokens }))
+      .then((tokens) => run.current && setOut({ code, look, tokens }))
       .catch(() => {});
     return () => {
-      current = false;
+      run.current = false;
     };
   }, [code, lang, look]);
   return out && out.code === code && out.look === look ? out.tokens : null;

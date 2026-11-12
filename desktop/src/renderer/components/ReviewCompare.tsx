@@ -246,8 +246,8 @@ export function usePicSize(item: T.MediaItem): Size | undefined {
   const { kind } = item;
   useEffect(() => {
     if (!url) return;
-    let live = true;
-    const found = (w: number, h: number) => live && w > 0 && h > 0 && setLoaded({ url, size: { w, h } });
+    const run = { live: true };
+    const found = (w: number, h: number) => run.live && w > 0 && h > 0 && setLoaded({ url, size: { w, h } });
     if (kind === 'recording') {
       const v = document.createElement('video');
       v.preload = 'metadata';
@@ -255,7 +255,7 @@ export function usePicSize(item: T.MediaItem): Size | undefined {
       v.onloadedmetadata = () => found(v.videoWidth, v.videoHeight);
       v.src = url;
       return () => {
-        live = false;
+        run.live = false;
         v.removeAttribute('src');
         v.load();
       };
@@ -264,7 +264,7 @@ export function usePicSize(item: T.MediaItem): Size | undefined {
     img.onload = () => found(img.naturalWidth, img.naturalHeight);
     img.src = url;
     return () => {
-      live = false;
+      run.live = false;
     };
   }, [url, kind]);
   return (loaded?.url === url ? loaded.size : undefined) ?? known;
@@ -318,16 +318,16 @@ function useDifference(pair: Pair, on: boolean): Difference {
     if (!on) return;
     const known = differences.get(key);
     if (known) return setD(known);
-    let live = true;
+    const run = { live: true };
     setD({ status: 'working' });
     void diffPair(pair)
       .catch((err): Difference => ({ status: 'failed', error: errorMessage(err) }))
       .then((result) => {
         if (result.status !== 'failed') differences.set(key, result);
-        if (live) setD(result);
+        if (run.live) setD(result);
       });
     return () => {
-      live = false;
+      run.live = false;
     };
     // The pair is the key's.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -287,14 +287,14 @@ function PageFrame({ html, network, large, zoom = 1, onProblem }: { html: string
   const latest = useRef({ theme, zoom, onProblem });
   latest.current = { theme, zoom, onProblem };
   useEffect(() => {
-    let current = true;
+    const run = { current: true };
     setLoaded(false);
     window.agentbox.renderUrl(doc, network).then(
-      (url) => current && setSrc({ doc, network, url, theme: latest.current.theme }),
-      () => current && setSrc({ doc, network, url: null, theme: latest.current.theme }),
+      (url) => run.current && setSrc({ doc, network, url, theme: latest.current.theme }),
+      () => run.current && setSrc({ doc, network, url: null, theme: latest.current.theme }),
     );
     return () => {
-      current = false;
+      run.current = false;
     };
   }, [doc, network]);
   const tell = () => {

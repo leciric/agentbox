@@ -462,19 +462,19 @@ function VideoStill({ item }: { item: T.MediaItem }) {
   useEffect(() => {
     const el = ref.current;
     if (still || broken || !el) return;
-    let loading: AbortController | undefined;
+    const pending: { ctl?: AbortController } = {};
     const seen = new IntersectionObserver(
       ([entry]) => {
-        if (entry?.isIntersecting && !loading) {
+        if (entry?.isIntersecting && !pending.ctl) {
           const ctl = new AbortController();
-          loading = ctl;
+          pending.ctl = ctl;
           videoStill(id, mediaUrl({ id }), ctl.signal).then(setStill, (err: unknown) => {
             if (err instanceof Unplayable) setBroken(true);
-            if (loading === ctl) loading = undefined;
+            if (pending.ctl === ctl) pending.ctl = undefined;
           });
-        } else if (!entry?.isIntersecting && loading) {
-          loading.abort();
-          loading = undefined;
+        } else if (!entry?.isIntersecting && pending.ctl) {
+          pending.ctl.abort();
+          pending.ctl = undefined;
         }
       },
       { rootMargin: '400px' },
@@ -482,7 +482,7 @@ function VideoStill({ item }: { item: T.MediaItem }) {
     seen.observe(el);
     return () => {
       seen.disconnect();
-      loading?.abort();
+      pending.ctl?.abort();
     };
   }, [id, still, broken]);
   if (broken) {
