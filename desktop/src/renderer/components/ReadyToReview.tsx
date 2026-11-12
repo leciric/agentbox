@@ -266,13 +266,16 @@ function ReviewCarousel({
     queryKey: past ? ['media', item.ref, 'past'] : ['media', item.ref],
     queryFn: () => (past ? api.projectMedia(item.project, item.agent) : api.media(item.ref)),
   });
-  // Its final report, on top: the Work page has it; opened elsewhere it's read.
+  // Its final report, on top. The Work page's rows carry only its status
+  // (lib/work.ts workQuery), which says whether there is one to read; work
+  // listed in full has it, and opened elsewhere it's read.
+  const listed = work?.report?.summary ? work.report : undefined;
   const reports = useQuery({
     queryKey: ['memory', item.project, 'reports', item.agent],
     queryFn: () => api.memoryReports(item.project, item.agent),
-    enabled: !work,
+    enabled: !listed && (!work || !!work.report),
   });
-  const report = work ? work.report : reports.data?.[0];
+  const report = listed ?? reports.data?.[0];
   // Merge, Mark reviewed and Request changes are verdicts on work that
   // waits for one; anything else is only looked at.
   const awaiting = work ? work.status === 'review' : awaitingReview(item);
