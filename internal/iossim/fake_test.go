@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -90,6 +91,9 @@ type fakeSimhost struct {
 	out      *io.PipeWriter
 	opSeen   chan op
 	stopped  chan struct{}
+	// answer replies to ops with an id (tree, hit, scroll, sync), as
+	// simhost would; nil answers none.
+	answer func(o map[string]any) any
 }
 
 func newFakeSimhost() *fakeSimhost {
@@ -107,7 +111,18 @@ func (f *fakeSimhost) launch(ctx context.Context, udid string) (*Proc, error) {
 	f.mu.Unlock()
 	go func() {
 		sc := bufio.NewScanner(inR)
+		sc.Buffer(nil, 1<<20)
 		for sc.Scan() {
+			var raw map[string]any
+			if json.Unmarshal(sc.Bytes(), &raw) == nil && raw["id"] != nil {
+				f.mu.Lock()
+				answer := f.answer
+				f.mu.Unlock()
+				if answer != nil {
+					f.reply(outW, raw["id"], answer(raw))
+				}
+				continue
+			}
 			var o op
 			if json.Unmarshal(sc.Bytes(), &o) == nil {
 				f.mu.Lock()
@@ -127,6 +142,21 @@ func (f *fakeSimhost) launch(ctx context.Context, udid string) (*Proc, error) {
 		return nil
 	}
 	return &Proc{Stdin: inW, Stdout: outR, Done: done, Stop: stop}, nil
+}
+
+func (f *fakeSimhost) reply(w io.Writer, id, body any) {
+	data, _ := json.Marshal(body)
+	var m map[string]any
+	_ = json.Unmarshal(data, &m)
+	if m == nil {
+		m = map[string]any{}
+	}
+	m["id"] = id
+	payload, _ := json.Marshal(m)
+	head := make([]byte, 5)
+	binary.BigEndian.PutUint32(head, uint32(len(payload)+1))
+	head[4] = kindReply
+	_, _ = w.Write(append(head, payload...)) // one Write a frame: io.Pipe keeps them whole
 }
 
 func (f *fakeSimhost) write(t *testing.T, kind byte, payload []byte) {
@@ -201,4 +231,11 @@ func appDir(t *testing.T, root, rel string) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// opsSoFar are the ops without an id simhost has had.
+func (f *fakeSimhost) opsSoFar() []op {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.ops)
 }

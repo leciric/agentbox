@@ -189,3 +189,71 @@ func (s Simctl) Screenshot(ctx context.Context, udid string) ([]byte, error) {
 	}
 	return os.ReadFile(file)
 }
+
+// Apps are the apps the user installed on a simulator, development builds
+// (Expo's dev client) marked with the URL that opens one on a Metro.
+func (s Simctl) Apps(ctx context.Context, udid string) ([]api.IOSApp, error) {
+	out, err := s.simctl(ctx, nil, "listapps", udid)
+	if err != nil {
+		return nil, err
+	}
+	var listed map[string]struct {
+		DisplayName string `json:"CFBundleDisplayName"`
+		Name        string `json:"CFBundleName"`
+		Type        string `json:"ApplicationType"`
+		Path        string `json:"Path"`
+	}
+	if err := s.plist(ctx, out, &listed); err != nil {
+		return nil, fmt.Errorf("reading simctl listapps: %w", err)
+	}
+	apps := []api.IOSApp{}
+	for id, a := range listed {
+		if a.Type != "User" {
+			continue
+		}
+		app := api.IOSApp{BundleID: id, Name: cmpOr(a.DisplayName, a.Name)}
+		if a.Path != "" {
+			if _, err := os.Stat(filepath.Join(a.Path, "EXDevLauncher.bundle")); err == nil {
+				app.DevClient = true
+				app.OpenURL = s.devClientURL(ctx, a.Path)
+			}
+		}
+		apps = append(apps, app)
+	}
+	sort.Slice(apps, func(i, j int) bool { return apps[i].BundleID < apps[j].BundleID })
+	return apps, nil
+}
+
+// devClientURL is the link that opens a dev client on a Metro at
+// localhost:<port>, from the exp+ scheme in its Info.plist.
+func (s Simctl) devClientURL(ctx context.Context, app string) string {
+	data, err := os.ReadFile(filepath.Join(app, "Info.plist"))
+	if err != nil {
+		return ""
+	}
+	var info struct {
+		URLTypes []struct {
+			Schemes []string `json:"CFBundleURLSchemes"`
+		} `json:"CFBundleURLTypes"`
+	}
+	if s.plist(ctx, data, &info) != nil {
+		return ""
+	}
+	for _, t := range info.URLTypes {
+		for _, scheme := range t.Schemes {
+			if strings.HasPrefix(scheme, "exp+") {
+				return scheme + "://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<port>"
+			}
+		}
+	}
+	return ""
+}
+
+// plist decodes a property list, in any of its formats, as JSON would.
+func (s Simctl) plist(ctx context.Context, data []byte, out any) error {
+	j, err := s.Run(ctx, bytes.NewReader(data), "plutil", "-convert", "json", "-o", "-", "-")
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(j, out)
+}

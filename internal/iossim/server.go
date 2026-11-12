@@ -105,6 +105,10 @@ func (s *Server) Handler() http.Handler {
 	h("POST /v1/devices/{udid}/launch", s.device(s.launch))
 	h("POST /v1/devices/{udid}/openurl", s.device(s.openURL))
 	h("POST /v1/devices/{udid}/input", s.device(s.input))
+	h("POST /v1/devices/{udid}/ui", s.device(s.ui))
+	h("GET /v1/devices/{udid}/apps", s.device(func(r *http.Request, udid string) (any, error) {
+		return s.Simctl.Apps(r.Context(), udid)
+	}))
 	h("GET /v1/devices/{udid}/screenshot", s.screenshot)
 	h("GET /v1/devices/{udid}/view", s.view)
 	h("GET /v1/forwards", func(w http.ResponseWriter, r *http.Request) error {
@@ -272,6 +276,8 @@ func (s *Server) input(r *http.Request, udid string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	h.acting.Lock()
+	defer h.acting.Unlock()
 	return nil, s.apply(r.Context(), h, in)
 }
 
@@ -342,6 +348,14 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) error {
 	}
 	go func() {
 		defer cancel()
+		// The user's finger holds the simulator from down to up, so an
+		// agent's tap doesn't land in the middle of their drag.
+		holding := false
+		defer func() {
+			if holding {
+				h.acting.Unlock()
+			}
+		}()
 		for {
 			typ, data, err := conn.Read(ctx)
 			if err != nil {
@@ -359,10 +373,19 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) error {
 				continue
 			}
 			planned, steps, err := fromViewer(in)
+			touch := planned != nil && planned.Type == "touch"
+			if !holding {
+				h.acting.Lock()
+				holding = true
+			}
 			if err == nil && planned != nil {
 				err = s.apply(ctx, h, *planned)
 			} else if err == nil {
 				err = h.run(ctx, steps)
+			}
+			if !touch || planned.Phase == "up" {
+				h.acting.Unlock()
+				holding = false
 			}
 			// A key the simulator doesn't know is no reason to stop watching.
 			if err != nil && ctx.Err() == nil {
@@ -381,6 +404,216 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) error {
 			return nil
 		case <-ctx.Done():
 			return nil
+		}
+	}
+}
+
+// ui reads a simulator's screen, or acts on it and says what changed. An
+// action holds the simulator from its first input until the screen settles,
+// so another agent's or the user's input doesn't land in between.
+func (s *Server) ui(r *http.Request, udid string) (any, error) {
+	var req api.IOSUIRequest
+	if err := readJSON(r, &req); err != nil {
+		return nil, err
+	}
+	ctx := r.Context()
+	h, err := s.hosts.get(ctx, udid)
+	if err != nil {
+		return nil, err
+	}
+	read := func(ctx context.Context) (*snapshot, error) {
+		var t axTree
+		if err := h.request(ctx, map[string]any{"op": "tree"}, 10*time.Second, &t); err != nil {
+			return nil, fmt.Errorf("reading the screen: %w", err)
+		}
+		return newSnapshot(t), nil
+	}
+	hit := func(ctx context.Context, points [][2]float64) ([]*axElement, error) {
+		var out struct {
+			Hits []*axElement `json:"hits"`
+		}
+		err := h.request(ctx, map[string]any{"op": "hit", "points": points}, 5*time.Second+time.Duration(len(points))*50*time.Millisecond, &out)
+		return out.Hits, err
+	}
+	checked := func(ctx context.Context) (*snapshot, error) {
+		snap, err := read(ctx)
+		if err == nil {
+			err = snap.check(ctx, hit)
+		}
+		return snap, err
+	}
+	result := func(snap *snapshot, text string) (any, error) {
+		return api.IOSUIResult{Screen: snap.title, Text: text}, nil
+	}
+	switch req.Action {
+	case "":
+		snap, err := read(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := snap.check(ctx, hit); err != nil {
+			return result(snap, snap.render(req.All)+"(couldn't check what a tap reaches: "+err.Error()+")\n")
+		}
+		return result(snap, snap.render(req.All))
+	case "wait":
+		return s.uiWait(ctx, req, read, hit)
+	case "tap", "type", "scroll-to":
+	default:
+		return nil, badRequest("unknown action %q: use tap, type, scroll-to or wait", req.Action)
+	}
+	h.acting.Lock()
+	defer h.acting.Unlock()
+	before, err := checked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var target *uiElement
+	if req.Target != "" {
+		if target, err = before.findTarget(req.Target, req.Near, req.Action == "type"); err != nil {
+			return nil, badRequest("%v", err)
+		}
+	}
+	tap := func(e *uiElement) error {
+		if err := e.reachable(req.Target, req.Force); err != nil {
+			return badRequest("%v", err)
+		}
+		x, y := e.tapPoint()
+		return s.apply(ctx, h, api.IOSInput{Type: "tap", X: x / before.screen.w, Y: y / before.screen.h})
+	}
+	did := ""
+	switch req.Action {
+	case "tap":
+		if target == nil {
+			return nil, badRequest("say what to tap: id:<id> or its label")
+		}
+		did = "Tapped " + before.line(target, false) + "\n"
+		err = tap(target)
+	case "type":
+		if target != nil {
+			if err = tap(target); err == nil {
+				err = s.uiSync(ctx, h)
+			}
+			if err == nil {
+				err = focused(ctx, read, before, target)
+			}
+			if err == nil { // a tap into a field may select a word, which the text would replace
+				err = s.apply(ctx, h, api.IOSInput{Type: "key", Key: "down", Modifiers: []string{"command"}})
+			}
+		}
+		if err == nil {
+			err = s.apply(ctx, h, api.IOSInput{Type: "text", Text: req.Text})
+		}
+	case "scroll-to":
+		if target == nil {
+			return nil, badRequest("say what to scroll to: id:<id> or its label")
+		}
+		if target.where == onScreen && target.tappable {
+			return result(before, fmt.Sprintf("%s is already on the screen\n", before.line(target, false)))
+		}
+		err = h.request(ctx, map[string]any{"op": "scroll", "index": target.index, "identifier": target.Identifier, "label": target.axElement.Label}, 5*time.Second, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := s.uiSync(ctx, h); err != nil {
+		return nil, err
+	}
+	after, changed, moving, err := settle(ctx, read, before)
+	if err != nil {
+		return nil, err
+	}
+	full := func() string {
+		if err := after.check(ctx, hit); err != nil {
+			return after.render(false) + "(couldn't check what's covered: " + err.Error() + ")\n"
+		}
+		return after.render(false)
+	}
+	text := did + change(before, after, changed, moving, full)
+	if req.Action == "scroll-to" {
+		if err := after.check(ctx, hit); err == nil {
+			if e, err := after.findTarget(req.Target, req.Near, false); err == nil {
+				if e.where == onScreen && e.tappable {
+					text = after.line(e, false) + " is on the screen now\n"
+				} else {
+					text = after.line(e, false) + ": scrolling didn't bring it fully into view; take a screenshot\n"
+				}
+			}
+		}
+	}
+	return result(after, text)
+}
+
+// uiSync waits until the input sent so far has reached the simulator.
+func (s *Server) uiSync(ctx context.Context, h *host) error {
+	return h.request(ctx, map[string]any{"op": "sync"}, 5*time.Second, nil)
+}
+
+// uiWait reads the screen until the target is on it, or with Gone isn't.
+// focused waits for a field the agent tapped to type into to take the
+// keyboard's focus: text sent before it does loses its first characters.
+func focused(ctx context.Context, read func(context.Context) (*snapshot, error), before *snapshot, target *uiElement) error {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		snap, err := read(ctx)
+		if err != nil {
+			return err
+		}
+		for _, e := range snap.elements {
+			if e.Focused && (e.Identifier != "" && e.Identifier == target.Identifier || e.index == target.index && e.Role == target.Role) {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return badRequest("tapped %s but it didn't take the keyboard focus, so nothing was typed: agentbox ios tap it, then agentbox ios type without --into", before.line(target, false))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
+}
+
+func (s *Server) uiWait(ctx context.Context, req api.IOSUIRequest, read func(context.Context) (*snapshot, error), hit hitter) (any, error) {
+	timeout := time.Duration(req.TimeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	timeout = min(timeout, time.Minute)
+	deadline := time.Now().Add(timeout)
+	for {
+		snap, err := read(ctx)
+		if err != nil {
+			return nil, err
+		}
+		found, _ := snap.matches(strings.TrimSpace(req.Target), false, true)
+		var e *uiElement
+		for _, f := range found {
+			if f.where == onScreen {
+				e = f
+				break
+			}
+		}
+		present := e != nil
+		if present != req.Gone {
+			text := fmt.Sprintf("%q is gone\n", req.Target)
+			if present {
+				text = snap.line(e, false) + " is on the screen\n"
+			}
+			return api.IOSUIResult{Screen: snap.title, Text: text}, nil
+		}
+		if time.Now().After(deadline) {
+			what := "appear"
+			if req.Gone {
+				what = "go away"
+			}
+			_ = snap.check(ctx, hit) // best effort: without it the screen still reads
+			return nil, &httpError{code: http.StatusRequestTimeout, msg: fmt.Sprintf("%q didn't %s in %s. The screen now:\n%s", req.Target, what, timeout, strings.TrimRight(snap.render(false), "\n"))}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(400 * time.Millisecond):
 		}
 	}
 }

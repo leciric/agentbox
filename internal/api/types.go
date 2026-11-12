@@ -3916,6 +3916,42 @@ type IOSForward struct {
 // agent's servers then build their URLs from.
 const PreviewHeader = "X-AgentBox-Preview"
 
+// IOSUIRequest reads a simulator's screen through its accessibility tree,
+// or acts on an element of it. Action is empty to read it, "tap", "type"
+// (Text, into the text field Target names, if any), "scroll-to" (scroll
+// Target into view) or "wait" (until Target, an id:<id> or a label's text,
+// is on the screen, or with Gone isn't). Target is id:<identifier> or a
+// label; Near picks, among elements with the same label, the one nearest
+// an element whose label has that text.
+type IOSUIRequest struct {
+	Device    string `json:"device,omitempty"`
+	Action    string `json:"action,omitempty"`
+	Target    string `json:"target,omitempty"`
+	Near      string `json:"near,omitempty"`
+	Text      string `json:"text,omitempty"`
+	Gone      bool   `json:"gone,omitempty"`
+	TimeoutMS int    `json:"timeoutMs,omitempty"`
+	// Force taps an element the hit-test couldn't confirm a tap lands on.
+	Force bool `json:"force,omitempty"`
+	// All lists every element, off the screen too.
+	All bool `json:"all,omitempty"`
+}
+
+// IOSUIResult is the screen, or what an action did to it, as text to print.
+type IOSUIResult struct {
+	Screen string `json:"screen"`
+	Text   string `json:"text"`
+}
+
+// IOSApp is an app installed on a simulator. A development build (Expo's
+// dev client) opens the agent's Metro with OpenURL.
+type IOSApp struct {
+	BundleID  string `json:"bundleId"`
+	Name      string `json:"name"`
+	DevClient bool   `json:"devClient,omitempty"`
+	OpenURL   string `json:"openUrl,omitempty"` // with <port> for Metro's
+}
+
 // IOSResult is what a simulator command printed, when it printed anything.
 type IOSResult struct {
 	Output string `json:"output,omitempty"`
