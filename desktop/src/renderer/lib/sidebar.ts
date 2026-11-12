@@ -227,9 +227,9 @@ export function sectionsAside(lists: SidebarList[], aside: ReadonlySet<string>):
 // section a step passes the next project shown (not one shown elsewhere),
 // and past its end or its top goes into the next section or the one before;
 // down past the last section is out of any. The projects in no section have
-// no order of their own in v2, so from there the only step is up, to the end
+// no order of their own in v2 (unless manual: the rest are in the user's), so from there the only step is up, to the end
 // of the last section.
-export function stepTarget(shown: SidebarList[], name: string, delta: -1 | 1): DropTarget | null {
+export function stepTarget(shown: SidebarList[], name: string, delta: -1 | 1, manual = false): DropTarget | null {
   const at = locate(shown, name);
   if (!at) return null;
   const [i, j] = at;
@@ -237,6 +237,12 @@ export function stepTarget(shown: SidebarList[], name: string, delta: -1 | 1): D
   if (shown[i].section) {
     const next = shown[i].projects[j + delta];
     if (next) return { kind: 'project', name: next.name, edge: delta === -1 ? 'before' : 'after' };
+  } else if (manual) {
+    // The rest have an order of their own: a step passes the next one, and
+    // up past the top is the end of the last section, as before.
+    const next = shown[i].projects[j + delta];
+    if (next) return { kind: 'project', name: next.name, edge: delta === -1 ? 'before' : 'after' };
+    if (delta === 1) return null;
   } else if (delta === 1) return null;
   const k = shown[i].section ? sections.indexOf(shown[i]) + delta : sections.length - 1;
   if (k >= sections.length) return { kind: 'list', section: null };
