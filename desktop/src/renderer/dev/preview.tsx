@@ -1421,12 +1421,9 @@ function LimitedChatPreview({ agent }: { agent: T.Agent }) {
         createdAt: now,
         updatedAt: now,
       };
-      let session: T.ChatSession = { state: 'ready', tool: 'claude', options: [], commands: [] };
-      queryClient.setQueryData<T.ChatThread>(['chat', limitedRef], (thread) => {
-        if (!thread) return thread;
-        session = { ...thread.session, limited: false, limitedUntil: undefined, resumeAt: undefined };
-        return { ...thread, session, items: [...thread.items, notice] };
-      });
+      const before = queryClient.getQueryData<T.ChatThread>(['chat', limitedRef]);
+      const session: T.ChatSession = before ? { ...before.session, limited: false, limitedUntil: undefined, resumeAt: undefined } : { state: 'ready', tool: 'claude', options: [], commands: [] };
+      if (before) queryClient.setQueryData<T.ChatThread>(['chat', limitedRef], { ...before, session, items: [...before.items, notice] });
       queryClient.setQueryData<T.LeadRunners>(['agentRunners', limitedRef], (r) => r && { ...r, account: req.account });
       return session;
     };

@@ -116,10 +116,10 @@ function usePlayhead(track: Track, start?: number) {
   const length = track.length;
   useEffect(() => {
     if (!playing) return;
-    let last = performance.now();
-    let raf = requestAnimationFrame(function tick(now) {
-      const dt = (now - last) / 1000;
-      last = now;
+    const clock = { last: performance.now() };
+    const frame = { id: requestAnimationFrame(function tick(now) {
+      const dt = (now - clock.last) / 1000;
+      clock.last = now;
       if (!driven.current) {
         setX((v) => {
           const next = v + dt * skim;
@@ -127,9 +127,9 @@ function usePlayhead(track: Track, start?: number) {
           return Math.min(next, length);
         });
       }
-      raf = requestAnimationFrame(tick);
-    });
-    return () => cancelAnimationFrame(raf);
+      frame.id = requestAnimationFrame(tick);
+    }) };
+    return () => cancelAnimationFrame(frame.id);
   }, [playing, length]);
   const play = (on: boolean) => {
     if (on && x >= length) setX(0);

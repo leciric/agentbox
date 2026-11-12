@@ -19,14 +19,14 @@ export function CodeBlock({ code, language, actions }: { code: string; language?
   // Waits for a pause, so a block that's still streaming isn't highlighted on every chunk.
   useEffect(() => {
     if (!lang) return;
-    let current = true;
+    const run = { current: true };
     const timer = setTimeout(() => {
       highlight(code, lang)
-        .then((tokens) => current && setHighlighted({ code, mode, tokens }))
+        .then((tokens) => run.current && setHighlighted({ code, mode, tokens }))
         .catch(() => {});
     }, 150);
     return () => {
-      current = false;
+      run.current = false;
       clearTimeout(timer);
     };
   }, [code, lang, mode]);
