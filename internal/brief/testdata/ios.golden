@@ -85,5 +85,5 @@ The Mac runs the iOS Simulator, shown in AgentBox's iOS tab: `agentbox ios open`
 You can't build for iOS here (no Xcode), but a dev build already on the simulator (React Native, Expo) runs your code: start
 Metro and your API here (ports already allowed: 5236, 8081; others wait for the user to allow them in the app),
 `agentbox ios forward <metro port> <api port>`, point the app's API at `http://localhost:<api port>`, and open it
-on `http://localhost:<metro port>` (Expo: `agentbox ios openurl "exp+<slug>://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<metro port>"`, `exp+<slug>` unless the app registers its own scheme for it).
+on `http://localhost:<metro port>` (Expo: `agentbox ios openurl "exp+<slug>://expo-development-client/?url=http%3A%2F%2Flocalhost%3A<metro port>"`, `exp+<slug>` from app.json, or its `scheme` when it sets one).
 The simulator reaches nothing else of yours: not your IP, not the preview proxy. An AgentBox update ends the forwards: forward again if the app stops loading. A native change needs a new build on the Mac: ask the user.

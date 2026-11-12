@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
@@ -284,5 +286,37 @@ func TestIOSForwardAsksTheUser(t *testing.T) {
 	}
 	if err := answer(ports[1], api.AnswerCredentialRequest{Refuse: true}); err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Errorf("the refused forward = %v", err)
+	}
+}
+
+// A helper that doesn't answer may still be forwarding the ports taken off
+// the list, so saving it fails; with no helper at all there is nothing to stop.
+func TestIOSPortsFailWhenTheHelperDoesntAnswer(t *testing.T) {
+	t.Setenv(hostos.Env, "darwin")
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+
+	d.srv.iosSim.client = iossim.NewClient(filepath.Join(t.TempDir(), "ios-helper.json"))
+	if _, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", nil); err != nil {
+		t.Errorf("with no helper, saving the ports = %v", err)
+	}
+
+	block := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
+	t.Cleanup(ts.Close)
+	t.Cleanup(func() { close(block) })
+	u, _ := url.Parse(ts.URL)
+	file := filepath.Join(t.TempDir(), "ios-helper.json")
+	data := fmt.Sprintf(`{"port":%s,"token":"token","pid":1,"version":"test","host":%q}`, u.Port(), u.Hostname())
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.iosSim.client = &iossim.Client{File: file, HTTP: &http.Client{Timeout: 100 * time.Millisecond}}
+	if _, err := d.client.SetIOSForwardPorts(ctx, "hello-stack", nil); err == nil {
+		t.Error("saving the ports succeeded though the helper didn't answer")
 	}
 }

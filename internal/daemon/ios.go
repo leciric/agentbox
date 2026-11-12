@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -405,17 +406,6 @@ func (s *Server) iosUnforward(a state.Agent) {
 	}()
 }
 
-func portList(ports []int) string {
-	if len(ports) == 0 {
-		return "none"
-	}
-	parts := make([]string, len(ports))
-	for i, p := range ports {
-		parts[i] = strconv.Itoa(p)
-	}
-	return strings.Join(parts, ", ")
-}
-
 // setIOSPorts changes the ports the project's agents may forward and stops
 // its forwards on ports no longer among them, under the lock forwards are
 // checked under: a forward meets the new list or is stopped, and two changes
@@ -441,7 +431,10 @@ func (s *Server) setIOSPorts(ctx context.Context, project string, change func(cu
 	defer cancel()
 	c := s.iosClient()
 	forwards, err := c.Forwards(ctx)
-	if errors.Is(err, iossim.ErrUnavailable) {
+	var timeout net.Error
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return err // a helper that doesn't answer in time may still be forwarding
+	} else if errors.Is(err, iossim.ErrUnavailable) {
 		return nil // no helper, no forwards
 	} else if err != nil {
 		return err

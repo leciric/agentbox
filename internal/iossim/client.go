@@ -74,7 +74,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) (*h
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: AgentBox's simulator helper on your Mac doesn't answer (%v): run any agentbox command on the Mac (agentbox vm start) to start it again", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: AgentBox's simulator helper on your Mac doesn't answer (%w): run any agentbox command on the Mac (agentbox vm start) to start it again", ErrUnavailable, err)
 	}
 	if resp.StatusCode >= 400 {
 		defer func() { _ = resp.Body.Close() }()

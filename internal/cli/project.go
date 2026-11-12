@@ -893,7 +893,7 @@ included, so agents get none until you name them:
 				p = projects[i]
 			} else {
 				ports := []int{}
-				if !(len(args) == 2 && args[1] == "none") {
+				if len(args) != 2 || args[1] != "none" {
 					for _, arg := range args[1:] {
 						port, err := strconv.Atoi(arg)
 						if err != nil {
