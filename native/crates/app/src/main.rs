@@ -12,6 +12,7 @@ mod app;
 mod bench;
 mod character;
 mod chat;
+mod cli;
 mod dates;
 #[cfg(feature = "video")]
 mod device;
@@ -31,6 +32,7 @@ mod quit;
 #[cfg(target_os = "linux")]
 mod snapshot;
 mod spot;
+mod staledaemon;
 mod terminal;
 mod theme;
 mod toasts;
@@ -73,6 +75,16 @@ fn main() {
                 println!("agentbox-native [--socket PATH] [--version]");
                 return;
             }
+            // The agentbox tool built into this app, written out as it is:
+            // native-package.sh checks every file it makes with it.
+            "--extract-cli" => {
+                let dir = std::path::PathBuf::from(args.next().expect("--extract-cli DIR"));
+                if let Err(e) = cli::extract(&dir) {
+                    quit::log(format_args!("agentbox-native: {e}"));
+                    std::process::exit(1);
+                }
+                return;
+            }
             // The version this build was stamped with (update.rs,
             // AGENTBOX_VERSION): native-package.sh checks it, so a nightly
             // can't ship a build that doesn't know its own version.
@@ -97,6 +109,11 @@ fn main() {
         quit::log(format_args!(
             "agentbox-native: restarted by an update, after the old version exited ({waited:.1?})"
         ));
+    }
+    // The daemon runs from the managed copy of the agentbox tool: this app's
+    // own, before anything looks for a daemon or starts one (cli.rs).
+    if let Some(line) = cli::keep_managed_current() {
+        quit::log(format_args!("{line}"));
     }
     let client = agentbox_api::Client::new(socket);
     webview::set_client(client.clone());

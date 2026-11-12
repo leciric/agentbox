@@ -13,6 +13,8 @@
 //! FAKE_MOODS=1 holds the agents in one of every state their cards' monitors act out
 //! (working, asking, failed, ready, stopped), on each tool that has a character.
 //! FAKE_IDLE=1 leaves no job running, which the update would wait for.
+//! FAKE_VERSION=<version> is what GET /v1/version says ("fake" otherwise), and
+//! POST /v1/shutdown stops it, for testing the app's restart of an older daemon.
 //! FAKE_UPDATE_DELAY=<seconds> holds GET /v1/update/release that long (the app's checking state).
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -967,7 +969,8 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         (&Method::GET, ["v1", "events"]) => events(fake.clone()).await,
         // On its own, it's the daemon too: up, and set up with defaults.
         (&Method::GET, ["v1", "version"]) if fake.opts.upstream.is_none() => {
-            json(StatusCode::OK, &serde_json::json!({ "version": "fake", "api": 1 }))
+            let version = std::env::var("FAKE_VERSION").unwrap_or_else(|_| "fake".into());
+            json(StatusCode::OK, &serde_json::json!({ "version": version, "api": 1 }))
         }
         // FAKE_APPEARANCE=light|dark|dracula picks the theme both apps wear.
         (&Method::GET, ["v1", "theme"]) if fake.opts.upstream.is_none() => {
@@ -1263,6 +1266,14 @@ async fn handle(fake: Arc<Fake>, req: Request<Incoming>) -> Result<Response<Body
         }
         // The jobs the fake agents' creation and a snapshot ran (the Jobs page).
         (&Method::GET, ["v1", "jobs"]) => json(StatusCode::OK, &fake_jobs()),
+        // As the daemon does: it answers, then goes.
+        (&Method::POST, ["v1", "shutdown"]) if fake.opts.upstream.is_none() => {
+            tokio::spawn(async {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                std::process::exit(0);
+            });
+            json(StatusCode::OK, &serde_json::json!({}))
+        }
         (&Method::GET, ["v1", "jobs", id, "log"]) => Response::builder()
             .header("content-type", "text/plain; charset=utf-8")
             .body(Full::new(Bytes::from(format!(

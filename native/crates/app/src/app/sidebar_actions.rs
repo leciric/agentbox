@@ -5,6 +5,7 @@
 //! headers and menus, project icons, and the foot with Media, Jobs and the
 //! update check. Pins are this computer's (prefs), as Electron keeps them in
 //! localStorage; hidden projects, sections and the order are the daemon's.
+use crate::cli::{comparable, newer};
 use agentbox_api::client::Method;
 use agentbox_api::{
     Project, ProjectIcon, ProjectLayout, Section, SectionProjects, SidebarLayout,
@@ -1494,10 +1495,14 @@ impl AppView {
             Some(Offered::DaemonBehind { daemon, app }) => (None, Some((daemon, app))),
             None => (None, None),
         };
-        // The daemon is older than this app, and only the CLI's own updater
-        // (the Electron app, or the CLI) can replace it: say how, with no
-        // button that installs nothing. Clicking copies the command.
-        if let Some((daemon, app)) = behind {
+        // A stale daemon's offer is for its own version, not this app's
+        // (SidebarV2.tsx): the notice over the page tells about it.
+        let offer = offer.filter(|_| self.stale.current().is_none());
+        // The daemon is older than this app, which has no tool of its own to
+        // restart it into (a build from a checkout): say how, with no button
+        // that installs nothing. Clicking copies the command. A packaged app
+        // restarts it itself (stale.rs).
+        if let Some((daemon, app)) = behind.filter(|_| !self.stale.tracks()) {
             let tip = tv(
                 "native.update.daemonBehind",
                 &[("daemon", daemon.into()), ("app", app.into())],
@@ -1836,8 +1841,9 @@ const DAEMON_STOP_COMMAND: &str = "agentbox daemon stop";
 pub(super) enum Offered {
     /// A release newer than this app, which its updater installs.
     App(String),
-    /// The daemon runs an older version than this app; this app can't
-    /// update it.
+    /// The daemon runs an older version than this app, and this build has
+    /// no agentbox tool of its own to restart it into (one from a checkout;
+    /// a packaged app restarts it itself, stale.rs).
     DaemonBehind { daemon: String, app: String },
 }
 
@@ -1850,16 +1856,6 @@ pub(super) fn offered_update(
     daemon: &str,
     available: Option<&str>,
 ) -> Option<Offered> {
-    // The app's build may spell a nightly 0.18.0.20261106.179.
-    fn comparable(v: &str) -> String {
-        let v = v.trim_start_matches('v');
-        let n: Vec<&str> = v.split('.').collect();
-        if !v.contains('-') && n.len() == 5 {
-            format!("{}.{}.{}-nightly.{}.{}", n[0], n[1], n[2], n[3], n[4])
-        } else {
-            v.to_string()
-        }
-    }
     let base = comparable(app.unwrap_or(daemon));
     if let Some(a) = available
         && newer(&comparable(a), &base)
@@ -1873,35 +1869,9 @@ pub(super) fn offered_update(
     })
 }
 
-/// newer is whether version a is past b (nightly.ts isUpgrade): their
-/// numbers compared in order, a prerelease before its release.
-pub(super) fn newer(a: &str, b: &str) -> bool {
-    fn parts(v: &str) -> (Vec<u64>, String) {
-        let v = v.trim_start_matches('v');
-        let (core, pre) = v.split_once('-').unwrap_or((v, ""));
-        (
-            core.split('.').map(|n| n.parse().unwrap_or(0)).collect(),
-            pre.to_string(),
-        )
-    }
-    if a.is_empty() || b.is_empty() {
-        return false;
-    }
-    let ((ca, pa), (cb, pb)) = (parts(a), parts(b));
-    match ca.cmp(&cb) {
-        std::cmp::Ordering::Greater => true,
-        std::cmp::Ordering::Less => false,
-        std::cmp::Ordering::Equal => match (pa.is_empty(), pb.is_empty()) {
-            (true, false) => true,
-            (false, false) => pa > pb,
-            _ => false,
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Offered, newer, offered_update, toggle};
+    use super::{Offered, offered_update, toggle};
 
     #[test]
     fn only_the_apps_own_update_gets_a_button() {
@@ -1937,19 +1907,6 @@ mod tests {
             Some(Offered::App(n.into()))
         );
         assert_eq!(offered_update(None, n, Some(n)), None);
-    }
-
-    #[test]
-    fn newer_compares_numbers_then_prereleases() {
-        assert!(newer("0.17.0", "0.16.3"));
-        assert!(newer("0.17.0", "0.17.0-nightly.20261030.156"));
-        assert!(newer(
-            "0.17.0-nightly.20261031.1",
-            "0.17.0-nightly.20261030.156"
-        ));
-        assert!(!newer("0.16.3", "0.17.0"));
-        assert!(!newer("0.17.0", "0.17.0"));
-        assert!(!newer("", "0.17.0"));
     }
 
     #[test]
