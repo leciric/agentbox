@@ -30,6 +30,7 @@ export interface Project {
   section: string;
   position: number;
   nesting: boolean;
+  iosForwardPorts: number[];
   agentPRs: boolean;
   prWatch: string;
   syncBase: boolean;
@@ -121,6 +122,7 @@ export interface UpdateProjectRequest {
   consolidation?: number;
   consolidationModel?: string;
   nesting?: boolean;
+  iosForwardPorts?: number[];
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
@@ -2218,6 +2220,7 @@ export interface Question {
   secretName?: string;
   connector?: string;
   url?: string;
+  ports?: number[];
   question: string;
   context?: string;
   status: string;
@@ -2253,6 +2256,7 @@ export interface AnswerCredentialRequest {
   connector?: string;
   refuse?: boolean;
   reason?: string;
+  allow?: boolean;
 }
 
 export interface AgentEvent {
@@ -4199,6 +4203,7 @@ export const AgentAsked = "asked";
 export const AgentAnswered = "answered";
 export const CredentialGitHub = "github";
 export const CredentialSecret = "secret";
+export const CredentialIOSPorts = "ios_ports";
 export const ClaudeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_PROFILE ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID ANTHROPIC_WORKSPACE_ID CLAUDE_CODE_OAUTH_REFRESH_TOKEN CLAUDE_CONFIG_DIR CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST CLAUDE_CODE_USE_BEDROCK AWS_BEARER_TOKEN_BEDROCK ANTHROPIC_BEDROCK_BASE_URL ANTHROPIC_BEDROCK_MANTLE_BASE_URL ANTHROPIC_AWS_API_KEY ANTHROPIC_AWS_BASE_URL CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_BASE_URL ANTHROPIC_VERTEX_PROJECT_ID CLAUDE_CODE_USE_FOUNDRY ANTHROPIC_FOUNDRY_API_KEY ANTHROPIC_FOUNDRY_AUTH_TOKEN ANTHROPIC_FOUNDRY_BASE_URL ANTHROPIC_FOUNDRY_RESOURCE";
 export const CodexCredentialVariables = "OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL CODEX_HOME";
 export const OpenCodeCredentialVariables = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL OPENROUTER_API_KEY GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY GROQ_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MISTRAL_API_KEY OPENCODE_API_KEY";

@@ -36,8 +36,9 @@ type Server struct {
 	Simctl  Simctl
 	// Roots are the directories apps may be installed from: the agents'
 	// worktrees, which the VM shares with the Mac at the same paths.
-	Roots []string
-	hosts *hosts
+	Roots    []string
+	hosts    *hosts
+	forwards *forwards
 
 	// The Xcode check, which runs two commands, for a moment: the app asks
 	// for the status every few seconds while its iOS view is open.
@@ -49,11 +50,15 @@ type Server struct {
 
 // NewServer makes the helper's API, starting simhosts with launch.
 func NewServer(token, version string, simctl Simctl, roots []string, launch Launcher) *Server {
-	return &Server{Token: token, Version: version, Simctl: simctl, Roots: roots, hosts: newHosts(launch, 2*time.Minute)}
+	return &Server{Token: token, Version: version, Simctl: simctl, Roots: roots, hosts: newHosts(launch, 2*time.Minute), forwards: newForwards("")}
 }
 
-// Run stops simhosts nothing uses, until ctx ends.
-func (s *Server) Run(ctx context.Context) { s.hosts.reap(ctx) }
+// Run stops simhosts nothing uses, until ctx ends, and then closes the
+// forwards.
+func (s *Server) Run(ctx context.Context) {
+	go s.forwards.closeAll(ctx)
+	s.hosts.reap(ctx)
+}
 
 type handler func(w http.ResponseWriter, r *http.Request) error
 
@@ -102,6 +107,12 @@ func (s *Server) Handler() http.Handler {
 	h("POST /v1/devices/{udid}/input", s.device(s.input))
 	h("GET /v1/devices/{udid}/screenshot", s.screenshot)
 	h("GET /v1/devices/{udid}/view", s.view)
+	h("GET /v1/forwards", func(w http.ResponseWriter, r *http.Request) error {
+		writeJSON(w, http.StatusOK, s.forwards.list())
+		return nil
+	})
+	h("POST /v1/forwards", s.forwardRoute(false))
+	h("POST /v1/forwards/stop", s.forwardRoute(true))
 	return s.auth(mux)
 }
 

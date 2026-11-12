@@ -74,7 +74,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) (*h
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: AgentBox's simulator helper on your Mac doesn't answer (%v): run any agentbox command on the Mac (agentbox vm start) to start it again", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: AgentBox's simulator helper on your Mac doesn't answer (%w): run any agentbox command on the Mac (agentbox vm start) to start it again", ErrUnavailable, err)
 	}
 	if resp.StatusCode >= 400 {
 		defer func() { _ = resp.Body.Close() }()
@@ -157,6 +157,22 @@ func (c *Client) OpenURL(ctx context.Context, udid, url string) error {
 func (c *Client) Input(ctx context.Context, udid string, in api.IOSInput) error {
 	in.Device = ""
 	return c.post(ctx, udid, "input", in, nil)
+}
+
+// Forward makes a port of the Mac's 127.0.0.1 go to an agent's, or with stop
+// gives it back (port 0: all of the agent's), and lists every forward.
+func (c *Client) Forward(ctx context.Context, req ForwardRequest, stop bool) ([]api.IOSForward, error) {
+	path := "/v1/forwards"
+	if stop {
+		path += "/stop"
+	}
+	var out []api.IOSForward
+	return out, c.do(ctx, http.MethodPost, path, req, &out)
+}
+
+func (c *Client) Forwards(ctx context.Context) ([]api.IOSForward, error) {
+	var out []api.IOSForward
+	return out, c.do(ctx, http.MethodGet, "/v1/forwards", nil, &out)
 }
 
 // Screenshot is a PNG of a simulator's screen.

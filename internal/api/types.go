@@ -139,6 +139,11 @@ type Project struct {
 	// touch agent machines for real. Off by default: it costs isolation, and
 	// needs the base image built with Incus.
 	Nesting bool `json:"nesting"`
+	// IOSForwardPorts are the ports this project's agents may forward to the
+	// Mac's localhost for the iOS Simulator (agentbox ios forward): none
+	// until the user names them, since such a port is their browser's
+	// localhost too.
+	IOSForwardPorts []int `json:"iosForwardPorts"`
 	// AgentPRs is whether this project's agents push their own branch and
 	// open their own pull request when they finish. Off by default: a push
 	// publishes, with the user's GitHub token.
@@ -384,6 +389,9 @@ type UpdateProjectRequest struct {
 	// daemon of their own, inside their own container. It needs the base
 	// image built with Incus (Setup's image.components.incus).
 	Nesting *bool `json:"nesting,omitempty"`
+	// IOSForwardPorts replaces the ports this project's agents may forward
+	// to the Mac's localhost; an empty list allows none.
+	IOSForwardPorts *[]int `json:"iosForwardPorts,omitempty"`
 	// AgentPRs turns on or off whether this project's agents push their own
 	// branch and open their own pull request, in place of the lead.
 	AgentPRs *bool `json:"agentPRs,omitempty"`
@@ -2381,6 +2389,9 @@ type Question struct {
 	// project's connector's, or the one the agent gave for a new one.
 	Connector    string `json:"connector,omitempty"`
 	ConnectorURL string `json:"url,omitempty"`
+	// Ports are the ports a CredentialIOSPorts request asks the user to let
+	// the project's agents forward to the Mac.
+	Ports []int `json:"ports,omitempty"`
 	// Question is what is asked; on a credential request, the agent's reason.
 	Question string `json:"question"`
 	Context  string `json:"context,omitempty"` // what the agent was doing
@@ -2408,6 +2419,10 @@ type AnswerQuestionRequest struct {
 const (
 	CredentialGitHub = "github"
 	CredentialSecret = "secret"
+	// CredentialIOSPorts is agentbox ios forward asking the user to let the
+	// project's agents forward Ports to the Mac's localhost, answered with
+	// Allow or a refusal.
+	CredentialIOSPorts = "ios_ports"
 )
 
 // CredentialRequest is an agent asking the user for a credential it lacks.
@@ -2438,6 +2453,8 @@ type AnswerCredentialRequest struct {
 	Connector     string `json:"connector,omitempty"`
 	Refuse        bool   `json:"refuse,omitempty"`
 	Reason        string `json:"reason,omitempty"` // why it was refused, for the agent
+	// Allow answers an iOS ports request: the ports join the project's.
+	Allow bool `json:"allow,omitempty"`
 }
 
 // EscalateQuestionRequest passes a question to the user.
@@ -3853,6 +3870,29 @@ type IOSOpenURLRequest struct {
 	Device string `json:"device,omitempty"`
 	URL    string `json:"url"`
 }
+
+// IOSForwardRequest makes ports of an agent's machine reach the Mac's
+// 127.0.0.1 at the same numbers, so an app in the iOS Simulator reaches
+// the agent's servers at http://localhost:<port>: a plain http:// host that
+// App Transport Security lets through, where the preview proxy's
+// *.localhost names aren't. No ports lists them; Stop gives them back (all
+// of the agent's, with no ports).
+type IOSForwardRequest struct {
+	Ports []int `json:"ports,omitempty"`
+	Stop  bool  `json:"stop,omitempty"`
+}
+
+// IOSForward is a port of the Mac's 127.0.0.1 that goes to an agent's.
+type IOSForward struct {
+	Port  int    `json:"port"`
+	Agent string `json:"agent"` // project/agent
+}
+
+// PreviewHeader routes a request through the preview proxy to
+// <port>.<agent>.<project> when its Host can't say so: the iOS Simulator's
+// forwards (internal/iossim) keep Host as localhost:<port>, which the
+// agent's servers then build their URLs from.
+const PreviewHeader = "X-AgentBox-Preview"
 
 // IOSResult is what a simulator command printed, when it printed anything.
 type IOSResult struct {

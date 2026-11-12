@@ -55,6 +55,8 @@ pub struct Project {
     pub section: String,
     pub position: i64,
     pub nesting: bool,
+    #[serde(rename = "iosForwardPorts", deserialize_with = "nullable")]
+    pub ios_forward_ports: Vec<i64>,
     #[serde(rename = "agentPRs")]
     pub agent_p_rs: bool,
     #[serde(rename = "prWatch")]
@@ -231,6 +233,8 @@ pub struct UpdateProjectRequest {
     pub consolidation_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nesting: Option<bool>,
+    #[serde(rename = "iosForwardPorts", skip_serializing_if = "Option::is_none")]
+    pub ios_forward_ports: Option<Vec<i64>>,
     #[serde(rename = "agentPRs", skip_serializing_if = "Option::is_none")]
     pub agent_p_rs: Option<bool>,
     #[serde(rename = "prWatch", skip_serializing_if = "Option::is_none")]
@@ -3712,6 +3716,8 @@ pub struct Question {
     pub connector: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub url: String,
+    #[serde(deserialize_with = "nullable", skip_serializing_if = "is_empty")]
+    pub ports: Vec<i64>,
     pub question: String,
     #[serde(skip_serializing_if = "is_empty")]
     pub context: String,
@@ -3771,6 +3777,8 @@ pub struct AnswerCredentialRequest {
     pub refuse: bool,
     #[serde(skip_serializing_if = "is_empty")]
     pub reason: String,
+    #[serde(skip_serializing_if = "is_empty")]
+    pub allow: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -6886,6 +6894,7 @@ pub const AGENT_ASKED: &str = "asked";
 pub const AGENT_ANSWERED: &str = "answered";
 pub const CREDENTIAL_GIT_HUB: &str = "github";
 pub const CREDENTIAL_SECRET: &str = "secret";
+pub const CREDENTIAL_IOS_PORTS: &str = "ios_ports";
 pub const CLAUDE_CREDENTIAL_VARIABLES: &str = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_PROFILE ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID ANTHROPIC_WORKSPACE_ID CLAUDE_CODE_OAUTH_REFRESH_TOKEN CLAUDE_CONFIG_DIR CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST CLAUDE_CODE_USE_BEDROCK AWS_BEARER_TOKEN_BEDROCK ANTHROPIC_BEDROCK_BASE_URL ANTHROPIC_BEDROCK_MANTLE_BASE_URL ANTHROPIC_AWS_API_KEY ANTHROPIC_AWS_BASE_URL CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_BASE_URL ANTHROPIC_VERTEX_PROJECT_ID CLAUDE_CODE_USE_FOUNDRY ANTHROPIC_FOUNDRY_API_KEY ANTHROPIC_FOUNDRY_AUTH_TOKEN ANTHROPIC_FOUNDRY_BASE_URL ANTHROPIC_FOUNDRY_RESOURCE";
 pub const CODEX_CREDENTIAL_VARIABLES: &str =
     "OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL CODEX_HOME";

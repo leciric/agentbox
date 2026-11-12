@@ -411,6 +411,16 @@ func (c *Client) SetNesting(ctx context.Context, project string, on bool) (Proje
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{Nesting: &on}, &out)
 }
 
+// SetIOSForwardPorts sets the ports a project's agents may forward to the
+// Mac's localhost for the iOS Simulator.
+func (c *Client) SetIOSForwardPorts(ctx context.Context, project string, ports []int) (Project, error) {
+	if ports == nil {
+		ports = []int{} // none, where null would change nothing
+	}
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{IOSForwardPorts: &ports}, &out)
+}
+
 // SetAgentPRs sets whether a project's agents push their own branch and open
 // their own pull request when they finish.
 func (c *Client) SetAgentPRs(ctx context.Context, project string, on bool) (Project, error) {
@@ -1039,6 +1049,13 @@ func (c *Client) LaunchIOSApp(ctx context.Context, ref string, req IOSLaunchRequ
 
 func (c *Client) OpenIOSURL(ctx context.Context, ref string, req IOSOpenURLRequest) error {
 	return c.iosDo(ctx, http.MethodPost, ref, "/openurl", req, nil)
+}
+
+// ForwardIOS makes the agent's ports reach the Mac's localhost, or with
+// Stop gives them back, and lists every agent's forwards.
+func (c *Client) ForwardIOS(ctx context.Context, ref string, req IOSForwardRequest) ([]IOSForward, error) {
+	var forwards []IOSForward
+	return forwards, c.iosDo(ctx, http.MethodPost, ref, "/forward", req, &forwards)
 }
 
 func (c *Client) Preview(ctx context.Context) (PreviewInfo, error) {

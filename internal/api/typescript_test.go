@@ -83,7 +83,7 @@ var tsConstants = [][2]string{
 	{"EventGroup", EventGroup}, {"EventChat", EventChat}, {"EventChatCache", EventChatCache}, {"EventLeadSessions", EventLeadSessions}, {"EventSessionsSettled", EventSessionsSettled}, {"EventLeadSessionStatus", EventLeadSessionStatus}, {"SessionNeedsYou", SessionNeedsYou}, {"SessionFailed", SessionFailed}, {"SessionWorking", SessionWorking}, {"SessionIdle", SessionIdle}, {"EventQuestion", EventQuestion}, {"EventSchedule", EventSchedule}, {"EventAgentEvent", EventAgentEvent},
 	{"ReviewReviewed", ReviewReviewed}, {"ReviewDismissed", ReviewDismissed}, {"EventReview", EventReview},
 	{"AgentCreated", AgentCreated}, {"AgentFinished", AgentFinished}, {"AgentAsked", AgentAsked}, {"AgentAnswered", AgentAnswered},
-	{"CredentialGitHub", CredentialGitHub}, {"CredentialSecret", CredentialSecret},
+	{"CredentialGitHub", CredentialGitHub}, {"CredentialSecret", CredentialSecret}, {"CredentialIOSPorts", CredentialIOSPorts},
 	{"ClaudeCredentialVariables", toolcreds.Joined("claude")}, {"CodexCredentialVariables", toolcreds.Joined("codex")}, {"OpenCodeCredentialVariables", toolcreds.Joined("opencode")}, {"GeminiCredentialVariables", toolcreds.Joined("gemini")},
 	{"ConnectorOAuth", ConnectorOAuth}, {"ConnectorSecret", ConnectorSecret}, {"ConnectorNone", ConnectorNone}, {"ConnectorWide", ConnectorWide},
 	{"ConnectorConnected", ConnectorConnected}, {"ConnectorDisconnected", ConnectorDisconnected}, {"ConnectorConnecting", ConnectorConnecting}, {"ConnectorError", ConnectorError},

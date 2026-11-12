@@ -41,6 +41,7 @@ from an iphonesimulator build in the worktree) and launch it by its bundle ID.`,
 		newIOSInstallCmd(a, &device),
 		newIOSLaunchCmd(a, &device),
 		newIOSOpenURLCmd(a, &device),
+		newIOSForwardCmd(a),
 	)
 	return cmd
 }
@@ -345,4 +346,50 @@ func newIOSOpenURLCmd(a *app, device *string) *cobra.Command {
 			return c.OpenIOSURL(cmd.Context(), ref, api.IOSOpenURLRequest{Device: *device, URL: rest[0]})
 		},
 	}
+}
+
+func newIOSForwardCmd(a *app) *cobra.Command {
+	var stop bool
+	cmd := &cobra.Command{
+		Use:   "forward [agent] [port…]",
+		Short: "Make the agent's ports reach the Mac's localhost, where the simulator's apps open them",
+		Long: `An app in the simulator can't reach the agent's machine: forward its ports, and the app reaches
+them at http://localhost:<port> on the Mac, the same port numbers. A dev build connects to the agent's
+Metro this way, and the app to its API. With no ports, it lists the forwards; --stop gives them back
+(all of the agent's, with no ports). A port is one agent's while it runs: another agent takes it
+only once that one has stopped. Forwards end when the Mac restarts the simulator helper, as an
+AgentBox update does: forward again.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref := ""
+			if len(args) > 0 && refPattern.MatchString(args[0]) {
+				ref, args = args[0], args[1:]
+			}
+			req := api.IOSForwardRequest{Stop: stop}
+			for _, arg := range args {
+				port, err := strconv.Atoi(arg)
+				if err != nil {
+					return fmt.Errorf("%q isn't a port", arg)
+				}
+				req.Ports = append(req.Ports, port)
+			}
+			c, err := a.scopedClient(cmd, ref)
+			if err != nil {
+				return err
+			}
+			forwards, err := c.ForwardIOS(cmd.Context(), ref, req)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if len(forwards) == 0 {
+				_, _ = fmt.Fprintln(out, "No ports are forwarded to the Mac")
+			}
+			for _, f := range forwards {
+				_, _ = fmt.Fprintf(out, "http://localhost:%d on the Mac → port %d of %s\n", f.Port, f.Port, f.Agent)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&stop, "stop", false, "give the ports back")
+	return cmd
 }
