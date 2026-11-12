@@ -266,6 +266,8 @@ pub struct Section {
     pub name: String,
     pub position: i64,
     pub collapsed: bool,
+    pub color: String,
+    pub description: String,
     #[serde(rename = "createdAt")]
     pub created_at: String,
 }
@@ -283,6 +285,10 @@ pub struct UpdateSectionRequest {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collapsed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

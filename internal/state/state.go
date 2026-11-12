@@ -1646,6 +1646,12 @@ var migrations = []string{
 	// project's choice and the one an agent holds.
 	`ALTER TABLE projects ADD COLUMN copilot_account TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE agents ADD COLUMN copilot_account TEXT NOT NULL DEFAULT ''`,
+	// project_sections.color is a sidebar section's colour, one of
+	// SectionColors, '' for none: what every section made before colours has.
+	`ALTER TABLE project_sections ADD COLUMN color TEXT NOT NULL DEFAULT ''`,
+	// project_sections.description is a line about the section, '' for none:
+	// the sidebar shows it as the section's tooltip.
+	`ALTER TABLE project_sections ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

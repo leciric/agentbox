@@ -573,8 +573,14 @@ func importSection(ctx context.Context, tx execer, project string, s sectionEntr
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		id = sec.ID
-		if _, err := tx.ExecContext(ctx, `INSERT INTO project_sections (id, name, position, collapsed, created_at)
-			VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM project_sections), ?, ?)`, id, sec.Name, sec.Collapsed, sec.CreatedAt); err != nil {
+		// A colour this installation doesn't know is no colour, not a
+		// section that can't be drawn.
+		color := sec.Color
+		if !slices.Contains(state.SectionColors, color) {
+			color = ""
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO project_sections (id, name, position, collapsed, color, description, created_at)
+			VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM project_sections), ?, ?, ?, ?)`, id, sec.Name, sec.Collapsed, color, sec.Description, sec.CreatedAt); err != nil {
 			return err
 		}
 	case err != nil:

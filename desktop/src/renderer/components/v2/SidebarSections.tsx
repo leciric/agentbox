@@ -1,17 +1,37 @@
-import { ChevronRight, GripVertical, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
-import type { DragEvent, KeyboardEvent } from 'react';
+import { Check, ChevronRight, Folder, GripVertical, MoreHorizontal, Palette, Pencil, Trash2 } from 'lucide-react';
+import type { DragEvent, KeyboardEvent, ReactElement } from 'react';
 import { useState } from 'react';
 import type * as T from '../../../shared/api';
 import { t as tNow, useT } from '../../lib/i18n';
+import { SESSION_COLORS } from '../../lib/sessions';
 import type { Dragging, SidebarList } from '../../lib/sidebar';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Field, Input } from '../ui/input';
-import { Menu, MenuContent, MenuItem, MenuTrigger } from '../ui/menu';
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuTrigger } from '../ui/menu';
+import { Tip } from '../ui/tooltip';
 
-// The sidebar's user sections: the keyboard and drag vocabulary, the header of
-// a section, and the rows that name or rename one (components/v2/SidebarV2.tsx).
+// The sidebar's user sections, which the app calls folders: the keyboard and
+// drag vocabulary, the header of a section, and the rows that name or edit one
+// (components/v2/SidebarV2.tsx).
+
+// SECTION_COLORS are the colours a section can have (state.SectionColors):
+// a chat session's palette, drawn by styles.css' [data-session-color].
+export const SECTION_COLORS = SESSION_COLORS;
+
+// FolderIcon is a section's folder, in its colour, or quiet with none.
+export function FolderIcon({ color, className }: { color: string; className?: string }) {
+  return (
+    <span data-session-color={color || undefined} className="inline-flex shrink-0">
+      <Folder
+        aria-hidden
+        className={cn('size-3', !color && 'text-faint', className)}
+        style={color ? { color: 'var(--session)', fill: 'color-mix(in oklab, var(--session) 30%, transparent)' } : undefined}
+      />
+    </span>
+  );
+}
 
 // Alt with an arrow moves the focused row, which is the keyboard's whole
 // vocabulary here: down past the end of a list is the top of the next one,
@@ -45,6 +65,7 @@ export function SectionHeader({
   onToggle,
   onMove,
   onRename,
+  onColor,
   onDelete,
   onDragStart,
   onDragEnd,
@@ -58,6 +79,7 @@ export function SectionHeader({
   onToggle: () => void;
   onMove: (delta: -1 | 1) => void;
   onRename: () => void;
+  onColor: (color: string) => void;
   onDelete: () => void;
   onDragStart: (e: DragEvent) => void;
   onDragEnd: (e: DragEvent) => void;
@@ -66,6 +88,17 @@ export function SectionHeader({
   moveKeys: (move: (delta: -1 | 1) => void) => (e: KeyboardEvent) => void;
 }) {
   const t = useT();
+  // A description is the folder's tooltip; a folder with none has no tooltip,
+  // its name being all there is to say. It opens above the row: to the right
+  // it would sit on the ⋯, and the menu couldn't be reached while it shows.
+  const withTip = (button: ReactElement) =>
+    section.description ? (
+      <Tip label={section.description} side="top" className="max-w-64 whitespace-normal">
+        {button}
+      </Tip>
+    ) : (
+      button
+    );
   return (
     <div
       className={cn(
@@ -79,7 +112,9 @@ export function SectionHeader({
       {...dropZone}
     >
       <GripVertical className="size-3 shrink-0 text-ghost opacity-0 transition group-hover/section:opacity-100" />
+      {withTip(
       <button
+        data-v2-section-toggle
         className="flex min-w-0 flex-1 items-center gap-1 py-1 text-left text-caption font-semibold uppercase tracking-[0.06em] text-muted hover:text-primary"
         aria-expanded={!section.collapsed}
         onClick={onToggle}
@@ -91,9 +126,11 @@ export function SectionHeader({
         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
       >
         <ChevronRight className={cn('size-3 shrink-0 text-faint transition-transform', !section.collapsed && 'rotate-90')} />
+        <FolderIcon color={section.color} />
         <span className="truncate">{section.name}</span>
         <span className="ml-auto rounded-full px-1 text-caption tabular-nums text-faint">{count}</span>
-      </button>
+      </button>,
+      )}
       <Menu>
         <MenuTrigger asChild>
           <button
@@ -103,10 +140,21 @@ export function SectionHeader({
             <MoreHorizontal className="size-3.5" />
           </button>
         </MenuTrigger>
-        <MenuContent>
-          <MenuItem icon={Pencil} onSelect={onRename}>
-            {t('common.rename')}
+        <MenuContent className="max-w-72" data-v2-section-menu>
+          <MenuLabel>
+            <span className="flex items-center gap-1.5 text-primary">
+              <FolderIcon color={section.color} className="size-3.5" />
+              <span className="truncate">{section.name}</span>
+            </span>
+            {section.description && <span className="mt-0.5 block whitespace-normal font-normal text-subtle" data-v2-section-description>{section.description}</span>}
+          </MenuLabel>
+          <MenuSeparator />
+          <MenuItem icon={Pencil} onSelect={onRename} data-v2-edit-section-item>
+            {t('shell.sidebar.editSection')}
           </MenuItem>
+          <MenuSub data-v2-section-colour-menu icon={Palette} label={t('shell.sidebar.color')} value={section.color ? t('shell.sidebar.colorName', { color: section.color }) : t('shell.sidebar.colorNone')}>
+            <ColorItems value={section.color} onPick={onColor} />
+          </MenuSub>
           <MenuItem icon={ChevronRight} onSelect={onToggle}>
             {section.collapsed ? t('shell.sidebar.expand') : t('shell.sidebar.collapse')}
           </MenuItem>
@@ -116,6 +164,32 @@ export function SectionHeader({
         </MenuContent>
       </Menu>
     </div>
+  );
+}
+
+// ColorItems are a colour submenu's items: no colour, then the palette.
+function ColorItems({ value, onPick }: { value: string; onPick: (color: string) => void }) {
+  const t = useT();
+  return (
+    <>
+      {['', ...SECTION_COLORS].map((c) => (
+        <MenuItem key={c || 'none'} onSelect={() => onPick(c)} hint={value === c ? <Check className="size-3.5" /> : undefined} data-v2-section-color={c || 'none'}>
+          <span className="flex items-center gap-2">
+            <Swatch color={c} />
+            {c ? t('shell.sidebar.colorName', { color: c }) : t('shell.sidebar.colorNone')}
+          </span>
+        </MenuItem>
+      ))}
+    </>
+  );
+}
+
+// Swatch is one colour's dot, or an empty ring for none.
+function Swatch({ color }: { color: string }) {
+  return (
+    <span data-session-color={color || undefined} className="inline-flex">
+      <span aria-hidden className={cn('size-3 rounded-full', !color && 'border border-line-strong')} style={color ? { backgroundColor: 'var(--session)' } : undefined} />
+    </span>
   );
 }
 
@@ -143,38 +217,69 @@ export function NameSection({ onSave, onCancel }: { onSave: (name: string) => vo
   );
 }
 
-// RenameSection is the section's name in a dialog, which is where the app puts
-// anything it asks for a word.
-export function RenameSection({ section, onSave, onClose }: { section: T.Section | undefined; onSave: (name: string) => void; onClose: () => void }) {
+// EditSection is a section's name, description and colour in a dialog, which
+// is where the app puts anything it asks for a word.
+export function EditSection({ section, onSave, onClose }: { section: T.Section | undefined; onSave: (req: T.UpdateSectionRequest) => void; onClose: () => void }) {
   const t = useT();
   const [name, setName] = useState(section?.name ?? '');
+  const [description, setDescription] = useState(section?.description ?? '');
+  const [color, setColor] = useState(section?.color ?? '');
   if (!section) return null;
   const save = () => {
+    const req: T.UpdateSectionRequest = {};
     const trimmed = name.trim();
-    if (trimmed && trimmed !== section.name) onSave(trimmed);
+    if (trimmed && trimmed !== section.name) req.name = trimmed;
+    if (description.trim() !== section.description) req.description = description.trim();
+    if (color !== section.color) req.color = color;
+    if (Object.keys(req).length) onSave(req);
     else onClose();
   };
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm" data-v2-edit-section>
         <DialogHeader>
-          <DialogTitle>{t('shell.sidebar.renameTitle', { name: section.name })}</DialogTitle>
+          <DialogTitle>{t('shell.sidebar.editTitle', { name: section.name })}</DialogTitle>
         </DialogHeader>
         <Field label={t('shell.sidebar.sectionName')} htmlFor="section-name">
+          <Input id="section-name" autoFocus autoComplete="off" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
+        </Field>
+        <Field label={t('shell.sidebar.sectionDescription')} htmlFor="section-description">
           <Input
-            id="section-name"
-            autoFocus
-            maxLength={40}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            id="section-description"
+            // Off, or the browser's suggestions drop over the colours below.
+            autoComplete="off"
+            maxLength={200}
+            value={description}
+            placeholder={t('shell.sidebar.sectionDescriptionHint')}
+            onChange={(e) => setDescription(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && save()}
           />
         </Field>
+        <div role="radiogroup" aria-label={t('shell.sidebar.color')} className="flex flex-col gap-1.5">
+          <span className="text-caption font-medium text-muted">{t('shell.sidebar.color')}</span>
+          <div className="flex flex-wrap gap-1.5">
+            {['', ...SECTION_COLORS].map((c) => (
+              <Tip key={c || 'none'} label={c ? t('shell.sidebar.colorName', { color: c }) : t('shell.sidebar.colorNone')} side="top">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={color === c}
+                  aria-label={c ? t('shell.sidebar.colorName', { color: c }) : t('shell.sidebar.colorNone')}
+                  onClick={() => setColor(c)}
+                  data-v2-pick-color={c || 'none'}
+                  className={cn('flex size-7 items-center justify-center rounded-full border border-transparent transition hover:bg-surface-strong', color === c && 'border-brand-400 bg-surface-raised')}
+                >
+                  <Swatch color={c} />
+                </button>
+              </Tip>
+            ))}
+          </div>
+        </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={save}>{t('common.rename')}</Button>
+          <Button onClick={save}>{t('common.save')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

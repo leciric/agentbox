@@ -258,14 +258,14 @@ func TestSectionNamesAndCollapsing(t *testing.T) {
 		t.Errorf("AddSection kept the padding: %q", sec.Name)
 	}
 	collapsed := true
-	if sec, err = st.UpdateSection(ctx, sec.ID, nil, &collapsed); err != nil {
+	if sec, err = st.UpdateSection(ctx, sec.ID, state.SectionUpdate{Collapsed: &collapsed}); err != nil {
 		t.Fatal(err)
 	}
 	if !sec.Collapsed || sec.Name != "Work" {
 		t.Errorf("collapsing changed something else: %+v", sec)
 	}
 	renamed := "Side projects"
-	if sec, err = st.UpdateSection(ctx, sec.ID, &renamed, nil); err != nil {
+	if sec, err = st.UpdateSection(ctx, sec.ID, state.SectionUpdate{Name: &renamed}); err != nil {
 		t.Fatal(err)
 	}
 	if sec.Name != renamed || !sec.Collapsed {
@@ -276,7 +276,52 @@ func TestSectionNamesAndCollapsing(t *testing.T) {
 	if err != nil || stored != sec {
 		t.Errorf("Section() = %+v, %v, want %+v", stored, err, sec)
 	}
-	if _, err := st.UpdateSection(ctx, "sec_nope", &renamed, nil); !errors.Is(err, state.ErrNotFound) {
+	if _, err := st.UpdateSection(ctx, "sec_nope", state.SectionUpdate{Name: &renamed}); !errors.Is(err, state.ErrNotFound) {
 		t.Errorf("renaming an unknown section: %v, want ErrNotFound", err)
+	}
+
+	// A section starts with no colour, takes one of the palette's, keeps it
+	// through a rename, and gives it up for "".
+	if sec.Color != "" {
+		t.Errorf("a new section has colour %q, want none", sec.Color)
+	}
+	mint := "mint"
+	if sec, err = st.UpdateSection(ctx, sec.ID, state.SectionUpdate{Color: &mint}); err != nil || sec.Color != mint || sec.Name != renamed {
+		t.Fatalf("colouring = %+v, %v; want mint and nothing else changed", sec, err)
+	}
+	again := "Work"
+	if sec, err = st.UpdateSection(ctx, sec.ID, state.SectionUpdate{Name: &again}); err != nil || sec.Color != mint {
+		t.Errorf("renaming lost the colour: %+v, %v", sec, err)
+	}
+	if stored, _ := st.Section(ctx, sec.ID); stored.Color != mint {
+		t.Errorf("stored colour = %q, want mint", stored.Color)
+	}
+	if sections, _ := st.Sections(ctx); len(sections) != 1 || sections[0].Color != mint {
+		t.Errorf("Sections() = %+v, want its colour", sections)
+	}
+	teal := "teal" // a session colour that's gone from the palette
+	if _, err := st.UpdateSection(ctx, sec.ID, state.SectionUpdate{Color: &teal}); err == nil {
+		t.Error("a colour outside SectionColors was accepted")
+	}
+	none := ""
+	if sec, err = st.UpdateSection(ctx, sec.ID, state.SectionUpdate{Color: &none}); err != nil || sec.Color != "" {
+		t.Errorf("clearing the colour = %+v, %v", sec, err)
+	}
+
+	// A description is optional, trimmed, one line and tooltip-sized.
+	desc := "  Apps for the shop  "
+	if sec, err = st.UpdateSection(ctx, sec.ID, state.SectionUpdate{Description: &desc}); err != nil || sec.Description != "Apps for the shop" || sec.Name != "Work" {
+		t.Fatalf("describing = %+v, %v", sec, err)
+	}
+	if stored, _ := st.Section(ctx, sec.ID); stored.Description != "Apps for the shop" {
+		t.Errorf("stored description = %q", stored.Description)
+	}
+	for _, bad := range []string{strings.Repeat("x", state.MaxSectionDescriptionLen+1), "two\nlines"} {
+		if _, err := st.UpdateSection(ctx, sec.ID, state.SectionUpdate{Description: &bad}); err == nil {
+			t.Errorf("description %q was accepted", bad)
+		}
+	}
+	if sec, err = st.UpdateSection(ctx, sec.ID, state.SectionUpdate{Description: &none}); err != nil || sec.Description != "" {
+		t.Errorf("clearing the description = %+v, %v", sec, err)
 	}
 }

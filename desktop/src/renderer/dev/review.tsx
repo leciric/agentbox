@@ -702,9 +702,9 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
   let sections: T.Section[] =
     new URLSearchParams(location.search).get('sections') === '1'
       ? [
-          { id: 'work', name: 'Work', position: 1, collapsed: false, createdAt },
-          { id: 'side', name: 'Side projects', position: 2, collapsed: false, createdAt },
-          { id: 'later', name: 'Later', position: 3, collapsed: false, createdAt },
+          { id: 'work', name: 'Work', position: 1, collapsed: false, color: 'sky', description: 'Paid work, for the shop and its apps', createdAt },
+          { id: 'side', name: 'Side projects', position: 2, collapsed: false, color: 'mint', description: '', createdAt },
+          { id: 'later', name: 'Later', position: 3, collapsed: false, color: '', description: '', createdAt },
         ]
       : [];
   const placed: Record<string, [string, number]> = sections.length ? { [PROJECT]: ['work', 1], quill: ['work', 2], courier: ['work', 3], 'old-blog': ['side', 1], dotfiles: ['side', 2] } : {};
@@ -741,7 +741,7 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     }
     if (method === 'GET' && path === '/v1/sections') return json(sections);
     if (method === 'POST' && path === '/v1/sections') {
-      const made: T.Section = { id: `s${Date.now()}`, name: (body as T.AddSectionRequest).name, position: sections.length + 1, collapsed: false, createdAt: new Date().toISOString() };
+      const made: T.Section = { id: `s${Date.now()}`, name: (body as T.AddSectionRequest).name, position: sections.length + 1, collapsed: false, color: '', description: '', createdAt: new Date().toISOString() };
       sections = [...sections, made];
       return json(made);
     }
