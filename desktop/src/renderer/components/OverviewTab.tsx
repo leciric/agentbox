@@ -149,7 +149,7 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
                   <ClaudeAccountPicker agent={agent} />
                 </Row>
               )}
-              {(agent.ai === 'claude' || agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'gemini') && (
+              {(agent.ai === 'claude' || agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'gemini' || agent.ai === 'copilot') && (
                 <Row label={t('agent.credential.label')}>
                   <AgentToolCredential agentRef={agent.ref} />
                 </Row>

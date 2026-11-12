@@ -20,7 +20,9 @@ import (
 //     policy, sent with the account; the config.toml key it once read is gone.
 //   - Cursor: nothing either. Its SDK always asks for attribution; only the
 //     Cursor app's own settings could turn it off.
-//   - OpenCode and Gemini CLI add none of their own.
+//   - OpenCode and Gemini CLI add none of their own. Neither does GitHub
+//     Copilot CLI in a commit it makes with git; the brief asks it not to add a
+//     co-author, and the hook below takes one out.
 //
 // And for every tool, a commit-msg hook in the agent's git (githooks/) takes
 // the AI tools' co-author trailers out of each commit as it is made. A pull

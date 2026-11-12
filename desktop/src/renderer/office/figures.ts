@@ -25,8 +25,8 @@ export type Figure = {
   dispose(): void;
 };
 
-export type Tool = 'claude' | 'codex' | 'opencode' | 'cursor' | 'gemini';
-export const toolOf = (ai: string | undefined): Tool => (ai === 'codex' || ai === 'opencode' || ai === 'cursor' || ai === 'gemini' ? ai : 'claude');
+export type Tool = 'claude' | 'codex' | 'opencode' | 'cursor' | 'gemini' | 'copilot';
+export const toolOf = (ai: string | undefined): Tool => (ai === 'codex' || ai === 'opencode' || ai === 'cursor' || ai === 'gemini' || ai === 'copilot' ? ai : 'claude');
 
 // hash is a stable number for a string: an agent is the same figure every time.
 export function hash(s: string): number {
@@ -317,6 +317,7 @@ const BADGES: Record<Tool, { bg: string; fg: string; glyph: string }> = {
   opencode: { bg: '#f2f2f2', fg: '#111318', glyph: '▣' },
   cursor: { bg: '#2b2f37', fg: '#ffffff', glyph: '◆' },
   gemini: { bg: '#5b7cf6', fg: '#ffffff', glyph: '✦' },
+  copilot: { bg: '#6e40c9', fg: '#ffffff', glyph: '◐' },
 };
 const badgeTextures = new Map<Tool, THREE.CanvasTexture>();
 function badgeTexture(tool: Tool): THREE.CanvasTexture {

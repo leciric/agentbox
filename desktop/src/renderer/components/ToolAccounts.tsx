@@ -12,7 +12,7 @@ import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Input, Label } from './ui/input';
 
-// Codex, OpenCode, Cursor and Gemini CLI logins are named accounts, like Claude Code's and
+// Codex, OpenCode, Cursor, Gemini CLI and Copilot logins are named accounts, like Claude Code's and
 // GitHub's (internal/credentials/toolaccounts.go). These are their lists in
 // Settings → Accounts, and the form that adds one from an API key; a ChatGPT
 // or OAuth sign-in runs the tool's own login, which only a terminal can.
@@ -20,7 +20,7 @@ import { Input, Label } from './ui/input';
 // accountsOf is a tool's stored accounts, from GET /v1/auth.
 export function accountsOf(auth: T.AuthStatus | undefined, tool: string): T.ToolAccount[] {
   if (!auth) return [];
-  return (tool === 'codex' ? auth.codexAccounts : tool === 'opencode' ? auth.openCodeAccounts : tool === 'cursor' ? auth.cursorAccounts : tool === 'gemini' ? auth.geminiAccounts : undefined) ?? [];
+  return (tool === 'codex' ? auth.codexAccounts : tool === 'opencode' ? auth.openCodeAccounts : tool === 'cursor' ? auth.cursorAccounts : tool === 'gemini' ? auth.geminiAccounts : tool === 'copilot' ? auth.copilotAccounts : undefined) ?? [];
 }
 
 // accountKind says how an account signs in, and whose it is.
@@ -34,6 +34,7 @@ const kindKeys: Record<string, MessageKey> = {
   apikey: 'settings.toolAccounts.kindAPIKey',
   chatgpt: 'settings.toolAccounts.kindChatGPT',
   google: 'settings.toolAccounts.kindGoogle',
+  token: 'settings.toolAccounts.kindGitHubToken',
   oauth: 'settings.toolAccounts.kindOAuth',
   wellknown: 'settings.toolAccounts.kindWellKnown',
 };
@@ -160,9 +161,10 @@ export function ToolAccountList({ tool, accounts }: { tool: string; accounts: T.
   );
 }
 
-// ToolKeyForm adds a Codex, OpenCode or Gemini CLI account from an API key:
-// OpenAI's for Codex, a provider's for OpenCode, Google's for Gemini CLI.
-export function ToolKeyForm({ tool, accounts }: { tool: 'codex' | 'opencode' | 'gemini'; accounts: T.ToolAccount[] }) {
+// ToolKeyForm adds a Codex, OpenCode, Gemini CLI or Copilot account from an
+// API key: OpenAI's for Codex, a provider's for OpenCode, Google's for Gemini
+// CLI, and a GitHub token with Copilot access for Copilot.
+export function ToolKeyForm({ tool, accounts }: { tool: KeyTool; accounts: T.ToolAccount[] }) {
   const t = useT();
   const queryClient = useQueryClient();
   const [account, setAccount] = useState('');
@@ -240,14 +242,18 @@ export function ToolKeyForm({ tool, accounts }: { tool: 'codex' | 'opencode' | '
   );
 }
 
-const introKeys: Record<'codex' | 'opencode' | 'gemini', MessageKey> = {
+type KeyTool = 'codex' | 'opencode' | 'gemini' | 'copilot';
+
+const introKeys: Record<KeyTool, MessageKey> = {
   codex: 'settings.toolAccounts.introCodex',
   opencode: 'settings.toolAccounts.introOpenCode',
   gemini: 'settings.toolAccounts.introGemini',
+  copilot: 'settings.toolAccounts.introCopilot',
 };
 
-const placeholderKeys: Record<'codex' | 'opencode' | 'gemini', MessageKey> = {
+const placeholderKeys: Record<KeyTool, MessageKey> = {
   codex: 'settings.toolAccounts.keyPlaceholderCodex',
   opencode: 'settings.toolAccounts.keyPlaceholderOpenCode',
   gemini: 'settings.toolAccounts.keyPlaceholderGemini',
+  copilot: 'settings.toolAccounts.keyPlaceholderCopilot',
 };

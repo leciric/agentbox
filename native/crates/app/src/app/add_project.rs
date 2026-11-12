@@ -44,7 +44,7 @@ pub struct AddProject {
     clone_parent: Entity<InputState>,
     tool: String,
     /// The account picked per tool ("" is this machine's default): claude,
-    /// github, codex, cursor, gemini and opencode:<provider>.
+    /// github, codex, cursor, gemini, copilot and opencode:<provider>.
     accounts: BTreeMap<String, String>,
     auth: Option<AuthStatus>,
     settings: Option<Settings>,
@@ -104,6 +104,7 @@ fn accounts_of<'a>(auth: &'a AuthStatus, tool: &str) -> &'a [ToolAccount] {
         "codex" => &auth.codex_accounts,
         "cursor" => &auth.cursor_accounts,
         "gemini" => &auth.gemini_accounts,
+        "copilot" => &auth.copilot_accounts,
         _ => &auth.open_code_accounts,
     }
 }
@@ -239,12 +240,13 @@ impl AppView {
         let Some(d) = self.add_dialog() else { return };
         let mut opencode = BTreeMap::new();
         let get = |k: &str| d.accounts.get(k).cloned().unwrap_or_default();
-        let (claude, github, codex, cursor, gemini) = (
+        let (claude, github, codex, cursor, gemini, copilot) = (
             get("claude"),
             get("github"),
             get("codex"),
             get("cursor"),
             get("gemini"),
+            get("copilot"),
         );
         for (k, v) in &d.accounts {
             if let Some(p) = k.strip_prefix("opencode:")
@@ -276,6 +278,7 @@ impl AppView {
                 codex_account: codex,
                 cursor_account: cursor,
                 gemini_account: gemini,
+                copilot_account: copilot,
                 open_code_accounts: opencode,
                 ..Default::default()
             };
@@ -396,6 +399,7 @@ impl AppView {
             codex_account: codex,
             cursor_account: cursor,
             gemini_account: gemini,
+            copilot_account: copilot,
             open_code_accounts: opencode,
             create: creating,
             commit_files: creating && code == ERROR_FOLDER_NOT_EMPTY,
@@ -572,7 +576,7 @@ impl AppView {
         // The AI tool its agents run when they name none.
         let mut tools = vec![Choice::new("", t("defaults.project.toolNone"))];
         tools.extend(
-            ["claude", "codex", "opencode", "cursor", "gemini"]
+            ["claude", "codex", "opencode", "cursor", "gemini", "copilot"]
                 .map(|x| Choice::new(x, tool_label(x))),
         );
         let v2 = view.clone();
@@ -735,7 +739,7 @@ impl AppView {
                 names,
             ));
         }
-        for tool in ["cursor", "gemini"] {
+        for tool in ["cursor", "gemini", "copilot"] {
             let list = accounts_of(auth, tool);
             if !list.is_empty() {
                 let a: Vec<_> = list
@@ -771,6 +775,7 @@ impl AppView {
             (providers.is_empty(), tool_label("opencode")),
             (auth.cursor_accounts.is_empty(), tool_label("cursor")),
             (auth.gemini_accounts.is_empty(), tool_label("gemini")),
+            (auth.copilot_accounts.is_empty(), tool_label("copilot")),
             (auth.github_accounts.is_empty(), "GitHub".to_string()),
         ]
         .into_iter()

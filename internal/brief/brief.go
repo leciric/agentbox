@@ -200,6 +200,9 @@ type LeadData struct {
 	// GeminiReady is whether agents have a Gemini CLI login, so the lead may
 	// create Gemini CLI agents. Its models are create_agent's to list too.
 	GeminiReady bool
+	// CopilotReady is whether agents have a GitHub Copilot CLI login, so the
+	// lead may create Copilot agents. Its models are create_agent's to list.
+	CopilotReady bool
 	// ClaudeAccounts are the names of the Claude Code accounts this project may
 	// use: the machine's, less any its allow-list leaves out. The brief says
 	// nothing about spreading agents across them unless there is more than one

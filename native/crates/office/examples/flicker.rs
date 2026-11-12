@@ -48,7 +48,8 @@ fn area(project: &str, n: usize, hue: f64, off: usize) -> AreaModel {
                 ][(i + off) % 6]
                     .into(),
                 branch: format!("agentbox/task-{i}"),
-                ai: ["claude", "codex", "cursor", "opencode", "gemini"][(i + off) % 5].into(),
+                ai: ["claude", "codex", "cursor", "opencode", "gemini", "copilot"][(i + off) % 6]
+                    .into(),
                 tone: tones[(i + off) % 7],
                 pr: None,
                 changes: None,

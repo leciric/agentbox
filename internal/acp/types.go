@@ -244,6 +244,12 @@ var modeKinds = map[string]string{
 	// Gemini CLI's; its autoEdit approves edits only, which is none of the
 	// kinds.
 	"yolo": "full_access",
+	// GitHub Copilot CLI's, which name ACP's own pages: agent asks before
+	// writes and commands, and autopilot runs on without asking, all
+	// permissions granted (Copilot syncs allow-all with the mode).
+	"https://agentclientprotocol.com/protocol/session-modes#agent":     "standard",
+	"https://agentclientprotocol.com/protocol/session-modes#plan":      "plan",
+	"https://agentclientprotocol.com/protocol/session-modes#autopilot": "full_access",
 }
 
 // inferKinds fills in a mode's kinds from its values when the adapter sent

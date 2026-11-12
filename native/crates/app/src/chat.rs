@@ -58,6 +58,7 @@ pub fn tool_label(tool: &str) -> String {
         "opencode" => "OpenCode",
         "cursor" => "Cursor",
         "gemini" => "Gemini CLI",
+        "copilot" => "GitHub Copilot CLI",
         other => other,
     }
     .to_string()

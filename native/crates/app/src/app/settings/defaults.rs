@@ -52,7 +52,7 @@ const IDLE_FALLBACK: i64 = 7200;
 const REMOVE_DAYS: [i64; 5] = [1, 3, 7, 14, 30];
 const COMPACT_WINDOWS: [i64; 6] = [100_000, 150_000, 200_000, 300_000, 500_000, 1_000_000];
 const RETENTIONS: [&str; 5] = ["immediately", "1d", "7d", "30d", "forever"];
-const TOOLS: [&str; 5] = ["claude", "codex", "opencode", "cursor", "gemini"];
+const TOOLS: [&str; 6] = ["claude", "codex", "opencode", "cursor", "gemini", "copilot"];
 
 /// ai_label is an AI tool's name, which isn't translated (state.tsx's aiLabel).
 pub(super) fn ai_label(ai: &str) -> &'static str {
@@ -62,6 +62,7 @@ pub(super) fn ai_label(ai: &str) -> &'static str {
         "opencode" => "OpenCode",
         "cursor" => "Cursor",
         "gemini" => "Gemini CLI",
+        "copilot" => "GitHub Copilot CLI",
         _ => "",
     }
 }
@@ -443,6 +444,13 @@ impl AppView {
                 "settings.entry.gemini-model.keywords",
             )
             .modified(changed(|s| !s.default_gemini_model.is_empty())),
+            entry(
+                "copilot-model",
+                "settings.entry.copilot-model.label",
+                "defaults.copilot.modelDescription",
+                "settings.entry.copilot-model.keywords",
+            )
+            .modified(changed(|s| !s.default_copilot_model.is_empty())),
             enforce,
         ]);
         vec![
@@ -1189,13 +1197,22 @@ impl AppView {
                 "agent-effort" => self.pick_row(e, Pickable::AgentEffort, cx),
                 "lead-effort" => self.pick_row(e, Pickable::LeadEffort, cx),
                 "lead-mode" => self.pick_row(e, Pickable::LeadMode, cx),
-                "cursor-model" | "gemini-model" => {
-                    let cursor = e.id == "cursor-model";
+                "cursor-model" | "gemini-model" | "copilot-model" => {
+                    let tool = match e.id {
+                        "cursor-model" => "cursor",
+                        "copilot-model" => "copilot",
+                        _ => "gemini",
+                    };
                     let (list, value, ready) = match s {
-                        Some(s) if cursor => (
+                        Some(s) if tool == "cursor" => (
                             s.cursor_model_choices.clone(),
                             s.default_cursor_model.clone(),
                             s.cursor_ready,
+                        ),
+                        Some(s) if tool == "copilot" => (
+                            s.copilot_model_choices.clone(),
+                            s.default_copilot_model.clone(),
+                            s.copilot_ready,
                         ),
                         Some(s) => (
                             s.gemini_model_choices.clone(),
@@ -1204,7 +1221,6 @@ impl AppView {
                         ),
                         None => (Vec::new(), String::new(), false),
                     };
-                    let tool = if cursor { "cursor" } else { "gemini" };
                     let mut row = self.select_row(
                         e,
                         None,
@@ -1213,10 +1229,10 @@ impl AppView {
                         !ready,
                         move |v| {
                             let mut r = UpdateSettingsRequest::default();
-                            if cursor {
-                                r.default_cursor_model = Some(v.to_string());
-                            } else {
-                                r.default_gemini_model = Some(v.to_string());
+                            match tool {
+                                "cursor" => r.default_cursor_model = Some(v.to_string()),
+                                "copilot" => r.default_copilot_model = Some(v.to_string()),
+                                _ => r.default_gemini_model = Some(v.to_string()),
                             }
                             r
                         },

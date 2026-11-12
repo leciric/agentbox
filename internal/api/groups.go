@@ -40,6 +40,7 @@ type FanOutVariant struct {
 	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
 	CursorAccount    string            `json:"cursorAccount,omitempty"`
 	GeminiAccount    string            `json:"geminiAccount,omitempty"`
+	CopilotAccount   string            `json:"copilotAccount,omitempty"`
 }
 
 // FanOutResult is the group made, and the jobs making its agents.

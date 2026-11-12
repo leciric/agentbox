@@ -35,8 +35,12 @@ type spend struct {
 
 // observe takes a usage_update's cost. The running total only goes down when
 // the tool started counting again (a /clear), and then all of it is new.
+//
+// A cost in anything but US dollars (GitHub Copilot CLI's AI credits, say)
+// isn't one: the ledger's costs are dollars, and such a turn is priced from
+// its tokens instead (internal/pricing).
 func (s *spend) observe(cost *acp.Cost) {
-	if cost == nil {
+	if cost == nil || (cost.Currency != "" && !strings.EqualFold(cost.Currency, "USD")) {
 		return
 	}
 	if cost.Amount < s.cost {

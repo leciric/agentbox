@@ -12,6 +12,7 @@ import {
   Folder,
   FolderOpen,
   GitBranch,
+  Glasses,
   Globe,
   LoaderCircle,
   Pencil,
@@ -63,6 +64,7 @@ const originIcons: Record<SkillOrigin | 'agentbox', LucideIcon> = {
   opencode: Code2,
   cursor: Code2,
   gemini: Sparkles,
+  copilot: Glasses,
   folder: Folder,
   git: GitBranch,
 };
@@ -79,6 +81,7 @@ function useOriginLabel() {
       opencode: 'OpenCode',
       cursor: 'Cursor',
       gemini: 'Gemini CLI',
+      copilot: 'Copilot CLI',
       folder: t('skills.origin.folder'),
       git: t('skills.origin.git'),
     })[origin];

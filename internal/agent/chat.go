@@ -49,6 +49,10 @@ var ChatAdapters = map[string]ChatAdapter{
 	// Gemini CLI speaks ACP itself, behind --acp (--experimental-acp until
 	// 0.6x, deprecated since).
 	"gemini": {Tool: "Gemini CLI", Command: "gemini", Args: []string{"--acp"}, Package: image.Pin("npm:@google/gemini-cli")},
+	// GitHub Copilot CLI speaks ACP itself, behind --acp. Command is its npm
+	// loader, but an agent's chat runs the platform binary it would start
+	// (copilotNativeScript), and so does a lead's (copilotNativeBin).
+	"copilot": {Tool: "GitHub Copilot CLI", Command: "copilot", Args: append([]string{"--acp"}, copilotFlags...), Package: copilotPin},
 }
 
 // openCodeAdapter is the chat adapter for the OpenCode this installation runs.
@@ -122,6 +126,9 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 	}
 	if a.AI == "gemini" {
 		env = append(env, geminiNoRelaunch)
+	}
+	if a.AI == "copilot" {
+		env = append(env, copilotNoUpdate)
 	}
 	if term := os.Getenv("TERM"); term != "" {
 		env = append(env, "TERM="+term)
@@ -242,6 +249,11 @@ func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(det
 	if a.AI == "gemini" {
 		env = geminiNoRelaunch + " "
 	}
+	if a.AI == "copilot" {
+		env = copilotNoUpdate + " "
+		// The binary, not the loader that would wait on it (copilotNativeBin).
+		command = copilotNativeScript(spec)
+	}
 	if adapter.Script != nil {
 		// Written every time, so the adapter is always this daemon's own.
 		path := "/home/" + m.User.Name + "/" + adapter.ScriptPath
@@ -275,7 +287,8 @@ func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(det
 		}
 	}
 	// A Gemini CLI API key isn't in it: the chat sends it (ChatAuth).
-	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), cmdline)
+	// Copilot's token is, read from its file (copilotTokenEnv).
+	script := fmt.Sprintf("cd %s && %sexec %s%s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), m.copilotTokenEnv(a, hide), cmdline)
 	return script, nil
 }
 
@@ -306,7 +319,7 @@ func interfaceFor(ai, iface string) (string, error) {
 	case iface != "" && iface != state.InterfaceChat && iface != state.InterfaceCLI:
 		return "", fmt.Errorf("unknown interface %q: use chat or cli", iface)
 	case ai == "none" && iface == state.InterfaceChat:
-		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex, opencode, cursor or gemini")
+		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex, opencode, cursor, gemini or copilot")
 	case ai == "none", iface == state.InterfaceCLI:
 		return state.InterfaceCLI, nil
 	}
@@ -370,6 +383,12 @@ func (m *Manager) prepareToolWindow(ctx context.Context, a state.Agent) {
 		}
 		return
 	}
+	if a.AI == "copilot" {
+		if err := m.prepareAgentCopilotSettings(ctx, a); err != nil {
+			m.logf("preparing %s's GitHub Copilot CLI: %v", a.Ref(), err)
+		}
+		return
+	}
 	if a.AI != "opencode" {
 		return
 	}
@@ -404,5 +423,5 @@ func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, 
 	// Typed into a shell, so the window stays open when the tool exits. The
 	// shell keeps the secrets; env execs the tool without them.
 	return fmt.Sprintf("tmux new-window -t %[1]s -n %[2]s -c %[3]s\ntmux send-keys -t %[1]s:%[2]s %[4]s Enter\n",
-		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+m.geminiKeyEnv(a, hide)+command)), nil
+		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+m.geminiKeyEnv(a, hide)+m.copilotTokenEnv(a, hide)+command)), nil
 }

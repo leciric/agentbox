@@ -12,7 +12,7 @@ import (
 
 // toolCommands are the AI tools' own command lines: what says a tool is
 // installed on the host.
-var toolCommands = map[string]string{"claude": "claude", "codex": "codex", "opencode": "opencode", "gemini": "gemini"}
+var toolCommands = map[string]string{"claude": "claude", "codex": "codex", "opencode": "opencode", "gemini": "gemini", "copilot": "copilot"}
 
 // FindTools finds the AI tools on this computer, and whether each has a login
 // of its own.
@@ -69,8 +69,62 @@ func hasLogin(tool, home string, getenv func(string) string) bool {
 			}
 		}
 		return exists(filepath.Join(dir("GEMINI_CLI_HOME", ""), ".gemini", "oauth_creds.json"))
+	case "copilot":
+		// A token it reads before its own login, or a `copilot login`, whose
+		// token is in the OS keychain and whose user its config.json names.
+		for _, env := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_PROVIDER_BASE_URL"} {
+			if getenv(env) != "" {
+				return true
+			}
+		}
+		config, err := os.ReadFile(filepath.Join(dir("COPILOT_HOME", ".copilot"), "config.json"))
+		if err != nil {
+			return false
+		}
+		for _, key := range []string{"lastLoggedInUser", "last_logged_in_user", "loggedInUsers", "logged_in_users"} {
+			if strings.Contains(string(config), key) {
+				return true
+			}
+		}
+		return false
 	}
 	return false
+}
+
+// copilotNative is the GitHub Copilot CLI binary a `copilot` found on the
+// PATH runs: npm's `copilot` is a Node loader that starts its platform
+// package's binary with spawnSync and waits, and stopping the loader would
+// leave the binary, the process running the session, behind. Any other
+// install (Homebrew, the install script) is the binary itself, as is a loader
+// whose binary isn't where npm puts it: path is kept then.
+func copilotNative(path string) string {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil || filepath.Base(real) != "npm-loader.js" {
+		return path
+	}
+	arch := "x64"
+	if runtime.GOARCH == "arm64" {
+		arch = "arm64"
+	}
+	goos := runtime.GOOS
+	if goos == "windows" {
+		goos = "win32"
+	}
+	name := "copilot"
+	if goos == "win32" {
+		name += ".exe"
+	}
+	pkg := filepath.Dir(real) // node_modules/@github/copilot
+	platform := "copilot-" + goos + "-" + arch
+	for _, candidate := range []string{
+		filepath.Join(pkg, "node_modules", "@github", platform, name),
+		filepath.Join(filepath.Dir(pkg), platform, name),
+	} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return path
 }
 
 func keychainHas(service string) bool {

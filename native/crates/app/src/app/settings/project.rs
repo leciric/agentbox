@@ -31,7 +31,7 @@ use super::kit::{badge, note};
 use super::{Entry, Group};
 use crate::theme;
 
-const TOOLS: [&str; 5] = ["claude", "codex", "opencode", "cursor", "gemini"];
+const TOOLS: [&str; 6] = ["claude", "codex", "opencode", "cursor", "gemini", "copilot"];
 const MODES: [&str; 4] = ["standard", "auto_review", "full_access", "plan"];
 const SETTLE: [i64; 6] = [1, 4, 24, 72, 168, 0];
 
@@ -102,7 +102,7 @@ fn tool_rows(p: &Project) -> Rows {
             window: false,
             modes: &[],
         },
-        "gemini" => Rows {
+        "gemini" | "copilot" => Rows {
             model: true,
             effort: false,
             window: false,
@@ -493,6 +493,14 @@ impl AppView {
                         n,
                     )
                     .modified(!p.gemini_account.is_empty()),
+                    pentry(
+                        "p-copilot-account",
+                        "project.accounts.copilotLabel",
+                        t("project.accounts.copilotDescription"),
+                        "project.accounts.copilotKeywords",
+                        n,
+                    )
+                    .modified(!p.copilot_account.is_empty()),
                     pentry(
                         "p-credentials",
                         "project.accounts.runningOnLabel",
@@ -1049,6 +1057,7 @@ impl AppView {
             "opencode" => a.open_code_accounts.clone(),
             "cursor" => a.cursor_accounts.clone(),
             "gemini" => a.gemini_accounts.clone(),
+            "copilot" => a.copilot_accounts.clone(),
             _ => Vec::new(),
         }
     }
@@ -1211,6 +1220,7 @@ impl AppView {
                         "opencode" => s.open_code_model_choices.clone(),
                         "cursor" => s.cursor_model_choices.clone(),
                         "gemini" => s.gemini_model_choices.clone(),
+                        "copilot" => s.copilot_model_choices.clone(),
                         _ => s.claude_model_choices.clone(),
                     })
                     .unwrap_or_default()
@@ -1225,6 +1235,10 @@ impl AppView {
                         .unwrap_or_else(|| t("defaults.project.homeCursor")),
                     "gemini" => s
                         .map(|s| s.default_gemini_model.clone())
+                        .filter(|m| !m.is_empty())
+                        .unwrap_or_else(|| t("defaults.project.homeCursor")),
+                    "copilot" => s
+                        .map(|s| s.default_copilot_model.clone())
                         .filter(|m| !m.is_empty())
                         .unwrap_or_else(|| t("defaults.project.homeCursor")),
                     _ => s
@@ -1667,12 +1681,13 @@ impl AppView {
                 }
                 row
             }
-            "p-codex-account" | "p-cursor-account" | "p-gemini-account" => {
+            "p-codex-account" | "p-cursor-account" | "p-gemini-account" | "p-copilot-account" => {
                 let tool = &e.id[2..e.id.len() - "-account".len()];
                 let accounts = self.tool_accounts(tool);
                 let chosen = match tool {
                     "codex" => p.codex_account.clone(),
                     "cursor" => p.cursor_account.clone(),
+                    "copilot" => p.copilot_account.clone(),
                     _ => p.gemini_account.clone(),
                 };
                 let fallback = accounts.iter().find(|a| a.default).map(|a| a.name.clone());
@@ -1689,6 +1704,10 @@ impl AppView {
                         },
                         "cursor" => |v| UpdateProjectRequest {
                             cursor_account: Some(v.into()),
+                            ..Default::default()
+                        },
+                        "copilot" => |v| UpdateProjectRequest {
+                            copilot_account: Some(v.into()),
                             ..Default::default()
                         },
                         _ => |v| UpdateProjectRequest {

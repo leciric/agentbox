@@ -91,7 +91,7 @@ session's AI tool restarts.
 
 What is shown is what the tool's adapter reports (`internal/chat/background.go`):
 
-| | Claude Code | Codex | OpenCode, Cursor, Gemini CLI |
+| | Claude Code | Codex | OpenCode, Cursor, Gemini CLI, Copilot CLI |
 | --- | --- | --- | --- |
 | Background commands | status, exit code, output read from the command's output file | status, and the output its tool call kept | not reported |
 | Monitors | status and summary, no output | n/a | n/a |

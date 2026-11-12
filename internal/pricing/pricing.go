@@ -1,12 +1,14 @@
 // Package pricing is what models cost at API list prices, for estimating
 // what a turn cost when its AI tool didn't say.
 //
-// Of the five AI tools, Claude Code (claude-agent-acp) and OpenCode report a
+// Of the six AI tools, Claude Code (claude-agent-acp) and OpenCode report a
 // cost with every model result (usage_update's running total, read by
 // internal/chat). Codex (codex-acp), Cursor (AgentBox's own adapter over
-// Cursor's SDK) and Gemini CLI report tokens only, and OpenCode reports 0 for a model it
-// has no price for or reaches through a subscription. Their turns are priced
-// from the table below.
+// Cursor's SDK), Gemini CLI and GitHub Copilot CLI report tokens only, and
+// OpenCode reports 0 for a model it has no price for or reaches through a
+// subscription. Their turns are priced from the table below. Copilot bills
+// its plan's AI credits rather than tokens: its turns are priced at the
+// vendors' list prices like the rest, what the same work costs on an API.
 //
 // # Updating the table
 //
@@ -124,6 +126,10 @@ var (
 	// cursorClaude is how Cursor names Claude models, version first:
 	// claude-4.5-sonnet, claude-4.6-opus-thinking.
 	cursorClaude = regexp.MustCompile(`^claude-(\d+)(?:\.(\d+))?-(opus|sonnet|haiku)(?:-.*)?$`)
+	// copilotClaude is how GitHub Copilot CLI names Claude models, with a dot
+	// in the version: claude-sonnet-5.5. A variant after it (-fast) has a
+	// price of its own, so it doesn't match.
+	copilotClaude = regexp.MustCompile(`^(claude-[a-z]+-\d+)\.(\d+)$`)
 )
 
 // Lookup is the price of model as an AI tool named it, and whether there is
@@ -150,6 +156,9 @@ func canonical(name string) string {
 		if m[2] != "" {
 			name += "-" + m[2]
 		}
+	}
+	if m := copilotClaude.FindStringSubmatch(name); m != nil {
+		name = m[1] + "-" + m[2]
 	}
 	return name
 }

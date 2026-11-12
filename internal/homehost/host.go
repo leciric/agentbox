@@ -217,6 +217,11 @@ func (h *Host) sessionDir(session string) (string, error) {
 	return filepath.Join(h.Dir, "sessions", session), nil
 }
 
+// copilotArgs are what GitHub Copilot CLI is started with on the user's
+// computer: ACP, on the version they have (a newer one it downloaded would be
+// run in its place), and without its own telemetry.
+var copilotArgs = []string{"--acp", "--no-auto-update", "--disable-client-telemetry"}
+
 // geminiEnv is what Gemini CLI is started with on the user's computer.
 var geminiEnv = []string{"GEMINI_CLI_NO_RELAUNCH=1", "GEMINI_TELEMETRY_ENABLED=false"}
 
@@ -269,6 +274,9 @@ func (h *Host) command(ctx context.Context, spec Spec, status func(string)) (*ex
 		// settings can't.
 		command, args = tool.Path, []string{"--acp"}
 		env = append(env, geminiEnv...)
+	case "copilot":
+		// Its binary, not npm's loader around it (copilotNative).
+		command, args = copilotNative(tool.Path), copilotArgs
 	default:
 		return nil, fmt.Errorf("the Home chat can't run %q on your computer", spec.Tool)
 	}
@@ -356,7 +364,7 @@ func installedVersion(dir, name string) string {
 	return manifest.Version
 }
 
-var toolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "gemini": "Gemini CLI"}
+var toolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "gemini": "Gemini CLI", "copilot": "GitHub Copilot CLI"}
 
 func or(a, b string) string {
 	if a != "" {

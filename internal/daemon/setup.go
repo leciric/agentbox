@@ -147,6 +147,17 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 	}
 	checks = append(checks, geminiCheck)
 
+	// So does GitHub Copilot CLI: each machine installs it itself.
+	copilotCheck := api.SetupCheck{ID: "copilot", Title: "GitHub Copilot CLI sign-in", Status: api.SetupOptional,
+		Detail: "optional: agents can't run GitHub Copilot CLI yet", Fix: "agentbox auth copilot"}
+	if login, ok := creds.CopilotLogin(""); ok {
+		copilotCheck.Status, copilotCheck.Detail = api.SetupOK, "AgentBox has a GitHub token with Copilot access for agents"
+		if login.User != "" {
+			copilotCheck.Detail += " (" + login.User + ")"
+		}
+	}
+	checks = append(checks, copilotCheck)
+
 	if sdk, err := s.manager(nil).AndroidHost(); err == nil {
 		checks = append(checks, api.SetupCheck{ID: "android", Title: "Android emulators", Status: api.SetupOK,
 			Detail: fmt.Sprintf("KVM, and the Android SDK in %s with %s", sdk.Path, sdk.Images[0].ID)})

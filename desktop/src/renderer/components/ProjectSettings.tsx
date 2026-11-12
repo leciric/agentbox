@@ -181,6 +181,13 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           render: () => <ToolAccountPicker project={project} tool="gemini" />,
         },
         {
+          id: 'copilot-account',
+          label: t('project.accounts.copilotLabel'),
+          keywords: t('project.accounts.copilotKeywords'),
+          modified: project.copilotAccount !== '',
+          render: () => <ToolAccountPicker project={project} tool="copilot" />,
+        },
+        {
           id: 'tool-credentials',
           description: t('project.accounts.runningOnDescription'),
           label: t('project.accounts.runningOnLabel'),
@@ -369,9 +376,10 @@ type ModeKind = (typeof modeKinds)[number];
 
 // agentToolRows is which of a tool's settings it really has: Codex no model or
 // effort of its own, OpenCode no effort or window, Cursor no window and no
-// permission modes (it never asks), Gemini CLI a model only, and each its own
-// modes. OpenCode's modes are agents, build and plan, of which only plan is a
-// kind; Gemini CLI's autoEdit is none of the kinds.
+// permission modes (it never asks), Gemini CLI and Copilot a model only (a
+// Copilot agent's effort is its chat's), and each its own modes. OpenCode's
+// modes are agents, build and plan, of which only plan is a kind; Gemini CLI's
+// autoEdit is none of the kinds, and Copilot's autopilot is full access.
 function agentToolRows(project: T.Project): { model: boolean; effort: boolean; window: boolean; modes: readonly ModeKind[] } {
   switch (project.agentTool || 'claude') {
     case 'codex':
@@ -381,13 +389,14 @@ function agentToolRows(project: T.Project): { model: boolean; effort: boolean; w
     case 'cursor':
       return { model: true, effort: true, window: false, modes: [] };
     case 'gemini':
+    case 'copilot':
       return { model: true, effort: false, window: false, modes: ['standard', 'full_access', 'plan'] };
     default:
       return { model: true, effort: true, window: true, modes: modeKinds };
   }
 }
 
-const agentTools = ['claude', 'codex', 'opencode', 'cursor', 'gemini'] as const;
+const agentTools = ['claude', 'codex', 'opencode', 'cursor', 'gemini', 'copilot'] as const;
 
 // useSaveAgentDefaults saves the project's tool or one of its defaults, and
 // says what changed.
@@ -581,7 +590,9 @@ function AgentModelPicker({ project }: { project: T.Project }) {
         ? settings.data?.cursorModelChoices
         : tool === 'gemini'
           ? settings.data?.geminiModelChoices
-          : (settings.data?.claudeModelChoices ?? [])
+          : tool === 'copilot'
+            ? settings.data?.copilotModelChoices
+            : (settings.data?.claudeModelChoices ?? [])
   )?.filter((c) => c.value !== 'default') ?? [];
   const value = project.agentModel;
   const picked = choices.find((c) => c.value === value);
@@ -599,6 +610,8 @@ function AgentModelPicker({ project }: { project: T.Project }) {
         ? settings.data?.defaultCursorModel || t('defaults.project.homeCursor')
         : tool === 'gemini'
           ? settings.data?.defaultGeminiModel || t('defaults.project.homeCursor')
+        : tool === 'copilot'
+          ? settings.data?.defaultCopilotModel || t('defaults.project.homeCursor')
         : settings.data?.defaultClaudeModel || t('defaults.project.homeFallback');
   // With enforcement on, the lead creates every agent on Settings' model, so
   // this project's own choice has no effect.

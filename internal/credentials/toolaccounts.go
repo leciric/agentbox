@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Codex, OpenCode, Cursor and Gemini CLI logins are named accounts too, the way Claude
+// Codex, OpenCode, Cursor, Gemini CLI and GitHub Copilot CLI logins are named accounts too, the way Claude
 // Code's and GitHub's are: a project picks one per tool, an agent gets a copy
 // of the one its project names, and `agentbox auth <tool> --account <name>`
 // adds one. Each account is the file the tool itself reads, kept whole:
@@ -28,6 +28,9 @@ import (
 //     {"GEMINI_API_KEY": key}, which a chat sends Gemini CLI over ACP and
 //     Gemini CLI on the command line gets from a file only it reads (see
 //     GeminiLogin).
+//   - GitHub Copilot CLI: {"COPILOT_GITHUB_TOKEN": token, "login": user}, a
+//     GitHub token with Copilot access, which Copilot reads from that
+//     variable ahead of GH_TOKEN and its own stored login (see CopilotLogin).
 //   - OpenCode: one provider's entry from its auth.json. OpenCode keeps every
 //     provider's key in one file, so its accounts are per provider ("work" for
 //     anthropic, "personal" for openai), a project picks one per provider, and
@@ -43,10 +46,11 @@ const (
 	ToolOpenCode = "opencode"
 	ToolCursor   = "cursor"
 	ToolGemini   = "gemini"
+	ToolCopilot  = "copilot"
 )
 
 // AccountTools are the tools with ToolAccounts, in the order they're listed.
-var AccountTools = []string{ToolCodex, ToolOpenCode, ToolCursor, ToolGemini}
+var AccountTools = []string{ToolCodex, ToolOpenCode, ToolCursor, ToolGemini, ToolCopilot}
 
 // ToolName is how a tool is called in messages.
 func ToolName(tool string) string {
@@ -59,13 +63,15 @@ func ToolName(tool string) string {
 		return "Cursor"
 	case ToolGemini:
 		return "Gemini CLI"
+	case ToolCopilot:
+		return "GitHub Copilot CLI"
 	}
 	return tool
 }
 
 const authSuffix = ".json"
 
-// ToolAccount is one stored Codex, OpenCode, Cursor or Gemini CLI login.
+// ToolAccount is one stored Codex, OpenCode, Cursor, Gemini CLI or Copilot login.
 type ToolAccount struct {
 	Tool string
 	// Provider is the OpenCode provider the account signs in to
@@ -102,7 +108,7 @@ var providerRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 func checkTool(tool, provider string) error {
 	switch tool {
-	case ToolCodex, ToolCursor, ToolGemini:
+	case ToolCodex, ToolCursor, ToolGemini, ToolCopilot:
 		if provider != "" {
 			return fmt.Errorf("%s accounts have no provider: only OpenCode's do", ToolName(tool))
 		}
@@ -113,7 +119,7 @@ func checkTool(tool, provider string) error {
 		}
 		return ValidateProvider(provider)
 	}
-	return fmt.Errorf("%q has no accounts: use codex, opencode, cursor or gemini", tool)
+	return fmt.Errorf("%q has no accounts: use codex, opencode, cursor, gemini or copilot", tool)
 }
 
 // toolDir holds a tool's accounts, one provider's for OpenCode.
@@ -460,6 +466,10 @@ func describe(a *ToolAccount, b []byte) {
 		login, ok := parseCursor(b)
 		a.Kind, a.Email, a.Expiry = "apikey", login.Email, login.Expiry
 		a.Expired = !ok
+	case ToolCopilot:
+		if login, ok := parseCopilot(b); ok {
+			a.Kind, a.Email = "token", login.User
+		}
 	case ToolGemini:
 		if login, ok := parseGemini(b); ok {
 			a.Kind, a.Email = login.Kind(), login.Email
@@ -560,6 +570,11 @@ func (s Store) ToolLogin(tool, name string) ([]byte, string, error) {
 	}
 	if tool == ToolGemini {
 		if _, ok := parseGemini(b); !ok {
+			return nil, "", nil
+		}
+	}
+	if tool == ToolCopilot {
+		if _, ok := parseCopilot(b); !ok {
 			return nil, "", nil
 		}
 	}
@@ -695,6 +710,66 @@ func parseGemini(b []byte) (GeminiLogin, bool) {
 func (s Store) HasGeminiLogin(account string) bool {
 	_, ok := s.GeminiLogin(account)
 	return ok
+}
+
+// CopilotLogin is a GitHub Copilot CLI login: a GitHub token with Copilot
+// access (a fine-grained token with the "Copilot Requests" permission, or an
+// OAuth token such as gh's; Copilot refuses classic ghp_ tokens), and the
+// GitHub user it belongs to when known. Copilot's ACP offers no sign-in but
+// its terminal `copilot login`, whose token goes to the OS keychain, so
+// AgentBox gives the token as COPILOT_GITHUB_TOKEN, which Copilot reads
+// before GH_TOKEN, GITHUB_TOKEN and its stored login.
+type CopilotLogin struct {
+	Token string
+	User  string
+}
+
+// CopilotLogin reads a stored Copilot account, the default for "".
+func (s Store) CopilotLogin(account string) (CopilotLogin, bool) {
+	b, _, err := s.ToolAuth(ToolCopilot, "", account)
+	if err != nil || b == nil {
+		return CopilotLogin{}, false
+	}
+	return parseCopilot(b)
+}
+
+// ParseCopilotLogin reads a Copilot account's file, as ToolLogin returns it.
+func ParseCopilotLogin(b []byte) (CopilotLogin, bool) { return parseCopilot(b) }
+
+func parseCopilot(b []byte) (CopilotLogin, bool) {
+	var f struct {
+		Token string `json:"COPILOT_GITHUB_TOKEN"`
+		User  string `json:"login"`
+	}
+	if json.Unmarshal(b, &f) != nil || strings.TrimSpace(f.Token) == "" {
+		return CopilotLogin{}, false
+	}
+	return CopilotLogin{Token: strings.TrimSpace(f.Token), User: f.User}, true
+}
+
+// HasCopilotLogin reports whether a Copilot account, the default for "", is
+// stored.
+func (s Store) HasCopilotLogin(account string) bool {
+	_, ok := s.CopilotLogin(account)
+	return ok
+}
+
+// CopilotTokenAuth is the login stored for a GitHub token, with the GitHub
+// user it belongs to ("" when unknown). A classic personal access token is
+// refused, as Copilot itself refuses it.
+func CopilotTokenAuth(token, user string) ([]byte, error) {
+	token = strings.TrimSpace(token)
+	if token == "" || strings.ContainsAny(token, " \t\r\n") {
+		return nil, errors.New("the token must be a single non-empty line")
+	}
+	if strings.HasPrefix(token, "ghp_") {
+		return nil, errors.New("GitHub Copilot CLI doesn't take classic personal access tokens (ghp_): use a fine-grained token with the Copilot Requests permission, or `gh auth token`")
+	}
+	m := map[string]string{"COPILOT_GITHUB_TOKEN": token}
+	if user != "" {
+		m["login"] = user
+	}
+	return json.Marshal(m)
 }
 
 // GeminiAPIKeyAuth is the login stored for a Gemini API key.

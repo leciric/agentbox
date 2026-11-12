@@ -30,6 +30,8 @@ pub struct Project {
     pub cursor_account: String,
     #[serde(rename = "geminiAccount")]
     pub gemini_account: String,
+    #[serde(rename = "copilotAccount")]
+    pub copilot_account: String,
     pub autonomy: String,
     #[serde(rename = "agentModel")]
     pub agent_model: String,
@@ -145,6 +147,8 @@ pub struct AddProjectRequest {
     pub cursor_account: String,
     #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
     pub gemini_account: String,
+    #[serde(rename = "copilotAccount", skip_serializing_if = "is_empty")]
+    pub copilot_account: String,
     #[serde(rename = "copyToLinux", skip_serializing_if = "is_empty")]
     pub copy_to_linux: bool,
     #[serde(skip_serializing_if = "is_empty")]
@@ -176,6 +180,8 @@ pub struct CloneProjectRequest {
     pub cursor_account: String,
     #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
     pub gemini_account: String,
+    #[serde(rename = "copilotAccount", skip_serializing_if = "is_empty")]
+    pub copilot_account: String,
     #[serde(rename = "copyToLinux", skip_serializing_if = "is_empty")]
     pub copy_to_linux: bool,
     #[serde(skip_serializing_if = "is_empty")]
@@ -203,6 +209,8 @@ pub struct UpdateProjectRequest {
     pub cursor_account: Option<String>,
     #[serde(rename = "geminiAccount", skip_serializing_if = "Option::is_none")]
     pub gemini_account: Option<String>,
+    #[serde(rename = "copilotAccount", skip_serializing_if = "Option::is_none")]
+    pub copilot_account: Option<String>,
     #[serde(rename = "moveClaudeAgents", skip_serializing_if = "is_empty")]
     pub move_claude_agents: bool,
     #[serde(rename = "moveGitHubAgents", skip_serializing_if = "is_empty")]
@@ -366,6 +374,12 @@ pub struct Settings {
     pub gemini_ready: bool,
     #[serde(rename = "defaultGeminiModel")]
     pub default_gemini_model: String,
+    #[serde(rename = "copilotModelChoices", deserialize_with = "nullable")]
+    pub copilot_model_choices: Vec<ChatOptionChoice>,
+    #[serde(rename = "copilotReady")]
+    pub copilot_ready: bool,
+    #[serde(rename = "defaultCopilotModel")]
+    pub default_copilot_model: String,
     #[serde(rename = "lastAgentPick")]
     pub last_agent_pick: AgentPick,
     #[serde(rename = "firstRun")]
@@ -536,6 +550,11 @@ pub struct UpdateSettingsRequest {
     pub default_cursor_effort: Option<String>,
     #[serde(rename = "defaultGeminiModel", skip_serializing_if = "Option::is_none")]
     pub default_gemini_model: Option<String>,
+    #[serde(
+        rename = "defaultCopilotModel",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub default_copilot_model: Option<String>,
     #[serde(rename = "lastAgentPick", skip_serializing_if = "Option::is_none")]
     pub last_agent_pick: Option<AgentPick>,
     #[serde(rename = "firstRunDone", skip_serializing_if = "Option::is_none")]
@@ -676,6 +695,8 @@ pub struct Agent {
     pub cursor_account: String,
     #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
     pub gemini_account: String,
+    #[serde(rename = "copilotAccount", skip_serializing_if = "is_empty")]
+    pub copilot_account: String,
     #[serde(rename = "githubAccount")]
     pub github_account: String,
     pub interface: String,
@@ -910,6 +931,8 @@ pub struct CreateAgentRequest {
     pub cursor_account: String,
     #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
     pub gemini_account: String,
+    #[serde(rename = "copilotAccount", skip_serializing_if = "is_empty")]
+    pub copilot_account: String,
     #[serde(rename = "githubAccount", skip_serializing_if = "is_empty")]
     pub github_account: String,
     #[serde(rename = "noEnv", skip_serializing_if = "is_empty")]
@@ -1529,6 +1552,9 @@ pub struct AuthStatus {
     pub gemini: bool,
     #[serde(rename = "geminiEmail", skip_serializing_if = "is_empty")]
     pub gemini_email: String,
+    pub copilot: bool,
+    #[serde(rename = "copilotUser", skip_serializing_if = "is_empty")]
+    pub copilot_user: String,
     #[serde(rename = "claudeAccounts", deserialize_with = "nullable")]
     pub claude_accounts: Vec<ClaudeAccount>,
     #[serde(rename = "codexAccounts", deserialize_with = "nullable")]
@@ -1539,6 +1565,8 @@ pub struct AuthStatus {
     pub cursor_accounts: Vec<ToolAccount>,
     #[serde(rename = "geminiAccounts", deserialize_with = "nullable")]
     pub gemini_accounts: Vec<ToolAccount>,
+    #[serde(rename = "copilotAccounts", deserialize_with = "nullable")]
+    pub copilot_accounts: Vec<ToolAccount>,
     pub github: bool,
     #[serde(rename = "githubAccounts", deserialize_with = "nullable")]
     pub github_accounts: Vec<GitHubAccount>,
@@ -3550,6 +3578,8 @@ pub struct FleetAgent {
     pub cursor_account: String,
     #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
     pub gemini_account: String,
+    #[serde(rename = "copilotAccount", skip_serializing_if = "is_empty")]
+    pub copilot_account: String,
     #[serde(rename = "githubAccount")]
     pub github_account: String,
     pub interface: String,
@@ -6382,6 +6412,8 @@ pub struct FanOutVariant {
     pub cursor_account: String,
     #[serde(rename = "geminiAccount", skip_serializing_if = "is_empty")]
     pub gemini_account: String,
+    #[serde(rename = "copilotAccount", skip_serializing_if = "is_empty")]
+    pub copilot_account: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -6900,6 +6932,7 @@ pub const CODEX_CREDENTIAL_VARIABLES: &str =
     "OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL CODEX_HOME";
 pub const OPEN_CODE_CREDENTIAL_VARIABLES: &str = "ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL OPENROUTER_API_KEY GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY GROQ_API_KEY XAI_API_KEY DEEPSEEK_API_KEY MISTRAL_API_KEY OPENCODE_API_KEY";
 pub const GEMINI_CREDENTIAL_VARIABLES: &str = "GEMINI_API_KEY GOOGLE_API_KEY GOOGLE_GENAI_USE_VERTEXAI GOOGLE_GENAI_USE_GCA GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CLOUD_ACCESS_TOKEN GOOGLE_GEMINI_BASE_URL GEMINI_CLI_HOME";
+pub const COPILOT_CREDENTIAL_VARIABLES: &str = "COPILOT_GITHUB_TOKEN COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_TYPE COPILOT_PROVIDER_API_KEY COPILOT_PROVIDER_API_KEY_COMMAND COPILOT_PROVIDER_BEARER_TOKEN COPILOT_PROVIDER_WIRE_API COPILOT_GH_HOST COPILOT_HOME COPILOT_OFFLINE";
 pub const CONNECTOR_O_AUTH: &str = "oauth";
 pub const CONNECTOR_SECRET: &str = "secret";
 pub const CONNECTOR_NONE: &str = "none";

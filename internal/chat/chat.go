@@ -53,7 +53,7 @@ const (
 )
 
 // ToolNames are the AI tools the chat can drive.
-var ToolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor", "gemini": "Gemini CLI"}
+var ToolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor", "gemini": "Gemini CLI", "copilot": "GitHub Copilot CLI"}
 
 // Launcher starts an agent's ACP adapter. status says what it's doing while it
 // prepares, like installing the adapter.
@@ -1263,6 +1263,8 @@ func modelMenuSetting(ai string) (string, bool) {
 		return state.SettingCursorModelChoices, true
 	case "gemini":
 		return state.SettingGeminiModelChoices, true
+	case "copilot":
+		return state.SettingCopilotModelChoices, true
 	}
 	return "", false
 }
@@ -2161,7 +2163,9 @@ func (c *conversation) connect(ad *adapter) error {
 		case caps.LoadSession:
 			c.setReplaying(ad, true)
 			resumeErr = ad.conn.Call(ctx, acp.MethodSessionLoad, req, &resp)
-			if resumeErr == nil && c.agent.AI == "gemini" {
+			// Copilot's replay is waited out the same way: nothing it
+			// says marks the end of one either.
+			if resumeErr == nil && (c.agent.AI == "gemini" || c.agent.AI == "copilot") {
 				c.awaitReplay(ctx, ad)
 			}
 			c.setReplaying(ad, false)
@@ -3525,6 +3529,8 @@ func (c *conversation) rememberChoices() {
 		categories[state.SettingOpenCodeModelChoices] = "model"
 	case "gemini":
 		categories[state.SettingGeminiModelChoices] = "model"
+	case "copilot":
+		categories[state.SettingCopilotModelChoices] = "model"
 	}
 	// Cursor's menu is left to the daemon, which asks Cursor for it with each
 	// model's effort levels (SettingCursorModelChoices): a session's menu has

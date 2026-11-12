@@ -42,6 +42,9 @@
  "geminiModelChoices": [],
  "geminiReady": false,
  "defaultGeminiModel": "",
+ "copilotModelChoices": [],
+ "copilotReady": false,
+ "defaultCopilotModel": "",
  "lastAgentPick": {
   "ai": "",
   "model": "",

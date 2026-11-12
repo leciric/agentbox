@@ -22,7 +22,8 @@ import (
 )
 
 // Importing the MCP servers the user's own AI tools already have: Claude Code,
-// Claude Desktop, Codex, OpenCode, Cursor and Gemini CLI keep them in files in
+// Claude Desktop, Codex, OpenCode, Cursor, Gemini CLI and GitHub Copilot CLI
+// keep them in files in
 // the user's home, which the daemon reads where the VM shares it. Only what a
 // connector can be is imported — a remote server over streamable HTTP — and
 // nothing of the other tools' sign-ins: the user signs in again through
@@ -38,6 +39,7 @@ const (
 	ToolOpenCode      = "opencode"
 	ToolCursor        = "cursor"
 	ToolGemini        = "gemini"
+	ToolCopilot       = "copilot"
 )
 
 // Found is one MCP server in one AI tool's configuration.
@@ -88,6 +90,9 @@ var configFiles = []configFile{
 	{ToolOpenCode, []string{".config", "opencode", "opencode.jsonc"}, parseOpenCode},
 	{ToolCursor, []string{".cursor", "mcp.json"}, parseMCPServers},
 	{ToolGemini, []string{".gemini", "settings.json"}, parseGemini},
+	// Copilot's user servers: "local" ones run a command, "http" and "sse"
+	// ones are remote, as the others' are.
+	{ToolCopilot, []string{".copilot", "mcp-config.json"}, parseMCPServers},
 }
 
 // maxConfig bounds a file read: Claude Code's ~/.claude.json keeps history
@@ -184,7 +189,7 @@ func parseClaudeCode(data []byte) ([]Found, error) {
 }
 
 // parseMCPServers reads the "mcpServers" of Claude Desktop, Cursor and
-// Gemini CLI.
+// GitHub Copilot CLI.
 func parseMCPServers(data []byte) ([]Found, error) {
 	var cfg struct {
 		MCPServers map[string]json.RawMessage `json:"mcpServers"`

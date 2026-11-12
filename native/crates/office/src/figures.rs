@@ -46,15 +46,17 @@ pub enum Tool {
     OpenCode,
     Cursor,
     Gemini,
+    Copilot,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 5] = [
+    pub const ALL: [Tool; 6] = [
         Tool::Claude,
         Tool::Codex,
         Tool::OpenCode,
         Tool::Cursor,
         Tool::Gemini,
+        Tool::Copilot,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -63,6 +65,7 @@ impl Tool {
             Tool::OpenCode => "opencode",
             Tool::Cursor => "cursor",
             Tool::Gemini => "gemini",
+            Tool::Copilot => "copilot",
         }
     }
 }
@@ -74,6 +77,7 @@ pub fn tool_of(ai: Option<&str>) -> Tool {
         Some("opencode") => Tool::OpenCode,
         Some("cursor") => Tool::Cursor,
         Some("gemini") => Tool::Gemini,
+        Some("copilot") => Tool::Copilot,
         _ => Tool::Claude,
     }
 }
@@ -625,6 +629,7 @@ fn badge_texture(kit: &mut Kit, tool: Tool) -> usize {
         Tool::OpenCode => ("#f2f2f2", "#111318"),
         Tool::Cursor => ("#2b2f37", "#ffffff"),
         Tool::Gemini => ("#5b7cf6", "#ffffff"),
+        Tool::Copilot => ("#6e40c9", "#ffffff"),
     };
     kit.texture(&format!("figures:badge:{}", tool.name()), || {
         let mut s = Svg::new(128, 128);
@@ -651,6 +656,10 @@ fn badge_texture(kit: &mut Kit, tool: Tool) -> usize {
             }
             Tool::Gemini => {
                 s.path("M64 28Q64 66 102 66Q64 66 64 104Q64 66 26 66Q64 66 64 28Z", fg);
+            }
+            Tool::Copilot => {
+                // A visor: two eyes in a rounded face.
+                s.raw(&format!(r#"<rect x="32" y="42" width="64" height="46" rx="20" fill="none" stroke="{fg}" stroke-width="8"/><circle cx="50" cy="65" r="6" fill="{fg}"/><circle cx="78" cy="65" r="6" fill="{fg}"/>"#));
             }
         }
         s.render()
@@ -1735,7 +1744,7 @@ mod tests {
         assert!(!lead.rig.nodes[top].meshes.is_empty());
         finite(&lead.rig);
         // The badges and the logo are textures the kit holds.
-        assert_eq!(kit.textures.len(), 5 + 1);
+        assert_eq!(kit.textures.len(), Tool::ALL.len() + 1);
     }
 
     #[test]

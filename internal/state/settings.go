@@ -114,6 +114,11 @@ const (
 	// SettingDefaultGeminiModel is the model new Gemini CLI agents start on,
 	// in Gemini CLI's own ids. Empty is its "auto".
 	SettingDefaultGeminiModel = "default_gemini_model"
+	// SettingCopilotModelChoices and SettingDefaultCopilotModel are the same
+	// for GitHub Copilot CLI (daemon/copilot.go). Empty is Copilot's own
+	// default model.
+	SettingCopilotModelChoices = "copilot_model_choices"
+	SettingDefaultCopilotModel = "default_copilot_model"
 	// SettingLastAgentPick is the tool, model and effort the app's New agent
 	// dialog last created an agent with, as JSON ({"ai", "model", "effort"}),
 	// which the dialog opens on in a project that names no tool. It is the

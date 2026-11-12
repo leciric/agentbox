@@ -68,7 +68,7 @@ func (s *Server) chatRunners(w http.ResponseWriter, r *http.Request) error {
 		switch tool {
 		case "claude":
 			row.Accounts = accounts
-		case "codex", "cursor", "gemini":
+		case "codex", "cursor", "gemini", "copilot":
 			if row.Accounts, err = s.leadToolRows(p, tool); err != nil {
 				return err
 			}
@@ -78,7 +78,7 @@ func (s *Server) chatRunners(w http.ResponseWriter, r *http.Request) error {
 			on := a
 			on.AI = tool
 			if logins, err := m.LeadLogins(ctx, on); err == nil {
-				out.ToolAccounts[tool] = map[string]string{"codex": logins.Codex, "cursor": logins.Cursor, "gemini": logins.Gemini, "opencode": formatOpenCode(logins.OpenCode)}[tool]
+				out.ToolAccounts[tool] = map[string]string{"codex": logins.Codex, "cursor": logins.Cursor, "gemini": logins.Gemini, "copilot": logins.Copilot, "opencode": formatOpenCode(logins.OpenCode)}[tool]
 			}
 		}
 		out.Runners = append(out.Runners, row)
@@ -174,12 +174,12 @@ func (s *Server) leadOnAccount(ctx context.Context, a state.Agent, p state.Proje
 		if err != nil {
 			return a, err
 		}
-		changed := logins.Codex != a.CodexAccount || logins.Cursor != a.CursorAccount || logins.Gemini != a.GeminiAccount || logins.OpenCode.String() != a.OpenCodeAccounts.String()
-		a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount = logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini
+		changed := logins.Codex != a.CodexAccount || logins.Cursor != a.CursorAccount || logins.Gemini != a.GeminiAccount || logins.Copilot != a.CopilotAccount || logins.OpenCode.String() != a.OpenCodeAccounts.String()
+		a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount, a.GeminiAccount, a.CopilotAccount = logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini, logins.Copilot
 		// A lead never chatted with has no row to store them on: its first
 		// message resolves them again.
 		if changed && a.Status != "" {
-			if err := s.store.SetAgentToolAccounts(ctx, a.Project, a.Name, logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini); err != nil {
+			if err := s.store.SetAgentToolAccounts(ctx, a.Project, a.Name, logins.Codex, logins.OpenCode, logins.Cursor, logins.Gemini, logins.Copilot); err != nil {
 				return a, err
 			}
 		}
