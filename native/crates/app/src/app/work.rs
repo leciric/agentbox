@@ -781,57 +781,47 @@ impl WorkView {
                             el.child(div().p_4().child(controls::error_line(e.clone())))
                         }
                         (None, None) => el.children(
-
-                    [0.33f32, 0.5, 0.25, 0.42, 0.3]
-                        .into_iter()
-                        .enumerate()
-                        .map(|(n, width)| {
-                            h_flex()
-                                .gap_3()
-                                .px_4()
-                                .py_3()
-                                .when(n > 0, |el| {
-                                    el.border_t_1()
-                                        .border_color(theme::line_faint())
-                                })
-                                .child(crate::motion::skeleton(
-                                    ElementId::Name(
-                                        format!("work-skel-a-{n}").into(),
-                                    ),
-                                    relative(width),
-                                    px(14.),
-                                ))
-                                .child(div().flex_1())
-                                .child(crate::motion::skeleton(
-                                    ElementId::Name(
-                                        format!("work-skel-b-{n}").into(),
-                                    ),
-                                    px(56.),
-                                    px(12.),
-                                ))
-                        }),
+                            [0.33f32, 0.5, 0.25, 0.42, 0.3].into_iter().enumerate().map(
+                                |(n, width)| {
+                                    h_flex()
+                                        .gap_3()
+                                        .px_4()
+                                        .py_3()
+                                        .when(n > 0, |el| {
+                                            el.border_t_1().border_color(theme::line_faint())
+                                        })
+                                        .child(crate::motion::skeleton(
+                                            ElementId::Name(format!("work-skel-a-{n}").into()),
+                                            relative(width),
+                                            px(14.),
+                                        ))
+                                        .child(div().flex_1())
+                                        .child(crate::motion::skeleton(
+                                            ElementId::Name(format!("work-skel-b-{n}").into()),
+                                            px(56.),
+                                            px(12.),
+                                        ))
+                                },
+                            ),
                         ),
                         (None, Some(_)) => el.child(
-
-                    v_flex()
-                        .items_center()
-                        .gap_2()
-                        .px_4()
-                        .py_8()
-                        .text_size(theme::text::UI)
-                        .text_color(theme::subtle())
-                        .child(
-                            crate::icons::ic("briefcase")
-                                .size_5()
-                                .text_color(theme::faint()),
-                        )
-                        .child(
-                            if self.q.is_empty() && self.filter.is_empty() {
-                                t("work.empty")
-                            } else {
-                                t("work.noMatch")
-                            },
-                        ),
+                            v_flex()
+                                .items_center()
+                                .gap_2()
+                                .px_4()
+                                .py_8()
+                                .text_size(theme::text::UI)
+                                .text_color(theme::subtle())
+                                .child(
+                                    crate::icons::ic("briefcase")
+                                        .size_5()
+                                        .text_color(theme::faint()),
+                                )
+                                .child(if self.q.is_empty() && self.filter.is_empty() {
+                                    t("work.empty")
+                                } else {
+                                    t("work.noMatch")
+                                }),
                         ),
                     }),
             )
@@ -981,10 +971,7 @@ impl WorkView {
                                             theme::brand(500).opacity(0.15),
                                             0.,
                                         ),
-                                        gpui::linear_color_stop(
-                                            theme::brand(600).opacity(0.1),
-                                            1.,
-                                        ),
+                                        gpui::linear_color_stop(theme::brand(600).opacity(0.1), 1.),
                                     ))
                                     .cursor_pointer()
                                     .hover(|el| {
@@ -997,9 +984,7 @@ impl WorkView {
                                     .on_click({
                                         let view = view.clone();
                                         move |_: &ClickEvent, window, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.open_recap(window, cx)
-                                            })
+                                            view.update(cx, |this, cx| this.open_recap(window, cx))
                                         }
                                     })
                                     .child(
@@ -1055,27 +1040,22 @@ impl WorkView {
                                     .flex_1()
                                     .min_w_0()
                                     // placeholder:text-faint
-                                    .when(
-                                        self.search.read(cx).value().is_empty(),
-                                        |el| {
-                                            el.child(
-                                                div()
-                                                    .absolute()
-                                                    .inset_0()
-                                                    .flex()
-                                                    .items_center()
-                                                    .truncate()
-                                                    .text_color(theme::faint())
-                                                    .child(t("work.search")),
-                                            )
-                                        },
-                                    )
+                                    .when(self.search.read(cx).value().is_empty(), |el| {
+                                        el.child(
+                                            div()
+                                                .absolute()
+                                                .inset_0()
+                                                .flex()
+                                                .items_center()
+                                                .truncate()
+                                                .text_color(theme::faint())
+                                                .child(t("work.search")),
+                                        )
+                                    })
                                     .child(
                                         Input::new(&self.search)
                                             .appearance(false)
-                                            .with_size(gpui_component::Size::Size(px(
-                                                14. / 0.875,
-                                            )))
+                                            .with_size(gpui_component::Size::Size(px(14. / 0.875)))
                                             .px_0()
                                             .cleanable(true),
                                     ),
@@ -1332,5 +1312,70 @@ impl AppView {
         if let Some(w) = &self.work {
             w.update(cx, |w, cx| w.reload(cx));
         }
+    }
+}
+
+#[cfg(test)]
+mod line_tests {
+    use super::{Line, lines};
+    use agentbox_api::WorkItem;
+
+    fn work(at: &str) -> WorkItem {
+        WorkItem {
+            at: at.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn work_is_listed_under_its_days_between_the_head_and_the_foot() {
+        // Midday, so the day is the same in any time zone the test runs in.
+        let shown = [
+            work("2026-10-23T12:30:00Z"),
+            work("2026-10-23T12:00:00Z"),
+            work("2026-10-21T12:00:00Z"),
+        ];
+        let got = lines(&shown, false);
+        let day = |d: &str, first| Line::Day {
+            day: d.into(),
+            first,
+        };
+        assert_eq!(
+            got,
+            vec![
+                Line::Head,
+                day("2026-10-23", true),
+                Line::Work { ix: 0, first: true },
+                Line::Work {
+                    ix: 1,
+                    first: false
+                },
+                day("2026-10-21", false),
+                Line::Work { ix: 2, first: true },
+                Line::Foot,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_page_with_nothing_to_list_is_its_head_and_one_card() {
+        assert_eq!(lines(&[], false), vec![Line::Head, Line::Body]);
+        // Still loading, or failed, whatever was listed before.
+        assert_eq!(
+            lines(&[work("2026-10-23T12:00:00Z")], true),
+            vec![Line::Head, Line::Body]
+        );
+    }
+
+    #[test]
+    fn a_page_read_after_another_only_adds_lines_before_the_foot() {
+        // What sync relies on to keep the lines above as they were measured.
+        let mut shown = vec![work("2026-10-23T12:30:00Z"), work("2026-10-23T12:00:00Z")];
+        let before = lines(&shown, false);
+        shown.push(work("2026-10-23T11:00:00Z"));
+        shown.push(work("2026-10-20T12:00:00Z"));
+        let after = lines(&shown, false);
+        assert_eq!(before[..before.len() - 1], after[..before.len() - 1]);
+        assert_eq!(after.len(), before.len() + 3);
     }
 }
